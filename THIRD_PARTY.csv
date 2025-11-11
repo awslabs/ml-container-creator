@@ -1,0 +1,14 @@
+@humanwhocodes/object-schema@2.0.3,BSD-3-Clause,https://github.com/humanwhocodes/object-schema
+bcrypt-pbkdf@1.0.2,BSD-3-Clause,https://github.com/joyent/node-bcrypt-pbkdf
+diff@5.2.0,BSD-3-Clause,https://github.com/kpdecker/jsdiff
+duplexer2@0.1.4,BSD-3-Clause,https://github.com/deoxxa/duplexer2
+esquery@1.6.0,BSD-3-Clause,https://github.com/estools/esquery
+flat@5.0.2,BSD-3-Clause,https://github.com/hughsk/flat
+ieee754@1.2.1,BSD-3-Clause,https://github.com/feross/ieee754
+qs@6.5.3,BSD-3-Clause,https://github.com/ljharb/qs
+serialize-javascript@6.0.2,BSD-3-Clause,https://github.com/yahoo/serialize-javascript
+source-map@0.6.1,BSD-3-Clause,https://github.com/mozilla/source-map
+tough-cookie@2.5.0,BSD-3-Clause,https://github.com/salesforce/tough-cookie
+jackspeak@3.4.3,BlueOak-1.0.0,https://github.com/isaacs/jackspeak
+package-json-from-dist@1.0.1,BlueOak-1.0.0,https://github.com/isaacs/package-json-from-dist
+path-scurry@1.11.1,BlueOak-1.0.0,https://github.com/isaacs/path-scurry

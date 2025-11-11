@@ -1,1 +1,11 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
 Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+=======
+[sagemaker-container-forge]
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved. 
+>>>>>>> 3bbe904 (Added pre-publication materials)
+=======
+[ml-container-creator]
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved. 
+>>>>>>> cf470d5 (Incorporated updates consistent with PCSR feedback and open-source release process)
