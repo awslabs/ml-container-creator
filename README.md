@@ -37,7 +37,7 @@ ML Container Creator is **100% open source** under the Apache 2.0 license. We be
 
 ### 🗺️ Live Roadmap
 
-Our development is driven by real user needs. Check out our [live roadmap](https://github.com/your-repo/projects) to:
+Our development is driven by real user needs. Check out our [live roadmap](https://github.com/ml-container-creator/projects) to:
 - See what's coming next
 - Vote on features you need
 - Contribute ideas and feedback
@@ -120,8 +120,8 @@ aws ecr describe-repositories --repository-names your-project
 ### Support
 
 - 📖 [SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
-- 🐛 [Report Issues](https://github.com/awslabs/issues)
-- 💬 [Discussions](https://github.com/awslabs/discussions)
+- 🐛 [Report Issues](https://github.com/awslabs/ml-container-creator/issues)
+- 💬 [Discussions](https://github.com/awslabs/ml-container-creator/discussions)
 
 <div align="center">
   <p>Made with ❤️ by the ML community, for the ML community</p>
