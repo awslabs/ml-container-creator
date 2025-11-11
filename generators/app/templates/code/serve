@@ -1,0 +1,63 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+#!/bin/bash
+<% if (modelServer === 'vllm') { %>
+# Define the prefix for environment variables to look for
+PREFIX="OPTION_"
+ARG_PREFIX="--"
+
+# Initialize an array for storing the arguments
+# port 8080 required by sagemaker, https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms-inference-code.html#your-algorithms-inference-code-container-response
+ARGS=(--port 8080)
+
+# Loop through all environment variables
+while IFS='=' read -r key value; do
+    # Remove the prefix from the key, convert to lowercase, and replace underscores with dashes
+    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+
+    # Add the argument name and value to the ARGS array
+    ARGS+=("${ARG_PREFIX}${arg_name}")
+    if [ -n "$value" ]; then
+        ARGS+=("$value")
+    fi
+done < <(env | grep "^${PREFIX}")
+
+echo "-------------------------------------------------------------------"
+echo "vLLM engine args: [${ARGS[@]}]"
+echo "-------------------------------------------------------------------"
+
+# Pass the collected arguments to the main entrypoint
+exec python3 -m vllm.entrypoints.openai.api_server "${ARGS[@]}"
+
+<% } else if (modelServer === 'sglang') { %>
+
+echo "Starting server"
+
+SERVER_ARGS=(--host 0.0.0.0 --port 8080)
+
+# Define the prefix for environment variables to look for
+PREFIX="OPTION_"
+ARG_PREFIX="--"
+
+# Declare and populate array of matching environment variables
+mapfile -t env_vars < <(env | grep "^${PREFIX}")
+
+# Loop through the array
+for var in "${env_vars[@]}"; do
+    IFS='=' read -r key value <<< "$var"
+    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+    SERVER_ARGS+=("${ARG_PREFIX}${arg_name}")
+    if [ -n "$value" ]; then
+        SERVER_ARGS+=("$value")
+    fi
+done
+
+echo "-------------------------------------------------------------------"
+echo "SGLang engine args: [${SERVER_ARGS[@]}]"
+echo "-------------------------------------------------------------------"
+
+# Pass the collected arguments to the main entrypoint
+exec python3 -m sglang.launch_server "${SERVER_ARGS[@]}"
+
+<% } %>
