@@ -22,7 +22,7 @@ Deploying machine learning models to production shouldn't be complicated. ML Con
 # Install and run
 npm install -g yo
 npm link
-yo sagemaker-generate-byoc
+yo ml-container-creator
 ```
 
 Answer a few questions about your model, and get a complete, production-ready container with:
