@@ -13,7 +13,7 @@ ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_NA
 echo "Building Docker image..."
 
 #docker build -t ${IMAGE_NAME}:latest .
-docker buildx build --platform linux/arm64 --output type=docker --provenance=false -t ${IMAGE_NAME}:latest .
+docker buildx build --platform linux/amd64 --output type=docker --provenance=false -t ${IMAGE_NAME}:latest .
 
 echo "Image pushed to: ${ECR_REPOSITORY}:latest"
 
