@@ -80,17 +80,6 @@ module.exports = class extends Generator {
                     }
                 }
             },
-            // {
-            //     type: 'list',
-            //     name: 'model',
-            //     message: 'Which model are you deploying?',
-            //     choices: (answers) => {
-            //         if (answers.modelServer === 'vllm' || answers.modelServer === 'sglang') {
-            //             return ['openai/gpt-oss-20b', 'meta-llama/Llama-3.2-3B-Instruct'];
-            //         }
-            //     },
-            //     when: answers => answers.framework === 'transformers',
-            // },
         ]);
 
         // Phase 3: Module Selection
@@ -188,10 +177,6 @@ module.exports = class extends Generator {
         // Set destination directory
         this.destinationRoot(this.answers.destinationDir);
 
-        // Validate and fallback unsupported options
-        // this._validateAnswers();
-
-        // let testing = true
         const ignorePatterns = []
         if (this.answers.framework === 'transformers')  {
             ignorePatterns.push('**/code/model_handler.py');
@@ -221,7 +206,8 @@ module.exports = class extends Generator {
             this.destinationPath(),
             this.answers,
             {},
-            { globOptions: { ignore: ignorePatterns } } );
+            { globOptions: { ignore: ignorePatterns } }
+        );
     }
 
     _validateAnswers() {
@@ -232,7 +218,6 @@ module.exports = class extends Generator {
             authType,
             testTypes,
             instanceType,
-            // inputFormat,
         } = this.answers;
 
         // Framework validation
@@ -248,11 +233,6 @@ module.exports = class extends Generator {
         // Deployment validation
         if (!this.SUPPORTED_OPTIONS.deployment.includes(deployTarget)) {
             this.env.error(`⚠️  ${deployTarget} deployment not implemented yet.`);
-        }
-
-        // Auth validation
-        if (!this.SUPPORTED_OPTIONS.auth.includes(authType)) {
-            this.env.error(`⚠️  ${authType} authentication not implemented yet. Using api-key.`);
         }
 
         // Test type validation

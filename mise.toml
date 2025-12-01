@@ -1,2 +1,7 @@
 [tools]
 node = "24.11.1"
+
+[tasks]
+install = "npm install && npm link"
+test = "npm test"
+lint = "npm run lint"
