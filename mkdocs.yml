@@ -1,0 +1,30 @@
+site_name: ML Container Creator
+site_url: https://awslabs.github.io/ml-container-creator/
+repo_url: https://github.com/awslabs/ml-container-creator
+repo_name: awslabs/ml-container-creator
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: blue
+      accent: orange
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - ⚠️ API Reference: api-reference.md
+  - ⚠️ Examples: examples.md
+  - ⚠️ Contributing: contributing.md
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.superfences
+  - toc:
+      permalink: true

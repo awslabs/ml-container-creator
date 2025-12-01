@@ -1,5 +1,4 @@
-## ml-container-creator
-
+#
 <div align="center">
   <img src="logo.png" alt="ML Container Creator" width="200"/>
   <h1>ML Container Creator</h1>
@@ -8,36 +7,77 @@
 
 ## Why ML Container Creator?
 
-Deploying machine learning models to production shouldn't be complicated. ML Container Creator eliminates the complexity of creating SageMaker Bring Your Own Container (BYOC) inference endpoints, letting you focus on what matters most - your models.
+Deploying machine learning models to production shouldn't be complicated. ML Container Creator eliminates the complexity of creating SageMaker Bring Your Own Container (BYOC) deployments, letting you focus on what matters most - your models.
 
 **Perfect for:**
 - Data scientists who want to deploy models without DevOps overhead
-- ML engineers building production inference pipelines
+- ML engineers building production model serving pipelines
 - Teams standardizing their ML deployment process
 - Organizations moving from prototype to production
+
+## What is SageMaker BYOC?
+
+Amazon SageMaker Bring Your Own Container (BYOC) lets you deploy custom machine learning models using your own Docker containers. This gives you full control over your model's runtime environment while leveraging SageMaker's managed infrastructure for hosting and scaling.
+
+## 📋 What You Get with ml-container-creator
+
+Every generated project includes:
+- **Ready-to-go container** with health checks and invocation endpoints
+- **Local testing suite** to validate before deployment
+- **Sample model and training code** to illustrate the deployment
+- **One-click AWS deployment** scripts
+- **Multi-framework support** (sklearn, XGBoost, TensorFlow, vLLM, SGLang)
+
+## Prerequisites
+
+Before you begin, ensure you have:
+- An AWS account with SageMaker access
+- Basic familiarity with Docker and command line
+- A trained machine learning model ready for deployment
 
 ## 🚀 Get Started in Minutes
 
 ```bash
-# Install and run
+# Install Yeoman and the generator
+cd ml-container-creator
 npm install -g yo
 npm link
-yo ml-container-creator
+
+# Generate your project
+yo
 ```
 
-Answer a few questions about your model, and get a complete, production-ready container with:
-- Optimized inference server (Flask or FastAPI)
-- Multi-framework support (sklearn, XGBoost, TensorFlow, Transformers)
+Answer a few questions about your model, and get a complete container with:
+- Optimized model serving (Flask or FastAPI)
 - Built-in testing and deployment scripts
-- AWS best practices baked in
+- Support for SageMaker AI managed endpoint hosting
+
+### Example: Deploy a scikit-learn Model
+
+1. **Prepare your model**: Save as `model.pkl`
+2. **Generate container**: Run `yo` and choose `ml-container-creator`
+3. **Configure**: Choose sklearn → pkl → flask
+4. **Deploy**: Run `./deploy.sh your-sagemaker-role-arn`
+
+## 🛠️ Requirements
+
+### For Users
+- Node.js 24+
+- Python 3.8+
+- Docker 20+
+- AWS CLI 2+
+
+### For Contributors
+- [mise](https://mise.jdx.dev/) - Development environment manager
+- All tools are automatically managed via `mise.toml`
 
 ## 🌟 Open Source & Community Driven
 
-ML Container Creator is **100% open source** under the Apache 2.0 license. We believe the ML community thrives when tools are accessible, transparent, and collaborative.
+ML Container Creator is **open source** under the Apache 2.0 license.
 
 ### 🗺️ Live Roadmap
 
-Our development is driven by real user needs. Check out our [live roadmap](https://github.com/ml-container-creator/projects) to:
+Our development is driven by user needs. Check out our [live roadmap](https://github.com/ml-container-creator/projects) to:
 - See what's coming next
 - Vote on features you need
 - Contribute ideas and feedback
@@ -59,45 +99,68 @@ We welcome contributions of all sizes! Whether you're:
 
 Your input shapes the future of this tool.
 
+### Development Setup
+
+This project uses [mise](https://mise.jdx.dev/) for development environment management:
+
 ```bash
 # Quick contribution setup
 git clone https://github.com/awslabs/ml-container-creator
 cd ml-container-creator
-npm install
+
+# Install mise (if not already installed)
+curl https://mise.run | sh
+
+# Install project dependencies and tools
+mise install
+mise run install
+
+# Available development tasks
+mise run test     # Run tests
+mise run lint     # Run linting
+
 # Make your changes and submit a PR!
 ```
 
-## 📋 What You Get
+#### Alternative Setup (Manual)
 
-Every generated project includes:
-- **BYOC-ready container** with health checks and monitoring
-- **Local testing suite** to validate before deployment for predictive models
-- **Sample model and training code** to get started immediately
-- **One-click AWS deployment** scripts
+If you prefer not to use mise:
 
-## 🛠️ Requirements
+```bash
+# Clone and setup
+git clone https://github.com/awslabs/ml-container-creator
+cd ml-container-creator
 
-- Node.js 16+
-- Python 3.8+
-- Docker 20+
-- AWS CLI 2+
+# Ensure Node.js 24.11.1+ is installed
+node --version
+
+# Install dependencies
+npm install
+npm link
+
+# Run development tasks
+npm test
+npm run lint
+```
 
 ## Security
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+See [CONTRIBUTING](./CONTRIBUTING.md#security-issue-notifications) for more information.
 
 ## License
 
 This project is licensed under the Apache-2.0 License.
 
-## 🆘 Need Help?
+## 🆘 Support & Troubleshooting
 
+### Get Help
 - 📖 [Documentation](https://github.com/awslabs/ml-container-creator/wiki)
 - 🐛 [Report Issues](https://github.com/awslabs/ml-container-creator/issues)
 - 💬 [Community Discussions](https://github.com/awslabs/ml-container-creator/discussions)
 - 🗺️ [Roadmap & Feature Requests](https://github.com/awslabs/ml-container-creator/projects)
+- 📖 [SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
 
----
+### Common Issues
 
 **Container fails to start**
 ```bash
@@ -116,12 +179,6 @@ aws iam get-role --role-name SageMakerExecutionRole
 # Check ECR repository exists
 aws ecr describe-repositories --repository-names your-project
 ```
-
-### Support
-
-- 📖 [SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
-- 🐛 [Report Issues](https://github.com/awslabs/ml-container-creator/issues)
-- 💬 [Discussions](https://github.com/awslabs/ml-container-creator/discussions)
 
 <div align="center">
   <p>Made with ❤️ by the ML community, for the ML community</p>
