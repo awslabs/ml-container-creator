@@ -1,0 +1,40 @@
+/* Custom styles for ML Container Creator docs */
+
+/* Center and style the logo on the home page */
+.md-content img[alt="ML Container Creator"] {
+    display: block;
+    margin: 2rem auto;
+    border-radius: 10px;
+}
+
+/* Style admonitions */
+.md-typeset .admonition {
+    border-left: 4px solid;
+}
+
+/* Code block improvements */
+.md-typeset pre > code {
+    border-radius: 4px;
+}
+
+/* Improve table styling */
+.md-typeset table:not([class]) {
+    border: 1px solid var(--md-default-fg-color--lightest);
+    border-radius: 4px;
+}
+
+/* Better spacing for lists */
+.md-typeset ul li,
+.md-typeset ol li {
+    margin-bottom: 0.5em;
+}
+
+/* Style the home page center div */
+.md-content div[align="center"] {
+    margin: 2rem 0;
+}
+
+/* Improve emoji rendering */
+.md-typeset .twemoji {
+    vertical-align: text-bottom;
+}

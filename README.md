@@ -22,11 +22,13 @@ Amazon SageMaker Bring Your Own Container (BYOC) lets you deploy custom machine 
 ## 📋 What You Get with ml-container-creator
 
 Every generated project includes:
-- **Ready-to-go container** with health checks and invocation endpoints
+- **SageMaker-compatible container** with health checks and invocation endpoints
 - **Local testing suite** to validate before deployment
 - **Sample model and training code** to illustrate the deployment
-- **One-click AWS deployment** scripts
+- **AWS deployment scripts** for ECR and SageMaker
 - **Multi-framework support** (sklearn, XGBoost, TensorFlow, vLLM, SGLang)
+
+> **Note**: This tool generates starter code. Review and customize for your production requirements.
 
 ## Prerequisites
 
@@ -151,34 +153,59 @@ See [CONTRIBUTING](./CONTRIBUTING.md#security-issue-notifications) for more info
 
 This project is licensed under the Apache-2.0 License.
 
+## 📚 Documentation
+
+**📖 [Full Documentation Site](https://awslabs.github.io/ml-container-creator/)** - Complete guides, examples, and API reference
+
+### Quick Links
+- 📖 **[Getting Started](./docs/getting-started.md)** - Installation and first project tutorial
+- 📖 **[Examples Guide](./docs/EXAMPLES.md)** - Step-by-step examples for common use cases
+- 🔧 **[Troubleshooting Guide](./docs/TROUBLESHOOTING.md)** - Solutions to common issues
+- 🎯 **[Template System](./docs/template-system.md)** - How the template system works
+- 🏗️ **[Architecture](./docs/architecture.md)** - Project architecture and patterns
+
+### For Contributors
+- 🛠️ **[Adding Features](./docs/ADDING_FEATURES.md)** - Guide for adding new frameworks
+- 📝 **[Coding Standards](./docs/coding-standards.md)** - Code style and conventions
+- ☁️ **[AWS/SageMaker Guide](./docs/aws-sagemaker.md)** - Domain knowledge and best practices
+
+### Examples
+- [Deploy a scikit-learn Model](./docs/EXAMPLES.md#example-1-deploy-a-scikit-learn-model)
+- [Deploy an XGBoost Model](./docs/EXAMPLES.md#example-2-deploy-an-xgboost-model)
+- [Deploy a TensorFlow Model](./docs/EXAMPLES.md#example-3-deploy-a-tensorflow-model)
+- [Deploy a Transformer Model (LLM)](./docs/EXAMPLES.md#example-4-deploy-a-transformer-model-llm)
+
 ## 🆘 Support & Troubleshooting
 
 ### Get Help
-- 📖 [Documentation](https://github.com/awslabs/ml-container-creator/wiki)
+- 📖 [Examples Guide](./docs/EXAMPLES.md) - Detailed walkthroughs
+- 🔧 [Troubleshooting Guide](./docs/TROUBLESHOOTING.md) - Common issues and solutions
 - 🐛 [Report Issues](https://github.com/awslabs/ml-container-creator/issues)
 - 💬 [Community Discussions](https://github.com/awslabs/ml-container-creator/discussions)
 - 🗺️ [Roadmap & Feature Requests](https://github.com/awslabs/ml-container-creator/projects)
 - 📖 [SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
 
-### Common Issues
+### Quick Troubleshooting
 
 **Container fails to start**
 ```bash
 # Check logs
 docker logs your-container-name
 
-# Test locally first
-python code/serve.py
+# See detailed solutions
+# https://github.com/awslabs/ml-container-creator/blob/main/docs/TROUBLESHOOTING.md#container-wont-start
 ```
 
 **SageMaker deployment fails**
 ```bash
-# Verify IAM permissions
-aws iam get-role --role-name SageMakerExecutionRole
+# Check CloudWatch logs
+aws logs tail /aws/sagemaker/Endpoints/your-endpoint --follow
 
-# Check ECR repository exists
-aws ecr describe-repositories --repository-names your-project
+# See detailed solutions
+# https://github.com/awslabs/ml-container-creator/blob/main/docs/TROUBLESHOOTING.md#endpoint-creation-failed
 ```
+
+**Need more help?** Check the [full troubleshooting guide](./docs/TROUBLESHOOTING.md)
 
 <div align="center">
   <p>Made with ❤️ by the ML community, for the ML community</p>

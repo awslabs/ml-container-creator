@@ -1,4 +1,10 @@
 .idea/
+.kiro/
+.scripts/
+.vscode/
 drafts/
 node_modules
 package-lock.json
+
+# MkDocs build output
+site/

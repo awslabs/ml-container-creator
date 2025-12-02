@@ -1,7 +1,9 @@
 site_name: ML Container Creator
+site_description: Simplify your machine learning deployments on AWS SageMaker
 site_url: https://awslabs.github.io/ml-container-creator/
 repo_url: https://github.com/awslabs/ml-container-creator
 repo_name: awslabs/ml-container-creator
+edit_uri: edit/main/docs/
 
 theme:
   name: material
@@ -9,22 +11,102 @@ theme:
     - scheme: default
       primary: blue
       accent: orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   features:
     - navigation.tabs
     - navigation.sections
     - navigation.expand
+    - navigation.top
+    - navigation.tracking
     - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+  logo: logo.png
+  favicon: logo.png
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  - tags
+
+exclude_docs: |
+  README.md
 
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
-  - ⚠️ API Reference: api-reference.md
-  - ⚠️ Examples: examples.md
-  - ⚠️ Contributing: contributing.md
+  - User Guide:
+      - Examples: EXAMPLES.md
+      - Troubleshooting: TROUBLESHOOTING.md
+  - Developer Guide:
+      - Adding Features: ADDING_FEATURES.md
+      - Template System: template-system.md
+      - Project Architecture: architecture.md
+      - Coding Standards: coding-standards.md
+      - AWS/SageMaker Guide: aws-sagemaker.md
+      - Deployment: DEPLOYMENT.md
 
 markdown_extensions:
   - admonition
-  - codehilite
-  - pymdownx.superfences
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - codehilite:
+      guess_lang: false
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
   - toc:
       permalink: true
+      toc_depth: 3
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/awslabs/ml-container-creator
+    - icon: fontawesome/brands/aws
+      link: https://aws.amazon.com/sagemaker/
+  version:
+    provider: mike
+  generator: false
+
+copyright: Copyright &copy; 2024 Amazon.com, Inc. or its affiliates
