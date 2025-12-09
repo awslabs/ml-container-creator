@@ -18,7 +18,18 @@ const GLOBAL_CONFIG_PATH = path.join(os.homedir(), '.ml-container-creator-rc.jso
  * @see https://yeoman.io/authoring/
  */
 module.exports = class extends Generator {
-
+/**
+ * Tracks which features are currently implemented and available.
+ * Used for validation to prevent users from selecting unsupported options.
+ * 
+ * @type {Object}
+ * @property {string[]} frameworks - Supported ML frameworks
+ * @property {string[]} modelServer - Supported model serving frameworks
+ * @property {string[]} deployment - Supported deployment targets
+ * @property {string[]} testTypes - Available test types
+ * @property {string[]} instanceTypes - Supported instance configurations
+ * @property {string[]} awsRegions - Available AWS regions
+ */
     SUPPORTED_OPTIONS = {
         frameworks: ['sklearn', 'xgboost', 'tensorflow', 'transformers'],
         modelServer: ['flask', 'fast-api', 'vllm', 'sglang'],
@@ -239,7 +250,7 @@ module.exports = class extends Generator {
                 name: 'awsRegion',
                 message: 'Target AWS region?',
                 choices: ['us-east-1'],
-                default: (this.globalConfig && this.globalConfig.defaultAwsRegion) || 'us-east-1'
+                default: this.globalConfig?.defaultAwsRegion ?? 'us-east-1'
             }
         ]);
 
