@@ -5,7 +5,7 @@ const path = require('path');
 const os = require('os');
 const Generator = require('yeoman-generator').default || require('yeoman-generator');
 
-// ✅ FIX 2: متغیر ثابت در سطح ماژول (بیرون کلاس)
+// FIX 2: Module-level constant (outside class)
 const GLOBAL_CONFIG_PATH = path.join(os.homedir(), '.ml-container-creator-rc.json');
 
 /**
@@ -29,24 +29,31 @@ module.exports = class extends Generator {
     };
 
     /**
-     * ✅ FIX 1: استفاده از متد initializing (مخصوص کارهای اولیه)
+     * Initializing phase - Handles pre-run configuration checks.
+     * 
+     * Checks for the existence of a global configuration file. If found, loads 
+     * the configuration. If not found (first-time setup), prompts the user to 
+     * configure defaults and saves them to the global config file.
+     * 
+     * @returns {Promise<void>}
      */
     async initializing() {
         this.log('🔍 Checking for existing configuration...');
         this.globalConfig = {};
 
-        // خواندن کانفیگ (Sync برای خواندن در شروع برنامه مشکلی ندارد)
+        // Read config (Sync is acceptable for startup)
         if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
             try {
                 this.globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf8'));
                 this.log('✅ Configuration found. Loading defaults...');
             } catch (e) {
-                // اگر فایل خراب بود، نادیده بگیر
+                // Ignore if file is corrupted
+                this.log('⚠️ Could not read configuration file. Using defaults.');
             }
         } else {
             this.log('\n👋 First time setup detected! Please configure your defaults.');
             
-            // پرسیدن سوال فقط در بار اول
+            // Prompt only on first run
             const setupAnswers = await this.prompt([
                 {
                     type: 'list',
@@ -59,12 +66,12 @@ module.exports = class extends Generator {
 
             this.globalConfig = setupAnswers;
             
-            // ✅ FIX 3: ذخیره کردن به صورت Async (غیرهمگام)
+            // FIX 3: Save asynchronously (non-blocking)
             try {
                 await fs.promises.writeFile(GLOBAL_CONFIG_PATH, JSON.stringify(this.globalConfig, null, 2));
                 this.log(`✅ Configuration saved to ${GLOBAL_CONFIG_PATH}\n`);
             } catch (err) {
-                console.warn('⚠️ Could not save configuration file.');
+                this.log('⚠️ Could not save configuration file.');
             }
         }
     }
