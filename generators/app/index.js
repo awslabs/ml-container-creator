@@ -5,7 +5,7 @@ const path = require('path');
 const os = require('os');
 const Generator = require('yeoman-generator').default || require('yeoman-generator');
 
-// FIX 2: Module-level constant (outside class)
+// Module-level constant for reusability across generator methods
 const GLOBAL_CONFIG_PATH = path.join(os.homedir(), '.ml-container-creator-rc.json');
 
 /**
@@ -44,11 +44,11 @@ module.exports = class extends Generator {
         // Read config (Sync is acceptable for startup)
         if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
             try {
-                this.globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf8'));
+                this.globalConfig = JSON.parse(await fs.promises.readFile(GLOBAL_CONFIG_PATH, 'utf8'));
                 this.log('✅ Configuration found. Loading defaults...');
             } catch (e) {
-                // Ignore if file is corrupted
-                this.log('⚠️ Could not read configuration file. Using defaults.');
+                // Log error details if file is corrupted
+                this.log('⚠️ Could not read configuration file: ' + (e && e.message ? e.message : e) + '. Using defaults.');
             }
         } else {
             this.log('\n👋 First time setup detected! Please configure your defaults.');
@@ -66,12 +66,12 @@ module.exports = class extends Generator {
 
             this.globalConfig = setupAnswers;
             
-            // FIX 3: Save asynchronously (non-blocking)
+            // Save configuration asynchronously to avoid blocking the event loop
             try {
                 await fs.promises.writeFile(GLOBAL_CONFIG_PATH, JSON.stringify(this.globalConfig, null, 2));
                 this.log(`✅ Configuration saved to ${GLOBAL_CONFIG_PATH}\n`);
             } catch (err) {
-                this.log('⚠️ Could not save configuration file.');
+                this.log('⚠️ Could not save configuration file: ' + (err && err.message ? err.message : err));
             }
         }
     }
