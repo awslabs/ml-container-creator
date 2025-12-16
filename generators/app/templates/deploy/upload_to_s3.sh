@@ -1,7 +1,6 @@
+#!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-
-#!/bin/bash
 
 # Push files to S3 bucket
 # Usage: ./upload_to_s3.sh <bucket-name> <key-prefix>

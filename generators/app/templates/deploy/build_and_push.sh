@@ -1,7 +1,6 @@
+#!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-
-#!/bin/bash
 
 # Configuration
 IMAGE_NAME="<%= projectName %>"
