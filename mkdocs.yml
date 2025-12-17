@@ -52,6 +52,7 @@ nav:
       - Examples: EXAMPLES.md
       - Troubleshooting: TROUBLESHOOTING.md
   - Developer Guide:
+      - Contributing: CONTRIBUTING.md
       - Adding Features: ADDING_FEATURES.md
       - Template System: template-system.md
       - Project Architecture: architecture.md

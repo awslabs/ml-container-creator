@@ -120,10 +120,26 @@ mise install
 mise run install
 
 # Available development tasks
-mise run test     # Run tests
+mise run test     # Run unit tests
 mise run lint     # Run linting
 
 # Make your changes and submit a PR!
+```
+
+### Running Tests
+
+```bash
+# Run unit tests
+npm test
+
+# Run tests in watch mode (for development)
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run only unit tests (skip security audit)
+npx mocha test/unit.test.js
 ```
 
 #### Alternative Setup (Manual)
@@ -143,8 +159,10 @@ npm install
 npm link
 
 # Run development tasks
-npm test
-npm run lint
+npm test              # Run unit tests
+npm run test:watch    # Run tests in watch mode
+npm run lint          # Run linting
+npm run validate      # Run full validation (lint + test)
 ```
 
 ## Security
@@ -164,9 +182,10 @@ This project is licensed under the Apache-2.0 License.
 - 📖 **[Examples Guide](./docs/EXAMPLES.md)** - Step-by-step examples for common use cases
 - 🔧 **[Troubleshooting Guide](./docs/TROUBLESHOOTING.md)** - Solutions to common issues
 - 🎯 **[Template System](./docs/template-system.md)** - How the template system works
-- 🏗️ **[Architecture](./docs/architecture.md)** - Project architecture and patterns
+- 🏗️ **[Architecture](./docs/architecture.md)** - Complete architecture guide
 
 ### For Contributors
+- 🚀 **[Contributing Guide](./docs/CONTRIBUTING.md)** - Get started contributing in 5 minutes
 - 🛠️ **[Adding Features](./docs/ADDING_FEATURES.md)** - Guide for adding new frameworks
 - 📝 **[Coding Standards](./docs/coding-standards.md)** - Code style and conventions
 - ☁️ **[AWS/SageMaker Guide](./docs/aws-sagemaker.md)** - Domain knowledge and best practices

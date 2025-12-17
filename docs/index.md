@@ -104,9 +104,10 @@ Currently supports **CPU-optimized** instances. The generated deployment scripts
 - **[Troubleshooting](TROUBLESHOOTING.md)** - Solutions to common issues
 
 ### Developer Guides
+- **[Contributing](CONTRIBUTING.md)** - Get started contributing in 5 minutes
 - **[Adding Features](ADDING_FEATURES.md)** - Contribute new frameworks or features
 - **[Template System](template-system.md)** - How templates work
-- **[Project Architecture](architecture.md)** - Architecture and patterns
+- **[Project Architecture](architecture.md)** - Complete architecture guide
 - **[Coding Standards](coding-standards.md)** - Code style guide
 - **[AWS/SageMaker Guide](aws-sagemaker.md)** - Domain knowledge
 
@@ -162,7 +163,7 @@ We welcome contributions of all sizes! Whether you're:
 - Adding support for new frameworks
 - Optimizing performance
 
-See [Adding Features](ADDING_FEATURES.md) for a detailed guide on contributing new features.
+See the [Contributing Guide](CONTRIBUTING.md) to get started in 5 minutes, or [Adding Features](ADDING_FEATURES.md) for detailed guidance on contributing new features.
 
 ## What is SageMaker BYOC?
 

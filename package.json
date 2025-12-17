@@ -12,12 +12,18 @@
     "docker"
   ],
   "scripts": {
-    "test": "mocha test/**/*.js",
+    "test": "mocha test/unit.test.js",
+    "test:watch": "mocha test/unit.test.js --watch",
+    "test:coverage": "nyc mocha test/unit.test.js",
     "security-audit": "npm audit --audit-level=high",
     "security-fix": "npm audit fix",
     "pretest": "npm run security-audit",
-    "lint": "eslint generators/**/*.js",
-    "start": "yo ml-container-creator"
+    "lint": "eslint generators/**/*.js test/**/*.js",
+    "lint:fix": "eslint generators/**/*.js test/**/*.js --fix",
+    "start": "yo ml-container-creator",
+    "dev": "npm link && yo ml-container-creator",
+    "clean": "rm -rf test-output-*",
+    "validate": "npm run lint && npm test"
   },
   "dependencies": {
     "license-report": "^6.8.0",
@@ -29,6 +35,7 @@
     "eslint": "^8.57.0",
     "mocha": "^10.2.0",
     "npm-force-resolutions": "^0.0.10",
+    "nyc": "^15.1.0",
     "yeoman-assert": "^3.1.1",
     "yeoman-test": "^10.1.1"
   },

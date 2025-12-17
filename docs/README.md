@@ -10,11 +10,13 @@ docs/
 ├── getting-started.md       # Installation and first project tutorial
 ├── EXAMPLES.md             # Framework-specific examples
 ├── TROUBLESHOOTING.md      # Common issues and solutions
-├── ADDING_FEATURES.md      # Contributor guide
+├── CONTRIBUTING.md         # Quick contributor guide
+├── ADDING_FEATURES.md      # Detailed feature development guide
 ├── template-system.md      # Template documentation
-├── architecture.md         # Project architecture
+├── architecture.md         # Complete architecture guide
 ├── coding-standards.md     # Code style guide
 ├── aws-sagemaker.md       # AWS/SageMaker context
+├── DEPLOYMENT.md           # Deployment guide
 ├── logo.png               # Project logo
 └── stylesheets/
     └── extra.css          # Custom CSS

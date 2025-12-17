@@ -1,15 +1,81 @@
-# ML Container Creator - Project Context
+# ML Container Creator - Architecture Guide
 
 ## Project Overview
 
 This is a Yeoman generator that creates Docker containers for deploying ML models to AWS SageMaker using the Bring Your Own Container (BYOC) paradigm.
 
-## Architecture
+## Quick Architecture Overview
 
-### Generator Structure
-- **Main generator**: `generators/app/index.js` - Contains all prompting and file generation logic
+For newcomers, here's how the generator works:
+
+```
+User runs: yo ml-container-creator
+           ↓
+    ┌─────────────────┐
+    │   index.js      │  ← Main generator (orchestration)
+    │  (~50 lines)    │
+    └─────────────────┘
+           ↓
+    ┌─────────────────┐
+    │ PromptRunner    │  ← Collects user input
+    │ (prompts.js)    │     • Project name
+    └─────────────────┘     • Framework choice
+           ↓                • Optional modules
+    ┌─────────────────┐
+    │ TemplateManager │  ← Validates & determines templates
+    │                 │     • Checks supported options
+    └─────────────────┘     • Builds ignore patterns
+           ↓
+    ┌─────────────────┐
+    │ Template Copy   │  ← Copies & processes templates
+    │ (EJS processing)│     • Replaces variables
+    └─────────────────┘     • Excludes unwanted files
+           ↓
+    Generated Project Ready! 🎉
+```
+
+## Detailed Architecture
+
+### Generator Structure (Modular Design)
+
+The generator follows a clean, modular architecture:
+
+- **Main generator**: `generators/app/index.js` - Orchestrates the generation process (~50 lines)
+- **Prompt definitions**: `generators/app/lib/prompts.js` - All user prompts organized by phase
+- **Prompt orchestration**: `generators/app/lib/prompt-runner.js` - Manages user interaction flow
+- **Template logic**: `generators/app/lib/template-manager.js` - Handles conditional template copying
 - **Templates**: `generators/app/templates/` - EJS templates that get copied and processed
-- **Template variables**: Passed via `this.answers` object to all templates
+
+### Key Components
+
+#### 1. Main Generator (`index.js`)
+- **Purpose**: Orchestrates the generation process
+- **Size**: ~50 lines (was 300+ before refactoring)
+- **Responsibilities**: 
+  - Delegates to specialized modules
+  - Sets destination directory
+  - Handles errors
+
+#### 2. Prompt Runner (`lib/prompt-runner.js`)
+- **Purpose**: Manages user interaction
+- **Phases**:
+  1. 📋 Project Configuration
+  2. 🔧 Core Configuration  
+  3. 📦 Module Selection
+  4. 💪 Infrastructure & Performance
+- **Output**: Combined answers object
+
+#### 3. Template Manager (`lib/template-manager.js`)
+- **Purpose**: Handles template logic
+- **Functions**:
+  - Validates user configuration
+  - Determines which templates to include/exclude
+  - Centralizes conditional logic
+
+#### 4. Prompts (`lib/prompts.js`)
+- **Purpose**: Defines all user prompts
+- **Organization**: Grouped by phase
+- **Benefits**: Easy to add new prompts
 
 ### Key Concepts
 
@@ -17,6 +83,7 @@ This is a Yeoman generator that creates Docker containers for deploying ML model
 2. **Phases**: Generator runs in phases (prompting → writing → install)
 3. **Template Processing**: Uses EJS syntax (`<%= variable %>`) in template files
 4. **Conditional Generation**: Files can be excluded via `ignorePatterns` array
+5. **Modular Design**: Separation of concerns for maintainability
 
 ## Supported Configurations
 
@@ -70,28 +137,61 @@ All answers are stored in `this.answers` and available in templates:
 }
 ```
 
-## File Organization
+## Configuration Decision Tree
+
+```
+Framework?
+├── sklearn/xgboost/tensorflow (Traditional ML)
+│   ├── Model Format? (pkl, json, keras, etc.)
+│   ├── Server? (Flask or FastAPI)
+│   ├── Include sample model? (Yes/No)
+│   ├── Include tests? (Yes/No)
+│   └── Instance type? (CPU or GPU)
+│
+└── transformers (LLMs)
+    ├── Server? (vLLM or SGLang)
+    ├── Include tests? (Yes - endpoint only)
+    └── Instance type? (GPU only)
+```
+
+## Template Structure & Logic
 
 ### Generated Project Structure
 ```
 project-name/
-├── Dockerfile              # Container definition
-├── requirements.txt        # Python dependencies
-├── nginx.conf             # Nginx config (traditional ML only)
+├── Dockerfile              ← Always included
+├── requirements.txt        ← Excluded for transformers
+├── nginx.conf             ← Excluded for transformers
 ├── code/
-│   ├── model_handler.py   # Model loading/inference logic
-│   ├── serve.py           # Flask/FastAPI server
-│   ├── serve              # vLLM/SGLang entrypoint script
-│   └── flask/             # Flask-specific code
+│   ├── model_handler.py   ← Excluded for transformers
+│   ├── serve.py           ← Excluded for transformers
+│   ├── serve              ← Excluded for traditional ML
+│   └── flask/             ← Excluded if not Flask
 ├── deploy/
-│   ├── build_and_push.sh  # Build and push to ECR
-│   ├── deploy.sh          # Deploy to SageMaker
-│   └── upload_to_s3.sh    # Upload model to S3 (transformers)
-├── sample_model/          # Optional sample training code
-└── test/                  # Optional test suite
+│   ├── build_and_push.sh  ← Always included
+│   ├── deploy.sh          ← Always included
+│   └── upload_to_s3.sh    ← Excluded for traditional ML
+├── sample_model/          ← Optional module
+└── test/                  ← Optional module
 ```
 
-## Template Exclusion Logic
+### File Generation Logic
+
+The generator uses **exclusion patterns** to determine which templates to copy:
+
+```javascript
+// Example: Transformers exclude traditional ML files
+if (framework === 'transformers') {
+    exclude: [
+        'model_handler.py',  // Custom loading
+        'serve.py',          // Flask/FastAPI
+        'nginx.conf',        // Reverse proxy
+        'requirements.txt'   // Traditional deps
+    ]
+}
+```
+
+### Template Exclusion Logic
 
 Files are conditionally excluded based on configuration:
 
@@ -101,10 +201,35 @@ Files are conditionally excluded based on configuration:
 - **No sample model**: Excludes sample_model/ directory
 - **No testing**: Excludes test/ directory
 
+## Benefits of This Architecture
+
+### ✅ **Maintainable**
+- Small, focused modules
+- Clear separation of concerns
+- Easy to understand and modify
+
+### ✅ **Testable**
+- Each module can be tested independently
+- Clear inputs and outputs
+- Mocking is straightforward
+
+### ✅ **Extensible**
+- Adding new prompts is simple
+- New template logic is centralized
+- Framework additions follow patterns
+
+### ✅ **Readable**
+- Main generator is ~50 lines
+- Logic is organized by purpose
+- Comments explain the "why"
+
 ## Development Workflow
 
 ### Making Changes
-1. Edit generator logic in `generators/app/index.js`
+1. Edit generator logic in appropriate module:
+   - Prompts: `generators/app/lib/prompts.js`
+   - Template logic: `generators/app/lib/template-manager.js`
+   - Orchestration: `generators/app/index.js`
 2. Edit templates in `generators/app/templates/`
 3. Run `npm link` to test locally
 4. Test with `yo ml-container-creator`
@@ -112,15 +237,27 @@ Files are conditionally excluded based on configuration:
 
 ### Testing
 - Unit tests in `test/` directory
-- Use `yeoman-test` and `yeoman-assert` for generator testing
+- Focus on `TemplateManager` and core logic
 - Run security audit before tests: `npm run pretest`
+- Use `npm run test:watch` for development
 
 ### Adding New Features
-1. Add to `SUPPORTED_OPTIONS` if it's a new option type
-2. Add prompt in appropriate phase (Project/Core/Module/Infrastructure)
-3. Add validation in `_validateAnswers()`
-4. Create/modify templates as needed
-5. Update ignore patterns if conditional
+
+#### Adding a New Prompt
+1. Add prompt definition to appropriate phase in `prompts.js`
+2. Update template logic if it affects file generation
+3. Add test cases for the new option
+
+#### Adding a New Template
+1. Create template file with EJS variables
+2. Add exclusion logic if conditional
+3. Test with different configurations
+
+#### Adding a New Framework
+1. Add to prompt choices in `prompts.js`
+2. Add template exclusion logic to `template-manager.js`
+3. Create framework-specific templates
+4. Add tests for the new configuration
 
 ## AWS/SageMaker Context
 

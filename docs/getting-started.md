@@ -47,6 +47,9 @@ npm link
 # Verify installation
 yo --generators
 # Should show "ml-container-creator" in the list
+
+# Run tests to verify setup (for contributors)
+npm test
 ```
 
 ### Option 2: Using mise (For Contributors)
