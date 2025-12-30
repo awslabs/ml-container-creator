@@ -7,31 +7,40 @@
  */
 
 /**
- * Phase 1: Basic project information
+ * Generate pseudo-randomized project name based on framework
+ * @param {string} framework - The ML framework
+ * @returns {string} Generated project name
  */
-const projectPrompts = [
-    {
-        type: 'input',
-        name: 'projectName',
-        message: 'What is the Project Name?',
-        default: 'ml-container-creator'
-    }
-];
-
-const destinationPrompts = [
-    {
-        type: 'input',
-        name: 'destinationDir',
-        message: 'Where will the output directory be?',
-        default: (answers) => {
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            return `./${answers.projectName}-${timestamp}`;
-        }
-    }
-];
+function generateProjectName(framework) {
+    const adjectives = [
+        'smart', 'fast', 'clever', 'bright', 'swift', 'agile', 'sharp', 'quick',
+        'wise', 'keen', 'bold', 'sleek', 'neat', 'cool', 'fresh', 'prime'
+    ];
+    
+    const frameworkNames = {
+        'sklearn': ['sklearn', 'scikit', 'sk'],
+        'xgboost': ['xgb', 'xgboost', 'boost'],
+        'tensorflow': ['tf', 'tensorflow', 'tensor'],
+        'transformers': ['llm', 'transformer', 'gpt', 'bert', 'ai']
+    };
+    
+    const suffixes = [
+        'model', 'predictor', 'classifier', 'engine', 'service', 'api',
+        'container', 'deployment', 'inference', 'ml', 'ai', 'bot'
+    ];
+    
+    // Get random elements
+    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const frameworkName = frameworkNames[framework] ? 
+        frameworkNames[framework][Math.floor(Math.random() * frameworkNames[framework].length)] :
+        'ml';
+    const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
+    
+    return `${adjective}-${frameworkName}-${suffix}`;
+}
 
 /**
- * Phase 2: Core ML configuration
+ * Phase 1: Core ML configuration (moved to first)
  */
 const frameworkPrompts = [
     {
@@ -74,7 +83,7 @@ const modelServerPrompts = [
 ];
 
 /**
- * Phase 3: Optional modules
+ * Phase 2: Optional modules
  */
 const modulePrompts = [
     {
@@ -111,7 +120,7 @@ const modulePrompts = [
 ];
 
 /**
- * Phase 4: Infrastructure configuration
+ * Phase 3: Infrastructure configuration
  */
 const infrastructurePrompts = [
     {
@@ -139,15 +148,56 @@ const infrastructurePrompts = [
         message: 'Target AWS region?',
         choices: ['us-east-1'],
         default: 'us-east-1'
+    },
+    {
+        type: 'input',
+        name: 'awsRoleArn',
+        message: 'AWS IAM Role ARN for SageMaker execution (optional)?',
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return true; // Optional parameter
+            }
+            const arnPattern = /^arn:aws:iam::\d{12}:role\/[\w+=,.@-]+$/;
+            if (!arnPattern.test(input)) {
+                return 'Invalid ARN format. Expected: arn:aws:iam::123456789012:role/RoleName';
+            }
+            return true;
+        }
     }
 ];
 
-module.exports = {
-    projectPrompts,
-    destinationPrompts,
+/**
+ * Phase 4: Project information (moved to last)
+ */
+const projectPrompts = [
+    {
+        type: 'input',
+        name: 'projectName',
+        message: 'What is the Project Name?',
+        default: (answers) => {
+            return generateProjectName(answers.framework);
+        }
+    }
+];
+
+const destinationPrompts = [
+    {
+        type: 'input',
+        name: 'destinationDir',
+        message: 'Where will the output directory be?',
+        default: (answers) => {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            return `./${answers.projectName}-${timestamp}`;
+        }
+    }
+];
+
+export {
     frameworkPrompts,
     modelFormatPrompts,
     modelServerPrompts,
     modulePrompts,
-    infrastructurePrompts
+    infrastructurePrompts,
+    projectPrompts,
+    destinationPrompts
 };

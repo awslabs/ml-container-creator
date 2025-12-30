@@ -1,9 +1,11 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-const Generator = require('yeoman-generator').default || require('yeoman-generator');
-const PromptRunner = require('./lib/prompt-runner');
-const TemplateManager = require('./lib/template-manager');
+import Generator from 'yeoman-generator';
+import PromptRunner from './lib/prompt-runner.js';
+import TemplateManager from './lib/template-manager.js';
+import ConfigManager from './lib/config-manager.js';
+import CliHandler from './lib/cli-handler.js';
 
 /**
  * ML Container Creator Generator
@@ -19,20 +21,172 @@ const TemplateManager = require('./lib/template-manager');
  * @extends Generator
  * @see https://yeoman.io/authoring/
  */
-module.exports = class extends Generator {
+export default class extends Generator {
+
+    /**
+     * Constructor - Set up CLI options
+     */
+    constructor(args, opts) {
+        super(args, opts);
+
+        // Define CLI options
+        this.option('skip-prompts', {
+            type: Boolean,
+            description: 'Skip interactive prompts and use configuration from other sources'
+        });
+
+        this.option('config', {
+            type: String,
+            description: 'Path to configuration file'
+        });
+
+        this.option('help', {
+            type: Boolean,
+            alias: 'h',
+            description: 'Show help information'
+        });
+
+        // Project configuration options
+        this.option('project-name', {
+            type: String,
+            description: 'Project name'
+        });
+
+        this.option('project-dir', {
+            type: String,
+            description: 'Output directory path'
+        });
+
+        // Core configuration options
+        this.option('framework', {
+            type: String,
+            description: 'ML framework (sklearn, xgboost, tensorflow, transformers)'
+        });
+
+        this.option('model-format', {
+            type: String,
+            description: 'Model serialization format'
+        });
+
+        this.option('model-server', {
+            type: String,
+            description: 'Model server (flask, fastapi, vllm, sglang)'
+        });
+
+        // Module options
+        this.option('include-sample', {
+            type: Boolean,
+            description: 'Include sample model code'
+        });
+
+        this.option('include-testing', {
+            type: Boolean,
+            description: 'Include test suite'
+        });
+
+        this.option('test-types', {
+            type: String,
+            description: 'Comma-separated list of test types'
+        });
+
+        // Infrastructure options
+        this.option('deploy-target', {
+            type: String,
+            description: 'Deployment target (sagemaker)'
+        });
+
+        this.option('instance-type', {
+            type: String,
+            description: 'Instance type (cpu-optimized, gpu-enabled)'
+        });
+
+        this.option('region', {
+            type: String,
+            description: 'AWS region'
+        });
+
+        this.option('role-arn', {
+            type: String,
+            description: 'AWS IAM role ARN for SageMaker execution'
+        });
+    }
+
+    /**
+     * Initializing phase - Load configuration from all sources
+     */
+    async initializing() {
+        // Handle special CLI arguments first
+        const cliHandler = new CliHandler(this);
+        const handled = await cliHandler.handleCliArguments();
+        
+        if (handled) {
+            // Special command was executed, exit early
+            // Set a flag to indicate we should skip other phases
+            this._helpShown = true;
+            return;
+        }
+
+        this.configManager = new ConfigManager(this);
+        
+        try {
+            this.baseConfig = await this.configManager.loadConfiguration();
+        } catch (error) {
+            // Configuration loading failed - show error and exit
+            console.log(`⚠️  ${error.message}`);
+            this._configurationFailed = true;
+            return;
+        }
+
+        // Validate configuration and set error flag if invalid
+        const errors = this.configManager.validateConfiguration();
+        if (errors.length > 0) {
+            console.log(`⚠️  ${errors[0]}`);
+            this._validationFailed = true;
+            return;
+        }
+
+        // Show configuration source info if not skipping prompts
+        if (!this.configManager.shouldSkipPrompts()) {
+            console.log('\n⚙️  Configuration will be collected from prompts and merged with:');
+            if (this.baseConfig.projectName !== 'ml-container-creator') {
+                console.log(`   • Project name: ${this.baseConfig.projectName}`);
+            }
+            if (this.baseConfig.framework) {
+                console.log(`   • Framework: ${this.baseConfig.framework}`);
+            }
+            if (Object.keys(this.baseConfig).filter(k => this.baseConfig[k] !== null && k !== 'projectName').length === 0) {
+                console.log('   • No external configuration found');
+            }
+        }
+    }
 
     /**
      * Prompting phase - Collects user input through interactive prompts.
      * 
      * Uses PromptRunner to organize prompts into logical phases with clear
      * console output to guide users through the configuration process.
+     * Skips prompting if --skip-prompts is used or complete configuration exists.
      * 
      * @async
      * @returns {Promise<void>}
      */
     async prompting() {
+        // If help was shown, validation failed, or ConfigManager doesn't exist, skip prompting
+        if (this._helpShown || this._validationFailed || !this.configManager) {
+            return;
+        }
+
+        if (this.configManager.shouldSkipPrompts()) {
+            console.log('\n🚀 Skipping prompts - using configuration from other sources');
+            this.answers = this.configManager.getFinalConfiguration();
+            return;
+        }
+
         const promptRunner = new PromptRunner(this);
-        this.answers = await promptRunner.run();
+        const promptAnswers = await promptRunner.run();
+        
+        // Merge prompt answers with configuration from other sources
+        this.answers = this.configManager.getFinalConfiguration(promptAnswers);
     }
 
     /**
@@ -44,6 +198,25 @@ module.exports = class extends Generator {
      * @returns {void}
      */
     writing() {
+        // If help was shown, validation failed, configuration failed, or no answers, skip writing
+        if (this._helpShown || this._validationFailed || this._configurationFailed || !this.answers) {
+            return;
+        }
+
+        // Validate required parameters before file generation
+        if (this.configManager) {
+            const requiredParamErrors = this.configManager.validateRequiredParameters(this.answers);
+            if (requiredParamErrors.length > 0) {
+                console.log('\n❌ Required Parameter Validation Failed:');
+                requiredParamErrors.forEach(error => {
+                    console.log(`   • ${error}`);
+                });
+                console.log('\nPlease provide the missing required parameters and try again.');
+                this.env.error('Required parameters are missing. Cannot proceed with file generation.');
+                return;
+            }
+        }
+
         // Set destination directory for generated files
         this.destinationRoot(this.answers.destinationDir);
 
@@ -54,7 +227,7 @@ module.exports = class extends Generator {
             templateManager.validate();
         } catch (error) {
             this.env.error(error.message);
-            return;
+            throw error; // Re-throw the error so tests can catch it
         }
 
         // Get ignore patterns based on configuration
@@ -70,5 +243,4 @@ module.exports = class extends Generator {
         );
     }
 
-
-};
+}

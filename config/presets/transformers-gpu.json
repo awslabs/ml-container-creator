@@ -1,0 +1,24 @@
+{
+  "name": "Transformers GPU Preset",
+  "description": "Optimized configuration for transformer models with GPU acceleration",
+  "config": {
+    "framework": "transformers",
+    "modelServer": "vllm",
+    "instanceType": "gpu-enabled",
+    "awsRegion": "us-east-1",
+    "includeTesting": true,
+    "testTypes": ["hosted-model-endpoint"],
+    "includeSampleModel": false,
+    "skipPrompts": true
+  },
+  "environment": {
+    "CUDA_VISIBLE_DEVICES": "0",
+    "TRANSFORMERS_CACHE": "/opt/ml/model/cache",
+    "HF_HOME": "/opt/ml/model/hf_cache"
+  },
+  "dockerOptions": {
+    "baseImage": "nvidia/cuda:12.1-runtime-ubuntu20.04",
+    "gpuSupport": true,
+    "sharedMemorySize": "2g"
+  }
+}

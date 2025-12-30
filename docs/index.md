@@ -100,11 +100,13 @@ Currently supports **CPU-optimized** instances. The generated deployment scripts
 
 ### User Guides
 - **[Getting Started](getting-started.md)** - Installation and first project
+- **[Configuration Guide](configuration.md)** - Complete configuration system guide
 - **[Examples](EXAMPLES.md)** - Step-by-step walkthroughs for all frameworks
 - **[Troubleshooting](TROUBLESHOOTING.md)** - Solutions to common issues
 
 ### Developer Guides
 - **[Contributing](CONTRIBUTING.md)** - Get started contributing in 5 minutes
+- **[Testing Guide](testing.md)** - Comprehensive testing philosophy and practices
 - **[Adding Features](ADDING_FEATURES.md)** - Contribute new frameworks or features
 - **[Template System](template-system.md)** - How templates work
 - **[Project Architecture](architecture.md)** - Complete architecture guide

@@ -5,7 +5,9 @@ import numpy as np
 from ucimlrepo import fetch_ucirepo
 <% if (framework === 'sklearn') { %>from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
-<% if (modelFormat === 'joblib') { %>import joblib<% } else if (modelFormat === 'pkl') { %>import pickle<% } %>
+<% if (modelFormat === 'joblib') { %>import joblib
+<% } else if (modelFormat === 'pkl') { %>import pickle
+<% } %>
 <% } else if (framework === 'xgboost' || framework === 'tensorflow') { %>
 <% if (framework === 'xgboost') { %>import xgboost as xgb<% } %>
 <% if (framework === 'tensorflow') { %>import tensorflow as tf<% } %>
@@ -67,13 +69,14 @@ print(f"Model trained and saved. Test MAE: {test_mae:.3f}")
 <% } %>
 
 # Save model
-<% if (modelFormat === 'joblib') { %>joblib.dump(model, './abalone_model.joblib')<% }
-else if (modelFormat === 'pkl') { %>with open('./abalone_model.pkl', 'wb') as f: pickle.dump(model, f)<% }
-else if (modelFormat === 'json') { %>model.save_model('./abalone_model.json')<% }
-else if (modelFormat === 'model') { %>model.save_model('./abalone_model.model')<% }
-else if (modelFormat === 'ubj') { %>model.save_model('./abalone_model.ubj')<% }
-else if (modelFormat === 'h5') { %>model.save('./abalone_model.h5')<% }
-else if (modelFormat === 'keras') { %>model.save('./abalone_model.keras')<% }
-else if (modelFormat === 'SavedModel') {%>model.export('./abalone_model')<% } %>
+<% if (modelFormat === 'joblib') { %>joblib.dump(model, './abalone_model.joblib')
+<% } else if (modelFormat === 'pkl') { %>with open('./abalone_model.pkl', 'wb') as f: pickle.dump(model, f)
+<% } else if (modelFormat === 'json') { %>model.save_model('./abalone_model.json')
+<% } else if (modelFormat === 'model') { %>model.save_model('./abalone_model.model')
+<% } else if (modelFormat === 'ubj') { %>model.save_model('./abalone_model.ubj')
+<% } else if (modelFormat === 'h5') { %>model.save('./abalone_model.h5')
+<% } else if (modelFormat === 'keras') { %>model.save('./abalone_model.keras')
+<% } else if (modelFormat === 'SavedModel') { %>model.export('./abalone_model')
+<% } %>
 
 print("Model saved.")

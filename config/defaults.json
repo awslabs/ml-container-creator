@@ -1,0 +1,32 @@
+{
+  "generator": {
+    "name": "ml-container-creator",
+    "version": "1.0.0"
+  },
+  "defaults": {
+    "framework": "sklearn",
+    "modelFormat": "pkl",
+    "modelServer": "flask",
+    "deployTarget": "sagemaker",
+    "instanceType": "cpu-optimized",
+    "awsRegion": "us-east-1",
+    "includeTesting": true,
+    "testTypes": ["local-model-cli", "local-model-server", "hosted-model-endpoint"],
+    "includeSampleModel": false,
+    "skipPrompts": false
+  },
+  "validation": {
+    "supportedFrameworks": ["sklearn", "xgboost", "tensorflow", "transformers"],
+    "supportedModelServers": ["flask", "fastapi", "vllm", "sglang"],
+    "supportedInstanceTypes": ["cpu-optimized", "gpu-enabled"],
+    "supportedRegions": ["us-east-1", "us-west-2", "eu-west-1"]
+  },
+  "templates": {
+    "ignorePatterns": [
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/dist/**",
+      "**/*.log"
+    ]
+  }
+}

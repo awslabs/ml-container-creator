@@ -8,7 +8,7 @@
  * should be included or excluded based on user configuration choices.
  */
 
-class TemplateManager {
+export default class TemplateManager {
     constructor(answers) {
         this.answers = answers;
     }
@@ -85,7 +85,12 @@ class TemplateManager {
             deployment: ['sagemaker'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             instanceTypes: ['cpu-optimized', 'gpu-enabled'],
-            awsRegions: ['us-east-1']
+            awsRegions: [
+                'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
+                'eu-west-1', 'eu-west-2', 'eu-central-1', 'eu-north-1',
+                'ap-southeast-1', 'ap-southeast-2', 'ap-northeast-1',
+                'ca-central-1', 'sa-east-1'
+            ]
         };
 
         this._validateChoice('framework', supportedOptions.frameworks);
@@ -114,4 +119,3 @@ class TemplateManager {
     }
 }
 
-module.exports = TemplateManager;

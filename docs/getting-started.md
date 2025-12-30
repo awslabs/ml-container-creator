@@ -74,7 +74,7 @@ mise run test
 
 ## Your First Project
 
-Let's create a simple scikit-learn model container.
+Let's create a simple scikit-learn model container. For more advanced configuration options, see the [Configuration Guide](configuration.md).
 
 ### Step 1: Prepare Your Model
 
@@ -348,6 +348,60 @@ aws sagemaker delete-model --model-name iris-classifier-model
 # Delete ECR repository (optional)
 aws ecr delete-repository --repository-name iris-classifier --force
 ```
+
+## Configuration Options
+
+The example above used interactive prompts, but ML Container Creator supports multiple configuration methods for different workflows:
+
+### Quick CLI Generation
+
+Skip prompts entirely using CLI options:
+
+```bash
+# Generate sklearn project with CLI options
+yo ml-container-creator iris-classifier \
+  --framework=sklearn \
+  --model-server=flask \
+  --model-format=pkl \
+  --include-testing \
+  --skip-prompts
+```
+
+### Configuration Files
+
+Create reusable configuration files:
+
+```bash
+# Generate configuration file
+yo ml-container-creator configure
+
+# Use configuration file
+yo ml-container-creator --skip-prompts
+```
+
+### Environment Variables
+
+Set deployment-specific variables:
+
+```bash
+export AWS_REGION=us-west-2
+export ML_INSTANCE_TYPE=gpu-enabled
+yo ml-container-creator --framework=transformers --model-server=vllm --skip-prompts
+```
+
+### Configuration Precedence
+
+Configuration sources are applied in order (highest to lowest priority):
+
+1. **CLI Options** (`--framework=sklearn`)
+2. **CLI Arguments** (`yo ml-container-creator my-project`)
+3. **Environment Variables** (`AWS_REGION=us-east-1`)
+4. **Config Files** (`--config=prod.json` or `ml-container.config.json`)
+5. **Package.json** (`"ml-container-creator": {...}`)
+6. **Generator Defaults**
+7. **Interactive Prompts** (fallback)
+
+For complete configuration documentation, see the [Configuration Guide](configuration.md).
 
 ## Next Steps
 

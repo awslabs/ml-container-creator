@@ -5,6 +5,11 @@
 # Exit on any error
 set -e
 
+<% if (awsRoleArn && awsRoleArn !== null && awsRoleArn !== '') { %>
+# Using configured execution role ARN
+ROLE_ARN="<%= awsRoleArn %>"
+echo "Using configured execution role: ${ROLE_ARN}"
+<% } else { %>
 # Check if execution role ARN is provided
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <execution-role-arn>"
@@ -13,6 +18,8 @@ if [ $# -ne 1 ]; then
 fi
 
 ROLE_ARN=$1
+echo "Using execution role: ${ROLE_ARN}"
+<% } %>
 
 # Configuration
 IMAGE_NAME="<%= projectName %>"
@@ -23,9 +30,9 @@ TIMESTAMP=$(date +%s)
 MODEL_NAME="<%= framework %>-model-${TIMESTAMP}"
 ENDPOINT_CONFIG_NAME="<%= framework %>-endpoint-config-${TIMESTAMP}"
 ENDPOINT_NAME="<%= framework %>-endpoint-${TIMESTAMP}"
-<% if (instanceType === 'cpu-optimized') { %>INSTANCE_TYPE="ml.m6g.large"<% } else if (instanceType === 'gpu-enabled') { %>INSTANCE_TYPE="ml.g5.xlarge"<% } %>
-
-echo "Using execution role: ${ROLE_ARN}"
+<% if (instanceType === 'cpu-optimized') { %>INSTANCE_TYPE="ml.m6g.large"
+<% } else if (instanceType === 'gpu-enabled') { %>INSTANCE_TYPE="ml.g5.xlarge"
+<% } %>
 
 # Pull the latest image
 echo "Pulling image from ECR..."

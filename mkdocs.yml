@@ -49,10 +49,12 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - User Guide:
+      - Configuration Guide: configuration.md
       - Examples: EXAMPLES.md
       - Troubleshooting: TROUBLESHOOTING.md
   - Developer Guide:
       - Contributing: CONTRIBUTING.md
+      - Testing Guide: testing.md
       - Adding Features: ADDING_FEATURES.md
       - Template System: template-system.md
       - Project Architecture: architecture.md

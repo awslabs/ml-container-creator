@@ -3,18 +3,30 @@
 
 import numpy as np
 <% if (framework === 'sklearn') { %>
-<% if (modelFormat === 'joblib') { %>import joblib<% } else if (modelFormat === 'pkl') { %>import pickle<% } %>
-<% } else if (framework === 'xgboost') { %>import xgboost as xgb<% } else if (framework === 'tensorflow') { %>import tensorflow as tf<% } %>
+<% if (modelFormat === 'joblib') { %>import joblib
+<% } else if (modelFormat === 'pkl') { %>import pickle
+<% } %>
+<% } else if (framework === 'xgboost') { %>import xgboost as xgb
+<% } else if (framework === 'tensorflow') { %>import tensorflow as tf
+<% } %>
 
 # Load the trained model
 <% if (framework === 'sklearn') { %>
-<% if (modelFormat === 'joblib') { %>model = joblib.load('./abalone_model.joblib')<% } else if (modelFormat === 'pkl') { %>with open('./abalone_model.pkl', 'rb') as f:
-    model = pickle.load(f)<% } %>
+<% if (modelFormat === 'joblib') { %>model = joblib.load('./abalone_model.joblib')
+<% } else if (modelFormat === 'pkl') { %>with open('./abalone_model.pkl', 'rb') as f:
+    model = pickle.load(f)
+<% } %>
 <% } else if (framework === 'xgboost') { %>model = xgb.Booster()
-<% if (modelFormat === 'json') { %>model.load_model('./abalone_model.json')<% } else if (modelFormat === 'model') { %>model.load_model('./abalone_model.model')<% } else if (modelFormat === 'ubj') { %>model.load_model('./abalone_model.ubj')<% } %>
+<% if (modelFormat === 'json') { %>model.load_model('./abalone_model.json')
+<% } else if (modelFormat === 'model') { %>model.load_model('./abalone_model.model')
+<% } else if (modelFormat === 'ubj') { %>model.load_model('./abalone_model.ubj')
+<% } %>
 <% } else if (framework === 'tensorflow') { %>
-<% if (modelFormat === 'keras') { %>model = tf.keras.models.load_model('./abalone_model.keras')<% } else if (modelFormat === 'h5') { %>model = tf.keras.models.load_model('./abalone_model.h5')<% } else if (modelFormat === 'SavedModel') { %>model = tf.saved_model.load('./abalone_model')
-model = model.signatures['serving_default']<% } %>
+<% if (modelFormat === 'keras') { %>model = tf.keras.models.load_model('./abalone_model.keras')
+<% } else if (modelFormat === 'h5') { %>model = tf.keras.models.load_model('./abalone_model.h5')
+<% } else if (modelFormat === 'SavedModel') { %>model = tf.saved_model.load('./abalone_model')
+model = model.signatures['serving_default']
+<% } %>
 <% } %>
 
 # Create synthetic input array for abalone prediction
