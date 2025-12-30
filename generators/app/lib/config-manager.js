@@ -299,16 +299,16 @@ export default class ConfigManager {
         if (!paramConfig) return false;
         
         switch (source) {
-            case 'envVar':
-                return paramConfig.envVar !== null;
-            case 'configFile':
-                return paramConfig.configFile === true;
-            case 'packageJson':
-                return paramConfig.packageJson === true;
-            case 'cliOption':
-                return paramConfig.cliOption !== null;
-            default:
-                return false;
+        case 'envVar':
+            return paramConfig.envVar !== null;
+        case 'configFile':
+            return paramConfig.configFile === true;
+        case 'packageJson':
+            return paramConfig.packageJson === true;
+        case 'cliOption':
+            return paramConfig.cliOption !== null;
+        default:
+            return false;
         }
     }
 
@@ -521,7 +521,7 @@ export default class ConfigManager {
     _hasCompleteConfiguration() {
         // Only check promptable required parameters
         const promptableRequired = Object.entries(this.parameterMatrix)
-            .filter(([param, config]) => config.required && config.promptable)
+            .filter(([_param, config]) => config.required && config.promptable)
             .map(([param]) => param);
         
         // Special case: modelFormat is not required for transformers
@@ -671,7 +671,7 @@ export default class ConfigManager {
         
         // Validate that transformers framework has sample model disabled
         if (config.framework === 'transformers' && config.includeSampleModel === true) {
-            errors.push(`Framework 'transformers' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
+            errors.push('Framework \'transformers\' does not support sample models. The \'includeSampleModel\' parameter will be automatically set to false.');
         }
 
         return errors;
@@ -743,75 +743,75 @@ export default class ConfigManager {
         const supportedOptions = this._getSupportedOptions();
         
         switch (parameter) {
-            case 'framework':
-                if (value && !supportedOptions.frameworks.includes(value)) {
+        case 'framework':
+            if (value && !supportedOptions.frameworks.includes(value)) {
+                throw new ValidationError(
+                    `Unsupported framework: ${value}. Supported: ${supportedOptions.frameworks.join(', ')}`,
+                    parameter,
+                    value
+                );
+            }
+            break;
+                
+        case 'modelServer':
+            if (value && context.framework) {
+                const validServers = supportedOptions.modelServers[context.framework] || [];
+                if (!validServers.includes(value)) {
                     throw new ValidationError(
-                        `Unsupported framework: ${value}. Supported: ${supportedOptions.frameworks.join(', ')}`,
+                        `Model server '${value}' is not compatible with framework '${context.framework}'. Compatible servers: ${validServers.join(', ')}`,
                         parameter,
                         value
                     );
                 }
-                break;
+            }
+            break;
                 
-            case 'modelServer':
-                if (value && context.framework) {
-                    const validServers = supportedOptions.modelServers[context.framework] || [];
-                    if (!validServers.includes(value)) {
-                        throw new ValidationError(
-                            `Model server '${value}' is not compatible with framework '${context.framework}'. Compatible servers: ${validServers.join(', ')}`,
-                            parameter,
-                            value
-                        );
-                    }
-                }
-                break;
-                
-            case 'modelFormat':
-                if (value && context.framework && context.framework !== 'transformers') {
-                    const validFormats = supportedOptions.modelFormats[context.framework] || [];
-                    if (validFormats.length > 0 && !validFormats.includes(value)) {
-                        throw new ValidationError(
-                            `Model format '${value}' is not compatible with framework '${context.framework}'. Compatible formats: ${validFormats.join(', ')}`,
-                            parameter,
-                            value
-                        );
-                    }
-                }
-                break;
-                
-            case 'instanceType':
-                if (value && !supportedOptions.instanceTypes.includes(value)) {
+        case 'modelFormat':
+            if (value && context.framework && context.framework !== 'transformers') {
+                const validFormats = supportedOptions.modelFormats[context.framework] || [];
+                if (validFormats.length > 0 && !validFormats.includes(value)) {
                     throw new ValidationError(
-                        `Unsupported instance type: ${value}. Supported types: ${supportedOptions.instanceTypes.join(', ')}`,
+                        `Model format '${value}' is not compatible with framework '${context.framework}'. Compatible formats: ${validFormats.join(', ')}`,
                         parameter,
                         value
                     );
                 }
-                // Special validation for transformers requiring GPU
-                if (value === 'cpu-optimized' && context.framework === 'transformers') {
-                    throw new ValidationError(
-                        `Framework 'transformers' requires GPU-enabled instances. CPU-optimized instances are not supported for transformer models.`,
-                        parameter,
-                        value
-                    );
-                }
-                break;
+            }
+            break;
                 
-            case 'awsRegion':
-                if (value && !supportedOptions.awsRegions.includes(value)) {
-                    throw new ValidationError(
-                        `Unsupported AWS region: ${value}. Supported regions: ${supportedOptions.awsRegions.join(', ')}`,
-                        parameter,
-                        value
-                    );
-                }
-                break;
+        case 'instanceType':
+            if (value && !supportedOptions.instanceTypes.includes(value)) {
+                throw new ValidationError(
+                    `Unsupported instance type: ${value}. Supported types: ${supportedOptions.instanceTypes.join(', ')}`,
+                    parameter,
+                    value
+                );
+            }
+            // Special validation for transformers requiring GPU
+            if (value === 'cpu-optimized' && context.framework === 'transformers') {
+                throw new ValidationError(
+                    'Framework \'transformers\' requires GPU-enabled instances. CPU-optimized instances are not supported for transformer models.',
+                    parameter,
+                    value
+                );
+            }
+            break;
                 
-            case 'awsRoleArn':
-                if (value) {
-                    this._isValidArn(value);
-                }
-                break;
+        case 'awsRegion':
+            if (value && !supportedOptions.awsRegions.includes(value)) {
+                throw new ValidationError(
+                    `Unsupported AWS region: ${value}. Supported regions: ${supportedOptions.awsRegions.join(', ')}`,
+                    parameter,
+                    value
+                );
+            }
+            break;
+                
+        case 'awsRoleArn':
+            if (value) {
+                this._isValidArn(value);
+            }
+            break;
         }
     }
 

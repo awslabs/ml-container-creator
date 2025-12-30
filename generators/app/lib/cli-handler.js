@@ -11,7 +11,7 @@
  */
 
 import fs from 'fs';
-import path from 'path';
+// import path from 'path'; // Unused import removed
 
 export default class CliHandler {
     constructor(generator) {
@@ -39,23 +39,23 @@ export default class CliHandler {
         const command = args[0].toLowerCase();
 
         switch (command) {
-            case 'configure':
-                await this._handleConfigure();
-                return true;
+        case 'configure':
+            await this._handleConfigure();
+            return true;
                 
-            case 'generate-empty-config':
-                await this._handleGenerateEmptyConfig();
-                return true;
+        case 'generate-empty-config':
+            await this._handleGenerateEmptyConfig();
+            return true;
                 
-            case 'help':
-            case '--help':
-            case '-h':
-                this._showHelp();
-                return true;
+        case 'help':
+        case '--help':
+        case '-h':
+            this._showHelp();
+            return true;
                 
-            default:
-                // If it's not a special command, treat as project name
-                return false;
+        default:
+            // If it's not a special command, treat as project name
+            return false;
         }
     }
 
@@ -82,18 +82,18 @@ export default class CliHandler {
         ]);
 
         switch (answers.configType) {
-            case 'package':
-                await this._createPackageJsonConfig();
-                break;
-            case 'custom':
-                await this._createCustomConfig();
-                break;
-            case 'env':
-                this._showEnvironmentExamples();
-                break;
-            case 'cli':
-                this._showCliExamples();
-                break;
+        case 'package':
+            await this._createPackageJsonConfig();
+            break;
+        case 'custom':
+            await this._createCustomConfig();
+            break;
+        case 'env':
+            this._showEnvironmentExamples();
+            break;
+        case 'cli':
+            this._showCliExamples();
+            break;
         }
     }
 
@@ -359,16 +359,16 @@ yo ml-container-creator --config=production.json --skip-prompts
      */
     _getEmptyConfig() {
         return {
-            "projectName": "my-ml-project",
-            "framework": "sklearn",
-            "modelServer": "flask",
-            "modelFormat": "pkl",
-            "includeSampleModel": false,
-            "includeTesting": true,
-            "testTypes": ["local-model-cli", "local-model-server", "hosted-model-endpoint"],
-            "deployTarget": "sagemaker",
-            "instanceType": "cpu-optimized",
-            "awsRegion": "us-east-1"
+            'projectName': 'my-ml-project',
+            'framework': 'sklearn',
+            'modelServer': 'flask',
+            'modelFormat': 'pkl',
+            'includeSampleModel': false,
+            'includeTesting': true,
+            'testTypes': ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
+            'deployTarget': 'sagemaker',
+            'instanceType': 'cpu-optimized',
+            'awsRegion': 'us-east-1'
         };
     }
 }

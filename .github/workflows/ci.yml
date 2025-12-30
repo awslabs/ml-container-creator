@@ -147,9 +147,19 @@ jobs:
       - name: Check for high vulnerabilities (warning only)
         run: |
           echo "⚠️  Checking for high vulnerabilities (warning only)..."
-          if npm audit --audit-level=high --json 2>/dev/null | jq -e '.vulnerabilities | length > 0' > /dev/null 2>&1; then
+          # Run high-level audit and capture output
+          set +e  # Don't exit on error
+          high_audit_output=$(npm audit --audit-level=high 2>&1)
+          high_exit_code=$?
+          set -e  # Re-enable exit on error
+          
+          # Check if output contains high vulnerabilities
+          if echo "$high_audit_output" | grep -qi "Severity:.*high\|high severity"; then
             echo "⚠️  High vulnerabilities found (not blocking):"
-            npm audit --audit-level=high || true
+            echo "$high_audit_output"
+            echo "ℹ️  Consider addressing these vulnerabilities when possible"
+          elif echo "$high_audit_output" | grep -qi "0 vulnerabilities" || echo "$high_audit_output" | grep -qi "found 0 vulnerabilities"; then
+            echo "✅ No high vulnerabilities found"
           else
             echo "✅ No high vulnerabilities found"
           fi
