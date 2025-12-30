@@ -74,7 +74,8 @@ jobs:
 
       - name: Test generator installation
         run: |
-          npm install -g yo
+          # Install Yeoman with current Node version
+          npm install -g yo@latest
           npm link
           echo "Testing generator help command..."
           yo ml-container-creator help
@@ -123,12 +124,12 @@ jobs:
       - name: Check for critical vulnerabilities
         run: |
           echo "🔒 Checking for critical vulnerabilities..."
-          if npm audit --audit-level=critical --json 2>/dev/null | jq -e '.vulnerabilities | length > 0' > /dev/null 2>&1; then
-            echo "❌ Critical vulnerabilities found"
-            npm audit --audit-level=critical
-            exit 1
-          else
+          # Run critical audit - exit code 0 means no critical vulnerabilities
+          if npm audit --audit-level=critical; then
             echo "✅ No critical vulnerabilities found"
+          else
+            echo "❌ Critical vulnerabilities detected"
+            exit 1
           fi
 
       - name: Check for high vulnerabilities (warning only)
