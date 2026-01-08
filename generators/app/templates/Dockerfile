@@ -53,19 +53,25 @@ RUN mkdir -p /opt/ml/input/data \
 
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# REPLACE WITH YOUR MODEL FILE
+# Model files will be provided at runtime via SageMaker model artifacts
+<% if (includeSampleModel) { %>
+# Copy the generated sample model
 <% if (modelFormat === 'SavedModel') { %>
-COPY "sample_model/abalone_model" /opt/ml/model
+COPY sample_model/abalone_model /opt/ml/model/
 <% } else { %>
-COPY "sample_model/abalone_model.<%=modelFormat%>" /opt/ml/model
+COPY sample_model/abalone_model.<%= modelFormat %> /opt/ml/model/
+<% } %>
+# Also copy training script for reference
+COPY sample_model/ /opt/ml/sample_model/
+<% } else { %>
+# COPY your_model_files /opt/ml/model/
 <% } %>
 
 # Set environment variables for SageMaker
-ENV PYTHONPATH=/opt/ml/code:$PYTHONPATH
-ENV SAGEMAKER_BIND_TO_PORT=$SAGEMAKER_BIND_TO_PORT
+ENV PYTHONPATH=/opt/ml/code
+ENV SAGEMAKER_BIND_TO_PORT=8080
 
-# Expose port $SAGEMAKER_BIND_TO_PORT for SageMaker inference
-#EXPOSE $SAGEMAKER_BIND_TO_PORT
+# Expose port 8080 for SageMaker inference
 EXPOSE 8080
 
 # Set the inference script as the entry point
@@ -80,6 +86,9 @@ ARG BASE_IMAGE=lmsysorg/sglang:v0.5.4.post1
 <% } %>
 
 FROM ${BASE_IMAGE}
+
+# Set the model name for the transformer model
+ENV OPTION_MODEL="<%= modelName %>"
 
 COPY code/serve /usr/bin/serve
 RUN chmod 777 /usr/bin/serve

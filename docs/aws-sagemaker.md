@@ -154,6 +154,7 @@ Then follow standard flow with ModelDataUrl pointing to S3
 - **ml.g4dn.2xlarge** - 1 GPU (16GB), 8 vCPU - Medium LLMs
 - **ml.g5.xlarge** - 1 GPU (24GB), 4 vCPU - Larger models
 - **ml.g5.2xlarge** - 1 GPU (24GB), 8 vCPU - Better performance
+- **ml.g6.12xlarge** - 4 GPUs (96GB), 48 vCPU - **Default for transformers** - Large LLMs
 - **ml.p3.2xlarge** - 1 GPU (16GB V100) - Training/large inference
 - **ml.p4d.24xlarge** - 8 GPUs (40GB A100) - Very large models
 

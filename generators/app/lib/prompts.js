@@ -65,6 +65,35 @@ const modelFormatPrompts = [
             return formatMap[answers.framework] || [];
         },
         when: answers => answers.framework !== 'transformers'
+    },
+    {
+        type: 'list',
+        name: 'modelName',
+        message: 'Which model do you want to use?',
+        choices: [
+            'openai/gpt-oss-20b',
+            'meta-llama/Llama-3.2-3B-Instruct',
+            'meta-llama/Llama-3.2-1B-Instruct',
+            'Custom (enter manually)'
+        ],
+        default: 'openai/gpt-oss-20b',
+        when: answers => answers.framework === 'transformers'
+    },
+    {
+        type: 'input',
+        name: 'customModelName',
+        message: 'Enter the Hugging Face model path:',
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return 'Model name is required for transformers';
+            }
+            // Basic validation for Hugging Face model format (org/model-name)
+            if (!input.includes('/')) {
+                return 'Please use the full Hugging Face model path (e.g., microsoft/DialoGPT-medium)';
+            }
+            return true;
+        },
+        when: answers => answers.framework === 'transformers' && answers.modelName === 'Custom (enter manually)'
     }
 ];
 
@@ -127,8 +156,20 @@ const infrastructurePrompts = [
         type: 'list',
         name: 'deployTarget',
         message: 'Deployment target?',
-        choices: ['sagemaker'],
+        choices: ['sagemaker', 'codebuild'],
         default: 'sagemaker'
+    },
+    {
+        type: 'list',
+        name: 'codebuildComputeType',
+        message: 'CodeBuild compute type?',
+        choices: [
+            'BUILD_GENERAL1_SMALL',
+            'BUILD_GENERAL1_MEDIUM',
+            'BUILD_GENERAL1_LARGE'
+        ],
+        default: 'BUILD_GENERAL1_MEDIUM',
+        when: answers => answers.deployTarget === 'codebuild'
     },
     {
         type: 'list',

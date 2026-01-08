@@ -35,5 +35,7 @@ psutil==6.0.0  # For system monitoring
 prometheus-client==0.20.0  # For metrics (if needed)
 
 <% if (includeSampleModel) { %>
+# Sample model dependencies
 ucimlrepo
+pandas
 <% } %>

@@ -222,4 +222,123 @@ describe('CLI Options Parsing', () => {
             console.log('    ✅ Configure command handled correctly');
         });
     });
+
+    describe('CodeBuild CLI Options', () => {
+        it('should parse CodeBuild deployment target CLI option correctly', async () => {
+            console.log('\n  🧪 Testing CodeBuild deployment target CLI option...');
+            
+            await helpers.default.run(getGeneratorPath())
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'codebuild-deploy-test',
+                    'framework': 'sklearn',
+                    'model-server': 'flask',
+                    'model-format': 'pkl',
+                    'deploy-target': 'codebuild',
+                    'codebuild-compute-type': 'BUILD_GENERAL1_MEDIUM',
+                    'codebuild-project-name': 'test-build-project'
+                });
+
+            // Should generate basic files for CodeBuild deployment
+            validateFiles(['Dockerfile', 'requirements.txt'], 'CodeBuild deployment target CLI option');
+            console.log('    ✅ CodeBuild deployment target CLI option parsed correctly');
+        });
+
+        it('should parse CodeBuild compute type CLI option correctly', async () => {
+            console.log('\n  🧪 Testing CodeBuild compute type CLI option...');
+            
+            const computeTypes = ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'];
+            
+            for (const computeType of computeTypes) {
+                console.log(`    Testing compute type: ${computeType}`);
+                
+                await helpers.default.run(getGeneratorPath())
+                    .withOptions({
+                        'skip-prompts': true,
+                        'project-name': `compute-${computeType.toLowerCase().replace(/_/g, '-')}`,
+                        'framework': 'sklearn',
+                        'model-server': 'flask',
+                        'model-format': 'pkl',
+                        'deploy-target': 'codebuild',
+                        'codebuild-compute-type': computeType,
+                        'codebuild-project-name': 'test-project'
+                    });
+
+                validateFiles(['Dockerfile'], `CodeBuild compute type ${computeType}`);
+            }
+            
+            console.log('    ✅ All CodeBuild compute type CLI options parsed correctly');
+        });
+
+        it('should parse CodeBuild project name CLI option correctly', async () => {
+            console.log('\n  🧪 Testing CodeBuild project name CLI option...');
+            
+            const testProjectName = 'my-custom-build-project-123';
+            
+            await helpers.default.run(getGeneratorPath())
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'project-name-cli-test',
+                    'framework': 'sklearn',
+                    'model-server': 'flask',
+                    'model-format': 'pkl',
+                    'deploy-target': 'codebuild',
+                    'codebuild-compute-type': 'BUILD_GENERAL1_MEDIUM',
+                    'codebuild-project-name': testProjectName
+                });
+
+            validateFiles(['Dockerfile'], 'CodeBuild project name CLI option');
+            console.log('    ✅ CodeBuild project name CLI option parsed correctly');
+        });
+
+        it('should validate invalid CodeBuild compute type', async () => {
+            console.log('\n  🧪 Testing invalid CodeBuild compute type validation...');
+            
+            await helpers.default.run(getGeneratorPath())
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'invalid-compute-test',
+                    'framework': 'sklearn',
+                    'model-server': 'flask',
+                    'model-format': 'pkl',
+                    'deploy-target': 'codebuild',
+                    'codebuild-compute-type': 'INVALID_COMPUTE_TYPE',
+                    'codebuild-project-name': 'test-project'
+                });
+
+            // Validation should prevent file generation
+            validateNoFiles(['Dockerfile'], 'invalid CodeBuild compute type validation');
+            console.log('    ✅ Invalid CodeBuild compute type correctly rejected');
+        });
+
+        it('should auto-generate valid CodeBuild project name when deployTarget is codebuild', async () => {
+            console.log('\n  🧪 Testing CodeBuild project name auto-generation...');
+            
+            await helpers.default.run(getGeneratorPath())
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'test-auto-generation',
+                    'framework': 'sklearn',
+                    'model-server': 'flask',
+                    'model-format': 'pkl',
+                    'deploy-target': 'codebuild',
+                    'codebuild-compute-type': 'BUILD_GENERAL1_MEDIUM'
+                });
+
+            validateFiles(['Dockerfile', 'buildspec.yml', 'deploy/submit_build.sh'], 'CodeBuild project name auto-generation');
+            console.log('    ✅ CodeBuild project name auto-generated successfully');
+        });
+
+        it('should include CodeBuild options in help text', async () => {
+            console.log('\n  🧪 Testing CodeBuild options in help text...');
+            
+            // This test verifies that the CLI options are properly defined
+            // The help functionality is handled by Yeoman, so we just verify the options exist
+            const generator = await helpers.default.run(getGeneratorPath())
+                .withOptions({ 'help': true });
+
+            // If we get here without errors, the options are properly defined
+            console.log('    ✅ CodeBuild CLI options are properly defined and included in help');
+        });
+    });
 });

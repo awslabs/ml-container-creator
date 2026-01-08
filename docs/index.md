@@ -87,14 +87,17 @@ Answer a few questions about your model, and get a complete container with model
 
 ### ☁️ AWS Integration
 
-- ECR image building and pushing scripts
-- SageMaker endpoint deployment scripts
-- S3 model artifact support (for transformers)
-- IAM role configuration guidance
+- **Multiple deployment targets** - SageMaker direct or CodeBuild CI/CD
+- **CodeBuild CI/CD pipeline** - Automated Docker building with shared ECR repository
+- **ECR image building** and pushing scripts
+- **SageMaker endpoint deployment** scripts
+- **S3 model artifact support** (for transformers)
+- **IAM role configuration** guidance and automatic provisioning
+- **Infrastructure automation** - CodeBuild projects, IAM roles, S3 buckets
 
 ### 🎯 Instance Types
 
-Currently supports **CPU-optimized** instances. The generated deployment scripts can be customized to use GPU instances (ml.g4dn.xlarge, ml.g5.xlarge, ml.p3.2xlarge) for your specific needs.
+Currently supports **CPU-optimized** instances. The generated deployment scripts can be customized to use GPU instances (ml.g4dn.xlarge, ml.g5.xlarge, ml.p3.2xlarge) for your specific needs. Transformer models default to **ml.g6.12xlarge** for optimal LLM performance.
 
 ## Documentation
 

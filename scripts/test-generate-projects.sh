@@ -456,7 +456,9 @@ test_env_variables() {
         
         # Map instance type to actual AWS instance type for validation
         local expected_instance_type
-        if [[ "$instance_type" == "gpu-enabled" ]]; then
+        if [[ "$instance_type" == "gpu-enabled" && "$framework" == "transformers" ]]; then
+            expected_instance_type="ml.g6.12xlarge"
+        elif [[ "$instance_type" == "gpu-enabled" ]]; then
             expected_instance_type="ml.g5.xlarge"
         elif [[ "$instance_type" == "cpu-optimized" ]]; then
             expected_instance_type="ml.m6g.large"

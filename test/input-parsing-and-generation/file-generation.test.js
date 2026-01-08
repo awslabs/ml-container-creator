@@ -306,6 +306,82 @@ describe('File Generation', () => {
         });
     });
 
+    describe('Deployment Target File Exclusion', () => {
+        it('should exclude CodeBuild files when deployTarget is sagemaker', async () => {
+            console.log('\n  🧪 Testing CodeBuild file exclusion for SageMaker deployment...');
+            
+            await helpers.default.run(getGeneratorPath())
+                .withOptions({
+                    'skip-prompts': true,
+                    'framework': 'sklearn',
+                    'model-server': 'flask',
+                    'model-format': 'pkl',
+                    'deploy-target': 'sagemaker'
+                });
+
+            // Should include SageMaker files
+            validateFiles(['deploy/build_and_push.sh'], 'SageMaker deployment files');
+            
+            // Should exclude CodeBuild files
+            validateNoFiles(['buildspec.yml', 'deploy/submit_build.sh', 'IAM_PERMISSIONS.md'], 'CodeBuild files excluded for SageMaker');
+            console.log('    ✅ CodeBuild files correctly excluded for SageMaker deployment');
+        });
+
+        it('should exclude SageMaker files when deployTarget is codebuild', async () => {
+            console.log('\n  🧪 Testing SageMaker file exclusion for CodeBuild deployment...');
+            
+            await helpers.default.run(getGeneratorPath())
+                .withOptions({
+                    'skip-prompts': true,
+                    'framework': 'sklearn',
+                    'model-server': 'flask',
+                    'model-format': 'pkl',
+                    'deploy-target': 'codebuild'
+                });
+
+            // Should include CodeBuild files
+            validateFiles(['buildspec.yml', 'deploy/submit_build.sh', 'IAM_PERMISSIONS.md'], 'CodeBuild deployment files');
+            
+            // Should exclude SageMaker files
+            validateNoFiles(['deploy/build_and_push.sh'], 'SageMaker files excluded for CodeBuild');
+            console.log('    ✅ SageMaker files correctly excluded for CodeBuild deployment');
+        });
+
+        it('should not generate conflicting deployment scripts', async () => {
+            console.log('\n  🧪 Testing no conflicting deployment scripts...');
+            
+            // Test CodeBuild deployment
+            await helpers.default.run(getGeneratorPath())
+                .withOptions({
+                    'skip-prompts': true,
+                    'framework': 'sklearn',
+                    'model-server': 'flask',
+                    'model-format': 'pkl',
+                    'deploy-target': 'codebuild'
+                });
+
+            // Should have CodeBuild scripts but not SageMaker scripts
+            validateFiles(['deploy/submit_build.sh'], 'CodeBuild scripts');
+            validateNoFiles(['deploy/build_and_push.sh'], 'No conflicting SageMaker scripts');
+            
+            // Test SageMaker deployment
+            await helpers.default.run(getGeneratorPath())
+                .withOptions({
+                    'skip-prompts': true,
+                    'framework': 'sklearn',
+                    'model-server': 'flask',
+                    'model-format': 'pkl',
+                    'deploy-target': 'sagemaker'
+                });
+
+            // Should have SageMaker scripts but not CodeBuild scripts
+            validateFiles(['deploy/build_and_push.sh'], 'SageMaker scripts');
+            validateNoFiles(['deploy/submit_build.sh'], 'No conflicting CodeBuild scripts');
+            
+            console.log('    ✅ No conflicting deployment scripts generated');
+        });
+    });
+
     describe('File Content Validation', () => {
         it('should generate Dockerfile with correct project name', async () => {
             console.log('\n  🧪 Testing Dockerfile project name...');

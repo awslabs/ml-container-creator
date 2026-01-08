@@ -35,6 +35,13 @@ export default class TemplateManager {
             patterns.push('**/code/flask/**');
         }
 
+        // Deployment target exclusions
+        if (this.answers.deployTarget === 'codebuild') {
+            patterns.push(...this._getSageMakerOnlyExclusions());
+        } else if (this.answers.deployTarget === 'sagemaker') {
+            patterns.push(...this._getCodeBuildOnlyExclusions());
+        }
+
         // Optional module exclusions
         if (!this.answers.includeSampleModel) {
             patterns.push('**/sample_model/**');
@@ -75,6 +82,28 @@ export default class TemplateManager {
     }
 
     /**
+     * Files to exclude when CodeBuild deployment target is selected (exclude SageMaker-only files)
+     * @private
+     */
+    _getSageMakerOnlyExclusions() {
+        return [
+            '**/deploy/build_and_push.sh'   // Local Docker build script (SageMaker only)
+        ];
+    }
+
+    /**
+     * Files to exclude when SageMaker deployment target is selected (exclude CodeBuild-only files)
+     * @private
+     */
+    _getCodeBuildOnlyExclusions() {
+        return [
+            '**/buildspec.yml',             // CodeBuild project configuration
+            '**/deploy/submit_build.sh',    // CodeBuild job submission script
+            '**/IAM_PERMISSIONS.md'         // CodeBuild IAM documentation
+        ];
+    }
+
+    /**
      * Validates that the configuration is supported
      * @throws {Error} If unsupported configuration detected
      */
@@ -82,7 +111,7 @@ export default class TemplateManager {
         const supportedOptions = {
             frameworks: ['sklearn', 'xgboost', 'tensorflow', 'transformers'],
             modelServer: ['flask', 'fastapi', 'vllm', 'sglang'],
-            deployment: ['sagemaker'],
+            deployment: ['sagemaker', 'codebuild'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             instanceTypes: ['cpu-optimized', 'gpu-enabled'],
             awsRegions: [

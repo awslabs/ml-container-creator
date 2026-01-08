@@ -25,6 +25,7 @@ Amazon SageMaker Bring Your Own Container (BYOC) lets you deploy custom machine 
 
 Every generated project includes:
 - **SageMaker-compatible container** with health checks and invocation endpoints
+- **Multiple deployment options** - Direct SageMaker deployment or AWS CodeBuild for CI/CD
 - **Local testing suite** to validate before deployment
 - **Sample model and training code** to illustrate the deployment
 - **AWS deployment scripts** for ECR and SageMaker
@@ -38,6 +39,49 @@ Before you begin, ensure you have:
 - An AWS account with SageMaker access
 - Basic familiarity with Docker and command line
 - A trained machine learning model ready for deployment
+
+## 🚀 Deployment Options
+
+ML Container Creator supports two deployment approaches to fit different workflows:
+
+### 🎯 **Direct SageMaker Deployment**
+Perfect for development and quick deployments:
+- Build and push Docker image locally
+- Deploy directly to SageMaker endpoint
+- Ideal for prototyping and development environments
+
+```bash
+# Generate project with SageMaker deployment
+yo ml-container-creator my-model --deploy-target=sagemaker --skip-prompts
+
+# Deploy to SageMaker
+cd my-model
+./deploy/deploy.sh your-sagemaker-role-arn
+```
+
+### 🏗️ **CodeBuild CI/CD Pipeline**
+Enterprise-ready CI/CD with AWS CodeBuild:
+- Automated Docker image building in AWS
+- Shared ECR repository with project-specific tagging
+- Integrated with AWS infrastructure
+- Perfect for production and team environments
+
+```bash
+# Generate project with CodeBuild deployment
+yo ml-container-creator my-model --deploy-target=codebuild --skip-prompts
+
+# Submit build job and deploy
+cd my-model
+./deploy/submit_build.sh  # Builds image in CodeBuild
+./deploy/deploy.sh your-sagemaker-role-arn  # Deploys to SageMaker
+```
+
+### 🔄 **CodeBuild Features**
+- **Shared ECR Repository**: All projects use `ml-container-creator` repository with project-specific tags
+- **Automatic Infrastructure**: Creates CodeBuild projects, IAM roles, and S3 buckets automatically
+- **Build Monitoring**: Real-time build status and progress tracking
+- **Compute Options**: Small, Medium, or Large compute types for different project sizes
+- **Comprehensive Logging**: CloudWatch integration for build logs and debugging
 
 ## 🚀 Get Started in Minutes
 
@@ -81,18 +125,21 @@ yo ml-container-creator
 
 #### CLI Mode (Skip Prompts)
 ```bash
-# Basic sklearn project
+# Basic sklearn project with SageMaker deployment
 yo ml-container-creator my-sklearn-project \
   --framework=sklearn \
   --model-server=flask \
   --model-format=pkl \
+  --deploy-target=sagemaker \
   --skip-prompts
 
-# Transformers project with vLLM
+# Transformers project with vLLM and CodeBuild CI/CD
 yo ml-container-creator my-llm-project \
   --framework=transformers \
   --model-server=vllm \
   --instance-type=gpu-enabled \
+  --deploy-target=codebuild \
+  --codebuild-compute-type=BUILD_GENERAL1_MEDIUM \
   --skip-prompts
 
 # XGBoost with FastAPI and testing
@@ -101,6 +148,7 @@ yo ml-container-creator my-xgb-project \
   --model-server=fastapi \
   --model-format=json \
   --include-testing \
+  --deploy-target=sagemaker \
   --skip-prompts
 ```
 
@@ -140,6 +188,8 @@ yo ml-container-creator --config=production.json --skip-prompts
 | `--include-sample` | Include sample model code | `true/false` |
 | `--include-testing` | Include test suite | `true/false` |
 | `--test-types=<types>` | Test types (comma-separated) | `local-model-cli`, `local-model-server`, `hosted-model-endpoint` |
+| `--deploy-target=<target>` | Deployment target | `sagemaker`, `codebuild` |
+| `--codebuild-compute-type=<type>` | CodeBuild compute type | `BUILD_GENERAL1_SMALL`, `BUILD_GENERAL1_MEDIUM`, `BUILD_GENERAL1_LARGE` |
 | `--instance-type=<type>` | Instance type | `cpu-optimized`, `gpu-enabled` |
 | `--region=<region>` | AWS region | `us-east-1`, etc. |
 | `--role-arn=<arn>` | AWS IAM role ARN | `arn:aws:iam::123456789012:role/SageMakerRole` |
@@ -209,14 +259,16 @@ yo ml-container-creator --config=production.json --skip-prompts
 - **Model Servers**: `vllm`, `sglang`
 - **Model Formats**: Not applicable (loaded from Hugging Face Hub)
 - **Sample Model**: Not available
-- **Instance Types**: `gpu-enabled` (recommended)
+- **Instance Types**: `gpu-enabled` (defaults to `ml.g6.12xlarge`)
 
 ### Example: Deploy a scikit-learn Model
 
 1. **Prepare your model**: Save as `model.pkl`
 2. **Generate container**: Run `yo` and choose `ml-container-creator`
-3. **Configure**: Choose sklearn → pkl → flask
-4. **Deploy**: Run `./deploy.sh your-sagemaker-role-arn`
+3. **Configure**: Choose sklearn → pkl → flask → deployment target (SageMaker or CodeBuild)
+4. **Deploy**: 
+   - **SageMaker**: Run `./deploy/deploy.sh your-sagemaker-role-arn`
+   - **CodeBuild**: Run `./deploy/submit_build.sh` then `./deploy/deploy.sh your-sagemaker-role-arn`
 
 ## 🛠️ Requirements
 
@@ -568,10 +620,15 @@ This project is licensed under the Apache-2.0 License.
 
 ### Quick Links
 - 📖 **[Getting Started](./docs/getting-started.md)** - Installation and first project tutorial
-- 📖 **[Examples Guide](./docs/EXAMPLES.md)** - Step-by-step examples for common use cases
+- 📖 **[Examples Guide](./docs/EXAMPLES.md)** - Step-by-step examples for common use cases including CodeBuild CI/CD
 - 🔧 **[Troubleshooting Guide](./docs/TROUBLESHOOTING.md)** - Solutions to common issues
 - 🎯 **[Template System](./docs/template-system.md)** - How the template system works
 - 🏗️ **[Architecture](./docs/architecture.md)** - Complete architecture guide
+
+### Release Documentation
+- 📋 **[v1.0.0 Release Notes](./.kiro/v1.0.0-Release/RELEASE_NOTES.md)** - Complete feature descriptions and testing commands
+- 📊 **[v1.0.0 Release Summary](./.kiro/v1.0.0-Release/RELEASE_SUMMARY.md)** - High-level overview and statistics
+- ⚡ **[Quick Test Guide](./.kiro/v1.0.0-Release/REVIEWER_QUICK_TEST.md)** - Fast validation for reviewers
 
 ### For Contributors
 - 🚀 **[Contributing Guide](./docs/CONTRIBUTING.md)** - Get started contributing in 5 minutes

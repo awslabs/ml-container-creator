@@ -359,7 +359,7 @@ Each prediction takes several seconds
 2. **Use batch predictions** when possible
 3. **Choose appropriate instance type**:
    - CPU models: `ml.m5.xlarge` or larger
-   - GPU models: `ml.g5.xlarge` or larger
+   - GPU models: `ml.g5.xlarge` or larger (transformers default to `ml.g6.12xlarge`)
 4. **Optimize model size** (quantization, pruning)
 
 ### Out of Memory
@@ -373,6 +373,7 @@ Container killed: Out of memory
 1. **Use larger instance type**:
    - `ml.m5.xlarge` (16GB) → `ml.m5.2xlarge` (32GB)
    - `ml.g5.xlarge` (24GB GPU) → `ml.g5.2xlarge` (24GB GPU + more CPU RAM)
+   - For transformers: `ml.g6.12xlarge` (96GB GPU) → `ml.g6.24xlarge` (192GB GPU)
 2. **Reduce batch size** in your code
 3. **Optimize model loading** (use model quantization)
 

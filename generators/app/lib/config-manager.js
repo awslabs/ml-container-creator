@@ -57,6 +57,9 @@ export default class ConfigManager {
     async loadConfiguration() {
         // Start with generator defaults
         this.config = this._getGeneratorDefaults();
+        
+        // Track explicit configuration (non-default values)
+        this.explicitConfig = {};
 
         // Apply configurations in reverse precedence order (lowest to highest)
         await this._loadPackageJsonConfig();
@@ -90,9 +93,17 @@ export default class ConfigManager {
         // Prompting has lowest precedence, so only use for missing values
         const finalConfig = { ...promptAnswers };
         
-        // Override with our higher precedence config
+        // Override with explicit configuration (not defaults)
+        const explicitConfig = this.getExplicitConfiguration();
+        Object.keys(explicitConfig).forEach(key => {
+            if (explicitConfig[key] !== undefined && explicitConfig[key] !== null) {
+                finalConfig[key] = explicitConfig[key];
+            }
+        });
+
+        // Fill in missing values with defaults from this.config
         Object.keys(this.config).forEach(key => {
-            if (this.config[key] !== undefined && this.config[key] !== null) {
+            if (finalConfig[key] === undefined || finalConfig[key] === null) {
                 finalConfig[key] = this.config[key];
             }
         });
@@ -164,6 +175,14 @@ export default class ConfigManager {
             // Transformers don't support sample models
             finalConfig.includeSampleModel = false;
         }
+        
+        // Generate CodeBuild project name if deployTarget is codebuild
+        if (finalConfig.deployTarget === 'codebuild' && !finalConfig.codebuildProjectName) {
+            finalConfig.codebuildProjectName = this._generateCodeBuildProjectName(
+                finalConfig.projectName, 
+                finalConfig.framework
+            );
+        }
 
         // Add build timestamp if not present
         if (!finalConfig.buildTimestamp) {
@@ -171,6 +190,14 @@ export default class ConfigManager {
         }
 
         return finalConfig;
+    }
+
+    /**
+     * Gets only the explicit configuration (not defaults) for prompting
+     * @returns {Object} Explicit configuration only
+     */
+    getExplicitConfiguration() {
+        return this.explicitConfig || {};
     }
 
     /**
@@ -205,6 +232,15 @@ export default class ConfigManager {
                 promptable: true,
                 required: true,
                 default: null
+            },
+            modelName: {
+                cliOption: 'model-name',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                promptable: true,
+                required: false,
+                default: 'openai/gpt-oss-20b'
             },
             includeSampleModel: {
                 cliOption: 'include-sample',
@@ -286,6 +322,33 @@ export default class ConfigManager {
                 promptable: false,
                 required: true,
                 default: '.'
+            },
+            deployTarget: {
+                cliOption: 'deploy-target',
+                envVar: 'ML_DEPLOY_TARGET',
+                configFile: true,
+                packageJson: false,
+                promptable: true,
+                required: true,
+                default: 'sagemaker'
+            },
+            codebuildComputeType: {
+                cliOption: 'codebuild-compute-type',
+                envVar: 'ML_CODEBUILD_COMPUTE_TYPE',
+                configFile: true,
+                packageJson: false,
+                promptable: true,
+                required: false,
+                default: 'BUILD_GENERAL1_MEDIUM'
+            },
+            codebuildProjectName: {
+                cliOption: null,
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                promptable: false,
+                required: false,
+                default: null
             }
         };
     }
@@ -348,7 +411,6 @@ export default class ConfigManager {
 
         // Add legacy parameters that aren't in the matrix but are still used internally
         defaults.testTypes = null;
-        defaults.deployTarget = 'sagemaker';
 
         return defaults;
     }
@@ -471,6 +533,11 @@ export default class ConfigManager {
             const value = process.env[envVar];
             if (value !== undefined && value !== '' && this._isSourceSupported(configKey, 'envVar')) {
                 this.config[configKey] = this._parseValue(configKey, value);
+                // Track as explicit configuration
+                if (!this.explicitConfig) {
+                    this.explicitConfig = {};
+                }
+                this.explicitConfig[configKey] = this._parseValue(configKey, value);
             }
         });
     }
@@ -483,6 +550,11 @@ export default class ConfigManager {
         // First positional argument is project name
         if (this.generator.args && this.generator.args.length > 0) {
             this.config.projectName = this.generator.args[0];
+            // Track as explicit configuration
+            if (!this.explicitConfig) {
+                this.explicitConfig = {};
+            }
+            this.explicitConfig.projectName = this.generator.args[0];
         }
     }
 
@@ -497,6 +569,11 @@ export default class ConfigManager {
         Object.entries(this.parameterMatrix).forEach(([param, config]) => {
             if (config.cliOption && options[config.cliOption] !== undefined) {
                 this.config[param] = this._parseValue(param, options[config.cliOption]);
+                // Track as explicit configuration
+                if (!this.explicitConfig) {
+                    this.explicitConfig = {};
+                }
+                this.explicitConfig[param] = this._parseValue(param, options[config.cliOption]);
             }
         });
     }
@@ -509,6 +586,11 @@ export default class ConfigManager {
         Object.keys(newConfig).forEach(key => {
             if (newConfig[key] !== undefined && newConfig[key] !== null) {
                 this.config[key] = newConfig[key];
+                // Track as explicit configuration (not default)
+                if (!this.explicitConfig) {
+                    this.explicitConfig = {};
+                }
+                this.explicitConfig[key] = newConfig[key];
             }
         });
     }
@@ -577,6 +659,24 @@ export default class ConfigManager {
                 } else {
                     errors.push(`Invalid AWS Role ARN format: ${this.config.awsRoleArn}. Expected format: arn:aws:iam::123456789012:role/RoleName`);
                 }
+            }
+        }
+
+        // Validate deployment target
+        if (this.config.deployTarget && !supportedOptions.deployTargets.includes(this.config.deployTarget)) {
+            errors.push(`Unsupported deployment target: ${this.config.deployTarget}. Supported targets: ${supportedOptions.deployTargets.join(', ')}`);
+        }
+
+        // Validate CodeBuild compute type
+        if (this.config.codebuildComputeType && !supportedOptions.codebuildComputeTypes.includes(this.config.codebuildComputeType)) {
+            errors.push(`Unsupported CodeBuild compute type: ${this.config.codebuildComputeType}. Supported types: ${supportedOptions.codebuildComputeTypes.join(', ')}`);
+        }
+
+        // Validate CodeBuild project name format
+        if (this.config.codebuildProjectName) {
+            const projectNamePattern = /^[a-zA-Z0-9][a-zA-Z0-9\-_]{1,254}$/;
+            if (!projectNamePattern.test(this.config.codebuildProjectName)) {
+                errors.push(`Invalid CodeBuild project name: ${this.config.codebuildProjectName}. Project names must be 2-255 characters, start with a letter or number, and contain only letters, numbers, hyphens, and underscores.`);
             }
         }
 
@@ -732,6 +832,36 @@ export default class ConfigManager {
     }
 
     /**
+     * Generates a descriptive CodeBuild project name
+     * @param {string} projectName - The main project name
+     * @param {string} framework - The ML framework being used
+     * @returns {string} Generated CodeBuild project name
+     * @private
+     */
+    _generateCodeBuildProjectName(projectName, framework) {
+        const frameworkMap = {
+            'sklearn': 'sklearn',
+            'xgboost': 'xgboost', 
+            'tensorflow': 'tensorflow',
+            'transformers': 'llm'
+        };
+        
+        const frameworkName = frameworkMap[framework] || 'ml';
+        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+        
+        // Create a descriptive name that indicates it's a build project
+        const buildProjectName = `${projectName}-${frameworkName}-build-${timestamp}`;
+        
+        // Ensure it meets AWS CodeBuild naming requirements (2-255 chars, alphanumeric + hyphens/underscores)
+        return buildProjectName
+            .toLowerCase()
+            .replace(/[^a-z0-9\-_]/g, '-')  // Replace invalid chars with hyphens
+            .replace(/-+/g, '-')            // Replace multiple hyphens with single
+            .replace(/^-|-$/g, '')          // Remove leading/trailing hyphens
+            .slice(0, 255);                 // Ensure max length
+    }
+
+    /**
      * Validates a single parameter value
      * @param {string} parameter - Parameter name
      * @param {*} value - Parameter value
@@ -812,6 +942,40 @@ export default class ConfigManager {
                 this._isValidArn(value);
             }
             break;
+            
+        case 'deployTarget':
+            if (value && !supportedOptions.deployTargets.includes(value)) {
+                throw new ValidationError(
+                    `Unsupported deployment target: ${value}. Supported targets: ${supportedOptions.deployTargets.join(', ')}`,
+                    parameter,
+                    value
+                );
+            }
+            break;
+            
+        case 'codebuildComputeType':
+            if (value && !supportedOptions.codebuildComputeTypes.includes(value)) {
+                throw new ValidationError(
+                    `Unsupported CodeBuild compute type: ${value}. Supported types: ${supportedOptions.codebuildComputeTypes.join(', ')}`,
+                    parameter,
+                    value
+                );
+            }
+            break;
+            
+        case 'codebuildProjectName':
+            if (value) {
+                // AWS CodeBuild project names must follow specific naming rules
+                const projectNamePattern = /^[a-zA-Z0-9][a-zA-Z0-9\-_]{1,254}$/;
+                if (!projectNamePattern.test(value)) {
+                    throw new ValidationError(
+                        `Invalid CodeBuild project name: ${value}. Project names must be 2-255 characters, start with a letter or number, and contain only letters, numbers, hyphens, and underscores.`,
+                        parameter,
+                        value
+                    );
+                }
+            }
+            break;
         }
     }
 
@@ -852,7 +1016,8 @@ export default class ConfigManager {
                 'tensorflow': ['keras', 'h5', 'SavedModel'],
                 'transformers': [] // No format needed
             },
-            deployTargets: ['sagemaker'],
+            deployTargets: ['sagemaker', 'codebuild'],
+            codebuildComputeTypes: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'],
             instanceTypes: ['cpu-optimized', 'gpu-enabled'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',

@@ -45,6 +45,39 @@ export const PARAMETER_MATRIX = {
         values: ['pkl', 'joblib', 'json', 'model', 'ubj', 'keras', 'h5', 'SavedModel']
     },
     
+    deployTarget: {
+        cliOption: 'deploy-target',
+        envVar: 'ML_DEPLOY_TARGET',
+        configFile: true,
+        packageJson: false,
+        promptable: true,
+        required: true,
+        default: 'sagemaker',
+        values: ['sagemaker', 'codebuild']
+    },
+    
+    codebuildComputeType: {
+        cliOption: 'codebuild-compute-type',
+        envVar: 'ML_CODEBUILD_COMPUTE_TYPE',
+        configFile: true,
+        packageJson: false,
+        promptable: true,
+        required: false,
+        default: 'BUILD_GENERAL1_MEDIUM',
+        values: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE']
+    },
+    
+    codebuildProjectName: {
+        cliOption: 'codebuild-project-name',
+        envVar: null,
+        configFile: true,
+        packageJson: false,
+        promptable: true,
+        required: false,
+        default: null,
+        values: null // Generated dynamically
+    },
+    
     includeSampleModel: {
         cliOption: 'include-sample',
         envVar: null,
@@ -137,6 +170,8 @@ export const PARAMETER_MATRIX = {
 // Environment variable mappings
 export const ENV_VAR_MAPPING = {
     'ML_INSTANCE_TYPE': 'instanceType',
+    'ML_DEPLOY_TARGET': 'deployTarget',
+    'ML_CODEBUILD_COMPUTE_TYPE': 'codebuildComputeType',
     'AWS_REGION': 'awsRegion',
     'AWS_ROLE': 'awsRoleArn',
     'ML_CONTAINER_CREATOR_CONFIG': '_configFilePath'
@@ -168,6 +203,11 @@ export const generateProjectName = () =>
     fc.stringMatching(/^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/)
         .filter(name => name.length >= 2 && !name.includes('--'));
 
+// Generate valid CodeBuild project names
+export const generateCodeBuildProjectName = () =>
+    fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,254}$/)
+        .filter(name => name.length >= 2 && name.length <= 255 && !name.includes('--'));
+
 // Generate valid file paths
 export const generateFilePath = () =>
     fc.oneof(
@@ -181,6 +221,9 @@ export const generateConfiguration = () => fc.record({
     framework: fc.constantFrom(...PARAMETER_MATRIX.framework.values),
     modelServer: fc.constantFrom(...PARAMETER_MATRIX.modelServer.values),
     modelFormat: fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values),
+    deployTarget: fc.constantFrom(...PARAMETER_MATRIX.deployTarget.values),
+    codebuildComputeType: fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
+    codebuildProjectName: fc.option(generateCodeBuildProjectName()),
     includeSampleModel: fc.boolean(),
     includeTesting: fc.boolean(),
     instanceType: fc.constantFrom(...PARAMETER_MATRIX.instanceType.values),
@@ -195,6 +238,9 @@ export const generateCliOptions = () => fc.record({
     'framework': fc.option(fc.constantFrom(...PARAMETER_MATRIX.framework.values)),
     'model-server': fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelServer.values)),
     'model-format': fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values)),
+    'deploy-target': fc.option(fc.constantFrom(...PARAMETER_MATRIX.deployTarget.values)),
+    'codebuild-compute-type': fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
+    'codebuild-project-name': fc.option(generateCodeBuildProjectName()),
     'include-sample': fc.option(fc.boolean()),
     'include-testing': fc.option(fc.boolean()),
     'instance-type': fc.option(fc.constantFrom(...PARAMETER_MATRIX.instanceType.values)),
@@ -209,6 +255,8 @@ export const generateCliOptions = () => fc.record({
 // Generate environment variables object
 export const generateEnvironmentVariables = () => fc.record({
     'ML_INSTANCE_TYPE': fc.option(fc.constantFrom(...PARAMETER_MATRIX.instanceType.values)),
+    'ML_DEPLOY_TARGET': fc.option(fc.constantFrom(...PARAMETER_MATRIX.deployTarget.values)),
+    'ML_CODEBUILD_COMPUTE_TYPE': fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
     'AWS_REGION': fc.option(fc.constantFrom(...PARAMETER_MATRIX.awsRegion.values)),
     'AWS_ROLE': fc.option(generateValidArn()),
     'ML_CONTAINER_CREATOR_CONFIG': fc.option(generateFilePath()),
@@ -237,6 +285,9 @@ export const generateConfigFileContent = () => fc.record({
     framework: fc.option(fc.constantFrom(...PARAMETER_MATRIX.framework.values)),
     modelServer: fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelServer.values)),
     modelFormat: fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values)),
+    deployTarget: fc.option(fc.constantFrom(...PARAMETER_MATRIX.deployTarget.values)),
+    codebuildComputeType: fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
+    codebuildProjectName: fc.option(generateCodeBuildProjectName()),
     includeSampleModel: fc.option(fc.boolean()),
     includeTesting: fc.option(fc.boolean()),
     instanceType: fc.option(fc.constantFrom(...PARAMETER_MATRIX.instanceType.values)),
@@ -329,6 +380,25 @@ export function createMinimalValidConfig() {
         framework: 'sklearn',
         modelServer: 'flask',
         modelFormat: 'pkl',
+        deployTarget: 'sagemaker',
+        includeSampleModel: false,
+        includeTesting: true,
+        instanceType: 'cpu-optimized',
+        awsRegion: 'us-east-1',
+        projectName: 'test-project',
+        destinationDir: '.'
+    };
+}
+
+// Create a minimal valid CodeBuild configuration for testing
+export function createMinimalValidCodeBuildConfig() {
+    return {
+        framework: 'sklearn',
+        modelServer: 'flask',
+        modelFormat: 'pkl',
+        deployTarget: 'codebuild',
+        codebuildComputeType: 'BUILD_GENERAL1_MEDIUM',
+        codebuildProjectName: 'test-project-build',
         includeSampleModel: false,
         includeTesting: true,
         instanceType: 'cpu-optimized',

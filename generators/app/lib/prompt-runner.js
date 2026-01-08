@@ -33,16 +33,19 @@ export default class PromptRunner {
 
         // Get existing configuration to use as defaults
         const existingConfig = this.generator.baseConfig || {};
+        
+        // Get only explicit configuration (not defaults) for prompt skipping
+        const explicitConfig = this.configManager ? this.configManager.getExplicitConfiguration() : {};
 
         // Phase 1: Core Configuration (framework first)
         console.log('\n🔧 Core Configuration');
-        const frameworkAnswers = await this._runPhase(frameworkPrompts, {}, existingConfig);
-        const modelFormatAnswers = await this._runPhase(modelFormatPrompts, frameworkAnswers, existingConfig);
-        const modelServerAnswers = await this._runPhase(modelServerPrompts, frameworkAnswers, existingConfig);
+        const frameworkAnswers = await this._runPhase(frameworkPrompts, {}, explicitConfig, existingConfig);
+        const modelFormatAnswers = await this._runPhase(modelFormatPrompts, frameworkAnswers, explicitConfig, existingConfig);
+        const modelServerAnswers = await this._runPhase(modelServerPrompts, frameworkAnswers, explicitConfig, existingConfig);
 
         // Phase 2: Module Selection
         console.log('\n📦 Module Selection');
-        const moduleAnswers = await this._runPhase(modulePrompts, frameworkAnswers, existingConfig);
+        const moduleAnswers = await this._runPhase(modulePrompts, frameworkAnswers, explicitConfig, existingConfig);
         
         // Ensure transformers don't get sample model
         if (frameworkAnswers.framework === 'transformers') {
@@ -51,7 +54,7 @@ export default class PromptRunner {
 
         // Phase 3: Infrastructure & Performance
         console.log('\n💪 Infrastructure & Performance');
-        const infraAnswers = await this._runPhase(infrastructurePrompts, frameworkAnswers, existingConfig);
+        const infraAnswers = await this._runPhase(infrastructurePrompts, frameworkAnswers, explicitConfig, existingConfig);
 
         // Phase 4: Project Configuration (moved to end)
         console.log('\n📋 Project Configuration');
@@ -62,15 +65,15 @@ export default class PromptRunner {
             ...moduleAnswers,
             ...infraAnswers
         };
-        const projectAnswers = await this._runPhase(projectPrompts, allTechnicalAnswers, existingConfig);
+        const projectAnswers = await this._runPhase(projectPrompts, allTechnicalAnswers, explicitConfig, existingConfig);
         const destinationAnswers = await this._runPhase(destinationPrompts, 
-            { ...allTechnicalAnswers, ...projectAnswers }, existingConfig);
+            { ...allTechnicalAnswers, ...projectAnswers }, explicitConfig, existingConfig);
 
         // Phase 5: Deployment Instructions
         this._showDeploymentInstructions();
 
         // Combine all answers
-        return {
+        const combinedAnswers = {
             ...frameworkAnswers,
             ...modelFormatAnswers,
             ...modelServerAnswers,
@@ -80,6 +83,14 @@ export default class PromptRunner {
             ...destinationAnswers,
             buildTimestamp
         };
+
+        // Handle custom model name for transformers
+        if (combinedAnswers.framework === 'transformers' && combinedAnswers.customModelName) {
+            combinedAnswers.modelName = combinedAnswers.customModelName;
+            delete combinedAnswers.customModelName;
+        }
+
+        return combinedAnswers;
     }
 
     /**
@@ -111,7 +122,7 @@ export default class PromptRunner {
      * Runs a single phase of prompts
      * @private
      */
-    async _runPhase(prompts, previousAnswers = {}, existingConfig = {}) {
+    async _runPhase(prompts, previousAnswers = {}, explicitConfig = {}, existingConfig = {}) {
         // Filter out non-promptable parameters
         const promptablePrompts = this._filterPromptableParameters(prompts);
         
@@ -135,14 +146,14 @@ export default class PromptRunner {
                 return prompt.default;
             } : (existingConfig[prompt.name] !== undefined && existingConfig[prompt.name] !== null) ? 
                 existingConfig[prompt.name] : undefined,
-            // Skip prompt if we already have the value from config
+            // Skip prompt ONLY if we have explicit config (not defaults)
             when: prompt.when ? (answers) => {
-                // Skip if we have the value from existing config
-                if (existingConfig[prompt.name] !== undefined && existingConfig[prompt.name] !== null) {
+                // Skip if we have the value from explicit config (CLI, env vars, config files)
+                if (explicitConfig[prompt.name] !== undefined && explicitConfig[prompt.name] !== null) {
                     return false;
                 }
                 return prompt.when({...allPreviousAnswers, ...answers});
-            } : (existingConfig[prompt.name] !== undefined && existingConfig[prompt.name] !== null) ? 
+            } : (explicitConfig[prompt.name] !== undefined && explicitConfig[prompt.name] !== null) ? 
                 false : undefined,
             // Provide access to previous answers for conditional logic
             choices: prompt.choices ? (answers) => {

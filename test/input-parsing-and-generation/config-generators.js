@@ -78,6 +78,30 @@ export const generateAwsRegion = () => fc.constantFrom(
     'ap-southeast-1', 'ap-southeast-2', 'ap-northeast-1'
 );
 
+// Generate valid deployment targets
+export const generateDeploymentTarget = () => fc.constantFrom('sagemaker', 'codebuild');
+
+// Generate valid CodeBuild compute types
+export const generateCodeBuildComputeType = () => fc.constantFrom(
+    'BUILD_GENERAL1_SMALL',
+    'BUILD_GENERAL1_MEDIUM', 
+    'BUILD_GENERAL1_LARGE'
+);
+
+// Generate valid CodeBuild project names
+export const generateCodeBuildProjectName = () => fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,254}$/)
+    .filter(name => name.length >= 2 && name.length <= 255 && !name.includes('--'));
+
+// Generate invalid CodeBuild project names (for negative testing)
+export const generateInvalidCodeBuildProjectName = () => fc.oneof(
+    fc.constant(''), // Empty
+    fc.constant('-invalid'), // Starts with hyphen
+    fc.constant('invalid-'), // Ends with hyphen
+    fc.constant('invalid--name'), // Double hyphen
+    fc.stringMatching(/^[^a-zA-Z0-9]/), // Starts with invalid character
+    fc.string({ minLength: 256 }) // Too long
+);
+
 // Generate valid AWS Role ARNs
 export const generateAwsRoleArn = () => fc.tuple(
     fc.integer({ min: 100000000000, max: 999999999999 }),
@@ -125,11 +149,74 @@ export const generateDestinationDir = () => fc.oneof(
 
 // Generate a complete valid configuration
 export const generateValidConfiguration = () => 
-    generateValidFrameworkCombination().chain(combo =>
-        fc.record({
-            ...combo,
+    generateValidFrameworkCombination().chain(combo => {
+        const baseConfig = fc.record({
+            framework: fc.constant(combo.framework),
+            modelServer: fc.constant(combo.modelServer),
+            modelFormat: combo.modelFormat ? fc.constant(combo.modelFormat) : fc.constant(null),
             includeSampleModel: fc.boolean(),
             includeTesting: fc.boolean(),
+            deployTarget: generateDeploymentTarget(),
+            instanceType: fc.constantFrom('cpu-optimized', 'gpu-enabled'),
+            awsRegion: generateAwsRegion(),
+            awsRoleArn: fc.option(generateAwsRoleArn()),
+            projectName: generateProjectName(),
+            destinationDir: generateDestinationDir()
+        });
+        
+        return baseConfig.chain(config => {
+            // Add CodeBuild-specific parameters when deployTarget is 'codebuild'
+            if (config.deployTarget === 'codebuild') {
+                return fc.record({
+                    framework: fc.constant(config.framework),
+                    modelServer: fc.constant(config.modelServer),
+                    modelFormat: fc.constant(config.modelFormat),
+                    includeSampleModel: fc.constant(config.includeSampleModel),
+                    includeTesting: fc.constant(config.includeTesting),
+                    deployTarget: fc.constant(config.deployTarget),
+                    instanceType: fc.constant(config.instanceType),
+                    awsRegion: fc.constant(config.awsRegion),
+                    awsRoleArn: fc.constant(config.awsRoleArn),
+                    projectName: fc.constant(config.projectName),
+                    destinationDir: fc.constant(config.destinationDir),
+                    codebuildComputeType: generateCodeBuildComputeType(),
+                    codebuildProjectName: generateCodeBuildProjectName()
+                });
+            }
+            return fc.constant(config);
+        });
+    });
+
+// Generate CodeBuild-specific configuration
+export const generateCodeBuildConfiguration = () => 
+    generateValidFrameworkCombination().chain(combo =>
+        fc.record({
+            framework: fc.constant(combo.framework),
+            modelServer: fc.constant(combo.modelServer),
+            modelFormat: combo.modelFormat ? fc.constant(combo.modelFormat) : fc.constant(null),
+            includeSampleModel: fc.boolean(),
+            includeTesting: fc.boolean(),
+            deployTarget: fc.constant('codebuild'),
+            instanceType: fc.constantFrom('cpu-optimized', 'gpu-enabled'),
+            awsRegion: generateAwsRegion(),
+            awsRoleArn: fc.option(generateAwsRoleArn()),
+            projectName: generateProjectName(),
+            destinationDir: generateDestinationDir(),
+            codebuildComputeType: generateCodeBuildComputeType(),
+            codebuildProjectName: generateCodeBuildProjectName()
+        })
+    );
+
+// Generate SageMaker-specific configuration
+export const generateSageMakerConfiguration = () => 
+    generateValidFrameworkCombination().chain(combo =>
+        fc.record({
+            framework: fc.constant(combo.framework),
+            modelServer: fc.constant(combo.modelServer),
+            modelFormat: combo.modelFormat ? fc.constant(combo.modelFormat) : fc.constant(null),
+            includeSampleModel: fc.boolean(),
+            includeTesting: fc.boolean(),
+            deployTarget: fc.constant('sagemaker'),
             instanceType: fc.constantFrom('cpu-optimized', 'gpu-enabled'),
             awsRegion: generateAwsRegion(),
             awsRoleArn: fc.option(generateAwsRoleArn()),
@@ -208,17 +295,22 @@ export const generateRealisticCliOptions = () =>
             'model-format': config.modelFormat ? fc.option(fc.constant(config.modelFormat)) : fc.constant(null),
             'include-sample': fc.option(fc.constant(config.includeSampleModel)),
             'include-testing': fc.option(fc.constant(config.includeTesting)),
+            'deploy-target': fc.option(fc.constant(config.deployTarget)),
             'instance-type': fc.option(fc.constant(config.instanceType)),
             'region': fc.option(fc.constant(config.awsRegion)),
             'role-arn': config.awsRoleArn ? fc.option(fc.constant(config.awsRoleArn)) : fc.constant(null),
             'project-name': fc.option(fc.constant(config.projectName)),
-            'project-dir': fc.option(fc.constant(config.destinationDir))
+            'project-dir': fc.option(fc.constant(config.destinationDir)),
+            'codebuild-compute-type': config.codebuildComputeType ? fc.option(fc.constant(config.codebuildComputeType)) : fc.constant(null),
+            'codebuild-project-name': config.codebuildProjectName ? fc.option(fc.constant(config.codebuildProjectName)) : fc.constant(null)
         })
     );
 
 // Generate environment variables with realistic values
 export const generateRealisticEnvironmentVars = () => fc.record({
     'ML_INSTANCE_TYPE': fc.option(fc.constantFrom('cpu-optimized', 'gpu-enabled')),
+    'ML_DEPLOY_TARGET': fc.option(fc.constantFrom('sagemaker', 'codebuild')),
+    'ML_CODEBUILD_COMPUTE_TYPE': fc.option(fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE')),
     'AWS_REGION': fc.option(generateAwsRegion()),
     'AWS_ROLE': fc.option(generateAwsRoleArn()),
     'ML_CONTAINER_CREATOR_CONFIG': fc.option(fc.constantFrom('config.json', 'ml-config.json')),
@@ -240,6 +332,9 @@ export const generateRealisticPackageJsonConfig = () => fc.record({
     // Unsupported in package.json (should be ignored)
     framework: fc.option(fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers')),
     modelServer: fc.option(fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang')),
+    deployTarget: fc.option(fc.constantFrom('sagemaker', 'codebuild')),
+    codebuildComputeType: fc.option(fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE')),
+    codebuildProjectName: fc.option(generateCodeBuildProjectName()),
     includeSampleModel: fc.option(fc.boolean()),
     includeTesting: fc.option(fc.boolean())
 });
@@ -291,12 +386,18 @@ export default {
     generateValidFrameworkCombination,
     generateInvalidFrameworkCombination,
     generateAwsRegion,
+    generateDeploymentTarget,
+    generateCodeBuildComputeType,
+    generateCodeBuildProjectName,
+    generateInvalidCodeBuildProjectName,
     generateAwsRoleArn,
     generateInvalidAwsRoleArn,
     generateProjectName,
     generateInvalidProjectName,
     generateDestinationDir,
     generateValidConfiguration,
+    generateCodeBuildConfiguration,
+    generateSageMakerConfiguration,
     generateInvalidConfiguration,
     generatePartialConfiguration,
     generateRealisticCliOptions,

@@ -157,12 +157,17 @@ CLI OPTIONS:
   --model-format=<format>     Model format (depends on framework)
   --include-sample            Include sample model code
   --include-testing           Include test suite
+  --deploy-target=<target>    Deployment target (sagemaker|codebuild)
+  --codebuild-compute-type=<type> CodeBuild compute type (BUILD_GENERAL1_SMALL|BUILD_GENERAL1_MEDIUM|BUILD_GENERAL1_LARGE)
+  --codebuild-project-name=<name> CodeBuild project name
   --instance-type=<type>      Instance type (cpu-optimized|gpu-enabled)
   --region=<region>           AWS region
   --role-arn=<arn>            AWS IAM role ARN for SageMaker execution
 
 ENVIRONMENT VARIABLES:
   ML_INSTANCE_TYPE           Instance type
+  ML_DEPLOY_TARGET           Deployment target
+  ML_CODEBUILD_COMPUTE_TYPE  CodeBuild compute type
   AWS_REGION                 AWS region
   AWS_ROLE                   AWS IAM role ARN
   ML_CONTAINER_CREATOR_CONFIG Config file path
@@ -348,6 +353,16 @@ yo ml-container-creator my-xgb-project \\
   --role-arn=arn:aws:iam::123456789012:role/SageMakerRole \\
   --skip-prompts
 
+# CodeBuild deployment target
+yo ml-container-creator my-codebuild-project \\
+  --framework=sklearn \\
+  --model-server=flask \\
+  --model-format=pkl \\
+  --deploy-target=codebuild \\
+  --codebuild-compute-type=BUILD_GENERAL1_MEDIUM \\
+  --codebuild-project-name=my-build-project \\
+  --skip-prompts
+
 # Using configuration file
 yo ml-container-creator --config=production.json --skip-prompts
 `);
@@ -367,6 +382,8 @@ yo ml-container-creator --config=production.json --skip-prompts
             'includeTesting': true,
             'testTypes': ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             'deployTarget': 'sagemaker',
+            'codebuildComputeType': 'BUILD_GENERAL1_MEDIUM',
+            'codebuildProjectName': 'my-build-project',
             'instanceType': 'cpu-optimized',
             'awsRegion': 'us-east-1'
         };

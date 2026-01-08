@@ -133,6 +133,14 @@ You'll be prompted with questions. Here's what to answer for this example:
 ? Target AWS region? us-east-1
 ```
 
+!!! info "Deployment Targets"
+    ML Container Creator supports two deployment approaches:
+    
+    - **SageMaker**: Direct deployment - builds and deploys locally (good for development)
+    - **CodeBuild**: CI/CD pipeline - automated building in AWS (good for production)
+    
+    For this getting started example, we'll use SageMaker direct deployment. For CodeBuild CI/CD, see the [CodeBuild Example](EXAMPLES.md#example-5-deploy-with-codebuild-cicd).
+
 ### Step 3: Add Your Model
 
 Copy your trained model to the generated project:

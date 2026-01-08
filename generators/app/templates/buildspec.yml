@@ -1,0 +1,52 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_DEFAULT_REGION: <%= awsRegion %>
+    AWS_ACCOUNT_ID: ""
+    ECR_REPOSITORY_NAME: "ml-container-creator"
+    PROJECT_NAME: "<%= projectName %>"
+    IMAGE_TAG: "latest"
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME
+      - IMAGE_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-latest}
+      - PROJECT_TAG="$PROJECT_NAME-$(date +%Y%m%d-%H%M%S)"
+      - echo Repository URI is $REPOSITORY_URI
+      - echo Project tag is $PROJECT_TAG
+      - echo Image tag is $IMAGE_TAG
+    on-failure: ABORT
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image for project $PROJECT_NAME...
+      - docker build -t $REPOSITORY_URI:$PROJECT_TAG .
+      - docker tag $REPOSITORY_URI:$PROJECT_TAG $REPOSITORY_URI:$PROJECT_NAME-latest
+      - docker tag $REPOSITORY_URI:$PROJECT_TAG $REPOSITORY_URI:latest
+      - echo Build completed on `date`
+    on-failure: ABORT
+  post_build:
+    commands:
+      - echo Post-build started on `date`
+      - echo Pushing the Docker images for project $PROJECT_NAME...
+      - docker push $REPOSITORY_URI:$PROJECT_TAG || (echo "Failed to push project tag $PROJECT_TAG" && exit 1)
+      - docker push $REPOSITORY_URI:$PROJECT_NAME-latest || (echo "Failed to push project latest tag" && exit 1)
+      - docker push $REPOSITORY_URI:latest || (echo "Failed to push latest tag" && exit 1)
+      - echo Successfully pushed images to ECR repository $ECR_REPOSITORY_NAME
+      - echo "Available tags:"
+      - echo "  - $PROJECT_TAG (timestamped build)"
+      - echo "  - $PROJECT_NAME-latest (project latest)"
+      - echo "  - latest (global latest)"
+      - echo Writing image definitions file...
+      - printf '[{"name":"%s","imageUri":"%s"}]' $PROJECT_NAME $REPOSITORY_URI:$PROJECT_TAG > imagedefinitions.json
+      - echo Post-build completed on `date`
+
+artifacts:
+  files:
+    - imagedefinitions.json
+  name: <%= projectName %>-artifacts

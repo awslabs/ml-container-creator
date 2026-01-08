@@ -8,7 +8,8 @@ This guide provides step-by-step examples for common use cases.
 - [Example 2: Deploy an XGBoost Model](#example-2-deploy-an-xgboost-model)
 - [Example 3: Deploy a TensorFlow Model](#example-3-deploy-a-tensorflow-model)
 - [Example 4: Deploy a Transformer Model (LLM)](#example-4-deploy-a-transformer-model-llm)
-- [Example 5: Custom Configuration](#example-5-custom-configuration)
+- [Example 5: Deploy with CodeBuild CI/CD](#example-5-deploy-with-codebuild-cicd)
+- [Example 6: Custom Configuration](#example-6-custom-configuration)
 
 ---
 
@@ -274,7 +275,7 @@ ENV MODEL_NAME="meta-llama/Llama-2-7b-chat-hf"
 ```
 
 **Note:** Transformer deployments require:
-- GPU instance (ml.g4dn.xlarge or larger)
+- GPU instance (defaults to `ml.g6.12xlarge` for optimal performance)
 - Sufficient memory for model size
 - S3 access permissions in IAM role
 
@@ -293,7 +294,151 @@ cat output.json
 
 ---
 
-## Example 5: Custom Configuration
+## Example 5: Deploy with CodeBuild CI/CD
+
+### Scenario
+You want to set up an enterprise-ready CI/CD pipeline using AWS CodeBuild for automated Docker image building and deployment.
+
+### Step 1: Generate Project with CodeBuild
+
+```bash
+# Using CLI for automation
+yo ml-container-creator sklearn-codebuild-project \
+  --framework=sklearn \
+  --model-server=flask \
+  --model-format=pkl \
+  --deploy-target=codebuild \
+  --codebuild-compute-type=BUILD_GENERAL1_MEDIUM \
+  --include-testing \
+  --skip-prompts
+```
+
+### Step 2: Review Generated Files
+
+The CodeBuild deployment includes additional files:
+
+```bash
+cd sklearn-codebuild-project
+ls -la
+
+# CodeBuild-specific files:
+# - buildspec.yml (CodeBuild build specification)
+# - deploy/submit_build.sh (Submit build job script)
+# - IAM_PERMISSIONS.md (Required IAM permissions documentation)
+
+# Standard files:
+# - Dockerfile, requirements.txt, code/, test/
+# - deploy/deploy.sh (SageMaker deployment script)
+```
+
+### Step 3: Add Your Model
+
+```bash
+# Copy your trained model
+cp /path/to/your/model.pkl code/
+
+# Test locally (optional)
+python test/test_local_model_cli.py
+```
+
+### Step 4: Submit CodeBuild Job
+
+```bash
+# This script will:
+# 1. Create shared ECR repository (ml-container-creator) if needed
+# 2. Create CodeBuild service role with required permissions
+# 3. Create CodeBuild project with auto-generated name
+# 4. Upload source code to S3
+# 5. Start build job and monitor progress
+
+./deploy/submit_build.sh
+```
+
+**Expected Output:**
+```
+🏗️  Submitting CodeBuild job...
+Project: sklearn-codebuild-project-sklearn-build-20240102
+Region: us-east-1
+Compute Type: BUILD_GENERAL1_MEDIUM
+ECR Repository: ml-container-creator
+
+📦 Checking ECR repository...
+✅ ECR repository already exists: ml-container-creator
+
+🔐 Checking CodeBuild service role...
+✅ CodeBuild service role already exists
+
+🏗️  Checking CodeBuild project...
+✅ CodeBuild project already exists
+
+🚀 Starting CodeBuild job...
+Build started with ID: sklearn-codebuild-project-sklearn-build-20240102:abc123
+
+⏳ Monitoring build progress...
+📋 Build status: IN_PROGRESS | Phase: PROVISIONING
+📋 Build status: IN_PROGRESS | Phase: BUILD
+📋 Build status: SUCCEEDED | Phase: COMPLETED
+
+✅ Build completed successfully!
+🐳 Docker image available at: 123456789012.dkr.ecr.us-east-1.amazonaws.com/ml-container-creator:sklearn-codebuild-project-latest
+```
+
+### Step 5: Deploy to SageMaker
+
+```bash
+# Deploy the CodeBuild-generated image to SageMaker
+./deploy/deploy.sh arn:aws:iam::123456789012:role/SageMakerExecutionRole
+```
+
+### Step 6: Test the Endpoint
+
+```bash
+# Test the deployed endpoint
+python test/test_hosted_model_endpoint.py
+```
+
+### CodeBuild Features
+
+#### Shared ECR Repository
+All ML Container Creator projects use a single ECR repository (`ml-container-creator`) with project-specific tags:
+- `{project-name}-latest` - Latest build for the project
+- `{project-name}-YYYYMMDD-HHMMSS` - Timestamped builds
+- `latest` - Global latest across all projects
+
+#### Automatic Infrastructure
+The `submit_build.sh` script automatically creates:
+- **CodeBuild Project**: Auto-generated name with pattern `{project}-{framework}-build-{YYYYMMDD}`
+- **IAM Service Role**: With ECR, S3, and CloudWatch permissions
+- **S3 Bucket**: For source code uploads (`codebuild-source-{account-id}-{region}`)
+
+#### Build Monitoring
+- Real-time build status updates
+- CloudWatch logs integration
+- Build failure detection with log retrieval
+- Console links for detailed monitoring
+
+### Troubleshooting
+
+#### Build Fails
+```bash
+# Check CloudWatch logs
+aws logs tail /aws/codebuild/your-project-name --follow
+
+# Check IAM permissions
+cat IAM_PERMISSIONS.md
+```
+
+#### Permission Issues
+```bash
+# Verify your AWS credentials have required permissions
+aws sts get-caller-identity
+
+# Check the IAM_PERMISSIONS.md file for required policies
+```
+
+---
+
+## Example 6: Custom Configuration
 
 ### Scenario
 You want to customize the generated project for specific requirements.

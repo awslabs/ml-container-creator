@@ -68,6 +68,11 @@ export default class extends Generator {
             description: 'Model serialization format'
         });
 
+        this.option('model-name', {
+            type: String,
+            description: 'Hugging Face model name (for transformers framework)'
+        });
+
         this.option('model-server', {
             type: String,
             description: 'Model server (flask, fastapi, vllm, sglang)'
@@ -92,7 +97,12 @@ export default class extends Generator {
         // Infrastructure options
         this.option('deploy-target', {
             type: String,
-            description: 'Deployment target (sagemaker)'
+            description: 'Deployment target (sagemaker, codebuild)'
+        });
+
+        this.option('codebuild-compute-type', {
+            type: String,
+            description: 'CodeBuild compute type (BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE)'
         });
 
         this.option('instance-type', {
@@ -241,6 +251,111 @@ export default class extends Generator {
             {},
             { globOptions: { ignore: ignorePatterns } }
         );
+    }
+
+    /**
+     * End phase - Post-processing tasks after file generation
+     * 
+     * Runs the sample model training script if includeSampleModel is true
+     * to generate the actual model file for immediate use.
+     * 
+     * @async
+     * @returns {Promise<void>}
+     */
+    async end() {
+        // If help was shown, validation failed, configuration failed, or no answers, skip end phase
+        if (this._helpShown || this._validationFailed || this._configurationFailed || !this.answers) {
+            return;
+        }
+
+        // Run sample model training if requested
+        if (this.answers.includeSampleModel && this.answers.framework !== 'transformers') {
+            await this._runSampleModelTraining();
+        }
+        
+        // Set executable permissions on shell scripts
+        this._setExecutablePermissions();
+    }
+
+    /**
+     * Runs the sample model training script to generate the model file
+     * @private
+     */
+    async _runSampleModelTraining() {
+        const { spawn } = await import('child_process');
+
+        console.log('\n🤖 Training sample model...');
+        console.log('This will generate the model file needed for Docker build.');
+
+        const trainingScript = this.destinationPath('sample_model/train_abalone.py');
+        const sampleModelDir = this.destinationPath('sample_model');
+
+        try {
+            // Check if training script exists
+            if (!this.fs.exists(trainingScript)) {
+                console.log('⚠️  Training script not found, skipping model training');
+                return;
+            }
+
+            // Run the training script
+            await new Promise((resolve, reject) => {
+                const pythonProcess = spawn('python', ['train_abalone.py'], {
+                    cwd: sampleModelDir,
+                    stdio: 'inherit'
+                });
+
+                pythonProcess.on('close', (code) => {
+                    if (code === 0) {
+                        console.log('✅ Sample model training completed successfully!');
+                        console.log(`📁 Model file saved in: ${sampleModelDir}`);
+                        resolve();
+                    } else {
+                        console.log(`⚠️  Training script exited with code ${code}`);
+                        console.log('You may need to install dependencies: pip install -r requirements.txt');
+                        console.log('Or run the training manually: python sample_model/train_abalone.py');
+                        resolve(); // Don't fail the generator, just warn
+                    }
+                });
+
+                pythonProcess.on('error', (error) => {
+                    console.log('⚠️  Could not run training script automatically');
+                    console.log('Error:', error.message);
+                    console.log('Please run manually: python sample_model/train_abalone.py');
+                    resolve(); // Don't fail the generator, just warn
+                });
+            });
+
+        } catch (error) {
+            console.log('⚠️  Error during sample model training:', error.message);
+            console.log('Please run manually: python sample_model/train_abalone.py');
+        }
+    }
+    
+    /**
+     * Set executable permissions on shell scripts
+     * @private
+     */
+    _setExecutablePermissions() {
+        const shellScripts = [
+            'deploy/build_and_push.sh',
+            'deploy/deploy.sh', 
+            'deploy/submit_build.sh',
+            'deploy/upload_to_s3.sh'
+        ];
+        
+        shellScripts.forEach(script => {
+            const scriptPath = this.destinationPath(script);
+            try {
+                const fs = require('fs');
+                if (fs.existsSync(scriptPath)) {
+                    const stats = fs.statSync(scriptPath);
+                    const newMode = stats.mode | parseInt('755', 8);
+                    fs.chmodSync(scriptPath, newMode);
+                }
+            } catch (error) {
+                // Silently continue if chmod fails (e.g., on Windows)
+            }
+        });
     }
 
 }
