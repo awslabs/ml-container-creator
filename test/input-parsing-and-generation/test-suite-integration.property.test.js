@@ -14,18 +14,13 @@
  */
 
 import { describe, it } from 'mocha';
-import fc from 'fast-check';
 import helpers from 'yeoman-test';
 import assert from 'yeoman-assert';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { 
-    generateCodeBuildConfiguration,
-    generateSageMakerConfiguration,
     generateValidConfiguration 
 } from './config-generators.js';
-import { PROPERTY_TEST_CONFIG } from './property-test-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

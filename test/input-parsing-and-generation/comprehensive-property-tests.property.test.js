@@ -23,9 +23,9 @@ import { fileURLToPath } from 'url';
 import { 
     generateCodeBuildConfiguration,
     generateValidConfiguration,
-    generateRealisticCliOptions,
-    generateRealisticEnvironmentVars,
-    generateRealisticPackageJsonConfig
+    generateRealisticCliOptions as _generateRealisticCliOptions,
+    generateRealisticEnvironmentVars as _generateRealisticEnvironmentVars,
+    generateRealisticPackageJsonConfig as _generateRealisticPackageJsonConfig
 } from './config-generators.js';
 import { PROPERTY_TEST_CONFIG } from './property-test-utils.js';
 
@@ -303,11 +303,11 @@ describe('Property Test: Comprehensive Property-Based Test Coverage', function()
                     // With invalid configuration, core files should not be generated
                     // (This assumes the generator validates inputs before generating files)
                     const coreFiles = ['Dockerfile', 'requirements.txt'];
-                    let filesGenerated = 0;
+                    let _filesGenerated = 0;
                     
                     for (const file of coreFiles) {
                         if (fs.existsSync(path.join(runContext.targetDirectory, file))) {
-                            filesGenerated++;
+                            _filesGenerated++;
                         }
                     }
                     
@@ -526,7 +526,7 @@ describe('Property Test: Comprehensive Property-Based Test Coverage', function()
                             projectName: edgeConfig.projectName,
                             framework: edgeConfig.framework,
                             modelServer: edgeConfig.modelServer,
-                            modelFormat: modelFormat,
+                            modelFormat,
                             deployTarget: edgeConfig.deployTarget,
                             codebuildComputeType: edgeConfig.codebuildComputeType,
                             codebuildProjectName: edgeConfig.codebuildProjectName,

@@ -218,7 +218,7 @@ describe('Property-Based Tests: CodeBuild Input Validation', () => {
                 // Must start with non-alphanumeric but be otherwise valid
                 if (/^[a-zA-Z0-9]/.test(s)) return false;
                 // Must contain only otherwise valid characters after first char
-                if (!/^.[\w\-]*$/.test(s)) return false;
+                if (!/^.[\w-]*$/.test(s)) return false;
                 return true;
             });
             

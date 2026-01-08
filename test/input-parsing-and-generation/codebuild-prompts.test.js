@@ -13,7 +13,7 @@
 import {
     getGeneratorPath,
     validateFiles,
-    validateNoFiles,
+    validateNoFiles as _validateNoFiles,
     setupTestHooks
 } from './test-utils.js';
 

@@ -50,8 +50,8 @@ describe('CodeBuild Parameter Precedence - Property-Based Tests', () => {
                 fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9\-_]{1,50}$/),
                 fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9\-_]{1,50}$/),
                 async (cliDeployTarget, envDeployTarget, configDeployTarget, 
-                       cliComputeType, envComputeType, configComputeType,
-                       cliProjectName, configProjectName) => {
+                    cliComputeType, envComputeType, configComputeType,
+                    cliProjectName, configProjectName) => {
                     
                     console.log(`    🔍 Testing precedence: CLI(${cliDeployTarget}/${cliComputeType}) > ENV(${envDeployTarget}/${envComputeType}) > CONFIG(${configDeployTarget}/${configComputeType})`);
                     
@@ -96,12 +96,12 @@ describe('CodeBuild Parameter Precedence - Property-Based Tests', () => {
                             });
 
                         // Verify that files are generated successfully
-                        validateFiles(['Dockerfile', 'requirements.txt'], `precedence test`);
+                        validateFiles(['Dockerfile', 'requirements.txt'], 'precedence test');
                         
                         // The CLI values should have been used (highest precedence)
                         // We can't easily verify the exact values used without inspecting generated files,
                         // but successful generation indicates precedence is working
-                        console.log(`    ✅ Parameter precedence working correctly - CLI values should override others`);
+                        console.log('    ✅ Parameter precedence working correctly - CLI values should override others');
                         return true;
                         
                     } catch (error) {
@@ -177,10 +177,10 @@ describe('CodeBuild Parameter Precedence - Property-Based Tests', () => {
                             });
 
                         // Verify that files are generated successfully
-                        validateFiles(['Dockerfile', 'requirements.txt'], `env precedence test`);
+                        validateFiles(['Dockerfile', 'requirements.txt'], 'env precedence test');
                         
                         // Environment variables should have been used over config file values
-                        console.log(`    ✅ Environment variable precedence working correctly`);
+                        console.log('    ✅ Environment variable precedence working correctly');
                         return true;
                         
                     } catch (error) {
@@ -230,8 +230,8 @@ describe('CodeBuild Parameter Precedence - Property-Based Tests', () => {
                             deployTarget: configDeployTarget,
                             codebuildComputeType: configComputeType,
                             codebuildProjectName: configProjectName,
-                            framework: framework,
-                            modelServer: modelServer,
+                            framework,
+                            modelServer,
                             modelFormat: framework === 'sklearn' ? 'pkl' : 'json'
                         };
                         
@@ -250,10 +250,10 @@ describe('CodeBuild Parameter Precedence - Property-Based Tests', () => {
                             });
 
                         // Verify that files are generated successfully
-                        validateFiles(['Dockerfile', 'requirements.txt'], `config file precedence test`);
+                        validateFiles(['Dockerfile', 'requirements.txt'], 'config file precedence test');
                         
                         // Config file values should have been used
-                        console.log(`    ✅ Config file precedence working correctly`);
+                        console.log('    ✅ Config file precedence working correctly');
                         return true;
                         
                     } catch (error) {
@@ -298,7 +298,7 @@ describe('CodeBuild Parameter Precedence - Property-Based Tests', () => {
                         // No config file, no CLI options, no env vars - should use defaults
                         const options = {
                             'skip-prompts': true,
-                            'framework': framework,
+                            framework,
                             'model-server': modelServer,
                             'model-format': framework === 'sklearn' ? 'pkl' : 'json'
                         };
@@ -307,10 +307,10 @@ describe('CodeBuild Parameter Precedence - Property-Based Tests', () => {
                             .withOptions(options);
 
                         // Verify that files are generated successfully with defaults
-                        validateFiles(['Dockerfile', 'requirements.txt'], `default values test`);
+                        validateFiles(['Dockerfile', 'requirements.txt'], 'default values test');
                         
                         // Default values should have been used (deployTarget: 'sagemaker', codebuildComputeType: 'BUILD_GENERAL1_MEDIUM')
-                        console.log(`    ✅ Default value precedence working correctly`);
+                        console.log('    ✅ Default value precedence working correctly');
                         return true;
                         
                     } catch (error) {

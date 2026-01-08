@@ -36,8 +36,8 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
             // Feature: codebuild-deployment-target, Property 6: Template Variable Substitution
             await fc.assert(fc.property(
                 fc.record({
-                    projectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9\-]{2,18}$/),
-                    codebuildProjectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9\-_]{4,28}$/),
+                    projectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9-]{2,18}$/),
+                    codebuildProjectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9_-]{4,28}$/),
                     awsRegion: fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1', 'ap-southeast-1', 'ap-northeast-1'),
                     codebuildComputeType: fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'),
                     framework: fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers'),
@@ -75,7 +75,7 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                             throw new Error(`buildspec.yml should contain project name: ${answers.projectName}`);
                         }
                         
-                        console.log(`    ✅ buildspec.yml template variables substituted correctly`);
+                        console.log('    ✅ buildspec.yml template variables substituted correctly');
                     }
                     
                     // Test submit_build.sh template substitution
@@ -106,7 +106,7 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                             }
                         });
                         
-                        console.log(`    ✅ submit_build.sh template variables substituted correctly`);
+                        console.log('    ✅ submit_build.sh template variables substituted correctly');
                     }
                     
                     // Test IAM_PERMISSIONS.md template substitution
@@ -136,7 +136,7 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                             }
                         });
                         
-                        console.log(`    ✅ IAM_PERMISSIONS.md template variables substituted correctly`);
+                        console.log('    ✅ IAM_PERMISSIONS.md template variables substituted correctly');
                     }
                     
                     // Test deploy.sh template substitution with CodeBuild conditional
@@ -156,23 +156,23 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                         // For CodeBuild deployment, should contain CodeBuild-specific logic
                         if (answers.deployTarget === 'codebuild') {
                             if (!renderedDeploy.includes('CodeBuild deployment - image should already be in ECR')) {
-                                throw new Error(`deploy.sh should contain CodeBuild-specific logic for deployTarget=codebuild`);
+                                throw new Error('deploy.sh should contain CodeBuild-specific logic for deployTarget=codebuild');
                             }
                             
                             if (!renderedDeploy.includes('./deploy/submit_build.sh')) {
-                                throw new Error(`deploy.sh should reference submit_build.sh for CodeBuild deployment`);
+                                throw new Error('deploy.sh should reference submit_build.sh for CodeBuild deployment');
                             }
                             
                             // Should NOT contain SageMaker-specific logic
                             if (renderedDeploy.includes('SageMaker deployment - pull locally built image')) {
-                                throw new Error(`deploy.sh should not contain SageMaker logic for CodeBuild deployment`);
+                                throw new Error('deploy.sh should not contain SageMaker logic for CodeBuild deployment');
                             }
                         }
                         
-                        console.log(`    ✅ deploy.sh template variables and conditionals substituted correctly`);
+                        console.log('    ✅ deploy.sh template variables and conditionals substituted correctly');
                     }
                     
-                    console.log(`    ✅ All CodeBuild template variables substituted correctly`);
+                    console.log('    ✅ All CodeBuild template variables substituted correctly');
                     return true;
                 }
             ), { 
@@ -192,8 +192,8 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
             // Feature: codebuild-deployment-target, Property 6: Template Variable Substitution (edge cases)
             await fc.assert(fc.property(
                 fc.record({
-                    projectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9\-]{2,13}$/),
-                    codebuildProjectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9\-_]{4,23}$/),
+                    projectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9-]{2,13}$/),
+                    codebuildProjectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9_-]{4,23}$/),
                     awsRegion: fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1'),
                     codebuildComputeType: fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'),
                     framework: fc.constantFrom('sklearn', 'transformers'),
@@ -223,10 +223,10 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                             
                             // Should be valid YAML (basic check - no template syntax remaining)
                             if (renderedBuildspec.includes('<%') || renderedBuildspec.includes('%>')) {
-                                throw new Error(`Template syntax remaining in rendered buildspec.yml`);
+                                throw new Error('Template syntax remaining in rendered buildspec.yml');
                             }
                             
-                            console.log(`    ✅ Special characters handled correctly in buildspec.yml`);
+                            console.log('    ✅ Special characters handled correctly in buildspec.yml');
                             
                         } catch (error) {
                             throw new Error(`Template rendering failed for project name "${answers.projectName}": ${error.message}`);
@@ -252,17 +252,17 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                             
                             // Should be valid shell script (basic check)
                             if (!renderedSubmitBuild.includes('#!/bin/bash')) {
-                                throw new Error(`submit_build.sh should start with shebang`);
+                                throw new Error('submit_build.sh should start with shebang');
                             }
                             
-                            console.log(`    ✅ Special characters handled correctly in submit_build.sh`);
+                            console.log('    ✅ Special characters handled correctly in submit_build.sh');
                             
                         } catch (error) {
                             throw new Error(`Template rendering failed for CodeBuild project name "${answers.codebuildProjectName}": ${error.message}`);
                         }
                     }
                     
-                    console.log(`    ✅ Edge case template substitution working correctly`);
+                    console.log('    ✅ Edge case template substitution working correctly');
                     return true;
                 }
             ), { 
@@ -282,8 +282,8 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
             // Feature: codebuild-deployment-target, Property 6: Template Variable Substitution (structure integrity)
             await fc.assert(fc.property(
                 fc.record({
-                    projectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9\-]{3,10}$/),
-                    codebuildProjectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9\-_]{5,18}$/),
+                    projectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9-]{3,10}$/),
+                    codebuildProjectName: fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9_-]{5,18}$/),
                     awsRegion: fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1', 'ap-southeast-1'),
                     codebuildComputeType: fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'),
                     framework: fc.constantFrom('sklearn', 'xgboost', 'tensorflow'),
@@ -326,10 +326,10 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                         const indentedLines = lines.filter(line => line.startsWith('  ') || line.startsWith('    '));
                         
                         if (indentedLines.length === 0) {
-                            throw new Error(`buildspec.yml should have properly indented YAML content`);
+                            throw new Error('buildspec.yml should have properly indented YAML content');
                         }
                         
-                        console.log(`    ✅ buildspec.yml structure integrity maintained`);
+                        console.log('    ✅ buildspec.yml structure integrity maintained');
                     }
                     
                     // Test submit_build.sh structure integrity
@@ -367,7 +367,7 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                             }
                         });
                         
-                        console.log(`    ✅ submit_build.sh structure integrity maintained`);
+                        console.log('    ✅ submit_build.sh structure integrity maintained');
                     }
                     
                     // Test IAM_PERMISSIONS.md structure integrity
@@ -391,10 +391,10 @@ describe('Template Variable Substitution - Property-Based Tests', () => {
                             }
                         });
                         
-                        console.log(`    ✅ IAM_PERMISSIONS.md structure integrity maintained`);
+                        console.log('    ✅ IAM_PERMISSIONS.md structure integrity maintained');
                     }
                     
-                    console.log(`    ✅ All template structure integrity maintained after substitution`);
+                    console.log('    ✅ All template structure integrity maintained after substitution');
                     return true;
                 }
             ), { 

@@ -52,7 +52,7 @@ describe('CodeBuild Configuration Parameter Parsing - Property-Based Tests', () 
                     
                     const options = {
                         'skip-prompts': true,
-                        'framework': framework,
+                        framework,
                         'model-server': modelServer,
                         'model-format': framework === 'sklearn' ? 'pkl' : 'json',
                         'deploy-target': deployTarget,
@@ -115,7 +115,7 @@ describe('CodeBuild Configuration Parameter Parsing - Property-Based Tests', () 
                         
                         const options = {
                             'skip-prompts': true,
-                            'framework': framework,
+                            framework,
                             'model-server': modelServer,
                             'model-format': framework === 'sklearn' ? 'pkl' : 'json',
                             'instance-type': 'cpu-optimized'
@@ -179,11 +179,11 @@ describe('CodeBuild Configuration Parameter Parsing - Property-Based Tests', () 
                         delete process.env.ML_CODEBUILD_COMPUTE_TYPE;
                         
                         const config = {
-                            deployTarget: deployTarget,
+                            deployTarget,
                             codebuildComputeType: computeType,
                             codebuildProjectName: projectName,
-                            framework: framework,
-                            modelServer: modelServer,
+                            framework,
+                            modelServer,
                             modelFormat: framework === 'sklearn' ? 'pkl' : 'json'
                         };
                         
@@ -261,7 +261,7 @@ describe('CodeBuild Configuration Parameter Parsing - Property-Based Tests', () 
                     const originalEnv = process.env;
                     
                     try {
-                        let options = {
+                        const options = {
                             'skip-prompts': true,
                             'framework': 'sklearn',
                             'model-server': 'flask',
@@ -383,11 +383,11 @@ describe('CodeBuild Configuration Parameter Parsing - Property-Based Tests', () 
 
                         if (allValid) {
                             // All valid parameters should succeed
-                            validateFiles(['Dockerfile', 'requirements.txt'], `mixed validation - all valid`);
-                            console.log(`    ✅ All valid parameters accepted correctly`);
+                            validateFiles(['Dockerfile', 'requirements.txt'], 'mixed validation - all valid');
+                            console.log('    ✅ All valid parameters accepted correctly');
                         } else {
                             // Some invalid parameters - may succeed with fallback validation
-                            console.log(`    ⚠️  Mixed invalid parameters unexpectedly accepted`);
+                            console.log('    ⚠️  Mixed invalid parameters unexpectedly accepted');
                         }
                         return true;
                         
@@ -397,7 +397,7 @@ describe('CodeBuild Configuration Parameter Parsing - Property-Based Tests', () 
                             console.log(`    ⚠️  Valid parameters unexpectedly rejected: ${error.message.substring(0, 100)}`);
                         } else {
                             // Invalid parameters should be rejected
-                            console.log(`    ✅ Invalid parameters correctly rejected`);
+                            console.log('    ✅ Invalid parameters correctly rejected');
                         }
                         return true;
                     }

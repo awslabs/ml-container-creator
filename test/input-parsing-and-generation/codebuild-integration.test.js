@@ -11,11 +11,10 @@
  * Requirements: 13.5
  */
 
-import { describe, it, beforeEach, afterEach } from 'mocha';
+import { describe, it, afterEach } from 'mocha';
 import helpers from 'yeoman-test';
 import assert from 'yeoman-assert';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);

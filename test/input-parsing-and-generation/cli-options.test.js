@@ -334,7 +334,7 @@ describe('CLI Options Parsing', () => {
             
             // This test verifies that the CLI options are properly defined
             // The help functionality is handled by Yeoman, so we just verify the options exist
-            const generator = await helpers.default.run(getGeneratorPath())
+            const _generator = await helpers.default.run(getGeneratorPath())
                 .withOptions({ 'help': true });
 
             // If we get here without errors, the options are properly defined

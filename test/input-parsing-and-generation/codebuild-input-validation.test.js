@@ -280,7 +280,7 @@ describe('CodeBuild Input Validation', () => {
                 'invalid:name:with:colons',
                 'invalid;name;with;semicolons',
                 'invalid"name"with"quotes',
-                "invalid'name'with'apostrophes",
+                'invalid\'name\'with\'apostrophes',
                 'invalid<name>with<brackets>',
                 'invalid{name}with{braces}',
                 'invalid[name]with[square]',
@@ -299,7 +299,7 @@ describe('CodeBuild Input Validation', () => {
                 
                 // Names that are too long (256+ characters)
                 'A'.repeat(256),
-                'very-long-project-name-' + 'A'.repeat(240)
+                `very-long-project-name-${  'A'.repeat(240)}`
                 
                 // Note: empty string, null, undefined are not validated (they're falsy)
                 // Numbers, booleans, objects would be converted to strings by the time they reach validation
@@ -395,8 +395,8 @@ describe('CodeBuild Input Validation', () => {
                 
                 // Maximum length (255 characters)
                 'A'.repeat(255),
-                'a' + 'B'.repeat(254),
-                'project-name-' + 'A'.repeat(242),
+                `a${  'B'.repeat(254)}`,
+                `project-name-${  'A'.repeat(242)}`,
                 
                 // Edge cases
                 'A1',

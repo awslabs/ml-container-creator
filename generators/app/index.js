@@ -298,7 +298,7 @@ export default class extends Generator {
             }
 
             // Run the training script
-            await new Promise((resolve, reject) => {
+            await new Promise((resolve, _reject) => {
                 const pythonProcess = spawn('python', ['train_abalone.py'], {
                     cwd: sampleModelDir,
                     stdio: 'inherit'

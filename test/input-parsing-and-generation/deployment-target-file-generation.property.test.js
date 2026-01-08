@@ -91,7 +91,7 @@ describe('Deployment Target File Generation - Property-Based Tests', () => {
                             }
                         });
                         
-                        console.log(`    ✅ CodeBuild correctly excludes SageMaker files and includes CodeBuild files`);
+                        console.log('    ✅ CodeBuild correctly excludes SageMaker files and includes CodeBuild files');
                         
                     } else if (deployTarget === 'sagemaker') {
                         // SageMaker should exclude CodeBuild-only files
@@ -108,7 +108,7 @@ describe('Deployment Target File Generation - Property-Based Tests', () => {
                             }
                         });
                         
-                        console.log(`    ✅ SageMaker correctly excludes CodeBuild files and includes SageMaker files`);
+                        console.log('    ✅ SageMaker correctly excludes CodeBuild files and includes SageMaker files');
                     }
                     
                     // Verify no deployment target excludes ALL deployment files
@@ -255,7 +255,7 @@ describe('Deployment Target File Generation - Property-Based Tests', () => {
                     // Deployment-specific exclusions should still apply
                     if (deployTarget === 'codebuild') {
                         if (!ignorePatterns.includes('**/deploy/build_and_push.sh')) {
-                            throw new Error(`Transformers + CodeBuild should exclude SageMaker build script`);
+                            throw new Error('Transformers + CodeBuild should exclude SageMaker build script');
                         }
                         
                         const codebuildFiles = ['**/buildspec.yml', '**/deploy/submit_build.sh', '**/IAM_PERMISSIONS.md'];
@@ -274,7 +274,7 @@ describe('Deployment Target File Generation - Property-Based Tests', () => {
                         });
                         
                         if (ignorePatterns.includes('**/deploy/build_and_push.sh')) {
-                            throw new Error(`Transformers + SageMaker should not exclude SageMaker build script`);
+                            throw new Error('Transformers + SageMaker should not exclude SageMaker build script');
                         }
                     }
                     

@@ -14,7 +14,7 @@ import fc from 'fast-check';
 import {
     getGeneratorPath,
     validateFiles,
-    validateNoFiles,
+    validateNoFiles as _validateNoFiles,
     setupTestHooks
 } from './test-utils.js';
 
@@ -52,7 +52,7 @@ describe('CodeBuild Conditional Prompting - Property-Based Tests', () => {
                     const baseOptions = {
                         'skip-prompts': true,
                         'project-name': `test-${projectName}`,
-                        'framework': framework,
+                        framework,
                         'model-server': modelServer,
                         'model-format': framework === 'sklearn' ? 'pkl' : 'json',
                         'deploy-target': deployTarget,
@@ -135,7 +135,7 @@ describe('CodeBuild Conditional Prompting - Property-Based Tests', () => {
 
                         if (deployTarget === 'sagemaker') {
                             // SageMaker should ignore CodeBuild parameters
-                            console.log(`    ✅ SageMaker correctly ignored CodeBuild parameters`);
+                            console.log('    ✅ SageMaker correctly ignored CodeBuild parameters');
                             return true;
                         } else {
                             // CodeBuild with valid parameters should succeed
@@ -143,10 +143,10 @@ describe('CodeBuild Conditional Prompting - Property-Based Tests', () => {
                             const isValidProjectName = /^[a-zA-Z0-9][a-zA-Z0-9\-_]{1,254}$/.test(projectName);
                             
                             if (isValidComputeType && isValidProjectName) {
-                                console.log(`    ✅ CodeBuild with valid parameters succeeded`);
+                                console.log('    ✅ CodeBuild with valid parameters succeeded');
                                 return true;
                             } else {
-                                console.log(`    ⚠️  CodeBuild with invalid parameters unexpectedly succeeded`);
+                                console.log('    ⚠️  CodeBuild with invalid parameters unexpectedly succeeded');
                                 return true; // May have fallback validation
                             }
                         }
@@ -162,7 +162,7 @@ describe('CodeBuild Conditional Prompting - Property-Based Tests', () => {
                             const isValidProjectName = /^[a-zA-Z0-9][a-zA-Z0-9\-_]{1,254}$/.test(projectName);
                             
                             if (!isValidComputeType || !isValidProjectName) {
-                                console.log(`    ✅ CodeBuild validation correctly rejected invalid parameters`);
+                                console.log('    ✅ CodeBuild validation correctly rejected invalid parameters');
                                 return true;
                             } else {
                                 console.log(`    ⚠️  CodeBuild validation failed unexpectedly: ${error.message.substring(0, 100)}`);
@@ -202,7 +202,7 @@ describe('CodeBuild Conditional Prompting - Property-Based Tests', () => {
                     const options = {
                         'skip-prompts': true,
                         'project-name': `cli-test-${projectName}`,
-                        'framework': framework,
+                        framework,
                         'model-server': modelServer,
                         'model-format': framework === 'sklearn' ? 'pkl' : 'json',
                         'deploy-target': deployTarget,
@@ -280,12 +280,12 @@ describe('CodeBuild Conditional Prompting - Property-Based Tests', () => {
                             .withOptions(options);
 
                         // If generation succeeds with invalid values, that's unexpected
-                        console.log(`    ⚠️  Invalid CLI values unexpectedly accepted`);
+                        console.log('    ⚠️  Invalid CLI values unexpectedly accepted');
                         return true; // May have fallback validation
                         
                     } catch (error) {
                         // Validation error is expected for invalid values
-                        console.log(`    ✅ Invalid CLI values correctly rejected`);
+                        console.log('    ✅ Invalid CLI values correctly rejected');
                         return true;
                     }
                 }
