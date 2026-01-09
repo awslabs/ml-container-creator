@@ -335,6 +335,9 @@ describe('CodeBuild Integration Tests', function() {
                 });
             
             // Should generate successfully with auto-generated name
+            // Add a small delay to ensure file system operations complete in CI
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
             assert.file(['buildspec.yml', 'deploy/submit_build.sh']);
             
             // Verify auto-generated project name follows pattern
@@ -362,6 +365,9 @@ describe('CodeBuild Integration Tests', function() {
                 });
             
             // CodeBuild should have these files
+            // Add a small delay to ensure file system operations complete in CI
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
             assert.file([
                 'buildspec.yml',
                 'deploy/submit_build.sh',
