@@ -39,6 +39,7 @@ describe('CodeBuild Integration Tests', function() {
     describe('Complete CodeBuild Project Generation', () => {
         it('should generate all required CodeBuild files with valid configuration', async () => {
             runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-codebuild-project'])
                 .withPrompts({
                     framework: 'sklearn',
@@ -80,6 +81,7 @@ describe('CodeBuild Integration Tests', function() {
         
         it('should generate buildspec.yml with correct content and template variables', async () => {
             runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-buildspec'])
                 .withPrompts({
                     framework: 'tensorflow',
@@ -114,6 +116,7 @@ describe('CodeBuild Integration Tests', function() {
         
         it('should generate submit_build.sh with correct CodeBuild configuration', async () => {
             runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-submit-build'])
                 .withPrompts({
                     framework: 'xgboost',
@@ -146,6 +149,7 @@ describe('CodeBuild Integration Tests', function() {
         
         it('should generate IAM_PERMISSIONS.md with CodeBuild documentation', async () => {
             runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-iam-docs'])
                 .withPrompts({
                     framework: 'transformers',
@@ -177,6 +181,7 @@ describe('CodeBuild Integration Tests', function() {
         
         it('should generate modified deploy.sh with CodeBuild integration', async () => {
             runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-deploy-integration'])
                 .withPrompts({
                     framework: 'sklearn',
@@ -207,6 +212,7 @@ describe('CodeBuild Integration Tests', function() {
         
         it('should not generate SageMaker-only files for CodeBuild target', async () => {
             runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-no-sagemaker-files'])
                 .withPrompts({
                     framework: 'tensorflow',
@@ -246,6 +252,7 @@ describe('CodeBuild Integration Tests', function() {
                 const testName = `test-${config.framework}-codebuild`;
                 
                 runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                    .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                     .withArguments([testName])
                     .withPrompts({
                         framework: config.framework,
@@ -287,6 +294,7 @@ describe('CodeBuild Integration Tests', function() {
         
         it('should generate correct file permissions for CodeBuild scripts', async () => {
             runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-permissions'])
                 .withPrompts({
                     framework: 'sklearn',
@@ -311,6 +319,7 @@ describe('CodeBuild Integration Tests', function() {
         it('should validate CodeBuild project name constraints', async () => {
             // Test with valid CodeBuild project name (auto-generated)
             runContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-valid-name'])
                 .withPrompts({
                     framework: 'sklearn',
@@ -337,6 +346,7 @@ describe('CodeBuild Integration Tests', function() {
         it('should generate different files for CodeBuild vs SageMaker targets', async () => {
             // Test CodeBuild target
             const codebuildContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-codebuild-exclusion'])
                 .withPrompts({
                     framework: 'sklearn',
@@ -369,6 +379,7 @@ describe('CodeBuild Integration Tests', function() {
             
             // Test SageMaker target
             const sagemakerContext = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inDir(path.join(__dirname, '../../.kiro/project-testing'))
                 .withArguments(['test-sagemaker-exclusion'])
                 .withPrompts({
                     framework: 'sklearn',
