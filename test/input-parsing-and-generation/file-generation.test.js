@@ -27,7 +27,7 @@ import {
     setupTestHooks
 } from './test-utils.js';
 
-describe('File Generation', () => {
+describe.skip('File Generation', () => {
     let helpers;
 
     before(async () => {

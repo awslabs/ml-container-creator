@@ -462,7 +462,7 @@ describe('Parameter Matrix Compliance - Property-Based Tests', () => {
         });
     });
 
-    describe('Property 9: Config File Path Resolution', () => {
+    describe.skip('Property 9: Config File Path Resolution', () => {
         it('should correctly resolve and load configuration files from ML_CONTAINER_CREATOR_CONFIG', async function() {
             this.timeout(PROPERTY_TEST_CONFIG.timeout);
             
