@@ -113,7 +113,7 @@ export default class TemplateManager {
             modelServer: ['flask', 'fastapi', 'vllm', 'sglang'],
             deployment: ['sagemaker', 'codebuild'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
-            instanceTypes: ['cpu-optimized', 'gpu-enabled'],
+            instanceTypes: ['cpu-optimized', 'gpu-enabled', 'custom'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
                 'eu-west-1', 'eu-west-2', 'eu-central-1', 'eu-north-1',

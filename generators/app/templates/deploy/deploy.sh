@@ -44,6 +44,7 @@ ENDPOINT_NAME="${IMAGE_NAME}-endpoint-${TIMESTAMP}"
 <% if (instanceType === 'cpu-optimized') { %>INSTANCE_TYPE="ml.m6g.large"
 <% } else if (instanceType === 'gpu-enabled' && framework === 'transformers') { %>INSTANCE_TYPE="ml.g6.12xlarge"
 <% } else if (instanceType === 'gpu-enabled') { %>INSTANCE_TYPE="ml.g5.xlarge"
+<% } else if (instanceType === 'custom') { %>INSTANCE_TYPE="<%= customInstanceType %>"
 <% } %>
 
 <% if (deployTarget === 'codebuild') { %>

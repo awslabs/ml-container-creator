@@ -97,7 +97,7 @@ Answer a few questions about your model, and get a complete container with model
 
 ### 🎯 Instance Types
 
-Currently supports **CPU-optimized** instances. The generated deployment scripts can be customized to use GPU instances (ml.g4dn.xlarge, ml.g5.xlarge, ml.p3.2xlarge) for your specific needs. Transformer models default to **ml.g6.12xlarge** for optimal LLM performance.
+Supports **CPU-optimized**, **GPU-enabled**, and **custom** instance types. Choose from predefined options (ml.m6g.large for CPU, ml.g5.xlarge/ml.g6.12xlarge for GPU) or specify any AWS SageMaker instance type for cost optimization and performance tuning. Transformer models default to **ml.g6.12xlarge** for optimal LLM performance.
 
 ## Documentation
 

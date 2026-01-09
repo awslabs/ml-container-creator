@@ -143,20 +143,79 @@ Then follow standard flow with ModelDataUrl pointing to S3
 
 ## Instance Types
 
-### CPU-Optimized Instances
+ML Container Creator provides three instance type options:
+
+### Predefined Instance Types
+
+#### CPU-Optimized Instances (Default: ml.m6g.large)
 - **ml.m5.xlarge** - 4 vCPU, 16 GB RAM - Good for small models
 - **ml.m5.2xlarge** - 8 vCPU, 32 GB RAM - Medium models
 - **ml.m5.4xlarge** - 16 vCPU, 64 GB RAM - Large models
 - **ml.c5.xlarge** - 4 vCPU, 8 GB RAM - Compute-intensive
+- **ml.m6g.large** - 2 vCPU, 8 GB RAM - **Default for traditional ML** - ARM-based, cost-effective
 
-### GPU-Enabled Instances
+#### GPU-Enabled Instances
 - **ml.g4dn.xlarge** - 1 GPU (16GB), 4 vCPU - Small LLMs
 - **ml.g4dn.2xlarge** - 1 GPU (16GB), 8 vCPU - Medium LLMs
-- **ml.g5.xlarge** - 1 GPU (24GB), 4 vCPU - Larger models
+- **ml.g5.xlarge** - 1 GPU (24GB), 4 vCPU - **Default for traditional ML with GPU** - Larger models
 - **ml.g5.2xlarge** - 1 GPU (24GB), 8 vCPU - Better performance
 - **ml.g6.12xlarge** - 4 GPUs (96GB), 48 vCPU - **Default for transformers** - Large LLMs
 - **ml.p3.2xlarge** - 1 GPU (16GB V100) - Training/large inference
 - **ml.p4d.24xlarge** - 8 GPUs (40GB A100) - Very large models
+
+### Custom Instance Types
+
+You can specify any AWS SageMaker instance type using the custom option:
+
+```bash
+# CLI usage
+yo ml-container-creator --instance-type=custom --custom-instance-type=ml.g4dn.xlarge
+
+# Configuration file
+{
+  "instanceType": "custom",
+  "customInstanceType": "ml.inf1.xlarge"
+}
+
+# Environment variables
+export ML_INSTANCE_TYPE=custom
+export ML_CUSTOM_INSTANCE_TYPE=ml.g4dn.2xlarge
+```
+
+#### Popular Custom Instance Types
+- **ml.inf1.xlarge** - AWS Inferentia chip - Optimized for inference
+- **ml.inf1.2xlarge** - AWS Inferentia chip - Higher throughput
+- **ml.t3.medium** - 2 vCPU, 4 GB RAM - Development/testing
+- **ml.c5n.xlarge** - 4 vCPU, 10.5 GB RAM - Network-optimized
+- **ml.r5.large** - 2 vCPU, 16 GB RAM - Memory-optimized
+
+### Instance Type Selection Guide
+
+| Use Case | Recommended Instance Type | Rationale |
+|----------|---------------------------|-----------|
+| **Development/Testing** | `ml.t3.medium` (custom) | Low cost, sufficient for testing |
+| **Small Traditional ML** | `cpu-optimized` (ml.m6g.large) | Cost-effective, ARM-based |
+| **Large Traditional ML** | `ml.m5.xlarge` (custom) | More memory and compute |
+| **Deep Learning Models** | `gpu-enabled` (ml.g5.xlarge) | GPU acceleration |
+| **Large Language Models** | `gpu-enabled` (ml.g6.12xlarge) | Multiple GPUs, high memory |
+| **Inference Optimization** | `ml.inf1.xlarge` (custom) | AWS Inferentia chips |
+| **High Throughput** | `ml.c5n.xlarge` (custom) | Network-optimized |
+
+### Default Mappings
+
+The generator automatically maps abstract instance types to specific AWS instances:
+
+```bash
+# In deploy/deploy.sh template
+if instanceType === 'cpu-optimized':
+    INSTANCE_TYPE="ml.m6g.large"
+elif instanceType === 'gpu-enabled' && framework === 'transformers':
+    INSTANCE_TYPE="ml.g6.12xlarge"  
+elif instanceType === 'gpu-enabled':
+    INSTANCE_TYPE="ml.g5.xlarge"
+elif instanceType === 'custom':
+    INSTANCE_TYPE="${customInstanceType}"
+```
 
 ### Cost Considerations
 - Start with smallest instance that fits your model

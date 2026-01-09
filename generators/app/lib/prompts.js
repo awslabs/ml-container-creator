@@ -177,11 +177,35 @@ const infrastructurePrompts = [
         message: 'Instance type?',
         choices: (answers) => {
             if (answers.framework === 'transformers') {
-                return ['gpu-enabled'];
+                return [
+                    { name: 'GPU-optimized (ml.g6.12xlarge)', value: 'gpu-enabled' },
+                    { name: 'Custom instance type', value: 'custom' }
+                ];
             }
-            return ['cpu-optimized', 'gpu-enabled'];
+            return [
+                { name: 'CPU-optimized (ml.m6g.large)', value: 'cpu-optimized' },
+                { name: 'GPU-enabled (ml.g5.xlarge)', value: 'gpu-enabled' },
+                { name: 'Custom instance type', value: 'custom' }
+            ];
         },
         default: 'cpu-optimized'
+    },
+    {
+        type: 'input',
+        name: 'customInstanceType',
+        message: 'Enter AWS SageMaker instance type (e.g., ml.t3.medium, ml.g4dn.xlarge):',
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return 'Instance type is required';
+            }
+            // Validate AWS SageMaker instance type format
+            const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
+            if (!instancePattern.test(input.trim())) {
+                return 'Invalid instance type format. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g4dn.xlarge)';
+            }
+            return true;
+        },
+        when: answers => answers.instanceType === 'custom'
     },
     {
         type: 'list',

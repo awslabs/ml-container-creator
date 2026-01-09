@@ -30,7 +30,8 @@ All user answers from the prompting phase are available in templates:
 | `includeTesting` | boolean | Include test suite | `true`, `false` |
 | `testTypes` | string[] | Selected test types | `['local-model-cli', 'hosted-model-endpoint']` |
 | `deployTarget` | string | Deployment target | `sagemaker` |
-| `instanceType` | string | Instance configuration | `cpu-optimized`, `gpu-enabled` |
+| `instanceType` | string | Instance configuration | `cpu-optimized`, `gpu-enabled`, `custom` |
+| `customInstanceType` | string | Custom AWS instance type | `ml.m5.large`, `ml.g4dn.xlarge` |
 | `awsRegion` | string | AWS region | `us-east-1` |
 | `buildTimestamp` | string | Generation timestamp | `2024-12-02T15-30-45` |
 

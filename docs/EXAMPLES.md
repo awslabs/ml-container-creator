@@ -9,7 +9,8 @@ This guide provides step-by-step examples for common use cases.
 - [Example 3: Deploy a TensorFlow Model](#example-3-deploy-a-tensorflow-model)
 - [Example 4: Deploy a Transformer Model (LLM)](#example-4-deploy-a-transformer-model-llm)
 - [Example 5: Deploy with CodeBuild CI/CD](#example-5-deploy-with-codebuild-cicd)
-- [Example 6: Custom Configuration](#example-6-custom-configuration)
+- [Example 6: Custom Instance Types](#example-6-custom-instance-types)
+- [Example 7: Custom Configuration](#example-7-custom-configuration)
 
 ---
 
@@ -438,7 +439,225 @@ aws sts get-caller-identity
 
 ---
 
-## Example 6: Custom Configuration
+## Example 6: Custom Instance Types
+
+### Scenario
+You want to optimize costs and performance by using specific AWS instance types for different deployment scenarios.
+
+### Example 6a: Development with Low-Cost Instance
+
+```bash
+# Generate project with small instance for development
+yo ml-container-creator dev-sklearn-model \
+  --framework=sklearn \
+  --model-server=flask \
+  --model-format=pkl \
+  --instance-type=custom \
+  --custom-instance-type=ml.t3.medium \
+  --include-testing \
+  --skip-prompts
+```
+
+**Benefits:**
+- **ml.t3.medium**: 2 vCPU, 4 GB RAM - ~$0.05/hour
+- Perfect for development and testing
+- Burstable performance for intermittent workloads
+
+### Example 6b: Inference Optimization with AWS Inferentia
+
+```bash
+# Generate project optimized for AWS Inferentia chips
+yo ml-container-creator inferentia-model \
+  --framework=tensorflow \
+  --model-server=flask \
+  --model-format=SavedModel \
+  --instance-type=custom \
+  --custom-instance-type=ml.inf1.xlarge \
+  --skip-prompts
+```
+
+**Benefits:**
+- **ml.inf1.xlarge**: AWS Inferentia chip - Up to 80% cost savings for inference
+- Optimized for high-throughput, low-latency inference
+- Best for production inference workloads
+
+### Example 6c: High-Memory Workloads
+
+```bash
+# Generate project for memory-intensive models
+yo ml-container-creator memory-intensive-model \
+  --framework=sklearn \
+  --model-server=fastapi \
+  --model-format=pkl \
+  --instance-type=custom \
+  --custom-instance-type=ml.r5.xlarge \
+  --skip-prompts
+```
+
+**Benefits:**
+- **ml.r5.xlarge**: 4 vCPU, 32 GB RAM - Memory-optimized
+- Ideal for large feature sets or ensemble models
+- Better performance for memory-bound workloads
+
+### Example 6d: Network-Optimized Inference
+
+```bash
+# Generate project for high-throughput inference
+yo ml-container-creator high-throughput-model \
+  --framework=xgboost \
+  --model-server=fastapi \
+  --model-format=json \
+  --instance-type=custom \
+  --custom-instance-type=ml.c5n.xlarge \
+  --skip-prompts
+```
+
+**Benefits:**
+- **ml.c5n.xlarge**: 4 vCPU, 10.5 GB RAM - Network-optimized
+- Up to 25 Gbps network performance
+- Ideal for high-throughput, low-latency applications
+
+### Example 6e: Single GPU for Smaller Models
+
+```bash
+# Generate project with single GPU for cost-effective deep learning
+yo ml-container-creator single-gpu-model \
+  --framework=tensorflow \
+  --model-server=flask \
+  --model-format=SavedModel \
+  --instance-type=custom \
+  --custom-instance-type=ml.g4dn.xlarge \
+  --skip-prompts
+```
+
+**Benefits:**
+- **ml.g4dn.xlarge**: 1 GPU (16GB), 4 vCPU - Cost-effective GPU
+- 50% cheaper than ml.g5.xlarge
+- Sufficient for smaller deep learning models
+
+### Configuration File Approach
+
+Create reusable configurations for different environments:
+
+#### Development Configuration (`dev-config.json`)
+```json
+{
+  "instanceType": "custom",
+  "customInstanceType": "ml.t3.medium",
+  "awsRegion": "us-east-1",
+  "includeTesting": true
+}
+```
+
+#### Production Configuration (`prod-config.json`)
+```json
+{
+  "instanceType": "custom", 
+  "customInstanceType": "ml.inf1.xlarge",
+  "awsRegion": "us-west-2",
+  "includeTesting": false
+}
+```
+
+#### Usage
+```bash
+# Development deployment
+yo ml-container-creator --config=dev-config.json --framework=sklearn --skip-prompts
+
+# Production deployment  
+yo ml-container-creator --config=prod-config.json --framework=sklearn --skip-prompts
+```
+
+### Environment Variable Approach
+
+Set instance types via environment variables:
+
+```bash
+# Development environment
+export ML_INSTANCE_TYPE=custom
+export ML_CUSTOM_INSTANCE_TYPE=ml.t3.medium
+export AWS_REGION=us-east-1
+
+# Production environment
+export ML_INSTANCE_TYPE=custom
+export ML_CUSTOM_INSTANCE_TYPE=ml.inf1.xlarge
+export AWS_REGION=us-west-2
+
+# Generate project (inherits environment config)
+yo ml-container-creator --framework=sklearn --model-server=flask --skip-prompts
+```
+
+### Cost Comparison
+
+| Instance Type | vCPU | Memory | GPU | Cost/Hour* | Use Case |
+|---------------|------|--------|-----|------------|----------|
+| ml.t3.medium | 2 | 4 GB | - | $0.05 | Development |
+| ml.m6g.large | 2 | 8 GB | - | $0.08 | Small production |
+| ml.m5.xlarge | 4 | 16 GB | - | $0.23 | Medium workloads |
+| ml.g4dn.xlarge | 4 | 16 GB | 1 | $0.53 | GPU inference |
+| ml.g5.xlarge | 4 | 16 GB | 1 | $1.01 | GPU inference |
+| ml.inf1.xlarge | 4 | 8 GB | Inferentia | $0.23 | Optimized inference |
+| ml.r5.xlarge | 4 | 32 GB | - | $0.30 | Memory-intensive |
+
+*Approximate costs in us-east-1 region
+
+### Instance Type Selection Guide
+
+```bash
+# Choose based on your requirements:
+
+# 💰 Cost-sensitive development
+--custom-instance-type=ml.t3.medium
+
+# 🚀 High-performance inference  
+--custom-instance-type=ml.inf1.xlarge
+
+# 🧠 Memory-intensive models
+--custom-instance-type=ml.r5.xlarge
+
+# 🌐 High-throughput APIs
+--custom-instance-type=ml.c5n.xlarge
+
+# 🎮 GPU acceleration (budget)
+--custom-instance-type=ml.g4dn.xlarge
+
+# 🎮 GPU acceleration (performance)
+--custom-instance-type=ml.g5.xlarge
+```
+
+### Validation and Troubleshooting
+
+The generator validates custom instance types:
+
+```bash
+# Valid format
+yo ml-container-creator --instance-type=custom --custom-instance-type=ml.g4dn.xlarge ✅
+
+# Invalid format
+yo ml-container-creator --instance-type=custom --custom-instance-type=invalid-type ❌
+# Error: Invalid custom instance type format: invalid-type
+```
+
+#### Common Issues
+
+**Issue: Instance type not available in region**
+```bash
+# Check instance availability
+aws ec2 describe-instance-type-offerings \
+  --location-type availability-zone \
+  --filters Name=instance-type,Values=ml.inf1.xlarge \
+  --region us-west-2
+```
+
+**Issue: Insufficient permissions**
+```bash
+# Ensure your IAM role has SageMaker permissions for the instance type
+# Some instance types require special permissions
+```
+
+---
+
+## Example 7: Custom Configuration
 
 ### Scenario
 You want to customize the generated project for specific requirements.
@@ -551,6 +770,54 @@ aws sagemaker create-endpoint-config \
     ModelName=${PROJECT_NAME}-model,\
     InstanceType=${INSTANCE_TYPE},\
     InitialInstanceCount=${INSTANCE_COUNT}
+```
+
+### Custom Instance Types
+
+Use the custom instance type option for specialized hardware:
+
+```bash
+# Generate project with custom instance type
+yo ml-container-creator my-optimized-model \
+  --framework=sklearn \
+  --model-server=flask \
+  --model-format=pkl \
+  --instance-type=custom \
+  --custom-instance-type=ml.inf1.xlarge \
+  --skip-prompts
+```
+
+#### Popular Custom Instance Types
+
+```bash
+# AWS Inferentia for optimized inference
+--custom-instance-type=ml.inf1.xlarge
+
+# Development/testing with lower cost
+--custom-instance-type=ml.t3.medium
+
+# High-memory workloads
+--custom-instance-type=ml.r5.xlarge
+
+# Network-optimized inference
+--custom-instance-type=ml.c5n.xlarge
+
+# Single GPU for smaller models
+--custom-instance-type=ml.g4dn.xlarge
+```
+
+#### Configuration File Example
+
+```json
+{
+  "projectName": "optimized-inference",
+  "framework": "tensorflow",
+  "modelServer": "flask",
+  "modelFormat": "SavedModel",
+  "instanceType": "custom",
+  "customInstanceType": "ml.inf1.xlarge",
+  "awsRegion": "us-east-1"
+}
 ```
 
 ---

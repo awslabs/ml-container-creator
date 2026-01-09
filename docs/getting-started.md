@@ -129,7 +129,7 @@ You'll be prompted with questions. Here's what to answer for this example:
 
 💪 Infrastructure & Performance
 ? Deployment target? sagemaker
-? Instance type? cpu-optimized
+? Instance type? CPU-optimized (ml.m6g.large)
 ? Target AWS region? us-east-1
 ```
 
@@ -332,12 +332,34 @@ numpy==1.24.0
 
 ### Customize Instance Type
 
-Edit `deploy/deploy.sh` to change instance type:
+The generator provides three instance type options:
+
+1. **CPU-optimized** (ml.m6g.large) - Default for traditional ML
+2. **GPU-enabled** (ml.g5.xlarge for traditional ML, ml.g6.12xlarge for transformers)
+3. **Custom** - Specify any AWS SageMaker instance type
+
+#### Using Custom Instance Types
 
 ```bash
-# Change from ml.m5.xlarge to ml.m5.2xlarge
-INSTANCE_TYPE="ml.m5.2xlarge"
+# Edit deploy/deploy.sh to use a custom instance type
+INSTANCE_TYPE="ml.g4dn.xlarge"  # For GPU inference
+# or
+INSTANCE_TYPE="ml.inf1.xlarge"  # For AWS Inferentia optimization
+# or  
+INSTANCE_TYPE="ml.t3.medium"    # For development/testing
 ```
+
+#### Or configure during generation:
+
+```bash
+yo ml-container-creator --instance-type=custom --custom-instance-type=ml.g4dn.xlarge
+```
+
+Popular custom instance types:
+- `ml.t3.medium` - Development/testing (low cost)
+- `ml.g4dn.xlarge` - Single GPU inference
+- `ml.inf1.xlarge` - AWS Inferentia optimization
+- `ml.c5n.xlarge` - Network-optimized inference
 
 ## Cleanup
 

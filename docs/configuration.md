@@ -35,6 +35,7 @@ This table shows which parameters are supported by each configuration source:
 | Include Testing | `--include-testing` | ❌ | ❌ | ✅ | ❌ | `true` | ✅ | ✅ |
 | **Infrastructure** |
 | Instance Type | `--instance-type` | ❌ | `ML_INSTANCE_TYPE` | ✅ | ❌ | N/A | ✅ | ✅ |
+| Custom Instance Type | `--custom-instance-type` | ❌ | `ML_CUSTOM_INSTANCE_TYPE` | ✅ | ❌ | N/A | ✅ | ❌ |
 | AWS Region | `--region` | ❌ | `AWS_REGION` | ✅ | ✅ | `us-east-1` | ✅ | ❌ |
 | AWS Role ARN | `--role-arn` | ❌ | `AWS_ROLE` | ✅ | ✅ | N/A | ✅ | ❌ |
 | **Project Settings** |
@@ -97,7 +98,8 @@ yo ml-container-creator my-llm-project \
 | `--model-format=<format>` | String | Model format | Framework-dependent |
 | `--include-sample` | Boolean | Include sample model code | `true`/`false` |
 | `--include-testing` | Boolean | Include test suite | `true`/`false` |
-| `--instance-type=<type>` | String | Instance type | `cpu-optimized`, `gpu-enabled` |
+| `--instance-type=<type>` | String | Instance type | `cpu-optimized`, `gpu-enabled`, `custom` |
+| `--custom-instance-type=<type>` | String | Custom AWS instance type | `ml.m5.large`, `ml.g4dn.xlarge` |
 | `--region=<region>` | String | AWS region | AWS region code |
 | `--role-arn=<arn>` | String | AWS IAM role ARN | Valid ARN |
 
@@ -129,7 +131,8 @@ yo ml-container-creator --framework=transformers --model-server=vllm --skip-prom
 
 | Variable | Maps To | Description | Example |
 |----------|---------|-------------|---------|
-| `ML_INSTANCE_TYPE` | `instanceType` | Instance type | `cpu-optimized` |
+| `ML_INSTANCE_TYPE` | `instanceType` | Instance type | `cpu-optimized`, `gpu-enabled`, `custom` |
+| `ML_CUSTOM_INSTANCE_TYPE` | `customInstanceType` | Custom AWS instance type | `ml.g4dn.xlarge` |
 | `AWS_REGION` | `awsRegion` | AWS region | `us-east-1` |
 | `AWS_ROLE` | `awsRoleArn` | AWS IAM role ARN | `arn:aws:iam::123456789012:role/SageMakerRole` |
 | `ML_CONTAINER_CREATOR_CONFIG` | `configFile` | Config file path | `./my-config.json` |
@@ -154,6 +157,7 @@ Create a configuration file in your project directory:
   "testTypes": ["local-model-cli", "hosted-model-endpoint"],
   "deployTarget": "sagemaker",
   "instanceType": "cpu-optimized",
+  "customInstanceType": "ml.m5.large",
   "awsRegion": "us-east-1",
   "awsRoleArn": "arn:aws:iam::123456789012:role/SageMakerRole"
 }
