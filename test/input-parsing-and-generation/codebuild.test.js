@@ -208,7 +208,7 @@ describe('CodeBuild Feature', () => {
                 codebuildProjectName: 'valid-project-name',
                 includeSampleModel: false,
                 includeTesting: true,
-                instanceType: 'cpu-optimized',
+                instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.'
             };

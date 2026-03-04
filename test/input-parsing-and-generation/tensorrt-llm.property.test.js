@@ -72,7 +72,7 @@ describe('TensorRT-LLM Properties', () => {
                             deployTarget: 'sagemaker',
                             includeSampleModel: false,
                             includeTesting: true,
-                            instanceType: 'cpu-optimized',
+                            instanceType: 'ml.m5.large',
                             awsRegion: 'us-east-1',
                             projectName: 'test-project',
                             destinationDir: '.'
@@ -115,7 +115,7 @@ describe('TensorRT-LLM Properties', () => {
                     deployTarget: fc.constantFrom('sagemaker', 'codebuild'),
                     includeSampleModel: fc.boolean(),
                     includeTesting: fc.boolean(),
-                    instanceType: fc.constantFrom('cpu-optimized', 'gpu-enabled'),
+                    instanceType: fc.constantFrom('ml.m5.large', 'ml.g5.xlarge'),
                     awsRegion: fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1')
                 }),
                 (config) => {
@@ -178,7 +178,7 @@ describe('TensorRT-LLM Properties', () => {
                             deployTarget: 'sagemaker',
                             includeSampleModel: false,
                             includeTesting: true,
-                            instanceType: 'cpu-optimized',
+                            instanceType: 'ml.m5.large',
                             awsRegion: 'us-east-1',
                             projectName: 'test-project',
                             destinationDir: '.'

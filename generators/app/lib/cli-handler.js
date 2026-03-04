@@ -162,8 +162,7 @@ CLI OPTIONS:
   --deploy-target=<target>    Deployment target (sagemaker|codebuild)
   --codebuild-compute-type=<type> CodeBuild compute type (BUILD_GENERAL1_SMALL|BUILD_GENERAL1_MEDIUM|BUILD_GENERAL1_LARGE)
   --codebuild-project-name=<name> CodeBuild project name
-  --instance-type=<type>      Instance type (cpu-optimized|gpu-enabled|custom)
-  --custom-instance-type=<type> Custom instance type (e.g., ml.g5.xlarge) when instance-type=custom
+  --instance-type=<type>      SageMaker instance type (e.g., ml.m5.large, ml.g5.xlarge)
   --region=<region>           AWS region
   --role-arn=<arn>            AWS IAM role ARN for SageMaker execution
   --hf-token=<token>          HuggingFace token (or "$HF_TOKEN" for env var)
@@ -227,7 +226,7 @@ TRANSFORMER MODEL EXAMPLES:
   yo ml-container-creator --framework=transformers \\
     --model-name=meta-llama/Llama-2-7b-chat-hf \\
     --model-server=vllm \\
-    --instance-type=gpu-enabled \\
+    --instance-type=ml.g5.xlarge \\
     --hf-token=$HF_TOKEN \\
     --skip-prompts
 
@@ -235,15 +234,14 @@ TRANSFORMER MODEL EXAMPLES:
   yo ml-container-creator --framework=transformers \\
     --model-name=openai/gpt-oss-20b \\
     --model-server=tensorrt-llm \\
-    --instance-type=custom \\
-    --custom-instance-type=ml.g6.12xlarge \\
+    --instance-type=ml.g6.12xlarge \\
     --skip-prompts
 
   # SGLang with Mistral
   yo ml-container-creator --framework=transformers \\
     --model-name=mistralai/Mistral-7B-Instruct-v0.2 \\
     --model-server=sglang \\
-    --instance-type=gpu-enabled \\
+    --instance-type=ml.g5.xlarge \\
     --skip-prompts
 
 REGISTRY CONTRIBUTION:
@@ -355,11 +353,11 @@ For more information, visit: https://github.com/awslabs/ml-container-creator
                 message: 'Instance type:',
                 choices: (answers) => {
                     if (answers.framework === 'transformers') {
-                        return ['gpu-enabled'];
+                        return ['ml.g5.xlarge'];
                     }
-                    return ['cpu-optimized', 'gpu-enabled'];
+                    return ['ml.m5.large', 'ml.g5.xlarge'];
                 },
-                default: 'cpu-optimized'
+                default: 'ml.m5.large'
             },
             {
                 type: 'list',
@@ -383,7 +381,7 @@ For more information, visit: https://github.com/awslabs/ml-container-creator
 # Note: Core parameters (framework, model-server, etc.) are only supported via CLI options and config files
 
 # Optional settings
-export ML_INSTANCE_TYPE="cpu-optimized"
+export ML_INSTANCE_TYPE="ml.m5.large"
 export AWS_REGION="us-east-1"
 export AWS_ROLE="arn:aws:iam::123456789012:role/SageMakerRole"
 export ML_CONTAINER_CREATOR_CONFIG="./my-config.json"
@@ -413,7 +411,7 @@ yo ml-container-creator my-llm-project \\
   --framework=transformers \\
   --model-name=meta-llama/Llama-2-7b-chat-hf \\
   --model-server=vllm \\
-  --instance-type=gpu-enabled \\
+  --instance-type=ml.g5.xlarge \\
   --hf-token=$HF_TOKEN \\
   --region=us-east-1 \\
   --skip-prompts
@@ -423,8 +421,7 @@ yo ml-container-creator my-tensorrt-project \\
   --framework=transformers \\
   --model-name=openai/gpt-oss-20b \\
   --model-server=tensorrt-llm \\
-  --instance-type=custom \\
-  --custom-instance-type=ml.g6.12xlarge \\
+  --instance-type=ml.g6.12xlarge \\
   --skip-prompts
 
 # SGLang with Mistral model
@@ -432,7 +429,7 @@ yo ml-container-creator my-sglang-project \\
   --framework=transformers \\
   --model-name=mistralai/Mistral-7B-Instruct-v0.2 \\
   --model-server=sglang \\
-  --instance-type=gpu-enabled \\
+  --instance-type=ml.g5.xlarge \\
   --skip-prompts
 
 # XGBoost with FastAPI and custom role
@@ -463,6 +460,7 @@ yo ml-container-creator \\
   --framework=transformers \\
   --model-name=meta-llama/Llama-2-7b-chat-hf \\
   --model-server=vllm \\
+  --instance-type=ml.g5.xlarge \\
   --validate-env-vars=true \\
   --validate-with-docker=false \\
   --offline=false \\
@@ -486,7 +484,7 @@ yo ml-container-creator \\
             'deployTarget': 'sagemaker',
             'codebuildComputeType': 'BUILD_GENERAL1_MEDIUM',
             'codebuildProjectName': 'my-build-project',
-            'instanceType': 'cpu-optimized',
+            'instanceType': 'ml.m5.large',
             'awsRegion': 'us-east-1'
         };
     }

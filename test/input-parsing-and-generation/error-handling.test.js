@@ -372,7 +372,7 @@ describe('Error Handling and Validation', () => {
             
             // Test valid instance type for transformers
             try {
-                configManager._validateParameterValue('instanceType', 'gpu-enabled', { framework: 'transformers' });
+                configManager._validateParameterValue('instanceType', 'ml.g5.xlarge', { framework: 'transformers' });
                 console.log('    ✅ GPU instance accepted for transformers');
             } catch (error) {
                 throw new Error(`Valid instance type rejected for transformers: ${error.message}`);
@@ -380,7 +380,7 @@ describe('Error Handling and Validation', () => {
             
             // Test invalid instance type for transformers
             try {
-                configManager._validateParameterValue('instanceType', 'cpu-optimized', { framework: 'transformers' });
+                configManager._validateParameterValue('instanceType', 'ml.m5.large', { framework: 'transformers' });
                 throw new Error('CPU instance was accepted for transformers');
             } catch (error) {
                 if (error instanceof ValidationError) {
@@ -436,7 +436,7 @@ describe('Error Handling and Validation', () => {
                 modelFormat: 'pkl',
                 includeSampleModel: false,
                 includeTesting: true,
-                instanceType: 'cpu-optimized',
+                instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.',
                 deployTarget: 'sagemaker'

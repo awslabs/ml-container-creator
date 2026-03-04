@@ -183,7 +183,9 @@ ENV HF_TOKEN="<%= hfToken %>"
 <% if (chatTemplate) { %>
 # Chat template configuration
 # This template formats chat messages for the model
-ENV CHAT_TEMPLATE="<%= chatTemplate %>"
+# Writing to file to avoid shell escaping issues with multi-line Jinja2 templates
+COPY code/chat_template.jinja /opt/ml/chat_template.jinja
+ENV SGLANG_CHAT_TEMPLATE="/opt/ml/chat_template.jinja"
 <% } %>
 
 <% if (comments && comments.envVarExplanations && Object.keys(comments.envVarExplanations).length > 0) { %>

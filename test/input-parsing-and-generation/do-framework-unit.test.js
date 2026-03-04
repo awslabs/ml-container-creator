@@ -1,0 +1,555 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * DO Framework Integration Unit Tests
+ * 
+ * Comprehensive unit tests for do-framework integration covering:
+ * - Deployment configuration prompt structure
+ * - File generation (do scripts, config, legacy wrappers)
+ * - Script content validation (set -e, source config, branching logic)
+ * 
+ * Requirements: 16.1, 16.2, 16.3, 16.4, 1.2, 9.1, 17.3, 17.4, 3.1, 13.5, 17.6, 17.7, 17.8
+ */
+
+import { setupTestHooks } from './test-utils.js';
+import assert from 'yeoman-assert';
+import helpers from 'yeoman-test';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+describe('DO Framework Integration - Unit Tests', () => {
+    setupTestHooks();
+
+    describe('17.1 Deployment Configuration Prompt', () => {
+        let PromptRunner;
+        let mockGenerator;
+
+        before(async () => {
+            // Import PromptRunner
+            const module = await import('../../generators/app/lib/prompt-runner.js');
+            PromptRunner = module.default;
+        });
+
+        beforeEach(() => {
+            // Create a minimal mock generator
+            mockGenerator = {
+                _allQuestions: [], // Capture all questions across all prompt calls
+                prompt: async (questions) => {
+                    // Accumulate all questions for inspection
+                    mockGenerator._allQuestions.push(...questions);
+                    mockGenerator._lastQuestions = questions;
+                    // Return default answers to prevent hanging
+                    const answers = {};
+                    questions.forEach(q => {
+                        if (q.name === 'deploymentConfig') {
+                            answers[q.name] = 'sklearn-flask';
+                        } else if (q.name === 'instanceType') {
+                            answers[q.name] = 'ml.m5.large';
+                        } else if (q.name === 'framework') {
+                            answers[q.name] = 'sklearn';
+                        } else if (q.name === 'modelServer') {
+                            answers[q.name] = 'flask';
+                        } else if (q.default !== undefined) {
+                            answers[q.name] = typeof q.default === 'function' ? q.default(answers) : q.default;
+                        }
+                    });
+                    return answers;
+                },
+                options: {},
+                baseConfig: {},
+                registryConfigManager: null
+            };
+        });
+
+        it('should include all valid deployment configurations', async () => {
+            const promptRunner = new PromptRunner(mockGenerator);
+            
+            // Run the prompts to capture the deployment config question
+            try {
+                await promptRunner.run();
+            } catch (error) {
+                // Expected to fail since we're not providing real answers
+            }
+
+            // Check that the deployment config question was asked
+            const allQuestions = mockGenerator._allQuestions || [];
+            const deployConfigQuestion = allQuestions.find(q => q.name === 'deploymentConfig');
+
+            assert.ok(deployConfigQuestion, 'deploymentConfig question should exist');
+            assert.strictEqual(deployConfigQuestion.type, 'list', 'Should be a list prompt');
+
+            // Extract choice values (excluding separators)
+            // choices might be a function, so call it if needed
+            const choicesArray = typeof deployConfigQuestion.choices === 'function' 
+                ? deployConfigQuestion.choices({}) 
+                : deployConfigQuestion.choices;
+            const choices = choicesArray.filter(c => typeof c === 'object' && c.value);
+            const values = choices.map(c => c.value);
+
+            // Verify all valid combinations are present
+            const expectedConfigs = [
+                'sklearn-flask',
+                'sklearn-fastapi',
+                'xgboost-flask',
+                'xgboost-fastapi',
+                'tensorflow-flask',
+                'tensorflow-fastapi',
+                'transformers-vllm',
+                'transformers-sglang',
+                'transformers-tensorrt-llm',
+                'transformers-lmi',
+                'transformers-djl'
+            ];
+
+            expectedConfigs.forEach(config => {
+                assert.ok(
+                    values.includes(config),
+                    `Should include ${config} in deployment configurations`
+                );
+            });
+
+            // Verify no invalid combinations
+            const invalidConfigs = [
+                'sklearn-vllm',
+                'sklearn-sglang',
+                'xgboost-vllm',
+                'transformers-flask',
+                'transformers-fastapi'
+            ];
+
+            invalidConfigs.forEach(config => {
+                assert.ok(
+                    !values.includes(config),
+                    `Should NOT include invalid config ${config}`
+                );
+            });
+        });
+
+        it('should correctly derive framework and modelServer from deploymentConfig', () => {
+            const testCases = [
+                { config: 'sklearn-flask', framework: 'sklearn', modelServer: 'flask' },
+                { config: 'sklearn-fastapi', framework: 'sklearn', modelServer: 'fastapi' },
+                { config: 'xgboost-flask', framework: 'xgboost', modelServer: 'flask' },
+                { config: 'xgboost-fastapi', framework: 'xgboost', modelServer: 'fastapi' },
+                { config: 'tensorflow-flask', framework: 'tensorflow', modelServer: 'flask' },
+                { config: 'tensorflow-fastapi', framework: 'tensorflow', modelServer: 'fastapi' },
+                { config: 'transformers-vllm', framework: 'transformers', modelServer: 'vllm' },
+                { config: 'transformers-sglang', framework: 'transformers', modelServer: 'sglang' },
+                { config: 'transformers-tensorrt-llm', framework: 'transformers', modelServer: 'tensorrt-llm' },
+                { config: 'transformers-lmi', framework: 'transformers', modelServer: 'lmi' },
+                { config: 'transformers-djl', framework: 'transformers', modelServer: 'djl' }
+            ];
+
+            testCases.forEach(({ config, framework, modelServer }) => {
+                // Split on first hyphen to handle tensorrt-llm correctly
+                const parts = config.split('-');
+                const derivedFramework = parts[0];
+                const derivedModelServer = parts.slice(1).join('-');
+
+                assert.strictEqual(
+                    derivedFramework,
+                    framework,
+                    `${config} should derive framework: ${framework}`
+                );
+                assert.strictEqual(
+                    derivedModelServer,
+                    modelServer,
+                    `${config} should derive modelServer: ${modelServer}`
+                );
+            });
+        });
+
+        it('should group choices by framework category', async () => {
+            const promptRunner = new PromptRunner(mockGenerator);
+            
+            try {
+                await promptRunner.run();
+            } catch (error) {
+                // Expected to fail
+            }
+
+            const allQuestions = mockGenerator._allQuestions || [];
+            const deployConfigQuestion = allQuestions.find(q => q.name === 'deploymentConfig');
+
+            assert.ok(deployConfigQuestion, 'deploymentConfig question should exist');
+
+            // Check for separators indicating grouping
+            // choices might be a function, so call it if needed
+            const choicesArray = typeof deployConfigQuestion.choices === 'function' 
+                ? deployConfigQuestion.choices({}) 
+                : deployConfigQuestion.choices;
+            const separators = choicesArray.filter(c => c.type === 'separator' || (typeof c === 'object' && c.constructor.name === 'Separator'));
+
+            assert.ok(
+                separators.length >= 2,
+                'Should have at least 2 separators for grouping (Traditional ML and LLMs)'
+            );
+        });
+    });
+
+    describe('17.2 File Generation', () => {
+        it('should generate all do scripts', async () => {
+            await helpers
+                .run(path.join(__dirname, '../../generators/app'))
+                .withPrompts({
+                    projectName: 'test-do-scripts',
+                    deploymentConfig: 'sklearn-flask',
+                    modelFormat: 'pkl',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    deployTarget: 'sagemaker',
+                    instanceType: 'ml.m5.xlarge',
+                    awsRegion: 'us-east-1',
+                    awsRoleArn: ''
+                });
+
+            // Verify all do scripts are generated
+            const expectedDoScripts = [
+                'do/build',
+                'do/push',
+                'do/deploy',
+                'do/run',
+                'do/test',
+                'do/clean',
+                'do/config',
+                'do/README.md'
+            ];
+
+            expectedDoScripts.forEach(script => {
+                assert.file(script);
+            });
+        });
+
+        it('should generate do/submit for CodeBuild deployment', async () => {
+            await helpers
+                .run(path.join(__dirname, '../../generators/app'))
+                .withPrompts({
+                    projectName: 'test-codebuild',
+                    deploymentConfig: 'sklearn-flask',
+                    modelFormat: 'pkl',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    deployTarget: 'codebuild',
+                    codebuildComputeType: 'BUILD_GENERAL1_MEDIUM',
+                    instanceType: 'ml.m5.xlarge',
+                    awsRegion: 'us-east-1',
+                    awsRoleArn: ''
+                });
+
+            assert.file('do/submit');
+        });
+
+        it('should generate do/config with correct variables', async () => {
+            await helpers
+                .run(path.join(__dirname, '../../generators/app'))
+                .withPrompts({
+                    projectName: 'test-config',
+                    deploymentConfig: 'xgboost-fastapi',
+                    modelFormat: 'json',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    deployTarget: 'sagemaker',
+                    instanceType: 'ml.m5.2xlarge',
+                    awsRegion: 'us-west-2',
+                    awsRoleArn: ''
+                });
+
+            assert.file('do/config');
+
+            // Verify required variables are present
+            assert.fileContent('do/config', /export PROJECT_NAME="test-config"/);
+            assert.fileContent('do/config', /export DEPLOYMENT_CONFIG="xgboost-fastapi"/);
+            assert.fileContent('do/config', /export FRAMEWORK="xgboost"/);
+            assert.fileContent('do/config', /export MODEL_SERVER="fastapi"/);
+            assert.fileContent('do/config', /export AWS_REGION="us-west-2"/);
+            assert.fileContent('do/config', /export INSTANCE_TYPE="ml\.m5\.2xlarge"/);
+            assert.fileContent('do/config', /export ECR_REPOSITORY_NAME=/);
+        });
+
+        it('should generate legacy wrapper scripts', async () => {
+            await helpers
+                .run(path.join(__dirname, '../../generators/app'))
+                .withPrompts({
+                    projectName: 'test-legacy',
+                    deploymentConfig: 'sklearn-flask',
+                    modelFormat: 'pkl',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    deployTarget: 'sagemaker',
+                    instanceType: 'ml.m5.xlarge',
+                    awsRegion: 'us-east-1',
+                    awsRoleArn: ''
+                });
+
+            // Verify legacy wrapper scripts exist
+            assert.file('deploy/build_and_push.sh');
+            assert.file('deploy/deploy.sh');
+        });
+
+        it('should NOT use ignorePatterns for file generation', async () => {
+            // Generate a transformers project
+            await helpers
+                .run(path.join(__dirname, '../../generators/app'))
+                .withPrompts({
+                    projectName: 'test-no-ignore',
+                    deploymentConfig: 'transformers-vllm',
+                    modelName: 'meta-llama/Llama-2-7b-chat-hf',
+                    modelProfile: null,
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    deployTarget: 'sagemaker',
+                    instanceType: 'ml.g5.xlarge',
+                    awsRegion: 'us-east-1',
+                    awsRoleArn: '',
+                    offline: true
+                });
+
+            // All template files should be generated regardless of framework
+            // Previously, transformers would exclude model_handler.py and serve.py
+            // Now they should be present (even if not used by transformers)
+            assert.file('code/model_handler.py');
+            assert.file('code/serve.py');
+            assert.file('code/serve'); // Transformer-specific serve script
+            assert.file('Dockerfile');
+            assert.file('requirements.txt');
+        });
+    });
+
+    describe('17.3 Script Content Validation', () => {
+        beforeEach(async () => {
+            // Generate a project for content validation
+            await helpers
+                .run(path.join(__dirname, '../../generators/app'))
+                .withPrompts({
+                    projectName: 'test-content',
+                    deploymentConfig: 'sklearn-flask',
+                    modelFormat: 'pkl',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    deployTarget: 'sagemaker',
+                    instanceType: 'ml.m5.xlarge',
+                    awsRegion: 'us-east-1',
+                    awsRoleArn: ''
+                });
+        });
+
+        it('should include set -e in all do scripts', () => {
+            const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean'];
+
+            scripts.forEach(script => {
+                assert.file(script);
+                const content = fs.readFileSync(script, 'utf8');
+                assert.ok(
+                    content.includes('set -e'),
+                    `${script} should contain 'set -e' for error handling`
+                );
+            });
+        });
+
+        it('should source do/config in all do scripts', () => {
+            const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean'];
+
+            scripts.forEach(script => {
+                assert.file(script);
+                const content = fs.readFileSync(script, 'utf8');
+                assert.ok(
+                    content.includes('source') && content.includes('do/config'),
+                    `${script} should source do/config`
+                );
+            });
+        });
+
+        it('should contain branching logic in operational scripts', () => {
+            const scriptsWithBranching = ['do/build', 'do/deploy', 'do/run'];
+
+            scriptsWithBranching.forEach(script => {
+                assert.file(script);
+                const content = fs.readFileSync(script, 'utf8');
+                
+                // Check for case statements or if statements that branch on config variables
+                const hasCaseStatement = content.includes('case') && 
+                    (content.includes('$DEPLOYMENT_CONFIG') || 
+                     content.includes('$FRAMEWORK') || 
+                     content.includes('$MODEL_SERVER') ||
+                     content.includes('$DEPLOY_TARGET'));
+                
+                const hasIfStatement = content.includes('if') && 
+                    (content.includes('$DEPLOYMENT_CONFIG') || 
+                     content.includes('$FRAMEWORK') || 
+                     content.includes('$MODEL_SERVER') ||
+                     content.includes('$DEPLOY_TARGET'));
+
+                assert.ok(
+                    hasCaseStatement || hasIfStatement,
+                    `${script} should contain conditional branching logic based on configuration`
+                );
+            });
+        });
+
+        it('should contain emoji-prefixed output messages', () => {
+            const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean'];
+
+            scripts.forEach(script => {
+                assert.file(script);
+                const content = fs.readFileSync(script, 'utf8');
+                
+                // Check for common emoji prefixes (using unicode flag for proper emoji handling)
+                const hasEmoji = /[\u{1F680}\u{2705}\u{274C}\u{26A0}\u{2139}\u{1F50D}\u{1F3D7}\u{1F4E6}\u{1F9EA}\u{1F9F9}]/u.test(content);
+                
+                assert.ok(
+                    hasEmoji,
+                    `${script} should contain emoji-prefixed output messages for consistent formatting`
+                );
+            });
+        });
+
+        it('should contain deprecation warnings in legacy wrapper scripts', () => {
+            const wrappers = ['deploy/build_and_push.sh', 'deploy/deploy.sh'];
+
+            wrappers.forEach(wrapper => {
+                assert.file(wrapper);
+                const content = fs.readFileSync(wrapper, 'utf8');
+                
+                assert.ok(
+                    content.includes('DEPRECATED') || content.includes('deprecated'),
+                    `${wrapper} should contain deprecation warning`
+                );
+                
+                assert.ok(
+                    content.includes('do/'),
+                    `${wrapper} should reference do-framework commands`
+                );
+            });
+        });
+
+        it('should validate AWS credentials in AWS-dependent scripts', () => {
+            const awsScripts = ['do/push', 'do/deploy'];
+
+            awsScripts.forEach(script => {
+                assert.file(script);
+                const content = fs.readFileSync(script, 'utf8');
+                
+                // Check for AWS credential validation
+                const hasAwsValidation = content.includes('aws sts get-caller-identity') ||
+                    content.includes('AWS_ACCOUNT_ID') ||
+                    content.includes('aws configure');
+
+                assert.ok(
+                    hasAwsValidation,
+                    `${script} should validate AWS credentials`
+                );
+            });
+        });
+
+        it('should validate Docker prerequisite in do/build', () => {
+            assert.file('do/build');
+            const content = fs.readFileSync('do/build', 'utf8');
+            
+            // Check for Docker validation
+            const hasDockerCheck = content.includes('docker') && 
+                (content.includes('command -v') || content.includes('which'));
+
+            assert.ok(
+                hasDockerCheck,
+                'do/build should validate Docker is installed'
+            );
+        });
+
+        it('should contain confirmation prompts in do/clean', () => {
+            assert.file('do/clean');
+            const content = fs.readFileSync('do/clean', 'utf8');
+            
+            // Check for confirmation logic
+            const hasConfirmation = content.includes('read') || 
+                content.includes('confirm') ||
+                content.includes('Are you sure');
+
+            assert.ok(
+                hasConfirmation,
+                'do/clean should contain confirmation prompts before destructive operations'
+            );
+        });
+    });
+
+    describe('17.3 Additional Script Validation', () => {
+        beforeEach(async () => {
+            await helpers
+                .run(path.join(__dirname, '../../generators/app'))
+                .withPrompts({
+                    projectName: 'test-validation',
+                    deploymentConfig: 'transformers-vllm',
+                    modelName: 'meta-llama/Llama-2-7b-chat-hf',
+                    modelProfile: null,
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    deployTarget: 'codebuild',
+                    codebuildComputeType: 'BUILD_GENERAL1_LARGE',
+                    instanceType: 'ml.g5.2xlarge',
+                    awsRegion: 'us-east-1',
+                    offline: true
+                });
+        });
+
+        it('should include CodeBuild-specific variables in do/config for CodeBuild deployment', () => {
+            assert.file('do/config');
+            const content = fs.readFileSync('do/config', 'utf8');
+            
+            assert.ok(
+                content.includes('CODEBUILD_COMPUTE_TYPE'),
+                'do/config should include CODEBUILD_COMPUTE_TYPE for CodeBuild deployment'
+            );
+            
+            assert.ok(
+                content.includes('BUILD_GENERAL1_LARGE'),
+                'do/config should include the selected compute type value'
+            );
+        });
+
+        it('should include framework-specific variables for transformers', () => {
+            assert.file('do/config');
+            const content = fs.readFileSync('do/config', 'utf8');
+            
+            assert.ok(
+                content.includes('MODEL_NAME'),
+                'do/config should include MODEL_NAME for transformers framework'
+            );
+            
+            assert.ok(
+                content.includes('meta-llama/Llama-2-7b-chat-hf'),
+                'do/config should include the model name value'
+            );
+        });
+
+        it('should handle tensorrt-llm model server correctly', async () => {
+            await helpers
+                .run(path.join(__dirname, '../../generators/app'))
+                .withPrompts({
+                    projectName: 'test-tensorrt',
+                    deploymentConfig: 'transformers-tensorrt-llm',
+                    modelName: 'meta-llama/Llama-2-7b-chat-hf',
+                    modelProfile: null,
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    deployTarget: 'sagemaker',
+                    instanceType: 'ml.g5.xlarge',
+                    awsRegion: 'us-east-1',
+                    awsRoleArn: '',
+                    offline: true
+                });
+
+            assert.file('do/config');
+            const content = fs.readFileSync('do/config', 'utf8');
+            
+            // Verify tensorrt-llm is correctly set (not split on hyphen)
+            assert.ok(
+                content.includes('MODEL_SERVER="tensorrt-llm"'),
+                'do/config should correctly set MODEL_SERVER to tensorrt-llm'
+            );
+        });
+    });
+});

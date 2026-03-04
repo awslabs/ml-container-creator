@@ -59,9 +59,14 @@ export default class extends Generator {
         });
 
         // Core configuration options
+        this.option('deployment-config', {
+            type: String,
+            description: 'Deployment configuration (sklearn-flask, sklearn-fastapi, xgboost-flask, xgboost-fastapi, tensorflow-flask, tensorflow-fastapi, transformers-vllm, transformers-sglang, transformers-tensorrt-llm, transformers-lmi, transformers-djl)'
+        });
+
         this.option('framework', {
             type: String,
-            description: 'ML framework (sklearn, xgboost, tensorflow, transformers)'
+            description: 'ML framework (sklearn, xgboost, tensorflow, transformers) - DEPRECATED: use --deployment-config instead'
         });
 
         this.option('model-format', {
@@ -76,7 +81,7 @@ export default class extends Generator {
 
         this.option('model-server', {
             type: String,
-            description: 'Model server (flask, fastapi, vllm, sglang)'
+            description: 'Model server (flask, fastapi, vllm, sglang) - DEPRECATED: use --deployment-config instead'
         });
 
         // Module options
@@ -290,8 +295,10 @@ export default class extends Generator {
     /**
      * Writing phase - Copies and processes template files.
      * 
-     * Uses TemplateManager to determine which templates to include/exclude
-     * based on user configuration, then copies and processes all templates.
+     * Validates configuration via TemplateManager, then copies and processes
+     * all template files unconditionally. With do-framework integration,
+     * conditional logic has been moved to runtime scripts rather than
+     * template generation time.
      * 
      * @returns {void}
      */
@@ -349,9 +356,6 @@ export default class extends Generator {
         // Prepare ordered environment variables for template
         const orderedEnvVars = this._getOrderedEnvVars(this.answers.envVars || {});
 
-        // Get ignore patterns based on configuration
-        const ignorePatterns = templateManager.getIgnorePatterns();
-
         // Prepare template variables with comments and ordered env vars
         const templateVars = {
             ...this.answers,
@@ -359,13 +363,20 @@ export default class extends Generator {
             orderedEnvVars
         };
 
-        // Copy all templates, processing EJS variables and excluding ignored patterns
+        // Copy all templates, processing EJS variables
+        // No conditional file exclusion - all files are generated
+        // Runtime scripts handle framework-specific and deployment-specific logic
         this.fs.copyTpl(
             this.templatePath('**/*'),
             this.destinationPath(),
-            templateVars,
-            {},
-            { globOptions: { ignore: ignorePatterns } }
+            templateVars
+        );
+
+        // Copy PROJECT_README.md as README.md in the generated project
+        this.fs.copyTpl(
+            this.templatePath('PROJECT_README.md'),
+            this.destinationPath('README.md'),
+            templateVars
         );
     }
 
@@ -456,7 +467,14 @@ export default class extends Generator {
             'deploy/build_and_push.sh',
             'deploy/deploy.sh', 
             'deploy/submit_build.sh',
-            'deploy/upload_to_s3.sh'
+            'deploy/upload_to_s3.sh',
+            'do/build',
+            'do/push',
+            'do/deploy',
+            'do/run',
+            'do/test',
+            'do/clean',
+            'do/submit'
         ];
         
         shellScripts.forEach(script => {

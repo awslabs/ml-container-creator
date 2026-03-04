@@ -1,0 +1,44 @@
+#!/bin/bash
+# do-framework configuration
+# This file is sourced by all do scripts
+
+# Project identification
+export PROJECT_NAME="<%= projectName %>"
+export DEPLOYMENT_CONFIG="<%= deploymentConfig %>"
+
+# Derived from deployment config
+export FRAMEWORK="<%= framework %>"
+export MODEL_SERVER="<%= modelServer %>"
+
+# AWS configuration
+export AWS_REGION="<%= awsRegion %>"
+export ECR_REPOSITORY_NAME="ml-container-creator"
+export INSTANCE_TYPE="<%= instanceType %>"
+
+# Deployment configuration
+export DEPLOY_TARGET="<%= deployTarget %>"
+<% if (deployTarget === 'codebuild') { %>
+export CODEBUILD_COMPUTE_TYPE="<%= codebuildComputeType %>"
+export CODEBUILD_PROJECT_NAME="${PROJECT_NAME}-build-$(date +%Y%m%d)"
+<% } %>
+
+# Framework-specific configuration
+<% if (framework === 'transformers') { %>
+export MODEL_NAME="<%= modelName %>"
+<% if (hfToken) { %>
+export HF_TOKEN="<%= hfToken %>"
+<% } %>
+<% } %>
+
+<% if (modelFormat) { %>
+export MODEL_FORMAT="<%= modelFormat %>"
+<% } %>
+
+<% if (roleArn) { %>
+export ROLE_ARN="<%= roleArn %>"
+<% } %>
+
+# Allow environment variable overrides
+export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
+export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
+export ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-ml-container-creator}

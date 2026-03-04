@@ -40,7 +40,8 @@ ml-container-creator/
 │   │   └── template-manager.js # Template logic
 │   └── templates/           # EJS templates for generated projects
 │       ├── code/            # Model serving code
-│       ├── deploy/          # Deployment scripts
+│       ├── do/              # do-framework scripts (build, push, deploy, etc.)
+│       ├── deploy/          # Legacy wrapper scripts (deprecated)
 │       ├── sample_model/    # Sample training code
 │       └── test/            # Test templates
 ├── test/                    # Generator tests
@@ -59,6 +60,8 @@ The generator follows a simple flow:
 1. Prompting Phase (prompt-runner.js)
    ↓
    Collects user configuration through interactive prompts
+   - Single deployment configuration prompt (framework-server combination)
+   - Derives framework and modelServer from selection
    
 2. Validation Phase (template-manager.js)
    ↓
@@ -66,32 +69,110 @@ The generator follows a simple flow:
    
 3. Writing Phase (index.js)
    ↓
-   Copies and processes templates based on configuration
+   Generates complete project structure
+   - All template files are generated (no conditional exclusion)
+   - do-framework scripts handle runtime branching
+   - Centralized configuration in do/config
 ```
+
+### Key Architecture Principles
+
+**Simplified Generator**: The generator has been simplified by moving conditional logic from template generation to runtime script execution. This means:
+
+- **No template exclusion patterns**: All template files are generated for every project
+- **Runtime branching**: The `do/` scripts contain conditional logic based on `do/config` variables
+- **Single deployment config prompt**: Framework and model server are selected together (e.g., `sklearn-flask`, `transformers-vllm`)
+- **Centralized configuration**: All settings in `do/config` for easy customization
+
+**do-framework Integration**: All generated projects follow the [do-framework](https://github.com/iankoulski/do-framework) conventions:
+
+- Standardized scripts in `do/` directory: `build`, `push`, `deploy`, `run`, `test`, `clean`
+- Configuration in `do/config` file
+- Consistent interface across all projects
+- Framework-specific logic handled at runtime, not generation time
 
 ### Key Files to Know
 
 **`generators/app/index.js`** - Main generator class
 - Orchestrates the generation process
 - Delegates to specialized modules
+- Sets executable permissions on do/ scripts
 - ~50 lines (was 300+ before refactoring!)
 
 **`generators/app/lib/prompts.js`** - Prompt definitions
 - All user prompts organized by phase
+- Single deployment configuration prompt (flattened framework + model server)
 - Easy to add new prompts
 - Clear separation of concerns
 
 **`generators/app/lib/template-manager.js`** - Template logic
-- Determines which templates to include/exclude
 - Validates user configuration
-- Centralizes conditional logic
+- No longer handles template exclusion (simplified!)
+- Centralizes validation logic
 
 **`generators/app/lib/prompt-runner.js`** - Prompt orchestration
 - Runs prompts in organized phases
+- Derives framework and modelServer from deploymentConfig
 - Provides user feedback
 - Combines answers from all phases
 
+**`generators/app/templates/do/`** - do-framework scripts
+- Standardized container lifecycle scripts
+- Contains runtime conditional logic
+- Framework-specific branching handled here, not in generator
+
 ## 🛠️ Common Tasks
+
+### Adding a New Deployment Configuration
+
+The generator now uses a single flattened deployment configuration prompt instead of separate framework and model server prompts.
+
+1. Add the new configuration to `generators/app/lib/prompts.js`:
+
+```javascript
+// In the deployment configuration choices
+{
+    name: 'My Framework with My Server',
+    value: 'myframework-myserver',
+    short: 'myframework-myserver'
+}
+```
+
+2. Update `template-manager.js` validation:
+
+```javascript
+// In validate() method
+const validConfigs = [
+    'sklearn-flask', 'sklearn-fastapi',
+    // ... existing configs
+    'myframework-myserver'  // Add new config
+];
+```
+
+3. Add framework-specific logic to `do/` script templates:
+
+```bash
+# In generators/app/templates/do/build
+case "$DEPLOYMENT_CONFIG" in
+    myframework-myserver)
+        # Framework-specific build logic
+        ;;
+esac
+```
+
+4. Add test in `test/generator.test.js`:
+
+```javascript
+it('handles new deployment config correctly', async () => {
+    await helpers.run(path.join(__dirname, '../generators/app'))
+        .withPrompts({ 
+            deploymentConfig: 'myframework-myserver',
+            /* ... */ 
+        });
+    
+    assert.file(['do/build', 'do/push', 'do/deploy']);
+});
+```
 
 ### Adding a New Prompt
 
@@ -108,23 +189,30 @@ The generator follows a simple flow:
 }
 ```
 
-2. Update `template-manager.js` if it affects template selection:
+2. Add to `do/config` template if it's a configuration variable:
 
-```javascript
-// In getIgnorePatterns() or validate()
-if (this.answers.myNewOption === 'option1') {
-    patterns.push('**/some-template/**');
-}
+```bash
+# In generators/app/templates/do/config
+export MY_NEW_OPTION="<%= myNewOption %>"
 ```
 
-3. Add test in `test/generator.test.js`:
+3. Use in do/ scripts if needed:
+
+```bash
+# In generators/app/templates/do/build (or other scripts)
+if [ "$MY_NEW_OPTION" = "option1" ]; then
+    # Option-specific logic
+fi
+```
+
+4. Add test in `test/generator.test.js`:
 
 ```javascript
 it('handles new option correctly', async () => {
     await helpers.run(path.join(__dirname, '../generators/app'))
         .withPrompts({ myNewOption: 'option1', /* ... */ });
     
-    assert.file(['expected-file.txt']);
+    assert.fileContent('do/config', 'MY_NEW_OPTION="option1"');
 });
 ```
 
@@ -133,25 +221,47 @@ it('handles new option correctly', async () => {
 1. Create template file in `generators/app/templates/`:
 
 ```bash
-# Example: Add a new deployment script
-touch generators/app/templates/deploy/my-script.sh
+# Example: Add a new do-framework script
+touch generators/app/templates/do/my-script
 ```
 
 2. Use EJS syntax for variables:
 
 ```bash
 #!/bin/bash
+set -e
+
+# Source configuration
+source "$(dirname "$0")/config"
+
 PROJECT_NAME="<%= projectName %>"
 REGION="<%= awsRegion %>"
+
+# Add your script logic here
 ```
 
-3. Add exclusion logic if conditional (in `template-manager.js`):
+3. Make it executable in generator's writing phase (if it's a script):
 
 ```javascript
-if (this.answers.framework !== 'sklearn') {
-    patterns.push('**/deploy/my-script.sh');
-}
+// In generators/app/index.js writing() method
+// Executable permissions are set automatically for do/* scripts
 ```
+
+4. Add conditional logic based on configuration (if needed):
+
+```bash
+# In the script itself, not in the generator
+case "$DEPLOYMENT_CONFIG" in
+    sklearn-*)
+        # sklearn-specific logic
+        ;;
+    transformers-*)
+        # transformers-specific logic
+        ;;
+esac
+```
+
+**Important**: The generator now generates all template files unconditionally. Conditional logic should be in the runtime scripts (do/ directory), not in the generator's template exclusion logic.
 
 ### Running Tests
 
@@ -178,9 +288,18 @@ npm link
 cd /tmp
 yo ml-container-creator
 
-# 4. Verify generated project
+# 4. Verify generated project structure
 cd your-generated-project
-docker build -t test .
+ls -la do/  # Check do-framework scripts are present
+cat do/config  # Verify configuration
+
+# 5. Test the do-framework scripts
+./do/build  # Should build successfully
+docker images | grep your-project  # Verify image was created
+
+# 6. Test local deployment
+./do/run &
+./do/test  # Should pass health and inference tests
 ```
 
 ## 🐛 Debugging Tips
@@ -211,10 +330,14 @@ npm cache clean --force
 npm install
 ```
 
-**"Template not being copied"**
-- Check `template-manager.js` for exclusion patterns
-- Verify template path is correct
-- Check EJS syntax is valid
+**"do/ scripts not executable"**
+- Check that `writing()` phase sets permissions: `chmod +x`
+- Verify with: `ls -la do/` in generated project
+
+**"Configuration variable not set in do/config"**
+- Check EJS template syntax in `generators/app/templates/do/config`
+- Verify variable is in `this.answers` object
+- Test with: `cat do/config` in generated project
 
 ## 📝 Code Style
 
@@ -236,6 +359,72 @@ Key points:
 - Use template literals for strings
 - Add JSDoc comments for public methods
 - Keep functions small and focused
+
+## 🎯 do-framework Conventions
+
+All generated projects follow [do-framework](https://github.com/iankoulski/do-framework) conventions:
+
+### Script Structure
+
+```bash
+#!/bin/bash
+set -e  # Exit on error
+set -u  # Exit on undefined variable
+set -o pipefail  # Exit on pipe failure
+
+# Source configuration
+source "$(dirname "$0")/config"
+
+# Validate prerequisites
+check_docker_installed
+
+# Main logic with conditional branching
+case "$DEPLOYMENT_CONFIG" in
+    sklearn-*)
+        # sklearn-specific logic
+        ;;
+    transformers-*)
+        # transformers-specific logic
+        ;;
+esac
+
+# Success output
+echo "✅ Operation completed successfully"
+```
+
+### Configuration Management
+
+- All configuration in `do/config` file
+- Use environment variable overrides
+- Document all variables with comments
+- Support both direct values and env var references
+
+### Output Formatting
+
+Use consistent emoji prefixes:
+- 🚀 - Starting an operation
+- ✅ - Success
+- ❌ - Error
+- ⚠️ - Warning
+- 🔍 - Checking/validating
+- 📦 - Deployment/packaging
+
+### Error Handling
+
+```bash
+# Check prerequisites
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker is not installed"
+    echo "   Install from: https://docs.docker.com/get-docker/"
+    exit 2
+fi
+
+# Validate configuration
+if [ -z "$PROJECT_NAME" ]; then
+    echo "❌ PROJECT_NAME not set in do/config"
+    exit 3
+fi
+```
 
 ## 🧪 Testing Guidelines
 

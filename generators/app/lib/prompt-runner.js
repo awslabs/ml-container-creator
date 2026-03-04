@@ -9,6 +9,7 @@
  */
 
 import {
+    deploymentConfigPrompts,
     frameworkPrompts,
     frameworkVersionPrompts,
     frameworkProfilePrompts,
@@ -41,9 +42,26 @@ export default class PromptRunner {
         // Get only explicit configuration (not defaults) for prompt skipping
         const explicitConfig = this.configManager ? this.configManager.getExplicitConfiguration() : {};
 
-        // Phase 1: Core Configuration (framework first)
+        // Phase 1: Core Configuration (deployment config first)
         console.log('\n🔧 Core Configuration');
-        const frameworkAnswers = await this._runPhase(frameworkPrompts, {}, explicitConfig, existingConfig);
+        const deploymentConfigAnswers = await this._runPhase(deploymentConfigPrompts, {}, explicitConfig, existingConfig);
+        
+        // Derive framework and modelServer from deploymentConfig
+        // Requirements: 16.3
+        let framework, modelServer;
+        if (deploymentConfigAnswers.deploymentConfig) {
+            const parts = deploymentConfigAnswers.deploymentConfig.split('-');
+            framework = parts[0];
+            // Handle multi-part model servers (e.g., tensorrt-llm)
+            modelServer = parts.slice(1).join('-');
+        }
+        
+        // Add derived values to answers
+        const frameworkAnswers = {
+            ...deploymentConfigAnswers,
+            framework: framework || deploymentConfigAnswers.framework,
+            modelServer: modelServer || deploymentConfigAnswers.modelServer
+        };
         
         // Populate framework version choices from registry
         const frameworkVersionChoices = this._getFrameworkVersionChoices(frameworkAnswers.framework);
@@ -77,6 +95,8 @@ export default class PromptRunner {
             explicitConfig, 
             existingConfig
         );
+        
+        // Model server prompts are now deprecated (empty array)
         const modelServerAnswers = await this._runPhase(
             modelServerPrompts, 
             {...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers}, 
@@ -121,7 +141,7 @@ export default class PromptRunner {
 
         // Validate instance type against framework requirements
         // Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
-        const instanceType = infraAnswers.customInstanceType || this._getDefaultInstanceType(infraAnswers.instanceType);
+        const instanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;
         if (instanceType && frameworkVersionAnswers.frameworkVersion) {
             await this._validateAndDisplayInstanceType(
                 instanceType,
@@ -516,17 +536,7 @@ export default class PromptRunner {
         }
     }
 
-    /**
-     * Get default instance type from instance type choice
-     * @private
-     */
-    _getDefaultInstanceType(instanceTypeChoice) {
-        const mapping = {
-            'cpu-optimized': 'ml.m6g.large',
-            'gpu-enabled': 'ml.g5.xlarge'
-        };
-        return mapping[instanceTypeChoice] || instanceTypeChoice;
-    }
+
 
     /**
      * Validate and display instance type compatibility

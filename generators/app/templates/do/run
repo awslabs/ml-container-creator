@@ -1,0 +1,113 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+echo "🚀 Running Docker container locally for ${PROJECT_NAME}"
+echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
+echo "   Framework: ${FRAMEWORK}"
+echo "   Model server: ${MODEL_SERVER}"
+
+# Validate prerequisites
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker is not installed"
+    echo "   Install from: https://docs.docker.com/get-docker/"
+    exit 2
+fi
+
+# Check if image exists
+if ! docker image inspect "${PROJECT_NAME}:latest" &> /dev/null; then
+    echo "❌ Docker image not found: ${PROJECT_NAME}:latest"
+    echo "   Build the image first: ./do/build"
+    exit 5
+fi
+
+# Determine GPU support based on deployment configuration
+GPU_FLAG=""
+case "${DEPLOYMENT_CONFIG}" in
+    transformers-*)
+        echo "🎮 GPU support enabled for transformers deployment"
+        GPU_FLAG="--gpus all"
+        
+        # Check if nvidia-docker is available
+        if ! docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi &> /dev/null; then
+            echo "⚠️  Warning: GPU support requested but nvidia-docker may not be available"
+            echo "   The container will start but may fail if it requires GPU"
+            echo "   Install nvidia-docker: https://github.com/NVIDIA/nvidia-docker"
+        fi
+        ;;
+    sklearn-*|xgboost-*|tensorflow-*)
+        echo "💻 CPU-only mode for traditional ML deployment"
+        ;;
+    *)
+        echo "❌ Unknown deployment configuration: ${DEPLOYMENT_CONFIG}"
+        exit 3
+        ;;
+esac
+
+# Prepare model directory mount if specified
+MODEL_MOUNT=""
+if [ -n "${MODEL_DIR:-}" ]; then
+    if [ -d "${MODEL_DIR}" ]; then
+        echo "📁 Mounting model directory: ${MODEL_DIR}"
+        MODEL_MOUNT="-v ${MODEL_DIR}:/opt/ml/model"
+    else
+        echo "⚠️  Warning: MODEL_DIR specified but directory not found: ${MODEL_DIR}"
+        echo "   Container will start without model directory mount"
+    fi
+fi
+
+# Prepare environment variables
+ENV_VARS=""
+<% if (framework === 'transformers') { %>
+if [ -n "${HF_TOKEN:-}" ]; then
+    echo "🔑 Using HuggingFace token from environment"
+    ENV_VARS="${ENV_VARS} -e HF_TOKEN=${HF_TOKEN}"
+fi
+
+if [ -n "${MODEL_NAME:-}" ]; then
+    ENV_VARS="${ENV_VARS} -e MODEL_NAME=${MODEL_NAME}"
+fi
+<% } %>
+
+echo ""
+echo "🏃 Starting container..."
+echo "   Port: 8080 (mapped to localhost:8080)"
+echo "   Image: ${PROJECT_NAME}:latest"
+if [ -n "${GPU_FLAG}" ]; then
+    echo "   GPU: Enabled"
+fi
+if [ -n "${MODEL_MOUNT}" ]; then
+    echo "   Model mount: ${MODEL_DIR} -> /opt/ml/model"
+fi
+echo ""
+echo "📝 Container logs will stream below"
+echo "   Press Ctrl+C to stop the container"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Run container with cleanup on exit
+docker run -it --rm \
+    -p 8080:8080 \
+    ${GPU_FLAG} \
+    ${MODEL_MOUNT} \
+    ${ENV_VARS} \
+    "${PROJECT_NAME}:latest"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "✅ Container stopped and cleaned up"
+echo ""
+echo "Next steps:"
+echo "  • Test endpoints: curl http://localhost:8080/ping"
+echo "  • Push to ECR: ./do/push"
+echo "  • Deploy to SageMaker: ./do/deploy"

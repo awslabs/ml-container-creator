@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Template Manager - Handles conditional template copying based on configuration
+ * Template Manager - Handles configuration validation
  * 
- * This module centralizes the logic for determining which template files
- * should be included or excluded based on user configuration choices.
+ * This module validates user configuration choices to ensure they are
+ * supported by the generator. With do-framework integration, conditional
+ * file exclusion logic has been removed - all template files are now
+ * generated unconditionally, and runtime scripts handle conditional logic.
  */
 
 export default class TemplateManager {
@@ -13,105 +15,7 @@ export default class TemplateManager {
         this.answers = answers;
     }
 
-    /**
-     * Builds list of glob patterns for files to exclude from template copying
-     * @returns {string[]} Array of glob patterns to ignore
-     */
-    getIgnorePatterns() {
-        const patterns = [
-            // Always exclude template documentation
-            '**/README.md'
-        ];
 
-        // Framework-specific exclusions
-        if (this.answers.framework === 'transformers') {
-            patterns.push(...this._getTransformerExclusions());
-        } else {
-            patterns.push(...this._getTraditionalMLExclusions());
-        }
-
-        // Server-specific exclusions
-        if (this.answers.modelServer !== 'flask') {
-            patterns.push('**/code/flask/**');
-        }
-
-        // Deployment target exclusions
-        if (this.answers.deployTarget === 'codebuild') {
-            patterns.push(...this._getSageMakerOnlyExclusions());
-        } else if (this.answers.deployTarget === 'sagemaker') {
-            patterns.push(...this._getCodeBuildOnlyExclusions());
-        }
-
-        // Optional module exclusions
-        if (!this.answers.includeSampleModel) {
-            patterns.push('**/sample_model/**');
-        }
-
-        if (!this.answers.includeTesting) {
-            patterns.push('**/test/**');
-        }
-
-        return patterns;
-    }
-
-    /**
-     * Files to exclude for transformer models (use vLLM/SGLang serving)
-     * @private
-     */
-    _getTransformerExclusions() {
-        const exclusions = [
-            '**/code/model_handler.py',     // Custom model loading
-            '**/code/start_server.py',      // Flask/FastAPI startup
-            '**/code/serve.py',             // Flask/FastAPI server
-            '**/nginx-predictors.conf',     // Traditional ML nginx config
-            '**/requirements.txt**',        // Traditional ML dependencies
-            '**/test/test_local_image.sh',  // Local testing
-            '**/test/test_model_handler.py' // Unit tests
-        ];
-
-        // TensorRT-LLM needs nginx-tensorrt.conf and start_server.sh, others don't
-        if (this.answers.modelServer !== 'tensorrt-llm') {
-            exclusions.push('**/nginx-tensorrt.conf');
-            exclusions.push('**/code/start_server.sh');
-        }
-
-        return exclusions;
-    }
-
-    /**
-     * Files to exclude for traditional ML models (sklearn, xgboost, tensorflow)
-     * @private
-     */
-    _getTraditionalMLExclusions() {
-        return [
-            '**/code/serve',                // vLLM/SGLang entrypoint
-            '**/code/start_server.sh',      // TensorRT-LLM startup script
-            '**/nginx-tensorrt.conf',       // TensorRT-LLM nginx config
-            '**/deploy/upload_to_s3.sh'     // S3 model upload script
-        ];
-    }
-
-    /**
-     * Files to exclude when CodeBuild deployment target is selected (exclude SageMaker-only files)
-     * @private
-     */
-    _getSageMakerOnlyExclusions() {
-        return [
-            '**/deploy/build_and_push.sh'   // Local Docker build script (SageMaker only)
-        ];
-    }
-
-    /**
-     * Files to exclude when SageMaker deployment target is selected (exclude CodeBuild-only files)
-     * @private
-     */
-    _getCodeBuildOnlyExclusions() {
-        return [
-            '**/buildspec.yml',             // CodeBuild project configuration
-            '**/deploy/submit_build.sh',    // CodeBuild job submission script
-            '**/IAM_PERMISSIONS.md'         // CodeBuild IAM documentation
-        ];
-    }
 
     /**
      * Validates that the configuration is supported
@@ -119,11 +23,15 @@ export default class TemplateManager {
      */
     validate() {
         const supportedOptions = {
-            frameworks: ['sklearn', 'xgboost', 'tensorflow', 'transformers'],
-            modelServer: ['flask', 'fastapi', 'vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl'],
+            deploymentConfigs: [
+                'sklearn-flask', 'sklearn-fastapi',
+                'xgboost-flask', 'xgboost-fastapi',
+                'tensorflow-flask', 'tensorflow-fastapi',
+                'transformers-vllm', 'transformers-sglang',
+                'transformers-tensorrt-llm', 'transformers-lmi', 'transformers-djl'
+            ],
             deployment: ['sagemaker', 'codebuild'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
-            instanceTypes: ['cpu-optimized', 'gpu-enabled', 'custom'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
                 'eu-west-1', 'eu-west-2', 'eu-central-1', 'eu-north-1',
@@ -132,10 +40,33 @@ export default class TemplateManager {
             ]
         };
 
-        this._validateChoice('framework', supportedOptions.frameworks);
-        this._validateChoice('modelServer', supportedOptions.modelServer);
+        // Validate deployment configuration if present
+        if (this.answers.deploymentConfig) {
+            this._validateChoice('deploymentConfig', supportedOptions.deploymentConfigs);
+        } else {
+            // Fallback: validate framework and modelServer separately (for backward compatibility)
+            const frameworks = ['sklearn', 'xgboost', 'tensorflow', 'transformers'];
+            const modelServers = ['flask', 'fastapi', 'vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl'];
+            
+            this._validateChoice('framework', frameworks);
+            this._validateChoice('modelServer', modelServers);
+            
+            // Validate tensorrt-llm is only used with transformers framework
+            if (this.answers.modelServer === 'tensorrt-llm' && this.answers.framework !== 'transformers') {
+                throw new Error('⚠️  TensorRT-LLM is only supported with the transformers framework. Please select "transformers" as your framework or choose a different model server.');
+            }
+        }
+
         this._validateChoice('deployTarget', supportedOptions.deployment);
-        this._validateChoice('instanceType', supportedOptions.instanceTypes);
+        
+        // Validate instance type format (ml.*.*)
+        if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
+            const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
+            if (!instancePattern.test(this.answers.instanceType)) {
+                throw new Error(`⚠️  Invalid instance type format: ${this.answers.instanceType}. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g5.xlarge)`);
+            }
+        }
+        
         this._validateChoice('awsRegion', supportedOptions.awsRegions);
 
         // Validate test types if testing is enabled
@@ -143,11 +74,6 @@ export default class TemplateManager {
             for (const testType of this.answers.testTypes) {
                 this._validateChoice('testType', supportedOptions.testTypes, testType);
             }
-        }
-
-        // Validate tensorrt-llm is only used with transformers framework
-        if (this.answers.modelServer === 'tensorrt-llm' && this.answers.framework !== 'transformers') {
-            throw new Error('⚠️  TensorRT-LLM is only supported with the transformers framework. Please select "transformers" as your framework or choose a different model server.');
         }
     }
 
