@@ -310,7 +310,6 @@ export default class extends Generator {
         
         // If validation failed in initializing phase, throw the error now
         if (this._validationFailed && this._validationError) {
-            this.env.error(this._validationError);
             throw new Error(this._validationError);
         }
 
@@ -324,8 +323,7 @@ export default class extends Generator {
                 });
                 console.log('\nPlease provide the missing required parameters and try again.');
                 const errorMessage = 'Required parameters are missing. Cannot proceed with file generation.';
-                this.env.error(errorMessage);
-                throw new Error(errorMessage); // Throw so tests can catch it
+                throw new Error(errorMessage);
             }
         }
 
@@ -344,8 +342,7 @@ export default class extends Generator {
         try {
             templateManager.validate();
         } catch (error) {
-            this.env.error(error.message);
-            throw error; // Re-throw the error so tests can catch it
+            throw error;
         }
 
         // Generate comments for templates using CommentGenerator
@@ -364,12 +361,29 @@ export default class extends Generator {
         };
 
         // Copy all templates, processing EJS variables
-        // No conditional file exclusion - all files are generated
         // Runtime scripts handle framework-specific and deployment-specific logic
+        const ignorePatterns = [];
+
+        // chat_template.jinja, serve, serving.properties, and start_server.sh
+        // are only relevant for transformer models (vLLM, SGLang, TensorRT-LLM, LMI, DJL)
+        if (this.answers.framework !== 'transformers') {
+            ignorePatterns.push('**/code/chat_template.jinja');
+            ignorePatterns.push('**/code/serve');
+            ignorePatterns.push('**/code/serving.properties');
+            ignorePatterns.push('**/code/start_server.sh');
+        }
+
+        // nginx-tensorrt.conf is only relevant for TensorRT-LLM
+        if (this.answers.modelServer !== 'tensorrt-llm') {
+            ignorePatterns.push('**/nginx-tensorrt.conf');
+        }
+
         this.fs.copyTpl(
             this.templatePath('**/*'),
             this.destinationPath(),
-            templateVars
+            templateVars,
+            {},
+            { globOptions: { ignore: ignorePatterns } }
         );
 
         // Copy PROJECT_README.md as README.md in the generated project
@@ -468,11 +482,13 @@ export default class extends Generator {
             'deploy/deploy.sh', 
             'deploy/submit_build.sh',
             'deploy/upload_to_s3.sh',
+            'do/config',
             'do/build',
             'do/push',
             'do/deploy',
             'do/run',
             'do/test',
+            'do/logs',
             'do/clean',
             'do/submit'
         ];
@@ -694,7 +710,7 @@ export default class extends Generator {
             modelName: null,
             modelFormat: null,
             includeSampleModel: false,
-            includeTesting: false,
+            includeTesting: true,
             testTypes: [],
             buildTimestamp: new Date().toISOString()
         };
@@ -705,6 +721,16 @@ export default class extends Generator {
                 this.answers[key] = value;
             }
         });
+
+        // Always include testing with all available test types for the framework
+        this.answers.includeTesting = true;
+        if (!this.answers.testTypes || this.answers.testTypes.length === 0) {
+            if (this.answers.framework === 'transformers') {
+                this.answers.testTypes = ['hosted-model-endpoint'];
+            } else {
+                this.answers.testTypes = ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
+            }
+        }
         
         // For transformer models, try to enrich with registry data if available
         if (this.answers.framework === 'transformers' && this.answers.modelName && this.registryConfigManager) {

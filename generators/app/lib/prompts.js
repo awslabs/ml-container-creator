@@ -327,12 +327,6 @@ const modulePrompts = [
         }
     },
     {
-        type: 'confirm',
-        name: 'includeTesting',
-        message: 'Include test suite?',
-        default: true
-    },
-    {
         type: 'checkbox',
         name: 'testTypes',
         message: 'Test type?',
@@ -344,7 +338,6 @@ const modulePrompts = [
             }
             return ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
         },
-        when: answers => answers.includeTesting,
         default: (answers) => {
             // Derive framework from deploymentConfig if not already set
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
@@ -362,8 +355,7 @@ const infrastructurePrompts = [
         name: 'deployTarget',
         message: 'Deployment target?',
         choices: [
-            { name: 'codebuild (recommended)', value: 'codebuild' },
-            { name: 'sagemaker', value: 'sagemaker' }
+            { name: 'codebuild (recommended)', value: 'codebuild' }
         ],
         default: 'codebuild'
     },
@@ -491,8 +483,17 @@ const infrastructurePrompts = [
         type: 'list',
         name: 'awsRegion',
         message: 'Target AWS region?',
-        choices: ['us-east-1'],
+        choices: [
+            'us-east-1',
+            { name: 'Custom...', value: 'custom' }
+        ],
         default: 'us-east-1'
+    },
+    {
+        type: 'input',
+        name: 'customAwsRegion',
+        message: 'Enter AWS region (e.g., us-west-2, eu-west-1):',
+        when: answers => answers.awsRegion === 'custom'
     },
     {
         type: 'input',

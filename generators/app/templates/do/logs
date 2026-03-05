@@ -1,0 +1,53 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# Allow endpoint name as argument or from config
+ENDPOINT="${1:-${ENDPOINT_NAME:-}}"
+
+if [ -z "${ENDPOINT}" ]; then
+    echo "❌ No endpoint name provided"
+    echo ""
+    echo "Usage:"
+    echo "  ./do/logs <endpoint-name>"
+    echo "  ./do/logs                  # uses ENDPOINT_NAME from do/config"
+    echo ""
+    echo "Run ./do/deploy first to set ENDPOINT_NAME automatically."
+    exit 1
+fi
+
+LOG_GROUP="/aws/sagemaker/Endpoints/${ENDPOINT}"
+
+echo "📋 Tailing logs for endpoint: ${ENDPOINT}"
+echo "   Log group: ${LOG_GROUP}"
+echo "   Region: ${AWS_REGION}"
+echo ""
+echo "   Press Ctrl+C to stop"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Check if log group exists
+if ! aws logs describe-log-groups \
+    --log-group-name-prefix "${LOG_GROUP}" \
+    --region "${AWS_REGION}" \
+    --query "logGroups[?logGroupName=='${LOG_GROUP}'].logGroupName" \
+    --output text 2>/dev/null | grep -q "${LOG_GROUP}"; then
+    echo "⚠️  Log group not found yet: ${LOG_GROUP}"
+    echo "   The endpoint may still be starting up. Waiting for logs..."
+    echo ""
+fi
+
+# Tail logs using aws logs tail
+aws logs tail "${LOG_GROUP}" \
+    --region "${AWS_REGION}" \
+    --follow \
+    --format short

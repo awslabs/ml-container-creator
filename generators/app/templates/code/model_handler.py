@@ -29,7 +29,10 @@ class ModelHandler:
             model_files = [f for f in os.listdir(self.model_path) if f.endswith('<%= modelFormat %>')]
             
             if not model_files:
-                raise FileNotFoundError("No SKLearn model files found in model directory")
+                logger.warning("No SKLearn model files found in model directory")
+                logger.warning("Server will start but /invocations will fail until a model is provided")
+                logger.warning("Mount a model directory with: MODEL_DIR=/path/to/model ./do/run")
+                return
             
             model_file = os.path.join(self.model_path, model_files[0])
             logger.info(f"Loading model from {model_file}")
@@ -122,7 +125,10 @@ class ModelHandler:
             model_files = [f for f in os.listdir(self.model_path) if f.endswith('<%= modelFormat %>')]
             
             if not model_files:
-                raise FileNotFoundError("No XGBoost model files found in model directory")
+                logger.warning("No XGBoost model files found in model directory")
+                logger.warning("Server will start but /invocations will fail until a model is provided")
+                logger.warning("Mount a model directory with: MODEL_DIR=/path/to/model ./do/run")
+                return
             
             model_file = os.path.join(self.model_path, model_files[0])
             logger.info(f"Loading model from {model_file}")
@@ -217,7 +223,10 @@ class ModelHandler:
                     self.model = tf.saved_model.load(self.model_path)
                     self.model = self.model.signatures['serving_default']
                 except:
-                    raise FileNotFoundError("No Tensorflow model files found in model directory")
+                    logger.warning("No TensorFlow model files found in model directory")
+                    logger.warning("Server will start but /invocations will fail until a model is provided")
+                    logger.warning("Mount a model directory with: MODEL_DIR=/path/to/model ./do/run")
+                    return
             else:
                 model_file = os.path.join(self.model_path, model_files[0])
                 logger.info(f"Loading model from {model_file}")

@@ -42,3 +42,10 @@ export ROLE_ARN="<%= roleArn %>"
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 export ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-ml-container-creator}
+
+# Print configuration summary
+echo "⚙️  Configuration loaded"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Config:  ${DEPLOYMENT_CONFIG}"
+echo "   Region:  ${AWS_REGION}"
+echo "   Instance: ${INSTANCE_TYPE}"

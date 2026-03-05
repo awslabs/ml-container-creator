@@ -10,7 +10,7 @@
 <% } %>
 
 <% if (framework !== 'transformers') { %>
-FROM python:3.12-slim
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 # Set a docker label to name this project, postpended with the build time
 LABEL project.name="<%= projectName %>-<%= buildTimestamp %>" \

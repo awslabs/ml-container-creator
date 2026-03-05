@@ -30,7 +30,7 @@ export default class TemplateManager {
                 'transformers-vllm', 'transformers-sglang',
                 'transformers-tensorrt-llm', 'transformers-lmi', 'transformers-djl'
             ],
-            deployment: ['sagemaker', 'codebuild'],
+            deployment: ['codebuild'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',

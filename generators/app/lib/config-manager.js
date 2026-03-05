@@ -215,6 +215,12 @@ export default class ConfigManager {
             finalConfig.hfToken = this._resolveHfToken(finalConfig.hfToken);
         }
 
+        // Map awsRoleArn to roleArn for templates
+        if (finalConfig.awsRoleArn) {
+            finalConfig.roleArn = finalConfig.awsRoleArn;
+            delete finalConfig.awsRoleArn;
+        }
+
         return finalConfig;
     }
 
@@ -291,8 +297,8 @@ export default class ConfigManager {
                 envVar: null,
                 configFile: true,
                 packageJson: false,
-                promptable: true,
-                required: true,
+                promptable: false,
+                required: false,
                 default: true
             },
             instanceType: {
@@ -365,7 +371,7 @@ export default class ConfigManager {
                 packageJson: false,
                 promptable: true,
                 required: true,
-                default: 'sagemaker'
+                default: 'codebuild'
             },
             codebuildComputeType: {
                 cliOption: 'codebuild-compute-type',
@@ -455,6 +461,7 @@ export default class ConfigManager {
 
         // Add legacy parameters that aren't in the matrix but are still used internally
         defaults.testTypes = null;
+        defaults.includeTesting = true;
 
         return defaults;
     }
@@ -1098,7 +1105,7 @@ export default class ConfigManager {
                 'tensorflow': ['keras', 'h5', 'SavedModel'],
                 'transformers': [] // No format needed
             },
-            deployTargets: ['sagemaker', 'codebuild'],
+            deployTargets: ['codebuild'],
             codebuildComputeTypes: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',

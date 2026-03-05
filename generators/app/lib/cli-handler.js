@@ -481,7 +481,7 @@ yo ml-container-creator \\
             'includeSampleModel': false,
             'includeTesting': true,
             'testTypes': ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
-            'deployTarget': 'sagemaker',
+            'deployTarget': 'codebuild',
             'codebuildComputeType': 'BUILD_GENERAL1_MEDIUM',
             'codebuildProjectName': 'my-build-project',
             'instanceType': 'ml.m5.large',

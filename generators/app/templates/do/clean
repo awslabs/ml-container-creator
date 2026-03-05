@@ -165,63 +165,69 @@ clean_endpoint() {
         exit 4
     fi
     
-    # Construct resource names
-    ENDPOINT_NAME="${PROJECT_NAME}-endpoint"
-    ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-endpoint-config"
-    MODEL_NAME="${PROJECT_NAME}-model"
-    
-    # Check what resources exist
-    ENDPOINT_EXISTS=false
-    ENDPOINT_CONFIG_EXISTS=false
-    MODEL_EXISTS=false
-    
+    # Use ENDPOINT_NAME from config (set by do/deploy) or argument
+    local EP_NAME="${ENDPOINT_NAME:-}"
+    if [ -z "${EP_NAME}" ]; then
+        echo "❌ No endpoint name found"
+        echo "   Run ./do/deploy first, or set ENDPOINT_NAME in do/config"
+        return 1
+    fi
+
     echo ""
     echo "Checking for SageMaker resources..."
-    
+
+    # Discover endpoint config and model from the endpoint itself
+    local ENDPOINT_CONFIG_NAME=""
+    local MODEL_NAME=""
+    local ENDPOINT_EXISTS=false
+
     if aws sagemaker describe-endpoint \
-        --endpoint-name "${ENDPOINT_NAME}" \
+        --endpoint-name "${EP_NAME}" \
         --region "${AWS_REGION}" &> /dev/null; then
         ENDPOINT_EXISTS=true
-        echo "   ✓ Endpoint: ${ENDPOINT_NAME}"
-    fi
-    
-    if aws sagemaker describe-endpoint-config \
-        --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-        --region "${AWS_REGION}" &> /dev/null; then
-        ENDPOINT_CONFIG_EXISTS=true
+        ENDPOINT_CONFIG_NAME=$(aws sagemaker describe-endpoint \
+            --endpoint-name "${EP_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'EndpointConfigName' --output text 2>/dev/null || echo "")
+        echo "   ✓ Endpoint: ${EP_NAME}"
         echo "   ✓ Endpoint config: ${ENDPOINT_CONFIG_NAME}"
-    fi
-    
-    if aws sagemaker describe-model \
-        --model-name "${MODEL_NAME}" \
-        --region "${AWS_REGION}" &> /dev/null; then
-        MODEL_EXISTS=true
-        echo "   ✓ Model: ${MODEL_NAME}"
-    fi
-    
-    if [ "${ENDPOINT_EXISTS}" = false ] && [ "${ENDPOINT_CONFIG_EXISTS}" = false ] && [ "${MODEL_EXISTS}" = false ]; then
-        echo "ℹ️  No SageMaker resources found for ${PROJECT_NAME}"
+    else
+        echo "ℹ️  Endpoint not found: ${EP_NAME}"
         return 0
     fi
-    
-    if ! confirm_action "This will delete SageMaker endpoint, endpoint configuration, and model"; then
+
+    # Discover model from endpoint config
+    if [ -n "${ENDPOINT_CONFIG_NAME}" ]; then
+        MODEL_NAME=$(aws sagemaker describe-endpoint-config \
+            --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'ProductionVariants[0].ModelName' --output text 2>/dev/null || echo "")
+        if [ -n "${MODEL_NAME}" ] && [ "${MODEL_NAME}" != "None" ]; then
+            echo "   ✓ Model: ${MODEL_NAME}"
+        fi
+    fi
+
+    if ! confirm_action "This will delete the SageMaker endpoint, endpoint configuration, and model"; then
         return 1
     fi
     
-    # Delete endpoint
-    if [ "${ENDPOINT_EXISTS}" = true ]; then
-        echo "🗑️  Deleting endpoint: ${ENDPOINT_NAME}"
-        if aws sagemaker delete-endpoint \
-            --endpoint-name "${ENDPOINT_NAME}" \
-            --region "${AWS_REGION}" &> /dev/null; then
-            echo "✅ Endpoint deleted"
-        else
-            echo "❌ Failed to delete endpoint"
-        fi
+    # Delete endpoint first (must be deleted before config)
+    echo "🗑️  Deleting endpoint: ${EP_NAME}"
+    if aws sagemaker delete-endpoint \
+        --endpoint-name "${EP_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "✅ Endpoint deleted"
+        # Wait briefly for endpoint deletion to propagate
+        echo "⏳ Waiting for endpoint deletion..."
+        aws sagemaker wait endpoint-deleted \
+            --endpoint-name "${EP_NAME}" \
+            --region "${AWS_REGION}" 2>/dev/null || sleep 10
+    else
+        echo "❌ Failed to delete endpoint"
     fi
     
     # Delete endpoint configuration
-    if [ "${ENDPOINT_CONFIG_EXISTS}" = true ]; then
+    if [ -n "${ENDPOINT_CONFIG_NAME}" ] && [ "${ENDPOINT_CONFIG_NAME}" != "None" ]; then
         echo "🗑️  Deleting endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
         if aws sagemaker delete-endpoint-config \
             --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
@@ -233,7 +239,7 @@ clean_endpoint() {
     fi
     
     # Delete model
-    if [ "${MODEL_EXISTS}" = true ]; then
+    if [ -n "${MODEL_NAME}" ] && [ "${MODEL_NAME}" != "None" ]; then
         echo "🗑️  Deleting model: ${MODEL_NAME}"
         if aws sagemaker delete-model \
             --model-name "${MODEL_NAME}" \
@@ -242,6 +248,12 @@ clean_endpoint() {
         else
             echo "❌ Failed to delete model"
         fi
+    fi
+
+    # Remove ENDPOINT_NAME from config
+    if grep -q "^export ENDPOINT_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
+        sed -i.bak '/^# Last deployed endpoint/d;/^export ENDPOINT_NAME=/d' "${SCRIPT_DIR}/config"
+        rm -f "${SCRIPT_DIR}/config.bak"
     fi
     
     echo "✅ SageMaker resources cleaned"

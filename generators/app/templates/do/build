@@ -41,17 +41,17 @@ case "${DEPLOYMENT_CONFIG}" in
         echo "${NGC_API_KEY}" | docker login nvcr.io --username '$oauthtoken' --password-stdin
         
         echo "🏗️  Building GPU-enabled image with TensorRT-LLM..."
-        docker build -t "${PROJECT_NAME}:latest" .
+        docker build --provenance=false -t "${PROJECT_NAME}:latest" .
         ;;
         
     transformers-vllm|transformers-sglang|transformers-lmi|transformers-djl)
         echo "🏗️  Building GPU-enabled image..."
-        docker build -t "${PROJECT_NAME}:latest" .
+        docker build --provenance=false -t "${PROJECT_NAME}:latest" .
         ;;
         
     sklearn-*|xgboost-*|tensorflow-*)
         echo "🏗️  Building CPU-optimized image..."
-        docker build -t "${PROJECT_NAME}:latest" .
+        docker build --provenance=false -t "${PROJECT_NAME}:latest" .
         ;;
         
     *)

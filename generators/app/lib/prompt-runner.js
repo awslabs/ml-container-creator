@@ -151,14 +151,7 @@ export default class PromptRunner {
         }
 
         // Show warning for SageMaker deployment target
-        if (infraAnswers.deployTarget === 'sagemaker') {
-            console.log('\n⚠️  Warning: Building locally for SageMaker deployment');
-            console.log('   Building this image locally may result in `exec format error` when deploying');
-            console.log('   to SageMaker if your local architecture differs from the target instance.');
-            console.log('   Ensure you have set the appropriate --platform flag in your Dockerfile');
-            console.log('   (e.g., --platform=linux/amd64 for x86_64 instances, --platform=linux/arm64 for ARM).');
-            console.log('   Consider using CodeBuild for architecture-independent builds.\n');
-        }
+        // Note: sagemaker deploy target has been removed; only codebuild is supported
 
         // Phase 4: Project Configuration (moved to end)
         console.log('\n📋 Project Configuration');
@@ -196,6 +189,24 @@ export default class PromptRunner {
         if (combinedAnswers.framework === 'transformers' && combinedAnswers.customModelName) {
             combinedAnswers.modelName = combinedAnswers.customModelName;
             delete combinedAnswers.customModelName;
+        }
+
+        // Handle custom instance type
+        if (combinedAnswers.customInstanceType) {
+            combinedAnswers.instanceType = combinedAnswers.customInstanceType;
+            delete combinedAnswers.customInstanceType;
+        }
+
+        // Handle custom AWS region
+        if (combinedAnswers.customAwsRegion) {
+            combinedAnswers.awsRegion = combinedAnswers.customAwsRegion;
+            delete combinedAnswers.customAwsRegion;
+        }
+
+        // Map awsRoleArn to roleArn for templates
+        if (combinedAnswers.awsRoleArn) {
+            combinedAnswers.roleArn = combinedAnswers.awsRoleArn;
+            delete combinedAnswers.awsRoleArn;
         }
 
         return combinedAnswers;
