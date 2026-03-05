@@ -154,7 +154,7 @@ describe('DO Framework - Simplified Tests', () => {
             
             // Check that it includes do scripts
             assert.ok(
-                content.includes('do/build') || content.includes("'do/"),
+                content.includes('do/build') || content.includes('\'do/'),
                 '_setExecutablePermissions should reference do scripts'
             );
         });
