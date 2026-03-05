@@ -58,6 +58,7 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
 
                 runResult = await helpers
                     .run(path.join(__dirname, '../../generators/app'))
+                    .withOptions({ offline: true })
                     .withPrompts(prompts);
             });
 
@@ -205,6 +206,7 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
         before(async () => {
             runResult = await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     ...basePrompts,
                     deploymentConfig: 'transformers-vllm',

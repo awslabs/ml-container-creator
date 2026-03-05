@@ -3370,7 +3370,7 @@ describe('do-framework Integration Property Tests', () => {
             
             const resultSagemaker = await helpers.run(path.join(__dirname, '../../generators/app'))
                 .inTmpDir()
-                .withOptions({ 'skip-install': true })
+                .withOptions({ 'skip-install': true, offline: true })
                 .withPrompts({
                     projectName: 'test-project',
                     destinationDir: '.',
@@ -3406,7 +3406,7 @@ describe('do-framework Integration Property Tests', () => {
             
             const resultCodebuild = await helpers.run(path.join(__dirname, '../../generators/app'))
                 .inTmpDir()
-                .withOptions({ 'skip-install': true })
+                .withOptions({ 'skip-install': true, offline: true })
                 .withPrompts({
                     projectName: 'test-project',
                     destinationDir: '.',
@@ -3479,7 +3479,7 @@ describe('do-framework Integration Property Tests', () => {
             
             const result = await helpers.run(path.join(__dirname, '../../generators/app'))
                 .inTmpDir()
-                .withOptions({ 'skip-install': true })
+                .withOptions({ 'skip-install': true, offline: true })
                 .withPrompts({
                     projectName: 'test-project',
                     destinationDir: '.',
@@ -3509,7 +3509,7 @@ describe('do-framework Integration Property Tests', () => {
             
             const resultTransformers = await helpers.run(path.join(__dirname, '../../generators/app'))
                 .inTmpDir()
-                .withOptions({ 'skip-install': true })
+                .withOptions({ 'skip-install': true, offline: true })
                 .withPrompts({
                     projectName: 'test-project',
                     destinationDir: '.',

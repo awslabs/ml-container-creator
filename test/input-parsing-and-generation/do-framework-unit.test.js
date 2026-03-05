@@ -196,6 +196,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should generate all do scripts', async () => {
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     projectName: 'test-do-scripts',
                     deploymentConfig: 'sklearn-flask',
@@ -228,6 +229,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should generate do/submit for CodeBuild deployment', async () => {
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     projectName: 'test-codebuild',
                     deploymentConfig: 'sklearn-flask',
@@ -247,6 +249,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should generate do/config with correct variables', async () => {
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     projectName: 'test-config',
                     deploymentConfig: 'xgboost-fastapi',
@@ -274,6 +277,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should generate legacy wrapper scripts', async () => {
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     projectName: 'test-legacy',
                     deploymentConfig: 'sklearn-flask',
@@ -295,6 +299,7 @@ describe('DO Framework Integration - Unit Tests', () => {
             // Generate a transformers project
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     projectName: 'test-no-ignore',
                     deploymentConfig: 'transformers-vllm',
@@ -305,8 +310,7 @@ describe('DO Framework Integration - Unit Tests', () => {
                     deployTarget: 'sagemaker',
                     instanceType: 'ml.g5.xlarge',
                     awsRegion: 'us-east-1',
-                    awsRoleArn: '',
-                    offline: true
+                    awsRoleArn: ''
                 });
 
             // All template files should be generated regardless of framework
@@ -321,10 +325,13 @@ describe('DO Framework Integration - Unit Tests', () => {
     });
 
     describe('17.3 Script Content Validation', () => {
+        let runResult;
+
         beforeEach(async () => {
             // Generate a project for content validation
-            await helpers
+            runResult = await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     projectName: 'test-content',
                     deploymentConfig: 'sklearn-flask',
@@ -343,7 +350,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
             scripts.forEach(script => {
                 assert.file(script);
-                const content = fs.readFileSync(script, 'utf8');
+                const scriptPath = path.join(runResult.cwd, script);
+                const content = fs.readFileSync(scriptPath, 'utf8');
                 assert.ok(
                     content.includes('set -e'),
                     `${script} should contain 'set -e' for error handling`
@@ -356,7 +364,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
             scripts.forEach(script => {
                 assert.file(script);
-                const content = fs.readFileSync(script, 'utf8');
+                const scriptPath = path.join(runResult.cwd, script);
+                const content = fs.readFileSync(scriptPath, 'utf8');
                 assert.ok(
                     content.includes('source') && content.includes('do/config'),
                     `${script} should source do/config`
@@ -369,7 +378,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
             scriptsWithBranching.forEach(script => {
                 assert.file(script);
-                const content = fs.readFileSync(script, 'utf8');
+                const scriptPath = path.join(runResult.cwd, script);
+                const content = fs.readFileSync(scriptPath, 'utf8');
                 
                 // Check for case statements or if statements that branch on config variables
                 const hasCaseStatement = content.includes('case') && 
@@ -396,7 +406,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
             scripts.forEach(script => {
                 assert.file(script);
-                const content = fs.readFileSync(script, 'utf8');
+                const scriptPath = path.join(runResult.cwd, script);
+                const content = fs.readFileSync(scriptPath, 'utf8');
                 
                 // Check for common emoji prefixes (using unicode flag for proper emoji handling)
                 const hasEmoji = /[\u{1F680}\u{2705}\u{274C}\u{26A0}\u{2139}\u{1F50D}\u{1F3D7}\u{1F4E6}\u{1F9EA}\u{1F9F9}]/u.test(content);
@@ -413,7 +424,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
             wrappers.forEach(wrapper => {
                 assert.file(wrapper);
-                const content = fs.readFileSync(wrapper, 'utf8');
+                const wrapperPath = path.join(runResult.cwd, wrapper);
+                const content = fs.readFileSync(wrapperPath, 'utf8');
                 
                 assert.ok(
                     content.includes('DEPRECATED') || content.includes('deprecated'),
@@ -432,7 +444,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
             awsScripts.forEach(script => {
                 assert.file(script);
-                const content = fs.readFileSync(script, 'utf8');
+                const scriptPath = path.join(runResult.cwd, script);
+                const content = fs.readFileSync(scriptPath, 'utf8');
                 
                 // Check for AWS credential validation
                 const hasAwsValidation = content.includes('aws sts get-caller-identity') ||
@@ -448,7 +461,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
         it('should validate Docker prerequisite in do/build', () => {
             assert.file('do/build');
-            const content = fs.readFileSync('do/build', 'utf8');
+            const buildPath = path.join(runResult.cwd, 'do/build');
+            const content = fs.readFileSync(buildPath, 'utf8');
             
             // Check for Docker validation
             const hasDockerCheck = content.includes('docker') && 
@@ -462,7 +476,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
         it('should contain confirmation prompts in do/clean', () => {
             assert.file('do/clean');
-            const content = fs.readFileSync('do/clean', 'utf8');
+            const cleanPath = path.join(runResult.cwd, 'do/clean');
+            const content = fs.readFileSync(cleanPath, 'utf8');
             
             // Check for confirmation logic
             const hasConfirmation = content.includes('read') || 
@@ -477,9 +492,12 @@ describe('DO Framework Integration - Unit Tests', () => {
     });
 
     describe('17.3 Additional Script Validation', () => {
+        let runResult;
+
         beforeEach(async () => {
-            await helpers
+            runResult = await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     projectName: 'test-validation',
                     deploymentConfig: 'transformers-vllm',
@@ -491,13 +509,14 @@ describe('DO Framework Integration - Unit Tests', () => {
                     codebuildComputeType: 'BUILD_GENERAL1_LARGE',
                     instanceType: 'ml.g5.2xlarge',
                     awsRegion: 'us-east-1',
-                    offline: true
+                    awsRoleArn: ''
                 });
         });
 
         it('should include CodeBuild-specific variables in do/config for CodeBuild deployment', () => {
             assert.file('do/config');
-            const content = fs.readFileSync('do/config', 'utf8');
+            const configPath = path.join(runResult.cwd, 'do/config');
+            const content = fs.readFileSync(configPath, 'utf8');
             
             assert.ok(
                 content.includes('CODEBUILD_COMPUTE_TYPE'),
@@ -512,7 +531,8 @@ describe('DO Framework Integration - Unit Tests', () => {
 
         it('should include framework-specific variables for transformers', () => {
             assert.file('do/config');
-            const content = fs.readFileSync('do/config', 'utf8');
+            const configPath = path.join(runResult.cwd, 'do/config');
+            const content = fs.readFileSync(configPath, 'utf8');
             
             assert.ok(
                 content.includes('MODEL_NAME'),
@@ -526,8 +546,9 @@ describe('DO Framework Integration - Unit Tests', () => {
         });
 
         it('should handle tensorrt-llm model server correctly', async () => {
-            await helpers
+            const tensorrtResult = await helpers
                 .run(path.join(__dirname, '../../generators/app'))
+                .withOptions({ offline: true })
                 .withPrompts({
                     projectName: 'test-tensorrt',
                     deploymentConfig: 'transformers-tensorrt-llm',
@@ -538,12 +559,12 @@ describe('DO Framework Integration - Unit Tests', () => {
                     deployTarget: 'sagemaker',
                     instanceType: 'ml.g5.xlarge',
                     awsRegion: 'us-east-1',
-                    awsRoleArn: '',
-                    offline: true
+                    awsRoleArn: ''
                 });
 
             assert.file('do/config');
-            const content = fs.readFileSync('do/config', 'utf8');
+            const configPath = path.join(tensorrtResult.cwd, 'do/config');
+            const content = fs.readFileSync(configPath, 'utf8');
             
             // Verify tensorrt-llm is correctly set (not split on hyphen)
             assert.ok(
