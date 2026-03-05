@@ -70,10 +70,12 @@ Creates a SageMaker endpoint named `<%= projectName %>-endpoint`.
 <% if (includeSampleModel) { %>├── sample_model/          # Sample training code
 │   ├── train_abalone.py    # Train sample model
 │   └── test_inference.py   # Test inference
-<% } %><% if (includeTesting) { %>├── test/                  # Test suite
+<% } %>
+<% if (includeTesting) { %>├── test/                  # Test suite
 │   ├── test_endpoint.sh    # Test SageMaker endpoint
 │   └── test_local_image.sh # Test local container
-<% } %>├── Dockerfile              # Container definition
+<% } %>
+├── Dockerfile              # Container definition
 ├── requirements.txt        # Python dependencies
 └── README.md               # This file
 ```
@@ -263,7 +265,7 @@ This container serves transformer models using <%= modelServer %>.
 ```
 
 <% } %>
-<% } %>
+
 ## SageMaker Endpoints
 
 ### Health Check
@@ -415,12 +417,14 @@ The legacy scripts are still available but deprecated. They will display warning
 - [do-framework Documentation](https://github.com/iankoulski/do-framework)
 - [AWS SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
 - [SageMaker BYOC Guide](https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms.html)
-<% if (framework === 'transformers') { %><% if (modelServer === 'vllm') { %>- [vLLM Documentation](https://docs.vllm.ai/)
+<% if (framework === 'transformers') { %>
+<% if (modelServer === 'vllm') { %>- [vLLM Documentation](https://docs.vllm.ai/)
 <% } else if (modelServer === 'sglang') { %>- [SGLang Documentation](https://sgl-project.github.io/)
 <% } else if (modelServer === 'tensorrt-llm') { %>- [TensorRT-LLM Documentation](https://github.com/NVIDIA/TensorRT-LLM)
 <% } else if (modelServer === 'lmi') { %>- [LMI Documentation](https://docs.aws.amazon.com/sagemaker/latest/dg/large-model-inference.html)
 <% } else if (modelServer === 'djl') { %>- [DJL Documentation](https://docs.djl.ai/)
-<% } %><% } %>
+<% } %>
+<% } %>
 ## Support
 
 For issues or questions:
