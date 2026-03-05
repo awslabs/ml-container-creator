@@ -686,7 +686,17 @@ export default class extends Generator {
             frameworkVersion: null,
             validationLevel: 'unknown',
             configSources: [],
-            recommendedInstanceTypes: []
+            recommendedInstanceTypes: [],
+            roleArn: null,
+            deploymentConfig: '',
+            codebuildComputeType: null,
+            codebuildProjectName: null,
+            modelName: null,
+            modelFormat: null,
+            includeSampleModel: false,
+            includeTesting: false,
+            testTypes: [],
+            buildTimestamp: new Date().toISOString()
         };
         
         // Apply defaults for any missing fields
