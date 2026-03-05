@@ -31,8 +31,8 @@ describe('do-framework Integration Property Tests', () => {
     describe('Property 1: All do scripts are executable', () => {
         it('should verify _setExecutablePermissions method includes all do scripts', () => {
             console.log('\n  🧪 Property 1: All do scripts are executable');
-            // console.log('  📝 The _setExecutablePermissions method should include all do scripts in its list');
-            // console.log('  **Validates: Requirements 1.4**');
+            console.log('  📝 The _setExecutablePermissions method should include all do scripts in its list');
+            console.log('  **Validates: Requirements 1.4**');
 
             // Read the generator index.js file
             const generatorPath = path.join(__dirname, '../../generators/app/index.js');
@@ -90,15 +90,15 @@ describe('do-framework Integration Property Tests', () => {
                 'end() method should call _setExecutablePermissions()'
             );
 
-            // console.log('  ✅ Property 1 validated: _setExecutablePermissions includes all do scripts and is called in end() phase');
+            console.log('  ✅ Property 1 validated: _setExecutablePermissions includes all do scripts and is called in end() phase');
         });
     });
 
     describe('Property 14: Generator does not use template exclusion patterns', () => {
         it('should not use ignorePatterns in generator writing phase', () => {
             console.log('\n  🧪 Property 14: Generator does not use template exclusion patterns');
-            // console.log('  📝 The generator writing() method should not use ignorePatterns or conditional file exclusion');
-            // console.log('  **Validates: Requirements 17.3**');
+            console.log('  📝 The generator writing() method should not use ignorePatterns or conditional file exclusion');
+            console.log('  **Validates: Requirements 17.3**');
 
             // Read the generator index.js file
             const generatorPath = path.join(__dirname, '../../generators/app/index.js');
@@ -137,15 +137,15 @@ describe('do-framework Integration Property Tests', () => {
                 );
             }
             
-            // console.log('  ✅ Property 14 validated: Generator does not use template exclusion patterns');
+            console.log('  ✅ Property 14 validated: Generator does not use template exclusion patterns');
             
             return true;
         });
 
         it('should not have getIgnorePatterns method in TemplateManager', () => {
             console.log('\n  🧪 Property 14 (Part 2): TemplateManager does not have getIgnorePatterns');
-            // console.log('  📝 The TemplateManager class should not have getIgnorePatterns() method');
-            // console.log('  **Validates: Requirements 17.3**');
+            console.log('  📝 The TemplateManager class should not have getIgnorePatterns() method');
+            console.log('  **Validates: Requirements 17.3**');
 
             // Read the TemplateManager file
             const templateManagerPath = path.join(__dirname, '../../generators/app/lib/template-manager.js');
@@ -178,7 +178,7 @@ describe('do-framework Integration Property Tests', () => {
                 'TemplateManager should not have _getCodeBuildOnlyExclusions() method'
             );
             
-            // console.log('  ✅ Property 14 (Part 2) validated: TemplateManager does not have exclusion methods');
+            console.log('  ✅ Property 14 (Part 2) validated: TemplateManager does not have exclusion methods');
             
             return true;
         });
@@ -187,8 +187,8 @@ describe('do-framework Integration Property Tests', () => {
     describe('Property 4: Config file contains all required variables', () => {
         it('should have a config template with all required variable exports', () => {
             console.log('\n  🧪 Property 4: Config file contains all required variables');
-            // console.log('  📝 The do/config template should contain export statements for all required variables');
-            // console.log('  **Validates: Requirements 9.2, 9.6, 16.5**');
+            console.log('  📝 The do/config template should contain export statements for all required variables');
+            console.log('  **Validates: Requirements 9.2, 9.6, 16.5**');
 
             // Read the config template file
             const configTemplatePath = path.join(__dirname, '../../generators/app/templates/do/config');
@@ -265,15 +265,15 @@ describe('do-framework Integration Property Tests', () => {
                 'Config template should support INSTANCE_TYPE environment variable override'
             );
 
-            // console.log('  ✅ Property 4 validated: Config template contains all required variables');
+            console.log('  ✅ Property 4 validated: Config template contains all required variables');
         });
     });
 
     describe('Property 5: Deployment configuration derivation is correct', () => {
         it('should correctly derive framework and modelServer from all valid deployment configurations', () => {
             console.log('\n  🧪 Property 5: Deployment configuration derivation is correct');
-            // console.log('  📝 Splitting deploymentConfig on hyphen should correctly derive framework and modelServer');
-            // console.log('  **Validates: Requirements 16.3**');
+            console.log('  📝 Splitting deploymentConfig on hyphen should correctly derive framework and modelServer');
+            console.log('  **Validates: Requirements 16.3**');
 
             // All valid deployment configurations
             const validDeploymentConfigs = [
@@ -355,15 +355,15 @@ describe('do-framework Integration Property Tests', () => {
                 }
             }
 
-            // console.log('  ✅ Property 5 validated: Deployment configuration derivation is correct for all valid configs');
+            console.log('  ✅ Property 5 validated: Deployment configuration derivation is correct for all valid configs');
         });
     });
 
     describe('Property 2: All do scripts source configuration', () => {
         it('should source do/config in do/build script', () => {
             console.log('\n  🧪 Property 2: All do scripts source configuration');
-            // console.log('  📝 The do/build script should source the do/config file');
-            // console.log('  **Validates: Requirements 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.4**');
+            console.log('  📝 The do/build script should source the do/config file');
+            console.log('  **Validates: Requirements 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.4**');
 
             // Read the do/build template file
             const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
@@ -383,15 +383,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/build script should set SCRIPT_DIR to script directory'
             );
 
-            // console.log('  ✅ Property 2 validated: do/build sources configuration');
+            console.log('  ✅ Property 2 validated: do/build sources configuration');
         });
     });
 
     describe('Property 3: All do scripts use set -e for error handling', () => {
         it('should use set -e in do/build script', () => {
             console.log('\n  🧪 Property 3: All do scripts use set -e for error handling');
-            // console.log('  📝 The do/build script should use set -e, set -u, and set -o pipefail');
-            // console.log('  **Validates: Requirements 3.6, 13.5**');
+            console.log('  📝 The do/build script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 3.6, 13.5**');
 
             // Read the do/build template file
             const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
@@ -432,15 +432,15 @@ describe('do-framework Integration Property Tests', () => {
                 'set -e, set -u, and set -o pipefail should be near the beginning of the script'
             );
 
-            // console.log('  ✅ Property 3 validated: do/build uses proper error handling');
+            console.log('  ✅ Property 3 validated: do/build uses proper error handling');
         });
     });
 
     describe('Property 6: All do scripts contain conditional branching logic', () => {
         it('should contain case statement branching on DEPLOYMENT_CONFIG in do/build', () => {
             console.log('\n  🧪 Property 6: All do scripts contain conditional branching logic');
-            // console.log('  📝 The do/build script should contain case statement branching on DEPLOYMENT_CONFIG');
-            // console.log('  **Validates: Requirements 17.2, 17.6, 17.7, 17.8, 17.10**');
+            console.log('  📝 The do/build script should contain case statement branching on DEPLOYMENT_CONFIG');
+            console.log('  **Validates: Requirements 17.2, 17.6, 17.7, 17.8, 17.10**');
 
             // Read the do/build template file
             const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
@@ -482,15 +482,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/build script should close case statement with esac'
             );
 
-            // console.log('  ✅ Property 6 validated: do/build contains conditional branching logic');
+            console.log('  ✅ Property 6 validated: do/build contains conditional branching logic');
         });
     });
 
     describe('Property 7: All do scripts use consistent output formatting', () => {
         it('should use emoji prefixes in do/build script', () => {
             console.log('\n  🧪 Property 7: All do scripts use consistent output formatting');
-            // console.log('  📝 The do/build script should use emoji prefixes for output messages');
-            // console.log('  **Validates: Requirements 14.1, 14.2, 14.3**');
+            console.log('  📝 The do/build script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1, 14.2, 14.3**');
 
             // Read the do/build template file
             const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
@@ -537,15 +537,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/build script should have next steps section'
             );
 
-            // console.log('  ✅ Property 7 validated: do/build uses consistent output formatting');
+            console.log('  ✅ Property 7 validated: do/build uses consistent output formatting');
         });
     });
 
     describe('Property 9: Tool-dependent scripts validate prerequisites', () => {
         it('should validate Docker is installed in do/build script', () => {
             console.log('\n  🧪 Property 9: Tool-dependent scripts validate prerequisites');
-            // console.log('  📝 The do/build script should validate that Docker is installed');
-            // console.log('  **Validates: Requirements 13.1**');
+            console.log('  📝 The do/build script should validate that Docker is installed');
+            console.log('  **Validates: Requirements 13.1**');
 
             // Read the do/build template file
             const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
@@ -581,15 +581,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/build script should check for NGC_API_KEY when needed'
             );
 
-            // console.log('  ✅ Property 9 validated: do/build validates prerequisites');
+            console.log('  ✅ Property 9 validated: do/build validates prerequisites');
         });
     });
 
     describe('Property 2: All do scripts source configuration (do/push)', () => {
         it('should source do/config in do/push script', () => {
             console.log('\n  🧪 Property 2: All do scripts source configuration (do/push)');
-            // console.log('  📝 The do/push script should source the do/config file');
-            // console.log('  **Validates: Requirements 4.1**');
+            console.log('  📝 The do/push script should source the do/config file');
+            console.log('  **Validates: Requirements 4.1**');
 
             // Read the do/push template file
             const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
@@ -609,15 +609,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/push script should set SCRIPT_DIR to script directory'
             );
 
-            // console.log('  ✅ Property 2 validated: do/push sources configuration');
+            console.log('  ✅ Property 2 validated: do/push sources configuration');
         });
     });
 
     describe('Property 3: All do scripts use set -e for error handling (do/push)', () => {
         it('should use set -e in do/push script', () => {
             console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/push)');
-            // console.log('  📝 The do/push script should use set -e, set -u, and set -o pipefail');
-            // console.log('  **Validates: Requirements 13.5**');
+            console.log('  📝 The do/push script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/push template file
             const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
@@ -658,15 +658,15 @@ describe('do-framework Integration Property Tests', () => {
                 'set -e, set -u, and set -o pipefail should be near the beginning of the script'
             );
 
-            // console.log('  ✅ Property 3 validated: do/push uses proper error handling');
+            console.log('  ✅ Property 3 validated: do/push uses proper error handling');
         });
     });
 
     describe('Property 7: All do scripts use consistent output formatting (do/push)', () => {
         it('should use emoji prefixes in do/push script', () => {
             console.log('\n  🧪 Property 7: All do scripts use consistent output formatting (do/push)');
-            // console.log('  📝 The do/push script should use emoji prefixes for output messages');
-            // console.log('  **Validates: Requirements 14.1**');
+            console.log('  📝 The do/push script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1**');
 
             // Read the do/push template file
             const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
@@ -721,15 +721,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/push script should display pushed image URIs with 📦'
             );
 
-            // console.log('  ✅ Property 7 validated: do/push uses consistent output formatting');
+            console.log('  ✅ Property 7 validated: do/push uses consistent output formatting');
         });
     });
 
     describe('Property 8: AWS-dependent scripts validate credentials', () => {
         it('should validate AWS credentials in do/push script', () => {
             console.log('\n  🧪 Property 8: AWS-dependent scripts validate credentials');
-            // console.log('  📝 The do/push script should validate AWS credentials using aws sts get-caller-identity');
-            // console.log('  **Validates: Requirements 13.2**');
+            console.log('  📝 The do/push script should validate AWS credentials using aws sts get-caller-identity');
+            console.log('  **Validates: Requirements 13.2**');
 
             // Read the do/push template file
             const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
@@ -771,13 +771,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/push script should display success message after credential validation'
             );
 
-            // console.log('  ✅ Property 8 validated: do/push validates AWS credentials');
+            console.log('  ✅ Property 8 validated: do/push validates AWS credentials');
         });
 
         it('should authenticate with ECR in do/push script', () => {
             console.log('\n  🧪 Property 8 (Part 2): AWS-dependent scripts authenticate with ECR');
-            // console.log('  📝 The do/push script should authenticate with Amazon ECR');
-            // console.log('  **Validates: Requirements 4.2**');
+            console.log('  📝 The do/push script should authenticate with Amazon ECR');
+            console.log('  **Validates: Requirements 4.2**');
 
             // Read the do/push template file
             const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
@@ -813,13 +813,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/push script should handle authentication failures'
             );
 
-            // console.log('  ✅ Property 8 (Part 2) validated: do/push authenticates with ECR');
+            console.log('  ✅ Property 8 (Part 2) validated: do/push authenticates with ECR');
         });
 
         it('should create ECR repository if not exists in do/push script', () => {
             console.log('\n  🧪 Property 8 (Part 3): AWS-dependent scripts create ECR repository');
-            // console.log('  📝 The do/push script should create ECR repository if it does not exist');
-            // console.log('  **Validates: Requirements 4.3**');
+            console.log('  📝 The do/push script should create ECR repository if it does not exist');
+            console.log('  **Validates: Requirements 4.3**');
 
             // Read the do/push template file
             const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
@@ -879,13 +879,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/push script should display message if repository already exists'
             );
 
-            // console.log('  ✅ Property 8 (Part 3) validated: do/push creates ECR repository if needed');
+            console.log('  ✅ Property 8 (Part 3) validated: do/push creates ECR repository if needed');
         });
 
         it('should push all tags to ECR in do/push script', () => {
             console.log('\n  🧪 Property 8 (Part 4): AWS-dependent scripts push all tags');
-            // console.log('  📝 The do/push script should push all image tags to ECR');
-            // console.log('  **Validates: Requirements 4.4, 4.5**');
+            console.log('  📝 The do/push script should push all image tags to ECR');
+            console.log('  **Validates: Requirements 4.4, 4.5**');
 
             // Read the do/push template file
             const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
@@ -944,15 +944,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/push script should display timestamp URI'
             );
 
-            // console.log('  ✅ Property 8 (Part 4) validated: do/push pushes all tags and displays URIs');
+            console.log('  ✅ Property 8 (Part 4) validated: do/push pushes all tags and displays URIs');
         });
     });
 
     describe('Property 2: All do scripts source configuration (do/deploy)', () => {
         it('should source do/config in do/deploy script', () => {
             console.log('\n  🧪 Property 2: All do scripts source configuration (do/deploy)');
-            // console.log('  📝 The do/deploy script should source the do/config file');
-            // console.log('  **Validates: Requirements 5.1**');
+            console.log('  📝 The do/deploy script should source the do/config file');
+            console.log('  **Validates: Requirements 5.1**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -972,15 +972,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should set SCRIPT_DIR to script directory'
             );
 
-            // console.log('  ✅ Property 2 validated: do/deploy sources configuration');
+            console.log('  ✅ Property 2 validated: do/deploy sources configuration');
         });
     });
 
     describe('Property 3: All do scripts use set -e for error handling (do/deploy)', () => {
         it('should use set -e in do/deploy script', () => {
             console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/deploy)');
-            // console.log('  📝 The do/deploy script should use set -e, set -u, and set -o pipefail');
-            // console.log('  **Validates: Requirements 13.5**');
+            console.log('  📝 The do/deploy script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1021,15 +1021,15 @@ describe('do-framework Integration Property Tests', () => {
                 'set -e, set -u, and set -o pipefail should be near the beginning of the script'
             );
 
-            // console.log('  ✅ Property 3 validated: do/deploy uses proper error handling');
+            console.log('  ✅ Property 3 validated: do/deploy uses proper error handling');
         });
     });
 
     describe('Property 6: All do scripts contain conditional branching logic (do/deploy)', () => {
         it('should contain case statement branching on DEPLOY_TARGET in do/deploy', () => {
             console.log('\n  🧪 Property 6: All do scripts contain conditional branching logic (do/deploy)');
-            // console.log('  📝 The do/deploy script should contain case statement branching on DEPLOY_TARGET');
-            // console.log('  **Validates: Requirements 17.8**');
+            console.log('  📝 The do/deploy script should contain case statement branching on DEPLOY_TARGET');
+            console.log('  **Validates: Requirements 17.8**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1077,15 +1077,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should use aws ecr describe-images to verify image'
             );
 
-            // console.log('  ✅ Property 6 validated: do/deploy contains conditional branching logic');
+            console.log('  ✅ Property 6 validated: do/deploy contains conditional branching logic');
         });
     });
 
     describe('Property 7: All do scripts use consistent output formatting (do/deploy)', () => {
         it('should use emoji prefixes in do/deploy script', () => {
             console.log('\n  🧪 Property 7: All do scripts use consistent output formatting (do/deploy)');
-            // console.log('  📝 The do/deploy script should use emoji prefixes for output messages');
-            // console.log('  **Validates: Requirements 14.1**');
+            console.log('  📝 The do/deploy script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1153,15 +1153,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should display cleanup command with 🧹'
             );
 
-            // console.log('  ✅ Property 7 validated: do/deploy uses consistent output formatting');
+            console.log('  ✅ Property 7 validated: do/deploy uses consistent output formatting');
         });
     });
 
     describe('Property 8: AWS-dependent scripts validate credentials (do/deploy)', () => {
         it('should validate AWS credentials in do/deploy script', () => {
             console.log('\n  🧪 Property 8: AWS-dependent scripts validate credentials (do/deploy)');
-            // console.log('  📝 The do/deploy script should validate AWS credentials using aws sts get-caller-identity');
-            // console.log('  **Validates: Requirements 13.2**');
+            console.log('  📝 The do/deploy script should validate AWS credentials using aws sts get-caller-identity');
+            console.log('  **Validates: Requirements 13.2**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1203,13 +1203,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should display success message after credential validation'
             );
 
-            // console.log('  ✅ Property 8 validated: do/deploy validates AWS credentials');
+            console.log('  ✅ Property 8 validated: do/deploy validates AWS credentials');
         });
 
         it('should validate execution role ARN in do/deploy script', () => {
             console.log('\n  🧪 Property 8 (Part 2): AWS-dependent scripts validate execution role ARN');
-            // console.log('  📝 The do/deploy script should validate that execution role ARN is provided');
-            // console.log('  **Validates: Requirements 5.7**');
+            console.log('  📝 The do/deploy script should validate that execution role ARN is provided');
+            console.log('  **Validates: Requirements 5.7**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1245,13 +1245,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should document required permissions for execution role'
             );
 
-            // console.log('  ✅ Property 8 (Part 2) validated: do/deploy validates execution role ARN');
+            console.log('  ✅ Property 8 (Part 2) validated: do/deploy validates execution role ARN');
         });
 
         it('should create SageMaker model in do/deploy script', () => {
             console.log('\n  🧪 Property 8 (Part 3): AWS-dependent scripts create SageMaker model');
-            // console.log('  📝 The do/deploy script should create SageMaker model from ECR image');
-            // console.log('  **Validates: Requirements 5.2**');
+            console.log('  📝 The do/deploy script should create SageMaker model from ECR image');
+            console.log('  **Validates: Requirements 5.2**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1299,13 +1299,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should display success message after model creation'
             );
 
-            // console.log('  ✅ Property 8 (Part 3) validated: do/deploy creates SageMaker model');
+            console.log('  ✅ Property 8 (Part 3) validated: do/deploy creates SageMaker model');
         });
 
         it('should create endpoint configuration in do/deploy script', () => {
             console.log('\n  🧪 Property 8 (Part 4): AWS-dependent scripts create endpoint configuration');
-            // console.log('  📝 The do/deploy script should create SageMaker endpoint configuration');
-            // console.log('  **Validates: Requirements 5.3**');
+            console.log('  📝 The do/deploy script should create SageMaker endpoint configuration');
+            console.log('  **Validates: Requirements 5.3**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1347,13 +1347,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should display success message after endpoint config creation'
             );
 
-            // console.log('  ✅ Property 8 (Part 4) validated: do/deploy creates endpoint configuration');
+            console.log('  ✅ Property 8 (Part 4) validated: do/deploy creates endpoint configuration');
         });
 
         it('should create and wait for endpoint in do/deploy script', () => {
             console.log('\n  🧪 Property 8 (Part 5): AWS-dependent scripts create and wait for endpoint');
-            // console.log('  📝 The do/deploy script should create endpoint and wait for InService status');
-            // console.log('  **Validates: Requirements 5.4, 5.5**');
+            console.log('  📝 The do/deploy script should create endpoint and wait for InService status');
+            console.log('  **Validates: Requirements 5.4, 5.5**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1413,13 +1413,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should display success message after endpoint creation'
             );
 
-            // console.log('  ✅ Property 8 (Part 5) validated: do/deploy creates and waits for endpoint');
+            console.log('  ✅ Property 8 (Part 5) validated: do/deploy creates and waits for endpoint');
         });
 
         it('should display endpoint details and test command in do/deploy script', () => {
             console.log('\n  🧪 Property 8 (Part 6): AWS-dependent scripts display endpoint details');
-            // console.log('  📝 The do/deploy script should display endpoint name and test command');
-            // console.log('  **Validates: Requirements 5.6**');
+            console.log('  📝 The do/deploy script should display endpoint name and test command');
+            console.log('  **Validates: Requirements 5.6**');
 
             // Read the do/deploy template file
             const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
@@ -1491,15 +1491,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/deploy script should display cleanup command'
             );
 
-            // console.log('  ✅ Property 8 (Part 6) validated: do/deploy displays endpoint details and test command');
+            console.log('  ✅ Property 8 (Part 6) validated: do/deploy displays endpoint details and test command');
         });
     });
 
     describe('Property 2: All do scripts source configuration (do/run)', () => {
         it('should source do/config in do/run script', () => {
             console.log('\n  🧪 Property 2: All do scripts source configuration (do/run)');
-            // console.log('  📝 The do/run script should source the do/config file');
-            // console.log('  **Validates: Requirements 6.1**');
+            console.log('  📝 The do/run script should source the do/config file');
+            console.log('  **Validates: Requirements 6.1**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1519,15 +1519,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should set SCRIPT_DIR to script directory'
             );
 
-            // console.log('  ✅ Property 2 validated: do/run sources configuration');
+            console.log('  ✅ Property 2 validated: do/run sources configuration');
         });
     });
 
     describe('Property 3: All do scripts use set -e for error handling (do/run)', () => {
         it('should use set -e in do/run script', () => {
             console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/run)');
-            // console.log('  📝 The do/run script should use set -e, set -u, and set -o pipefail');
-            // console.log('  **Validates: Requirements 13.5**');
+            console.log('  📝 The do/run script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1568,15 +1568,15 @@ describe('do-framework Integration Property Tests', () => {
                 'set -e, set -u, and set -o pipefail should be near the beginning of the script'
             );
 
-            // console.log('  ✅ Property 3 validated: do/run uses proper error handling');
+            console.log('  ✅ Property 3 validated: do/run uses proper error handling');
         });
     });
 
     describe('Property 6: All do scripts contain conditional branching logic (do/run)', () => {
         it('should contain case statement branching on DEPLOYMENT_CONFIG in do/run', () => {
             console.log('\n  🧪 Property 6: All do scripts contain conditional branching logic (do/run)');
-            // console.log('  📝 The do/run script should contain case statement branching on DEPLOYMENT_CONFIG for GPU detection');
-            // console.log('  **Validates: Requirements 17.6**');
+            console.log('  📝 The do/run script should contain case statement branching on DEPLOYMENT_CONFIG for GPU detection');
+            console.log('  **Validates: Requirements 17.6**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1624,13 +1624,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should use GPU_FLAG variable in docker run command'
             );
 
-            // console.log('  ✅ Property 6 validated: do/run contains conditional branching logic for GPU detection');
+            console.log('  ✅ Property 6 validated: do/run contains conditional branching logic for GPU detection');
         });
 
         it('should expose port 8080 in do/run script', () => {
             console.log('\n  🧪 Property 6 (Part 2): do/run exposes port 8080');
-            // console.log('  📝 The do/run script should expose port 8080 for SageMaker-compatible endpoints');
-            // console.log('  **Validates: Requirements 6.3**');
+            console.log('  📝 The do/run script should expose port 8080 for SageMaker-compatible endpoints');
+            console.log('  **Validates: Requirements 6.3**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1648,13 +1648,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should display port information'
             );
 
-            // console.log('  ✅ Property 6 (Part 2) validated: do/run exposes port 8080');
+            console.log('  ✅ Property 6 (Part 2) validated: do/run exposes port 8080');
         });
 
         it('should mount model directory if specified in do/run script', () => {
             console.log('\n  🧪 Property 6 (Part 3): do/run mounts model directory if specified');
-            // console.log('  📝 The do/run script should mount model directory if MODEL_DIR is set');
-            // console.log('  **Validates: Requirements 6.4**');
+            console.log('  📝 The do/run script should mount model directory if MODEL_DIR is set');
+            console.log('  **Validates: Requirements 6.4**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1690,13 +1690,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should display model mount information'
             );
 
-            // console.log('  ✅ Property 6 (Part 3) validated: do/run mounts model directory if specified');
+            console.log('  ✅ Property 6 (Part 3) validated: do/run mounts model directory if specified');
         });
 
         it('should use --rm flag for cleanup in do/run script', () => {
             console.log('\n  🧪 Property 6 (Part 4): do/run uses --rm flag for cleanup');
-            // console.log('  📝 The do/run script should use --rm flag to cleanup container on exit');
-            // console.log('  **Validates: Requirements 6.7**');
+            console.log('  📝 The do/run script should use --rm flag to cleanup container on exit');
+            console.log('  **Validates: Requirements 6.7**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1714,13 +1714,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should display cleanup message'
             );
 
-            // console.log('  ✅ Property 6 (Part 4) validated: do/run uses --rm flag for cleanup');
+            console.log('  ✅ Property 6 (Part 4) validated: do/run uses --rm flag for cleanup');
         });
 
         it('should stream container logs in do/run script', () => {
             console.log('\n  🧪 Property 6 (Part 5): do/run streams container logs');
-            // console.log('  📝 The do/run script should stream container logs in real-time');
-            // console.log('  **Validates: Requirements 6.6**');
+            console.log('  📝 The do/run script should stream container logs in real-time');
+            console.log('  **Validates: Requirements 6.6**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1744,15 +1744,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should provide instructions to stop container'
             );
 
-            // console.log('  ✅ Property 6 (Part 5) validated: do/run streams container logs');
+            console.log('  ✅ Property 6 (Part 5) validated: do/run streams container logs');
         });
     });
 
     describe('Property 7: All do scripts use consistent output formatting (do/run)', () => {
         it('should use emoji prefixes in do/run script', () => {
             console.log('\n  🧪 Property 7: All do scripts use consistent output formatting (do/run)');
-            // console.log('  📝 The do/run script should use emoji prefixes for output messages');
-            // console.log('  **Validates: Requirements 14.1**');
+            console.log('  📝 The do/run script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1808,15 +1808,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should have next steps section'
             );
 
-            // console.log('  ✅ Property 7 validated: do/run uses consistent output formatting');
+            console.log('  ✅ Property 7 validated: do/run uses consistent output formatting');
         });
     });
 
     describe('Property 9: Tool-dependent scripts validate prerequisites (do/run)', () => {
         it('should validate Docker is installed in do/run script', () => {
             console.log('\n  🧪 Property 9: Tool-dependent scripts validate prerequisites (do/run)');
-            // console.log('  📝 The do/run script should validate that Docker is installed');
-            // console.log('  **Validates: Requirements 13.1**');
+            console.log('  📝 The do/run script should validate that Docker is installed');
+            console.log('  **Validates: Requirements 13.1**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1846,13 +1846,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should exit with code 2 for missing prerequisite'
             );
 
-            // console.log('  ✅ Property 9 validated: do/run validates Docker is installed');
+            console.log('  ✅ Property 9 validated: do/run validates Docker is installed');
         });
 
         it('should validate Docker image exists in do/run script', () => {
             console.log('\n  🧪 Property 9 (Part 2): Tool-dependent scripts validate Docker image exists');
-            // console.log('  📝 The do/run script should validate that Docker image exists before running');
-            // console.log('  **Validates: Requirements 6.2**');
+            console.log('  📝 The do/run script should validate that Docker image exists before running');
+            console.log('  **Validates: Requirements 6.2**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1882,13 +1882,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/run script should exit with code 5 for Docker errors'
             );
 
-            // console.log('  ✅ Property 9 (Part 2) validated: do/run validates Docker image exists');
+            console.log('  ✅ Property 9 (Part 2) validated: do/run validates Docker image exists');
         });
 
         it('should check nvidia-docker availability for GPU deployments in do/run script', () => {
             console.log('\n  🧪 Property 9 (Part 3): Tool-dependent scripts check nvidia-docker for GPU');
-            // console.log('  📝 The do/run script should check nvidia-docker availability for transformers deployments');
-            // console.log('  **Validates: Requirements 6.5**');
+            console.log('  📝 The do/run script should check nvidia-docker availability for transformers deployments');
+            console.log('  **Validates: Requirements 6.5**');
 
             // Read the do/run template file
             const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
@@ -1913,15 +1913,15 @@ describe('do-framework Integration Property Tests', () => {
             );
 
             // Note: This is a warning, not an error, so the script continues
-            // console.log('  ✅ Property 9 (Part 3) validated: do/run checks nvidia-docker availability');
+            console.log('  ✅ Property 9 (Part 3) validated: do/run checks nvidia-docker availability');
         });
     });
 
     describe('Property 2: All do scripts source configuration (do/test)', () => {
         it('should source do/config in do/test script', () => {
             console.log('\n  🧪 Property 2: All do scripts source configuration (do/test)');
-            // console.log('  📝 The do/test script should source the do/config file');
-            // console.log('  **Validates: Requirements 7.1**');
+            console.log('  📝 The do/test script should source the do/config file');
+            console.log('  **Validates: Requirements 7.1**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -1941,15 +1941,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/test script should set SCRIPT_DIR to script directory'
             );
 
-            // console.log('  ✅ Property 2 validated: do/test sources configuration');
+            console.log('  ✅ Property 2 validated: do/test sources configuration');
         });
     });
 
     describe('Property 3: All do scripts use set -e for error handling (do/test)', () => {
         it('should use set -e in do/test script', () => {
             console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/test)');
-            // console.log('  📝 The do/test script should use set -e, set -u, and set -o pipefail');
-            // console.log('  **Validates: Requirements 13.5**');
+            console.log('  📝 The do/test script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -1990,15 +1990,15 @@ describe('do-framework Integration Property Tests', () => {
                 'set -e, set -u, and set -o pipefail should be near the beginning of the script'
             );
 
-            // console.log('  ✅ Property 3 validated: do/test uses proper error handling');
+            console.log('  ✅ Property 3 validated: do/test uses proper error handling');
         });
     });
 
     describe('Property 7: All do scripts use consistent output formatting (do/test)', () => {
         it('should use emoji prefixes in do/test script', () => {
             console.log('\n  🧪 Property 7: All do scripts use consistent output formatting (do/test)');
-            // console.log('  📝 The do/test script should use emoji prefixes for output messages');
-            // console.log('  **Validates: Requirements 14.1**');
+            console.log('  📝 The do/test script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2049,15 +2049,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/test script should have next steps section'
             );
 
-            // console.log('  ✅ Property 7 validated: do/test uses consistent output formatting');
+            console.log('  ✅ Property 7 validated: do/test uses consistent output formatting');
         });
     });
 
     describe('do/test script functional requirements', () => {
         it('should accept optional endpoint name argument', () => {
             console.log('\n  🧪 do/test functional: Accept optional endpoint name argument');
-            // console.log('  📝 The do/test script should accept an optional endpoint name argument');
-            // console.log('  **Validates: Requirements 7.2, 7.3**');
+            console.log('  📝 The do/test script should accept an optional endpoint name argument');
+            console.log('  **Validates: Requirements 7.2, 7.3**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2092,8 +2092,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should test local container at localhost:8080', () => {
             console.log('\n  🧪 do/test functional: Test local container');
-            // console.log('  📝 The do/test script should test local container at localhost:8080');
-            // console.log('  **Validates: Requirements 7.2**');
+            console.log('  📝 The do/test script should test local container at localhost:8080');
+            console.log('  **Validates: Requirements 7.2**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2116,8 +2116,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should send health check request to /ping endpoint', () => {
             console.log('\n  🧪 do/test functional: Send health check to /ping');
-            // console.log('  📝 The do/test script should send health check request to /ping endpoint');
-            // console.log('  **Validates: Requirements 7.4**');
+            console.log('  📝 The do/test script should send health check request to /ping endpoint');
+            console.log('  **Validates: Requirements 7.4**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2152,8 +2152,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should send inference request to /invocations endpoint', () => {
             console.log('\n  🧪 do/test functional: Send inference request to /invocations');
-            // console.log('  📝 The do/test script should send inference request to /invocations endpoint');
-            // console.log('  **Validates: Requirements 7.5**');
+            console.log('  📝 The do/test script should send inference request to /invocations endpoint');
+            console.log('  **Validates: Requirements 7.5**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2188,8 +2188,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should use framework-specific test payloads', () => {
             console.log('\n  🧪 do/test functional: Use framework-specific test payloads');
-            // console.log('  📝 The do/test script should use framework-specific test payloads');
-            // console.log('  **Validates: Requirements 7.5**');
+            console.log('  📝 The do/test script should use framework-specific test payloads');
+            console.log('  **Validates: Requirements 7.5**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2234,8 +2234,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should test SageMaker endpoint using aws sagemaker-runtime', () => {
             console.log('\n  🧪 do/test functional: Test SageMaker endpoint');
-            // console.log('  📝 The do/test script should test SageMaker endpoint using aws sagemaker-runtime');
-            // console.log('  **Validates: Requirements 7.3**');
+            console.log('  📝 The do/test script should test SageMaker endpoint using aws sagemaker-runtime');
+            console.log('  **Validates: Requirements 7.3**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2274,8 +2274,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should display success messages with exit code 0', () => {
             console.log('\n  🧪 do/test functional: Display success messages');
-            // console.log('  📝 The do/test script should display success messages and exit with code 0');
-            // console.log('  **Validates: Requirements 7.6**');
+            console.log('  📝 The do/test script should display success messages and exit with code 0');
+            console.log('  **Validates: Requirements 7.6**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2310,8 +2310,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should display error details with non-zero exit codes', () => {
             console.log('\n  🧪 do/test functional: Display error details');
-            // console.log('  📝 The do/test script should display error details and exit with non-zero codes');
-            // console.log('  **Validates: Requirements 7.7**');
+            console.log('  📝 The do/test script should display error details and exit with non-zero codes');
+            console.log('  **Validates: Requirements 7.7**');
 
             // Read the do/test template file
             const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
@@ -2359,8 +2359,8 @@ describe('do-framework Integration Property Tests', () => {
     describe('Property 2: All do scripts source configuration (do/clean)', () => {
         it('should source do/config in do/clean script', () => {
             console.log('\n  🧪 Property 2: All do scripts source configuration (do/clean)');
-            // console.log('  📝 The do/clean script should source the do/config file');
-            // console.log('  **Validates: Requirements 8.1**');
+            console.log('  📝 The do/clean script should source the do/config file');
+            console.log('  **Validates: Requirements 8.1**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2380,15 +2380,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/clean script should set SCRIPT_DIR to script directory'
             );
 
-            // console.log('  ✅ Property 2 validated: do/clean sources configuration');
+            console.log('  ✅ Property 2 validated: do/clean sources configuration');
         });
     });
 
     describe('Property 3: All do scripts use set -e for error handling (do/clean)', () => {
         it('should use set -e in do/clean script', () => {
             console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/clean)');
-            // console.log('  📝 The do/clean script should use set -e, set -u, and set -o pipefail');
-            // console.log('  **Validates: Requirements 13.5**');
+            console.log('  📝 The do/clean script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2429,15 +2429,15 @@ describe('do-framework Integration Property Tests', () => {
                 'set -e, set -u, and set -o pipefail should be near the beginning of the script'
             );
 
-            // console.log('  ✅ Property 3 validated: do/clean uses proper error handling');
+            console.log('  ✅ Property 3 validated: do/clean uses proper error handling');
         });
     });
 
     describe('Property 10: Scripts that delete resources require confirmation', () => {
         it('should require confirmation before deleting resources in do/clean', () => {
             console.log('\n  🧪 Property 10: Scripts that delete resources require confirmation');
-            // console.log('  📝 The do/clean script should prompt for confirmation before destructive operations');
-            // console.log('  **Validates: Requirements 15.5**');
+            console.log('  📝 The do/clean script should prompt for confirmation before destructive operations');
+            console.log('  **Validates: Requirements 15.5**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2492,13 +2492,13 @@ describe('do-framework Integration Property Tests', () => {
                 'do/clean script confirm_action should return 1 on cancellation'
             );
 
-            // console.log('  ✅ Property 10 validated: do/clean requires confirmation before deletions');
+            console.log('  ✅ Property 10 validated: do/clean requires confirmation before deletions');
         });
 
         it('should check if resources exist before attempting deletion', () => {
             console.log('\n  🧪 Property 10 (Part 2): Check resource existence before deletion');
-            // console.log('  📝 The do/clean script should check if resources exist before attempting deletion');
-            // console.log('  **Validates: Requirements 15.4**');
+            console.log('  📝 The do/clean script should check if resources exist before attempting deletion');
+            console.log('  **Validates: Requirements 15.4**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2574,15 +2574,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/clean script should track model existence'
             );
 
-            // console.log('  ✅ Property 10 (Part 2) validated: do/clean checks resource existence');
+            console.log('  ✅ Property 10 (Part 2) validated: do/clean checks resource existence');
         });
     });
 
     describe('do/clean functional tests', () => {
         it('should accept cleanup target argument', () => {
             console.log('\n  🧪 do/clean functional: Accept cleanup target argument');
-            // console.log('  📝 The do/clean script should accept local, ecr, endpoint, or all as argument');
-            // console.log('  **Validates: Requirements 8.2, 8.3, 8.4, 8.5**');
+            console.log('  📝 The do/clean script should accept local, ecr, endpoint, or all as argument');
+            console.log('  **Validates: Requirements 8.2, 8.3, 8.4, 8.5**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2662,8 +2662,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should display usage when no argument provided', () => {
             console.log('\n  🧪 do/clean functional: Display usage');
-            // console.log('  📝 The do/clean script should display usage when no argument is provided');
-            // console.log('  **Validates: Requirements 8.1**');
+            console.log('  📝 The do/clean script should display usage when no argument is provided');
+            console.log('  **Validates: Requirements 8.1**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2733,8 +2733,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should display cleanup summary', () => {
             console.log('\n  🧪 do/clean functional: Display cleanup summary');
-            // console.log('  📝 The do/clean script should display a summary of removed resources');
-            // console.log('  **Validates: Requirements 8.7**');
+            console.log('  📝 The do/clean script should display a summary of removed resources');
+            console.log('  **Validates: Requirements 8.7**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2792,8 +2792,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should remove local Docker images', () => {
             console.log('\n  🧪 do/clean functional: Remove local Docker images');
-            // console.log('  📝 The do/clean script should remove local Docker images for the project');
-            // console.log('  **Validates: Requirements 8.2**');
+            console.log('  📝 The do/clean script should remove local Docker images for the project');
+            console.log('  **Validates: Requirements 8.2**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2834,8 +2834,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should remove ECR images', () => {
             console.log('\n  🧪 do/clean functional: Remove ECR images');
-            // console.log('  📝 The do/clean script should remove images from Amazon ECR');
-            // console.log('  **Validates: Requirements 8.3**');
+            console.log('  📝 The do/clean script should remove images from Amazon ECR');
+            console.log('  **Validates: Requirements 8.3**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2882,8 +2882,8 @@ describe('do-framework Integration Property Tests', () => {
 
         it('should delete SageMaker endpoint, configuration, and model', () => {
             console.log('\n  🧪 do/clean functional: Delete SageMaker resources');
-            // console.log('  📝 The do/clean script should delete SageMaker endpoint, endpoint configuration, and model');
-            // console.log('  **Validates: Requirements 8.4**');
+            console.log('  📝 The do/clean script should delete SageMaker endpoint, endpoint configuration, and model');
+            console.log('  **Validates: Requirements 8.4**');
 
             // Read the do/clean template file
             const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
@@ -2951,8 +2951,8 @@ describe('do-framework Integration Property Tests', () => {
     describe('Property 11: Legacy wrapper scripts contain deprecation warnings', () => {
         it('should contain deprecation warning in deploy/build_and_push.sh', () => {
             console.log('\n  🧪 Property 11: Legacy wrapper scripts contain deprecation warnings');
-            // console.log('  📝 The deploy/build_and_push.sh wrapper should contain deprecation warning');
-            // console.log('  **Validates: Requirements 2.5, 10.6**');
+            console.log('  📝 The deploy/build_and_push.sh wrapper should contain deprecation warning');
+            console.log('  **Validates: Requirements 2.5, 10.6**');
 
             // Read the deploy/build_and_push.sh template file
             const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/build_and_push.sh');
@@ -3006,13 +3006,13 @@ describe('do-framework Integration Property Tests', () => {
                 'deploy/build_and_push.sh should forward to ./do/build && ./do/push'
             );
 
-            // console.log('  ✅ Property 11 validated: deploy/build_and_push.sh contains deprecation warning');
+            console.log('  ✅ Property 11 validated: deploy/build_and_push.sh contains deprecation warning');
         });
 
         it('should contain deprecation warning in deploy/deploy.sh', () => {
             console.log('\n  🧪 Property 11 (Part 2): deploy/deploy.sh contains deprecation warning');
-            // console.log('  📝 The deploy/deploy.sh wrapper should contain deprecation warning');
-            // console.log('  **Validates: Requirements 2.5, 10.6**');
+            console.log('  📝 The deploy/deploy.sh wrapper should contain deprecation warning');
+            console.log('  **Validates: Requirements 2.5, 10.6**');
 
             // Read the deploy/deploy.sh template file
             const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/deploy.sh');
@@ -3060,13 +3060,13 @@ describe('do-framework Integration Property Tests', () => {
                 'deploy/deploy.sh should forward to ./do/deploy with arguments'
             );
 
-            // console.log('  ✅ Property 11 (Part 2) validated: deploy/deploy.sh contains deprecation warning');
+            console.log('  ✅ Property 11 (Part 2) validated: deploy/deploy.sh contains deprecation warning');
         });
 
         it('should contain deprecation warning in deploy/submit_build.sh when codebuild', () => {
             console.log('\n  🧪 Property 11 (Part 3): deploy/submit_build.sh contains deprecation warning');
-            // console.log('  📝 The deploy/submit_build.sh wrapper should contain deprecation warning when deployTarget is codebuild');
-            // console.log('  **Validates: Requirements 2.5, 10.6**');
+            console.log('  📝 The deploy/submit_build.sh wrapper should contain deprecation warning when deployTarget is codebuild');
+            console.log('  **Validates: Requirements 2.5, 10.6**');
 
             // Read the deploy/submit_build.sh template file
             const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/submit_build.sh');
@@ -3120,15 +3120,15 @@ describe('do-framework Integration Property Tests', () => {
                 'deploy/submit_build.sh should forward to ./do/submit with arguments'
             );
 
-            // console.log('  ✅ Property 11 (Part 3) validated: deploy/submit_build.sh contains deprecation warning');
+            console.log('  ✅ Property 11 (Part 3) validated: deploy/submit_build.sh contains deprecation warning');
         });
     });
 
     describe('Property 2: All do scripts source configuration (do/submit)', () => {
         it('should source do/config in do/submit script', () => {
             console.log('\n  🧪 Property 2: All do scripts source configuration (do/submit)');
-            // console.log('  📝 The do/submit script should source the do/config file');
-            // console.log('  **Validates: Requirements 11.1**');
+            console.log('  📝 The do/submit script should source the do/config file');
+            console.log('  **Validates: Requirements 11.1**');
 
             // Read the do/submit template file
             const submitScriptPath = path.join(__dirname, '../../generators/app/templates/do/submit');
@@ -3148,15 +3148,15 @@ describe('do-framework Integration Property Tests', () => {
                 'do/submit script should set SCRIPT_DIR to script directory'
             );
 
-            // console.log('  ✅ Property 2 validated: do/submit sources configuration');
+            console.log('  ✅ Property 2 validated: do/submit sources configuration');
         });
     });
 
     describe('Property 3: All do scripts use set -e for error handling (do/submit)', () => {
         it('should use set -e in do/submit script', () => {
             console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/submit)');
-            // console.log('  📝 The do/submit script should use set -e, set -u, and set -o pipefail');
-            // console.log('  **Validates: Requirements 13.5**');
+            console.log('  📝 The do/submit script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/submit template file
             const submitScriptPath = path.join(__dirname, '../../generators/app/templates/do/submit');
@@ -3197,15 +3197,15 @@ describe('do-framework Integration Property Tests', () => {
                 'set -e, set -u, and set -o pipefail should be near the beginning of the script'
             );
 
-            // console.log('  ✅ Property 3 validated: do/submit uses proper error handling');
+            console.log('  ✅ Property 3 validated: do/submit uses proper error handling');
         });
     });
 
     describe('Property 12: Documentation references use do-framework commands', () => {
         it('should use do-framework commands in PROJECT_README.md', () => {
             console.log('\n  🧪 Property 12: Documentation references use do-framework commands');
-            // console.log('  📝 The PROJECT_README.md template should use do-framework format (./do/build) not legacy paths');
-            // console.log('  **Validates: Requirements 2.4, 16.7**');
+            console.log('  📝 The PROJECT_README.md template should use do-framework format (./do/build) not legacy paths');
+            console.log('  **Validates: Requirements 2.4, 16.7**');
 
             // Read the PROJECT_README.md template file
             const readmePath = path.join(__dirname, '../../generators/app/templates/PROJECT_README.md');
@@ -3243,13 +3243,13 @@ describe('do-framework Integration Property Tests', () => {
                 );
             }
 
-            // console.log('  ✅ Property 12 validated: PROJECT_README.md uses do-framework commands');
+            console.log('  ✅ Property 12 validated: PROJECT_README.md uses do-framework commands');
         });
 
         it('should use do-framework commands in MIGRATION.md', () => {
             console.log('\n  🧪 Property 12 (Part 2): MIGRATION.md uses do-framework commands');
-            // console.log('  📝 The MIGRATION.md template should reference do-framework commands in new workflow examples');
-            // console.log('  **Validates: Requirements 2.4, 10.4, 10.5**');
+            console.log('  📝 The MIGRATION.md template should reference do-framework commands in new workflow examples');
+            console.log('  **Validates: Requirements 2.4, 10.4, 10.5**');
 
             // Read the MIGRATION.md template file
             const migrationPath = path.join(__dirname, '../../generators/app/templates/MIGRATION.md');
@@ -3291,13 +3291,13 @@ describe('do-framework Integration Property Tests', () => {
                 'MIGRATION.md should have detailed migration steps'
             );
 
-            // console.log('  ✅ Property 12 (Part 2) validated: MIGRATION.md uses do-framework commands');
+            console.log('  ✅ Property 12 (Part 2) validated: MIGRATION.md uses do-framework commands');
         });
 
         it('should use do-framework commands in do/README.md', () => {
             console.log('\n  🧪 Property 12 (Part 3): do/README.md uses do-framework commands');
-            // console.log('  📝 The do/README.md template should document do-framework commands');
-            // console.log('  **Validates: Requirements 1.5, 10.1, 10.2**');
+            console.log('  📝 The do/README.md template should document do-framework commands');
+            console.log('  **Validates: Requirements 1.5, 10.1, 10.2**');
 
             // Read the do/README.md template file
             const doReadmePath = path.join(__dirname, '../../generators/app/templates/do/README.md');
@@ -3341,7 +3341,7 @@ describe('do-framework Integration Property Tests', () => {
                 );
             }
 
-            // console.log('  ✅ Property 12 (Part 3) validated: do/README.md uses do-framework commands');
+            console.log('  ✅ Property 12 (Part 3) validated: do/README.md uses do-framework commands');
         });
     });
 
@@ -3350,8 +3350,8 @@ describe('do-framework Integration Property Tests', () => {
             this.timeout(60000); // 1 minute should be enough for one run
             
             console.log('\n  🧪 Property 13: All expected do scripts are generated');
-            // console.log('  📝 For any generated project, the do/ directory should contain all standard scripts');
-            // console.log('  **Validates: Requirements 1.2, 17.1**');
+            console.log('  📝 For any generated project, the do/ directory should contain all standard scripts');
+            console.log('  **Validates: Requirements 1.2, 17.1**');
 
             // Standard scripts that should always be present
             const standardScripts = [
@@ -3446,8 +3446,8 @@ describe('do-framework Integration Property Tests', () => {
             this.timeout(60000); // 1 minute should be enough for one run
             
             console.log('\n  🧪 Property 15: All necessary template files are generated');
-            // console.log('  📝 For any deployment configuration, all template files should be present');
-            // console.log('  **Validates: Requirements 17.4**');
+            console.log('  📝 For any deployment configuration, all template files should be present');
+            console.log('  **Validates: Requirements 17.4**');
 
             // Define all necessary template files that should always be generated
             const necessaryFiles = [
