@@ -575,6 +575,11 @@ export default class PromptRunner {
                 console.log(`   💡 Recommended instances: ${validationResult.recommendations.join(', ')}`);
             }
             
+            // In test mode or non-interactive mode, throw error instead of prompting
+            if (this.generator.options.skipPrompts || process.env.NODE_ENV === 'test') {
+                throw new Error('Instance type validation failed. Please select a compatible instance type.');
+            }
+            
             // Ask user if they want to proceed
             const proceed = await this.generator.prompt([{
                 type: 'confirm',

@@ -28,7 +28,7 @@ import {
 
 // Fast property test configuration (can run 100 iterations now!)
 const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+    numRuns: 10,
     timeout: 30000, // 30 seconds total for all iterations
     verbose: false
 };

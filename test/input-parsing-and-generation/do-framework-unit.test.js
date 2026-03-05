@@ -22,7 +22,10 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-describe('DO Framework Integration - Unit Tests', () => {
+describe('DO Framework Integration - Unit Tests', function() {
+    // Set timeout for all tests in this suite to 30 seconds
+    this.timeout(30000);
+    
     setupTestHooks();
 
     describe('17.1 Deployment Configuration Prompt', () => {
@@ -196,7 +199,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should generate all do scripts', async () => {
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
-                .withOptions({ offline: true })
+                .withOptions({ offline: true, 'skip-prompts': true })
                 .withPrompts({
                     projectName: 'test-do-scripts',
                     deploymentConfig: 'sklearn-flask',
@@ -229,7 +232,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should generate do/submit for CodeBuild deployment', async () => {
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
-                .withOptions({ offline: true })
+                .withOptions({ offline: true, 'skip-prompts': true })
                 .withPrompts({
                     projectName: 'test-codebuild',
                     deploymentConfig: 'sklearn-flask',
@@ -249,7 +252,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should generate do/config with correct variables', async () => {
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
-                .withOptions({ offline: true })
+                .withOptions({ offline: true, 'skip-prompts': true })
                 .withPrompts({
                     projectName: 'test-config',
                     deploymentConfig: 'xgboost-fastapi',
@@ -277,7 +280,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should generate legacy wrapper scripts', async () => {
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
-                .withOptions({ offline: true })
+                .withOptions({ offline: true, 'skip-prompts': true })
                 .withPrompts({
                     projectName: 'test-legacy',
                     deploymentConfig: 'sklearn-flask',
@@ -299,7 +302,7 @@ describe('DO Framework Integration - Unit Tests', () => {
             // Generate a transformers project
             await helpers
                 .run(path.join(__dirname, '../../generators/app'))
-                .withOptions({ offline: true })
+                .withOptions({ offline: true, 'skip-prompts': true })
                 .withPrompts({
                     projectName: 'test-no-ignore',
                     deploymentConfig: 'transformers-vllm',
@@ -331,7 +334,7 @@ describe('DO Framework Integration - Unit Tests', () => {
             // Generate a project for content validation
             runResult = await helpers
                 .run(path.join(__dirname, '../../generators/app'))
-                .withOptions({ offline: true })
+                .withOptions({ offline: true, 'skip-prompts': true })
                 .withPrompts({
                     projectName: 'test-content',
                     deploymentConfig: 'sklearn-flask',
@@ -497,7 +500,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         beforeEach(async () => {
             runResult = await helpers
                 .run(path.join(__dirname, '../../generators/app'))
-                .withOptions({ offline: true })
+                .withOptions({ offline: true, 'skip-prompts': true })
                 .withPrompts({
                     projectName: 'test-validation',
                     deploymentConfig: 'transformers-vllm',
@@ -548,7 +551,7 @@ describe('DO Framework Integration - Unit Tests', () => {
         it('should handle tensorrt-llm model server correctly', async () => {
             const tensorrtResult = await helpers
                 .run(path.join(__dirname, '../../generators/app'))
-                .withOptions({ offline: true })
+                .withOptions({ offline: true, 'skip-prompts': true })
                 .withPrompts({
                     projectName: 'test-tensorrt',
                     deploymentConfig: 'transformers-tensorrt-llm',

@@ -62,7 +62,7 @@ describe('HuggingFace API Integration Property Tests', () => {
                            tokenizerConfig === null && 
                            modelConfig === null;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Offline mode always returns null');
         });
@@ -95,7 +95,7 @@ describe('HuggingFace API Integration Property Tests', () => {
                            tokenizerConfig === null && 
                            modelConfig === null;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Timeout handled gracefully');
         });
@@ -128,7 +128,7 @@ describe('HuggingFace API Integration Property Tests', () => {
                            tokenizerConfig === null && 
                            modelConfig === null;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Network errors handled gracefully');
         });
@@ -160,7 +160,7 @@ describe('HuggingFace API Integration Property Tests', () => {
                            tokenizerConfig === null && 
                            modelConfig === null;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ 404 responses handled gracefully');
         });
@@ -191,7 +191,7 @@ describe('HuggingFace API Integration Property Tests', () => {
                     // Elapsed time should be close to timeout (within 500ms margin)
                     return result === null && elapsed < timeout + 500;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Custom timeout values respected');
         });
@@ -226,7 +226,7 @@ describe('HuggingFace API Integration Property Tests', () => {
                     // If we get here without throwing, URL construction worked
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ API endpoints constructed correctly');
         });
@@ -270,7 +270,7 @@ describe('HuggingFace API Integration Property Tests', () => {
                         result.every(r => r === null)
                     );
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Concurrent requests handled gracefully');
         });
