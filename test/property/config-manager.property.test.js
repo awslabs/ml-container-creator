@@ -108,7 +108,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                 fc.record({
                     'AWS_REGION': fc.option(fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1')),
                     'ML_INSTANCE_TYPE': fc.option(fc.constantFrom('ml.m5.large', 'ml.g5.xlarge')),
-                    'ML_DEPLOY_TARGET': fc.option(fc.constantFrom('sagemaker', 'codebuild'))
+                    'ML_DEPLOY_TARGET': fc.option(fc.constantFrom('codebuild'))
                 }),
                 async (envVars) => {
                     // Set environment variables

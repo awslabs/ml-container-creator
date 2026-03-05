@@ -339,11 +339,7 @@ export default class extends Generator {
         // Create template manager and validate configuration
         const templateManager = new TemplateManager(this.answers);
         
-        try {
-            templateManager.validate();
-        } catch (error) {
-            throw error;
-        }
+        templateManager.validate();
 
         // Generate comments for templates using CommentGenerator
         const CommentGenerator = (await import('./lib/comment-generator.js')).default;

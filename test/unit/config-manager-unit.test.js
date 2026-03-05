@@ -208,7 +208,7 @@ describe('ConfigManager Unit Tests', () => {
                 const config = await configManager.loadConfiguration();
                 
                 assert.strictEqual(config.awsRegion, 'us-east-1'); // Default
-                assert.strictEqual(config.deployTarget, 'sagemaker'); // Default
+                assert.strictEqual(config.deployTarget, 'codebuild'); // Default
                 assert.strictEqual(config.includeTesting, true); // Default
             });
         });
@@ -398,7 +398,7 @@ describe('ConfigManager Unit Tests', () => {
             const finalConfig = configManager.getFinalConfiguration({});
             
             assert.strictEqual(finalConfig.awsRegion, 'us-east-1');
-            assert.strictEqual(finalConfig.deployTarget, 'sagemaker');
+            assert.strictEqual(finalConfig.deployTarget, 'codebuild');
             assert.strictEqual(finalConfig.includeTesting, true);
         });
 
@@ -518,7 +518,7 @@ describe('ConfigManager Unit Tests', () => {
                 instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deployTarget: 'sagemaker',
+                deployTarget: 'codebuild',
                 includeSampleModel: false,
                 includeTesting: true
             };
@@ -554,7 +554,7 @@ describe('ConfigManager Unit Tests', () => {
                 instanceType: 'ml.g5.xlarge',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deployTarget: 'sagemaker',
+                deployTarget: 'codebuild',
                 includeSampleModel: false,
                 includeTesting: true
             };

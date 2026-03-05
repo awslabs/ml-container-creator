@@ -52,8 +52,8 @@ export const PARAMETER_MATRIX = {
         packageJson: false,
         promptable: true,
         required: true,
-        default: 'sagemaker',
-        values: ['sagemaker', 'codebuild']
+        default: 'codebuild',
+        values: ['codebuild']
     },
     
     codebuildComputeType: {
@@ -380,7 +380,7 @@ export function createMinimalValidConfig() {
         framework: 'sklearn',
         modelServer: 'flask',
         modelFormat: 'pkl',
-        deployTarget: 'sagemaker',
+        deployTarget: 'codebuild',
         includeSampleModel: false,
         includeTesting: true,
         instanceType: 'cpu-optimized',

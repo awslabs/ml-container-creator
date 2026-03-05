@@ -446,7 +446,7 @@ describe('Error Handling and Validation', () => {
                 instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deployTarget: 'sagemaker'
+                deployTarget: 'codebuild'
             };
             
             const completeErrors = configManager.validateRequiredParameters(completeConfig);

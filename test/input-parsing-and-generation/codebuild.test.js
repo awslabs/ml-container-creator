@@ -74,7 +74,7 @@ describe('CodeBuild Feature', () => {
 
         it('should accept valid deployment target values', () => {
             const configManager = new ConfigManager(mockGenerator);
-            const validTargets = ['sagemaker', 'codebuild'];
+            const validTargets = ['codebuild'];
             
             validTargets.forEach(target => {
                 try {
