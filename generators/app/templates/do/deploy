@@ -1,0 +1,199 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+echo "🚀 Deploying to AWS SageMaker"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
+echo "   Region: ${AWS_REGION}"
+echo "   Instance type: ${INSTANCE_TYPE}"
+echo "   Deploy target: ${DEPLOY_TARGET}"
+
+# Validate execution role ARN
+if [ -z "${ROLE_ARN:-}" ]; then
+    echo "❌ Execution role ARN not provided"
+    echo ""
+    echo "Usage:"
+    echo "  export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE"
+    echo "  ./do/deploy"
+    echo ""
+    echo "Or set ROLE_ARN in do/config"
+    echo ""
+    echo "The execution role must have permissions for:"
+    echo "  • SageMaker model creation and endpoint management"
+    echo "  • ECR image access"
+    echo "  • S3 access (if using model artifacts)"
+    echo "  • CloudWatch Logs"
+    exit 3
+fi
+
+echo "   Using execution role: ${ROLE_ARN}"
+
+# Check AWS credentials
+echo "🔍 Validating AWS credentials..."
+if ! aws sts get-caller-identity &> /dev/null; then
+    echo "❌ AWS credentials not configured"
+    echo "   Run: aws configure"
+    echo "   Or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
+    exit 4
+fi
+
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
+
+# Construct ECR repository URL
+ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
+
+# Deployment target branching
+case "${DEPLOY_TARGET}" in
+    codebuild)
+        echo "🔍 CodeBuild deployment - verifying ECR image exists..."
+        
+        # Verify ECR image exists
+        if ! aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --image-ids imageTag="${PROJECT_NAME}-latest" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            
+            echo "❌ ECR image not found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+            echo ""
+            echo "The CodeBuild deployment requires the Docker image to be built and pushed to ECR first."
+            echo "Please run the following command to build and push your image:"
+            echo "  ./do/submit"
+            echo ""
+            echo "After the build completes successfully, run this deploy script again."
+            exit 4
+        fi
+        
+        echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+        IMAGE_TAG="${PROJECT_NAME}-latest"
+        ;;
+        
+    sagemaker)
+        echo "🔍 SageMaker deployment - using latest image from ECR..."
+        
+        # Verify ECR image exists
+        if ! aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --image-ids imageTag="${PROJECT_NAME}-latest" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            
+            echo "❌ ECR image not found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+            echo ""
+            echo "Please build and push your image first:"
+            echo "  ./do/build"
+            echo "  ./do/push"
+            echo ""
+            echo "Then run this deploy script again."
+            exit 4
+        fi
+        
+        echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+        IMAGE_TAG="${PROJECT_NAME}-latest"
+        ;;
+        
+    *)
+        echo "❌ Unknown deployment target: ${DEPLOY_TARGET}"
+        echo "   Valid values: codebuild, sagemaker"
+        exit 3
+        ;;
+esac
+
+# Generate unique names with timestamp
+TIMESTAMP=$(date +%s)
+MODEL_NAME="${PROJECT_NAME}-model-${TIMESTAMP}"
+ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-endpoint-config-${TIMESTAMP}"
+ENDPOINT_NAME="${PROJECT_NAME}-endpoint-${TIMESTAMP}"
+
+# Create SageMaker model
+echo "📦 Creating SageMaker model: ${MODEL_NAME}"
+if ! aws sagemaker create-model \
+    --model-name "${MODEL_NAME}" \
+    --primary-container Image="${ECR_REPOSITORY}:${IMAGE_TAG}",Mode=SingleModel \
+    --execution-role-arn "${ROLE_ARN}" \
+    --region "${AWS_REGION}"; then
+    
+    echo "❌ Failed to create SageMaker model"
+    echo "   Check that:"
+    echo "   • The execution role ARN is valid"
+    echo "   • The role has permissions to access the ECR image"
+    echo "   • The ECR image exists and is accessible"
+    exit 4
+fi
+
+echo "✅ SageMaker model created: ${MODEL_NAME}"
+
+# Create endpoint configuration
+echo "⚙️  Creating endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
+if ! aws sagemaker create-endpoint-config \
+    --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+    --production-variants VariantName=primary,ModelName="${MODEL_NAME}",InitialInstanceCount=1,InstanceType="${INSTANCE_TYPE}",InitialVariantWeight=1 \
+    --region "${AWS_REGION}"; then
+    
+    echo "❌ Failed to create endpoint configuration"
+    echo "   Check that:"
+    echo "   • The instance type is valid: ${INSTANCE_TYPE}"
+    echo "   • The instance type is available in region: ${AWS_REGION}"
+    echo "   • You have sufficient service quota for the instance type"
+    exit 4
+fi
+
+echo "✅ Endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
+
+# Create endpoint
+echo "🚀 Creating endpoint: ${ENDPOINT_NAME}"
+if ! aws sagemaker create-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+    --region "${AWS_REGION}"; then
+    
+    echo "❌ Failed to create endpoint"
+    exit 4
+fi
+
+echo "✅ Endpoint creation initiated: ${ENDPOINT_NAME}"
+
+# Wait for endpoint to reach InService status
+echo "⏳ Waiting for endpoint to reach InService status..."
+echo "   This may take 5-10 minutes..."
+
+if ! aws sagemaker wait endpoint-in-service \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}"; then
+    
+    echo "❌ Endpoint failed to reach InService status"
+    echo "   Check CloudWatch Logs for details:"
+    echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
+    exit 4
+fi
+
+echo "✅ Deployment complete!"
+echo ""
+echo "📋 Endpoint Details:"
+echo "   Name: ${ENDPOINT_NAME}"
+echo "   Region: ${AWS_REGION}"
+echo "   Instance Type: ${INSTANCE_TYPE}"
+echo "   Model: ${MODEL_NAME}"
+echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"
+echo ""
+echo "🧪 Test your endpoint:"
+echo "   ./do/test ${ENDPOINT_NAME}"
+echo ""
+echo "🔍 Monitor your endpoint:"
+echo "   aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION}"
+echo ""
+echo "🧹 Clean up when done:"
+echo "   ./do/clean endpoint"
+
+# Write endpoint name to config so other scripts can use it
+echo "" >> "${SCRIPT_DIR}/config"
+echo "# Last deployed endpoint (auto-generated by do/deploy)" >> "${SCRIPT_DIR}/config"
+echo "export ENDPOINT_NAME=\"${ENDPOINT_NAME}\"" >> "${SCRIPT_DIR}/config"

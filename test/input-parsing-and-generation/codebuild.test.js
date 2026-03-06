@@ -74,7 +74,7 @@ describe('CodeBuild Feature', () => {
 
         it('should accept valid deployment target values', () => {
             const configManager = new ConfigManager(mockGenerator);
-            const validTargets = ['sagemaker', 'codebuild'];
+            const validTargets = ['codebuild'];
             
             validTargets.forEach(target => {
                 try {
@@ -208,7 +208,7 @@ describe('CodeBuild Feature', () => {
                 codebuildProjectName: 'valid-project-name',
                 includeSampleModel: false,
                 includeTesting: true,
-                instanceType: 'cpu-optimized',
+                instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.'
             };

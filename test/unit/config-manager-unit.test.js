@@ -125,7 +125,7 @@ describe('ConfigManager Unit Tests', () => {
             });
 
             it('should load ML_INSTANCE_TYPE from environment', async () => {
-                process.env.ML_INSTANCE_TYPE = 'gpu-enabled';
+                process.env.ML_INSTANCE_TYPE = 'ml.g5.xlarge';
                 envVarsToCleanup.push('ML_INSTANCE_TYPE');
                 
                 mockGenerator = createMockGenerator();
@@ -133,7 +133,7 @@ describe('ConfigManager Unit Tests', () => {
                 
                 const config = await configManager.loadConfiguration();
                 
-                assert.strictEqual(config.instanceType, 'gpu-enabled');
+                assert.strictEqual(config.instanceType, 'ml.g5.xlarge');
             });
 
             it('should load ML_DEPLOY_TARGET from environment', async () => {
@@ -208,7 +208,7 @@ describe('ConfigManager Unit Tests', () => {
                 const config = await configManager.loadConfiguration();
                 
                 assert.strictEqual(config.awsRegion, 'us-east-1'); // Default
-                assert.strictEqual(config.deployTarget, 'sagemaker'); // Default
+                assert.strictEqual(config.deployTarget, 'codebuild'); // Default
                 assert.strictEqual(config.includeTesting, true); // Default
             });
         });
@@ -398,7 +398,7 @@ describe('ConfigManager Unit Tests', () => {
             const finalConfig = configManager.getFinalConfiguration({});
             
             assert.strictEqual(finalConfig.awsRegion, 'us-east-1');
-            assert.strictEqual(finalConfig.deployTarget, 'sagemaker');
+            assert.strictEqual(finalConfig.deployTarget, 'codebuild');
             assert.strictEqual(finalConfig.includeTesting, true);
         });
 
@@ -479,7 +479,7 @@ describe('ConfigManager Unit Tests', () => {
                 framework: 'sklearn',
                 'model-server': 'flask',
                 'model-format': 'pkl',
-                'instance-type': 'cpu-optimized',
+                'instance-type': 'ml.m5.large',
                 'project-name': 'test-project'
             });
             configManager = new ConfigManager(mockGenerator);
@@ -515,10 +515,10 @@ describe('ConfigManager Unit Tests', () => {
                 framework: 'sklearn',
                 modelServer: 'flask',
                 modelFormat: 'pkl',
-                instanceType: 'cpu-optimized',
+                instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deployTarget: 'sagemaker',
+                deployTarget: 'codebuild',
                 includeSampleModel: false,
                 includeTesting: true
             };
@@ -535,7 +535,7 @@ describe('ConfigManager Unit Tests', () => {
                 framework: 'sklearn',
                 // Missing modelServer
                 modelFormat: 'pkl',
-                instanceType: 'cpu-optimized'
+                instanceType: 'ml.m5.large'
             };
             
             const errors = configManager.validateRequiredParameters(finalConfig);
@@ -551,10 +551,10 @@ describe('ConfigManager Unit Tests', () => {
                 framework: 'transformers',
                 modelServer: 'vllm',
                 // No modelFormat - should be OK for transformers
-                instanceType: 'gpu-enabled',
+                instanceType: 'ml.g5.xlarge',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deployTarget: 'sagemaker',
+                deployTarget: 'codebuild',
                 includeSampleModel: false,
                 includeTesting: true
             };
@@ -562,28 +562,6 @@ describe('ConfigManager Unit Tests', () => {
             const errors = configManager.validateRequiredParameters(finalConfig);
             
             assert.strictEqual(errors.length, 0);
-        });
-
-        it('should validate customInstanceType when instanceType is custom', async () => {
-            await configManager.loadConfiguration();
-            
-            const finalConfig = {
-                framework: 'sklearn',
-                modelServer: 'flask',
-                modelFormat: 'pkl',
-                instanceType: 'custom',
-                // Missing customInstanceType
-                projectName: 'test-project',
-                destinationDir: '.',
-                deployTarget: 'sagemaker',
-                includeSampleModel: false,
-                includeTesting: true
-            };
-            
-            const errors = configManager.validateRequiredParameters(finalConfig);
-            
-            assert.ok(errors.length > 0);
-            assert.ok(errors.some(e => e.includes('Custom instance type is required')));
         });
     });
 

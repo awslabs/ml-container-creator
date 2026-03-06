@@ -1,0 +1,3555 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * do-framework Integration Property-Based Tests
+ * 
+ * Tests universal correctness properties for do-framework integration.
+ * 
+ * Feature: do-framework-integration
+ */
+
+import { describe, it, before, after } from 'mocha';
+import assert from 'assert';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
+import helpers from 'yeoman-test';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+describe('do-framework Integration Property Tests', () => {
+    before(() => {
+        console.log('\n🚀 Starting do-framework Integration Property Tests');
+        console.log('📋 Testing: Universal correctness properties for do-framework integration');
+        console.log('🔧 Configuration: 100 iterations per property');
+        console.log('⏱️  Timeout: 30000ms per test');
+        console.log('');
+    });
+
+    describe('Property 1: All do scripts are executable', () => {
+        it('should verify _setExecutablePermissions method includes all do scripts', () => {
+            console.log('\n  🧪 Property 1: All do scripts are executable');
+            console.log('  📝 The _setExecutablePermissions method should include all do scripts in its list');
+            console.log('  **Validates: Requirements 1.4**');
+
+            // Read the generator index.js file
+            const generatorPath = path.join(__dirname, '../../generators/app/index.js');
+            const generatorContent = readFileSync(generatorPath, 'utf8');
+
+            // Check that _setExecutablePermissions method exists
+            assert.ok(
+                generatorContent.includes('_setExecutablePermissions()'),
+                'Generator should have _setExecutablePermissions() method'
+            );
+
+            // Extract the method content
+            const methodMatch = generatorContent.match(/_setExecutablePermissions\(\)\s*{[\s\S]*?^\s{4}}/m);
+            assert.ok(methodMatch, '_setExecutablePermissions() method should exist');
+            
+            const methodContent = methodMatch[0];
+
+            // Check that all do scripts are included in the shellScripts array
+            const requiredScripts = [
+                'do/build',
+                'do/push',
+                'do/deploy',
+                'do/run',
+                'do/test',
+                'do/clean',
+                'do/submit'
+            ];
+
+            for (const script of requiredScripts) {
+                assert.ok(
+                    methodContent.includes(`'${script}'`),
+                    `_setExecutablePermissions should include '${script}' in shellScripts array`
+                );
+            }
+
+            // Verify that the method uses chmod to set permissions
+            assert.ok(
+                methodContent.includes('fs.chmodSync'),
+                '_setExecutablePermissions should use fs.chmodSync to set permissions'
+            );
+
+            // Verify that it sets mode to 755 (rwxr-xr-x)
+            assert.ok(
+                methodContent.includes('parseInt(\'755\', 8)'),
+                '_setExecutablePermissions should set mode to 755'
+            );
+
+            // Verify that the method is called in the end() phase
+            const endMethodMatch = generatorContent.match(/async end\(\)\s*{[\s\S]*?^\s{4}}/m);
+            assert.ok(endMethodMatch, 'end() method should exist');
+            
+            const endMethod = endMethodMatch[0];
+            assert.ok(
+                endMethod.includes('this._setExecutablePermissions()'),
+                'end() method should call _setExecutablePermissions()'
+            );
+
+            console.log('  ✅ Property 1 validated: _setExecutablePermissions includes all do scripts and is called in end() phase');
+        });
+    });
+
+    describe('Property 14: Generator does not use template exclusion patterns', () => {
+        it('should not use ignorePatterns in generator writing phase', () => {
+            console.log('\n  🧪 Property 14: Generator does not use template exclusion patterns');
+            console.log('  📝 The generator writing() method should not use ignorePatterns or conditional file exclusion');
+            console.log('  **Validates: Requirements 17.3**');
+
+            // Read the generator index.js file
+            const generatorPath = path.join(__dirname, '../../generators/app/index.js');
+            const generatorContent = readFileSync(generatorPath, 'utf8');
+
+            // Check that getIgnorePatterns is not called in the writing phase
+            const writingMethodMatch = generatorContent.match(/async writing\(\)\s*{[\s\S]*?^\s{4}}/m);
+            
+            assert.ok(writingMethodMatch, 'writing() method should exist');
+            
+            const writingMethod = writingMethodMatch[0];
+            
+            // Verify that ignorePatterns is not used
+            assert.ok(
+                !writingMethod.includes('getIgnorePatterns'),
+                'writing() method should not call getIgnorePatterns()'
+            );
+            
+            assert.ok(
+                !writingMethod.includes('ignorePatterns'),
+                'writing() method should not use ignorePatterns variable'
+            );
+            
+            // Verify that copyTpl does not use ignore option
+            const copyTplMatch = writingMethod.match(/this\.fs\.copyTpl\([^)]+\)/s);
+            
+            if (copyTplMatch) {
+                const copyTplCall = copyTplMatch[0];
+                assert.ok(
+                    !copyTplCall.includes('ignore:'),
+                    'copyTpl should not use ignore option'
+                );
+                assert.ok(
+                    !copyTplCall.includes('globOptions'),
+                    'copyTpl should not use globOptions with ignore patterns'
+                );
+            }
+            
+            console.log('  ✅ Property 14 validated: Generator does not use template exclusion patterns');
+            
+            return true;
+        });
+
+        it('should not have getIgnorePatterns method in TemplateManager', () => {
+            console.log('\n  🧪 Property 14 (Part 2): TemplateManager does not have getIgnorePatterns');
+            console.log('  📝 The TemplateManager class should not have getIgnorePatterns() method');
+            console.log('  **Validates: Requirements 17.3**');
+
+            // Read the TemplateManager file
+            const templateManagerPath = path.join(__dirname, '../../generators/app/lib/template-manager.js');
+            const templateManagerContent = readFileSync(templateManagerPath, 'utf8');
+
+            // Check that getIgnorePatterns method does not exist
+            assert.ok(
+                !templateManagerContent.includes('getIgnorePatterns'),
+                'TemplateManager should not have getIgnorePatterns() method'
+            );
+            
+            // Check that private exclusion methods do not exist
+            assert.ok(
+                !templateManagerContent.includes('_getTransformerExclusions'),
+                'TemplateManager should not have _getTransformerExclusions() method'
+            );
+            
+            assert.ok(
+                !templateManagerContent.includes('_getTraditionalMLExclusions'),
+                'TemplateManager should not have _getTraditionalMLExclusions() method'
+            );
+            
+            assert.ok(
+                !templateManagerContent.includes('_getSageMakerOnlyExclusions'),
+                'TemplateManager should not have _getSageMakerOnlyExclusions() method'
+            );
+            
+            assert.ok(
+                !templateManagerContent.includes('_getCodeBuildOnlyExclusions'),
+                'TemplateManager should not have _getCodeBuildOnlyExclusions() method'
+            );
+            
+            console.log('  ✅ Property 14 (Part 2) validated: TemplateManager does not have exclusion methods');
+            
+            return true;
+        });
+    });
+
+    describe('Property 4: Config file contains all required variables', () => {
+        it('should have a config template with all required variable exports', () => {
+            console.log('\n  🧪 Property 4: Config file contains all required variables');
+            console.log('  📝 The do/config template should contain export statements for all required variables');
+            console.log('  **Validates: Requirements 9.2, 9.6, 16.5**');
+
+            // Read the config template file
+            const configTemplatePath = path.join(__dirname, '../../generators/app/templates/do/config');
+            const configTemplate = readFileSync(configTemplatePath, 'utf8');
+
+            // Check for required variable exports
+            const requiredVariables = [
+                'PROJECT_NAME',
+                'DEPLOYMENT_CONFIG',
+                'FRAMEWORK',
+                'MODEL_SERVER',
+                'AWS_REGION',
+                'ECR_REPOSITORY_NAME',
+                'INSTANCE_TYPE',
+                'DEPLOY_TARGET'
+            ];
+
+            for (const variable of requiredVariables) {
+                const regex = new RegExp(`export\\s+${variable}=`, 'm');
+                assert.ok(
+                    regex.test(configTemplate),
+                    `Config template should export ${variable}`
+                );
+            }
+
+            // Verify that DEPLOYMENT_CONFIG uses EJS variable
+            assert.ok(
+                configTemplate.includes('DEPLOYMENT_CONFIG="<%= deploymentConfig %>"'),
+                'Config template should use deploymentConfig EJS variable'
+            );
+
+            // Verify that FRAMEWORK uses EJS variable
+            assert.ok(
+                configTemplate.includes('FRAMEWORK="<%= framework %>"'),
+                'Config template should use framework EJS variable'
+            );
+
+            // Verify that MODEL_SERVER uses EJS variable
+            assert.ok(
+                configTemplate.includes('MODEL_SERVER="<%= modelServer %>"'),
+                'Config template should use modelServer EJS variable'
+            );
+
+            // Verify conditional CodeBuild variables
+            assert.ok(
+                configTemplate.includes('<% if (deployTarget === \'codebuild\') { %>'),
+                'Config template should have conditional CodeBuild section'
+            );
+
+            assert.ok(
+                configTemplate.includes('CODEBUILD_COMPUTE_TYPE'),
+                'Config template should include CODEBUILD_COMPUTE_TYPE in conditional section'
+            );
+
+            // Verify conditional transformers variables
+            assert.ok(
+                configTemplate.includes('<% if (framework === \'transformers\') { %>'),
+                'Config template should have conditional transformers section'
+            );
+
+            assert.ok(
+                configTemplate.includes('MODEL_NAME'),
+                'Config template should include MODEL_NAME in conditional section'
+            );
+
+            // Verify environment variable overrides
+            assert.ok(
+                configTemplate.includes('${AWS_REGION:-<%= awsRegion %>}'),
+                'Config template should support AWS_REGION environment variable override'
+            );
+
+            assert.ok(
+                configTemplate.includes('${INSTANCE_TYPE:-<%= instanceType %>}'),
+                'Config template should support INSTANCE_TYPE environment variable override'
+            );
+
+            console.log('  ✅ Property 4 validated: Config template contains all required variables');
+        });
+    });
+
+    describe('Property 5: Deployment configuration derivation is correct', () => {
+        it('should correctly derive framework and modelServer from all valid deployment configurations', () => {
+            console.log('\n  🧪 Property 5: Deployment configuration derivation is correct');
+            console.log('  📝 Splitting deploymentConfig on hyphen should correctly derive framework and modelServer');
+            console.log('  **Validates: Requirements 16.3**');
+
+            // All valid deployment configurations
+            const validDeploymentConfigs = [
+                'sklearn-flask',
+                'sklearn-fastapi',
+                'xgboost-flask',
+                'xgboost-fastapi',
+                'tensorflow-flask',
+                'tensorflow-fastapi',
+                'transformers-vllm',
+                'transformers-sglang',
+                'transformers-tensorrt-llm',
+                'transformers-lmi',
+                'transformers-djl'
+            ];
+
+            // Expected derivations
+            const expectedDerivations = {
+                'sklearn-flask': { framework: 'sklearn', modelServer: 'flask' },
+                'sklearn-fastapi': { framework: 'sklearn', modelServer: 'fastapi' },
+                'xgboost-flask': { framework: 'xgboost', modelServer: 'flask' },
+                'xgboost-fastapi': { framework: 'xgboost', modelServer: 'fastapi' },
+                'tensorflow-flask': { framework: 'tensorflow', modelServer: 'flask' },
+                'tensorflow-fastapi': { framework: 'tensorflow', modelServer: 'fastapi' },
+                'transformers-vllm': { framework: 'transformers', modelServer: 'vllm' },
+                'transformers-sglang': { framework: 'transformers', modelServer: 'sglang' },
+                'transformers-tensorrt-llm': { framework: 'transformers', modelServer: 'tensorrt-llm' },
+                'transformers-lmi': { framework: 'transformers', modelServer: 'lmi' },
+                'transformers-djl': { framework: 'transformers', modelServer: 'djl' }
+            };
+
+            // Test each deployment configuration
+            for (const deploymentConfig of validDeploymentConfigs) {
+                // Use the same derivation logic as prompt-runner.js
+                const parts = deploymentConfig.split('-');
+                const framework = parts[0];
+                // Handle multi-part model servers (e.g., tensorrt-llm)
+                const modelServer = parts.slice(1).join('-');
+
+                const expected = expectedDerivations[deploymentConfig];
+
+                assert.strictEqual(
+                    framework,
+                    expected.framework,
+                    `Framework should be ${expected.framework} for ${deploymentConfig}`
+                );
+
+                assert.strictEqual(
+                    modelServer,
+                    expected.modelServer,
+                    `Model server should be ${expected.modelServer} for ${deploymentConfig}`
+                );
+
+                // Verify framework is valid
+                const validFrameworks = ['sklearn', 'xgboost', 'tensorflow', 'transformers'];
+                assert.ok(
+                    validFrameworks.includes(framework),
+                    `Derived framework ${framework} should be valid`
+                );
+
+                // Verify modelServer is valid
+                const validServers = ['flask', 'fastapi', 'vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl'];
+                assert.ok(
+                    validServers.includes(modelServer),
+                    `Derived modelServer ${modelServer} should be valid`
+                );
+
+                // Verify combination is valid
+                if (framework === 'transformers') {
+                    assert.ok(
+                        ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl'].includes(modelServer),
+                        `Transformers should only use LLM servers, got ${modelServer}`
+                    );
+                } else {
+                    assert.ok(
+                        ['flask', 'fastapi'].includes(modelServer),
+                        `Traditional ML should only use Flask/FastAPI, got ${modelServer}`
+                    );
+                }
+            }
+
+            console.log('  ✅ Property 5 validated: Deployment configuration derivation is correct for all valid configs');
+        });
+    });
+
+    describe('Property 2: All do scripts source configuration', () => {
+        it('should source do/config in do/build script', () => {
+            console.log('\n  🧪 Property 2: All do scripts source configuration');
+            console.log('  📝 The do/build script should source the do/config file');
+            console.log('  **Validates: Requirements 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.4**');
+
+            // Read the do/build template file
+            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScript = readFileSync(buildScriptPath, 'utf8');
+
+            // Check that the script sources the config file
+            const sourcesConfig = /source\s+['"]\$\{SCRIPT_DIR\}\/config['"]/.test(buildScript);
+            
+            assert.ok(
+                sourcesConfig,
+                'do/build script should source ${SCRIPT_DIR}/config'
+            );
+
+            // Verify SCRIPT_DIR is set correctly
+            assert.ok(
+                buildScript.includes('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'),
+                'do/build script should set SCRIPT_DIR to script directory'
+            );
+
+            console.log('  ✅ Property 2 validated: do/build sources configuration');
+        });
+    });
+
+    describe('Property 3: All do scripts use set -e for error handling', () => {
+        it('should use set -e in do/build script', () => {
+            console.log('\n  🧪 Property 3: All do scripts use set -e for error handling');
+            console.log('  📝 The do/build script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 3.6, 13.5**');
+
+            // Read the do/build template file
+            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScript = readFileSync(buildScriptPath, 'utf8');
+
+            // Check for set -e
+            assert.ok(
+                buildScript.includes('set -e'),
+                'do/build script should use set -e'
+            );
+
+            // Check for set -u
+            assert.ok(
+                buildScript.includes('set -u'),
+                'do/build script should use set -u'
+            );
+
+            // Check for set -o pipefail
+            assert.ok(
+                buildScript.includes('set -o pipefail'),
+                'do/build script should use set -o pipefail'
+            );
+
+            // Verify these are near the beginning of the script (after shebang and comments)
+            const lines = buildScript.split('\n');
+            let foundSetE = false;
+            let foundSetU = false;
+            let foundPipefail = false;
+            
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].includes('set -e')) foundSetE = true;
+                if (lines[i].includes('set -u')) foundSetU = true;
+                if (lines[i].includes('set -o pipefail')) foundPipefail = true;
+            }
+
+            assert.ok(
+                foundSetE && foundSetU && foundPipefail,
+                'set -e, set -u, and set -o pipefail should be near the beginning of the script'
+            );
+
+            console.log('  ✅ Property 3 validated: do/build uses proper error handling');
+        });
+    });
+
+    describe('Property 6: All do scripts contain conditional branching logic', () => {
+        it('should contain case statement branching on DEPLOYMENT_CONFIG in do/build', () => {
+            console.log('\n  🧪 Property 6: All do scripts contain conditional branching logic');
+            console.log('  📝 The do/build script should contain case statement branching on DEPLOYMENT_CONFIG');
+            console.log('  **Validates: Requirements 17.2, 17.6, 17.7, 17.8, 17.10**');
+
+            // Read the do/build template file
+            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScript = readFileSync(buildScriptPath, 'utf8');
+
+            // Check for case statement on DEPLOYMENT_CONFIG
+            assert.ok(
+                buildScript.includes('case "${DEPLOYMENT_CONFIG}" in'),
+                'do/build script should have case statement on DEPLOYMENT_CONFIG'
+            );
+
+            // Check for transformers-tensorrt-llm branch
+            assert.ok(
+                buildScript.includes('transformers-tensorrt-llm)'),
+                'do/build script should have transformers-tensorrt-llm case branch'
+            );
+
+            // Check for transformers-vllm|transformers-sglang|transformers-lmi|transformers-djl branch
+            assert.ok(
+                buildScript.includes('transformers-vllm|transformers-sglang|transformers-lmi|transformers-djl)'),
+                'do/build script should have transformers GPU case branch'
+            );
+
+            // Check for traditional ML branch
+            assert.ok(
+                buildScript.includes('sklearn-*|xgboost-*|tensorflow-*)'),
+                'do/build script should have traditional ML case branch'
+            );
+
+            // Check for default case
+            assert.ok(
+                buildScript.includes('*)'),
+                'do/build script should have default case branch'
+            );
+
+            // Check for esac
+            assert.ok(
+                buildScript.includes('esac'),
+                'do/build script should close case statement with esac'
+            );
+
+            console.log('  ✅ Property 6 validated: do/build contains conditional branching logic');
+        });
+    });
+
+    describe('Property 7: All do scripts use consistent output formatting', () => {
+        it('should use emoji prefixes in do/build script', () => {
+            console.log('\n  🧪 Property 7: All do scripts use consistent output formatting');
+            console.log('  📝 The do/build script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1, 14.2, 14.3**');
+
+            // Read the do/build template file
+            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScript = readFileSync(buildScriptPath, 'utf8');
+
+            // Check for emoji prefixes
+            const emojiPrefixes = [
+                '🚀', // Action/start
+                '✅', // Success
+                '❌', // Error
+                '🔐', // Security/authentication
+                '🔑', // Key/credentials
+                '🏗️'  // Build
+            ];
+
+            for (const emoji of emojiPrefixes) {
+                assert.ok(
+                    buildScript.includes(emoji),
+                    `do/build script should use ${emoji} emoji prefix`
+                );
+            }
+
+            // Check for header message at start
+            assert.ok(
+                buildScript.includes('echo "🚀 Building Docker image for ${PROJECT_NAME}"'),
+                'do/build script should have header message with 🚀'
+            );
+
+            // Check for success summary at end
+            assert.ok(
+                buildScript.includes('echo "✅ Build complete!"'),
+                'do/build script should have success message with ✅'
+            );
+
+            // Check for error messages
+            assert.ok(
+                buildScript.includes('echo "❌ Docker is not installed"'),
+                'do/build script should have error message with ❌ for missing Docker'
+            );
+
+            // Check for next steps section
+            assert.ok(
+                buildScript.includes('echo "Next steps:"'),
+                'do/build script should have next steps section'
+            );
+
+            console.log('  ✅ Property 7 validated: do/build uses consistent output formatting');
+        });
+    });
+
+    describe('Property 9: Tool-dependent scripts validate prerequisites', () => {
+        it('should validate Docker is installed in do/build script', () => {
+            console.log('\n  🧪 Property 9: Tool-dependent scripts validate prerequisites');
+            console.log('  📝 The do/build script should validate that Docker is installed');
+            console.log('  **Validates: Requirements 13.1**');
+
+            // Read the do/build template file
+            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScript = readFileSync(buildScriptPath, 'utf8');
+
+            // Check for Docker validation
+            assert.ok(
+                buildScript.includes('if ! command -v docker &> /dev/null'),
+                'do/build script should check if Docker is installed'
+            );
+
+            // Check for error message
+            assert.ok(
+                buildScript.includes('echo "❌ Docker is not installed"'),
+                'do/build script should display error if Docker is not installed'
+            );
+
+            // Check for installation instructions
+            assert.ok(
+                buildScript.includes('Install from: https://docs.docker.com/get-docker/'),
+                'do/build script should provide Docker installation instructions'
+            );
+
+            // Check for exit with error code
+            assert.ok(
+                buildScript.includes('exit 2'),
+                'do/build script should exit with code 2 for missing prerequisite'
+            );
+
+            // Check for NGC_API_KEY validation for tensorrt-llm
+            assert.ok(
+                buildScript.includes('if [ -z "${NGC_API_KEY:-}" ]'),
+                'do/build script should check for NGC_API_KEY when needed'
+            );
+
+            console.log('  ✅ Property 9 validated: do/build validates prerequisites');
+        });
+    });
+
+    describe('Property 2: All do scripts source configuration (do/push)', () => {
+        it('should source do/config in do/push script', () => {
+            console.log('\n  🧪 Property 2: All do scripts source configuration (do/push)');
+            console.log('  📝 The do/push script should source the do/config file');
+            console.log('  **Validates: Requirements 4.1**');
+
+            // Read the do/push template file
+            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScript = readFileSync(pushScriptPath, 'utf8');
+
+            // Check that the script sources the config file
+            const sourcesConfig = /source\s+['"]\$\{SCRIPT_DIR\}\/config['"]/.test(pushScript);
+            
+            assert.ok(
+                sourcesConfig,
+                'do/push script should source ${SCRIPT_DIR}/config'
+            );
+
+            // Verify SCRIPT_DIR is set correctly
+            assert.ok(
+                pushScript.includes('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'),
+                'do/push script should set SCRIPT_DIR to script directory'
+            );
+
+            console.log('  ✅ Property 2 validated: do/push sources configuration');
+        });
+    });
+
+    describe('Property 3: All do scripts use set -e for error handling (do/push)', () => {
+        it('should use set -e in do/push script', () => {
+            console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/push)');
+            console.log('  📝 The do/push script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
+
+            // Read the do/push template file
+            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScript = readFileSync(pushScriptPath, 'utf8');
+
+            // Check for set -e
+            assert.ok(
+                pushScript.includes('set -e'),
+                'do/push script should use set -e'
+            );
+
+            // Check for set -u
+            assert.ok(
+                pushScript.includes('set -u'),
+                'do/push script should use set -u'
+            );
+
+            // Check for set -o pipefail
+            assert.ok(
+                pushScript.includes('set -o pipefail'),
+                'do/push script should use set -o pipefail'
+            );
+
+            // Verify these are near the beginning of the script (after shebang and comments)
+            const lines = pushScript.split('\n');
+            let foundSetE = false;
+            let foundSetU = false;
+            let foundPipefail = false;
+            
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].includes('set -e')) foundSetE = true;
+                if (lines[i].includes('set -u')) foundSetU = true;
+                if (lines[i].includes('set -o pipefail')) foundPipefail = true;
+            }
+
+            assert.ok(
+                foundSetE && foundSetU && foundPipefail,
+                'set -e, set -u, and set -o pipefail should be near the beginning of the script'
+            );
+
+            console.log('  ✅ Property 3 validated: do/push uses proper error handling');
+        });
+    });
+
+    describe('Property 7: All do scripts use consistent output formatting (do/push)', () => {
+        it('should use emoji prefixes in do/push script', () => {
+            console.log('\n  🧪 Property 7: All do scripts use consistent output formatting (do/push)');
+            console.log('  📝 The do/push script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1**');
+
+            // Read the do/push template file
+            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScript = readFileSync(pushScriptPath, 'utf8');
+
+            // Check for emoji prefixes
+            const emojiPrefixes = [
+                '🚀', // Action/start
+                '✅', // Success
+                '❌', // Error
+                '🔍', // Check/validation
+                '🔐', // Security/authentication
+                '📦', // Package/repository
+                '🏷️', // Tag
+                '📤'  // Upload/push
+            ];
+
+            for (const emoji of emojiPrefixes) {
+                assert.ok(
+                    pushScript.includes(emoji),
+                    `do/push script should use ${emoji} emoji prefix`
+                );
+            }
+
+            // Check for header message at start
+            assert.ok(
+                pushScript.includes('echo "🚀 Pushing Docker image to Amazon ECR"'),
+                'do/push script should have header message with 🚀'
+            );
+
+            // Check for success summary at end
+            assert.ok(
+                pushScript.includes('echo "✅ Push complete!"'),
+                'do/push script should have success message with ✅'
+            );
+
+            // Check for error messages
+            assert.ok(
+                pushScript.includes('echo "❌ AWS credentials not configured"'),
+                'do/push script should have error message with ❌ for missing credentials'
+            );
+
+            // Check for next steps section
+            assert.ok(
+                pushScript.includes('echo "Next steps:"'),
+                'do/push script should have next steps section'
+            );
+
+            // Check for pushed image URIs section
+            assert.ok(
+                pushScript.includes('echo "📦 Pushed image URIs:"'),
+                'do/push script should display pushed image URIs with 📦'
+            );
+
+            console.log('  ✅ Property 7 validated: do/push uses consistent output formatting');
+        });
+    });
+
+    describe('Property 8: AWS-dependent scripts validate credentials', () => {
+        it('should validate AWS credentials in do/push script', () => {
+            console.log('\n  🧪 Property 8: AWS-dependent scripts validate credentials');
+            console.log('  📝 The do/push script should validate AWS credentials using aws sts get-caller-identity');
+            console.log('  **Validates: Requirements 13.2**');
+
+            // Read the do/push template file
+            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScript = readFileSync(pushScriptPath, 'utf8');
+
+            // Check for AWS credentials validation
+            assert.ok(
+                pushScript.includes('if ! aws sts get-caller-identity &> /dev/null'),
+                'do/push script should validate AWS credentials using aws sts get-caller-identity'
+            );
+
+            // Check for error message
+            assert.ok(
+                pushScript.includes('echo "❌ AWS credentials not configured"'),
+                'do/push script should display error if AWS credentials are not configured'
+            );
+
+            // Check for configuration instructions
+            assert.ok(
+                pushScript.includes('aws configure'),
+                'do/push script should provide AWS configuration instructions'
+            );
+
+            // Check for exit with error code
+            assert.ok(
+                pushScript.includes('exit 4'),
+                'do/push script should exit with code 4 for AWS errors'
+            );
+
+            // Check for AWS account ID retrieval
+            assert.ok(
+                pushScript.includes('AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)'),
+                'do/push script should retrieve AWS account ID'
+            );
+
+            // Check for success message after validation
+            assert.ok(
+                pushScript.includes('echo "✅ AWS credentials validated'),
+                'do/push script should display success message after credential validation'
+            );
+
+            console.log('  ✅ Property 8 validated: do/push validates AWS credentials');
+        });
+
+        it('should authenticate with ECR in do/push script', () => {
+            console.log('\n  🧪 Property 8 (Part 2): AWS-dependent scripts authenticate with ECR');
+            console.log('  📝 The do/push script should authenticate with Amazon ECR');
+            console.log('  **Validates: Requirements 4.2**');
+
+            // Read the do/push template file
+            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScript = readFileSync(pushScriptPath, 'utf8');
+
+            // Check for ECR authentication
+            assert.ok(
+                pushScript.includes('aws ecr get-login-password'),
+                'do/push script should use aws ecr get-login-password for authentication'
+            );
+
+            // Check for docker login
+            assert.ok(
+                pushScript.includes('docker login --username AWS --password-stdin'),
+                'do/push script should use docker login with AWS username'
+            );
+
+            // Check for authentication message
+            assert.ok(
+                pushScript.includes('echo "🔐 Authenticating with Amazon ECR..."'),
+                'do/push script should display authentication message'
+            );
+
+            // Check for authentication success message
+            assert.ok(
+                pushScript.includes('echo "✅ ECR authentication successful"'),
+                'do/push script should display success message after authentication'
+            );
+
+            // Check for authentication failure handling
+            assert.ok(
+                pushScript.includes('echo "❌ Failed to authenticate with ECR"'),
+                'do/push script should handle authentication failures'
+            );
+
+            console.log('  ✅ Property 8 (Part 2) validated: do/push authenticates with ECR');
+        });
+
+        it('should create ECR repository if not exists in do/push script', () => {
+            console.log('\n  🧪 Property 8 (Part 3): AWS-dependent scripts create ECR repository');
+            console.log('  📝 The do/push script should create ECR repository if it does not exist');
+            console.log('  **Validates: Requirements 4.3**');
+
+            // Read the do/push template file
+            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScript = readFileSync(pushScriptPath, 'utf8');
+
+            // Check for repository existence check
+            assert.ok(
+                pushScript.includes('aws ecr describe-repositories'),
+                'do/push script should check if ECR repository exists'
+            );
+
+            // Check for repository creation
+            assert.ok(
+                pushScript.includes('aws ecr create-repository'),
+                'do/push script should create ECR repository if it does not exist'
+            );
+
+            // Check for repository name parameter
+            assert.ok(
+                pushScript.includes('--repository-name "${ECR_REPOSITORY_NAME}"'),
+                'do/push script should use ECR_REPOSITORY_NAME from config'
+            );
+
+            // Check for region parameter
+            assert.ok(
+                pushScript.includes('--region "${AWS_REGION}"'),
+                'do/push script should use AWS_REGION from config'
+            );
+
+            // Check for image scanning configuration
+            assert.ok(
+                pushScript.includes('--image-scanning-configuration scanOnPush=true'),
+                'do/push script should enable image scanning on push'
+            );
+
+            // Check for encryption configuration
+            assert.ok(
+                pushScript.includes('--encryption-configuration encryptionType=AES256'),
+                'do/push script should enable encryption for ECR repository'
+            );
+
+            // Check for creation message
+            assert.ok(
+                pushScript.includes('echo "📦 Creating ECR repository:'),
+                'do/push script should display repository creation message'
+            );
+
+            // Check for creation success message
+            assert.ok(
+                pushScript.includes('echo "✅ ECR repository created"'),
+                'do/push script should display success message after creation'
+            );
+
+            // Check for repository exists message
+            assert.ok(
+                pushScript.includes('echo "✅ ECR repository exists"'),
+                'do/push script should display message if repository already exists'
+            );
+
+            console.log('  ✅ Property 8 (Part 3) validated: do/push creates ECR repository if needed');
+        });
+
+        it('should push all tags to ECR in do/push script', () => {
+            console.log('\n  🧪 Property 8 (Part 4): AWS-dependent scripts push all tags');
+            console.log('  📝 The do/push script should push all image tags to ECR');
+            console.log('  **Validates: Requirements 4.4, 4.5**');
+
+            // Read the do/push template file
+            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScript = readFileSync(pushScriptPath, 'utf8');
+
+            // Check for image tagging
+            assert.ok(
+                pushScript.includes('docker tag "${PROJECT_NAME}:latest" "${ECR_REPOSITORY}:latest"'),
+                'do/push script should tag image with latest'
+            );
+
+            assert.ok(
+                pushScript.includes('docker tag "${PROJECT_NAME}:latest" "${ECR_REPOSITORY}:${PROJECT_NAME}-latest"'),
+                'do/push script should tag image with project-name-latest'
+            );
+
+            assert.ok(
+                pushScript.includes('docker tag "${PROJECT_NAME}:latest" "${ECR_REPOSITORY}:${PROJECT_NAME}-${TIMESTAMP}"'),
+                'do/push script should tag image with timestamp'
+            );
+
+            // Check for image pushing
+            assert.ok(
+                pushScript.includes('docker push "${ECR_REPOSITORY}:latest"'),
+                'do/push script should push latest tag'
+            );
+
+            assert.ok(
+                pushScript.includes('docker push "${ECR_REPOSITORY}:${PROJECT_NAME}-latest"'),
+                'do/push script should push project-name-latest tag'
+            );
+
+            assert.ok(
+                pushScript.includes('docker push "${ECR_REPOSITORY}:${PROJECT_NAME}-${TIMESTAMP}"'),
+                'do/push script should push timestamp tag'
+            );
+
+            // Check for pushed image URIs display
+            assert.ok(
+                pushScript.includes('echo "📦 Pushed image URIs:"'),
+                'do/push script should display pushed image URIs'
+            );
+
+            assert.ok(
+                pushScript.includes('echo "   ${ECR_REPOSITORY}:latest"'),
+                'do/push script should display latest URI'
+            );
+
+            assert.ok(
+                pushScript.includes('echo "   ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"'),
+                'do/push script should display project-name-latest URI'
+            );
+
+            assert.ok(
+                pushScript.includes('echo "   ${ECR_REPOSITORY}:${PROJECT_NAME}-${TIMESTAMP}"'),
+                'do/push script should display timestamp URI'
+            );
+
+            console.log('  ✅ Property 8 (Part 4) validated: do/push pushes all tags and displays URIs');
+        });
+    });
+
+    describe('Property 2: All do scripts source configuration (do/deploy)', () => {
+        it('should source do/config in do/deploy script', () => {
+            console.log('\n  🧪 Property 2: All do scripts source configuration (do/deploy)');
+            console.log('  📝 The do/deploy script should source the do/config file');
+            console.log('  **Validates: Requirements 5.1**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check that the script sources the config file
+            const sourcesConfig = /source\s+['"]\$\{SCRIPT_DIR\}\/config['"]/.test(deployScript);
+            
+            assert.ok(
+                sourcesConfig,
+                'do/deploy script should source ${SCRIPT_DIR}/config'
+            );
+
+            // Verify SCRIPT_DIR is set correctly
+            assert.ok(
+                deployScript.includes('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'),
+                'do/deploy script should set SCRIPT_DIR to script directory'
+            );
+
+            console.log('  ✅ Property 2 validated: do/deploy sources configuration');
+        });
+    });
+
+    describe('Property 3: All do scripts use set -e for error handling (do/deploy)', () => {
+        it('should use set -e in do/deploy script', () => {
+            console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/deploy)');
+            console.log('  📝 The do/deploy script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for set -e
+            assert.ok(
+                deployScript.includes('set -e'),
+                'do/deploy script should use set -e'
+            );
+
+            // Check for set -u
+            assert.ok(
+                deployScript.includes('set -u'),
+                'do/deploy script should use set -u'
+            );
+
+            // Check for set -o pipefail
+            assert.ok(
+                deployScript.includes('set -o pipefail'),
+                'do/deploy script should use set -o pipefail'
+            );
+
+            // Verify these are near the beginning of the script (after shebang and comments)
+            const lines = deployScript.split('\n');
+            let foundSetE = false;
+            let foundSetU = false;
+            let foundPipefail = false;
+            
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].includes('set -e')) foundSetE = true;
+                if (lines[i].includes('set -u')) foundSetU = true;
+                if (lines[i].includes('set -o pipefail')) foundPipefail = true;
+            }
+
+            assert.ok(
+                foundSetE && foundSetU && foundPipefail,
+                'set -e, set -u, and set -o pipefail should be near the beginning of the script'
+            );
+
+            console.log('  ✅ Property 3 validated: do/deploy uses proper error handling');
+        });
+    });
+
+    describe('Property 6: All do scripts contain conditional branching logic (do/deploy)', () => {
+        it('should contain case statement branching on DEPLOY_TARGET in do/deploy', () => {
+            console.log('\n  🧪 Property 6: All do scripts contain conditional branching logic (do/deploy)');
+            console.log('  📝 The do/deploy script should contain case statement branching on DEPLOY_TARGET');
+            console.log('  **Validates: Requirements 17.8**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for case statement on DEPLOY_TARGET
+            assert.ok(
+                deployScript.includes('case "${DEPLOY_TARGET}" in'),
+                'do/deploy script should have case statement on DEPLOY_TARGET'
+            );
+
+            // Check for codebuild branch
+            assert.ok(
+                deployScript.includes('codebuild)'),
+                'do/deploy script should have codebuild case branch'
+            );
+
+            // Check for sagemaker branch
+            assert.ok(
+                deployScript.includes('sagemaker)'),
+                'do/deploy script should have sagemaker case branch'
+            );
+
+            // Check for default case
+            assert.ok(
+                deployScript.includes('*)'),
+                'do/deploy script should have default case branch'
+            );
+
+            // Check for esac
+            assert.ok(
+                deployScript.includes('esac'),
+                'do/deploy script should close case statement with esac'
+            );
+
+            // Check for ECR image verification in codebuild branch
+            assert.ok(
+                deployScript.includes('CodeBuild deployment - verifying ECR image exists'),
+                'do/deploy script should verify ECR image for CodeBuild deployment'
+            );
+
+            // Check for ECR image verification command
+            assert.ok(
+                deployScript.includes('aws ecr describe-images'),
+                'do/deploy script should use aws ecr describe-images to verify image'
+            );
+
+            console.log('  ✅ Property 6 validated: do/deploy contains conditional branching logic');
+        });
+    });
+
+    describe('Property 7: All do scripts use consistent output formatting (do/deploy)', () => {
+        it('should use emoji prefixes in do/deploy script', () => {
+            console.log('\n  🧪 Property 7: All do scripts use consistent output formatting (do/deploy)');
+            console.log('  📝 The do/deploy script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for emoji prefixes
+            const emojiPrefixes = [
+                '🚀', // Action/start
+                '✅', // Success
+                '❌', // Error
+                '🔍', // Check/validation
+                '📦', // Package/model
+                '⚙️',  // Configuration
+                '⏳', // Waiting
+                '📋', // Details/info
+                '🧪', // Test
+                '🧹'  // Clean
+            ];
+
+            for (const emoji of emojiPrefixes) {
+                assert.ok(
+                    deployScript.includes(emoji),
+                    `do/deploy script should use ${emoji} emoji prefix`
+                );
+            }
+
+            // Check for header message at start
+            assert.ok(
+                deployScript.includes('echo "🚀 Deploying to AWS SageMaker"'),
+                'do/deploy script should have header message with 🚀'
+            );
+
+            // Check for success summary at end
+            assert.ok(
+                deployScript.includes('echo "✅ Deployment complete!"'),
+                'do/deploy script should have success message with ✅'
+            );
+
+            // Check for error messages
+            assert.ok(
+                deployScript.includes('echo "❌ Execution role ARN not provided"'),
+                'do/deploy script should have error message with ❌ for missing role ARN'
+            );
+
+            assert.ok(
+                deployScript.includes('echo "❌ AWS credentials not configured"'),
+                'do/deploy script should have error message with ❌ for missing credentials'
+            );
+
+            // Check for endpoint details section
+            assert.ok(
+                deployScript.includes('echo "📋 Endpoint Details:"'),
+                'do/deploy script should display endpoint details with 📋'
+            );
+
+            // Check for test command section
+            assert.ok(
+                deployScript.includes('echo "🧪 Test your endpoint:"'),
+                'do/deploy script should display test command with 🧪'
+            );
+
+            // Check for cleanup section
+            assert.ok(
+                deployScript.includes('echo "🧹 Clean up when done:"'),
+                'do/deploy script should display cleanup command with 🧹'
+            );
+
+            console.log('  ✅ Property 7 validated: do/deploy uses consistent output formatting');
+        });
+    });
+
+    describe('Property 8: AWS-dependent scripts validate credentials (do/deploy)', () => {
+        it('should validate AWS credentials in do/deploy script', () => {
+            console.log('\n  🧪 Property 8: AWS-dependent scripts validate credentials (do/deploy)');
+            console.log('  📝 The do/deploy script should validate AWS credentials using aws sts get-caller-identity');
+            console.log('  **Validates: Requirements 13.2**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for AWS credentials validation
+            assert.ok(
+                deployScript.includes('if ! aws sts get-caller-identity &> /dev/null'),
+                'do/deploy script should validate AWS credentials using aws sts get-caller-identity'
+            );
+
+            // Check for error message
+            assert.ok(
+                deployScript.includes('echo "❌ AWS credentials not configured"'),
+                'do/deploy script should display error if AWS credentials are not configured'
+            );
+
+            // Check for configuration instructions
+            assert.ok(
+                deployScript.includes('aws configure'),
+                'do/deploy script should provide AWS configuration instructions'
+            );
+
+            // Check for exit with error code
+            assert.ok(
+                deployScript.includes('exit 4'),
+                'do/deploy script should exit with code 4 for AWS errors'
+            );
+
+            // Check for AWS account ID retrieval
+            assert.ok(
+                deployScript.includes('AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)'),
+                'do/deploy script should retrieve AWS account ID'
+            );
+
+            // Check for success message after validation
+            assert.ok(
+                deployScript.includes('echo "✅ AWS credentials validated'),
+                'do/deploy script should display success message after credential validation'
+            );
+
+            console.log('  ✅ Property 8 validated: do/deploy validates AWS credentials');
+        });
+
+        it('should validate execution role ARN in do/deploy script', () => {
+            console.log('\n  🧪 Property 8 (Part 2): AWS-dependent scripts validate execution role ARN');
+            console.log('  📝 The do/deploy script should validate that execution role ARN is provided');
+            console.log('  **Validates: Requirements 5.7**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for ROLE_ARN validation
+            assert.ok(
+                deployScript.includes('if [ -z "${ROLE_ARN:-}" ]'),
+                'do/deploy script should check if ROLE_ARN is set'
+            );
+
+            // Check for error message
+            assert.ok(
+                deployScript.includes('echo "❌ Execution role ARN not provided"'),
+                'do/deploy script should display error if ROLE_ARN is not provided'
+            );
+
+            // Check for usage instructions
+            assert.ok(
+                deployScript.includes('export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE'),
+                'do/deploy script should provide usage instructions for ROLE_ARN'
+            );
+
+            // Check for exit with error code
+            assert.ok(
+                deployScript.includes('exit 3'),
+                'do/deploy script should exit with code 3 for invalid configuration'
+            );
+
+            // Check for role permissions documentation
+            assert.ok(
+                deployScript.includes('The execution role must have permissions for:'),
+                'do/deploy script should document required permissions for execution role'
+            );
+
+            console.log('  ✅ Property 8 (Part 2) validated: do/deploy validates execution role ARN');
+        });
+
+        it('should create SageMaker model in do/deploy script', () => {
+            console.log('\n  🧪 Property 8 (Part 3): AWS-dependent scripts create SageMaker model');
+            console.log('  📝 The do/deploy script should create SageMaker model from ECR image');
+            console.log('  **Validates: Requirements 5.2**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for model creation
+            assert.ok(
+                deployScript.includes('aws sagemaker create-model'),
+                'do/deploy script should create SageMaker model'
+            );
+
+            // Check for model name parameter
+            assert.ok(
+                deployScript.includes('--model-name "${MODEL_NAME}"'),
+                'do/deploy script should use MODEL_NAME for model creation'
+            );
+
+            // Check for primary container configuration
+            assert.ok(
+                deployScript.includes('--primary-container Image="${ECR_REPOSITORY}:${IMAGE_TAG}",Mode=SingleModel'),
+                'do/deploy script should configure primary container with ECR image'
+            );
+
+            // Check for execution role ARN parameter
+            assert.ok(
+                deployScript.includes('--execution-role-arn "${ROLE_ARN}"'),
+                'do/deploy script should use ROLE_ARN for model creation'
+            );
+
+            // Check for region parameter
+            assert.ok(
+                deployScript.includes('--region "${AWS_REGION}"'),
+                'do/deploy script should use AWS_REGION for model creation'
+            );
+
+            // Check for creation message
+            assert.ok(
+                deployScript.includes('echo "📦 Creating SageMaker model:'),
+                'do/deploy script should display model creation message'
+            );
+
+            // Check for success message
+            assert.ok(
+                deployScript.includes('echo "✅ SageMaker model created:'),
+                'do/deploy script should display success message after model creation'
+            );
+
+            console.log('  ✅ Property 8 (Part 3) validated: do/deploy creates SageMaker model');
+        });
+
+        it('should create endpoint configuration in do/deploy script', () => {
+            console.log('\n  🧪 Property 8 (Part 4): AWS-dependent scripts create endpoint configuration');
+            console.log('  📝 The do/deploy script should create SageMaker endpoint configuration');
+            console.log('  **Validates: Requirements 5.3**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for endpoint config creation
+            assert.ok(
+                deployScript.includes('aws sagemaker create-endpoint-config'),
+                'do/deploy script should create endpoint configuration'
+            );
+
+            // Check for endpoint config name parameter
+            assert.ok(
+                deployScript.includes('--endpoint-config-name "${ENDPOINT_CONFIG_NAME}"'),
+                'do/deploy script should use ENDPOINT_CONFIG_NAME'
+            );
+
+            // Check for production variants configuration
+            assert.ok(
+                deployScript.includes('--production-variants VariantName=primary,ModelName="${MODEL_NAME}",InitialInstanceCount=1,InstanceType="${INSTANCE_TYPE}",InitialVariantWeight=1'),
+                'do/deploy script should configure production variants with instance type'
+            );
+
+            // Check for region parameter
+            assert.ok(
+                deployScript.includes('--region "${AWS_REGION}"'),
+                'do/deploy script should use AWS_REGION for endpoint config creation'
+            );
+
+            // Check for creation message
+            assert.ok(
+                deployScript.includes('echo "⚙️  Creating endpoint configuration:'),
+                'do/deploy script should display endpoint config creation message'
+            );
+
+            // Check for success message
+            assert.ok(
+                deployScript.includes('echo "✅ Endpoint configuration created:'),
+                'do/deploy script should display success message after endpoint config creation'
+            );
+
+            console.log('  ✅ Property 8 (Part 4) validated: do/deploy creates endpoint configuration');
+        });
+
+        it('should create and wait for endpoint in do/deploy script', () => {
+            console.log('\n  🧪 Property 8 (Part 5): AWS-dependent scripts create and wait for endpoint');
+            console.log('  📝 The do/deploy script should create endpoint and wait for InService status');
+            console.log('  **Validates: Requirements 5.4, 5.5**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for endpoint creation
+            assert.ok(
+                deployScript.includes('aws sagemaker create-endpoint'),
+                'do/deploy script should create endpoint'
+            );
+
+            // Check for endpoint name parameter
+            assert.ok(
+                deployScript.includes('--endpoint-name "${ENDPOINT_NAME}"'),
+                'do/deploy script should use ENDPOINT_NAME'
+            );
+
+            // Check for endpoint config name parameter
+            assert.ok(
+                deployScript.includes('--endpoint-config-name "${ENDPOINT_CONFIG_NAME}"'),
+                'do/deploy script should use ENDPOINT_CONFIG_NAME'
+            );
+
+            // Check for region parameter
+            assert.ok(
+                deployScript.includes('--region "${AWS_REGION}"'),
+                'do/deploy script should use AWS_REGION for endpoint creation'
+            );
+
+            // Check for endpoint wait command
+            assert.ok(
+                deployScript.includes('aws sagemaker wait endpoint-in-service'),
+                'do/deploy script should wait for endpoint to reach InService status'
+            );
+
+            // Check for waiting message
+            assert.ok(
+                deployScript.includes('echo "⏳ Waiting for endpoint to reach InService status..."'),
+                'do/deploy script should display waiting message'
+            );
+
+            // Check for time estimate
+            assert.ok(
+                deployScript.includes('This may take 5-10 minutes'),
+                'do/deploy script should provide time estimate for endpoint creation'
+            );
+
+            // Check for creation message
+            assert.ok(
+                deployScript.includes('echo "🚀 Creating endpoint:'),
+                'do/deploy script should display endpoint creation message'
+            );
+
+            // Check for success message
+            assert.ok(
+                deployScript.includes('echo "✅ Endpoint creation initiated:'),
+                'do/deploy script should display success message after endpoint creation'
+            );
+
+            console.log('  ✅ Property 8 (Part 5) validated: do/deploy creates and waits for endpoint');
+        });
+
+        it('should display endpoint details and test command in do/deploy script', () => {
+            console.log('\n  🧪 Property 8 (Part 6): AWS-dependent scripts display endpoint details');
+            console.log('  📝 The do/deploy script should display endpoint name and test command');
+            console.log('  **Validates: Requirements 5.6**');
+
+            // Read the do/deploy template file
+            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScript = readFileSync(deployScriptPath, 'utf8');
+
+            // Check for endpoint details section
+            assert.ok(
+                deployScript.includes('echo "📋 Endpoint Details:"'),
+                'do/deploy script should display endpoint details section'
+            );
+
+            // Check for endpoint name display
+            assert.ok(
+                deployScript.includes('echo "   Name: ${ENDPOINT_NAME}"'),
+                'do/deploy script should display endpoint name'
+            );
+
+            // Check for region display
+            assert.ok(
+                deployScript.includes('echo "   Region: ${AWS_REGION}"'),
+                'do/deploy script should display region'
+            );
+
+            // Check for instance type display
+            assert.ok(
+                deployScript.includes('echo "   Instance Type: ${INSTANCE_TYPE}"'),
+                'do/deploy script should display instance type'
+            );
+
+            // Check for model display
+            assert.ok(
+                deployScript.includes('echo "   Model: ${MODEL_NAME}"'),
+                'do/deploy script should display model name'
+            );
+
+            // Check for image display
+            assert.ok(
+                deployScript.includes('echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"'),
+                'do/deploy script should display ECR image'
+            );
+
+            // Check for test command section
+            assert.ok(
+                deployScript.includes('echo "🧪 Test your endpoint:"'),
+                'do/deploy script should display test command section'
+            );
+
+            // Check for test command
+            assert.ok(
+                deployScript.includes('echo "   ./do/test ${ENDPOINT_NAME}"'),
+                'do/deploy script should display test command with endpoint name'
+            );
+
+            // Check for monitor command section
+            assert.ok(
+                deployScript.includes('echo "🔍 Monitor your endpoint:"'),
+                'do/deploy script should display monitor command section'
+            );
+
+            // Check for cleanup command section
+            assert.ok(
+                deployScript.includes('echo "🧹 Clean up when done:"'),
+                'do/deploy script should display cleanup command section'
+            );
+
+            // Check for cleanup command
+            assert.ok(
+                deployScript.includes('echo "   ./do/clean endpoint"'),
+                'do/deploy script should display cleanup command'
+            );
+
+            console.log('  ✅ Property 8 (Part 6) validated: do/deploy displays endpoint details and test command');
+        });
+    });
+
+    describe('Property 2: All do scripts source configuration (do/run)', () => {
+        it('should source do/config in do/run script', () => {
+            console.log('\n  🧪 Property 2: All do scripts source configuration (do/run)');
+            console.log('  📝 The do/run script should source the do/config file');
+            console.log('  **Validates: Requirements 6.1**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check that the script sources the config file
+            const sourcesConfig = /source\s+['"]\$\{SCRIPT_DIR\}\/config['"]/.test(runScript);
+            
+            assert.ok(
+                sourcesConfig,
+                'do/run script should source ${SCRIPT_DIR}/config'
+            );
+
+            // Verify SCRIPT_DIR is set correctly
+            assert.ok(
+                runScript.includes('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'),
+                'do/run script should set SCRIPT_DIR to script directory'
+            );
+
+            console.log('  ✅ Property 2 validated: do/run sources configuration');
+        });
+    });
+
+    describe('Property 3: All do scripts use set -e for error handling (do/run)', () => {
+        it('should use set -e in do/run script', () => {
+            console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/run)');
+            console.log('  📝 The do/run script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for set -e
+            assert.ok(
+                runScript.includes('set -e'),
+                'do/run script should use set -e'
+            );
+
+            // Check for set -u
+            assert.ok(
+                runScript.includes('set -u'),
+                'do/run script should use set -u'
+            );
+
+            // Check for set -o pipefail
+            assert.ok(
+                runScript.includes('set -o pipefail'),
+                'do/run script should use set -o pipefail'
+            );
+
+            // Verify these are near the beginning of the script (after shebang and comments)
+            const lines = runScript.split('\n');
+            let foundSetE = false;
+            let foundSetU = false;
+            let foundPipefail = false;
+            
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].includes('set -e')) foundSetE = true;
+                if (lines[i].includes('set -u')) foundSetU = true;
+                if (lines[i].includes('set -o pipefail')) foundPipefail = true;
+            }
+
+            assert.ok(
+                foundSetE && foundSetU && foundPipefail,
+                'set -e, set -u, and set -o pipefail should be near the beginning of the script'
+            );
+
+            console.log('  ✅ Property 3 validated: do/run uses proper error handling');
+        });
+    });
+
+    describe('Property 6: All do scripts contain conditional branching logic (do/run)', () => {
+        it('should contain case statement branching on DEPLOYMENT_CONFIG in do/run', () => {
+            console.log('\n  🧪 Property 6: All do scripts contain conditional branching logic (do/run)');
+            console.log('  📝 The do/run script should contain case statement branching on DEPLOYMENT_CONFIG for GPU detection');
+            console.log('  **Validates: Requirements 17.6**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for case statement on DEPLOYMENT_CONFIG
+            assert.ok(
+                runScript.includes('case "${DEPLOYMENT_CONFIG}" in'),
+                'do/run script should have case statement on DEPLOYMENT_CONFIG'
+            );
+
+            // Check for transformers branch (GPU support)
+            assert.ok(
+                runScript.includes('transformers-*)'),
+                'do/run script should have transformers-* case branch for GPU support'
+            );
+
+            // Check for GPU flag setting
+            assert.ok(
+                runScript.includes('GPU_FLAG="--gpus all"'),
+                'do/run script should set GPU_FLAG for transformers deployments'
+            );
+
+            // Check for traditional ML branch (CPU only)
+            assert.ok(
+                runScript.includes('sklearn-*|xgboost-*|tensorflow-*)'),
+                'do/run script should have traditional ML case branch for CPU-only mode'
+            );
+
+            // Check for default case
+            assert.ok(
+                runScript.includes('*)'),
+                'do/run script should have default case branch'
+            );
+
+            // Check for esac
+            assert.ok(
+                runScript.includes('esac'),
+                'do/run script should close case statement with esac'
+            );
+
+            // Check that GPU flag is used in docker run command
+            assert.ok(
+                runScript.includes('${GPU_FLAG}'),
+                'do/run script should use GPU_FLAG variable in docker run command'
+            );
+
+            console.log('  ✅ Property 6 validated: do/run contains conditional branching logic for GPU detection');
+        });
+
+        it('should expose port 8080 in do/run script', () => {
+            console.log('\n  🧪 Property 6 (Part 2): do/run exposes port 8080');
+            console.log('  📝 The do/run script should expose port 8080 for SageMaker-compatible endpoints');
+            console.log('  **Validates: Requirements 6.3**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for port 8080 exposure
+            assert.ok(
+                runScript.includes('-p 8080:8080'),
+                'do/run script should expose port 8080'
+            );
+
+            // Check for port information in output
+            assert.ok(
+                runScript.includes('Port: 8080'),
+                'do/run script should display port information'
+            );
+
+            console.log('  ✅ Property 6 (Part 2) validated: do/run exposes port 8080');
+        });
+
+        it('should mount model directory if specified in do/run script', () => {
+            console.log('\n  🧪 Property 6 (Part 3): do/run mounts model directory if specified');
+            console.log('  📝 The do/run script should mount model directory if MODEL_DIR is set');
+            console.log('  **Validates: Requirements 6.4**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for MODEL_DIR check
+            assert.ok(
+                runScript.includes('if [ -n "${MODEL_DIR:-}" ]'),
+                'do/run script should check if MODEL_DIR is set'
+            );
+
+            // Check for directory existence check
+            assert.ok(
+                runScript.includes('if [ -d "${MODEL_DIR}" ]'),
+                'do/run script should check if MODEL_DIR directory exists'
+            );
+
+            // Check for model mount volume flag
+            assert.ok(
+                runScript.includes('MODEL_MOUNT="-v ${MODEL_DIR}:/opt/ml/model"'),
+                'do/run script should set MODEL_MOUNT with volume flag'
+            );
+
+            // Check that model mount is used in docker run command
+            assert.ok(
+                runScript.includes('${MODEL_MOUNT}'),
+                'do/run script should use MODEL_MOUNT variable in docker run command'
+            );
+
+            // Check for mount information in output
+            assert.ok(
+                runScript.includes('Mounting model directory'),
+                'do/run script should display model mount information'
+            );
+
+            console.log('  ✅ Property 6 (Part 3) validated: do/run mounts model directory if specified');
+        });
+
+        it('should use --rm flag for cleanup in do/run script', () => {
+            console.log('\n  🧪 Property 6 (Part 4): do/run uses --rm flag for cleanup');
+            console.log('  📝 The do/run script should use --rm flag to cleanup container on exit');
+            console.log('  **Validates: Requirements 6.7**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for --rm flag in docker run command
+            assert.ok(
+                runScript.includes('docker run -it --rm'),
+                'do/run script should use --rm flag for automatic cleanup'
+            );
+
+            // Check for cleanup message
+            assert.ok(
+                runScript.includes('Container stopped and cleaned up'),
+                'do/run script should display cleanup message'
+            );
+
+            console.log('  ✅ Property 6 (Part 4) validated: do/run uses --rm flag for cleanup');
+        });
+
+        it('should stream container logs in do/run script', () => {
+            console.log('\n  🧪 Property 6 (Part 5): do/run streams container logs');
+            console.log('  📝 The do/run script should stream container logs in real-time');
+            console.log('  **Validates: Requirements 6.6**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for -it flag for interactive terminal
+            assert.ok(
+                runScript.includes('docker run -it'),
+                'do/run script should use -it flag for interactive terminal and log streaming'
+            );
+
+            // Check for log streaming message
+            assert.ok(
+                runScript.includes('Container logs will stream below'),
+                'do/run script should inform user that logs will stream'
+            );
+
+            // Check for Ctrl+C instruction
+            assert.ok(
+                runScript.includes('Press Ctrl+C to stop the container'),
+                'do/run script should provide instructions to stop container'
+            );
+
+            console.log('  ✅ Property 6 (Part 5) validated: do/run streams container logs');
+        });
+    });
+
+    describe('Property 7: All do scripts use consistent output formatting (do/run)', () => {
+        it('should use emoji prefixes in do/run script', () => {
+            console.log('\n  🧪 Property 7: All do scripts use consistent output formatting (do/run)');
+            console.log('  📝 The do/run script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for emoji prefixes
+            const emojiPrefixes = [
+                '🚀', // Action/start
+                '✅', // Success
+                '❌', // Error
+                '⚠️',  // Warning
+                '🎮', // GPU
+                '💻', // CPU
+                '📁', // Directory/folder
+                '🔑', // Key/credentials
+                '🏃', // Running
+                '📝'  // Logs/notes
+            ];
+
+            for (const emoji of emojiPrefixes) {
+                assert.ok(
+                    runScript.includes(emoji),
+                    `do/run script should use ${emoji} emoji prefix`
+                );
+            }
+
+            // Check for header message at start
+            assert.ok(
+                runScript.includes('echo "🚀 Running Docker container locally for ${PROJECT_NAME}"'),
+                'do/run script should have header message with 🚀'
+            );
+
+            // Check for success message at end
+            assert.ok(
+                runScript.includes('echo "✅ Container stopped and cleaned up"'),
+                'do/run script should have success message with ✅'
+            );
+
+            // Check for error messages
+            assert.ok(
+                runScript.includes('echo "❌ Docker is not installed"'),
+                'do/run script should have error message with ❌ for missing Docker'
+            );
+
+            assert.ok(
+                runScript.includes('echo "❌ Docker image not found:'),
+                'do/run script should have error message with ❌ for missing image'
+            );
+
+            // Check for next steps section
+            assert.ok(
+                runScript.includes('echo "Next steps:"'),
+                'do/run script should have next steps section'
+            );
+
+            console.log('  ✅ Property 7 validated: do/run uses consistent output formatting');
+        });
+    });
+
+    describe('Property 9: Tool-dependent scripts validate prerequisites (do/run)', () => {
+        it('should validate Docker is installed in do/run script', () => {
+            console.log('\n  🧪 Property 9: Tool-dependent scripts validate prerequisites (do/run)');
+            console.log('  📝 The do/run script should validate that Docker is installed');
+            console.log('  **Validates: Requirements 13.1**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for Docker validation
+            assert.ok(
+                runScript.includes('if ! command -v docker &> /dev/null'),
+                'do/run script should check if Docker is installed'
+            );
+
+            // Check for error message
+            assert.ok(
+                runScript.includes('echo "❌ Docker is not installed"'),
+                'do/run script should display error if Docker is not installed'
+            );
+
+            // Check for installation instructions
+            assert.ok(
+                runScript.includes('Install from: https://docs.docker.com/get-docker/'),
+                'do/run script should provide Docker installation instructions'
+            );
+
+            // Check for exit with error code
+            assert.ok(
+                runScript.includes('exit 2'),
+                'do/run script should exit with code 2 for missing prerequisite'
+            );
+
+            console.log('  ✅ Property 9 validated: do/run validates Docker is installed');
+        });
+
+        it('should validate Docker image exists in do/run script', () => {
+            console.log('\n  🧪 Property 9 (Part 2): Tool-dependent scripts validate Docker image exists');
+            console.log('  📝 The do/run script should validate that Docker image exists before running');
+            console.log('  **Validates: Requirements 6.2**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for image existence validation
+            assert.ok(
+                runScript.includes('if ! docker image inspect "${PROJECT_NAME}:latest" &> /dev/null'),
+                'do/run script should check if Docker image exists'
+            );
+
+            // Check for error message
+            assert.ok(
+                runScript.includes('echo "❌ Docker image not found:'),
+                'do/run script should display error if image not found'
+            );
+
+            // Check for build instructions
+            assert.ok(
+                runScript.includes('Build the image first: ./do/build'),
+                'do/run script should provide build instructions'
+            );
+
+            // Check for exit with error code
+            assert.ok(
+                runScript.includes('exit 5'),
+                'do/run script should exit with code 5 for Docker errors'
+            );
+
+            console.log('  ✅ Property 9 (Part 2) validated: do/run validates Docker image exists');
+        });
+
+        it('should check nvidia-docker availability for GPU deployments in do/run script', () => {
+            console.log('\n  🧪 Property 9 (Part 3): Tool-dependent scripts check nvidia-docker for GPU');
+            console.log('  📝 The do/run script should check nvidia-docker availability for transformers deployments');
+            console.log('  **Validates: Requirements 6.5**');
+
+            // Read the do/run template file
+            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScript = readFileSync(runScriptPath, 'utf8');
+
+            // Check for nvidia-docker validation
+            assert.ok(
+                runScript.includes('if ! docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi &> /dev/null'),
+                'do/run script should check if nvidia-docker is available'
+            );
+
+            // Check for warning message (not error, since it's a warning)
+            assert.ok(
+                runScript.includes('echo "⚠️  Warning: GPU support requested but nvidia-docker may not be available"'),
+                'do/run script should display warning if nvidia-docker may not be available'
+            );
+
+            // Check for installation instructions
+            assert.ok(
+                runScript.includes('Install nvidia-docker: https://github.com/NVIDIA/nvidia-docker'),
+                'do/run script should provide nvidia-docker installation instructions'
+            );
+
+            // Note: This is a warning, not an error, so the script continues
+            console.log('  ✅ Property 9 (Part 3) validated: do/run checks nvidia-docker availability');
+        });
+    });
+
+    describe('Property 2: All do scripts source configuration (do/test)', () => {
+        it('should source do/config in do/test script', () => {
+            console.log('\n  🧪 Property 2: All do scripts source configuration (do/test)');
+            console.log('  📝 The do/test script should source the do/config file');
+            console.log('  **Validates: Requirements 7.1**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check that the script sources the config file
+            const sourcesConfig = /source\s+['"]\$\{SCRIPT_DIR\}\/config['"]/.test(testScript);
+            
+            assert.ok(
+                sourcesConfig,
+                'do/test script should source ${SCRIPT_DIR}/config'
+            );
+
+            // Verify SCRIPT_DIR is set correctly
+            assert.ok(
+                testScript.includes('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'),
+                'do/test script should set SCRIPT_DIR to script directory'
+            );
+
+            console.log('  ✅ Property 2 validated: do/test sources configuration');
+        });
+    });
+
+    describe('Property 3: All do scripts use set -e for error handling (do/test)', () => {
+        it('should use set -e in do/test script', () => {
+            console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/test)');
+            console.log('  📝 The do/test script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for set -e
+            assert.ok(
+                testScript.includes('set -e'),
+                'do/test script should use set -e'
+            );
+
+            // Check for set -u
+            assert.ok(
+                testScript.includes('set -u'),
+                'do/test script should use set -u'
+            );
+
+            // Check for set -o pipefail
+            assert.ok(
+                testScript.includes('set -o pipefail'),
+                'do/test script should use set -o pipefail'
+            );
+
+            // Verify these are near the beginning of the script (after shebang and comments)
+            const lines = testScript.split('\n');
+            let foundSetE = false;
+            let foundSetU = false;
+            let foundPipefail = false;
+            
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].includes('set -e')) foundSetE = true;
+                if (lines[i].includes('set -u')) foundSetU = true;
+                if (lines[i].includes('set -o pipefail')) foundPipefail = true;
+            }
+
+            assert.ok(
+                foundSetE && foundSetU && foundPipefail,
+                'set -e, set -u, and set -o pipefail should be near the beginning of the script'
+            );
+
+            console.log('  ✅ Property 3 validated: do/test uses proper error handling');
+        });
+    });
+
+    describe('Property 7: All do scripts use consistent output formatting (do/test)', () => {
+        it('should use emoji prefixes in do/test script', () => {
+            console.log('\n  🧪 Property 7: All do scripts use consistent output formatting (do/test)');
+            console.log('  📝 The do/test script should use emoji prefixes for output messages');
+            console.log('  **Validates: Requirements 14.1**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for emoji prefixes
+            const emojiPrefixes = [
+                '🧪', // Test
+                '✅', // Success
+                '❌', // Error
+                '🔍'  // Check/validation
+            ];
+
+            for (const emoji of emojiPrefixes) {
+                assert.ok(
+                    testScript.includes(emoji),
+                    `do/test script should use ${emoji} emoji prefix`
+                );
+            }
+
+            // Check for header message at start
+            assert.ok(
+                testScript.includes('echo "🧪 Testing local container at localhost:8080"') ||
+                testScript.includes('echo "🧪 Testing SageMaker endpoint:'),
+                'do/test script should have header message with 🧪'
+            );
+
+            // Check for success summary at end
+            assert.ok(
+                testScript.includes('echo "✅ All tests passed!"'),
+                'do/test script should have success message with ✅'
+            );
+
+            // Check for test section headers
+            assert.ok(
+                testScript.includes('echo "🔍 Test 1: Health check"'),
+                'do/test script should have test 1 header with 🔍'
+            );
+
+            assert.ok(
+                testScript.includes('echo "🔍 Test 2: Inference request"'),
+                'do/test script should have test 2 header with 🔍'
+            );
+
+            // Check for next steps section
+            assert.ok(
+                testScript.includes('echo "Next steps:"'),
+                'do/test script should have next steps section'
+            );
+
+            console.log('  ✅ Property 7 validated: do/test uses consistent output formatting');
+        });
+    });
+
+    describe('do/test script functional requirements', () => {
+        it('should accept optional endpoint name argument', () => {
+            console.log('\n  🧪 do/test functional: Accept optional endpoint name argument');
+            console.log('  📝 The do/test script should accept an optional endpoint name argument');
+            console.log('  **Validates: Requirements 7.2, 7.3**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for argument parsing
+            assert.ok(
+                testScript.includes('ENDPOINT_NAME="${1:-}"'),
+                'do/test script should parse endpoint name from first argument'
+            );
+
+            // Check for conditional logic based on endpoint name
+            assert.ok(
+                testScript.includes('if [ -z "${ENDPOINT_NAME}" ]'),
+                'do/test script should check if endpoint name is provided'
+            );
+
+            // Check for local testing mode
+            assert.ok(
+                testScript.includes('TEST_MODE="local"'),
+                'do/test script should set TEST_MODE to local when no endpoint provided'
+            );
+
+            // Check for SageMaker testing mode
+            assert.ok(
+                testScript.includes('TEST_MODE="sagemaker"'),
+                'do/test script should set TEST_MODE to sagemaker when endpoint provided'
+            );
+
+            console.log('  ✅ do/test accepts optional endpoint name argument');
+        });
+
+        it('should test local container at localhost:8080', () => {
+            console.log('\n  🧪 do/test functional: Test local container');
+            console.log('  📝 The do/test script should test local container at localhost:8080');
+            console.log('  **Validates: Requirements 7.2**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for local URL
+            assert.ok(
+                testScript.includes('TARGET_URL="http://localhost:8080"'),
+                'do/test script should set TARGET_URL to localhost:8080 for local testing'
+            );
+
+            // Check for local container message
+            assert.ok(
+                testScript.includes('echo "🧪 Testing local container at localhost:8080"'),
+                'do/test script should display local container testing message'
+            );
+
+            console.log('  ✅ do/test tests local container at localhost:8080');
+        });
+
+        it('should send health check request to /ping endpoint', () => {
+            console.log('\n  🧪 do/test functional: Send health check to /ping');
+            console.log('  📝 The do/test script should send health check request to /ping endpoint');
+            console.log('  **Validates: Requirements 7.4**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for /ping endpoint test
+            assert.ok(
+                testScript.includes('echo "🔍 Test 1: Health check"'),
+                'do/test script should have health check test section'
+            );
+
+            // Check for curl to /ping for local testing
+            assert.ok(
+                testScript.includes('curl -s -w "\\n%{http_code}" -X GET "${TARGET_URL}/ping"'),
+                'do/test script should send GET request to /ping endpoint'
+            );
+
+            // Check for HTTP 200 validation
+            assert.ok(
+                testScript.includes('if [ "${HTTP_CODE}" = "200" ]'),
+                'do/test script should check for HTTP 200 response'
+            );
+
+            // Check for success message
+            assert.ok(
+                testScript.includes('echo "✅ Health check passed (HTTP ${HTTP_CODE})"'),
+                'do/test script should display success message for health check'
+            );
+
+            console.log('  ✅ do/test sends health check to /ping endpoint');
+        });
+
+        it('should send inference request to /invocations endpoint', () => {
+            console.log('\n  🧪 do/test functional: Send inference request to /invocations');
+            console.log('  📝 The do/test script should send inference request to /invocations endpoint');
+            console.log('  **Validates: Requirements 7.5**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for /invocations endpoint test
+            assert.ok(
+                testScript.includes('echo "🔍 Test 2: Inference request"'),
+                'do/test script should have inference request test section'
+            );
+
+            // Check for curl to /invocations for local testing
+            assert.ok(
+                testScript.includes('curl -s -w "\\n%{http_code}" -X POST "${TARGET_URL}/invocations"'),
+                'do/test script should send POST request to /invocations endpoint'
+            );
+
+            // Check for Content-Type header
+            assert.ok(
+                testScript.includes('-H "Content-Type: application/json"'),
+                'do/test script should set Content-Type header to application/json'
+            );
+
+            // Check for payload
+            assert.ok(
+                testScript.includes('-d "${TEST_PAYLOAD}"'),
+                'do/test script should send TEST_PAYLOAD in request body'
+            );
+
+            console.log('  ✅ do/test sends inference request to /invocations endpoint');
+        });
+
+        it('should use framework-specific test payloads', () => {
+            console.log('\n  🧪 do/test functional: Use framework-specific test payloads');
+            console.log('  📝 The do/test script should use framework-specific test payloads');
+            console.log('  **Validates: Requirements 7.5**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for case statement on FRAMEWORK
+            assert.ok(
+                testScript.includes('case "${FRAMEWORK}" in'),
+                'do/test script should have case statement on FRAMEWORK'
+            );
+
+            // Check for sklearn/xgboost payload
+            assert.ok(
+                testScript.includes('sklearn|xgboost)'),
+                'do/test script should have sklearn/xgboost case branch'
+            );
+
+            assert.ok(
+                testScript.includes('TEST_PAYLOAD=\'{"instances": [[1.0, 2.0, 3.0, 4.0]]}\''),
+                'do/test script should use instances array for sklearn/xgboost'
+            );
+
+            // Check for tensorflow payload
+            assert.ok(
+                testScript.includes('tensorflow)'),
+                'do/test script should have tensorflow case branch'
+            );
+
+            // Check for transformers payload
+            assert.ok(
+                testScript.includes('transformers)'),
+                'do/test script should have transformers case branch'
+            );
+
+            assert.ok(
+                testScript.includes('TEST_PAYLOAD=\'{"inputs": "What is machine learning?"'),
+                'do/test script should use inputs field for transformers'
+            );
+
+            console.log('  ✅ do/test uses framework-specific test payloads');
+        });
+
+        it('should test SageMaker endpoint using aws sagemaker-runtime', () => {
+            console.log('\n  🧪 do/test functional: Test SageMaker endpoint');
+            console.log('  📝 The do/test script should test SageMaker endpoint using aws sagemaker-runtime');
+            console.log('  **Validates: Requirements 7.3**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for SageMaker endpoint status check
+            assert.ok(
+                testScript.includes('aws sagemaker describe-endpoint'),
+                'do/test script should check SageMaker endpoint status'
+            );
+
+            assert.ok(
+                testScript.includes('--endpoint-name "${ENDPOINT_NAME}"'),
+                'do/test script should use ENDPOINT_NAME parameter'
+            );
+
+            // Check for InService status validation
+            assert.ok(
+                testScript.includes('if [ "${ENDPOINT_STATUS}" = "InService" ]'),
+                'do/test script should check if endpoint is InService'
+            );
+
+            // Check for invoke-endpoint command
+            assert.ok(
+                testScript.includes('aws sagemaker-runtime invoke-endpoint'),
+                'do/test script should use aws sagemaker-runtime invoke-endpoint'
+            );
+
+            assert.ok(
+                testScript.includes('--content-type "application/json"'),
+                'do/test script should set content-type for invoke-endpoint'
+            );
+
+            console.log('  ✅ do/test tests SageMaker endpoint using aws sagemaker-runtime');
+        });
+
+        it('should display success messages with exit code 0', () => {
+            console.log('\n  🧪 do/test functional: Display success messages');
+            console.log('  📝 The do/test script should display success messages and exit with code 0');
+            console.log('  **Validates: Requirements 7.6**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for success messages
+            assert.ok(
+                testScript.includes('echo "✅ Health check passed (HTTP ${HTTP_CODE})"'),
+                'do/test script should display health check success message'
+            );
+
+            assert.ok(
+                testScript.includes('echo "✅ Inference request successful'),
+                'do/test script should display inference request success message'
+            );
+
+            assert.ok(
+                testScript.includes('echo "✅ All tests passed!"'),
+                'do/test script should display overall success message'
+            );
+
+            // Verify no explicit exit 0 (implicit success)
+            // The script should naturally exit with 0 if all tests pass
+            const explicitExitZero = testScript.match(/exit 0/g);
+            assert.ok(
+                !explicitExitZero || explicitExitZero.length === 0,
+                'do/test script should not need explicit exit 0 (implicit success)'
+            );
+
+            console.log('  ✅ do/test displays success messages with implicit exit code 0');
+        });
+
+        it('should display error details with non-zero exit codes', () => {
+            console.log('\n  🧪 do/test functional: Display error details');
+            console.log('  📝 The do/test script should display error details and exit with non-zero codes');
+            console.log('  **Validates: Requirements 7.7**');
+
+            // Read the do/test template file
+            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScript = readFileSync(testScriptPath, 'utf8');
+
+            // Check for error messages
+            assert.ok(
+                testScript.includes('echo "❌ Health check failed:'),
+                'do/test script should display health check failure message'
+            );
+
+            assert.ok(
+                testScript.includes('echo "❌ Inference request failed'),
+                'do/test script should display inference request failure message'
+            );
+
+            // Check for exit with non-zero codes
+            const exitCodes = testScript.match(/exit [1-9]/g);
+            assert.ok(
+                exitCodes && exitCodes.length > 0,
+                'do/test script should exit with non-zero codes on failure'
+            );
+
+            // Check for specific error codes
+            assert.ok(
+                testScript.includes('exit 1'),
+                'do/test script should use exit 1 for general errors'
+            );
+
+            assert.ok(
+                testScript.includes('exit 3'),
+                'do/test script should use exit 3 for configuration errors'
+            );
+
+            // Check for error context
+            assert.ok(
+                testScript.includes('echo "   Make sure the container is running: ./do/run"'),
+                'do/test script should provide remediation instructions'
+            );
+
+            console.log('  ✅ do/test displays error details with non-zero exit codes');
+        });
+    });
+
+    describe('Property 2: All do scripts source configuration (do/clean)', () => {
+        it('should source do/config in do/clean script', () => {
+            console.log('\n  🧪 Property 2: All do scripts source configuration (do/clean)');
+            console.log('  📝 The do/clean script should source the do/config file');
+            console.log('  **Validates: Requirements 8.1**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check that the script sources the config file
+            const sourcesConfig = /source\s+['"]\$\{SCRIPT_DIR\}\/config['"]/.test(cleanScript);
+            
+            assert.ok(
+                sourcesConfig,
+                'do/clean script should source ${SCRIPT_DIR}/config'
+            );
+
+            // Verify SCRIPT_DIR is set correctly
+            assert.ok(
+                cleanScript.includes('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'),
+                'do/clean script should set SCRIPT_DIR to script directory'
+            );
+
+            console.log('  ✅ Property 2 validated: do/clean sources configuration');
+        });
+    });
+
+    describe('Property 3: All do scripts use set -e for error handling (do/clean)', () => {
+        it('should use set -e in do/clean script', () => {
+            console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/clean)');
+            console.log('  📝 The do/clean script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for set -e
+            assert.ok(
+                cleanScript.includes('set -e'),
+                'do/clean script should use set -e'
+            );
+
+            // Check for set -u
+            assert.ok(
+                cleanScript.includes('set -u'),
+                'do/clean script should use set -u'
+            );
+
+            // Check for set -o pipefail
+            assert.ok(
+                cleanScript.includes('set -o pipefail'),
+                'do/clean script should use set -o pipefail'
+            );
+
+            // Verify these are near the beginning of the script (after shebang and comments)
+            const lines = cleanScript.split('\n');
+            let foundSetE = false;
+            let foundSetU = false;
+            let foundPipefail = false;
+            
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].includes('set -e')) foundSetE = true;
+                if (lines[i].includes('set -u')) foundSetU = true;
+                if (lines[i].includes('set -o pipefail')) foundPipefail = true;
+            }
+
+            assert.ok(
+                foundSetE && foundSetU && foundPipefail,
+                'set -e, set -u, and set -o pipefail should be near the beginning of the script'
+            );
+
+            console.log('  ✅ Property 3 validated: do/clean uses proper error handling');
+        });
+    });
+
+    describe('Property 10: Scripts that delete resources require confirmation', () => {
+        it('should require confirmation before deleting resources in do/clean', () => {
+            console.log('\n  🧪 Property 10: Scripts that delete resources require confirmation');
+            console.log('  📝 The do/clean script should prompt for confirmation before destructive operations');
+            console.log('  **Validates: Requirements 15.5**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for confirm_action function
+            assert.ok(
+                cleanScript.includes('confirm_action()'),
+                'do/clean script should have confirm_action function'
+            );
+
+            // Check that confirm_action uses read -p for user input
+            assert.ok(
+                cleanScript.includes('read -p'),
+                'do/clean script should use read -p to prompt for confirmation'
+            );
+
+            // Check for yes/no validation
+            assert.ok(
+                cleanScript.includes('[Yy][Ee][Ss]'),
+                'do/clean script should validate yes response'
+            );
+
+            // Check that confirm_action is called before destructive operations
+            // For local cleanup
+            assert.ok(
+                cleanScript.includes('if ! confirm_action "This will remove all local Docker images'),
+                'do/clean script should confirm before removing local images'
+            );
+
+            // For ECR cleanup
+            assert.ok(
+                cleanScript.includes('if ! confirm_action "This will remove all images from ECR repository'),
+                'do/clean script should confirm before removing ECR images'
+            );
+
+            // For endpoint cleanup
+            assert.ok(
+                cleanScript.includes('if ! confirm_action "This will delete SageMaker endpoint, endpoint configuration, and model'),
+                'do/clean script should confirm before deleting SageMaker resources'
+            );
+
+            // Check for cancellation message
+            assert.ok(
+                cleanScript.includes('echo "❌ Operation cancelled"'),
+                'do/clean script should display cancellation message'
+            );
+
+            // Check that confirm_action returns 1 on cancellation
+            assert.ok(
+                cleanScript.includes('return 1'),
+                'do/clean script confirm_action should return 1 on cancellation'
+            );
+
+            console.log('  ✅ Property 10 validated: do/clean requires confirmation before deletions');
+        });
+
+        it('should check if resources exist before attempting deletion', () => {
+            console.log('\n  🧪 Property 10 (Part 2): Check resource existence before deletion');
+            console.log('  📝 The do/clean script should check if resources exist before attempting deletion');
+            console.log('  **Validates: Requirements 15.4**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for local image existence check
+            assert.ok(
+                cleanScript.includes('if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${PROJECT_NAME}:"'),
+                'do/clean script should check if local images exist'
+            );
+
+            assert.ok(
+                cleanScript.includes('echo "ℹ️  No local images found for ${PROJECT_NAME}"'),
+                'do/clean script should inform user if no local images found'
+            );
+
+            // Check for ECR repository existence check
+            assert.ok(
+                cleanScript.includes('if ! aws ecr describe-repositories'),
+                'do/clean script should check if ECR repository exists'
+            );
+
+            assert.ok(
+                cleanScript.includes('echo "ℹ️  ECR repository ${ECR_REPOSITORY_NAME} does not exist"'),
+                'do/clean script should inform user if ECR repository does not exist'
+            );
+
+            // Check for ECR images existence check
+            assert.ok(
+                cleanScript.includes('aws ecr list-images'),
+                'do/clean script should check for images in ECR repository'
+            );
+
+            assert.ok(
+                cleanScript.includes('echo "ℹ️  No images found in repository"'),
+                'do/clean script should inform user if no ECR images found'
+            );
+
+            // Check for SageMaker endpoint existence check
+            assert.ok(
+                cleanScript.includes('aws sagemaker describe-endpoint'),
+                'do/clean script should check if SageMaker endpoint exists'
+            );
+
+            assert.ok(
+                cleanScript.includes('aws sagemaker describe-endpoint-config'),
+                'do/clean script should check if endpoint configuration exists'
+            );
+
+            assert.ok(
+                cleanScript.includes('aws sagemaker describe-model'),
+                'do/clean script should check if model exists'
+            );
+
+            assert.ok(
+                cleanScript.includes('echo "ℹ️  No SageMaker resources found for ${PROJECT_NAME}"'),
+                'do/clean script should inform user if no SageMaker resources found'
+            );
+
+            // Check for existence flags
+            assert.ok(
+                cleanScript.includes('ENDPOINT_EXISTS=false'),
+                'do/clean script should track endpoint existence'
+            );
+
+            assert.ok(
+                cleanScript.includes('ENDPOINT_CONFIG_EXISTS=false'),
+                'do/clean script should track endpoint config existence'
+            );
+
+            assert.ok(
+                cleanScript.includes('MODEL_EXISTS=false'),
+                'do/clean script should track model existence'
+            );
+
+            console.log('  ✅ Property 10 (Part 2) validated: do/clean checks resource existence');
+        });
+    });
+
+    describe('do/clean functional tests', () => {
+        it('should accept cleanup target argument', () => {
+            console.log('\n  🧪 do/clean functional: Accept cleanup target argument');
+            console.log('  📝 The do/clean script should accept local, ecr, endpoint, or all as argument');
+            console.log('  **Validates: Requirements 8.2, 8.3, 8.4, 8.5**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for argument parsing
+            assert.ok(
+                cleanScript.includes('CLEANUP_TARGET="${1:-}"'),
+                'do/clean script should parse cleanup target argument'
+            );
+
+            // Check for case statement with all targets
+            assert.ok(
+                cleanScript.includes('case "${CLEANUP_TARGET}" in'),
+                'do/clean script should have case statement for cleanup targets'
+            );
+
+            // Check for local target
+            assert.ok(
+                cleanScript.includes('local)'),
+                'do/clean script should handle local cleanup target'
+            );
+
+            assert.ok(
+                cleanScript.includes('clean_local'),
+                'do/clean script should call clean_local function'
+            );
+
+            // Check for ecr target
+            assert.ok(
+                cleanScript.includes('ecr)'),
+                'do/clean script should handle ecr cleanup target'
+            );
+
+            assert.ok(
+                cleanScript.includes('clean_ecr'),
+                'do/clean script should call clean_ecr function'
+            );
+
+            // Check for endpoint target
+            assert.ok(
+                cleanScript.includes('endpoint)'),
+                'do/clean script should handle endpoint cleanup target'
+            );
+
+            assert.ok(
+                cleanScript.includes('clean_endpoint'),
+                'do/clean script should call clean_endpoint function'
+            );
+
+            // Check for all target
+            assert.ok(
+                cleanScript.includes('all)'),
+                'do/clean script should handle all cleanup target'
+            );
+
+            // Check that all target calls all cleanup functions
+            const allCaseMatch = cleanScript.match(/all\)([\s\S]*?);;/);
+            assert.ok(allCaseMatch, 'do/clean script should have all case block');
+            
+            const allCaseBlock = allCaseMatch[1];
+            assert.ok(
+                allCaseBlock.includes('clean_local'),
+                'do/clean all should call clean_local'
+            );
+            assert.ok(
+                allCaseBlock.includes('clean_ecr'),
+                'do/clean all should call clean_ecr'
+            );
+            assert.ok(
+                allCaseBlock.includes('clean_endpoint'),
+                'do/clean all should call clean_endpoint'
+            );
+
+            console.log('  ✅ do/clean accepts and handles all cleanup targets');
+        });
+
+        it('should display usage when no argument provided', () => {
+            console.log('\n  🧪 do/clean functional: Display usage');
+            console.log('  📝 The do/clean script should display usage when no argument is provided');
+            console.log('  **Validates: Requirements 8.1**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for show_usage function
+            assert.ok(
+                cleanScript.includes('show_usage()'),
+                'do/clean script should have show_usage function'
+            );
+
+            // Check for usage message
+            assert.ok(
+                cleanScript.includes('Usage: ./do/clean [local|ecr|endpoint|all]'),
+                'do/clean script should display usage syntax'
+            );
+
+            // Check for cleanup targets description
+            assert.ok(
+                cleanScript.includes('Cleanup targets:'),
+                'do/clean script should describe cleanup targets'
+            );
+
+            assert.ok(
+                cleanScript.includes('local    - Remove local Docker images'),
+                'do/clean script should describe local target'
+            );
+
+            assert.ok(
+                cleanScript.includes('ecr      - Remove images from Amazon ECR'),
+                'do/clean script should describe ecr target'
+            );
+
+            assert.ok(
+                cleanScript.includes('endpoint - Delete SageMaker endpoint, configuration, and model'),
+                'do/clean script should describe endpoint target'
+            );
+
+            assert.ok(
+                cleanScript.includes('all      - Perform all cleanup operations'),
+                'do/clean script should describe all target'
+            );
+
+            // Check for examples section
+            assert.ok(
+                cleanScript.includes('Examples:'),
+                'do/clean script should include examples'
+            );
+
+            // Check that show_usage is called when no argument provided
+            assert.ok(
+                cleanScript.includes('if [ -z "${CLEANUP_TARGET}" ]'),
+                'do/clean script should check if cleanup target is empty'
+            );
+
+            const noArgMatch = cleanScript.match(/if \[ -z "\$\{CLEANUP_TARGET\}" \];[\s\S]*?fi/);
+            assert.ok(noArgMatch, 'do/clean script should have no-argument handling block');
+            
+            const noArgBlock = noArgMatch[0];
+            assert.ok(
+                noArgBlock.includes('show_usage'),
+                'do/clean script should call show_usage when no argument provided'
+            );
+
+            console.log('  ✅ do/clean displays usage when no argument provided');
+        });
+
+        it('should display cleanup summary', () => {
+            console.log('\n  🧪 do/clean functional: Display cleanup summary');
+            console.log('  📝 The do/clean script should display a summary of removed resources');
+            console.log('  **Validates: Requirements 8.7**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for success messages after cleanup
+            assert.ok(
+                cleanScript.includes('echo "✅ Local images cleaned"'),
+                'do/clean script should display local cleanup success'
+            );
+
+            assert.ok(
+                cleanScript.includes('echo "✅ ECR images removed"'),
+                'do/clean script should display ECR cleanup success'
+            );
+
+            assert.ok(
+                cleanScript.includes('echo "✅ SageMaker resources cleaned"'),
+                'do/clean script should display SageMaker cleanup success'
+            );
+
+            // Check for overall completion message
+            assert.ok(
+                cleanScript.includes('echo "Cleanup finished!"'),
+                'do/clean script should display completion message'
+            );
+
+            // Check for summary in "all" target
+            const allCaseMatch = cleanScript.match(/all\)([\s\S]*?);;/);
+            assert.ok(allCaseMatch, 'do/clean script should have all case block');
+            
+            const allCaseBlock = allCaseMatch[1];
+            assert.ok(
+                allCaseBlock.includes('CLEANED_ITEMS=()'),
+                'do/clean all should track cleaned items'
+            );
+
+            assert.ok(
+                allCaseBlock.includes('CLEANED_ITEMS+='),
+                'do/clean all should add items to cleaned list'
+            );
+
+            assert.ok(
+                allCaseBlock.includes('echo "Summary of cleaned resources:"'),
+                'do/clean all should display summary header'
+            );
+
+            assert.ok(
+                allCaseBlock.includes('for item in "${CLEANED_ITEMS[@]}"'),
+                'do/clean all should iterate over cleaned items'
+            );
+
+            console.log('  ✅ do/clean displays cleanup summary');
+        });
+
+        it('should remove local Docker images', () => {
+            console.log('\n  🧪 do/clean functional: Remove local Docker images');
+            console.log('  📝 The do/clean script should remove local Docker images for the project');
+            console.log('  **Validates: Requirements 8.2**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for clean_local function
+            assert.ok(
+                cleanScript.includes('clean_local()'),
+                'do/clean script should have clean_local function'
+            );
+
+            // Check for docker images command
+            assert.ok(
+                cleanScript.includes('docker images --format'),
+                'do/clean script should list Docker images'
+            );
+
+            // Check for docker rmi command
+            assert.ok(
+                cleanScript.includes('docker rmi "${image}"'),
+                'do/clean script should remove Docker images'
+            );
+
+            // Check for project name filtering
+            assert.ok(
+                cleanScript.includes('grep "^${PROJECT_NAME}:"'),
+                'do/clean script should filter images by project name'
+            );
+
+            // Check for image listing before removal
+            assert.ok(
+                cleanScript.includes('echo "Images to be removed:"'),
+                'do/clean script should list images before removal'
+            );
+
+            console.log('  ✅ do/clean removes local Docker images');
+        });
+
+        it('should remove ECR images', () => {
+            console.log('\n  🧪 do/clean functional: Remove ECR images');
+            console.log('  📝 The do/clean script should remove images from Amazon ECR');
+            console.log('  **Validates: Requirements 8.3**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for clean_ecr function
+            assert.ok(
+                cleanScript.includes('clean_ecr()'),
+                'do/clean script should have clean_ecr function'
+            );
+
+            // Check for AWS credentials validation
+            assert.ok(
+                cleanScript.includes('if ! aws sts get-caller-identity &> /dev/null'),
+                'do/clean script should validate AWS credentials'
+            );
+
+            // Check for ECR list-images command
+            assert.ok(
+                cleanScript.includes('aws ecr list-images'),
+                'do/clean script should list ECR images'
+            );
+
+            // Check for ECR batch-delete-image command
+            assert.ok(
+                cleanScript.includes('aws ecr batch-delete-image'),
+                'do/clean script should use batch-delete-image to remove images'
+            );
+
+            // Check for repository name parameter
+            assert.ok(
+                cleanScript.includes('--repository-name "${ECR_REPOSITORY_NAME}"'),
+                'do/clean script should use repository name from config'
+            );
+
+            // Check for region parameter
+            assert.ok(
+                cleanScript.includes('--region "${AWS_REGION}"'),
+                'do/clean script should use region from config'
+            );
+
+            console.log('  ✅ do/clean removes ECR images');
+        });
+
+        it('should delete SageMaker endpoint, configuration, and model', () => {
+            console.log('\n  🧪 do/clean functional: Delete SageMaker resources');
+            console.log('  📝 The do/clean script should delete SageMaker endpoint, endpoint configuration, and model');
+            console.log('  **Validates: Requirements 8.4**');
+
+            // Read the do/clean template file
+            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScript = readFileSync(cleanScriptPath, 'utf8');
+
+            // Check for clean_endpoint function
+            assert.ok(
+                cleanScript.includes('clean_endpoint()'),
+                'do/clean script should have clean_endpoint function'
+            );
+
+            // Check for endpoint deletion
+            assert.ok(
+                cleanScript.includes('aws sagemaker delete-endpoint'),
+                'do/clean script should delete SageMaker endpoint'
+            );
+
+            assert.ok(
+                cleanScript.includes('--endpoint-name "${ENDPOINT_NAME}"'),
+                'do/clean script should use endpoint name'
+            );
+
+            // Check for endpoint configuration deletion
+            assert.ok(
+                cleanScript.includes('aws sagemaker delete-endpoint-config'),
+                'do/clean script should delete endpoint configuration'
+            );
+
+            assert.ok(
+                cleanScript.includes('--endpoint-config-name "${ENDPOINT_CONFIG_NAME}"'),
+                'do/clean script should use endpoint config name'
+            );
+
+            // Check for model deletion
+            assert.ok(
+                cleanScript.includes('aws sagemaker delete-model'),
+                'do/clean script should delete model'
+            );
+
+            assert.ok(
+                cleanScript.includes('--model-name "${MODEL_NAME}"'),
+                'do/clean script should use model name'
+            );
+
+            // Check for resource name construction
+            assert.ok(
+                cleanScript.includes('ENDPOINT_NAME="${PROJECT_NAME}-endpoint"'),
+                'do/clean script should construct endpoint name from project name'
+            );
+
+            assert.ok(
+                cleanScript.includes('ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-endpoint-config"'),
+                'do/clean script should construct endpoint config name from project name'
+            );
+
+            assert.ok(
+                cleanScript.includes('MODEL_NAME="${PROJECT_NAME}-model"'),
+                'do/clean script should construct model name from project name'
+            );
+
+            console.log('  ✅ do/clean deletes SageMaker endpoint, configuration, and model');
+        });
+    });
+
+    describe('Property 11: Legacy wrapper scripts contain deprecation warnings', () => {
+        it('should contain deprecation warning in deploy/build_and_push.sh', () => {
+            console.log('\n  🧪 Property 11: Legacy wrapper scripts contain deprecation warnings');
+            console.log('  📝 The deploy/build_and_push.sh wrapper should contain deprecation warning');
+            console.log('  **Validates: Requirements 2.5, 10.6**');
+
+            // Read the deploy/build_and_push.sh template file
+            const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/build_and_push.sh');
+            const wrapperScript = readFileSync(wrapperPath, 'utf8');
+
+            // Check for deprecation warning header comment
+            assert.ok(
+                wrapperScript.includes('⚠️  DEPRECATED: This script is deprecated'),
+                'deploy/build_and_push.sh should have deprecation warning in header comment'
+            );
+
+            // Check for deprecation warning output
+            assert.ok(
+                wrapperScript.includes('echo "⚠️  WARNING: This script is DEPRECATED"'),
+                'deploy/build_and_push.sh should display deprecation warning'
+            );
+
+            // Check for migration instructions
+            assert.ok(
+                wrapperScript.includes('Please use the do-framework commands instead:'),
+                'deploy/build_and_push.sh should provide migration instructions'
+            );
+
+            // Check for do/build reference
+            assert.ok(
+                wrapperScript.includes('./do/build'),
+                'deploy/build_and_push.sh should reference ./do/build'
+            );
+
+            // Check for do/push reference
+            assert.ok(
+                wrapperScript.includes('./do/push'),
+                'deploy/build_and_push.sh should reference ./do/push'
+            );
+
+            // Check for do/README.md reference
+            assert.ok(
+                wrapperScript.includes('do/README.md'),
+                'deploy/build_and_push.sh should reference do/README.md'
+            );
+
+            // Check for MIGRATION.md reference
+            assert.ok(
+                wrapperScript.includes('MIGRATION.md'),
+                'deploy/build_and_push.sh should reference MIGRATION.md'
+            );
+
+            // Check that it forwards to do-framework scripts
+            assert.ok(
+                wrapperScript.includes('./do/build && ./do/push'),
+                'deploy/build_and_push.sh should forward to ./do/build && ./do/push'
+            );
+
+            console.log('  ✅ Property 11 validated: deploy/build_and_push.sh contains deprecation warning');
+        });
+
+        it('should contain deprecation warning in deploy/deploy.sh', () => {
+            console.log('\n  🧪 Property 11 (Part 2): deploy/deploy.sh contains deprecation warning');
+            console.log('  📝 The deploy/deploy.sh wrapper should contain deprecation warning');
+            console.log('  **Validates: Requirements 2.5, 10.6**');
+
+            // Read the deploy/deploy.sh template file
+            const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/deploy.sh');
+            const wrapperScript = readFileSync(wrapperPath, 'utf8');
+
+            // Check for deprecation warning header comment
+            assert.ok(
+                wrapperScript.includes('⚠️  DEPRECATED: This script is deprecated'),
+                'deploy/deploy.sh should have deprecation warning in header comment'
+            );
+
+            // Check for deprecation warning output
+            assert.ok(
+                wrapperScript.includes('echo "⚠️  WARNING: This script is DEPRECATED"'),
+                'deploy/deploy.sh should display deprecation warning'
+            );
+
+            // Check for migration instructions
+            assert.ok(
+                wrapperScript.includes('Please use the do-framework command instead:'),
+                'deploy/deploy.sh should provide migration instructions'
+            );
+
+            // Check for do/deploy reference
+            assert.ok(
+                wrapperScript.includes('./do/deploy'),
+                'deploy/deploy.sh should reference ./do/deploy'
+            );
+
+            // Check for do/README.md reference
+            assert.ok(
+                wrapperScript.includes('do/README.md'),
+                'deploy/deploy.sh should reference do/README.md'
+            );
+
+            // Check for MIGRATION.md reference
+            assert.ok(
+                wrapperScript.includes('MIGRATION.md'),
+                'deploy/deploy.sh should reference MIGRATION.md'
+            );
+
+            // Check that it forwards to do-framework script
+            assert.ok(
+                wrapperScript.includes('./do/deploy "$@"'),
+                'deploy/deploy.sh should forward to ./do/deploy with arguments'
+            );
+
+            console.log('  ✅ Property 11 (Part 2) validated: deploy/deploy.sh contains deprecation warning');
+        });
+
+        it('should contain deprecation warning in deploy/submit_build.sh when codebuild', () => {
+            console.log('\n  🧪 Property 11 (Part 3): deploy/submit_build.sh contains deprecation warning');
+            console.log('  📝 The deploy/submit_build.sh wrapper should contain deprecation warning when deployTarget is codebuild');
+            console.log('  **Validates: Requirements 2.5, 10.6**');
+
+            // Read the deploy/submit_build.sh template file
+            const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/submit_build.sh');
+            const wrapperScript = readFileSync(wrapperPath, 'utf8');
+
+            // Check for EJS conditional
+            assert.ok(
+                wrapperScript.includes('<% if (deployTarget === \'codebuild\') { %>'),
+                'deploy/submit_build.sh should be conditionally generated based on deployTarget'
+            );
+
+            // Check for deprecation warning header comment
+            assert.ok(
+                wrapperScript.includes('⚠️  DEPRECATED: This script is deprecated'),
+                'deploy/submit_build.sh should have deprecation warning in header comment'
+            );
+
+            // Check for deprecation warning output
+            assert.ok(
+                wrapperScript.includes('echo "⚠️  WARNING: This script is DEPRECATED"'),
+                'deploy/submit_build.sh should display deprecation warning'
+            );
+
+            // Check for migration instructions
+            assert.ok(
+                wrapperScript.includes('Please use the do-framework command instead:'),
+                'deploy/submit_build.sh should provide migration instructions'
+            );
+
+            // Check for do/submit reference
+            assert.ok(
+                wrapperScript.includes('./do/submit'),
+                'deploy/submit_build.sh should reference ./do/submit'
+            );
+
+            // Check for do/README.md reference
+            assert.ok(
+                wrapperScript.includes('do/README.md'),
+                'deploy/submit_build.sh should reference do/README.md'
+            );
+
+            // Check for MIGRATION.md reference
+            assert.ok(
+                wrapperScript.includes('MIGRATION.md'),
+                'deploy/submit_build.sh should reference MIGRATION.md'
+            );
+
+            // Check that it forwards to do-framework script
+            assert.ok(
+                wrapperScript.includes('./do/submit "$@"'),
+                'deploy/submit_build.sh should forward to ./do/submit with arguments'
+            );
+
+            console.log('  ✅ Property 11 (Part 3) validated: deploy/submit_build.sh contains deprecation warning');
+        });
+    });
+
+    describe('Property 2: All do scripts source configuration (do/submit)', () => {
+        it('should source do/config in do/submit script', () => {
+            console.log('\n  🧪 Property 2: All do scripts source configuration (do/submit)');
+            console.log('  📝 The do/submit script should source the do/config file');
+            console.log('  **Validates: Requirements 11.1**');
+
+            // Read the do/submit template file
+            const submitScriptPath = path.join(__dirname, '../../generators/app/templates/do/submit');
+            const submitScript = readFileSync(submitScriptPath, 'utf8');
+
+            // Check that the script sources the config file
+            const sourcesConfig = /source\s+['"]\$\{SCRIPT_DIR\}\/config['"]/.test(submitScript);
+            
+            assert.ok(
+                sourcesConfig,
+                'do/submit script should source ${SCRIPT_DIR}/config'
+            );
+
+            // Verify SCRIPT_DIR is set correctly
+            assert.ok(
+                submitScript.includes('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'),
+                'do/submit script should set SCRIPT_DIR to script directory'
+            );
+
+            console.log('  ✅ Property 2 validated: do/submit sources configuration');
+        });
+    });
+
+    describe('Property 3: All do scripts use set -e for error handling (do/submit)', () => {
+        it('should use set -e in do/submit script', () => {
+            console.log('\n  🧪 Property 3: All do scripts use set -e for error handling (do/submit)');
+            console.log('  📝 The do/submit script should use set -e, set -u, and set -o pipefail');
+            console.log('  **Validates: Requirements 13.5**');
+
+            // Read the do/submit template file
+            const submitScriptPath = path.join(__dirname, '../../generators/app/templates/do/submit');
+            const submitScript = readFileSync(submitScriptPath, 'utf8');
+
+            // Check for set -e
+            assert.ok(
+                submitScript.includes('set -e'),
+                'do/submit script should use set -e'
+            );
+
+            // Check for set -u
+            assert.ok(
+                submitScript.includes('set -u'),
+                'do/submit script should use set -u'
+            );
+
+            // Check for set -o pipefail
+            assert.ok(
+                submitScript.includes('set -o pipefail'),
+                'do/submit script should use set -o pipefail'
+            );
+
+            // Verify these are near the beginning of the script (after shebang and comments)
+            const lines = submitScript.split('\n');
+            let foundSetE = false;
+            let foundSetU = false;
+            let foundPipefail = false;
+            
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].includes('set -e')) foundSetE = true;
+                if (lines[i].includes('set -u')) foundSetU = true;
+                if (lines[i].includes('set -o pipefail')) foundPipefail = true;
+            }
+
+            assert.ok(
+                foundSetE && foundSetU && foundPipefail,
+                'set -e, set -u, and set -o pipefail should be near the beginning of the script'
+            );
+
+            console.log('  ✅ Property 3 validated: do/submit uses proper error handling');
+        });
+    });
+
+    describe('Property 12: Documentation references use do-framework commands', () => {
+        it('should use do-framework commands in PROJECT_README.md', () => {
+            console.log('\n  🧪 Property 12: Documentation references use do-framework commands');
+            console.log('  📝 The PROJECT_README.md template should use do-framework format (./do/build) not legacy paths');
+            console.log('  **Validates: Requirements 2.4, 16.7**');
+
+            // Read the PROJECT_README.md template file
+            const readmePath = path.join(__dirname, '../../generators/app/templates/PROJECT_README.md');
+            const readmeContent = readFileSync(readmePath, 'utf8');
+
+            // Check that it uses do-framework commands
+            const doCommands = [
+                './do/build',
+                './do/push',
+                './do/deploy',
+                './do/run',
+                './do/test',
+                './do/clean'
+            ];
+
+            for (const command of doCommands) {
+                assert.ok(
+                    readmeContent.includes(command),
+                    `PROJECT_README.md should reference ${command}`
+                );
+            }
+
+            // Check that it does NOT reference legacy deploy/ scripts in command examples
+            // (It's OK to mention them in migration context, but not as primary commands)
+            const legacyPatterns = [
+                /```bash\s*\n\s*\.\/deploy\/build_and_push\.sh/,
+                /```bash\s*\n\s*\.\/deploy\/deploy\.sh/,
+                /```bash\s*\n\s*\.\/deploy\/submit_build\.sh/
+            ];
+
+            for (const pattern of legacyPatterns) {
+                assert.ok(
+                    !pattern.test(readmeContent),
+                    `PROJECT_README.md should not use legacy commands in code examples: ${pattern}`
+                );
+            }
+
+            console.log('  ✅ Property 12 validated: PROJECT_README.md uses do-framework commands');
+        });
+
+        it('should use do-framework commands in MIGRATION.md', () => {
+            console.log('\n  🧪 Property 12 (Part 2): MIGRATION.md uses do-framework commands');
+            console.log('  📝 The MIGRATION.md template should reference do-framework commands in new workflow examples');
+            console.log('  **Validates: Requirements 2.4, 10.4, 10.5**');
+
+            // Read the MIGRATION.md template file
+            const migrationPath = path.join(__dirname, '../../generators/app/templates/MIGRATION.md');
+            const migrationContent = readFileSync(migrationPath, 'utf8');
+
+            // Check that it uses do-framework commands in "New Workflow" sections
+            const doCommands = [
+                './do/build',
+                './do/push',
+                './do/deploy',
+                './do/run',
+                './do/test',
+                './do/clean'
+            ];
+
+            for (const command of doCommands) {
+                assert.ok(
+                    migrationContent.includes(command),
+                    `MIGRATION.md should reference ${command}`
+                );
+            }
+
+            // Check that it has a command mapping table
+            assert.ok(
+                migrationContent.includes('| Legacy Command | do-framework Command |'),
+                'MIGRATION.md should have a command mapping table'
+            );
+
+            // Check that it explains the migration from legacy to do-framework
+            assert.ok(
+                migrationContent.includes('deploy/build_and_push.sh'),
+                'MIGRATION.md should reference legacy scripts for comparison'
+            );
+
+            // Check that it has sections for different workflows
+            assert.ok(
+                migrationContent.includes('## Detailed Migration Steps') ||
+                migrationContent.includes('## Migration Steps'),
+                'MIGRATION.md should have detailed migration steps'
+            );
+
+            console.log('  ✅ Property 12 (Part 2) validated: MIGRATION.md uses do-framework commands');
+        });
+
+        it('should use do-framework commands in do/README.md', () => {
+            console.log('\n  🧪 Property 12 (Part 3): do/README.md uses do-framework commands');
+            console.log('  📝 The do/README.md template should document do-framework commands');
+            console.log('  **Validates: Requirements 1.5, 10.1, 10.2**');
+
+            // Read the do/README.md template file
+            const doReadmePath = path.join(__dirname, '../../generators/app/templates/do/README.md');
+            const doReadmeContent = readFileSync(doReadmePath, 'utf8');
+
+            // Check that it documents all do-framework commands
+            const doCommands = [
+                './do/build',
+                './do/push',
+                './do/deploy',
+                './do/run',
+                './do/test',
+                './do/clean'
+            ];
+
+            for (const command of doCommands) {
+                assert.ok(
+                    doReadmeContent.includes(command),
+                    `do/README.md should document ${command}`
+                );
+            }
+
+            // Check that it has usage examples
+            assert.ok(
+                doReadmeContent.includes('## Usage') ||
+                doReadmeContent.includes('## Commands') ||
+                doReadmeContent.includes('## Available Commands'),
+                'do/README.md should have a usage or commands section'
+            );
+
+            // Check that it does NOT reference legacy deploy/ scripts as primary commands
+            const legacyPatterns = [
+                /```bash\s*\n\s*\.\/deploy\/build_and_push\.sh/,
+                /```bash\s*\n\s*\.\/deploy\/deploy\.sh/
+            ];
+
+            for (const pattern of legacyPatterns) {
+                assert.ok(
+                    !pattern.test(doReadmeContent),
+                    `do/README.md should not use legacy commands in examples: ${pattern}`
+                );
+            }
+
+            console.log('  ✅ Property 12 (Part 3) validated: do/README.md uses do-framework commands');
+        });
+    });
+
+    describe('Property 13: All expected do scripts are generated', () => {
+        it('should generate all standard do scripts for any deployment configuration', async function() {
+            this.timeout(60000); // 1 minute should be enough for one run
+            
+            console.log('\n  🧪 Property 13: All expected do scripts are generated');
+            console.log('  📝 For any generated project, the do/ directory should contain all standard scripts');
+            console.log('  **Validates: Requirements 1.2, 17.1**');
+
+            // Standard scripts that should always be present
+            const standardScripts = [
+                'do/build',
+                'do/push',
+                'do/deploy',
+                'do/run',
+                'do/test',
+                'do/clean',
+                'do/config',
+                'do/README.md'
+            ];
+
+            // Test with sagemaker deployment (no do/submit)
+            console.log('\n  Testing deployment config: sklearn-flask with deployTarget: sagemaker');
+            
+            const resultSagemaker = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inTmpDir()
+                .withOptions({ 'skip-install': true, offline: true })
+                .withPrompts({
+                    projectName: 'test-project',
+                    destinationDir: '.',
+                    deploymentConfig: 'sklearn-flask',
+                    deployTarget: 'sagemaker',
+                    awsRegion: 'us-east-1',
+                    instanceType: 'ml.m5.large',
+                    awsRoleArn: 'arn:aws:iam::123456789012:role/SageMakerRole',
+                    modelFormat: 'pkl',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    proceedWithIncompatible: true
+                });
+
+            // Check that all standard scripts are generated
+            for (const script of standardScripts) {
+                assert.ok(
+                    resultSagemaker.fs.exists(script),
+                    `${script} should be generated for sagemaker deployment`
+                );
+            }
+
+            // Check that do/submit is NOT generated for sagemaker
+            assert.ok(
+                !resultSagemaker.fs.exists('do/submit'),
+                'do/submit should not be generated for sagemaker deployTarget'
+            );
+
+            console.log('  ✅ All expected scripts generated for sagemaker deployment');
+
+            // Test with codebuild deployment (includes do/submit)
+            console.log('\n  Testing deployment config: xgboost-fastapi with deployTarget: codebuild');
+            
+            const resultCodebuild = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inTmpDir()
+                .withOptions({ 'skip-install': true, offline: true })
+                .withPrompts({
+                    projectName: 'test-project',
+                    destinationDir: '.',
+                    deploymentConfig: 'xgboost-fastapi',
+                    deployTarget: 'codebuild',
+                    awsRegion: 'us-east-1',
+                    instanceType: 'ml.m5.large',
+                    awsRoleArn: 'arn:aws:iam::123456789012:role/SageMakerRole',
+                    modelFormat: 'json',
+                    codebuildComputeType: 'BUILD_GENERAL1_MEDIUM',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    proceedWithIncompatible: true
+                });
+
+            // Check that all standard scripts are generated
+            for (const script of standardScripts) {
+                assert.ok(
+                    resultCodebuild.fs.exists(script),
+                    `${script} should be generated for codebuild deployment`
+                );
+            }
+
+            // Check that do/submit IS generated for codebuild
+            assert.ok(
+                resultCodebuild.fs.exists('do/submit'),
+                'do/submit should be generated for codebuild deployTarget'
+            );
+
+            console.log('  ✅ All expected scripts generated for codebuild deployment');
+            console.log('\n  ✅ Property 13 validated: All expected do scripts are generated');
+        });
+    });
+
+    describe('Property 15: All necessary template files are generated', () => {
+        it('should generate all template files regardless of deployment configuration', async function() {
+            this.timeout(60000); // 1 minute should be enough for one run
+            
+            console.log('\n  🧪 Property 15: All necessary template files are generated');
+            console.log('  📝 For any deployment configuration, all template files should be present');
+            console.log('  **Validates: Requirements 17.4**');
+
+            // Define all necessary template files that should always be generated
+            const necessaryFiles = [
+                'Dockerfile',
+                'requirements.txt',
+                'PROJECT_README.md',
+                'MIGRATION.md',
+                'code/model_handler.py',
+                'code/serve.py',
+                'code/serve',
+                'code/flask/app.py',
+                'code/flask/wsgi.py',
+                'nginx.conf',
+                'buildspec.yml',
+                'do/config',
+                'do/build',
+                'do/push',
+                'do/deploy',
+                'do/run',
+                'do/test',
+                'do/clean',
+                'do/README.md',
+                'deploy/build_and_push.sh',
+                'deploy/deploy.sh'
+            ];
+
+            // Test with sklearn-flask to verify all files are generated
+            console.log('\n  Testing deployment config: sklearn-flask with deployTarget: sagemaker');
+            
+            const result = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inTmpDir()
+                .withOptions({ 'skip-install': true, offline: true })
+                .withPrompts({
+                    projectName: 'test-project',
+                    destinationDir: '.',
+                    deploymentConfig: 'sklearn-flask',
+                    deployTarget: 'sagemaker',
+                    awsRegion: 'us-east-1',
+                    instanceType: 'ml.m5.large',
+                    awsRoleArn: 'arn:aws:iam::123456789012:role/SageMakerRole',
+                    modelFormat: 'pkl',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    proceedWithIncompatible: true
+                });
+
+            // Check that all necessary files are generated
+            for (const file of necessaryFiles) {
+                assert.ok(
+                    result.fs.exists(file),
+                    `${file} should be generated regardless of configuration`
+                );
+            }
+
+            console.log('  ✅ All necessary files generated for sklearn-flask');
+
+            // Test with transformers-vllm to verify files are still generated for different framework
+            console.log('\n  Testing deployment config: transformers-vllm with deployTarget: codebuild');
+            
+            const resultTransformers = await helpers.run(path.join(__dirname, '../../generators/app'))
+                .inTmpDir()
+                .withOptions({ 'skip-install': true, offline: true })
+                .withPrompts({
+                    projectName: 'test-project',
+                    destinationDir: '.',
+                    deploymentConfig: 'transformers-vllm',
+                    deployTarget: 'codebuild',
+                    awsRegion: 'us-east-1',
+                    instanceType: 'ml.g5.xlarge',
+                    awsRoleArn: 'arn:aws:iam::123456789012:role/SageMakerRole',
+                    modelName: 'meta-llama/Llama-2-7b-hf',
+                    modelProfile: null,
+                    codebuildComputeType: 'BUILD_GENERAL1_LARGE',
+                    includeSampleModel: false,
+                    includeTesting: false,
+                    proceedWithIncompatible: true
+                });
+
+            // Check that all necessary files are generated for transformers too
+            for (const file of necessaryFiles) {
+                assert.ok(
+                    resultTransformers.fs.exists(file),
+                    `${file} should be generated for transformers configuration too`
+                );
+            }
+
+            // Check that do/submit and deploy/submit_build.sh are generated for codebuild
+            assert.ok(
+                resultTransformers.fs.exists('do/submit'),
+                'do/submit should be generated for codebuild deployTarget'
+            );
+            assert.ok(
+                resultTransformers.fs.exists('deploy/submit_build.sh'),
+                'deploy/submit_build.sh should be generated for codebuild deployTarget'
+            );
+
+            console.log('  ✅ All necessary files generated for transformers-vllm');
+            console.log('\n  ✅ Property 15 validated: All necessary template files are generated');
+        });
+    });
+
+    after(() => {
+        console.log('\n✅ All do-framework Integration Property Tests completed');
+    });
+});

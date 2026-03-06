@@ -6,6 +6,12 @@
  * when registries are empty, and handles all configuration sources properly.
  * 
  * Requirements: 2.8, 3.9
+ * 
+ * Note: These tests use the old framework/modelServer prompt format for backward
+ * compatibility testing. The generator supports both the new deploymentConfig format
+ * and the legacy separate framework/modelServer format.
+ * 
+ * Note: These tests are currently skipped due to yeoman-test async cleanup issues.
  */
 
 import path from 'path';
@@ -47,7 +53,7 @@ describe('Registry System Integration Tests', () => {
                     includeSampleModel: false,
                     includeTesting: false,
                     deployTarget: 'sagemaker',
-                    instanceType: 'cpu-optimized',
+                    instanceType: 'ml.m5.large',
                     awsRegion: 'us-east-1',
                     projectName: 'test-registry-empty',
                     destinationDir: '.'  // Generate in current test directory
@@ -82,7 +88,7 @@ describe('Registry System Integration Tests', () => {
                     includeSampleModel: false,
                     includeTesting: false,
                     deployTarget: 'sagemaker',
-                    instanceType: 'gpu-enabled',
+                    instanceType: 'ml.g5.xlarge',
                     awsRegion: 'us-east-1',
                     awsRoleArn: '',
                     projectName: 'test-registry-version',
@@ -117,7 +123,7 @@ describe('Registry System Integration Tests', () => {
                     includeSampleModel: false,
                     includeTesting: false,
                     deployTarget: 'sagemaker',
-                    instanceType: 'gpu-enabled',
+                    instanceType: 'ml.g5.xlarge',
                     awsRegion: 'us-east-1',
                     awsRoleArn: '',
                     projectName: 'test-registry-profiles',
@@ -155,8 +161,7 @@ describe('Registry System Integration Tests', () => {
                     includeSampleModel: false,
                     includeTesting: false,
                     deployTarget: 'sagemaker',
-                    instanceType: 'custom',
-                    customInstanceType: 'ml.g5.xlarge',
+                    instanceType: 'ml.g5.xlarge',
                     awsRegion: 'us-east-1',
                     awsRoleArn: '',
                     projectName: 'test-registry-validation',
@@ -190,7 +195,7 @@ describe('Registry System Integration Tests', () => {
                         includeSampleModel: false,
                         includeTesting: false,
                         deployTarget: 'sagemaker',
-                        instanceType: 'cpu-optimized',
+                        instanceType: 'ml.m5.large',
                         awsRegion: 'us-east-1',
                         projectName: 'test-registry-env-validation',
                         destinationDir: '.'
@@ -232,7 +237,7 @@ describe('Registry System Integration Tests', () => {
                     includeSampleModel: false,
                     includeTesting: false,
                     deployTarget: 'sagemaker',
-                    instanceType: 'cpu-optimized',
+                    instanceType: 'ml.m5.large',
                     awsRegion: 'us-east-1',
                     projectName: 'test-registry-unavailable',
                     destinationDir: '.'
@@ -263,7 +268,7 @@ describe('Registry System Integration Tests', () => {
                     includeSampleModel: false,
                     includeTesting: false,
                     deployTarget: 'sagemaker',
-                    instanceType: 'gpu-enabled',
+                    instanceType: 'ml.g5.xlarge',
                     awsRegion: 'us-east-1',
                     projectName: 'test-registry-backward-compat',
                     destinationDir: '.'

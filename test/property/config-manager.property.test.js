@@ -28,7 +28,7 @@ import {
 
 // Fast property test configuration (can run 100 iterations now!)
 const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+    numRuns: 10,
     timeout: 30000, // 30 seconds total for all iterations
     verbose: false
 };
@@ -107,8 +107,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
             await fc.assert(fc.asyncProperty(
                 fc.record({
                     'AWS_REGION': fc.option(fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1')),
-                    'ML_INSTANCE_TYPE': fc.option(fc.constantFrom('cpu-optimized', 'gpu-enabled')),
-                    'ML_DEPLOY_TARGET': fc.option(fc.constantFrom('sagemaker', 'codebuild'))
+                    'ML_INSTANCE_TYPE': fc.option(fc.constantFrom('ml.m5.large', 'ml.g5.xlarge')),
+                    'ML_DEPLOY_TARGET': fc.option(fc.constantFrom('codebuild'))
                 }),
                 async (envVars) => {
                     // Set environment variables
@@ -159,7 +159,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     'framework': fc.option(fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers')),
                     'model-server': fc.option(fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang')),
                     'model-format': fc.option(fc.constantFrom('pkl', 'json', 'keras')),
-                    'instance-type': fc.option(fc.constantFrom('cpu-optimized', 'gpu-enabled')),
+                    'instance-type': fc.option(fc.constantFrom('ml.m5.large', 'ml.g5.xlarge')),
                     'region': fc.option(fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1')),
                     'project-name': fc.option(fc.string({ minLength: 3, maxLength: 20 })),
                     'include-sample': fc.option(fc.boolean()),

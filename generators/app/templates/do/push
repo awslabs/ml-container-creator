@@ -1,0 +1,124 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+echo "🚀 Pushing Docker image to Amazon ECR"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Region: ${AWS_REGION}"
+echo "   Repository: ${ECR_REPOSITORY_NAME}"
+
+# Validate AWS credentials
+echo "🔍 Validating AWS credentials..."
+if ! aws sts get-caller-identity &> /dev/null; then
+    echo "❌ AWS credentials not configured"
+    echo ""
+    echo "Please configure AWS credentials:"
+    echo "  • Run: aws configure"
+    echo "  • Or set environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY"
+    echo "  • Or use IAM role (recommended for EC2/ECS)"
+    exit 4
+fi
+
+# Get AWS account ID
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
+
+# Construct ECR repository URI
+ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
+
+# Authenticate with ECR
+echo "🔐 Authenticating with Amazon ECR..."
+if ! aws ecr get-login-password --region "${AWS_REGION}" | \
+    docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"; then
+    echo "❌ Failed to authenticate with ECR"
+    echo ""
+    echo "Possible causes:"
+    echo "  • IAM permissions missing for ecr:GetAuthorizationToken"
+    echo "  • Docker daemon not running"
+    echo "  • Network connectivity issues"
+    exit 4
+fi
+echo "✅ ECR authentication successful"
+
+# Create ECR repository if it doesn't exist
+echo "🔍 Checking if ECR repository exists..."
+if ! aws ecr describe-repositories \
+    --repository-names "${ECR_REPOSITORY_NAME}" \
+    --region "${AWS_REGION}" &> /dev/null; then
+    
+    echo "📦 Creating ECR repository: ${ECR_REPOSITORY_NAME}"
+    if ! aws ecr create-repository \
+        --repository-name "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" \
+        --image-scanning-configuration scanOnPush=true \
+        --encryption-configuration encryptionType=AES256; then
+        echo "❌ Failed to create ECR repository"
+        echo ""
+        echo "Possible causes:"
+        echo "  • IAM permissions missing for ecr:CreateRepository"
+        echo "  • Repository name already exists in another account"
+        echo "  • Region not supported"
+        exit 4
+    fi
+    echo "✅ ECR repository created"
+else
+    echo "✅ ECR repository exists"
+fi
+
+# Tag images for ECR
+echo "🏷️  Tagging images for ECR..."
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+# Tag latest
+if ! docker tag "${PROJECT_NAME}:latest" "${ECR_REPOSITORY}:latest"; then
+    echo "❌ Failed to tag image"
+    echo ""
+    echo "Possible causes:"
+    echo "  • Image ${PROJECT_NAME}:latest not found"
+    echo "  • Run ./do/build first to build the image"
+    exit 5
+fi
+
+# Tag with project name and latest
+docker tag "${PROJECT_NAME}:latest" "${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+
+# Tag with timestamp
+docker tag "${PROJECT_NAME}:latest" "${ECR_REPOSITORY}:${PROJECT_NAME}-${TIMESTAMP}"
+
+echo "✅ Images tagged for ECR"
+
+# Push images to ECR
+echo "📤 Pushing images to ECR..."
+echo "   This may take several minutes depending on image size..."
+
+if ! docker push "${ECR_REPOSITORY}:latest"; then
+    echo "❌ Failed to push image to ECR"
+    echo ""
+    echo "Possible causes:"
+    echo "  • IAM permissions missing for ecr:PutImage"
+    echo "  • Network connectivity issues"
+    echo "  • ECR repository not accessible"
+    exit 4
+fi
+
+docker push "${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+docker push "${ECR_REPOSITORY}:${PROJECT_NAME}-${TIMESTAMP}"
+
+echo "✅ Push complete!"
+echo ""
+echo "📦 Pushed image URIs:"
+echo "   ${ECR_REPOSITORY}:latest"
+echo "   ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+echo "   ${ECR_REPOSITORY}:${PROJECT_NAME}-${TIMESTAMP}"
+echo ""
+echo "Next steps:"
+echo "  • Deploy to SageMaker: ./do/deploy"
+echo "  • View in ECR console: https://console.aws.amazon.com/ecr/repositories/${ECR_REPOSITORY_NAME}?region=${AWS_REGION}"

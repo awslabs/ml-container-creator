@@ -1,6 +1,6 @@
 name: CI
 
-on:
+"on":
   push:
     branches: [ "main" ]
   pull_request:
@@ -79,23 +79,64 @@ jobs:
           echo "Testing generator help command..."
           yo ml-container-creator help
 
-      - name: Test generator with CLI options
+      - name: Test generator with CLI options (legacy format)
         run: |
-          mkdir -p test-output
-          cd test-output
-          yo ml-container-creator test-project \
+          mkdir -p test-output-legacy
+          cd test-output-legacy
+          yo ml-container-creator test-project-legacy \
             --framework=sklearn \
             --model-server=flask \
             --model-format=pkl \
             --skip-prompts
           
-          # Verify expected files were created in test-project subdirectory
-          test -f test-project/Dockerfile
-          test -f test-project/requirements.txt
-          test -f test-project/code/model_handler.py
-          test -f test-project/code/serve.py
+          # Verify expected files were created
+          test -f test-project-legacy/Dockerfile
+          test -f test-project-legacy/requirements.txt
+          test -f test-project-legacy/code/model_handler.py
+          test -f test-project-legacy/code/serve.py
           
-          echo "✅ Generator CLI test passed"
+          # Verify do-framework scripts were created
+          test -f test-project-legacy/do/config
+          test -f test-project-legacy/do/build
+          test -f test-project-legacy/do/push
+          test -f test-project-legacy/do/deploy
+          test -f test-project-legacy/do/README.md
+          
+          # Verify legacy wrapper scripts exist with deprecation warnings
+          test -f test-project-legacy/deploy/build_and_push.sh
+          test -f test-project-legacy/deploy/deploy.sh
+          grep -q "DEPRECATED" test-project-legacy/deploy/build_and_push.sh
+          
+          echo "✅ Generator CLI test (legacy format) passed"
+      
+      - name: Test generator with deployment config option
+        run: |
+          mkdir -p test-output-new
+          cd test-output-new
+          yo ml-container-creator test-project-new \
+            --deployment-config=sklearn-flask \
+            --model-format=pkl \
+            --skip-prompts
+          
+          # Verify expected files were created
+          test -f test-project-new/Dockerfile
+          test -f test-project-new/requirements.txt
+          test -f test-project-new/code/model_handler.py
+          test -f test-project-new/code/serve.py
+          
+          # Verify do-framework scripts were created
+          test -f test-project-new/do/config
+          test -f test-project-new/do/build
+          test -f test-project-new/do/push
+          test -f test-project-new/do/deploy
+          test -f test-project-new/do/README.md
+          
+          # Verify do/config contains correct deployment config
+          grep -q "DEPLOYMENT_CONFIG=\"sklearn-flask\"" test-project-new/do/config
+          grep -q "FRAMEWORK=\"sklearn\"" test-project-new/do/config
+          grep -q "MODEL_SERVER=\"flask\"" test-project-new/do/config
+          
+          echo "✅ Generator CLI test (deployment config) passed"
 
   security:
     name: Security Scan

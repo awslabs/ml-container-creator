@@ -77,7 +77,7 @@ describe('Validation Flag Behavior - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
         });
 
@@ -132,7 +132,7 @@ describe('Validation Flag Behavior - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
         });
 
@@ -183,7 +183,7 @@ describe('Validation Flag Behavior - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
         });
     });

@@ -1,82 +1,26 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-const assert = require('assert');
-const TemplateManager = require('../generators/app/lib/template-manager');
+import assert from 'assert';
+import TemplateManager from '../generators/app/lib/template-manager.js';
 
 describe('TemplateManager', () => {
-    describe('getIgnorePatterns', () => {
-        it('should exclude transformer files for sklearn projects', () => {
-            const answers = {
-                framework: 'sklearn',
-                modelServer: 'flask',
-                includeSampleModel: true,
-                includeTesting: true
-            };
-            
-            const manager = new TemplateManager(answers);
-            const patterns = manager.getIgnorePatterns();
-            
-            assert(patterns.includes('**/code/serve'));
-            assert(patterns.includes('**/deploy/upload_to_s3.sh'));
-            assert(!patterns.includes('**/code/model_handler.py'));
-        });
+    // Note: getIgnorePatterns() method has been removed as part of do-framework integration.
+    // All template files are now generated unconditionally, and runtime scripts handle
+    // conditional logic based on deployment configuration.
 
-        it('should exclude traditional ML files for transformer projects', () => {
-            const answers = {
-                framework: 'transformers',
-                modelServer: 'vllm',
-                includeSampleModel: false,
-                includeTesting: true
-            };
-            
-            const manager = new TemplateManager(answers);
-            const patterns = manager.getIgnorePatterns();
-            
-            assert(patterns.includes('**/code/model_handler.py'));
-            assert(patterns.includes('**/code/serve.py'));
-            assert(patterns.includes('**/nginx.conf**'));
-            assert(!patterns.includes('**/code/serve'));
-        });
-
-        it('should exclude Flask files when not using Flask', () => {
-            const answers = {
-                framework: 'sklearn',
-                modelServer: 'fastapi',
-                includeSampleModel: false,
-                includeTesting: false
-            };
-            
-            const manager = new TemplateManager(answers);
-            const patterns = manager.getIgnorePatterns();
-            
-            assert(patterns.includes('**/code/flask/**'));
-        });
-
-        it('should exclude optional modules when not selected', () => {
-            const answers = {
-                framework: 'sklearn',
-                modelServer: 'flask',
-                includeSampleModel: false,
-                includeTesting: false
-            };
-            
-            const manager = new TemplateManager(answers);
-            const patterns = manager.getIgnorePatterns();
-            
-            assert(patterns.includes('**/sample_model/**'));
-            assert(patterns.includes('**/test/**'));
-        });
-    });
+    // Note: getIgnorePatterns() method has been removed as part of do-framework integration.
+    // All template files are now generated unconditionally, and runtime scripts handle
+    // conditional logic based on deployment configuration.
 
     describe('validate', () => {
-        it('should pass validation for supported configurations', () => {
+        it('should pass validation for supported deployment configurations', () => {
             const answers = {
-                framework: 'sklearn',
-                modelServer: 'flask',
+                deploymentConfig: 'sklearn-flask',
                 deployTarget: 'sagemaker',
-                instanceType: 'cpu-optimized',
+                instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
+                awsRoleArn: '',
                 includeTesting: true,
                 testTypes: ['local-model-cli']
             };
@@ -85,30 +29,90 @@ describe('TemplateManager', () => {
             assert.doesNotThrow(() => manager.validate());
         });
 
-        it('should throw error for unsupported framework', () => {
+        it('should pass validation for transformers deployment configurations', () => {
+            const answers = {
+                deploymentConfig: 'transformers-vllm',
+                deployTarget: 'sagemaker',
+                instanceType: 'ml.g5.xlarge',
+                awsRegion: 'us-east-1',
+                awsRoleArn: '',
+                includeTesting: true,
+                testTypes: ['local-model-cli']
+            };
+            
+            const manager = new TemplateManager(answers);
+            assert.doesNotThrow(() => manager.validate());
+        });
+
+        it('should throw error for unsupported deployment configuration', () => {
+            const answers = {
+                deploymentConfig: 'pytorch-torchserve',
+                deployTarget: 'sagemaker',
+                instanceType: 'ml.m5.large',
+                awsRegion: 'us-east-1',
+                awsRoleArn: ''
+            };
+            
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /pytorch-torchserve not implemented yet/);
+        });
+
+        it('should support backward compatibility with separate framework and modelServer', () => {
+            const answers = {
+                framework: 'sklearn',
+                modelServer: 'flask',
+                deployTarget: 'sagemaker',
+                instanceType: 'ml.m5.large',
+                awsRegion: 'us-east-1',
+                awsRoleArn: '',
+                includeTesting: true,
+                testTypes: ['local-model-cli']
+            };
+            
+            const manager = new TemplateManager(answers);
+            assert.doesNotThrow(() => manager.validate());
+        });
+
+        it('should throw error for unsupported framework in backward compatibility mode', () => {
             const answers = {
                 framework: 'pytorch',
                 modelServer: 'flask',
                 deployTarget: 'sagemaker',
-                instanceType: 'cpu-optimized',
-                awsRegion: 'us-east-1'
+                instanceType: 'ml.m5.large',
+                awsRegion: 'us-east-1',
+                awsRoleArn: ''
             };
             
             const manager = new TemplateManager(answers);
             assert.throws(() => manager.validate(), /pytorch not implemented yet/);
         });
 
-        it('should throw error for unsupported model server', () => {
+        it('should throw error for unsupported model server in backward compatibility mode', () => {
             const answers = {
                 framework: 'sklearn',
                 modelServer: 'torchserve',
                 deployTarget: 'sagemaker',
-                instanceType: 'cpu-optimized',
-                awsRegion: 'us-east-1'
+                instanceType: 'ml.m5.large',
+                awsRegion: 'us-east-1',
+                awsRoleArn: ''
             };
             
             const manager = new TemplateManager(answers);
             assert.throws(() => manager.validate(), /torchserve not implemented yet/);
+        });
+
+        it('should throw error for tensorrt-llm with non-transformers framework', () => {
+            const answers = {
+                framework: 'sklearn',
+                modelServer: 'tensorrt-llm',
+                deployTarget: 'sagemaker',
+                instanceType: 'ml.g5.xlarge',
+                awsRegion: 'us-east-1',
+                awsRoleArn: ''
+            };
+            
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /TensorRT-LLM is only supported with the transformers framework/);
         });
     });
 });

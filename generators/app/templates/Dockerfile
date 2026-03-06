@@ -138,7 +138,7 @@ ARG BASE_IMAGE=763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.32.0
 # DJL Serving Container
 # Deep Java Library serving with support for multiple inference backends
 # Documentation: https://djl.ai/
-ARG BASE_IMAGE=deepjavalibrary/djl-serving:0.32.0-pytorch-cu126
+ARG BASE_IMAGE=deepjavalibrary/djl-serving:0.36.0-pytorch-gpu
 <% } %>
 
 FROM ${BASE_IMAGE}
@@ -183,7 +183,9 @@ ENV HF_TOKEN="<%= hfToken %>"
 <% if (chatTemplate) { %>
 # Chat template configuration
 # This template formats chat messages for the model
-ENV CHAT_TEMPLATE="<%= chatTemplate %>"
+# Writing to file to avoid shell escaping issues with multi-line Jinja2 templates
+COPY code/chat_template.jinja /opt/ml/chat_template.jinja
+ENV SGLANG_CHAT_TEMPLATE="/opt/ml/chat_template.jinja"
 <% } %>
 
 <% if (comments && comments.envVarExplanations && Object.keys(comments.envVarExplanations).length > 0) { %>

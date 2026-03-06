@@ -9,6 +9,7 @@
  */
 
 import {
+    deploymentConfigPrompts,
     frameworkPrompts,
     frameworkVersionPrompts,
     frameworkProfilePrompts,
@@ -16,6 +17,7 @@ import {
     modelServerPrompts,
     modelProfilePrompts,
     hfTokenPrompts,
+    ngcApiKeyPrompts,
     modulePrompts,
     infrastructurePrompts,
     projectPrompts,
@@ -41,9 +43,26 @@ export default class PromptRunner {
         // Get only explicit configuration (not defaults) for prompt skipping
         const explicitConfig = this.configManager ? this.configManager.getExplicitConfiguration() : {};
 
-        // Phase 1: Core Configuration (framework first)
+        // Phase 1: Core Configuration (deployment config first)
         console.log('\n🔧 Core Configuration');
-        const frameworkAnswers = await this._runPhase(frameworkPrompts, {}, explicitConfig, existingConfig);
+        const deploymentConfigAnswers = await this._runPhase(deploymentConfigPrompts, {}, explicitConfig, existingConfig);
+        
+        // Derive framework and modelServer from deploymentConfig
+        // Requirements: 16.3
+        let framework, modelServer;
+        if (deploymentConfigAnswers.deploymentConfig) {
+            const parts = deploymentConfigAnswers.deploymentConfig.split('-');
+            framework = parts[0];
+            // Handle multi-part model servers (e.g., tensorrt-llm)
+            modelServer = parts.slice(1).join('-');
+        }
+        
+        // Add derived values to answers
+        const frameworkAnswers = {
+            ...deploymentConfigAnswers,
+            framework: framework || deploymentConfigAnswers.framework,
+            modelServer: modelServer || deploymentConfigAnswers.modelServer
+        };
         
         // Populate framework version choices from registry
         const frameworkVersionChoices = this._getFrameworkVersionChoices(frameworkAnswers.framework);
@@ -77,6 +96,8 @@ export default class PromptRunner {
             explicitConfig, 
             existingConfig
         );
+        
+        // Model server prompts are now deprecated (empty array)
         const modelServerAnswers = await this._runPhase(
             modelServerPrompts, 
             {...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers}, 
@@ -106,6 +127,10 @@ export default class PromptRunner {
             { ...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers }, 
             explicitConfig, existingConfig);
 
+        const ngcApiKeyAnswers = await this._runPhase(ngcApiKeyPrompts,
+            { ...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
+            explicitConfig, existingConfig);
+
         // Phase 2: Module Selection
         console.log('\n📦 Module Selection');
         const moduleAnswers = await this._runPhase(modulePrompts, frameworkAnswers, explicitConfig, existingConfig);
@@ -121,7 +146,7 @@ export default class PromptRunner {
 
         // Validate instance type against framework requirements
         // Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
-        const instanceType = infraAnswers.customInstanceType || this._getDefaultInstanceType(infraAnswers.instanceType);
+        const instanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;
         if (instanceType && frameworkVersionAnswers.frameworkVersion) {
             await this._validateAndDisplayInstanceType(
                 instanceType,
@@ -131,14 +156,7 @@ export default class PromptRunner {
         }
 
         // Show warning for SageMaker deployment target
-        if (infraAnswers.deployTarget === 'sagemaker') {
-            console.log('\n⚠️  Warning: Building locally for SageMaker deployment');
-            console.log('   Building this image locally may result in `exec format error` when deploying');
-            console.log('   to SageMaker if your local architecture differs from the target instance.');
-            console.log('   Ensure you have set the appropriate --platform flag in your Dockerfile');
-            console.log('   (e.g., --platform=linux/amd64 for x86_64 instances, --platform=linux/arm64 for ARM).');
-            console.log('   Consider using CodeBuild for architecture-independent builds.\n');
-        }
+        // Note: sagemaker deploy target has been removed; only codebuild is supported
 
         // Phase 4: Project Configuration (moved to end)
         console.log('\n📋 Project Configuration');
@@ -165,6 +183,7 @@ export default class PromptRunner {
             ...modelServerAnswers,
             ...modelProfileAnswers,
             ...hfTokenAnswers,
+            ...ngcApiKeyAnswers,
             ...moduleAnswers,
             ...infraAnswers,
             ...projectAnswers,
@@ -176,6 +195,24 @@ export default class PromptRunner {
         if (combinedAnswers.framework === 'transformers' && combinedAnswers.customModelName) {
             combinedAnswers.modelName = combinedAnswers.customModelName;
             delete combinedAnswers.customModelName;
+        }
+
+        // Handle custom instance type
+        if (combinedAnswers.customInstanceType) {
+            combinedAnswers.instanceType = combinedAnswers.customInstanceType;
+            delete combinedAnswers.customInstanceType;
+        }
+
+        // Handle custom AWS region
+        if (combinedAnswers.customAwsRegion) {
+            combinedAnswers.awsRegion = combinedAnswers.customAwsRegion;
+            delete combinedAnswers.customAwsRegion;
+        }
+
+        // Map awsRoleArn to roleArn for templates
+        if (combinedAnswers.awsRoleArn) {
+            combinedAnswers.roleArn = combinedAnswers.awsRoleArn;
+            delete combinedAnswers.awsRoleArn;
         }
 
         return combinedAnswers;
@@ -516,17 +553,7 @@ export default class PromptRunner {
         }
     }
 
-    /**
-     * Get default instance type from instance type choice
-     * @private
-     */
-    _getDefaultInstanceType(instanceTypeChoice) {
-        const mapping = {
-            'cpu-optimized': 'ml.m6g.large',
-            'gpu-enabled': 'ml.g5.xlarge'
-        };
-        return mapping[instanceTypeChoice] || instanceTypeChoice;
-    }
+
 
     /**
      * Validate and display instance type compatibility
@@ -563,6 +590,11 @@ export default class PromptRunner {
             }
             if (validationResult.recommendations && validationResult.recommendations.length > 0) {
                 console.log(`   💡 Recommended instances: ${validationResult.recommendations.join(', ')}`);
+            }
+            
+            // In test mode or non-interactive mode, throw error instead of prompting
+            if (this.generator.options.skipPrompts || process.env.NODE_ENV === 'test') {
+                throw new Error('Instance type validation failed. Please select a compatible instance type.');
             }
             
             // Ask user if they want to proceed

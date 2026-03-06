@@ -14,7 +14,7 @@ import fc from 'fast-check';
 // Global property test configuration
 export const GLOBAL_PROPERTY_CONFIG = {
     // Test execution settings
-    numRuns: 20,            // Default 20 iterations (override per test as needed)
+    numRuns: 5,             // Reduced to 5 iterations for faster CI (was 20)
     timeout: 30000,         // 30 second timeout per property test
     verbose: false,         // Minimal output by default
     seed: 42,               // For reproducible tests

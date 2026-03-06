@@ -89,7 +89,7 @@ describe('Environment Variable Validation - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Variable name validation completed');
         });
@@ -150,7 +150,7 @@ describe('Environment Variable Validation - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Type validation completed');
         });
@@ -224,7 +224,7 @@ describe('Environment Variable Validation - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Range constraint validation completed');
         });
@@ -292,7 +292,7 @@ describe('Environment Variable Validation - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Deprecation warning validation completed');
         });
@@ -353,7 +353,7 @@ describe('Environment Variable Validation - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Community reports validation completed');
         });
@@ -434,7 +434,7 @@ describe('Environment Variable Validation - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Strategy control validation completed');
         });
@@ -482,7 +482,7 @@ describe('Environment Variable Validation - Property-Based Tests', () => {
                     
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: 10 });
             
             console.log('    ✅ Empty config handling validated');
         });

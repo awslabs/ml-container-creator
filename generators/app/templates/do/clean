@@ -1,0 +1,435 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# Parse arguments
+CLEANUP_TARGET="${1:-}"
+
+# Function to display usage
+show_usage() {
+    echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
+    echo ""
+    echo "Cleanup targets:"
+    echo "  local     - Remove local Docker images"
+    echo "  ecr       - Remove images from Amazon ECR"
+    echo "  endpoint  - Delete SageMaker endpoint, configuration, and model"
+    echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
+    echo "  all       - Perform all cleanup operations"
+    echo ""
+    echo "Examples:"
+    echo "  ./do/clean local      # Remove local Docker images only"
+    echo "  ./do/clean endpoint   # Delete SageMaker resources only"
+    echo "  ./do/clean codebuild  # Delete CodeBuild project and rebuild fresh"
+    echo "  ./do/clean all        # Clean up everything"
+}
+
+# Function to confirm action
+confirm_action() {
+    local message="$1"
+    echo ""
+    echo "⚠️  ${message}"
+    read -p "   Are you sure? (yes/no): " -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+        echo "❌ Operation cancelled"
+        return 1
+    fi
+    return 0
+}
+
+# Function to clean local Docker images
+clean_local() {
+    echo "🧹 Cleaning local Docker images"
+    echo "   Project: ${PROJECT_NAME}"
+    
+    # Check if images exist
+    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${PROJECT_NAME}:"; then
+        echo "ℹ️  No local images found for ${PROJECT_NAME}"
+        return 0
+    fi
+    
+    # List images to be removed
+    echo ""
+    echo "Images to be removed:"
+    docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | grep -E "^REPOSITORY|^${PROJECT_NAME}"
+    
+    if ! confirm_action "This will remove all local Docker images for ${PROJECT_NAME}"; then
+        return 1
+    fi
+    
+    # Remove images
+    echo "🗑️  Removing local images..."
+    docker images --format "{{.Repository}}:{{.Tag}}" | grep "^${PROJECT_NAME}:" | while read -r image; do
+        echo "   Removing: ${image}"
+        docker rmi "${image}" || echo "   ⚠️  Failed to remove ${image}"
+    done
+    
+    echo "✅ Local images cleaned"
+}
+
+# Function to clean ECR images
+clean_ecr() {
+    echo "🧹 Cleaning ECR images"
+    echo "   Repository: ${ECR_REPOSITORY_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+    
+    # Get AWS account ID
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    
+    # Check if repository exists
+    if ! aws ecr describe-repositories \
+        --repository-names "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "ℹ️  ECR repository ${ECR_REPOSITORY_NAME} does not exist"
+        return 0
+    fi
+    
+    # List images in repository
+    echo ""
+    echo "Checking for images in repository..."
+    
+    if ! IMAGE_IDS=$(aws ecr list-images \
+        --repository-name "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'imageIds[*].[imageTag]' \
+        --output text 2>&1); then
+        echo "ℹ️  No images found in repository"
+        return 0
+    fi
+    
+    if [ -z "${IMAGE_IDS}" ] || [ "${IMAGE_IDS}" = "None" ]; then
+        echo "ℹ️  No images found in repository"
+        return 0
+    fi
+    
+    # Display images
+    echo "Images in repository:"
+    echo "${IMAGE_IDS}" | while read -r tag; do
+        if [ -n "${tag}" ] && [ "${tag}" != "None" ]; then
+            echo "   - ${tag}"
+        fi
+    done
+    
+    if ! confirm_action "This will remove all images from ECR repository ${ECR_REPOSITORY_NAME}"; then
+        return 1
+    fi
+    
+    # Remove images
+    echo "🗑️  Removing ECR images..."
+    
+    # Get image IDs in JSON format for batch delete
+    IMAGE_IDS_JSON=$(aws ecr list-images \
+        --repository-name "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'imageIds' \
+        --output json)
+    
+    if [ "${IMAGE_IDS_JSON}" != "[]" ]; then
+        if aws ecr batch-delete-image \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --region "${AWS_REGION}" \
+            --image-ids "${IMAGE_IDS_JSON}" &> /dev/null; then
+            echo "✅ ECR images removed"
+        else
+            echo "❌ Failed to remove some ECR images"
+            return 1
+        fi
+    else
+        echo "ℹ️  No images to remove"
+    fi
+}
+
+# Function to clean SageMaker endpoint
+clean_endpoint() {
+    echo "🧹 Cleaning SageMaker resources"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+    
+    # Use ENDPOINT_NAME from config (set by do/deploy) or argument
+    local EP_NAME="${ENDPOINT_NAME:-}"
+    if [ -z "${EP_NAME}" ]; then
+        echo "❌ No endpoint name found"
+        echo "   Run ./do/deploy first, or set ENDPOINT_NAME in do/config"
+        return 1
+    fi
+
+    echo ""
+    echo "Checking for SageMaker resources..."
+
+    # Discover endpoint config and model from the endpoint itself
+    local ENDPOINT_CONFIG_NAME=""
+    local MODEL_NAME=""
+    local ENDPOINT_EXISTS=false
+
+    if aws sagemaker describe-endpoint \
+        --endpoint-name "${EP_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        ENDPOINT_EXISTS=true
+        ENDPOINT_CONFIG_NAME=$(aws sagemaker describe-endpoint \
+            --endpoint-name "${EP_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'EndpointConfigName' --output text 2>/dev/null || echo "")
+        echo "   ✓ Endpoint: ${EP_NAME}"
+        echo "   ✓ Endpoint config: ${ENDPOINT_CONFIG_NAME}"
+    else
+        echo "ℹ️  Endpoint not found: ${EP_NAME}"
+        return 0
+    fi
+
+    # Discover model from endpoint config
+    if [ -n "${ENDPOINT_CONFIG_NAME}" ]; then
+        MODEL_NAME=$(aws sagemaker describe-endpoint-config \
+            --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'ProductionVariants[0].ModelName' --output text 2>/dev/null || echo "")
+        if [ -n "${MODEL_NAME}" ] && [ "${MODEL_NAME}" != "None" ]; then
+            echo "   ✓ Model: ${MODEL_NAME}"
+        fi
+    fi
+
+    if ! confirm_action "This will delete the SageMaker endpoint, endpoint configuration, and model"; then
+        return 1
+    fi
+    
+    # Delete endpoint first (must be deleted before config)
+    echo "🗑️  Deleting endpoint: ${EP_NAME}"
+    if aws sagemaker delete-endpoint \
+        --endpoint-name "${EP_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "✅ Endpoint deleted"
+        # Wait briefly for endpoint deletion to propagate
+        echo "⏳ Waiting for endpoint deletion..."
+        aws sagemaker wait endpoint-deleted \
+            --endpoint-name "${EP_NAME}" \
+            --region "${AWS_REGION}" 2>/dev/null || sleep 10
+    else
+        echo "❌ Failed to delete endpoint"
+    fi
+    
+    # Delete endpoint configuration
+    if [ -n "${ENDPOINT_CONFIG_NAME}" ] && [ "${ENDPOINT_CONFIG_NAME}" != "None" ]; then
+        echo "🗑️  Deleting endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
+        if aws sagemaker delete-endpoint-config \
+            --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ Endpoint configuration deleted"
+        else
+            echo "❌ Failed to delete endpoint configuration"
+        fi
+    fi
+    
+    # Delete model
+    if [ -n "${MODEL_NAME}" ] && [ "${MODEL_NAME}" != "None" ]; then
+        echo "🗑️  Deleting model: ${MODEL_NAME}"
+        if aws sagemaker delete-model \
+            --model-name "${MODEL_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ Model deleted"
+        else
+            echo "❌ Failed to delete model"
+        fi
+    fi
+
+    # Remove ENDPOINT_NAME from config
+    if grep -q "^export ENDPOINT_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
+        sed -i.bak '/^# Last deployed endpoint/d;/^export ENDPOINT_NAME=/d' "${SCRIPT_DIR}/config"
+        rm -f "${SCRIPT_DIR}/config.bak"
+    fi
+    
+    echo "✅ SageMaker resources cleaned"
+}
+
+# Function to clean CodeBuild project and related resources
+clean_codebuild() {
+    echo "🧹 Cleaning CodeBuild resources"
+    echo "   Project: ${CODEBUILD_PROJECT_NAME:-not set}"
+    echo "   Region: ${AWS_REGION}"
+
+    if [ -z "${CODEBUILD_PROJECT_NAME:-}" ]; then
+        echo "ℹ️  No CodeBuild project name configured (deploy target may not be codebuild)"
+        return 0
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Check if project exists
+    PROJECT_CHECK=$(aws codebuild batch-get-projects \
+        --names "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'projects[0].name' \
+        --output text 2>/dev/null)
+
+    if [ "$PROJECT_CHECK" = "None" ] || [ -z "$PROJECT_CHECK" ] || [ "$PROJECT_CHECK" = "null" ]; then
+        echo "ℹ️  CodeBuild project not found: ${CODEBUILD_PROJECT_NAME}"
+        return 0
+    fi
+
+    echo ""
+    echo "Resources to be removed:"
+    echo "   • CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+
+    # Check for service role
+    ROLE_NAME="${CODEBUILD_PROJECT_NAME}-service-role"
+    ROLE_EXISTS=false
+    if aws iam get-role --role-name "${ROLE_NAME}" &> /dev/null; then
+        ROLE_EXISTS=true
+        echo "   • IAM service role: ${ROLE_NAME}"
+    fi
+
+    # Check for S3 source bucket
+    S3_BUCKET="codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+    S3_PREFIX="${PROJECT_NAME}/"
+    S3_EXISTS=false
+    if aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" &> /dev/null; then
+        S3_COUNT=$(aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX" --region "${AWS_REGION}" 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$S3_COUNT" -gt 0 ]; then
+            S3_EXISTS=true
+            echo "   • S3 source artifacts: s3://$S3_BUCKET/$S3_PREFIX ($S3_COUNT objects)"
+        fi
+    fi
+
+    if ! confirm_action "This will delete the CodeBuild project and associated resources"; then
+        return 1
+    fi
+
+    # Delete CodeBuild project
+    echo "🗑️  Deleting CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+    if aws codebuild delete-project \
+        --name "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "✅ CodeBuild project deleted"
+    else
+        echo "❌ Failed to delete CodeBuild project"
+    fi
+
+    # Delete IAM service role
+    if [ "$ROLE_EXISTS" = true ]; then
+        echo "🗑️  Deleting IAM service role: ${ROLE_NAME}"
+        # Remove inline policies first
+        POLICIES=$(aws iam list-role-policies --role-name "${ROLE_NAME}" --query 'PolicyNames' --output text 2>/dev/null || echo "")
+        for policy in $POLICIES; do
+            aws iam delete-role-policy --role-name "${ROLE_NAME}" --policy-name "$policy" 2>/dev/null || true
+        done
+        if aws iam delete-role --role-name "${ROLE_NAME}" &> /dev/null; then
+            echo "✅ IAM service role deleted"
+        else
+            echo "❌ Failed to delete IAM service role"
+        fi
+    fi
+
+    # Delete S3 source artifacts
+    if [ "$S3_EXISTS" = true ]; then
+        echo "🗑️  Deleting S3 source artifacts: s3://$S3_BUCKET/$S3_PREFIX"
+        if aws s3 rm "s3://$S3_BUCKET/$S3_PREFIX" --recursive --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ S3 source artifacts deleted"
+        else
+            echo "❌ Failed to delete S3 source artifacts"
+        fi
+    fi
+
+    echo "✅ CodeBuild resources cleaned"
+}
+
+# Main script logic
+echo "🧹 Cleanup script for ${PROJECT_NAME}"
+echo ""
+
+if [ -z "${CLEANUP_TARGET}" ]; then
+    show_usage
+    exit 0
+fi
+
+case "${CLEANUP_TARGET}" in
+    local)
+        clean_local
+        ;;
+    ecr)
+        clean_ecr
+        ;;
+    endpoint)
+        clean_endpoint
+        ;;
+    codebuild)
+        clean_codebuild
+        ;;
+    all)
+        echo "🧹 Performing complete cleanup"
+        echo ""
+        
+        # Track what was cleaned
+        CLEANED_ITEMS=()
+        
+        # Clean local images
+        if clean_local; then
+            CLEANED_ITEMS+=("Local Docker images")
+        fi
+        
+        echo ""
+        
+        # Clean ECR images
+        if clean_ecr; then
+            CLEANED_ITEMS+=("ECR images")
+        fi
+        
+        echo ""
+        
+        # Clean SageMaker resources
+        if clean_endpoint; then
+            CLEANED_ITEMS+=("SageMaker resources")
+        fi
+        
+        echo ""
+        
+        # Clean CodeBuild resources
+        if clean_codebuild; then
+            CLEANED_ITEMS+=("CodeBuild resources")
+        fi
+        
+        # Display summary
+        echo ""
+        echo "✅ Cleanup complete!"
+        echo ""
+        echo "Summary of cleaned resources:"
+        for item in "${CLEANED_ITEMS[@]}"; do
+            echo "  ✓ ${item}"
+        done
+        ;;
+    *)
+        echo "❌ Unknown cleanup target: ${CLEANUP_TARGET}"
+        echo ""
+        show_usage
+        exit 1
+        ;;
+esac
+
+echo ""
+echo "Cleanup finished!"

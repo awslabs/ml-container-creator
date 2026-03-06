@@ -11,6 +11,10 @@
  *   DOCKER_BUILD_TESTS=true npm test -- docker-build-validation.test.js
  * 
  * Requirements: 10.11, 10.12, 10.13
+ * 
+ * Note: These tests use the old framework/modelServer prompt format for backward
+ * compatibility testing. The generator supports both the new deploymentConfig format
+ * and the legacy separate framework/modelServer format.
  */
 
 import path from 'path';
@@ -139,7 +143,7 @@ describe('Docker Build Validation (Optional)', () => {
                         includeSampleModel: false,
                         includeTesting: false,
                         deployTarget: 'sagemaker',
-                        instanceType: 'cpu-optimized',
+                        instanceType: 'ml.m5.large',
                         awsRegion: 'us-east-1',
                         projectName: 'test-sklearn-docker',
                         destinationDir: 'test-sklearn-docker'
@@ -186,7 +190,7 @@ describe('Docker Build Validation (Optional)', () => {
                         includeSampleModel: false,
                         includeTesting: false,
                         deployTarget: 'sagemaker',
-                        instanceType: 'gpu-enabled',
+                        instanceType: 'ml.g5.xlarge',
                         awsRegion: 'us-east-1',
                         awsRoleArn: '',
                         projectName: 'test-vllm-docker',
@@ -233,7 +237,7 @@ describe('Docker Build Validation (Optional)', () => {
                         includeSampleModel: false,
                         includeTesting: false,
                         deployTarget: 'sagemaker',
-                        instanceType: 'cpu-optimized',
+                        instanceType: 'ml.m5.large',
                         awsRegion: 'us-east-1',
                         projectName: 'test-log-format-docker',
                         destinationDir: 'test-log-format-docker'
@@ -290,7 +294,7 @@ describe('Docker Build Validation (Optional)', () => {
                         includeSampleModel: false,
                         includeTesting: false,
                         deployTarget: 'sagemaker',
-                        instanceType: 'cpu-optimized',
+                        instanceType: 'ml.m5.large',
                         awsRegion: 'us-east-1',
                         projectName: 'test-failure-docker',
                         destinationDir: 'test-failure-docker'

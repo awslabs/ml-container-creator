@@ -8,11 +8,11 @@ This directory contains EJS templates that are processed and copied to generate 
 All files in this directory are processed using [EJS (Embedded JavaScript)](https://ejs.co/) templating:
 
 ```ejs
-<%= variable %>     <%# Outputs escaped value %>
-<%- variable %>     <%# Outputs unescaped value %>
-<% if (condition) { %>
+<%%= variable %>     <%# Outputs escaped value %>
+<%%- variable %>     <%# Outputs unescaped value %>
+<%% if (condition) { %>
     Conditional content
-<% } %>
+<%% } %>
 ```
 
 ### Available Variables
@@ -116,8 +116,8 @@ When `framework !== 'transformers'`:
 #!/bin/bash
 # deploy/build_and_push.sh
 
-PROJECT_NAME="<%= projectName %>"
-REGION="<%= awsRegion %>"
+PROJECT_NAME="<%%= projectName %>"
+REGION="<%%= awsRegion %>"
 
 echo "Building ${PROJECT_NAME} for region ${REGION}"
 ```
@@ -126,27 +126,27 @@ echo "Building ${PROJECT_NAME} for region ${REGION}"
 ```python
 # code/model_handler.py
 
-<% if (framework === 'sklearn') { %>
+<%% if (framework === 'sklearn') { %>
 import joblib
 model = joblib.load(model_path)
-<% } else if (framework === 'xgboost') { %>
+<%% } else if (framework === 'xgboost') { %>
 import xgboost as xgb
 model = xgb.Booster()
 model.load_model(model_path)
-<% } %>
+<%% } %>
 ```
 
 ### Using Arrays
 ```python
 # test/test_endpoint.sh
 
-<% if (testTypes.includes('hosted-model-endpoint')) { %>
+<%% if (testTypes.includes('hosted-model-endpoint')) { %>
 echo "Testing hosted endpoint..."
 aws sagemaker-runtime invoke-endpoint \
-  --endpoint-name <%= projectName %>-endpoint \
+  --endpoint-name <%%= projectName %>-endpoint \
   --body file://test_data.json \
   output.json
-<% } %>
+<%% } %>
 ```
 
 ## Adding New Templates
@@ -161,13 +161,13 @@ templates/code/my_new_file.py
 ```python
 # templates/code/my_new_file.py
 """
-Generated for <%= projectName %>
-Framework: <%= framework %>
+Generated for <%%= projectName %>
+Framework: <%%= framework %>
 """
 
-<% if (framework === 'sklearn') { %>
+<%% if (framework === 'sklearn') { %>
 # sklearn-specific code
-<% } %>
+<%% } %>
 ```
 
 ### 3. Add Conditional Exclusion (if needed)
@@ -190,9 +190,9 @@ Document the new template and when it's included/excluded.
 - **Test all paths** - Verify templates work for all configurations
 
 ### Variable Usage
-- **Escape output by default** - Use `<%= %>` unless you need HTML
+- **Escape output by default** - Use `<%%= %>` unless you need HTML
 - **Validate in generator** - Don't assume variables exist in templates
-- **Provide defaults** - Use `<%= variable || 'default' %>`
+- **Provide defaults** - Use `<%%= variable || 'default' %>`
 
 ### File Organization
 - **Group related files** - Keep similar templates together
@@ -229,7 +229,7 @@ See `test/` directory for generator tests that verify template generation.
 
 ### Variables Not Replaced
 - Ensure variable exists in `this.answers`
-- Check EJS syntax: `<%= variable %>` not `{{ variable }}`
+- Check EJS syntax: `<%%= variable %>` not `{{ variable }}`
 - Verify template is processed with `copyTpl` not `copy`
 
 ### Conditional Logic Not Working

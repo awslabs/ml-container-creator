@@ -59,9 +59,14 @@ export default class extends Generator {
         });
 
         // Core configuration options
+        this.option('deployment-config', {
+            type: String,
+            description: 'Deployment configuration (sklearn-flask, sklearn-fastapi, xgboost-flask, xgboost-fastapi, tensorflow-flask, tensorflow-fastapi, transformers-vllm, transformers-sglang, transformers-tensorrt-llm, transformers-lmi, transformers-djl)'
+        });
+
         this.option('framework', {
             type: String,
-            description: 'ML framework (sklearn, xgboost, tensorflow, transformers)'
+            description: 'ML framework (sklearn, xgboost, tensorflow, transformers) - DEPRECATED: use --deployment-config instead'
         });
 
         this.option('model-format', {
@@ -76,7 +81,7 @@ export default class extends Generator {
 
         this.option('model-server', {
             type: String,
-            description: 'Model server (flask, fastapi, vllm, sglang)'
+            description: 'Model server (flask, fastapi, vllm, sglang) - DEPRECATED: use --deployment-config instead'
         });
 
         // Module options
@@ -290,8 +295,10 @@ export default class extends Generator {
     /**
      * Writing phase - Copies and processes template files.
      * 
-     * Uses TemplateManager to determine which templates to include/exclude
-     * based on user configuration, then copies and processes all templates.
+     * Validates configuration via TemplateManager, then copies and processes
+     * all template files unconditionally. With do-framework integration,
+     * conditional logic has been moved to runtime scripts rather than
+     * template generation time.
      * 
      * @returns {void}
      */
@@ -303,7 +310,6 @@ export default class extends Generator {
         
         // If validation failed in initializing phase, throw the error now
         if (this._validationFailed && this._validationError) {
-            this.env.error(this._validationError);
             throw new Error(this._validationError);
         }
 
@@ -317,8 +323,7 @@ export default class extends Generator {
                 });
                 console.log('\nPlease provide the missing required parameters and try again.');
                 const errorMessage = 'Required parameters are missing. Cannot proceed with file generation.';
-                this.env.error(errorMessage);
-                throw new Error(errorMessage); // Throw so tests can catch it
+                throw new Error(errorMessage);
             }
         }
 
@@ -334,12 +339,7 @@ export default class extends Generator {
         // Create template manager and validate configuration
         const templateManager = new TemplateManager(this.answers);
         
-        try {
-            templateManager.validate();
-        } catch (error) {
-            this.env.error(error.message);
-            throw error; // Re-throw the error so tests can catch it
-        }
+        templateManager.validate();
 
         // Generate comments for templates using CommentGenerator
         const CommentGenerator = (await import('./lib/comment-generator.js')).default;
@@ -349,9 +349,6 @@ export default class extends Generator {
         // Prepare ordered environment variables for template
         const orderedEnvVars = this._getOrderedEnvVars(this.answers.envVars || {});
 
-        // Get ignore patterns based on configuration
-        const ignorePatterns = templateManager.getIgnorePatterns();
-
         // Prepare template variables with comments and ordered env vars
         const templateVars = {
             ...this.answers,
@@ -359,13 +356,46 @@ export default class extends Generator {
             orderedEnvVars
         };
 
-        // Copy all templates, processing EJS variables and excluding ignored patterns
+        // Copy all templates, processing EJS variables
         this.fs.copyTpl(
             this.templatePath('**/*'),
             this.destinationPath(),
-            templateVars,
-            {},
-            { globOptions: { ignore: ignorePatterns } }
+            templateVars
+        );
+
+        // Remove files that don't belong in this deployment configuration
+        // Transformer-only files: not needed for sklearn, xgboost, tensorflow
+        if (this.answers.framework !== 'transformers') {
+            this.fs.delete(this.destinationPath('code/chat_template.jinja'));
+            this.fs.delete(this.destinationPath('code/serve'));
+            this.fs.delete(this.destinationPath('code/serving.properties'));
+            this.fs.delete(this.destinationPath('code/start_server.sh'));
+        }
+
+        // Traditional ML files: not needed for transformers (vLLM, SGLang, TensorRT-LLM, LMI, DJL)
+        if (this.answers.framework === 'transformers') {
+            this.fs.delete(this.destinationPath('code/model_handler.py'));
+            this.fs.delete(this.destinationPath('code/serve.py'));
+            this.fs.delete(this.destinationPath('code/start_server.py'));
+            this.fs.delete(this.destinationPath('nginx-predictors.conf'));
+        }
+
+        // Flask directory: not needed for FastAPI-based configurations
+        if (this.answers.modelServer !== 'flask') {
+            this.fs.delete(this.destinationPath('code/flask/wsgi.py'));
+            this.fs.delete(this.destinationPath('code/flask/gunicorn_config.py'));
+        }
+
+        // nginx-tensorrt.conf: only needed for TensorRT-LLM
+        if (this.answers.modelServer !== 'tensorrt-llm') {
+            this.fs.delete(this.destinationPath('nginx-tensorrt.conf'));
+        }
+
+        // Copy PROJECT_README.md as README.md in the generated project
+        this.fs.copyTpl(
+            this.templatePath('PROJECT_README.md'),
+            this.destinationPath('README.md'),
+            templateVars
         );
     }
 
@@ -456,7 +486,16 @@ export default class extends Generator {
             'deploy/build_and_push.sh',
             'deploy/deploy.sh', 
             'deploy/submit_build.sh',
-            'deploy/upload_to_s3.sh'
+            'deploy/upload_to_s3.sh',
+            'do/config',
+            'do/build',
+            'do/push',
+            'do/deploy',
+            'do/run',
+            'do/test',
+            'do/logs',
+            'do/clean',
+            'do/submit'
         ];
         
         shellScripts.forEach(script => {
@@ -662,13 +701,24 @@ export default class extends Generator {
             chatTemplate: null,
             chatTemplateSource: null,
             hfToken: null,
+            ngcApiKey: null,
             envVars: {},
             inferenceAmiVersion: null,
             accelerator: null,
             frameworkVersion: null,
             validationLevel: 'unknown',
             configSources: [],
-            recommendedInstanceTypes: []
+            recommendedInstanceTypes: [],
+            roleArn: null,
+            deploymentConfig: '',
+            codebuildComputeType: null,
+            codebuildProjectName: null,
+            modelName: null,
+            modelFormat: null,
+            includeSampleModel: false,
+            includeTesting: true,
+            testTypes: [],
+            buildTimestamp: new Date().toISOString()
         };
         
         // Apply defaults for any missing fields
@@ -677,6 +727,16 @@ export default class extends Generator {
                 this.answers[key] = value;
             }
         });
+
+        // Always include testing with all available test types for the framework
+        this.answers.includeTesting = true;
+        if (!this.answers.testTypes || this.answers.testTypes.length === 0) {
+            if (this.answers.framework === 'transformers') {
+                this.answers.testTypes = ['hosted-model-endpoint'];
+            } else {
+                this.answers.testTypes = ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
+            }
+        }
         
         // For transformer models, try to enrich with registry data if available
         if (this.answers.framework === 'transformers' && this.answers.modelName && this.registryConfigManager) {

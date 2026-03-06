@@ -25,10 +25,11 @@ Amazon SageMaker Bring Your Own Container (BYOC) lets you deploy custom machine 
 
 Every generated project includes:
 - **SageMaker-compatible container** with health checks and invocation endpoints
+- **do-framework scripts** for standardized container lifecycle management (`build`, `push`, `deploy`, `run`, `test`, `clean`)
 - **Multiple deployment options** - Direct SageMaker deployment or AWS CodeBuild for CI/CD
 - **Local testing suite** to validate before deployment
 - **Sample model and training code** to illustrate the deployment
-- **AWS deployment scripts** for ECR and SageMaker
+- **Centralized configuration** in `do/config` for easy customization
 - **Multi-framework support** (sklearn, XGBoost, TensorFlow, vLLM, SGLang, TensorRT-LLM)
 - **🆕 Intelligent configuration system** with community-validated settings
   - Framework Registry: Pre-configured settings for framework versions (vLLM, SGLang, TensorRT-LLM, LMI, DJL)
@@ -75,10 +76,11 @@ Enterprise-ready CI/CD with AWS CodeBuild:
 # Generate project with CodeBuild deployment
 yo ml-container-creator my-model --deploy-target=codebuild --skip-prompts
 
-# Submit build job and deploy
+# Submit build job and deploy using do-framework
 cd my-model
-./deploy/submit_build.sh  # Builds image in CodeBuild
-./deploy/deploy.sh your-sagemaker-role-arn  # Deploys to SageMaker
+./do/submit  # Builds and pushes image via CodeBuild
+./do/deploy your-sagemaker-role-arn  # Deploys to SageMaker
+./do/test my-model-endpoint  # Test the endpoint
 ```
 
 ### 🎯 **Direct SageMaker Deployment**
@@ -92,9 +94,12 @@ Quick local builds for development:
 # Generate project with SageMaker deployment
 yo ml-container-creator my-model --deploy-target=sagemaker --skip-prompts
 
-# Deploy to SageMaker
+# Build, deploy, and test using do-framework
 cd my-model
-./deploy/deploy.sh your-sagemaker-role-arn
+./do/build  # Build Docker image
+./do/push   # Push to ECR
+./do/deploy your-sagemaker-role-arn  # Deploy to SageMaker
+./do/test my-model-endpoint  # Test the endpoint
 ```
 
 ### 🔄 **CodeBuild Features**
@@ -103,6 +108,71 @@ cd my-model
 - **Build Monitoring**: Real-time build status and progress tracking
 - **Compute Options**: Small, Medium, or Large compute types for different project sizes
 - **Comprehensive Logging**: CloudWatch integration for build logs and debugging
+
+## 🛠️ do-framework Integration
+
+All generated projects use the [do-framework](https://github.com/iankoulski/do-framework) for standardized container lifecycle management. This provides a consistent interface across all ML Container Creator projects.
+
+### Available Commands
+
+Every generated project includes these standardized scripts in the `do/` directory:
+
+| Command | Description |
+|---------|-------------|
+| `./do/build` | Build Docker image locally |
+| `./do/push` | Push image to Amazon ECR |
+| `./do/deploy` | Deploy to SageMaker endpoint |
+| `./do/run` | Run container locally for testing |
+| `./do/test` | Test local container or SageMaker endpoint |
+| `./do/clean` | Clean up resources (local, ECR, endpoint) |
+| `./do/submit` | Submit build to CodeBuild (CodeBuild deployment only) |
+
+### Quick Workflow Examples
+
+**Local Development:**
+```bash
+./do/build          # Build image
+./do/run &          # Run locally
+./do/test           # Test local container
+./do/push           # Push to ECR
+./do/deploy $ROLE   # Deploy to SageMaker
+```
+
+**CodeBuild CI/CD:**
+```bash
+./do/submit         # Build and push via CodeBuild
+./do/deploy $ROLE   # Deploy to SageMaker
+./do/test my-endpoint  # Test the endpoint
+```
+
+### Configuration
+
+All scripts use centralized configuration in `do/config`:
+
+```bash
+# Edit do/config to customize
+export PROJECT_NAME="my-model"
+export AWS_REGION="us-east-1"
+export INSTANCE_TYPE="ml.m5.xlarge"
+export DEPLOYMENT_CONFIG="sklearn-flask"
+```
+
+Override any setting with environment variables:
+```bash
+AWS_REGION=us-west-2 ./do/deploy
+```
+
+### Migration from Legacy Scripts
+
+Legacy `deploy/` scripts are still available for backward compatibility but are deprecated:
+
+| Legacy | do-framework | Status |
+|--------|--------------|--------|
+| `./deploy/build_and_push.sh` | `./do/build && ./do/push` | Deprecated |
+| `./deploy/deploy.sh` | `./do/deploy` | Deprecated |
+| `./deploy/submit_build.sh` | `./do/submit` | Deprecated |
+
+See the generated `MIGRATION.md` file in your project for detailed migration instructions.
 
 ## 🎯 Intelligent Configuration System
 
@@ -200,9 +270,11 @@ yo ml-container-creator
 ```
 
 Answer a few questions about your model, and get a complete container with:
-- Optimized model serving (Flask or FastAPI)
-- Built-in testing and deployment scripts
-- Support for SageMaker AI managed endpoint hosting
+- **do-framework scripts** for standardized container lifecycle management
+- **Optimized model serving** (Flask, FastAPI, vLLM, SGLang, TensorRT-LLM)
+- **Built-in testing and deployment scripts** with consistent interface
+- **Support for SageMaker AI** managed endpoint hosting
+- **Local testing capabilities** before cloud deployment
 
 ## ⚙️ Configuration Options
 
@@ -231,16 +303,14 @@ yo ml-container-creator
 ```bash
 # Basic sklearn project with SageMaker deployment
 yo ml-container-creator my-sklearn-project \
-  --framework=sklearn \
-  --model-server=flask \
+  --deployment-config=sklearn-flask \
   --model-format=pkl \
   --deploy-target=sagemaker \
   --skip-prompts
 
 # Transformers project with vLLM and CodeBuild CI/CD
 yo ml-container-creator my-llm-project \
-  --framework=transformers \
-  --model-server=vllm \
+  --deployment-config=transformers-vllm \
   --instance-type=gpu-enabled \
   --deploy-target=codebuild \
   --codebuild-compute-type=BUILD_GENERAL1_MEDIUM \
@@ -248,8 +318,7 @@ yo ml-container-creator my-llm-project \
 
 # XGBoost with FastAPI and testing
 yo ml-container-creator my-xgb-project \
-  --framework=xgboost \
-  --model-server=fastapi \
+  --deployment-config=xgboost-fastapi \
   --model-format=json \
   --include-testing \
   --deploy-target=sagemaker \
@@ -264,7 +333,7 @@ export AWS_REGION="us-east-1"
 export AWS_ROLE="arn:aws:iam::123456789012:role/SageMakerRole"
 
 # Generate with environment config + CLI options for core parameters
-yo ml-container-creator --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts
+yo ml-container-creator --deployment-config=sklearn-flask --model-format=pkl --skip-prompts
 ```
 
 #### Configuration File
@@ -286,8 +355,9 @@ yo ml-container-creator --config=production.json --skip-prompts
 | `--skip-prompts` | Skip interactive prompts | `true/false` |
 | `--config=<file>` | Load configuration from file | File path |
 | `--project-name=<name>` | Project name | String |
-| `--framework=<framework>` | ML framework | `sklearn`, `xgboost`, `tensorflow`, `transformers` |
-| `--model-server=<server>` | Model server | `flask`, `fastapi`, `vllm`, `sglang`, `tensorrt-llm` |
+| `--deployment-config=<config>` | Deployment configuration (framework-server) | `sklearn-flask`, `sklearn-fastapi`, `xgboost-flask`, `xgboost-fastapi`, `tensorflow-flask`, `tensorflow-fastapi`, `transformers-vllm`, `transformers-sglang`, `transformers-tensorrt-llm`, `transformers-lmi`, `transformers-djl` |
+| `--framework=<framework>` | ML framework (deprecated, use --deployment-config) | `sklearn`, `xgboost`, `tensorflow`, `transformers` |
+| `--model-server=<server>` | Model server (deprecated, use --deployment-config) | `flask`, `fastapi`, `vllm`, `sglang`, `tensorrt-llm` |
 | `--model-format=<format>` | Model format | Depends on framework |
 | `--include-sample` | Include sample model code | `true/false` |
 | `--include-testing` | Include test suite | `true/false` |
@@ -320,8 +390,7 @@ yo ml-container-creator --config=production.json --skip-prompts
 ```json
 {
   "projectName": "my-ml-project",
-  "framework": "sklearn",
-  "modelServer": "flask",
+  "deploymentConfig": "sklearn-flask",
   "modelFormat": "pkl",
   "includeSampleModel": false,
   "includeTesting": true,
@@ -338,8 +407,7 @@ yo ml-container-creator --config=production.json --skip-prompts
   "name": "my-project",
   "ml-container-creator": {
     "projectName": "my-ml-project",
-    "framework": "transformers",
-    "modelServer": "vllm",
+    "deploymentConfig": "transformers-vllm",
     "instanceType": "gpu-enabled",
     "includeTesting": true
   }
@@ -358,13 +426,13 @@ yo ml-container-creator --config=production.json --skip-prompts
 ### Framework-Specific Options
 
 #### Traditional ML (sklearn, xgboost, tensorflow)
-- **Model Servers**: `flask`, `fastapi`
+- **Deployment Configurations**: `sklearn-flask`, `sklearn-fastapi`, `xgboost-flask`, `xgboost-fastapi`, `tensorflow-flask`, `tensorflow-fastapi`
 - **Model Formats**: Varies by framework
 - **Sample Model**: Available (Abalone classifier)
 - **Instance Types**: `cpu-optimized`, `gpu-enabled`
 
 #### Transformers (LLMs)
-- **Model Servers**: `vllm`, `sglang`, `tensorrt-llm`
+- **Deployment Configurations**: `transformers-vllm`, `transformers-sglang`, `transformers-tensorrt-llm`, `transformers-lmi`, `transformers-djl`
 - **Model Formats**: Not applicable (loaded from Hugging Face Hub)
 - **Sample Model**: Not available
 - **Instance Types**: `gpu-enabled` (defaults to `ml.g6.12xlarge`)
@@ -373,11 +441,26 @@ yo ml-container-creator --config=production.json --skip-prompts
 ### Example: Deploy a scikit-learn Model
 
 1. **Prepare your model**: Save as `model.pkl`
-2. **Generate container**: Run `yo` and choose `ml-container-creator`
-3. **Configure**: Choose sklearn → pkl → flask → deployment target (SageMaker or CodeBuild)
-4. **Deploy**: 
-   - **SageMaker**: Run `./deploy/deploy.sh your-sagemaker-role-arn`
-   - **CodeBuild**: Run `./deploy/submit_build.sh` then `./deploy/deploy.sh your-sagemaker-role-arn`
+2. **Generate container**: Run `yo ml-container-creator` and select `sklearn-flask` deployment configuration
+3. **Build and test locally**:
+   ```bash
+   cd my-sklearn-project
+   ./do/build
+   ./do/run &
+   ./do/test
+   ```
+4. **Deploy to SageMaker**:
+   ```bash
+   ./do/push
+   ./do/deploy your-sagemaker-role-arn
+   ./do/test my-sklearn-project-endpoint
+   ```
+
+Or use CodeBuild for CI/CD:
+```bash
+./do/submit  # Build and push via CodeBuild
+./do/deploy your-sagemaker-role-arn
+```
 
 ## 🔐 HuggingFace Authentication
 
@@ -414,17 +497,15 @@ You can:
 ```bash
 # Direct token
 yo ml-container-creator my-llm-project \
-  --framework=transformers \
+  --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-2-7b-hf \
-  --model-server=vllm \
   --hf-token=hf_abc123... \
   --skip-prompts
 
 # Environment variable reference
 yo ml-container-creator my-llm-project \
-  --framework=transformers \
+  --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-2-7b-hf \
-  --model-server=vllm \
   --hf-token='$HF_TOKEN' \
   --skip-prompts
 ```
@@ -433,9 +514,8 @@ yo ml-container-creator my-llm-project \
 
 ```json
 {
-  "framework": "transformers",
+  "deploymentConfig": "transformers-vllm",
   "modelName": "meta-llama/Llama-2-7b-hf",
-  "modelServer": "vllm",
   "hfToken": "$HF_TOKEN"
 }
 ```
@@ -478,20 +558,23 @@ TensorRT-LLM uses NVIDIA's NGC (NVIDIA GPU Cloud) registry, which requires authe
 
    **For SageMaker deployment (local build):**
    ```bash
-   cd deploy
-   ./build_and_push.sh  # Automatically authenticates with NGC using NGC_API_KEY
+   cd my-tensorrt-project
+   ./do/build  # Automatically authenticates with NGC using NGC_API_KEY
+   ./do/push
+   ./do/deploy your-sagemaker-role-arn
    ```
 
    **For CodeBuild deployment (CI/CD):**
    ```bash
-   cd deploy
-   ./submit_build.sh    # Passes NGC_API_KEY to CodeBuild
+   cd my-tensorrt-project
+   ./do/submit  # Passes NGC_API_KEY to CodeBuild
+   ./do/deploy your-sagemaker-role-arn
    ```
 
 **How it works:**
-- The build scripts automatically authenticate with NGC using your `NGC_API_KEY` environment variable
-- For local builds (`build_and_push.sh`), Docker login happens on your machine
-- For CodeBuild (`submit_build.sh`), the NGC_API_KEY is passed as a CodeBuild environment variable
+- The do-framework scripts automatically authenticate with NGC using your `NGC_API_KEY` environment variable
+- For local builds (`./do/build`), Docker login happens on your machine
+- For CodeBuild (`./do/submit`), the NGC_API_KEY is passed as a CodeBuild environment variable
 - No manual `docker login` required!
 
 **Security Note for CodeBuild:**

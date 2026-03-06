@@ -1,0 +1,83 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+echo "🚀 Building Docker image for ${PROJECT_NAME}"
+echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
+echo "   Framework: ${FRAMEWORK}"
+echo "   Model server: ${MODEL_SERVER}"
+
+# Validate prerequisites
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker is not installed"
+    echo "   Install from: https://docs.docker.com/get-docker/"
+    exit 2
+fi
+
+# Framework-specific build logic
+case "${DEPLOYMENT_CONFIG}" in
+    transformers-tensorrt-llm)
+        echo "🔐 TensorRT-LLM requires NGC authentication"
+        if [ -z "${NGC_API_KEY:-}" ]; then
+            echo "❌ NGC_API_KEY environment variable not set"
+            echo ""
+            echo "To build TensorRT-LLM containers, you need an NVIDIA NGC API key:"
+            echo "1. Create account at: https://ngc.nvidia.com/"
+            echo "2. Generate API key in account settings"
+            echo "3. Export key: export NGC_API_KEY=your_key_here"
+            echo "4. Run this script again"
+            exit 3
+        fi
+        
+        echo "🔑 Authenticating with NVIDIA NGC..."
+        echo "${NGC_API_KEY}" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+        
+        echo "🏗️  Building GPU-enabled image with TensorRT-LLM..."
+        docker build -t "${PROJECT_NAME}:latest" .
+        ;;
+        
+    transformers-vllm|transformers-sglang)
+        echo "🏗️  Building GPU-enabled image..."
+        docker build -t "${PROJECT_NAME}:latest" .
+        ;;
+        
+    transformers-lmi|transformers-djl)
+        echo "🔐 LMI/DJL base images require AWS ECR authentication"
+        echo "🔑 Authenticating with AWS Deep Learning Container ECR..."
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 763104351884.dkr.ecr.us-east-1.amazonaws.com
+        
+        echo "🏗️  Building GPU-enabled image..."
+        docker build -t "${PROJECT_NAME}:latest" .
+        ;;
+        
+    sklearn-*|xgboost-*|tensorflow-*)
+        echo "🏗️  Building CPU-optimized image..."
+        docker build -t "${PROJECT_NAME}:latest" .
+        ;;
+        
+    *)
+        echo "❌ Unknown deployment configuration: ${DEPLOYMENT_CONFIG}"
+        exit 3
+        ;;
+esac
+
+# Tag with timestamp
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+docker tag "${PROJECT_NAME}:latest" "${PROJECT_NAME}:${TIMESTAMP}"
+
+echo "✅ Build complete!"
+echo "   Image: ${PROJECT_NAME}:latest"
+echo "   Tagged: ${PROJECT_NAME}:${TIMESTAMP}"
+echo ""
+echo "Next steps:"
+echo "  • Test locally: ./do/run"
+echo "  • Push to ECR: ./do/push"
+echo "  • Deploy to SageMaker: ./do/deploy"

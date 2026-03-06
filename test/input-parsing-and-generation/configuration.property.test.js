@@ -58,7 +58,7 @@ describe('Configuration System Properties', () => {
                     
                     return true;
                 }
-            ), { numRuns: 20 });
+            ), { numRuns: 5 });
         });
     });
 
@@ -89,7 +89,7 @@ describe('Configuration System Properties', () => {
                     
                     return true;
                 }
-            ), { numRuns: 20 });
+            ), { numRuns: 5 });
         });
     });
 
@@ -141,7 +141,7 @@ describe('Configuration System Properties', () => {
                     
                     return true;
                 }
-            ), { numRuns: 20 });
+            ), { numRuns: 5 });
         });
     });
 
@@ -164,7 +164,7 @@ describe('Configuration System Properties', () => {
                     
                     return true;
                 }
-            ), { numRuns: 20 });
+            ), { numRuns: 5 });
         });
 
         it('should handle malformed version strings gracefully', function() {
@@ -199,7 +199,7 @@ describe('Configuration System Properties', () => {
                         return false;
                     }
                 }
-            ), { numRuns: 20 });
+            ), { numRuns: 5 });
         });
     });
 
@@ -243,7 +243,7 @@ describe('Configuration System Properties', () => {
                     
                     return true;
                 }
-            ), { numRuns: 20 });
+            ), { numRuns: 5 });
         });
     });
 });

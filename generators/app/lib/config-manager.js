@@ -141,16 +141,9 @@ export default class ConfigManager {
                             finalConfig[param] = formatMap[framework] || 'pkl';
                         }
                     } else if (param === 'instanceType') {
-                        // Default to cpu-optimized, but use gpu-enabled for transformers
+                        // Default to ml.m5.large for traditional ML, ml.g5.xlarge for transformers
                         const framework = finalConfig.framework || 'sklearn';
-                        finalConfig[param] = framework === 'transformers' ? 'gpu-enabled' : 'cpu-optimized';
-                    } else if (param === 'customInstanceType') {
-                        // Only set if instanceType is custom
-                        if (finalConfig.instanceType === 'custom') {
-                            // Provide a reasonable default based on framework
-                            const framework = finalConfig.framework || 'sklearn';
-                            finalConfig[param] = framework === 'transformers' ? 'ml.g5.xlarge' : 'ml.m5.large';
-                        }
+                        finalConfig[param] = framework === 'transformers' ? 'ml.g5.xlarge' : 'ml.m5.large';
                     } else if (param === 'projectName') {
                         // Generate project name
                         finalConfig[param] = this._generateProjectName(finalConfig.framework);
@@ -222,6 +215,12 @@ export default class ConfigManager {
             finalConfig.hfToken = this._resolveHfToken(finalConfig.hfToken);
         }
 
+        // Map awsRoleArn to roleArn for templates
+        if (finalConfig.awsRoleArn) {
+            finalConfig.roleArn = finalConfig.awsRoleArn;
+            delete finalConfig.awsRoleArn;
+        }
+
         return finalConfig;
     }
 
@@ -239,6 +238,15 @@ export default class ConfigManager {
      */
     _getParameterMatrix() {
         return {
+            deploymentConfig: {
+                cliOption: 'deployment-config',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                promptable: true,
+                required: false,  // Not required because we support backward compatibility with framework + modelServer
+                default: null
+            },
             framework: {
                 cliOption: 'framework',
                 envVar: null,
@@ -289,8 +297,8 @@ export default class ConfigManager {
                 envVar: null,
                 configFile: true,
                 packageJson: false,
-                promptable: true,
-                required: true,
+                promptable: false,
+                required: false,
                 default: true
             },
             instanceType: {
@@ -300,15 +308,6 @@ export default class ConfigManager {
                 packageJson: false,
                 promptable: true,
                 required: true,
-                default: null
-            },
-            customInstanceType: {
-                cliOption: 'custom-instance-type',
-                envVar: 'ML_CUSTOM_INSTANCE_TYPE',
-                configFile: true,
-                packageJson: false,
-                promptable: true,
-                required: false,
                 default: null
             },
             awsRegion: {
@@ -372,7 +371,7 @@ export default class ConfigManager {
                 packageJson: false,
                 promptable: true,
                 required: true,
-                default: 'sagemaker'
+                default: 'codebuild'
             },
             codebuildComputeType: {
                 cliOption: 'codebuild-compute-type',
@@ -462,6 +461,7 @@ export default class ConfigManager {
 
         // Add legacy parameters that aren't in the matrix but are still used internally
         defaults.testTypes = null;
+        defaults.includeTesting = true;
 
         return defaults;
     }
@@ -824,13 +824,6 @@ export default class ConfigManager {
     _validateParameterCombinations(config) {
         const errors = [];
 
-        // Validate that customInstanceType is provided when instanceType is 'custom'
-        if (config.instanceType === 'custom') {
-            if (!config.customInstanceType || config.customInstanceType.trim() === '') {
-                errors.push('Custom instance type is required when instance type is set to \'custom\'');
-            }
-        }
-
         // Additional combination validations that aren't covered by individual parameter validation
         // For example, complex business rules that involve multiple parameters
         
@@ -975,36 +968,18 @@ export default class ConfigManager {
             break;
                 
         case 'instanceType':
-            if (value && !supportedOptions.instanceTypes.includes(value)) {
-                throw new ValidationError(
-                    `Unsupported instance type: ${value}. Supported types: ${supportedOptions.instanceTypes.join(', ')}`,
-                    parameter,
-                    value
-                );
-            }
-            // Special validation for transformers requiring GPU
-            if (value === 'cpu-optimized' && context.framework === 'transformers') {
-                throw new ValidationError(
-                    'Framework \'transformers\' requires GPU-enabled instances. CPU-optimized instances are not supported for transformer models.',
-                    parameter,
-                    value
-                );
-            }
-            break;
-            
-        case 'customInstanceType':
             if (value) {
                 // Validate AWS SageMaker instance type format
                 const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
                 if (!instancePattern.test(value)) {
                     throw new ValidationError(
-                        `Invalid custom instance type format: ${value}. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g4dn.xlarge)`,
+                        `Invalid instance type format: ${value}. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g4dn.xlarge)`,
                         parameter,
                         value
                     );
                 }
                 // Warn about CPU instances for transformers (but don't block)
-                if (context.framework === 'transformers' && context.instanceType === 'custom') {
+                if (context.framework === 'transformers') {
                     const cpuFamilies = ['t2', 't3', 't3a', 't4g', 'm4', 'm5', 'm5a', 'm5ad', 'm5d', 'm5dn', 'm5n', 'm5zn', 'm6a', 'm6g', 'm6gd', 'm6i', 'm6id', 'm6idn', 'm6in', 'c4', 'c5', 'c5a', 'c5ad', 'c5d', 'c5n', 'c6a', 'c6g', 'c6gd', 'c6gn', 'c6i', 'c6id', 'c6in', 'r4', 'r5', 'r5a', 'r5ad', 'r5b', 'r5d', 'r5dn', 'r5n', 'r6a', 'r6g', 'r6gd', 'r6i', 'r6id', 'r6idn', 'r6in'];
                     const instanceFamily = value.split('.')[1];
                     if (cpuFamilies.includes(instanceFamily)) {
@@ -1014,7 +989,7 @@ export default class ConfigManager {
                 }
             }
             break;
-                
+            
         case 'awsRegion':
             if (value && !supportedOptions.awsRegions.includes(value)) {
                 throw new ValidationError(
@@ -1130,9 +1105,8 @@ export default class ConfigManager {
                 'tensorflow': ['keras', 'h5', 'SavedModel'],
                 'transformers': [] // No format needed
             },
-            deployTargets: ['sagemaker', 'codebuild'],
+            deployTargets: ['codebuild'],
             codebuildComputeTypes: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'],
-            instanceTypes: ['cpu-optimized', 'gpu-enabled', 'custom'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
                 'eu-west-1', 'eu-west-2', 'eu-central-1', 'eu-north-1',

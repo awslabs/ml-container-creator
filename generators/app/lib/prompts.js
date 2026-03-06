@@ -6,6 +6,10 @@
  * Each phase handles a specific aspect of project configuration.
  */
 
+import Table from 'cli-table3';
+import chalk from 'chalk';
+import instanceTypeRegistry from '../config/registries/instance-types.js';
+
 /**
  * Generate pseudo-randomized project name based on framework
  * @param {string} framework - The ML framework
@@ -41,15 +45,78 @@ function generateProjectName(framework) {
 
 /**
  * Phase 1: Core ML configuration (moved to first)
+ * Flattened deployment configuration combining framework + model server
+ * Requirements: 16.1, 16.2, 16.3, 16.4, 16.8, 16.9
  */
-const frameworkPrompts = [
+const deploymentConfigPrompts = [
     {
         type: 'list',
-        name: 'framework',
-        message: 'Which ML framework are you using?',
-        choices: ['sklearn', 'xgboost', 'tensorflow', 'transformers']
+        name: 'deploymentConfig',
+        message: 'Select deployment configuration:',
+        choices: [
+            { type: 'separator', separator: '── Large Language Models ──' },
+            {
+                name: 'Transformers with vLLM',
+                value: 'transformers-vllm',
+                short: 'transformers-vllm'
+            },
+            {
+                name: 'Transformers with SGLang',
+                value: 'transformers-sglang',
+                short: 'transformers-sglang'
+            },
+            {
+                name: 'Transformers with TensorRT-LLM',
+                value: 'transformers-tensorrt-llm',
+                short: 'transformers-tensorrt-llm'
+            },
+            {
+                name: 'Transformers with LMI (Large Model Inference)',
+                value: 'transformers-lmi',
+                short: 'transformers-lmi'
+            },
+            {
+                name: 'Transformers with DJL (Deep Java Library)',
+                value: 'transformers-djl',
+                short: 'transformers-djl'
+            },
+            { type: 'separator', separator: '── Traditional ML ──' },
+            {
+                name: 'scikit-learn with Flask',
+                value: 'sklearn-flask',
+                short: 'sklearn-flask'
+            },
+            {
+                name: 'scikit-learn with FastAPI',
+                value: 'sklearn-fastapi',
+                short: 'sklearn-fastapi'
+            },
+            {
+                name: 'XGBoost with Flask',
+                value: 'xgboost-flask',
+                short: 'xgboost-flask'
+            },
+            {
+                name: 'XGBoost with FastAPI',
+                value: 'xgboost-fastapi',
+                short: 'xgboost-fastapi'
+            },
+            {
+                name: 'TensorFlow with Flask',
+                value: 'tensorflow-flask',
+                short: 'tensorflow-flask'
+            },
+            {
+                name: 'TensorFlow with FastAPI',
+                value: 'tensorflow-fastapi',
+                short: 'tensorflow-fastapi'
+            }
+        ]
     }
 ];
+
+// Keep legacy frameworkPrompts for backward compatibility (deprecated)
+const frameworkPrompts = deploymentConfigPrompts;
 
 /**
  * Framework version selection prompts (for registry system)
@@ -97,14 +164,20 @@ const modelFormatPrompts = [
         name: 'modelFormat',
         message: 'In which format is your model serialized?',
         choices: (answers) => {
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             const formatMap = {
                 'xgboost': ['json', 'model', 'ubj'],
                 'sklearn': ['pkl', 'joblib'],
                 'tensorflow': ['keras', 'h5', 'SavedModel']
             };
-            return formatMap[answers.framework] || [];
+            return formatMap[framework] || [];
         },
-        when: answers => answers.framework !== 'transformers'
+        when: answers => {
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            return framework !== 'transformers';
+        }
     },
     {
         type: 'list',
@@ -117,7 +190,11 @@ const modelFormatPrompts = [
             'Custom (enter manually)'
         ],
         default: 'openai/gpt-oss-20b',
-        when: answers => answers.framework === 'transformers'
+        when: answers => {
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            return framework === 'transformers';
+        }
     },
     {
         type: 'input',
@@ -133,23 +210,16 @@ const modelFormatPrompts = [
             }
             return true;
         },
-        when: answers => answers.framework === 'transformers' && answers.modelName === 'Custom (enter manually)'
-    }
-];
-
-const modelServerPrompts = [
-    {
-        type: 'list',
-        name: 'modelServer',
-        message: 'Which model server are you serving with?',
-        choices: (answers) => {
-            if (answers.framework === 'transformers') {
-                return ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl'];
-            }
-            return ['flask', 'fastapi'];
+        when: answers => {
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            return framework === 'transformers' && answers.modelName === 'Custom (enter manually)';
         }
     }
 ];
+
+// Model server prompts are now deprecated - modelServer is derived from deploymentConfig
+const modelServerPrompts = [];
 
 /**
  * Model profile selection prompts (for registry system)
@@ -181,46 +251,29 @@ const EXAMPLE_MODEL_IDS = [
     'meta-llama/Llama-3.2-1B-Instruct'
 ];
 
-/**
- * HuggingFace token prompts for transformer models
- */
 const hfTokenPrompts = [
     {
         type: 'input',
         name: 'hfToken',
         message: 'HuggingFace token (enter token, "$HF_TOKEN" for env var, or leave empty):',
         when: (answers) => {
-            // Only prompt when:
-            // 1. Framework is transformers
-            // 2. User manually entered a model ID (not from examples)
-            const isTransformers = answers.framework === 'transformers';
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             
-            // Check if user selected custom model entry
-            const isManualEntry = answers.modelName === 'Custom (enter manually)';
-            
-            // If manual entry, we need to check the customModelName
-            // If it matches an example model (case-insensitive), skip prompt
-            if (isTransformers && isManualEntry && answers.customModelName) {
-                const customModel = answers.customModelName.toLowerCase();
-                const isExampleModel = EXAMPLE_MODEL_IDS.some(
-                    exampleId => exampleId.toLowerCase() === customModel
-                );
-                
-                if (isExampleModel) {
-                    return false; // Skip prompt for example models
-                }
-                
-                // Display security warning before prompting
-                console.log('\n🔐 HuggingFace Authentication');
-                console.log('⚠️  Security Note: The token will be baked into the Docker image.');
-                console.log('   Anyone with access to the image can extract the token using \'docker inspect\'.');
-                console.log('   For CI/CD pipelines, use "$HF_TOKEN" to reference an environment variable.');
-                console.log('   This keeps the token out of the image and allows rotation without rebuilding.\n');
-                
-                return true; // Show prompt for custom models
+            // Only prompt for transformers framework
+            if (framework !== 'transformers') {
+                return false;
             }
             
-            return false; // Skip prompt for non-transformers or example models
+            // Display security warning before prompting
+            console.log('\n🔐 HuggingFace Authentication');
+            console.log('   Many models (e.g. Llama, Mistral) are gated and require a token.');
+            console.log('⚠️  Security Note: The token will be baked into the Docker image.');
+            console.log('   Anyone with access to the image can extract the token using \'docker inspect\'.');
+            console.log('   For CI/CD pipelines, use "$HF_TOKEN" to reference an environment variable.');
+            console.log('   This keeps the token out of the image and allows rotation without rebuilding.\n');
+            
+            return true;
         },
         validate: (input) => {
             // Empty is valid (not all models require auth)
@@ -244,36 +297,68 @@ const hfTokenPrompts = [
     }
 ];
 
-/**
- * Phase 2: Optional modules
- */
+const ngcApiKeyPrompts = [
+    {
+        type: 'input',
+        name: 'ngcApiKey',
+        message: 'NVIDIA NGC API key (enter key, "$NGC_API_KEY" for env var, or leave empty):',
+        when: (answers) => {
+            const modelServer = answers.modelServer || answers.deploymentConfig?.split('-').slice(1).join('-');
+            
+            if (modelServer !== 'tensorrt-llm') {
+                return false;
+            }
+            
+            console.log('\n🔐 NVIDIA NGC Authentication');
+            console.log('   TensorRT-LLM base images are hosted on NVIDIA NGC and require an API key.');
+            console.log('   1. Create account at: https://ngc.nvidia.com/');
+            console.log('   2. Generate API key in account settings');
+            console.log('   For CI/CD pipelines, use "$NGC_API_KEY" to reference an environment variable.\n');
+            
+            return true;
+        },
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return true;
+            }
+            
+            if (input.trim() === '$NGC_API_KEY') {
+                return true;
+            }
+            
+            return true;
+        }
+    }
+];
+
 const modulePrompts = [
     {
         type: 'confirm',
         name: 'includeSampleModel',
         message: 'Include sample Abalone classifier?',
         default: false,
-        when: (answers) => answers.framework !== 'transformers'
-    },
-    {
-        type: 'confirm',
-        name: 'includeTesting',
-        message: 'Include test suite?',
-        default: true
+        when: (answers) => {
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            return framework !== 'transformers';
+        }
     },
     {
         type: 'checkbox',
         name: 'testTypes',
         message: 'Test type?',
         choices: (answers) => {
-            if (answers.framework === 'transformers') {
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            if (framework === 'transformers') {
                 return ['hosted-model-endpoint'];
             }
             return ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
         },
-        when: answers => answers.includeTesting,
         default: (answers) => {
-            if (answers.framework === 'transformers') {
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            if (framework === 'transformers') {
                 return ['hosted-model-endpoint'];
             }
             return ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
@@ -281,17 +366,13 @@ const modulePrompts = [
     }
 ];
 
-/**
- * Phase 3: Infrastructure configuration
- */
 const infrastructurePrompts = [
     {
         type: 'list',
         name: 'deployTarget',
         message: 'Deployment target?',
         choices: [
-            { name: 'codebuild (recommended)', value: 'codebuild' },
-            { name: 'sagemaker', value: 'sagemaker' }
+            { name: 'codebuild (recommended)', value: 'codebuild' }
         ],
         default: 'codebuild'
     },
@@ -310,29 +391,93 @@ const infrastructurePrompts = [
     {
         type: 'list',
         name: 'instanceType',
-        message: 'Instance type?',
-        choices: (answers) => {
-            if (answers.framework === 'transformers') {
-                // TensorRT-LLM needs A10G GPUs (ml.g5) for better compatibility
-                if (answers.modelServer === 'tensorrt-llm') {
-                    return [
-                        { name: 'GPU-optimized (ml.g5.12xlarge - recommended for TensorRT-LLM)', value: 'gpu-enabled' },
-                        { name: 'Custom instance type', value: 'custom' }
-                    ];
-                }
-                // vLLM and SGLang work well with newer L4 GPUs (ml.g6)
-                return [
-                    { name: 'GPU-optimized (ml.g6.12xlarge)', value: 'gpu-enabled' },
-                    { name: 'Custom instance type', value: 'custom' }
-                ];
-            }
-            return [
-                { name: 'CPU-optimized (ml.m6g.large)', value: 'cpu-optimized' },
-                { name: 'GPU-enabled (ml.g5.xlarge)', value: 'gpu-enabled' },
-                { name: 'Custom instance type', value: 'custom' }
-            ];
+        message: (answers) => {
+            // Derive framework and modelServer from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            const modelServer = answers.modelServer || answers.deploymentConfig?.split('-')[1];
+            
+            // Display instance type table
+            const table = new Table({
+                head: [
+                    chalk.cyan('Instance Type'),
+                    chalk.cyan('vCPUs'),
+                    chalk.cyan('Memory'),
+                    chalk.cyan('Accelerator'),
+                    chalk.cyan('Use Case')
+                ],
+                colWidths: [20, 8, 12, 20, 25]
+            });
+            
+            // Filter instances based on framework
+            const instances = Object.values(instanceTypeRegistry);
+            const filteredInstances = framework === 'transformers' 
+                ? instances.filter(i => i.category === 'gpu')
+                : instances;
+            
+            // Add rows to table
+            filteredInstances.forEach(instance => {
+                table.push([
+                    instance.type,
+                    instance.vcpus.toString(),
+                    instance.memory,
+                    instance.accelerator,
+                    instance.useCase
+                ]);
+            });
+            
+            // Add custom option
+            table.push([
+                chalk.yellow('Custom...'),
+                '-',
+                '-',
+                '-',
+                'Specify your own'
+            ]);
+            
+            console.log('\n' + chalk.bold('Available Instance Types:'));
+            console.log(table.toString());
+            console.log('');
+            
+            return 'Select instance type:';
         },
-        default: 'gpu-enabled'
+        choices: (answers) => {
+            // Derive framework and modelServer from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            const modelServer = answers.modelServer || answers.deploymentConfig?.split('-')[1];
+            
+            // Get instance types based on framework
+            const instances = Object.values(instanceTypeRegistry);
+            const filteredInstances = framework === 'transformers' 
+                ? instances.filter(i => i.category === 'gpu')
+                : instances;
+            
+            // Build choices array
+            const choices = filteredInstances.map(instance => ({
+                name: instance.type,
+                value: instance.type
+            }));
+            
+            // Add custom option
+            choices.push({
+                name: 'Custom...',
+                value: 'custom'
+            });
+            
+            return choices;
+        },
+        default: (answers) => {
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            const modelServer = answers.modelServer || answers.deploymentConfig?.split('-')[1];
+            
+            // Default recommendations
+            if (framework === 'transformers') {
+                if (modelServer === 'tensorrt-llm') {
+                    return 'ml.g5.12xlarge'; // TensorRT-LLM needs more GPU memory
+                }
+                return 'ml.g5.2xlarge'; // Good default for vLLM/SGLang
+            }
+            return 'ml.m5.xlarge'; // Good default for CPU workloads
+        }
     },
     {
         type: 'input',
@@ -355,8 +500,17 @@ const infrastructurePrompts = [
         type: 'list',
         name: 'awsRegion',
         message: 'Target AWS region?',
-        choices: ['us-east-1'],
+        choices: [
+            'us-east-1',
+            { name: 'Custom...', value: 'custom' }
+        ],
         default: 'us-east-1'
+    },
+    {
+        type: 'input',
+        name: 'customAwsRegion',
+        message: 'Enter AWS region (e.g., us-west-2, eu-west-1):',
+        when: answers => answers.awsRegion === 'custom'
     },
     {
         type: 'input',
@@ -375,16 +529,15 @@ const infrastructurePrompts = [
     }
 ];
 
-/**
- * Phase 4: Project information (moved to last)
- */
 const projectPrompts = [
     {
         type: 'input',
         name: 'projectName',
         message: 'What is the Project Name?',
         default: (answers) => {
-            return generateProjectName(answers.framework);
+            // Derive framework from deploymentConfig if not already set
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            return generateProjectName(framework);
         }
     }
 ];
@@ -402,13 +555,15 @@ const destinationPrompts = [
 ];
 
 export {
-    frameworkPrompts,
+    deploymentConfigPrompts,
+    frameworkPrompts, // Deprecated: kept for backward compatibility
     frameworkVersionPrompts,
     frameworkProfilePrompts,
     modelFormatPrompts,
-    modelServerPrompts,
+    modelServerPrompts, // Deprecated: now empty, modelServer derived from deploymentConfig
     modelProfilePrompts,
     hfTokenPrompts,
+    ngcApiKeyPrompts,
     modulePrompts,
     infrastructurePrompts,
     projectPrompts,

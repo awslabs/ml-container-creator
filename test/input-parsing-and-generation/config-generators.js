@@ -15,7 +15,31 @@ import fc from 'fast-check';
  * Framework-specific generators that understand valid combinations
  */
 
-// Generate valid framework/server/format combinations
+// Generate valid deployment configurations (do-framework integration)
+export const generateValidDeploymentConfig = () => fc.constantFrom(
+    'sklearn-flask', 'sklearn-fastapi',
+    'xgboost-flask', 'xgboost-fastapi',
+    'tensorflow-flask', 'tensorflow-fastapi',
+    'transformers-vllm', 'transformers-sglang',
+    'transformers-tensorrt-llm', 'transformers-lmi', 'transformers-djl'
+);
+
+// Generate invalid deployment configurations (for negative testing)
+export const generateInvalidDeploymentConfig = () => fc.constantFrom(
+    'sklearn-vllm', 'sklearn-sglang', 'sklearn-tensorrt-llm',
+    'xgboost-vllm', 'xgboost-sglang', 'xgboost-tensorrt-llm',
+    'tensorflow-vllm', 'tensorflow-sglang', 'tensorflow-tensorrt-llm',
+    'transformers-flask', 'transformers-fastapi',
+    'pytorch-torchserve', 'invalid-config'
+);
+
+// Derive framework and modelServer from deploymentConfig
+export const deriveFromDeploymentConfig = (deploymentConfig) => {
+    const [framework, modelServer] = deploymentConfig.split('-');
+    return { framework, modelServer };
+};
+
+// Generate valid framework/server/format combinations (backward compatibility)
 export const generateValidFrameworkCombination = () => {
     const combinations = [
         {
@@ -153,7 +177,52 @@ export const generateDestinationDir = () => fc.oneof(
  * Configuration object generators
  */
 
-// Generate a complete valid configuration
+// Generate a complete valid configuration using deploymentConfig (do-framework integration)
+export const generateValidConfigurationWithDeploymentConfig = () => 
+    generateValidDeploymentConfig().chain(deploymentConfig => {
+        const { framework, modelServer } = deriveFromDeploymentConfig(deploymentConfig);
+        
+        // Determine valid model format based on framework
+        let modelFormatGen;
+        if (framework === 'sklearn') {
+            modelFormatGen = fc.constantFrom('pkl', 'joblib');
+        } else if (framework === 'xgboost') {
+            modelFormatGen = fc.constantFrom('json', 'model', 'ubj');
+        } else if (framework === 'tensorflow') {
+            modelFormatGen = fc.constantFrom('keras', 'h5', 'SavedModel');
+        } else {
+            modelFormatGen = fc.constant(null); // transformers don't need format
+        }
+        
+        const baseConfig = fc.record({
+            deploymentConfig: fc.constant(deploymentConfig),
+            framework: fc.constant(framework),
+            modelServer: fc.constant(modelServer),
+            modelFormat: modelFormatGen,
+            includeSampleModel: framework === 'transformers' ? fc.constant(false) : fc.boolean(),
+            includeTesting: fc.boolean(),
+            deployTarget: generateDeploymentTarget(),
+            instanceType: fc.constantFrom('cpu-optimized', 'gpu-enabled'),
+            awsRegion: generateAwsRegion(),
+            awsRoleArn: fc.option(generateAwsRoleArn()),
+            projectName: generateProjectName(),
+            destinationDir: generateDestinationDir()
+        });
+        
+        return baseConfig.chain(config => {
+            // Add CodeBuild-specific parameters when deployTarget is 'codebuild'
+            if (config.deployTarget === 'codebuild') {
+                return fc.record({
+                    ...config,
+                    codebuildComputeType: generateCodeBuildComputeType(),
+                    codebuildProjectName: generateCodeBuildProjectName()
+                });
+            }
+            return fc.constant(config);
+        });
+    });
+
+// Generate a complete valid configuration (backward compatibility with separate framework/modelServer)
 export const generateValidConfiguration = () => 
     generateValidFrameworkCombination().chain(combo => {
         const baseConfig = fc.record({
@@ -389,6 +458,10 @@ export const generateEdgeCaseScenario = () => fc.oneof(
 );
 
 export default {
+    generateValidDeploymentConfig,
+    generateInvalidDeploymentConfig,
+    deriveFromDeploymentConfig,
+    generateValidConfigurationWithDeploymentConfig,
     generateValidFrameworkCombination,
     generateInvalidFrameworkCombination,
     generateAwsRegion,
