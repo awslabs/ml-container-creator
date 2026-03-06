@@ -28,6 +28,9 @@ export MODEL_NAME="<%= modelName %>"
 <% if (hfToken) { %>
 export HF_TOKEN="<%= hfToken %>"
 <% } %>
+<% if (ngcApiKey) { %>
+export NGC_API_KEY="<%= ngcApiKey %>"
+<% } %>
 <% } %>
 
 <% if (modelFormat) { %>

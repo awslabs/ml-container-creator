@@ -17,6 +17,7 @@ import {
     modelServerPrompts,
     modelProfilePrompts,
     hfTokenPrompts,
+    ngcApiKeyPrompts,
     modulePrompts,
     infrastructurePrompts,
     projectPrompts,
@@ -126,6 +127,10 @@ export default class PromptRunner {
             { ...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers }, 
             explicitConfig, existingConfig);
 
+        const ngcApiKeyAnswers = await this._runPhase(ngcApiKeyPrompts,
+            { ...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
+            explicitConfig, existingConfig);
+
         // Phase 2: Module Selection
         console.log('\n📦 Module Selection');
         const moduleAnswers = await this._runPhase(modulePrompts, frameworkAnswers, explicitConfig, existingConfig);
@@ -178,6 +183,7 @@ export default class PromptRunner {
             ...modelServerAnswers,
             ...modelProfileAnswers,
             ...hfTokenAnswers,
+            ...ngcApiKeyAnswers,
             ...moduleAnswers,
             ...infraAnswers,
             ...projectAnswers,

@@ -15,17 +15,19 @@ CLEANUP_TARGET="${1:-}"
 
 # Function to display usage
 show_usage() {
-    echo "Usage: ./do/clean [local|ecr|endpoint|all]"
+    echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
     echo ""
     echo "Cleanup targets:"
-    echo "  local    - Remove local Docker images"
-    echo "  ecr      - Remove images from Amazon ECR"
-    echo "  endpoint - Delete SageMaker endpoint, configuration, and model"
-    echo "  all      - Perform all cleanup operations"
+    echo "  local     - Remove local Docker images"
+    echo "  ecr       - Remove images from Amazon ECR"
+    echo "  endpoint  - Delete SageMaker endpoint, configuration, and model"
+    echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
+    echo "  all       - Perform all cleanup operations"
     echo ""
     echo "Examples:"
     echo "  ./do/clean local      # Remove local Docker images only"
     echo "  ./do/clean endpoint   # Delete SageMaker resources only"
+    echo "  ./do/clean codebuild  # Delete CodeBuild project and rebuild fresh"
     echo "  ./do/clean all        # Clean up everything"
 }
 
@@ -259,6 +261,104 @@ clean_endpoint() {
     echo "✅ SageMaker resources cleaned"
 }
 
+# Function to clean CodeBuild project and related resources
+clean_codebuild() {
+    echo "🧹 Cleaning CodeBuild resources"
+    echo "   Project: ${CODEBUILD_PROJECT_NAME:-not set}"
+    echo "   Region: ${AWS_REGION}"
+
+    if [ -z "${CODEBUILD_PROJECT_NAME:-}" ]; then
+        echo "ℹ️  No CodeBuild project name configured (deploy target may not be codebuild)"
+        return 0
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Check if project exists
+    PROJECT_CHECK=$(aws codebuild batch-get-projects \
+        --names "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'projects[0].name' \
+        --output text 2>/dev/null)
+
+    if [ "$PROJECT_CHECK" = "None" ] || [ -z "$PROJECT_CHECK" ] || [ "$PROJECT_CHECK" = "null" ]; then
+        echo "ℹ️  CodeBuild project not found: ${CODEBUILD_PROJECT_NAME}"
+        return 0
+    fi
+
+    echo ""
+    echo "Resources to be removed:"
+    echo "   • CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+
+    # Check for service role
+    ROLE_NAME="${CODEBUILD_PROJECT_NAME}-service-role"
+    ROLE_EXISTS=false
+    if aws iam get-role --role-name "${ROLE_NAME}" &> /dev/null; then
+        ROLE_EXISTS=true
+        echo "   • IAM service role: ${ROLE_NAME}"
+    fi
+
+    # Check for S3 source bucket
+    S3_BUCKET="codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+    S3_PREFIX="${PROJECT_NAME}/"
+    S3_EXISTS=false
+    if aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" &> /dev/null; then
+        S3_COUNT=$(aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX" --region "${AWS_REGION}" 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$S3_COUNT" -gt 0 ]; then
+            S3_EXISTS=true
+            echo "   • S3 source artifacts: s3://$S3_BUCKET/$S3_PREFIX ($S3_COUNT objects)"
+        fi
+    fi
+
+    if ! confirm_action "This will delete the CodeBuild project and associated resources"; then
+        return 1
+    fi
+
+    # Delete CodeBuild project
+    echo "🗑️  Deleting CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+    if aws codebuild delete-project \
+        --name "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "✅ CodeBuild project deleted"
+    else
+        echo "❌ Failed to delete CodeBuild project"
+    fi
+
+    # Delete IAM service role
+    if [ "$ROLE_EXISTS" = true ]; then
+        echo "🗑️  Deleting IAM service role: ${ROLE_NAME}"
+        # Remove inline policies first
+        POLICIES=$(aws iam list-role-policies --role-name "${ROLE_NAME}" --query 'PolicyNames' --output text 2>/dev/null || echo "")
+        for policy in $POLICIES; do
+            aws iam delete-role-policy --role-name "${ROLE_NAME}" --policy-name "$policy" 2>/dev/null || true
+        done
+        if aws iam delete-role --role-name "${ROLE_NAME}" &> /dev/null; then
+            echo "✅ IAM service role deleted"
+        else
+            echo "❌ Failed to delete IAM service role"
+        fi
+    fi
+
+    # Delete S3 source artifacts
+    if [ "$S3_EXISTS" = true ]; then
+        echo "🗑️  Deleting S3 source artifacts: s3://$S3_BUCKET/$S3_PREFIX"
+        if aws s3 rm "s3://$S3_BUCKET/$S3_PREFIX" --recursive --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ S3 source artifacts deleted"
+        else
+            echo "❌ Failed to delete S3 source artifacts"
+        fi
+    fi
+
+    echo "✅ CodeBuild resources cleaned"
+}
+
 # Main script logic
 echo "🧹 Cleanup script for ${PROJECT_NAME}"
 echo ""
@@ -277,6 +377,9 @@ case "${CLEANUP_TARGET}" in
         ;;
     endpoint)
         clean_endpoint
+        ;;
+    codebuild)
+        clean_codebuild
         ;;
     all)
         echo "🧹 Performing complete cleanup"
@@ -302,6 +405,13 @@ case "${CLEANUP_TARGET}" in
         # Clean SageMaker resources
         if clean_endpoint; then
             CLEANED_ITEMS+=("SageMaker resources")
+        fi
+        
+        echo ""
+        
+        # Clean CodeBuild resources
+        if clean_codebuild; then
+            CLEANED_ITEMS+=("CodeBuild resources")
         fi
         
         # Display summary

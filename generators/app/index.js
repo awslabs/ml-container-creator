@@ -357,30 +357,39 @@ export default class extends Generator {
         };
 
         // Copy all templates, processing EJS variables
-        // Runtime scripts handle framework-specific and deployment-specific logic
-        const ignorePatterns = [];
-
-        // chat_template.jinja, serve, serving.properties, and start_server.sh
-        // are only relevant for transformer models (vLLM, SGLang, TensorRT-LLM, LMI, DJL)
-        if (this.answers.framework !== 'transformers') {
-            ignorePatterns.push('**/code/chat_template.jinja');
-            ignorePatterns.push('**/code/serve');
-            ignorePatterns.push('**/code/serving.properties');
-            ignorePatterns.push('**/code/start_server.sh');
-        }
-
-        // nginx-tensorrt.conf is only relevant for TensorRT-LLM
-        if (this.answers.modelServer !== 'tensorrt-llm') {
-            ignorePatterns.push('**/nginx-tensorrt.conf');
-        }
-
         this.fs.copyTpl(
             this.templatePath('**/*'),
             this.destinationPath(),
-            templateVars,
-            {},
-            { globOptions: { ignore: ignorePatterns } }
+            templateVars
         );
+
+        // Remove files that don't belong in this deployment configuration
+        // Transformer-only files: not needed for sklearn, xgboost, tensorflow
+        if (this.answers.framework !== 'transformers') {
+            this.fs.delete(this.destinationPath('code/chat_template.jinja'));
+            this.fs.delete(this.destinationPath('code/serve'));
+            this.fs.delete(this.destinationPath('code/serving.properties'));
+            this.fs.delete(this.destinationPath('code/start_server.sh'));
+        }
+
+        // Traditional ML files: not needed for transformers (vLLM, SGLang, TensorRT-LLM, LMI, DJL)
+        if (this.answers.framework === 'transformers') {
+            this.fs.delete(this.destinationPath('code/model_handler.py'));
+            this.fs.delete(this.destinationPath('code/serve.py'));
+            this.fs.delete(this.destinationPath('code/start_server.py'));
+            this.fs.delete(this.destinationPath('nginx-predictors.conf'));
+        }
+
+        // Flask directory: not needed for FastAPI-based configurations
+        if (this.answers.modelServer !== 'flask') {
+            this.fs.delete(this.destinationPath('code/flask/wsgi.py'));
+            this.fs.delete(this.destinationPath('code/flask/gunicorn_config.py'));
+        }
+
+        // nginx-tensorrt.conf: only needed for TensorRT-LLM
+        if (this.answers.modelServer !== 'tensorrt-llm') {
+            this.fs.delete(this.destinationPath('nginx-tensorrt.conf'));
+        }
 
         // Copy PROJECT_README.md as README.md in the generated project
         this.fs.copyTpl(
@@ -692,6 +701,7 @@ export default class extends Generator {
             chatTemplate: null,
             chatTemplateSource: null,
             hfToken: null,
+            ngcApiKey: null,
             envVars: {},
             inferenceAmiVersion: null,
             accelerator: null,

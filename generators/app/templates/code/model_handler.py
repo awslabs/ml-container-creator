@@ -322,7 +322,7 @@ class ModelHandler:
     def load_model(self):
         """Initialize SGLang runtime"""
         try:
-            model_id = '<%= model %>'
+            model_id = '<%= modelName %>'
             logger.info(f"Loading SGLang model: {model_id}")
 
             self.runtime = Runtime(

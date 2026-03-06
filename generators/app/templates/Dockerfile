@@ -10,7 +10,7 @@
 <% } %>
 
 <% if (framework !== 'transformers') { %>
-FROM public.ecr.aws/docker/library/python:3.12-slim
+FROM python:3.12-slim
 
 # Set a docker label to name this project, postpended with the build time
 LABEL project.name="<%= projectName %>-<%= buildTimestamp %>" \
@@ -138,7 +138,7 @@ ARG BASE_IMAGE=763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.32.0
 # DJL Serving Container
 # Deep Java Library serving with support for multiple inference backends
 # Documentation: https://djl.ai/
-ARG BASE_IMAGE=deepjavalibrary/djl-serving:0.32.0-pytorch-cu126
+ARG BASE_IMAGE=deepjavalibrary/djl-serving:0.36.0-pytorch-gpu
 <% } %>
 
 FROM ${BASE_IMAGE}

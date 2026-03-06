@@ -93,9 +93,19 @@ case "${FRAMEWORK}" in
         echo "   Payload: Sample feature vector"
         ;;
     transformers)
-        # Transformers: Text generation request
-        TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50, "temperature": 0.7}}'
-        echo "   Payload: Sample text generation request"
+        # Transformers: payload format depends on model server
+        case "${MODEL_SERVER}" in
+            vllm|sglang)
+                # OpenAI-compatible chat completions format
+                TEST_PAYLOAD='{"model": "'"${MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                echo "   Payload: OpenAI-compatible chat completion request"
+                ;;
+            *)
+                # HuggingFace-style format for LMI, DJL, TensorRT-LLM
+                TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50, "temperature": 0.7}}'
+                echo "   Payload: HuggingFace-style text generation request"
+                ;;
+        esac
         ;;
     *)
         echo "❌ Unknown framework: ${FRAMEWORK}"
@@ -142,7 +152,7 @@ else
         --endpoint-name "${ENDPOINT_NAME}" \
         --region "${AWS_REGION}" \
         --content-type "application/json" \
-        --body "file://${TEMP_PAYLOAD}" \
+        --body "fileb://${TEMP_PAYLOAD}" \
         "${TEMP_RESPONSE}" &> /dev/null; then
         echo "❌ Inference request failed"
         rm -f "${TEMP_PAYLOAD}" "${TEMP_RESPONSE}"

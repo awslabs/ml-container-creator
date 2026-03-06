@@ -83,11 +83,12 @@ describe('generator-ml-container-creator:app', () => {
             ]);
         });
 
-        it('creates all template files (no exclusions)', () => {
-            // With do-framework, all files are generated
-            assert.file([
-                'code/serve',  // Transformer file also generated
-                'code/model_handler.py'  // Traditional ML file also generated
+        it('excludes transformer-specific files for non-transformer projects', () => {
+            assert.noFile([
+                'code/chat_template.jinja',
+                'code/serve',
+                'code/serving.properties',
+                'code/start_server.sh'
             ]);
         });
     });
@@ -138,12 +139,21 @@ describe('generator-ml-container-creator:app', () => {
             ]);
         });
 
-        it('creates all template files (no exclusions)', () => {
-            // With do-framework, all files are generated
+        it('creates transformer-specific files', () => {
             assert.file([
-                'code/model_handler.py',  // Traditional ML file also generated
-                'code/serve.py',  // Traditional ML file also generated
-                'code/serve'  // Transformer file also generated
+                'code/serve',
+                'code/chat_template.jinja',
+                'code/serving.properties',
+                'code/start_server.sh'
+            ]);
+        });
+
+        it('excludes traditional ML files for transformer projects', () => {
+            assert.noFile([
+                'code/model_handler.py',
+                'code/serve.py',
+                'code/start_server.py',
+                'nginx-predictors.conf'
             ]);
         });
 
@@ -202,13 +212,15 @@ describe('generator-ml-container-creator:app', () => {
             ]);
         });
 
-        it('creates all code template files (no exclusions)', () => {
-            // With do-framework, all code files are generated
-            assert.file([
-                'code/model_handler.py',
-                'code/serve.py',
+        it('excludes transformer-specific and flask-specific files', () => {
+            // Non-transformer + non-flask project should not have these files
+            assert.noFile([
+                'code/chat_template.jinja',
                 'code/serve',
-                'code/flask/wsgi.py'  // Even Flask files are generated for FastAPI
+                'code/serving.properties',
+                'code/start_server.sh',
+                'code/flask/wsgi.py',
+                'code/flask/gunicorn_config.py'
             ]);
         });
     });

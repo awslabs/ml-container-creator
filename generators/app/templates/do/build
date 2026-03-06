@@ -41,17 +41,26 @@ case "${DEPLOYMENT_CONFIG}" in
         echo "${NGC_API_KEY}" | docker login nvcr.io --username '$oauthtoken' --password-stdin
         
         echo "🏗️  Building GPU-enabled image with TensorRT-LLM..."
-        docker build --provenance=false -t "${PROJECT_NAME}:latest" .
+        docker build -t "${PROJECT_NAME}:latest" .
         ;;
         
-    transformers-vllm|transformers-sglang|transformers-lmi|transformers-djl)
+    transformers-vllm|transformers-sglang)
         echo "🏗️  Building GPU-enabled image..."
-        docker build --provenance=false -t "${PROJECT_NAME}:latest" .
+        docker build -t "${PROJECT_NAME}:latest" .
+        ;;
+        
+    transformers-lmi|transformers-djl)
+        echo "🔐 LMI/DJL base images require AWS ECR authentication"
+        echo "🔑 Authenticating with AWS Deep Learning Container ECR..."
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 763104351884.dkr.ecr.us-east-1.amazonaws.com
+        
+        echo "🏗️  Building GPU-enabled image..."
+        docker build -t "${PROJECT_NAME}:latest" .
         ;;
         
     sklearn-*|xgboost-*|tensorflow-*)
         echo "🏗️  Building CPU-optimized image..."
-        docker build --provenance=false -t "${PROJECT_NAME}:latest" .
+        docker build -t "${PROJECT_NAME}:latest" .
         ;;
         
     *)

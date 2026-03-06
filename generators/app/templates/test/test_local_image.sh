@@ -50,8 +50,8 @@ PORT=8080
 
 echo "Building Docker image..."
 docker build \
-  --build-arg MODEL=<%= model %> \
-  --build-arg MODEL_NAME=<%= projectName %>.<%= model %> \
+  --build-arg MODEL=<%= modelName %> \
+  --build-arg MODEL_NAME=<%= projectName %>.<%= modelName %> \
   --platform=linux/amd64 \
   -t ${IMAGE_NAME} \
   .

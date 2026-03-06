@@ -54,7 +54,33 @@ const deploymentConfigPrompts = [
         name: 'deploymentConfig',
         message: 'Select deployment configuration:',
         choices: [
-            { type: 'separator', line: '── Traditional ML ──' },
+            { type: 'separator', separator: '── Large Language Models ──' },
+            {
+                name: 'Transformers with vLLM',
+                value: 'transformers-vllm',
+                short: 'transformers-vllm'
+            },
+            {
+                name: 'Transformers with SGLang',
+                value: 'transformers-sglang',
+                short: 'transformers-sglang'
+            },
+            {
+                name: 'Transformers with TensorRT-LLM',
+                value: 'transformers-tensorrt-llm',
+                short: 'transformers-tensorrt-llm'
+            },
+            {
+                name: 'Transformers with LMI (Large Model Inference)',
+                value: 'transformers-lmi',
+                short: 'transformers-lmi'
+            },
+            {
+                name: 'Transformers with DJL (Deep Java Library)',
+                value: 'transformers-djl',
+                short: 'transformers-djl'
+            },
+            { type: 'separator', separator: '── Traditional ML ──' },
             {
                 name: 'scikit-learn with Flask',
                 value: 'sklearn-flask',
@@ -84,32 +110,6 @@ const deploymentConfigPrompts = [
                 name: 'TensorFlow with FastAPI',
                 value: 'tensorflow-fastapi',
                 short: 'tensorflow-fastapi'
-            },
-            { type: 'separator', line: '── Large Language Models ──' },
-            {
-                name: 'Transformers with vLLM',
-                value: 'transformers-vllm',
-                short: 'transformers-vllm'
-            },
-            {
-                name: 'Transformers with SGLang',
-                value: 'transformers-sglang',
-                short: 'transformers-sglang'
-            },
-            {
-                name: 'Transformers with TensorRT-LLM',
-                value: 'transformers-tensorrt-llm',
-                short: 'transformers-tensorrt-llm'
-            },
-            {
-                name: 'Transformers with LMI (Large Model Inference)',
-                value: 'transformers-lmi',
-                short: 'transformers-lmi'
-            },
-            {
-                name: 'Transformers with DJL (Deep Java Library)',
-                value: 'transformers-djl',
-                short: 'transformers-djl'
             }
         ]
     }
@@ -260,37 +260,20 @@ const hfTokenPrompts = [
             // Derive framework from deploymentConfig if not already set
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             
-            // Only prompt when:
-            // 1. Framework is transformers
-            // 2. User manually entered a model ID (not from examples)
-            const isTransformers = framework === 'transformers';
-            
-            // Check if user selected custom model entry
-            const isManualEntry = answers.modelName === 'Custom (enter manually)';
-            
-            // If manual entry, we need to check the customModelName
-            // If it matches an example model (case-insensitive), skip prompt
-            if (isTransformers && isManualEntry && answers.customModelName) {
-                const customModel = answers.customModelName.toLowerCase();
-                const isExampleModel = EXAMPLE_MODEL_IDS.some(
-                    exampleId => exampleId.toLowerCase() === customModel
-                );
-                
-                if (isExampleModel) {
-                    return false; // Skip prompt for example models
-                }
-                
-                // Display security warning before prompting
-                console.log('\n🔐 HuggingFace Authentication');
-                console.log('⚠️  Security Note: The token will be baked into the Docker image.');
-                console.log('   Anyone with access to the image can extract the token using \'docker inspect\'.');
-                console.log('   For CI/CD pipelines, use "$HF_TOKEN" to reference an environment variable.');
-                console.log('   This keeps the token out of the image and allows rotation without rebuilding.\n');
-                
-                return true; // Show prompt for custom models
+            // Only prompt for transformers framework
+            if (framework !== 'transformers') {
+                return false;
             }
             
-            return false; // Skip prompt for non-transformers or example models
+            // Display security warning before prompting
+            console.log('\n🔐 HuggingFace Authentication');
+            console.log('   Many models (e.g. Llama, Mistral) are gated and require a token.');
+            console.log('⚠️  Security Note: The token will be baked into the Docker image.');
+            console.log('   Anyone with access to the image can extract the token using \'docker inspect\'.');
+            console.log('   For CI/CD pipelines, use "$HF_TOKEN" to reference an environment variable.');
+            console.log('   This keeps the token out of the image and allows rotation without rebuilding.\n');
+            
+            return true;
         },
         validate: (input) => {
             // Empty is valid (not all models require auth)
@@ -310,6 +293,40 @@ const hfTokenPrompts = [
             }
             
             return true; // Always return true (non-blocking validation)
+        }
+    }
+];
+
+const ngcApiKeyPrompts = [
+    {
+        type: 'input',
+        name: 'ngcApiKey',
+        message: 'NVIDIA NGC API key (enter key, "$NGC_API_KEY" for env var, or leave empty):',
+        when: (answers) => {
+            const modelServer = answers.modelServer || answers.deploymentConfig?.split('-').slice(1).join('-');
+            
+            if (modelServer !== 'tensorrt-llm') {
+                return false;
+            }
+            
+            console.log('\n🔐 NVIDIA NGC Authentication');
+            console.log('   TensorRT-LLM base images are hosted on NVIDIA NGC and require an API key.');
+            console.log('   1. Create account at: https://ngc.nvidia.com/');
+            console.log('   2. Generate API key in account settings');
+            console.log('   For CI/CD pipelines, use "$NGC_API_KEY" to reference an environment variable.\n');
+            
+            return true;
+        },
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return true;
+            }
+            
+            if (input.trim() === '$NGC_API_KEY') {
+                return true;
+            }
+            
+            return true;
         }
     }
 ];
@@ -546,6 +563,7 @@ export {
     modelServerPrompts, // Deprecated: now empty, modelServer derived from deploymentConfig
     modelProfilePrompts,
     hfTokenPrompts,
+    ngcApiKeyPrompts,
     modulePrompts,
     infrastructurePrompts,
     projectPrompts,

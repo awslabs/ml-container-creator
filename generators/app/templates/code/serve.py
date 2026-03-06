@@ -114,7 +114,7 @@ sglang_runtime = None
 async def startup_event():
     """Initialize SGLang runtime when the server starts"""
     global sglang_runtime
-    model_id = "<%= model %>"
+    model_id = "<%= modelName %>"
     logger.info(f"Initializing SGLang runtime with model: {model_id}")
 
     sglang_runtime = Runtime(
