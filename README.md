@@ -4,6 +4,8 @@
   <h1>ML Container Creator</h1>
   <p><em>Simplify your machine learning deployments on AWS SageMaker</em></p>
 </div>
+[![CI](https://github.com/awslabs/ml-container-creator/actions/workflows/ci.yml/badge.svg)](https://github.com/awslabs/ml-container-creator/actions/workflows/ci.yml)
+[![Deploy MkDocs to GitHub Pages](https://github.com/awslabs/ml-container-creator/actions/workflows/docs.yml/badge.svg)](https://github.com/awslabs/ml-container-creator/actions/workflows/docs.yml)
 
 ## Why ML Container Creator?
 
