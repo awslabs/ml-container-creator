@@ -11,7 +11,7 @@ export default class DockerIntrospectionValidator {
      * Create a new DockerIntrospectionValidator.
      */
     constructor() {
-        this.name = 'docker-introspection'
+        this.name = 'docker-introspection';
     }
     
     /**
@@ -27,15 +27,15 @@ export default class DockerIntrospectionValidator {
      * @returns {Array<Object>} ValidationResult.warnings - Warning messages
      * @returns {Array<Object>} ValidationResult.errors - Error messages
      */
-    async validate(framework, version, envVars) {
-        const warnings = []
-        const errors = []
+    async validate(_framework, _version, _envVars) {
+        const warnings = [];
+        const errors = [];
         
         // Add experimental warning
         warnings.push({
             key: null,
             message: 'Docker introspection validation is experimental and not tested in CI/CD'
-        })
+        });
         
         // Docker introspection implementation would go here
         // This is a placeholder for the opt-in experimental feature
@@ -46,6 +46,6 @@ export default class DockerIntrospectionValidator {
         // 4. Parse any error messages from the container logs
         
         // For now, just return the experimental warning
-        return { warnings, errors }
+        return { warnings, errors };
     }
 }

@@ -123,7 +123,7 @@ The generator merges configuration from multiple sources in this precedence orde
    yo ml-container-creator --config=production.json
    ```
 
-4. **Default Config File** (`ml-container.config.json`)
+4. **Default Config File** (`config/mcp.json`)
    ```json
    {
      "framework": "sklearn",

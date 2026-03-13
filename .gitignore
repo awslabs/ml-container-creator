@@ -11,5 +11,8 @@ test-output-*
 .nyc_output/
 coverage/
 
+# Local MCP config (contains absolute paths)
+config/mcp.json
+
 # MkDocs build output
 site/

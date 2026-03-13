@@ -146,6 +146,11 @@ export default class extends Generator {
             type: Boolean,
             description: 'Disable HuggingFace API lookups for offline mode (default: false)'
         });
+
+        this.option('smart', {
+            type: Boolean,
+            description: 'Enable Bedrock-powered smart mode on all configured MCP servers for this run'
+        });
     }
 
     /**
@@ -789,8 +794,8 @@ export default class extends Generator {
                             this.answers.envVars = { ...frameworkConfig.envVars, ...this.answers.envVars };
                         }
                         
-                        // Set inference AMI version
-                        if (frameworkConfig.inferenceAmiVersion) {
+                        // Set inference AMI version (only if not already resolved by CUDA version selection)
+                        if (frameworkConfig.inferenceAmiVersion && !this.answers.inferenceAmiVersion) {
                             this.answers.inferenceAmiVersion = frameworkConfig.inferenceAmiVersion;
                         }
                         

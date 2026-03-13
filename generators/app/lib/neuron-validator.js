@@ -1,4 +1,4 @@
-import AcceleratorValidator from './accelerator-validator.js'
+import AcceleratorValidator from './accelerator-validator.js';
 
 /**
  * Neuron SDK accelerator validator.
@@ -17,29 +17,29 @@ export default class NeuronValidator extends AcceleratorValidator {
      * @returns {Object} ValidationResult
      */
     validate(frameworkConfig, instanceConfig) {
-        const required = frameworkConfig.accelerator
-        const provided = instanceConfig.accelerator
+        const required = frameworkConfig.accelerator;
+        const provided = instanceConfig.accelerator;
         
         // Parse required Neuron SDK version
-        const requiredVersion = this.parseVersion(required.version)
+        const requiredVersion = this.parseVersion(required.version);
         
         // Check if instance supports required Neuron SDK version
         const compatibleVersions = provided.versions.filter(v => {
-            const providedVersion = this.parseVersion(v)
-            return this.isCompatible(requiredVersion, providedVersion)
-        })
+            const providedVersion = this.parseVersion(v);
+            return this.isCompatible(requiredVersion, providedVersion);
+        });
         
         if (compatibleVersions.length === 0) {
             return {
                 compatible: false,
                 error: this.getVersionMismatchMessage(required.version, provided.versions)
-            }
+            };
         }
         
         return {
             compatible: true,
             info: `Using Neuron SDK ${compatibleVersions[0]} (compatible with required ${required.version})`
-        }
+        };
     }
     
     /**
@@ -49,8 +49,8 @@ export default class NeuronValidator extends AcceleratorValidator {
      * @returns {Object} Parsed version with major, minor, patch
      */
     parseVersion(versionString) {
-        const [major, minor, patch] = versionString.split('.').map(Number)
-        return { major, minor, patch }
+        const [major, minor, patch] = versionString.split('.').map(Number);
+        return { major, minor, patch };
     }
     
     /**
@@ -63,7 +63,7 @@ export default class NeuronValidator extends AcceleratorValidator {
      */
     isCompatible(required, provided) {
         return provided.major === required.major && 
-               provided.minor >= required.minor
+               provided.minor >= required.minor;
     }
     
     /**
@@ -75,6 +75,6 @@ export default class NeuronValidator extends AcceleratorValidator {
      */
     getVersionMismatchMessage(required, provided) {
         return `Framework requires Neuron SDK ${required}, but instance only supports ${provided.join(', ')}. ` +
-               `Consider using ml.inf2 instances for Neuron SDK 2.15+ support.`
+               'Consider using ml.inf2 instances for Neuron SDK 2.15+ support.';
     }
 }

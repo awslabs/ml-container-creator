@@ -651,7 +651,7 @@ Configuration sources are applied in order (highest to lowest priority):
 1. **CLI Options** (`--framework=sklearn`)
 2. **CLI Arguments** (`yo ml-container-creator my-project`)
 3. **Environment Variables** (`AWS_REGION=us-east-1`)
-4. **Config Files** (`--config=prod.json` or `ml-container.config.json`)
+4. **Config Files** (`--config=prod.json` or `config/mcp.json`)
 5. **Package.json** (`"ml-container-creator": {...}`)
 6. **Generator Defaults**
 7. **Interactive Prompts** (fallback)

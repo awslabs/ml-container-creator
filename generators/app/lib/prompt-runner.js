@@ -10,7 +10,6 @@
 
 import {
     deploymentConfigPrompts,
-    frameworkPrompts,
     frameworkVersionPrompts,
     frameworkProfilePrompts,
     modelFormatPrompts,
@@ -23,6 +22,8 @@ import {
     projectPrompts,
     destinationPrompts
 } from './prompts.js';
+
+import instanceAcceleratorMapping from '../config/registries/instance-accelerator-mapping.js';
 
 export default class PromptRunner {
     constructor(generator) {
@@ -142,7 +143,18 @@ export default class PromptRunner {
 
         // Phase 3: Infrastructure & Performance
         console.log('\n💪 Infrastructure & Performance');
-        const infraAnswers = await this._runPhase(infrastructurePrompts, frameworkAnswers, explicitConfig, existingConfig);
+
+        // Query MCP servers on-demand with user search terms
+        await this._queryMcpForInfrastructure(frameworkAnswers, explicitConfig);
+
+        // Pass MCP instance choices so the table and choices in prompts.js can filter
+        const mcpInstanceChoices = this.configManager?.mcpChoices?.instanceType;
+        const infraPreviousAnswers = {
+            ...frameworkAnswers,
+            ...(mcpInstanceChoices && mcpInstanceChoices.length > 0 ? { _mcpInstanceChoices: mcpInstanceChoices } : {})
+        };
+
+        const infraAnswers = await this._runPhase(infrastructurePrompts, infraPreviousAnswers, explicitConfig, existingConfig);
 
         // Validate instance type against framework requirements
         // Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
@@ -153,6 +165,18 @@ export default class PromptRunner {
                 frameworkAnswers.framework,
                 frameworkVersionAnswers.frameworkVersion
             );
+        }
+
+        // CUDA version selection: if the selected instance supports multiple CUDA versions,
+        // let the user pick which one. This transparently sets the inference AMI version.
+        const cudaAnswer = await this._promptCudaVersion(
+            instanceType,
+            frameworkAnswers.framework,
+            frameworkVersionAnswers.frameworkVersion
+        );
+        if (cudaAnswer) {
+            infraAnswers._selectedCudaVersion = cudaAnswer.cudaVersion;
+            infraAnswers._resolvedInferenceAmiVersion = cudaAnswer.inferenceAmiVersion;
         }
 
         // Show warning for SageMaker deployment target
@@ -202,6 +226,17 @@ export default class PromptRunner {
             combinedAnswers.instanceType = combinedAnswers.customInstanceType;
             delete combinedAnswers.customInstanceType;
         }
+
+        // Apply CUDA version selection → inference AMI override
+        if (combinedAnswers._resolvedInferenceAmiVersion) {
+            combinedAnswers.inferenceAmiVersion = combinedAnswers._resolvedInferenceAmiVersion;
+        }
+        if (combinedAnswers._selectedCudaVersion) {
+            combinedAnswers.selectedCudaVersion = combinedAnswers._selectedCudaVersion;
+        }
+        // Clean up internal fields
+        delete combinedAnswers._resolvedInferenceAmiVersion;
+        delete combinedAnswers._selectedCudaVersion;
 
         // Handle custom AWS region
         if (combinedAnswers.customAwsRegion) {
@@ -258,6 +293,10 @@ export default class PromptRunner {
         
         return await this.generator.prompt(promptablePrompts.map(prompt => ({
             ...prompt,
+            // Wrap message to inject previousAnswers so prompts can access _mcpInstanceChoices etc.
+            message: typeof prompt.message === 'function' ? (answers) => {
+                return prompt.message({...allPreviousAnswers, ...answers});
+            } : prompt.message,
             // Use existing config as default if available
             default: prompt.default ? (answers) => {
                 // Check if we have a value from existing config first
@@ -281,7 +320,13 @@ export default class PromptRunner {
             } : (explicitConfig[prompt.name] !== undefined && explicitConfig[prompt.name] !== null) ? 
                 false : undefined,
             // Provide access to previous answers for conditional logic
+            // For unbounded parameters, inject MCP-provided choices if available
             choices: prompt.choices ? (answers) => {
+                const mcpChoices = this.configManager?.mcpChoices?.[prompt.name];
+                if (mcpChoices && mcpChoices.length > 0) {
+                    return [...mcpChoices.map(v => ({ name: v, value: v })), { name: 'Custom (enter manually)', value: 'custom' }];
+                }
+                // Fallback to original choices
                 if (typeof prompt.choices === 'function') {
                     return prompt.choices({...allPreviousAnswers, ...answers});
                 }
@@ -301,6 +346,75 @@ export default class PromptRunner {
         console.log('\t ./build_and_push.sh -- Builds the image and pushes to ECR.');
         console.log('\t ./deploy.sh -- Deploys the image to a SageMaker AI Managed Inference Endpoint.');
         console.log('\t\t deploy.sh needs a valid IAM Role ARN as a parameter.');
+    }
+
+    /**
+     * Query MCP servers for infrastructure parameters using user-provided search terms.
+     * Populates configManager.mcpChoices so _runPhase injects them into list prompts.
+     * @private
+     */
+    async _queryMcpForInfrastructure(frameworkAnswers, explicitConfig) {
+        const cm = this.configManager;
+        if (!cm) return;
+
+        const mcpServers = cm.getMcpServerNames();
+        if (mcpServers.length === 0) return;
+
+        const smart = this.generator.options.smart === true;
+
+        // Instance type: query if not already provided via CLI/config
+        if (!explicitConfig.instanceType && mcpServers.includes('instance-recommender')) {
+            const { instanceSearch } = await this.generator.prompt([{
+                type: 'input',
+                name: 'instanceSearch',
+                message: '🔌 Describe your instance needs (e.g. "multi-gpu", "cost-effective cpu"):',
+                default: frameworkAnswers.framework || ''
+            }]);
+
+            if (instanceSearch && instanceSearch.trim()) {
+                console.log(`   🔍 Querying instance-recommender${smart ? ' [smart]' : ''}...`);
+                const result = await cm.queryMcpServer('instance-recommender', {
+                    ...frameworkAnswers,
+                    instanceSearch: instanceSearch.trim()
+                });
+                if (result && result.choices?.instanceType?.length > 0) {
+                    const choices = result.choices.instanceType;
+                    const preview = choices.length <= 5
+                        ? choices.join(', ')
+                        : `${choices.slice(0, 5).join(', ')  } (+${choices.length - 5} more)`;
+                    console.log(`   ✓ ${choices.length} instance(s): [${preview}]`);
+                } else {
+                    console.log('   ↳ No MCP results, using static list');
+                }
+            }
+        }
+
+        // Region: query if not already provided via CLI/config
+        if (!explicitConfig.awsRegion && mcpServers.includes('region-picker')) {
+            const { regionSearch } = await this.generator.prompt([{
+                type: 'input',
+                name: 'regionSearch',
+                message: '🔌 Search for a region (e.g. "europe", "us west", "tokyo"):',
+                default: ''
+            }]);
+
+            if (regionSearch && regionSearch.trim()) {
+                console.log(`   🔍 Querying region-picker${smart ? ' [smart]' : ''}...`);
+                const result = await cm.queryMcpServer('region-picker', {
+                    ...frameworkAnswers,
+                    regionSearch: regionSearch.trim()
+                });
+                if (result && result.choices?.awsRegion?.length > 0) {
+                    const choices = result.choices.awsRegion;
+                    const preview = choices.length <= 5
+                        ? choices.join(', ')
+                        : `${choices.slice(0, 5).join(', ')  } (+${choices.length - 5} more)`;
+                    console.log(`   ✓ ${choices.length} region(s): [${preview}]`);
+                } else {
+                    console.log('   ↳ No MCP results, using static list');
+                }
+            }
+        }
     }
 
     /**
@@ -365,7 +479,7 @@ export default class PromptRunner {
         console.log('\n📋 Framework Configuration:');
         console.log(`   • Framework: ${framework} ${version}`);
         console.log(`   • Validation Level: ${config.validationLevel || 'unknown'}`);
-        console.log(`   • Source: Framework_Registry`);
+        console.log('   • Source: Framework_Registry');
         
         if (config.accelerator) {
             console.log(`   • Accelerator: ${config.accelerator.type} ${config.accelerator.version || 'any'}`);
@@ -435,7 +549,7 @@ export default class PromptRunner {
         if (!modelConfig) {
             for (const [pattern, config] of Object.entries(registryConfigManager.modelRegistry)) {
                 if (pattern.includes('*')) {
-                    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+                    const regex = new RegExp(`^${  pattern.replace(/\*/g, '.*')  }$`);
                     if (regex.test(modelId)) {
                         modelConfig = config;
                         break;
@@ -509,7 +623,7 @@ export default class PromptRunner {
             if (!modelConfig) {
                 for (const [pattern, config] of Object.entries(registryConfigManager.modelRegistry)) {
                     if (pattern.includes('*')) {
-                        const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+                        const regex = new RegExp(`^${  pattern.replace(/\*/g, '.*')  }$`);
                         if (regex.test(modelId)) {
                             modelConfig = config;
                             console.log(`   ✅ Matched pattern in Model_Registry: ${pattern}`);
@@ -613,6 +727,110 @@ export default class PromptRunner {
         if (validationResult.warning) {
             console.log(`   ⚠️  Warning: ${validationResult.warning}`);
         }
+    }
+
+    /**
+     * CUDA-to-AMI mapping.
+     * Maps CUDA major.minor versions to the SageMaker inference AMI that provides
+     * the matching CUDA driver. Derived from the framework registry patterns.
+     * @private
+     */
+    static CUDA_AMI_MAP = {
+        '11.0': 'al2-ami-sagemaker-inference-gpu-2-1',
+        '11.4': 'al2-ami-sagemaker-inference-gpu-2-1',
+        '11.8': 'al2-ami-sagemaker-inference-gpu-3-1',
+        '12.1': 'al2-ami-sagemaker-inference-gpu-3-1',
+        '12.2': 'al2-ami-sagemaker-inference-gpu-3-2',
+        '12.4': 'al2-ami-sagemaker-inference-gpu-3-2',
+        '12.6': 'al2-ami-sagemaker-inference-gpu-3-2'
+    };
+
+    /**
+     * Prompt the user to select a CUDA version when the selected GPU instance
+     * supports multiple versions. The choice transparently resolves to the
+     * correct SageMaker inference AMI.
+     *
+     * Skipped for CPU instances, non-CUDA accelerators, or when only one
+     * compatible CUDA version exists.
+     *
+     * @param {string} instanceType - Selected instance type (e.g. "ml.g5.2xlarge")
+     * @param {string} framework - Selected framework name
+     * @param {string} frameworkVersion - Selected framework version
+     * @returns {Promise<{cudaVersion: string, inferenceAmiVersion: string}|null>}
+     * @private
+     */
+    async _promptCudaVersion(instanceType, framework, frameworkVersion) {
+        if (!instanceType) return null;
+
+        // Look up instance in accelerator mapping
+        const instanceInfo = instanceAcceleratorMapping[instanceType];
+        if (!instanceInfo || instanceInfo.accelerator.type !== 'cuda') return null;
+
+        const instanceCudaVersions = instanceInfo.accelerator.versions;
+        if (!instanceCudaVersions || instanceCudaVersions.length === 0) return null;
+
+        // Get framework CUDA requirements (if available)
+        const registryConfigManager = this.generator.registryConfigManager;
+        const frameworkConfig = registryConfigManager?.frameworkRegistry?.[framework]?.[frameworkVersion];
+        const frameworkAccel = frameworkConfig?.accelerator;
+
+        // Compute compatible CUDA versions: intersection of instance support and framework range
+        let compatibleVersions;
+        if (frameworkAccel?.versionRange) {
+            const { min, max } = frameworkAccel.versionRange;
+            compatibleVersions = instanceCudaVersions.filter(v => {
+                return v >= min && v <= max;
+            });
+        } else {
+            compatibleVersions = [...instanceCudaVersions];
+        }
+
+        if (compatibleVersions.length === 0) {
+            // No overlap — fall back to all instance versions (validation already warned)
+            compatibleVersions = [...instanceCudaVersions];
+        }
+
+        // If only one option, auto-select it silently
+        if (compatibleVersions.length === 1) {
+            const cudaVersion = compatibleVersions[0];
+            const inferenceAmiVersion = PromptRunner.CUDA_AMI_MAP[cudaVersion];
+            if (inferenceAmiVersion) {
+                console.log(`\n🔧 CUDA ${cudaVersion} auto-selected (only compatible version for ${instanceType})`);
+                console.log(`   AMI: ${inferenceAmiVersion}`);
+            }
+            return inferenceAmiVersion ? { cudaVersion, inferenceAmiVersion } : null;
+        }
+
+        // Multiple options — let the user choose
+        const defaultVersion = frameworkAccel?.version
+            && compatibleVersions.includes(frameworkAccel.version)
+            ? frameworkAccel.version
+            : instanceInfo.accelerator.default || compatibleVersions[compatibleVersions.length - 1];
+
+        const choices = compatibleVersions.map(v => {
+            const ami = PromptRunner.CUDA_AMI_MAP[v] || 'unknown';
+            const isDefault = v === defaultVersion ? ' (recommended)' : '';
+            return {
+                name: `CUDA ${v}${isDefault}  →  AMI: ${ami}`,
+                value: v,
+                short: `CUDA ${v}`
+            };
+        });
+
+        const { cudaVersion } = await this.generator.prompt([{
+            type: 'list',
+            name: 'cudaVersion',
+            message: `Select CUDA version for ${instanceType} (${instanceInfo.accelerator.hardware}):`,
+            choices,
+            default: defaultVersion
+        }]);
+
+        const inferenceAmiVersion = PromptRunner.CUDA_AMI_MAP[cudaVersion];
+        if (inferenceAmiVersion) {
+            console.log(`   ✅ CUDA ${cudaVersion} → AMI: ${inferenceAmiVersion}`);
+        }
+
+        return inferenceAmiVersion ? { cudaVersion, inferenceAmiVersion } : null;
     }
 }
 

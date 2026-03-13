@@ -13,56 +13,56 @@ export default class SchemaValidator {
      * @returns {Object} - { valid: boolean, errors: string[] }
      */
     validate(data, schema) {
-        const errors = []
+        const errors = [];
         
         try {
-            this._validateType(data, schema, '', errors)
+            this._validateType(data, schema, '', errors);
         } catch (error) {
-            errors.push(`Validation error: ${error.message}`)
+            errors.push(`Validation error: ${error.message}`);
         }
         
         return {
             valid: errors.length === 0,
             errors
-        }
+        };
     }
     
     _validateType(data, schema, path, errors) {
         // Handle type validation
         if (schema.type) {
-            const types = Array.isArray(schema.type) ? schema.type : [schema.type]
-            const dataType = this._getType(data)
+            const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+            const dataType = this._getType(data);
             
             if (!types.includes(dataType)) {
-                errors.push(`${path || 'root'}: Expected type ${types.join(' or ')}, got ${dataType}`)
-                return
+                errors.push(`${path || 'root'}: Expected type ${types.join(' or ')}, got ${dataType}`);
+                return;
             }
         }
         
         // Handle enum validation
         if (schema.enum && !schema.enum.includes(data)) {
-            errors.push(`${path || 'root'}: Value must be one of ${schema.enum.join(', ')}`)
-            return
+            errors.push(`${path || 'root'}: Value must be one of ${schema.enum.join(', ')}`);
+            return;
         }
         
         // Handle object validation
         if (this._getType(data) === 'object' && schema.type === 'object') {
-            this._validateObject(data, schema, path, errors)
+            this._validateObject(data, schema, path, errors);
         }
         
         // Handle array validation
         if (this._getType(data) === 'array' && schema.type === 'array') {
-            this._validateArray(data, schema, path, errors)
+            this._validateArray(data, schema, path, errors);
         }
         
         // Handle string validation
         if (this._getType(data) === 'string' && schema.type === 'string') {
-            this._validateString(data, schema, path, errors)
+            this._validateString(data, schema, path, errors);
         }
         
         // Handle number validation
         if (this._getType(data) === 'number' && schema.type === 'number') {
-            this._validateNumber(data, schema, path, errors)
+            this._validateNumber(data, schema, path, errors);
         }
     }
     
@@ -71,7 +71,7 @@ export default class SchemaValidator {
         if (schema.required) {
             for (const requiredProp of schema.required) {
                 if (!(requiredProp in data)) {
-                    errors.push(`${path || 'root'}: Missing required property '${requiredProp}'`)
+                    errors.push(`${path || 'root'}: Missing required property '${requiredProp}'`);
                 }
             }
         }
@@ -80,7 +80,7 @@ export default class SchemaValidator {
         if (schema.properties) {
             for (const [key, value] of Object.entries(data)) {
                 if (schema.properties[key]) {
-                    this._validateType(value, schema.properties[key], `${path}.${key}`, errors)
+                    this._validateType(value, schema.properties[key], `${path}.${key}`, errors);
                 }
             }
         }
@@ -89,9 +89,9 @@ export default class SchemaValidator {
         if (schema.patternProperties) {
             for (const [key, value] of Object.entries(data)) {
                 for (const [pattern, propSchema] of Object.entries(schema.patternProperties)) {
-                    const regex = new RegExp(pattern)
+                    const regex = new RegExp(pattern);
                     if (regex.test(key)) {
-                        this._validateType(value, propSchema, `${path}.${key}`, errors)
+                        this._validateType(value, propSchema, `${path}.${key}`, errors);
                     }
                 }
             }
@@ -101,38 +101,38 @@ export default class SchemaValidator {
     _validateArray(data, schema, path, errors) {
         // Check minItems
         if (schema.minItems !== undefined && data.length < schema.minItems) {
-            errors.push(`${path || 'root'}: Array must have at least ${schema.minItems} items`)
+            errors.push(`${path || 'root'}: Array must have at least ${schema.minItems} items`);
         }
         
         // Check maxItems
         if (schema.maxItems !== undefined && data.length > schema.maxItems) {
-            errors.push(`${path || 'root'}: Array must have at most ${schema.maxItems} items`)
+            errors.push(`${path || 'root'}: Array must have at most ${schema.maxItems} items`);
         }
         
         // Validate items
         if (schema.items) {
             data.forEach((item, index) => {
-                this._validateType(item, schema.items, `${path}[${index}]`, errors)
-            })
+                this._validateType(item, schema.items, `${path}[${index}]`, errors);
+            });
         }
     }
     
     _validateString(data, schema, path, errors) {
         // Check minLength
         if (schema.minLength !== undefined && data.length < schema.minLength) {
-            errors.push(`${path || 'root'}: String must be at least ${schema.minLength} characters`)
+            errors.push(`${path || 'root'}: String must be at least ${schema.minLength} characters`);
         }
         
         // Check maxLength
         if (schema.maxLength !== undefined && data.length > schema.maxLength) {
-            errors.push(`${path || 'root'}: String must be at most ${schema.maxLength} characters`)
+            errors.push(`${path || 'root'}: String must be at most ${schema.maxLength} characters`);
         }
         
         // Check pattern
         if (schema.pattern) {
-            const regex = new RegExp(schema.pattern)
+            const regex = new RegExp(schema.pattern);
             if (!regex.test(data)) {
-                errors.push(`${path || 'root'}: String does not match pattern ${schema.pattern}`)
+                errors.push(`${path || 'root'}: String does not match pattern ${schema.pattern}`);
             }
         }
     }
@@ -140,18 +140,18 @@ export default class SchemaValidator {
     _validateNumber(data, schema, path, errors) {
         // Check minimum
         if (schema.minimum !== undefined && data < schema.minimum) {
-            errors.push(`${path || 'root'}: Number must be at least ${schema.minimum}`)
+            errors.push(`${path || 'root'}: Number must be at least ${schema.minimum}`);
         }
         
         // Check maximum
         if (schema.maximum !== undefined && data > schema.maximum) {
-            errors.push(`${path || 'root'}: Number must be at most ${schema.maximum}`)
+            errors.push(`${path || 'root'}: Number must be at most ${schema.maximum}`);
         }
     }
     
     _getType(value) {
-        if (value === null) return 'null'
-        if (Array.isArray(value)) return 'array'
-        return typeof value
+        if (value === null) return 'null';
+        if (Array.isArray(value)) return 'array';
+        return typeof value;
     }
 }

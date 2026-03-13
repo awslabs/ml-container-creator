@@ -245,6 +245,7 @@ const modelProfilePrompts = [
  * List of example model IDs that don't require HF_TOKEN prompts
  * These are public models that don't need authentication
  */
+// eslint-disable-next-line no-unused-vars -- reference list for future use
 const EXAMPLE_MODEL_IDS = [
     'openai/gpt-oss-20b',
     'meta-llama/Llama-3.2-3B-Instruct',
@@ -394,7 +395,6 @@ const infrastructurePrompts = [
         message: (answers) => {
             // Derive framework and modelServer from deploymentConfig if not already set
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            const modelServer = answers.modelServer || answers.deploymentConfig?.split('-')[1];
             
             // Display instance type table
             const table = new Table({
@@ -410,9 +410,16 @@ const infrastructurePrompts = [
             
             // Filter instances based on framework
             const instances = Object.values(instanceTypeRegistry);
-            const filteredInstances = framework === 'transformers' 
+            let filteredInstances = framework === 'transformers' 
                 ? instances.filter(i => i.category === 'gpu')
                 : instances;
+            
+            // Further filter by MCP results when available
+            const mcpChoices = answers._mcpInstanceChoices;
+            if (mcpChoices && mcpChoices.length > 0) {
+                const mcpSet = new Set(mcpChoices);
+                filteredInstances = filteredInstances.filter(i => mcpSet.has(i.type));
+            }
             
             // Add rows to table
             filteredInstances.forEach(instance => {
@@ -434,22 +441,31 @@ const infrastructurePrompts = [
                 'Specify your own'
             ]);
             
-            console.log('\n' + chalk.bold('Available Instance Types:'));
+            const header = mcpChoices && mcpChoices.length > 0
+                ? 'Available Instance Types (filtered by MCP):'
+                : 'Available Instance Types:';
+            console.log(`\n${  chalk.bold(header)}`);
             console.log(table.toString());
             console.log('');
             
             return 'Select instance type:';
         },
         choices: (answers) => {
-            // Derive framework and modelServer from deploymentConfig if not already set
+            // Derive framework from deploymentConfig if not already set
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            const modelServer = answers.modelServer || answers.deploymentConfig?.split('-')[1];
             
             // Get instance types based on framework
             const instances = Object.values(instanceTypeRegistry);
-            const filteredInstances = framework === 'transformers' 
+            let filteredInstances = framework === 'transformers' 
                 ? instances.filter(i => i.category === 'gpu')
                 : instances;
+            
+            // Further filter by MCP results when available
+            const mcpChoices = answers._mcpInstanceChoices;
+            if (mcpChoices && mcpChoices.length > 0) {
+                const mcpSet = new Set(mcpChoices);
+                filteredInstances = filteredInstances.filter(i => mcpSet.has(i.type));
+            }
             
             // Build choices array
             const choices = filteredInstances.map(instance => ({

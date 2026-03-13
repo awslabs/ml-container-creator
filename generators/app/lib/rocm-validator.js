@@ -1,4 +1,4 @@
-import AcceleratorValidator from './accelerator-validator.js'
+import AcceleratorValidator from './accelerator-validator.js';
 
 /**
  * ROCm accelerator validator for AMD GPUs.
@@ -17,29 +17,29 @@ export default class RocmValidator extends AcceleratorValidator {
      * @returns {Object} ValidationResult
      */
     validate(frameworkConfig, instanceConfig) {
-        const required = frameworkConfig.accelerator
-        const provided = instanceConfig.accelerator
+        const required = frameworkConfig.accelerator;
+        const provided = instanceConfig.accelerator;
         
         // Parse required ROCm version
-        const requiredVersion = this.parseVersion(required.version)
+        const requiredVersion = this.parseVersion(required.version);
         
         // Check if instance supports required ROCm version
         const compatibleVersions = provided.versions.filter(v => {
-            const providedVersion = this.parseVersion(v)
-            return this.isCompatible(requiredVersion, providedVersion)
-        })
+            const providedVersion = this.parseVersion(v);
+            return this.isCompatible(requiredVersion, providedVersion);
+        });
         
         if (compatibleVersions.length === 0) {
             return {
                 compatible: false,
                 error: this.getVersionMismatchMessage(required.version, provided.versions)
-            }
+            };
         }
         
         return {
             compatible: true,
             info: `Using ROCm ${compatibleVersions[0]} (compatible with required ${required.version})`
-        }
+        };
     }
     
     /**
@@ -49,8 +49,8 @@ export default class RocmValidator extends AcceleratorValidator {
      * @returns {Object} Parsed version with major, minor, patch
      */
     parseVersion(versionString) {
-        const [major, minor, patch] = versionString.split('.').map(Number)
-        return { major, minor, patch }
+        const [major, minor, patch] = versionString.split('.').map(Number);
+        return { major, minor, patch };
     }
     
     /**
@@ -63,7 +63,7 @@ export default class RocmValidator extends AcceleratorValidator {
      */
     isCompatible(required, provided) {
         return provided.major === required.major && 
-               provided.minor >= required.minor
+               provided.minor >= required.minor;
     }
     
     /**
@@ -75,6 +75,6 @@ export default class RocmValidator extends AcceleratorValidator {
      */
     getVersionMismatchMessage(required, provided) {
         return `Framework requires ROCm ${required}, but instance only supports ${provided.join(', ')}. ` +
-               `AMD GPU instances with ROCm support may be limited in SageMaker.`
+               'AMD GPU instances with ROCm support may be limited in SageMaker.';
     }
 }

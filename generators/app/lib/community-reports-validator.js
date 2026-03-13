@@ -13,8 +13,8 @@ export default class CommunityReportsValidator {
      * @param {Object} communityReports - Community reports registry
      */
     constructor(communityReports = {}) {
-        this.communityReports = communityReports
-        this.name = 'community-reports'
+        this.communityReports = communityReports;
+        this.name = 'community-reports';
     }
     
     /**
@@ -28,39 +28,39 @@ export default class CommunityReportsValidator {
      * @returns {Array<Object>} ValidationResult.errors - Error messages
      */
     async validate(framework, version, envVars) {
-        const warnings = []
-        const errors = []
+        const warnings = [];
+        const errors = [];
         
         // Get community reports for this framework
-        const reports = this.getCommunityReports(framework, version)
+        const reports = this.getCommunityReports(framework, version);
         
         if (!reports || reports.length === 0) {
             // No community reports available
-            return { warnings, errors }
+            return { warnings, errors };
         }
         
         // Check each environment variable against community reports
-        for (const [key, value] of Object.entries(envVars)) {
+        for (const [key] of Object.entries(envVars)) {
             const relevantReports = reports.filter(report => 
                 report.variable === key || report.pattern && new RegExp(report.pattern).test(key)
-            )
+            );
             
             for (const report of relevantReports) {
                 if (report.severity === 'error') {
                     errors.push({
                         key,
                         message: `Community report: ${report.message} (reported by ${report.reporter || 'community'})`
-                    })
+                    });
                 } else {
                     warnings.push({
                         key,
                         message: `Community report: ${report.message} (reported by ${report.reporter || 'community'})`
-                    })
+                    });
                 }
             }
         }
         
-        return { warnings, errors }
+        return { warnings, errors };
     }
     
     /**
@@ -73,19 +73,19 @@ export default class CommunityReportsValidator {
      */
     getCommunityReports(framework, version) {
         if (!this.communityReports[framework]) {
-            return null
+            return null;
         }
         
         // Try exact version match first
         if (this.communityReports[framework][version]) {
-            return this.communityReports[framework][version]
+            return this.communityReports[framework][version];
         }
         
         // Try to find reports for all versions
         if (this.communityReports[framework].all) {
-            return this.communityReports[framework].all
+            return this.communityReports[framework].all;
         }
         
-        return null
+        return null;
     }
 }

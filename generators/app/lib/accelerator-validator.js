@@ -22,8 +22,8 @@ export default class AcceleratorValidator {
      * @returns {string} [ValidationResult.warning] - Warning message if issues detected
      * @returns {string} [ValidationResult.info] - Informational message
      */
-    validate(frameworkConfig, instanceConfig) {
-        throw new Error('AcceleratorValidator.validate() must be implemented by subclass')
+    validate(_frameworkConfig, _instanceConfig) {
+        throw new Error('AcceleratorValidator.validate() must be implemented by subclass');
     }
     
     /**
@@ -33,7 +33,7 @@ export default class AcceleratorValidator {
      * @param {Array<string>|string} provided - Provided version(s)
      * @returns {string} User-friendly error message
      */
-    getVersionMismatchMessage(required, provided) {
-        throw new Error('AcceleratorValidator.getVersionMismatchMessage() must be implemented by subclass')
+    getVersionMismatchMessage(_required, _provided) {
+        throw new Error('AcceleratorValidator.getVersionMismatchMessage() must be implemented by subclass');
     }
 }

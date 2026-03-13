@@ -28,7 +28,7 @@ Tests environment variable parsing:
 
 ### 📁 [configuration-files.test.js](./configuration-files.test.js)
 Tests configuration file parsing:
-- Custom config files (`ml-container.config.json`)
+- Custom config files (`config/mcp.json`)
 - Package.json sections (`"ml-container-creator": {...}`)
 - CLI config files (`--config=prod.json`)
 - Malformed file handling

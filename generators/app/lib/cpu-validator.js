@@ -1,4 +1,4 @@
-import AcceleratorValidator from './accelerator-validator.js'
+import AcceleratorValidator from './accelerator-validator.js';
 
 /**
  * CPU accelerator validator.
@@ -15,11 +15,11 @@ export default class CpuValidator extends AcceleratorValidator {
      * @param {Object} instanceConfig - Instance accelerator capabilities
      * @returns {Object} ValidationResult
      */
-    validate(frameworkConfig, instanceConfig) {
+    validate(_frameworkConfig, _instanceConfig) {
         return {
             compatible: true,
             info: 'CPU-based inference (no accelerator version requirements)'
-        }
+        };
     }
     
     /**
@@ -30,7 +30,7 @@ export default class CpuValidator extends AcceleratorValidator {
      * @param {Array<string>|string} provided - Provided version(s)
      * @returns {string} Empty string (not used for CPU)
      */
-    getVersionMismatchMessage(required, provided) {
-        return '' // Not used for CPU
+    getVersionMismatchMessage(_required, _provided) {
+        return ''; // Not used for CPU
     }
 }

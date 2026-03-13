@@ -61,6 +61,7 @@ nav:
       - Additional Features & Misc:
           # - Registry: registry.md
           - Configuration Guide: configuration.md
+          - MCP Configuration: mcp-configuration.md
           - Examples: EXAMPLES.md
           - Troubleshooting: TROUBLESHOOTING.md
   - Developer Guide:

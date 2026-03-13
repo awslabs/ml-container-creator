@@ -133,9 +133,19 @@ echo "✅ SageMaker model created: ${MODEL_NAME}"
 
 # Create endpoint configuration
 echo "⚙️  Creating endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
+
+# Build production variant arguments
+VARIANT_ARGS="VariantName=primary,ModelName=${MODEL_NAME},InitialInstanceCount=1,InstanceType=${INSTANCE_TYPE},InitialVariantWeight=1"
+
+# Append InferenceAmiVersion if configured (controls CUDA driver version on the instance)
+if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
+    VARIANT_ARGS="${VARIANT_ARGS},InferenceAmiVersion=${INFERENCE_AMI_VERSION}"
+    echo "   AMI version: ${INFERENCE_AMI_VERSION}"
+fi
+
 if ! aws sagemaker create-endpoint-config \
     --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-    --production-variants VariantName=primary,ModelName="${MODEL_NAME}",InitialInstanceCount=1,InstanceType="${INSTANCE_TYPE}",InitialVariantWeight=1 \
+    --production-variants "${VARIANT_ARGS}" \
     --region "${AWS_REGION}"; then
     
     echo "❌ Failed to create endpoint configuration"

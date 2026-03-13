@@ -4,6 +4,8 @@
   <h1>ML Container Creator</h1>
   <p><em>Simplify your machine learning deployments on AWS SageMaker</em></p>
 </div>
+[![CI](https://github.com/awslabs/ml-container-creator/actions/workflows/ci.yml/badge.svg)](https://github.com/awslabs/ml-container-creator/actions/workflows/ci.yml)
+[![Deploy MkDocs to GitHub Pages](https://github.com/awslabs/ml-container-creator/actions/workflows/docs.yml/badge.svg)](https://github.com/awslabs/ml-container-creator/actions/workflows/docs.yml)
 
 ## Why ML Container Creator?
 
@@ -286,7 +288,7 @@ ML Container Creator supports multiple ways to configure your project, from inte
 2. **CLI Arguments** 
 3. **Environment Variables**
 4. **CLI Config File** (`--config=file.json`)
-5. **Custom Config File** (`ml-container.config.json`)
+5. **Custom Config File** (`config/mcp.json`)
 6. **Package.json Section** (`"ml-container-creator": {...}`)
 7. **Generator Defaults**
 8. **Interactive Prompts** (lowest precedence)
@@ -386,7 +388,7 @@ yo ml-container-creator --config=production.json --skip-prompts
 
 ### Configuration File Examples
 
-#### Custom Config File (`ml-container.config.json`)
+#### Custom Config File (`config/mcp.json`)
 ```json
 {
   "projectName": "my-ml-project",
