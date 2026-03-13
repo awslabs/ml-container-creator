@@ -13,28 +13,28 @@
  *   MOCK_MCP_DELAY_MS     - Delay before responding (for timeout tests)
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 
-const toolName = process.env.MOCK_MCP_TOOL_NAME || 'get_ml_config'
-const delayMs = parseInt(process.env.MOCK_MCP_DELAY_MS || '0', 10)
-const shouldError = process.env.MOCK_MCP_ERROR === 'true'
+const toolName = process.env.MOCK_MCP_TOOL_NAME || 'get_ml_config';
+const delayMs = parseInt(process.env.MOCK_MCP_DELAY_MS || '0', 10);
+const shouldError = process.env.MOCK_MCP_ERROR === 'true';
 
 // Parse the response from env or use a default
-let mockResponse
+let mockResponse;
 try {
     mockResponse = process.env.MOCK_MCP_RESPONSE
         ? JSON.parse(process.env.MOCK_MCP_RESPONSE)
-        : { values: {}, choices: {} }
+        : { values: {}, choices: {} };
 } catch {
-    mockResponse = { values: {}, choices: {} }
+    mockResponse = { values: {}, choices: {} };
 }
 
 const server = new McpServer({
     name: 'mock-mcp-server',
     version: '1.0.0'
-})
+});
 
 server.tool(
     toolName,
@@ -46,24 +46,24 @@ server.tool(
     },
     async ({ parameters, limit, context }) => {
         if (delayMs > 0) {
-            await new Promise(resolve => setTimeout(resolve, delayMs))
+            await new Promise(resolve => setTimeout(resolve, delayMs));
         }
 
         if (shouldError) {
-            throw new Error('Mock MCP server error')
+            throw new Error('Mock MCP server error');
         }
 
         // Build response based on requested parameters and limit
-        const values = {}
-        const choices = {}
+        const values = {};
+        const choices = {};
 
         for (const param of (parameters || [])) {
             if (mockResponse.values && mockResponse.values[param] !== undefined) {
-                values[param] = mockResponse.values[param]
+                values[param] = mockResponse.values[param];
             }
             if (mockResponse.choices && mockResponse.choices[param]) {
-                const paramChoices = mockResponse.choices[param]
-                choices[param] = limit ? paramChoices.slice(0, limit) : paramChoices
+                const paramChoices = mockResponse.choices[param];
+                choices[param] = limit ? paramChoices.slice(0, limit) : paramChoices;
             }
         }
 
@@ -72,9 +72,9 @@ server.tool(
                 type: 'text',
                 text: JSON.stringify({ values, choices })
             }]
-        }
+        };
     }
-)
+);
 
-const transport = new StdioServerTransport()
-await server.connect(transport)
+const transport = new StdioServerTransport();
+await server.connect(transport);
