@@ -9,9 +9,9 @@
 
 export default class HuggingFaceClient {
     constructor(options = {}) {
-        this.baseUrl = options.baseUrl || 'https://huggingface.co'
-        this.timeout = options.timeout || 5000
-        this.offline = options.offline || false
+        this.baseUrl = options.baseUrl || 'https://huggingface.co';
+        this.timeout = options.timeout || 5000;
+        this.offline = options.offline || false;
     }
 
     /**
@@ -21,48 +21,48 @@ export default class HuggingFaceClient {
      */
     async fetchModelMetadata(modelId) {
         if (this.offline) {
-            return null
+            return null;
         }
 
         try {
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
             const response = await fetch(
                 `${this.baseUrl}/api/models/${modelId}`,
                 { signal: controller.signal }
-            )
+            );
 
-            clearTimeout(timeoutId)
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 // Handle rate limits
                 if (response.status === 429) {
-                    console.warn('HuggingFace API rate limit reached')
-                    return null
+                    console.warn('HuggingFace API rate limit reached');
+                    return null;
                 }
                 // Handle not found
                 if (response.status === 404) {
-                    return null
+                    return null;
                 }
                 // Other errors
-                return null
+                return null;
             }
 
-            return await response.json()
+            return await response.json();
         } catch (error) {
             // Handle timeout
             if (error.name === 'AbortError') {
-                console.warn(`HuggingFace API timeout after ${this.timeout}ms`)
-                return null
+                console.warn(`HuggingFace API timeout after ${this.timeout}ms`);
+                return null;
             }
             // Handle network errors
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                console.warn('HuggingFace API network error')
-                return null
+                console.warn('HuggingFace API network error');
+                return null;
             }
             // Other errors - graceful fallback
-            return null
+            return null;
         }
     }
 
@@ -73,48 +73,48 @@ export default class HuggingFaceClient {
      */
     async fetchTokenizerConfig(modelId) {
         if (this.offline) {
-            return null
+            return null;
         }
 
         try {
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
             const response = await fetch(
                 `${this.baseUrl}/${modelId}/resolve/main/tokenizer_config.json`,
                 { signal: controller.signal }
-            )
+            );
 
-            clearTimeout(timeoutId)
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 // Handle rate limits
                 if (response.status === 429) {
-                    console.warn('HuggingFace API rate limit reached')
-                    return null
+                    console.warn('HuggingFace API rate limit reached');
+                    return null;
                 }
                 // Handle not found
                 if (response.status === 404) {
-                    return null
+                    return null;
                 }
                 // Other errors
-                return null
+                return null;
             }
 
-            return await response.json()
+            return await response.json();
         } catch (error) {
             // Handle timeout
             if (error.name === 'AbortError') {
-                console.warn(`HuggingFace API timeout after ${this.timeout}ms`)
-                return null
+                console.warn(`HuggingFace API timeout after ${this.timeout}ms`);
+                return null;
             }
             // Handle network errors
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                console.warn('HuggingFace API network error')
-                return null
+                console.warn('HuggingFace API network error');
+                return null;
             }
             // Other errors - graceful fallback
-            return null
+            return null;
         }
     }
 
@@ -125,48 +125,48 @@ export default class HuggingFaceClient {
      */
     async fetchModelConfig(modelId) {
         if (this.offline) {
-            return null
+            return null;
         }
 
         try {
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
             const response = await fetch(
                 `${this.baseUrl}/${modelId}/resolve/main/config.json`,
                 { signal: controller.signal }
-            )
+            );
 
-            clearTimeout(timeoutId)
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 // Handle rate limits
                 if (response.status === 429) {
-                    console.warn('HuggingFace API rate limit reached')
-                    return null
+                    console.warn('HuggingFace API rate limit reached');
+                    return null;
                 }
                 // Handle not found
                 if (response.status === 404) {
-                    return null
+                    return null;
                 }
                 // Other errors
-                return null
+                return null;
             }
 
-            return await response.json()
+            return await response.json();
         } catch (error) {
             // Handle timeout
             if (error.name === 'AbortError') {
-                console.warn(`HuggingFace API timeout after ${this.timeout}ms`)
-                return null
+                console.warn(`HuggingFace API timeout after ${this.timeout}ms`);
+                return null;
             }
             // Handle network errors
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                console.warn('HuggingFace API network error')
-                return null
+                console.warn('HuggingFace API network error');
+                return null;
             }
             // Other errors - graceful fallback
-            return null
+            return null;
         }
     }
 }

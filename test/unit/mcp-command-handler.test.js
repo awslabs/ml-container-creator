@@ -47,7 +47,7 @@ describe('McpCommandHandler Unit Tests', () => {
     });
 
     afterEach(() => {
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
     });
 
     describe('mcp add', () => {

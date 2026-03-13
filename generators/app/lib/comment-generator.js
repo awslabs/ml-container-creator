@@ -19,7 +19,7 @@ export default class CommentGenerator {
             validationInfo: this.generateValidationComment(config),
             troubleshooting: this.generateTroubleshootingTips(config),
             chatTemplate: this.generateChatTemplateComment(config)
-        }
+        };
     }
 
     /**
@@ -33,9 +33,9 @@ export default class CommentGenerator {
             amiVersion: this.generateAmiVersionComment(config),
             instanceType: this.generateInstanceTypeComment(config),
             configSource: this.generateConfigSourceComment(config)
-        }
+        };
 
-        return comments
+        return comments;
     }
 
     /**
@@ -45,53 +45,53 @@ export default class CommentGenerator {
      */
     generateAcceleratorComment(config) {
         if (!config.accelerator) {
-            return '# No accelerator requirements specified'
+            return '# No accelerator requirements specified';
         }
 
         const lines = [
             '# Accelerator Compatibility Information',
             `# Framework: ${config.framework} ${config.version}`,
-            `# Required Accelerator: ${config.accelerator.type} ${config.accelerator.version || 'any'}`,
-        ]
+            `# Required Accelerator: ${config.accelerator.type} ${config.accelerator.version || 'any'}`
+        ];
 
         if (config.instanceType) {
-            lines.push(`# Instance Type: ${config.instanceType}`)
+            lines.push(`# Instance Type: ${config.instanceType}`);
         }
 
         if (config.instanceHardware) {
-            lines.push(`# Hardware: ${config.instanceHardware}`)
+            lines.push(`# Hardware: ${config.instanceHardware}`);
         }
 
         if (config.inferenceAmiVersion) {
-            lines.push(`# SageMaker AMI: ${config.inferenceAmiVersion}`)
+            lines.push(`# SageMaker AMI: ${config.inferenceAmiVersion}`);
         }
 
         if (config.validationResults?.accelerator) {
-            const result = config.validationResults.accelerator
-            const status = result.compatible ? '✓ Compatible' : '⚠ Issues detected'
-            lines.push(`# Validation: ${status}`)
+            const result = config.validationResults.accelerator;
+            const status = result.compatible ? '✓ Compatible' : '⚠ Issues detected';
+            lines.push(`# Validation: ${status}`);
 
             if (result.info) {
-                lines.push(`# Info: ${result.info}`)
+                lines.push(`# Info: ${result.info}`);
             }
 
             if (result.warning) {
-                lines.push(`# Warning: ${result.warning}`)
+                lines.push(`# Warning: ${result.warning}`);
             }
 
             if (result.error) {
-                lines.push(`# Error: ${result.error}`)
+                lines.push(`# Error: ${result.error}`);
             }
         }
 
         if (config.validationLevel) {
-            lines.push(`# Validation Level: ${config.validationLevel}`)
+            lines.push(`# Validation Level: ${config.validationLevel}`);
         }
 
-        const timestamp = config.generatedAt || new Date().toISOString().split('T')[0]
-        lines.push(`# Generated: ${timestamp}`)
+        const timestamp = config.generatedAt || new Date().toISOString().split('T')[0];
+        lines.push(`# Generated: ${timestamp}`);
 
-        return lines.join('\n')
+        return lines.join('\n');
     }
 
     /**
@@ -100,40 +100,40 @@ export default class CommentGenerator {
      * @returns {Object} Environment variable explanations grouped by category
      */
     generateEnvVarComments(config) {
-        const comments = {}
+        const comments = {};
 
         if (!config.envVars || Object.keys(config.envVars).length === 0) {
-            return { general: '# No environment variables configured' }
+            return { general: '# No environment variables configured' };
         }
 
         // Group environment variables by category
-        const groups = this._groupEnvVars(config.envVars, config.framework)
+        const groups = this._groupEnvVars(config.envVars, config.framework);
 
         for (const [category, vars] of Object.entries(groups)) {
             const categoryComments = [
                 `# ${category} Configuration`,
                 `# Source: ${this._getEnvVarSource(config, category)}`
-            ]
+            ];
 
             // Add warnings for specific variable types
-            const warnings = this._getEnvVarWarnings(vars, config.framework)
+            const warnings = this._getEnvVarWarnings(vars, config.framework);
             if (warnings.length > 0) {
-                categoryComments.push('# Warnings:')
+                categoryComments.push('# Warnings:');
                 warnings.forEach(warning => {
-                    categoryComments.push(`#   - ${warning}`)
-                })
+                    categoryComments.push(`#   - ${warning}`);
+                });
             }
 
             // Add documentation links if available
-            const docLink = this._getDocumentationLink(config.framework, category)
+            const docLink = this._getDocumentationLink(config.framework, category);
             if (docLink) {
-                categoryComments.push(`# Documentation: ${docLink}`)
+                categoryComments.push(`# Documentation: ${docLink}`);
             }
 
-            comments[category] = categoryComments.join('\n')
+            comments[category] = categoryComments.join('\n');
         }
 
-        return comments
+        return comments;
     }
 
     /**
@@ -144,43 +144,43 @@ export default class CommentGenerator {
     generateValidationComment(config) {
         const lines = [
             '# Configuration Validation Information'
-        ]
+        ];
 
         // Add configuration sources
         if (config.configSources && config.configSources.length > 0) {
-            lines.push('# Configuration Sources:')
+            lines.push('# Configuration Sources:');
             config.configSources.forEach(source => {
-                lines.push(`#   - ${source}`)
-            })
+                lines.push(`#   - ${source}`);
+            });
         }
 
         // Add validation level
         if (config.validationLevel) {
-            lines.push(`# Validation Level: ${config.validationLevel}`)
-            lines.push(`# ${this._getValidationLevelExplanation(config.validationLevel)}`)
+            lines.push(`# Validation Level: ${config.validationLevel}`);
+            lines.push(`# ${this._getValidationLevelExplanation(config.validationLevel)}`);
         }
 
         // Add validation results
         if (config.validationResults) {
             if (config.validationResults.envVars) {
-                const envResult = config.validationResults.envVars
+                const envResult = config.validationResults.envVars;
                 if (envResult.validated) {
-                    lines.push('# Environment Variables: Validated')
+                    lines.push('# Environment Variables: Validated');
                     if (envResult.methods && envResult.methods.length > 0) {
-                        lines.push(`#   Methods: ${envResult.methods.join(', ')}`)
+                        lines.push(`#   Methods: ${envResult.methods.join(', ')}`);
                     }
                 }
             }
 
             if (config.validationResults.instanceType) {
-                const instResult = config.validationResults.instanceType
+                const instResult = config.validationResults.instanceType;
                 if (instResult.validated) {
-                    lines.push('# Instance Type: Validated')
+                    lines.push('# Instance Type: Validated');
                 }
             }
         }
 
-        return lines.join('\n')
+        return lines.join('\n');
     }
 
     /**
@@ -191,36 +191,36 @@ export default class CommentGenerator {
     generateTroubleshootingTips(config) {
         const lines = [
             '# Troubleshooting Tips'
-        ]
+        ];
 
         // Framework-specific tips
-        const frameworkTips = this._getFrameworkTroubleshootingTips(config.framework)
+        const frameworkTips = this._getFrameworkTroubleshootingTips(config.framework);
         if (frameworkTips.length > 0) {
-            lines.push(`# ${config.framework} Common Issues:`)
+            lines.push(`# ${config.framework} Common Issues:`);
             frameworkTips.forEach(tip => {
-                lines.push(`#   - ${tip}`)
-            })
+                lines.push(`#   - ${tip}`);
+            });
         }
 
         // Accelerator-specific tips
         if (config.accelerator) {
-            const acceleratorTips = this._getAcceleratorTroubleshootingTips(config.accelerator.type)
+            const acceleratorTips = this._getAcceleratorTroubleshootingTips(config.accelerator.type);
             if (acceleratorTips.length > 0) {
-                lines.push(`# ${config.accelerator.type.toUpperCase()} Issues:`)
+                lines.push(`# ${config.accelerator.type.toUpperCase()} Issues:`);
                 acceleratorTips.forEach(tip => {
-                    lines.push(`#   - ${tip}`)
-                })
+                    lines.push(`#   - ${tip}`);
+                });
             }
         }
 
         // General tips
-        lines.push('# General Tips:')
-        lines.push('#   - Check CloudWatch logs for detailed error messages')
-        lines.push('#   - Verify model artifacts are in /opt/ml/model/')
-        lines.push('#   - Test locally with docker run before deploying')
-        lines.push('#   - Ensure IAM role has necessary permissions')
+        lines.push('# General Tips:');
+        lines.push('#   - Check CloudWatch logs for detailed error messages');
+        lines.push('#   - Verify model artifacts are in /opt/ml/model/');
+        lines.push('#   - Test locally with docker run before deploying');
+        lines.push('#   - Ensure IAM role has necessary permissions');
 
-        return lines.join('\n')
+        return lines.join('\n');
     }
 
     /**
@@ -232,7 +232,7 @@ export default class CommentGenerator {
         if (!config.chatTemplate) {
             return '# Chat Template: Not configured\n' +
                    '# Note: Chat endpoints may not work without a chat template.\n' +
-                   '# You may need to configure this manually for your model.'
+                   '# You may need to configure this manually for your model.';
         }
 
         const lines = [
@@ -240,15 +240,15 @@ export default class CommentGenerator {
             `# Source: ${config.chatTemplateSource || 'Unknown'}`,
             '# This template formats chat messages for the model.',
             '# It is automatically applied by the serving framework.'
-        ]
+        ];
 
         if (config.chatTemplateSource === 'HuggingFace_Hub_API') {
-            lines.push('# Template was fetched from HuggingFace Hub.')
+            lines.push('# Template was fetched from HuggingFace Hub.');
         } else if (config.chatTemplateSource === 'Model_Registry') {
-            lines.push('# Template was provided by Model Registry.')
+            lines.push('# Template was provided by Model Registry.');
         }
 
-        return lines.join('\n')
+        return lines.join('\n');
     }
 
     /**
@@ -264,13 +264,13 @@ export default class CommentGenerator {
             `# Framework: ${config.framework} ${config.version}`,
             `# Generated: ${config.generatedAt || new Date().toISOString().split('T')[0]}`,
             '#'
-        ]
+        ];
 
         if (config.validationLevel) {
-            lines.push(`# Validation Level: ${config.validationLevel}`)
+            lines.push(`# Validation Level: ${config.validationLevel}`);
         }
 
-        return lines.join('\n')
+        return lines.join('\n');
     }
 
     /**
@@ -280,23 +280,23 @@ export default class CommentGenerator {
      */
     generateAmiVersionComment(config) {
         if (!config.inferenceAmiVersion) {
-            return '# AMI Version: Using default SageMaker AMI'
+            return '# AMI Version: Using default SageMaker AMI';
         }
 
         const lines = [
             `# AMI Version: ${config.inferenceAmiVersion}`,
             '# This AMI provides the required accelerator drivers and runtime.'
-        ]
+        ];
 
         if (config.accelerator) {
-            lines.push(`# Supports: ${config.accelerator.type} ${config.accelerator.version || ''}`)
+            lines.push(`# Supports: ${config.accelerator.type} ${config.accelerator.version || ''}`);
         }
 
         if (config.configSources && config.configSources.includes('Framework_Registry')) {
-            lines.push('# Source: Framework Registry')
+            lines.push('# Source: Framework Registry');
         }
 
-        return lines.join('\n')
+        return lines.join('\n');
     }
 
     /**
@@ -306,25 +306,25 @@ export default class CommentGenerator {
      */
     generateInstanceTypeComment(config) {
         if (!config.instanceType) {
-            return '# Instance Type: Not specified'
+            return '# Instance Type: Not specified';
         }
 
         const lines = [
             `# Instance Type: ${config.instanceType}`
-        ]
+        ];
 
         if (config.instanceHardware) {
-            lines.push(`# Hardware: ${config.instanceHardware}`)
+            lines.push(`# Hardware: ${config.instanceHardware}`);
         }
 
         if (config.recommendedInstanceTypes && config.recommendedInstanceTypes.length > 0) {
-            lines.push('# Recommended alternatives:')
+            lines.push('# Recommended alternatives:');
             config.recommendedInstanceTypes.slice(0, 3).forEach(type => {
-                lines.push(`#   - ${type}`)
-            })
+                lines.push(`#   - ${type}`);
+            });
         }
 
-        return lines.join('\n')
+        return lines.join('\n');
     }
 
     /**
@@ -335,17 +335,17 @@ export default class CommentGenerator {
     generateConfigSourceComment(config) {
         const lines = [
             '# Configuration Sources:'
-        ]
+        ];
 
         if (config.configSources && config.configSources.length > 0) {
             config.configSources.forEach(source => {
-                lines.push(`#   - ${source}`)
-            })
+                lines.push(`#   - ${source}`);
+            });
         } else {
-            lines.push('#   - Default configuration')
+            lines.push('#   - Default configuration');
         }
 
-        return lines.join('\n')
+        return lines.join('\n');
     }
 
     // Private helper methods
@@ -361,80 +361,80 @@ export default class CommentGenerator {
             'Performance': [],
             'CUDA': [],
             'Other': []
-        }
+        };
 
         for (const [key, value] of Object.entries(envVars)) {
             if (key.includes('CUDA') || key.includes('NVIDIA')) {
-                groups['CUDA'].push({ key, value })
+                groups['CUDA'].push({ key, value });
             } else if (key.includes('MEMORY') || key.includes('MEM')) {
-                groups['Memory'].push({ key, value })
+                groups['Memory'].push({ key, value });
             } else if (key.includes('BATCH') || key.includes('WORKER') || key.includes('THREAD')) {
-                groups['Performance'].push({ key, value })
+                groups['Performance'].push({ key, value });
             } else if (framework && key.toLowerCase().includes(framework.toLowerCase())) {
-                groups['Framework'].push({ key, value })
+                groups['Framework'].push({ key, value });
             } else {
-                groups['Other'].push({ key, value })
+                groups['Other'].push({ key, value });
             }
         }
 
         // Remove empty groups
         return Object.fromEntries(
             Object.entries(groups).filter(([_, vars]) => vars.length > 0)
-        )
+        );
     }
 
     /**
      * Get environment variable source
      * @private
      */
-    _getEnvVarSource(config, category) {
+    _getEnvVarSource(config, _category) {
         if (config.configSources) {
             if (config.configSources.includes('Model_Registry')) {
-                return 'Model Registry (highest priority)'
+                return 'Model Registry (highest priority)';
             } else if (config.configSources.includes('HuggingFace_Hub_API')) {
-                return 'HuggingFace Hub API'
+                return 'HuggingFace Hub API';
             } else if (config.configSources.includes('Framework_Registry')) {
-                return 'Framework Registry'
+                return 'Framework Registry';
             }
         }
-        return 'Default configuration'
+        return 'Default configuration';
     }
 
     /**
      * Get warnings for environment variables
      * @private
      */
-    _getEnvVarWarnings(vars, framework) {
-        const warnings = []
+    _getEnvVarWarnings(vars, _framework) {
+        const warnings = [];
 
-        vars.forEach(({ key, value }) => {
+        vars.forEach(({ key, value: _value }) => {
             if (key.includes('MEMORY') && key.includes('FRACTION')) {
-                warnings.push(`${key}: Adjust based on model size and available GPU memory`)
+                warnings.push(`${key}: Adjust based on model size and available GPU memory`);
             }
             if (key.includes('CUDA_VISIBLE_DEVICES')) {
-                warnings.push(`${key}: Ensure this matches your instance GPU count`)
+                warnings.push(`${key}: Ensure this matches your instance GPU count`);
             }
             if (key.includes('MAX_BATCH_SIZE')) {
-                warnings.push(`${key}: May need tuning based on model size and latency requirements`)
+                warnings.push(`${key}: May need tuning based on model size and latency requirements`);
             }
-        })
+        });
 
-        return warnings
+        return warnings;
     }
 
     /**
      * Get documentation link for framework and category
      * @private
      */
-    _getDocumentationLink(framework, category) {
+    _getDocumentationLink(framework, _category) {
         const links = {
             'vllm': 'https://docs.vllm.ai/en/latest/serving/env_vars.html',
             'tensorrt-llm': 'https://nvidia.github.io/TensorRT-LLM/',
             'sglang': 'https://sgl-project.github.io/',
             'transformers': 'https://huggingface.co/docs/transformers/'
-        }
+        };
 
-        return links[framework?.toLowerCase()] || null
+        return links[framework?.toLowerCase()] || null;
     }
 
     /**
@@ -447,9 +447,9 @@ export default class CommentGenerator {
             'community-validated': 'This configuration has been validated by community members.',
             'experimental': 'This configuration is experimental and may require adjustments.',
             'unknown': 'This configuration has not been tested. Proceed with caution.'
-        }
+        };
 
-        return explanations[level] || 'Validation level unknown.'
+        return explanations[level] || 'Validation level unknown.';
     }
 
     /**
@@ -478,9 +478,9 @@ export default class CommentGenerator {
                 'Check tokenizer configuration for chat models',
                 'Ensure sufficient memory for model loading'
             ]
-        }
+        };
 
-        return tips[framework?.toLowerCase()] || []
+        return tips[framework?.toLowerCase()] || [];
     }
 
     /**
@@ -509,8 +509,8 @@ export default class CommentGenerator {
                 'Consider using optimized CPU inference libraries',
                 'Adjust thread count based on vCPU count'
             ]
-        }
+        };
 
-        return tips[acceleratorType?.toLowerCase()] || []
+        return tips[acceleratorType?.toLowerCase()] || [];
     }
 }

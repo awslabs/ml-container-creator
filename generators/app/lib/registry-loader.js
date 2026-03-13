@@ -5,14 +5,14 @@
  * Handles missing files gracefully by returning empty objects.
  */
 
-import Ajv from 'ajv'
-import frameworkRegistrySchema from '../config/schemas/framework-registry-schema.js'
-import modelRegistrySchema from '../config/schemas/model-registry-schema.js'
-import instanceAcceleratorMappingSchema from '../config/schemas/instance-accelerator-mapping-schema.js'
+import Ajv from 'ajv';
+import frameworkRegistrySchema from '../config/schemas/framework-registry-schema.js';
+import modelRegistrySchema from '../config/schemas/model-registry-schema.js';
+import instanceAcceleratorMappingSchema from '../config/schemas/instance-accelerator-mapping-schema.js';
 
 class RegistryLoader {
     constructor() {
-        this.ajv = new Ajv({ allErrors: true, strict: false })
+        this.ajv = new Ajv({ allErrors: true, strict: false });
     }
 
     /**
@@ -21,14 +21,14 @@ class RegistryLoader {
      */
     async loadFrameworkRegistry() {
         try {
-            const registry = await import('../config/registries/frameworks.js')
-            const data = registry.default || registry
+            const registry = await import('../config/registries/frameworks.js');
+            const data = registry.default || registry;
             
-            this.validateSchema(data, frameworkRegistrySchema, 'Framework Registry')
-            return data
+            this.validateSchema(data, frameworkRegistrySchema, 'Framework Registry');
+            return data;
         } catch (error) {
-            console.warn(`Failed to load framework registry: ${error.message}`)
-            return {}
+            console.warn(`Failed to load framework registry: ${error.message}`);
+            return {};
         }
     }
 
@@ -38,14 +38,14 @@ class RegistryLoader {
      */
     async loadModelRegistry() {
         try {
-            const registry = await import('../config/registries/models.js')
-            const data = registry.default || registry
+            const registry = await import('../config/registries/models.js');
+            const data = registry.default || registry;
             
-            this.validateSchema(data, modelRegistrySchema, 'Model Registry')
-            return data
+            this.validateSchema(data, modelRegistrySchema, 'Model Registry');
+            return data;
         } catch (error) {
-            console.warn(`Failed to load model registry: ${error.message}`)
-            return {}
+            console.warn(`Failed to load model registry: ${error.message}`);
+            return {};
         }
     }
 
@@ -55,14 +55,14 @@ class RegistryLoader {
      */
     async loadInstanceAcceleratorMapping() {
         try {
-            const registry = await import('../config/registries/instance-accelerator-mapping.js')
-            const data = registry.default || registry
+            const registry = await import('../config/registries/instance-accelerator-mapping.js');
+            const data = registry.default || registry;
             
-            this.validateSchema(data, instanceAcceleratorMappingSchema, 'Instance Accelerator Mapping')
-            return data
+            this.validateSchema(data, instanceAcceleratorMappingSchema, 'Instance Accelerator Mapping');
+            return data;
         } catch (error) {
-            console.warn(`Failed to load instance accelerator mapping: ${error.message}`)
-            return {}
+            console.warn(`Failed to load instance accelerator mapping: ${error.message}`);
+            return {};
         }
     }
 
@@ -74,16 +74,16 @@ class RegistryLoader {
      * @throws {Error} If validation fails
      */
     validateSchema(data, schema, registryName) {
-        const validate = this.ajv.compile(schema)
-        const valid = validate(data)
+        const validate = this.ajv.compile(schema);
+        const valid = validate(data);
         
         if (!valid) {
             const errors = validate.errors
                 .map(err => `${err.instancePath} ${err.message}`)
-                .join(', ')
-            throw new Error(`${registryName} validation failed: ${errors}`)
+                .join(', ');
+            throw new Error(`${registryName} validation failed: ${errors}`);
         }
     }
 }
 
-export default RegistryLoader
+export default RegistryLoader;

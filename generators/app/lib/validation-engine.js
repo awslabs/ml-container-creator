@@ -1,7 +1,7 @@
-import CudaValidator from './cuda-validator.js'
-import NeuronValidator from './neuron-validator.js'
-import CpuValidator from './cpu-validator.js'
-import RocmValidator from './rocm-validator.js'
+import CudaValidator from './cuda-validator.js';
+import NeuronValidator from './neuron-validator.js';
+import CpuValidator from './cpu-validator.js';
+import RocmValidator from './rocm-validator.js';
 
 /**
  * Validation engine for framework and instance compatibility.
@@ -12,13 +12,13 @@ import RocmValidator from './rocm-validator.js'
 export default class ValidationEngine {
     constructor() {
         // Initialize accelerator validators registry
-        this.acceleratorValidators = new Map()
+        this.acceleratorValidators = new Map();
         
         // Register default validators
-        this.registerAcceleratorValidator('cuda', new CudaValidator())
-        this.registerAcceleratorValidator('neuron', new NeuronValidator())
-        this.registerAcceleratorValidator('cpu', new CpuValidator())
-        this.registerAcceleratorValidator('rocm', new RocmValidator())
+        this.registerAcceleratorValidator('cuda', new CudaValidator());
+        this.registerAcceleratorValidator('neuron', new NeuronValidator());
+        this.registerAcceleratorValidator('cpu', new CpuValidator());
+        this.registerAcceleratorValidator('rocm', new RocmValidator());
     }
     
     /**
@@ -31,7 +31,7 @@ export default class ValidationEngine {
      * Requirements: 4.10, 4.21
      */
     registerAcceleratorValidator(acceleratorType, validator) {
-        this.acceleratorValidators.set(acceleratorType, validator)
+        this.acceleratorValidators.set(acceleratorType, validator);
     }
     
     /**
@@ -62,22 +62,22 @@ export default class ValidationEngine {
                 error: `Framework requires ${frameworkConfig.accelerator.type} accelerator, ` +
                        `but instance provides ${instanceConfig.accelerator.type}. ` +
                        `Please select an instance type with ${frameworkConfig.accelerator.type} support.`
-            }
+            };
         }
         
         // Get validator for accelerator type
-        const validator = this.acceleratorValidators.get(frameworkConfig.accelerator.type)
+        const validator = this.acceleratorValidators.get(frameworkConfig.accelerator.type);
         
         if (!validator) {
             return {
                 compatible: true,
                 warning: `No validator available for ${frameworkConfig.accelerator.type} accelerator. ` +
-                        `Proceeding without version validation.`
-            }
+                        'Proceeding without version validation.'
+            };
         }
         
         // Delegate to accelerator-specific validator
-        return validator.validate(frameworkConfig, instanceConfig)
+        return validator.validate(frameworkConfig, instanceConfig);
     }
     
     /**
@@ -90,12 +90,12 @@ export default class ValidationEngine {
      * Requirements: 4.2, 4.3, 4.7, 4.8
      */
     getRecommendedInstanceTypes(frameworkConfig, instanceAcceleratorMapping) {
-        const recommendations = []
+        const recommendations = [];
         
         // Iterate through all instance types in mapping
         for (const [instanceType, instanceConfig] of Object.entries(instanceAcceleratorMapping)) {
             // Validate compatibility
-            const validation = this.validateAcceleratorCompatibility(frameworkConfig, instanceConfig)
+            const validation = this.validateAcceleratorCompatibility(frameworkConfig, instanceConfig);
             
             if (validation.compatible) {
                 recommendations.push({
@@ -104,11 +104,11 @@ export default class ValidationEngine {
                     acceleratorVersions: instanceConfig.accelerator.versions,
                     compatible: true,
                     info: validation.info
-                })
+                });
             }
         }
         
-        return recommendations
+        return recommendations;
     }
     
     /**
@@ -135,7 +135,7 @@ export default class ValidationEngine {
             useKnownFlags = true,
             useCommunityReports = true,
             useDockerIntrospection = false
-        } = options
+        } = options;
         
         // If validation is completely disabled, return empty result
         if (!enabled) {
@@ -143,49 +143,49 @@ export default class ValidationEngine {
                 errors: [],
                 warnings: [],
                 strategiesUsed: []
-            }
+            };
         }
         
-        const errors = []
-        const warnings = []
-        const strategiesUsed = []
+        const errors = [];
+        const warnings = [];
+        const strategiesUsed = [];
         
         // Known flags validation
         if (useKnownFlags && frameworkConfig.knownFlags) {
-            strategiesUsed.push('known-flags-registry')
+            strategiesUsed.push('known-flags-registry');
             const knownFlagsResult = this._validateWithKnownFlags(
                 environmentVariables,
                 frameworkConfig.knownFlags
-            )
-            errors.push(...knownFlagsResult.errors)
-            warnings.push(...knownFlagsResult.warnings)
+            );
+            errors.push(...knownFlagsResult.errors);
+            warnings.push(...knownFlagsResult.warnings);
         }
         
         // Community reports validation
         if (useCommunityReports && frameworkConfig.communityReports) {
-            strategiesUsed.push('community-reports')
+            strategiesUsed.push('community-reports');
             const communityResult = this._validateWithCommunityReports(
                 environmentVariables,
                 frameworkConfig.communityReports
-            )
-            errors.push(...communityResult.errors)
-            warnings.push(...communityResult.warnings)
+            );
+            errors.push(...communityResult.errors);
+            warnings.push(...communityResult.warnings);
         }
         
         // Docker introspection validation (opt-in, experimental)
         if (useDockerIntrospection) {
-            strategiesUsed.push('docker-introspection')
+            strategiesUsed.push('docker-introspection');
             warnings.push({
                 variable: null,
                 message: 'Docker introspection validation is experimental and not tested in CI/CD'
-            })
+            });
         }
         
         return {
             errors,
             warnings,
             strategiesUsed
-        }
+        };
     }
     
     /**
@@ -199,15 +199,15 @@ export default class ValidationEngine {
      * @private
      */
     _validateWithKnownFlags(environmentVariables, knownFlags) {
-        const errors = []
-        const warnings = []
+        const errors = [];
+        const warnings = [];
         
         for (const [varName, varValue] of Object.entries(environmentVariables)) {
-            const flagSpec = knownFlags[varName]
+            const flagSpec = knownFlags[varName];
             
             if (!flagSpec) {
                 // Unknown flag - not an error, just informational
-                continue
+                continue;
             }
             
             // Check if deprecated
@@ -216,39 +216,39 @@ export default class ValidationEngine {
                     variable: varName,
                     message: `${varName} is deprecated. ${flagSpec.deprecationMessage || ''}`,
                     replacement: flagSpec.replacement
-                })
+                });
             }
             
             // Validate type
             if (flagSpec.type) {
-                const typeValid = this._validateType(varValue, flagSpec.type)
+                const typeValid = this._validateType(varValue, flagSpec.type);
                 if (!typeValid) {
                     errors.push({
                         variable: varName,
                         message: `${varName} must be of type ${flagSpec.type}, got ${typeof varValue}`
-                    })
+                    });
                 }
             }
             
             // Validate range constraints
             if (flagSpec.min !== undefined || flagSpec.max !== undefined) {
-                const numValue = Number(varValue)
+                const numValue = Number(varValue);
                 if (flagSpec.min !== undefined && numValue < flagSpec.min) {
                     errors.push({
                         variable: varName,
                         message: `${varName} must be >= ${flagSpec.min}, got ${numValue}`
-                    })
+                    });
                 }
                 if (flagSpec.max !== undefined && numValue > flagSpec.max) {
                     errors.push({
                         variable: varName,
                         message: `${varName} must be <= ${flagSpec.max}, got ${numValue}`
-                    })
+                    });
                 }
             }
         }
         
-        return { errors, warnings }
+        return { errors, warnings };
     }
     
     /**
@@ -262,28 +262,28 @@ export default class ValidationEngine {
      * @private
      */
     _validateWithCommunityReports(environmentVariables, communityReports) {
-        const errors = []
-        const warnings = []
+        const errors = [];
+        const warnings = [];
         
-        for (const [varName, varValue] of Object.entries(environmentVariables)) {
-            const reports = communityReports[varName]
+        for (const [varName] of Object.entries(environmentVariables)) {
+            const reports = communityReports[varName];
             
             if (!reports || reports.length === 0) {
-                continue
+                continue;
             }
             
             // Check for reported issues
-            const issueReports = reports.filter(r => r.status === 'invalid' || r.status === 'deprecated')
+            const issueReports = reports.filter(r => r.status === 'invalid' || r.status === 'deprecated');
             if (issueReports.length > 0) {
                 warnings.push({
                     variable: varName,
                     message: `Community reports indicate potential issues with ${varName}`,
                     reports: issueReports
-                })
+                });
             }
         }
         
-        return { errors, warnings }
+        return { errors, warnings };
     }
     
     /**
@@ -296,19 +296,19 @@ export default class ValidationEngine {
      */
     _validateType(value, expectedType) {
         switch (expectedType) {
-            case 'integer':
-                return Number.isInteger(Number(value))
-            case 'float':
-                return !isNaN(Number(value))
-            case 'string':
-                return typeof value === 'string'
-            case 'boolean':
-                return value === 'true' || value === 'false' || 
+        case 'integer':
+            return Number.isInteger(Number(value));
+        case 'float':
+            return !isNaN(Number(value));
+        case 'string':
+            return typeof value === 'string';
+        case 'boolean':
+            return value === 'true' || value === 'false' || 
                        value === true || value === false ||
                        value === '1' || value === '0' ||
-                       value === 1 || value === 0
-            default:
-                return true
+                       value === 1 || value === 0;
+        default:
+            return true;
         }
     }
 }

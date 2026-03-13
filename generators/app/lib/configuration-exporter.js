@@ -7,12 +7,12 @@
  * Requirements: 7.1, 7.2, 7.3, 7.4
  */
 
-import fs from 'fs'
-import path from 'path'
+import fs from 'fs';
+import path from 'path';
 
 export default class ConfigurationExporter {
     constructor(generator) {
-        this.generator = generator
+        this.generator = generator;
     }
     
     /**
@@ -25,12 +25,12 @@ export default class ConfigurationExporter {
      * Requirements: 7.1
      */
     shouldOfferExport(config) {
-        if (!config) return false
+        if (!config) return false;
         
-        const validationLevel = config.validationLevel || 'unknown'
+        const validationLevel = config.validationLevel || 'unknown';
         
         // Offer export for experimental or unknown configurations
-        return validationLevel === 'experimental' || validationLevel === 'unknown'
+        return validationLevel === 'experimental' || validationLevel === 'unknown';
     }
     
     /**
@@ -44,15 +44,15 @@ export default class ConfigurationExporter {
      */
     async promptForExport(config) {
         if (!this.shouldOfferExport(config)) {
-            return null
+            return null;
         }
         
-        this.generator.log('\n📤 Configuration Export')
-        this.generator.log('━'.repeat(50))
-        this.generator.log(`This configuration has validation level: ${config.validationLevel || 'unknown'}`)
-        this.generator.log('If you successfully deploy and test this configuration, please consider')
-        this.generator.log('sharing it with the community to help others!')
-        this.generator.log('')
+        this.generator.log('\n📤 Configuration Export');
+        this.generator.log('━'.repeat(50));
+        this.generator.log(`This configuration has validation level: ${config.validationLevel || 'unknown'}`);
+        this.generator.log('If you successfully deploy and test this configuration, please consider');
+        this.generator.log('sharing it with the community to help others!');
+        this.generator.log('');
         
         // Ask if user wants to export
         const { wantsToExport } = await this.generator.prompt([
@@ -62,11 +62,11 @@ export default class ConfigurationExporter {
                 message: 'Would you like to export this configuration for community contribution?',
                 default: false
             }
-        ])
+        ]);
         
         if (!wantsToExport) {
-            this.generator.log('Skipping export. You can always export later after testing.')
-            return null
+            this.generator.log('Skipping export. You can always export later after testing.');
+            return null;
         }
         
         // Collect testing information
@@ -78,9 +78,9 @@ export default class ConfigurationExporter {
                 default: config.recommendedInstanceTypes?.[0] || 'ml.g5.xlarge',
                 validate: (input) => {
                     if (!input || input.trim() === '') {
-                        return 'Instance type is required'
+                        return 'Instance type is required';
                     }
-                    return true
+                    return true;
                 }
             },
             {
@@ -108,9 +108,9 @@ export default class ConfigurationExporter {
                 message: 'Your name or GitHub handle (optional, for attribution):',
                 default: 'Anonymous'
             }
-        ])
+        ]);
         
-        return exportData
+        return exportData;
     }
     
     /**
@@ -123,12 +123,12 @@ export default class ConfigurationExporter {
      * Requirements: 7.2, 7.3, 7.5, 7.6
      */
     saveExportToFile(exportResult, destinationPath) {
-        const { registryType, configEntry, submissionInstructions, metadata } = exportResult
+        const { registryType, configEntry, submissionInstructions, metadata } = exportResult;
         
         // Create export filename
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0]
-        const filename = `config-export-${registryType}-${timestamp}.md`
-        const filepath = path.join(destinationPath, filename)
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+        const filename = `config-export-${registryType}-${timestamp}.md`;
+        const filepath = path.join(destinationPath, filename);
         
         // Create export file content
         const content = `${submissionInstructions}
@@ -144,12 +144,12 @@ ${JSON.stringify(metadata, null, 2)}
 \`\`\`json
 ${JSON.stringify(configEntry, null, 2)}
 \`\`\`
-`
+`;
         
         // Write file
-        fs.writeFileSync(filepath, content, 'utf-8')
+        fs.writeFileSync(filepath, content, 'utf-8');
         
-        return filename
+        return filename;
     }
     
     /**
@@ -158,16 +158,16 @@ ${JSON.stringify(configEntry, null, 2)}
      * @param {string} filename - Name of exported file
      */
     displayExportSuccess(filename) {
-        this.generator.log('')
-        this.generator.log('✅ Configuration exported successfully!')
-        this.generator.log(`📄 Export saved to: ${filename}`)
-        this.generator.log('')
-        this.generator.log('Next steps:')
-        this.generator.log('1. Review the export file')
-        this.generator.log('2. Test your deployment')
-        this.generator.log('3. Submit via GitHub issue or pull request')
-        this.generator.log('4. Help the community! 🎉')
-        this.generator.log('')
+        this.generator.log('');
+        this.generator.log('✅ Configuration exported successfully!');
+        this.generator.log(`📄 Export saved to: ${filename}`);
+        this.generator.log('');
+        this.generator.log('Next steps:');
+        this.generator.log('1. Review the export file');
+        this.generator.log('2. Test your deployment');
+        this.generator.log('3. Submit via GitHub issue or pull request');
+        this.generator.log('4. Help the community! 🎉');
+        this.generator.log('');
     }
     
     /**
@@ -183,21 +183,21 @@ ${JSON.stringify(configEntry, null, 2)}
      */
     async exportWorkflow(config, configurationManager, destinationPath) {
         // Prompt for export
-        const exportData = await this.promptForExport(config)
+        const exportData = await this.promptForExport(config);
         
         if (!exportData) {
-            return false
+            return false;
         }
         
         // Export configuration
-        const exportResult = configurationManager.exportConfiguration(config, exportData)
+        const exportResult = configurationManager.exportConfiguration(config, exportData);
         
         // Save to file
-        const filename = this.saveExportToFile(exportResult, destinationPath)
+        const filename = this.saveExportToFile(exportResult, destinationPath);
         
         // Display success message
-        this.displayExportSuccess(filename)
+        this.displayExportSuccess(filename);
         
-        return true
+        return true;
     }
 }

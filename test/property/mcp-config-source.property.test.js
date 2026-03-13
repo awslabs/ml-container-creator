@@ -31,6 +31,7 @@ const FAST_PROPERTY_CONFIG = {
  * Helper: create a temp directory with a config/mcp.json
  * and return a mock generator pointing at it.
  */
+// eslint-disable-next-line no-unused-vars -- used by individual test blocks via copy
 function setupTempDir(configContent) {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-prop-'));
     if (configContent !== undefined) {
@@ -210,7 +211,7 @@ describe('MCP Config Source Property-Based Tests', () => {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             const arbServerConfig = fc.record({
-                command: fc.stringMatching(/^[a-z][a-z0-9\-]{0,19}$/),
+                command: fc.stringMatching(/^[a-z][a-z0-9-]{0,19}$/),
                 args: fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 5 }),
                 env: fc.dictionary(
                     fc.stringMatching(/^[A-Z][A-Z0-9_]{0,9}$/),
@@ -230,7 +231,7 @@ describe('MCP Config Source Property-Based Tests', () => {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             const arbServerConfig = fc.record({
-                command: fc.stringMatching(/^[a-z][a-z0-9\-]{0,19}$/),
+                command: fc.stringMatching(/^[a-z][a-z0-9-]{0,19}$/),
                 args: fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 5 })
             });
 
@@ -245,7 +246,7 @@ describe('MCP Config Source Property-Based Tests', () => {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             const arbServerConfig = fc.record({
-                command: fc.stringMatching(/^[a-z][a-z0-9\-]{0,19}$/),
+                command: fc.stringMatching(/^[a-z][a-z0-9-]{0,19}$/),
                 args: fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 0, maxLength: 5 }),
                 toolName: fc.stringMatching(/^[a-z][a-z_]{0,19}$/),
                 limit: fc.integer({ min: 1, max: 100 })
@@ -357,7 +358,7 @@ describe('MCP Config Source Property-Based Tests', () => {
             fc.assert(fc.property(
                 fc.constantFrom(...boundedParams),
                 fc.string({ minLength: 1, maxLength: 30 }),
-                (paramName, mcpValue) => {
+                (paramName, _mcpValue) => {
                     const mockGen = createMockGenerator();
                     const cm = new ConfigManager(mockGen);
                     cm.config = cm._getGeneratorDefaults();
@@ -724,12 +725,12 @@ describe('MCP CLI Command Property-Based Tests', () => {
         it('for any valid server config, mcp add then mcp get SHALL return the same config', function () {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-            const arbServerName = fc.stringMatching(/^[a-z][a-z0-9\-]{0,14}$/);
-            const arbCommand = fc.stringMatching(/^[a-z][a-z0-9\-]{0,9}$/);
-            const arbArgs = fc.array(fc.stringMatching(/^[a-zA-Z0-9\-_.\/]{1,20}$/), { minLength: 0, maxLength: 4 });
+            const arbServerName = fc.stringMatching(/^[a-z][a-z0-9-]{0,14}$/);
+            const arbCommand = fc.stringMatching(/^[a-z][a-z0-9-]{0,9}$/);
+            const arbArgs = fc.array(fc.stringMatching(/^[a-zA-Z0-9_./-]{1,20}$/), { minLength: 0, maxLength: 4 });
             const arbEnv = fc.dictionary(
                 fc.stringMatching(/^[A-Z][A-Z0-9_]{0,9}$/),
-                fc.stringMatching(/^[a-zA-Z0-9\-_]{1,15}$/),
+                fc.stringMatching(/^[a-zA-Z0-9-_]{1,15}$/),
                 { minKeys: 0, maxKeys: 3 }
             );
             const arbToolName = fc.stringMatching(/^[a-z][a-z_]{0,14}$/);
@@ -793,7 +794,7 @@ describe('MCP CLI Command Property-Based Tests', () => {
         it('adding then removing a server SHALL preserve all non-MCP config keys', function () {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-            const arbServerName = fc.stringMatching(/^[a-z][a-z0-9\-]{0,14}$/);
+            const arbServerName = fc.stringMatching(/^[a-z][a-z0-9-]{0,14}$/);
             const arbExistingConfig = fc.dictionary(
                 fc.stringMatching(/^[a-z][a-zA-Z]{0,14}$/).filter(k => k !== 'mcpServers'),
                 fc.oneof(
@@ -851,7 +852,7 @@ describe('MCP CLI Command Property-Based Tests', () => {
         it('for any N servers in mcpServers, mcp list SHALL include all N names', function () {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-            const arbServerName = fc.stringMatching(/^[a-z][a-z0-9\-]{0,14}$/);
+            const arbServerName = fc.stringMatching(/^[a-z][a-z0-9-]{0,14}$/);
             const arbServerNames = fc.uniqueArray(arbServerName, { minLength: 1, maxLength: 8 });
 
             fc.assert(fc.property(
@@ -902,9 +903,9 @@ describe('MCP CLI Command Property-Based Tests', () => {
         it('for any configured server, mcp get SHALL display command, args, env, toolName, and limit', function () {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-            const arbServerName = fc.stringMatching(/^[a-z][a-z0-9\-]{0,14}$/);
-            const arbCommand = fc.stringMatching(/^[a-z][a-z0-9\-]{0,9}$/);
-            const arbArgs = fc.array(fc.stringMatching(/^[a-zA-Z0-9\-_.]{1,15}$/), { minLength: 1, maxLength: 3 });
+            const arbServerName = fc.stringMatching(/^[a-z][a-z0-9-]{0,14}$/);
+            const arbCommand = fc.stringMatching(/^[a-z][a-z0-9-]{0,9}$/);
+            const arbArgs = fc.array(fc.stringMatching(/^[a-zA-Z0-9-_.]{1,15}$/), { minLength: 1, maxLength: 3 });
             const arbToolName = fc.stringMatching(/^[a-z][a-z_]{0,14}$/);
             const arbLimit = fc.integer({ min: 1, max: 100 });
 

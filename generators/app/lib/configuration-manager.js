@@ -7,30 +7,30 @@
  * Requirements: 1.7, 2.1, 2.2, 2.3, 2.4, 4.1, 4.2, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8
  */
 
-import RegistryLoader from './registry-loader.js'
-import ConfigurationMatcher from './configuration-matcher.js'
-import ValidationEngine from './validation-engine.js'
-import HuggingFaceClient from './huggingface-client.js'
+import RegistryLoader from './registry-loader.js';
+import ConfigurationMatcher from './configuration-matcher.js';
+import ValidationEngine from './validation-engine.js';
+import HuggingFaceClient from './huggingface-client.js';
 
 export default class ConfigurationManager {
     constructor(options = {}) {
-        this.registryLoader = new RegistryLoader()
-        this.validationEngine = new ValidationEngine()
+        this.registryLoader = new RegistryLoader();
+        this.validationEngine = new ValidationEngine();
         this.hfClient = new HuggingFaceClient({
             timeout: options.hfTimeout || 5000,
             offline: options.offline || false
-        })
+        });
         
         // Registries (loaded on demand)
-        this.frameworkRegistry = null
-        this.modelRegistry = null
-        this.instanceMapping = null
+        this.frameworkRegistry = null;
+        this.modelRegistry = null;
+        this.instanceMapping = null;
         
         // Configuration matcher (initialized after registries load)
-        this.configMatcher = null
+        this.configMatcher = null;
         
         // Validation options
-        this.validateEnvVars = options.validateEnvVars ?? true
+        this.validateEnvVars = options.validateEnvVars ?? true;
     }
     
     /**
@@ -40,15 +40,15 @@ export default class ConfigurationManager {
      * Requirements: 1.7, 2.8
      */
     async loadRegistries() {
-        this.frameworkRegistry = await this.registryLoader.loadFrameworkRegistry()
-        this.modelRegistry = await this.registryLoader.loadModelRegistry()
-        this.instanceMapping = await this.registryLoader.loadInstanceAcceleratorMapping()
+        this.frameworkRegistry = await this.registryLoader.loadFrameworkRegistry();
+        this.modelRegistry = await this.registryLoader.loadModelRegistry();
+        this.instanceMapping = await this.registryLoader.loadInstanceAcceleratorMapping();
         
         // Initialize configuration matcher with loaded registries
         this.configMatcher = new ConfigurationMatcher(
             this.frameworkRegistry,
             this.modelRegistry
-        )
+        );
     }
     
     /**
@@ -68,37 +68,37 @@ export default class ConfigurationManager {
     async matchConfiguration(userSelections) {
         // Ensure registries are loaded
         if (!this.configMatcher) {
-            await this.loadRegistries()
+            await this.loadRegistries();
         }
         
         // Match framework configuration
         const frameworkConfig = this.configMatcher.matchFramework(
             userSelections.framework,
             userSelections.version
-        )
+        );
         
         // Get framework profile if specified
-        let frameworkProfile = null
+        let frameworkProfile = null;
         if (userSelections.frameworkProfile && frameworkConfig?.profiles) {
-            frameworkProfile = frameworkConfig.profiles[userSelections.frameworkProfile]
+            frameworkProfile = frameworkConfig.profiles[userSelections.frameworkProfile];
         }
         
         // Match model configuration (if model ID provided)
-        let modelConfig = null
-        let hfData = null
+        let modelConfig = null;
+        let hfData = null;
         
         if (userSelections.modelId) {
             // Try HuggingFace API first
-            hfData = await this._fetchHuggingFaceData(userSelections.modelId)
+            hfData = await this._fetchHuggingFaceData(userSelections.modelId);
             
             // Check model registry for overrides
-            modelConfig = this.configMatcher.matchModel(userSelections.modelId)
+            modelConfig = this.configMatcher.matchModel(userSelections.modelId);
         }
         
         // Get model profile if specified
-        let modelProfile = null
+        let modelProfile = null;
         if (userSelections.modelProfile && modelConfig?.profiles) {
-            modelProfile = modelConfig.profiles[userSelections.modelProfile]
+            modelProfile = modelConfig.profiles[userSelections.modelProfile];
         }
         
         // Merge all configurations
@@ -109,7 +109,7 @@ export default class ConfigurationManager {
             modelConfig,
             modelProfile,
             userSelections
-        })
+        });
     }
     
     /**
@@ -135,7 +135,7 @@ export default class ConfigurationManager {
             modelConfig,
             modelProfile,
             userSelections
-        } = configs
+        } = configs;
         
         // Start with empty configuration (graceful degradation)
         const merged = {
@@ -157,52 +157,52 @@ export default class ConfigurationManager {
             validationLevel: 'unknown',
             matchType: null,
             generatedAt: new Date().toISOString()
-        }
+        };
         
         // Apply configurations in priority order (lowest to highest)
         
         // 1. Framework base configuration
         if (frameworkConfig) {
-            this._applyFrameworkConfig(merged, frameworkConfig)
-            merged.configSources.push('Framework_Registry')
-            merged.validationLevel = frameworkConfig.validationLevel || 'unknown'
-            merged.matchType = frameworkConfig.matchType
+            this._applyFrameworkConfig(merged, frameworkConfig);
+            merged.configSources.push('Framework_Registry');
+            merged.validationLevel = frameworkConfig.validationLevel || 'unknown';
+            merged.matchType = frameworkConfig.matchType;
         }
         
         // 2. Framework profile
         if (frameworkProfile) {
-            this._applyProfileConfig(merged, frameworkProfile)
-            merged.configSources.push('Framework_Profile')
+            this._applyProfileConfig(merged, frameworkProfile);
+            merged.configSources.push('Framework_Profile');
         }
         
         // 3. HuggingFace API data
         if (hfData) {
-            this._applyHuggingFaceData(merged, hfData)
-            merged.configSources.push('HuggingFace_Hub_API')
+            this._applyHuggingFaceData(merged, hfData);
+            merged.configSources.push('HuggingFace_Hub_API');
         }
         
         // 4. Model registry configuration
         if (modelConfig) {
-            this._applyModelConfig(merged, modelConfig)
-            merged.configSources.push('Model_Registry')
+            this._applyModelConfig(merged, modelConfig);
+            merged.configSources.push('Model_Registry');
             // Model registry can override validation level
             if (modelConfig.validationLevel) {
-                merged.validationLevel = modelConfig.validationLevel
+                merged.validationLevel = modelConfig.validationLevel;
             }
         }
         
         // 5. Model profile (highest priority)
         if (modelProfile) {
-            this._applyProfileConfig(merged, modelProfile)
-            merged.configSources.push('Model_Profile')
+            this._applyProfileConfig(merged, modelProfile);
+            merged.configSources.push('Model_Profile');
         }
         
         // If no sources provided configuration, mark as default
         if (merged.configSources.length === 0) {
-            merged.configSources.push('Default')
+            merged.configSources.push('Default');
         }
         
-        return merged
+        return merged;
     }
     
     /**
@@ -225,17 +225,17 @@ export default class ConfigurationManager {
             return {
                 compatible: true,
                 warning: 'Instance accelerator mapping not loaded. Proceeding without validation.'
-            }
+            };
         }
         
         // Get instance configuration
-        const instanceConfig = this.instanceMapping[instanceType]
+        const instanceConfig = this.instanceMapping[instanceType];
         
         if (!instanceConfig) {
             return {
                 compatible: true,
                 warning: `No accelerator data for ${instanceType}. Proceeding with best-effort validation.`
-            }
+            };
         }
         
         // Validate accelerator compatibility
@@ -243,24 +243,24 @@ export default class ConfigurationManager {
             return {
                 compatible: true,
                 info: 'No accelerator requirements specified for framework.'
-            }
+            };
         }
         
         const validation = this.validationEngine.validateAcceleratorCompatibility(
             frameworkConfig,
             instanceConfig
-        )
+        );
         
         // Add recommendations if incompatible
         if (!validation.compatible && frameworkConfig.accelerator) {
             const recommendations = this.validationEngine.getRecommendedInstanceTypes(
                 frameworkConfig,
                 this.instanceMapping
-            )
-            validation.recommendations = recommendations.map(r => r.instanceType)
+            );
+            validation.recommendations = recommendations.map(r => r.instanceType);
         }
         
-        return validation
+        return validation;
     }
     
     /**
@@ -285,7 +285,7 @@ export default class ConfigurationManager {
                 useCommunityReports: true,
                 useDockerIntrospection: false
             }
-        )
+        );
     }
     
     /**
@@ -299,17 +299,17 @@ export default class ConfigurationManager {
     async _fetchHuggingFaceData(modelId) {
         try {
             // Fetch metadata
-            const metadata = await this.hfClient.fetchModelMetadata(modelId)
+            const metadata = await this.hfClient.fetchModelMetadata(modelId);
             
             // Fetch tokenizer config for chat template
-            const tokenizerConfig = await this.hfClient.fetchTokenizerConfig(modelId)
+            const tokenizerConfig = await this.hfClient.fetchTokenizerConfig(modelId);
             
             // Fetch model config for architecture
-            const modelConfig = await this.hfClient.fetchModelConfig(modelId)
+            const modelConfig = await this.hfClient.fetchModelConfig(modelId);
             
             // Combine data
             if (!metadata && !tokenizerConfig && !modelConfig) {
-                return null
+                return null;
             }
             
             return {
@@ -317,10 +317,10 @@ export default class ConfigurationManager {
                 tokenizerConfig,
                 modelConfig,
                 chatTemplate: tokenizerConfig?.chat_template || null
-            }
+            };
         } catch (error) {
             // Graceful fallback
-            return null
+            return null;
         }
     }
     
@@ -330,19 +330,19 @@ export default class ConfigurationManager {
      */
     _applyFrameworkConfig(merged, frameworkConfig) {
         if (frameworkConfig.baseImage) {
-            merged.baseImage = frameworkConfig.baseImage
+            merged.baseImage = frameworkConfig.baseImage;
         }
         if (frameworkConfig.accelerator) {
-            merged.accelerator = { ...frameworkConfig.accelerator }
+            merged.accelerator = { ...frameworkConfig.accelerator };
         }
         if (frameworkConfig.envVars) {
-            merged.envVars = { ...merged.envVars, ...frameworkConfig.envVars }
+            merged.envVars = { ...merged.envVars, ...frameworkConfig.envVars };
         }
         if (frameworkConfig.inferenceAmiVersion) {
-            merged.inferenceAmiVersion = frameworkConfig.inferenceAmiVersion
+            merged.inferenceAmiVersion = frameworkConfig.inferenceAmiVersion;
         }
         if (frameworkConfig.recommendedInstanceTypes) {
-            merged.recommendedInstanceTypes = [...frameworkConfig.recommendedInstanceTypes]
+            merged.recommendedInstanceTypes = [...frameworkConfig.recommendedInstanceTypes];
         }
     }
     
@@ -352,10 +352,10 @@ export default class ConfigurationManager {
      */
     _applyProfileConfig(merged, profileConfig) {
         if (profileConfig.envVars) {
-            merged.envVars = { ...merged.envVars, ...profileConfig.envVars }
+            merged.envVars = { ...merged.envVars, ...profileConfig.envVars };
         }
         if (profileConfig.recommendedInstanceTypes) {
-            merged.recommendedInstanceTypes = [...profileConfig.recommendedInstanceTypes]
+            merged.recommendedInstanceTypes = [...profileConfig.recommendedInstanceTypes];
         }
     }
     
@@ -365,7 +365,7 @@ export default class ConfigurationManager {
      */
     _applyHuggingFaceData(merged, hfData) {
         if (hfData.chatTemplate) {
-            merged.chatTemplate = hfData.chatTemplate
+            merged.chatTemplate = hfData.chatTemplate;
         }
     }
     
@@ -375,13 +375,13 @@ export default class ConfigurationManager {
      */
     _applyModelConfig(merged, modelConfig) {
         if (modelConfig.chatTemplate) {
-            merged.chatTemplate = modelConfig.chatTemplate
+            merged.chatTemplate = modelConfig.chatTemplate;
         }
         if (modelConfig.envVars) {
-            merged.envVars = { ...merged.envVars, ...modelConfig.envVars }
+            merged.envVars = { ...merged.envVars, ...modelConfig.envVars };
         }
         if (modelConfig.recommendedInstanceTypes) {
-            merged.recommendedInstanceTypes = [...modelConfig.recommendedInstanceTypes]
+            merged.recommendedInstanceTypes = [...modelConfig.recommendedInstanceTypes];
         }
     }
     
@@ -411,10 +411,10 @@ export default class ConfigurationManager {
             deploymentSuccess = false,
             inferenceSuccess = false,
             testerName = 'Anonymous'
-        } = options
+        } = options;
         
         // Determine registry type based on configuration
-        const registryType = this._determineRegistryType(config)
+        const registryType = this._determineRegistryType(config);
         
         // Create configuration entry
         const configEntry = this._createConfigEntry(config, {
@@ -423,14 +423,14 @@ export default class ConfigurationManager {
             deploymentSuccess,
             inferenceSuccess,
             testerName
-        })
+        });
         
         // Generate submission instructions
         const submissionInstructions = this._generateSubmissionInstructions(
             registryType,
             config,
             configEntry
-        )
+        );
         
         // Create metadata
         const metadata = {
@@ -442,14 +442,14 @@ export default class ConfigurationManager {
             instanceType,
             deploymentSuccess,
             inferenceSuccess
-        }
+        };
         
         return {
             registryType,
             configEntry,
             submissionInstructions,
             metadata
-        }
+        };
     }
     
     /**
@@ -459,11 +459,11 @@ export default class ConfigurationManager {
     _determineRegistryType(config) {
         // If model ID is present and model-specific overrides exist, export to Model_Registry
         if (config.modelId && (config.chatTemplate || config.configSources?.includes('Model_Registry'))) {
-            return 'model'
+            return 'model';
         }
         
         // Otherwise, export to Framework_Registry
-        return 'framework'
+        return 'framework';
     }
     
     /**
@@ -471,12 +471,10 @@ export default class ConfigurationManager {
      * @private
      */
     _createConfigEntry(config, testingInfo) {
-        const { testingNotes, instanceType, deploymentSuccess, inferenceSuccess, testerName } = testingInfo
-        
         if (this._determineRegistryType(config) === 'framework') {
-            return this._createFrameworkEntry(config, testingInfo)
+            return this._createFrameworkEntry(config, testingInfo);
         } else {
-            return this._createModelEntry(config, testingInfo)
+            return this._createModelEntry(config, testingInfo);
         }
     }
     
@@ -504,9 +502,9 @@ export default class ConfigurationManager {
                 validationLevel: this._determineValidationLevel(testingInfo),
                 notes: this._createTestingNotes(testingInfo)
             }
-        }
+        };
         
-        return entry
+        return entry;
     }
     
     /**
@@ -525,21 +523,21 @@ export default class ConfigurationManager {
                 },
                 notes: this._createTestingNotes(testingInfo)
             }
-        }
+        };
         
         // Add environment variables if present
         if (config.envVars && Object.keys(config.envVars).length > 0) {
-            entry[config.modelId].envVars = config.envVars
+            entry[config.modelId].envVars = config.envVars;
         }
         
         // Add recommended instance types if present
         if (config.recommendedInstanceTypes?.length > 0) {
-            entry[config.modelId].recommendedInstanceTypes = config.recommendedInstanceTypes
+            entry[config.modelId].recommendedInstanceTypes = config.recommendedInstanceTypes;
         } else if (testingInfo.instanceType) {
-            entry[config.modelId].recommendedInstanceTypes = [testingInfo.instanceType]
+            entry[config.modelId].recommendedInstanceTypes = [testingInfo.instanceType];
         }
         
-        return entry
+        return entry;
     }
     
     /**
@@ -547,14 +545,14 @@ export default class ConfigurationManager {
      * @private
      */
     _determineValidationLevel(testingInfo) {
-        const { deploymentSuccess, inferenceSuccess } = testingInfo
+        const { deploymentSuccess, inferenceSuccess } = testingInfo;
         
         if (deploymentSuccess && inferenceSuccess) {
-            return 'community-validated'
+            return 'community-validated';
         } else if (deploymentSuccess) {
-            return 'experimental'
+            return 'experimental';
         } else {
-            return 'unknown'
+            return 'unknown';
         }
     }
     
@@ -563,31 +561,31 @@ export default class ConfigurationManager {
      * @private
      */
     _createTestingNotes(testingInfo) {
-        const { testingNotes, instanceType, deploymentSuccess, inferenceSuccess, testerName } = testingInfo
+        const { testingNotes, instanceType, deploymentSuccess, inferenceSuccess, testerName } = testingInfo;
         
-        const notes = []
+        const notes = [];
         
         if (testingNotes) {
-            notes.push(testingNotes)
+            notes.push(testingNotes);
         }
         
         if (instanceType) {
-            notes.push(`Tested on ${instanceType}`)
+            notes.push(`Tested on ${instanceType}`);
         }
         
         if (deploymentSuccess && inferenceSuccess) {
-            notes.push('✓ Deployment and inference successful')
+            notes.push('✓ Deployment and inference successful');
         } else if (deploymentSuccess) {
-            notes.push('✓ Deployment successful, inference not tested')
+            notes.push('✓ Deployment successful, inference not tested');
         }
         
         if (testerName && testerName !== 'Anonymous') {
-            notes.push(`Tested by: ${testerName}`)
+            notes.push(`Tested by: ${testerName}`);
         }
         
-        notes.push(`Exported: ${new Date().toISOString().split('T')[0]}`)
+        notes.push(`Exported: ${new Date().toISOString().split('T')[0]}`);
         
-        return notes.join('. ')
+        return notes.join('. ');
     }
     
     /**
@@ -595,24 +593,24 @@ export default class ConfigurationManager {
      * @private
      */
     _extractModelFamily(modelId) {
-        if (!modelId) return 'unknown'
+        if (!modelId) return 'unknown';
         
         // Extract family from model ID (e.g., "meta-llama/Llama-2-7b-chat-hf" -> "llama-2")
-        const parts = modelId.toLowerCase().split('/')
-        const modelName = parts[parts.length - 1]
+        const parts = modelId.toLowerCase().split('/');
+        const modelName = parts[parts.length - 1];
         
         // Common patterns
-        if (modelName.includes('llama-2')) return 'llama-2'
-        if (modelName.includes('llama-3')) return 'llama-3'
-        if (modelName.includes('llama')) return 'llama'
-        if (modelName.includes('mistral')) return 'mistral'
-        if (modelName.includes('mixtral')) return 'mixtral'
-        if (modelName.includes('gemma')) return 'gemma'
-        if (modelName.includes('phi')) return 'phi'
-        if (modelName.includes('qwen')) return 'qwen'
+        if (modelName.includes('llama-2')) return 'llama-2';
+        if (modelName.includes('llama-3')) return 'llama-3';
+        if (modelName.includes('llama')) return 'llama';
+        if (modelName.includes('mistral')) return 'mistral';
+        if (modelName.includes('mixtral')) return 'mixtral';
+        if (modelName.includes('gemma')) return 'gemma';
+        if (modelName.includes('phi')) return 'phi';
+        if (modelName.includes('qwen')) return 'qwen';
         
         // Default: use first part of model name
-        return modelName.split('-')[0]
+        return modelName.split('-')[0];
     }
     
     /**
@@ -622,15 +620,15 @@ export default class ConfigurationManager {
     _generateSubmissionInstructions(registryType, config, configEntry) {
         const registryFile = registryType === 'framework' 
             ? 'generators/app/config/registries/frameworks.js'
-            : 'generators/app/config/registries/models.js'
+            : 'generators/app/config/registries/models.js';
         
         const registryName = registryType === 'framework' 
             ? 'Framework_Registry'
-            : 'Model_Registry'
+            : 'Model_Registry';
         
         const key = registryType === 'framework' 
             ? config.framework
-            : config.modelId
+            : config.modelId;
         
         return `
 # Configuration Export for Community Contribution
@@ -649,7 +647,7 @@ Thank you for testing this configuration! Your contribution helps the community.
 ### Option 1: GitHub Issue (Recommended)
 
 1. Go to: https://github.com/YOUR_REPO/issues/new
-2. Title: "[Config] Add ${registryType === 'framework' ? config.framework + ' ' + config.version : config.modelId}"
+2. Title: "[Config] Add ${registryType === 'framework' ? `${config.framework  } ${  config.version}` : config.modelId}"
 3. Paste the configuration entry below
 4. Add any additional context about your testing
 
@@ -658,7 +656,7 @@ Thank you for testing this configuration! Your contribution helps the community.
 1. Fork the repository
 2. Edit: \`${registryFile}\`
 3. Add the configuration entry to the appropriate section
-4. Submit a pull request with title: "Add ${registryType === 'framework' ? config.framework + ' ' + config.version : config.modelId} configuration"
+4. Submit a pull request with title: "Add ${registryType === 'framework' ? `${config.framework  } ${  config.version}` : config.modelId} configuration"
 
 ## Configuration Entry
 
@@ -682,7 +680,7 @@ ${config.notes || 'No additional notes'}
 ---
 
 Generated by ML Container Creator v${this._getGeneratorVersion()}
-`.trim()
+`.trim();
     }
     
     /**
@@ -692,6 +690,6 @@ Generated by ML Container Creator v${this._getGeneratorVersion()}
     _getGeneratorVersion() {
         // In a real implementation, this would read from package.json
         // For now, return a placeholder
-        return '1.0.0'
+        return '1.0.0';
     }
 }

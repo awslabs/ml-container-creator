@@ -18,7 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { McpClient, DEFAULT_TOOL_NAME, DEFAULT_LIMIT } from '../../generators/app/lib/mcp-client.js';
+import { McpClient } from '../../generators/app/lib/mcp-client.js';
 import ConfigManager from '../../generators/app/lib/config-manager.js';
 import McpCommandHandler from '../../generators/app/lib/mcp-command-handler.js';
 import { createMockGenerator } from '../helpers/mock-generator.js';
@@ -49,7 +49,7 @@ function setupTempDir(configContent) {
 }
 
 function cleanupTempDir(tmpDir) {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 }
 
 function readConfig(tmpDir) {

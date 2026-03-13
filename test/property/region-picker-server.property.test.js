@@ -26,12 +26,12 @@ const FAST_PROPERTY_CONFIG = {
 // ── Shared arbitrary generators ──────────────────────────────────────────────
 
 /** Search terms that cover region codes, labels, partial matches, and non-matching strings */
-const arbSearchTerm = fc.stringMatching(/^[a-zA-Z\s\-]{0,30}$/);
+const arbSearchTerm = fc.stringMatching(/^[a-zA-Z\s-]{0,30}$/);
 
 /** Positive integer limit for result truncation */
 const arbLimit = fc.integer({ min: 1, max: 50 });
 
-/** Context object with optional regionSearch and framework fields */
+// eslint-disable-next-line no-unused-vars -- kept for future smart-mode property tests
 const arbContext = fc.record({
     regionSearch: fc.option(arbSearchTerm, { nil: undefined }),
     framework: fc.option(
@@ -292,10 +292,9 @@ describe('Region Picker Server Property-Based Tests', () => {
             fc.assert(fc.property(
                 arbBadInput,
                 (badInput) => {
-                    let result;
                     let threw = false;
                     try {
-                        result = extractJson(badInput);
+                        extractJson(badInput);
                     } catch {
                         threw = true;
                     }

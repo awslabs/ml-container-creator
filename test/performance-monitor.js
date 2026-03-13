@@ -9,7 +9,7 @@
  */
 
 const slowTests = [];
-const SLOW_TEST_THRESHOLD = 1000; // 1 second
+let SLOW_TEST_THRESHOLD = 1000; // 1 second
 
 /**
  * Setup performance monitoring hooks for a test suite
@@ -34,7 +34,7 @@ export function setupPerformanceMonitoring() {
 
     after(() => {
         if (slowTests.length > 0) {
-            console.log('\n⚠️  Slow Tests Detected (>' + SLOW_TEST_THRESHOLD + 'ms):');
+            console.log(`\n⚠️  Slow Tests Detected (>${  SLOW_TEST_THRESHOLD  }ms):`);
             slowTests
                 .sort((a, b) => b.duration - a.duration)
                 .slice(0, 10)

@@ -7,8 +7,8 @@
 
 class ConfigurationMatcher {
     constructor(frameworkRegistry = {}, modelRegistry = {}) {
-        this.frameworkRegistry = frameworkRegistry
-        this.modelRegistry = modelRegistry
+        this.frameworkRegistry = frameworkRegistry;
+        this.modelRegistry = modelRegistry;
     }
 
     /**
@@ -19,9 +19,9 @@ class ConfigurationMatcher {
      * @returns {Object|null} Framework configuration or null if not found
      */
     matchFramework(framework, version) {
-        const frameworkVersions = this.frameworkRegistry[framework]
+        const frameworkVersions = this.frameworkRegistry[framework];
         if (!frameworkVersions) {
-            return null
+            return null;
         }
 
         // Exact match first
@@ -30,21 +30,21 @@ class ConfigurationMatcher {
                 ...frameworkVersions[version],
                 matchType: 'exact',
                 matchedVersion: version
-            }
+            };
         }
 
         // Find closest compatible version
-        const closestMatch = this.findClosestVersion(frameworkVersions, version)
+        const closestMatch = this.findClosestVersion(frameworkVersions, version);
         if (closestMatch) {
             return {
                 ...closestMatch.config,
                 matchType: 'fuzzy',
                 matchedVersion: closestMatch.version,
                 requestedVersion: version
-            }
+            };
         }
 
-        return null
+        return null;
     }
 
     /**
@@ -54,35 +54,35 @@ class ConfigurationMatcher {
      * @returns {Object|null} Object with {version, config} or null
      */
     findClosestVersion(versions, targetVersion) {
-        const availableVersions = Object.keys(versions)
+        const availableVersions = Object.keys(versions);
         if (availableVersions.length === 0) {
-            return null
+            return null;
         }
 
-        const target = this.parseVersion(targetVersion)
+        const target = this.parseVersion(targetVersion);
         if (!target) {
-            return null
+            return null;
         }
 
-        let bestMatch = null
-        let smallestDiff = Infinity
+        let bestMatch = null;
+        let smallestDiff = Infinity;
 
         for (const version of availableVersions) {
-            const current = this.parseVersion(version)
-            if (!current) continue
+            const current = this.parseVersion(version);
+            if (!current) continue;
 
             // Calculate version distance
-            const diff = this.calculateVersionDistance(target, current)
+            const diff = this.calculateVersionDistance(target, current);
 
             // Prefer versions that are >= target (forward compatible)
             // But also consider older versions if no newer ones exist
             if (diff < smallestDiff) {
-                smallestDiff = diff
-                bestMatch = { version, config: versions[version] }
+                smallestDiff = diff;
+                bestMatch = { version, config: versions[version] };
             }
         }
 
-        return bestMatch
+        return bestMatch;
     }
 
     /**
@@ -92,23 +92,23 @@ class ConfigurationMatcher {
      */
     parseVersion(versionString) {
         if (!versionString || typeof versionString !== 'string') {
-            return null
+            return null;
         }
 
         // Remove 'v' prefix if present
-        const cleaned = versionString.replace(/^v/, '')
+        const cleaned = versionString.replace(/^v/, '');
         
         // Match semantic version pattern
-        const match = cleaned.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/)
+        const match = cleaned.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
         if (!match) {
-            return null
+            return null;
         }
 
         return {
             major: parseInt(match[1], 10),
             minor: parseInt(match[2] || '0', 10),
             patch: parseInt(match[3] || '0', 10)
-        }
+        };
     }
 
     /**
@@ -120,21 +120,21 @@ class ConfigurationMatcher {
      */
     calculateVersionDistance(target, current) {
         // Major version difference is most significant
-        const majorDiff = Math.abs(current.major - target.major) * 10000
+        const majorDiff = Math.abs(current.major - target.major) * 10000;
         
         // Minor version difference
-        const minorDiff = Math.abs(current.minor - target.minor) * 100
+        const minorDiff = Math.abs(current.minor - target.minor) * 100;
         
         // Patch version difference
-        const patchDiff = Math.abs(current.patch - target.patch)
+        const patchDiff = Math.abs(current.patch - target.patch);
 
         // Prefer newer versions slightly (small penalty for older versions)
         const directionPenalty = current.major < target.major ? 1 :
-                                current.major === target.major && current.minor < target.minor ? 0.5 :
-                                current.major === target.major && current.minor === target.minor && current.patch < target.patch ? 0.1 :
-                                0
+            current.major === target.major && current.minor < target.minor ? 0.5 :
+                current.major === target.major && current.minor === target.minor && current.patch < target.patch ? 0.1 :
+                    0;
 
-        return majorDiff + minorDiff + patchDiff + directionPenalty
+        return majorDiff + minorDiff + patchDiff + directionPenalty;
     }
 
     /**
@@ -145,7 +145,7 @@ class ConfigurationMatcher {
      */
     matchModel(modelId) {
         if (!modelId) {
-            return null
+            return null;
         }
 
         // Check exact match first
@@ -154,21 +154,21 @@ class ConfigurationMatcher {
                 ...this.modelRegistry[modelId],
                 matchType: 'exact',
                 matchedPattern: modelId
-            }
+            };
         }
 
         // Try pattern matching
-        const patternMatch = this.matchModelPattern(modelId)
+        const patternMatch = this.matchModelPattern(modelId);
         if (patternMatch) {
             return {
                 ...patternMatch.config,
                 matchType: 'pattern',
                 matchedPattern: patternMatch.pattern,
-                modelId: modelId
-            }
+                modelId
+            };
         }
 
-        return null
+        return null;
     }
 
     /**
@@ -178,16 +178,16 @@ class ConfigurationMatcher {
      */
     matchModelPattern(modelId) {
         if (!modelId) {
-            return null
+            return null;
         }
 
         for (const [pattern, config] of Object.entries(this.modelRegistry)) {
             if (this.matchesPattern(modelId, pattern)) {
-                return { pattern, config }
+                return { pattern, config };
             }
         }
 
-        return null
+        return null;
     }
 
     /**
@@ -199,23 +199,23 @@ class ConfigurationMatcher {
      */
     matchesPattern(modelId, pattern) {
         if (!modelId || !pattern) {
-            return false
+            return false;
         }
 
         // Exact match (no wildcards)
         if (!pattern.includes('*')) {
-            return modelId.toLowerCase() === pattern.toLowerCase()
+            return modelId.toLowerCase() === pattern.toLowerCase();
         }
 
         // Convert pattern to regex
         // Escape special regex characters except *
         const regexPattern = pattern
             .replace(/[.+?^${}()|[\]\\]/g, '\\$&')  // Escape special chars
-            .replace(/\*/g, '.*')  // Convert * to .*
+            .replace(/\*/g, '.*');  // Convert * to .*
 
-        const regex = new RegExp(`^${regexPattern}$`, 'i')  // Case-insensitive
-        return regex.test(modelId)
+        const regex = new RegExp(`^${regexPattern}$`, 'i');  // Case-insensitive
+        return regex.test(modelId);
     }
 }
 
-export default ConfigurationMatcher
+export default ConfigurationMatcher;

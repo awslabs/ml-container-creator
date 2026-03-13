@@ -44,7 +44,7 @@ server.tool(
         limit: z.number().int().positive().optional(),
         context: z.record(z.string(), z.any()).optional()
     },
-    async ({ parameters, limit, context }) => {
+    async ({ parameters, limit, context: _context }) => {
         if (delayMs > 0) {
             await new Promise(resolve => setTimeout(resolve, delayMs));
         }
