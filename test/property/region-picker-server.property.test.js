@@ -72,9 +72,9 @@ describe('Region Picker Server Property-Based Tests', () => {
                             const region = AWS_REGIONS.find(r => r.code === code)
                             assert.ok(region, `Returned code "${code}" must exist in AWS_REGIONS`)
                             const matches = region.code.toLowerCase().includes(term) ||
-                                            region.label.toLowerCase().includes(term)
+                                            region.labels.some(l => l.toLowerCase().includes(term))
                             assert.ok(matches,
-                                `Region "${code}" (${region.label}) does not contain search term "${term}"`)
+                                `Region "${code}" (${region.labels[0]}) does not contain search term "${term}"`)
                         }
                     }
                     return true
