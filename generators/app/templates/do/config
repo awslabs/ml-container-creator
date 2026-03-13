@@ -37,6 +37,11 @@ export NGC_API_KEY="<%= ngcApiKey %>"
 export MODEL_FORMAT="<%= modelFormat %>"
 <% } %>
 
+<% if (inferenceAmiVersion) { %>
+# SageMaker inference AMI version (determines CUDA driver version on the instance)
+export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
+<% } %>
+
 <% if (roleArn) { %>
 export ROLE_ARN="<%= roleArn %>"
 <% } %>

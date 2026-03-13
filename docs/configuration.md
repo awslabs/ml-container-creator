@@ -12,7 +12,7 @@ Configuration sources are applied in strict precedence order (highest to lowest 
 | **2** | CLI Arguments | Positional arguments | `yo ml-container-creator my-project` |
 | **3** | Environment Variables | Shell environment | `export AWS_REGION=us-east-1` |
 | **4** | CLI Config File | `--config` specified file | `--config=production.json` |
-| **5** | Custom Config File | `ml-container.config.json` | Auto-discovered in current directory |
+| **5** | Custom Config File | `config/mcp.json` | Auto-discovered in current directory |
 | **6** | Package.json Section | `"ml-container-creator": {...}` | Project-specific defaults |
 | **7** | Generator Defaults | Built-in defaults | `awsRegion: "us-east-1"` |
 | **8** | Interactive Prompts | User input (fallback) | Yeoman prompts |
@@ -142,7 +142,7 @@ yo ml-container-creator --framework=transformers --model-server=vllm --skip-prom
 
 ### 5. Configuration Files
 
-#### Custom Config File (`ml-container.config.json`)
+#### Custom Config File (`config/mcp.json`)
 
 Create a configuration file in your project directory:
 
@@ -536,7 +536,7 @@ yo ml-container-creator --skip-prompts
 ```bash
 # Create once, use many times
 yo ml-container-creator configure
-yo ml-container-creator --skip-prompts  # Uses ml-container.config.json
+yo ml-container-creator --skip-prompts  # Uses config/mcp.json
 ```
 
 ### 2. Use Environment Variables for Deployment Environments

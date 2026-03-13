@@ -47,7 +47,7 @@ Tests environment variable parsing and precedence:
 
 #### 📁 **Configuration Files Testing** (`configuration-files.test.js`)
 Tests configuration file parsing and validation:
-- Custom config files (`ml-container.config.json`)
+- Custom config files (`config/mcp.json`)
 - Package.json sections (`"ml-container-creator": {...}`)
 - CLI config files (`--config=prod.json`)
 - Malformed file handling and error reporting

@@ -12,6 +12,7 @@
 
 import fs from 'fs';
 // import path from 'path'; // Unused import removed
+import McpCommandHandler from './mcp-command-handler.js';
 
 export default class CliHandler {
     constructor(generator) {
@@ -47,6 +48,12 @@ export default class CliHandler {
             await this._handleGenerateEmptyConfig();
             return true;
                 
+        case 'mcp': {
+            const mcpHandler = new McpCommandHandler(this.generator);
+            await mcpHandler.handle(args.slice(1), options);
+            return true;
+        }
+
         case 'help':
         case '--help':
         case '-h':
@@ -74,7 +81,7 @@ export default class CliHandler {
                 message: 'What type of configuration would you like to create?',
                 choices: [
                     { name: 'Package.json section (recommended for projects)', value: 'package' },
-                    { name: 'Custom config file (ml-container.config.json)', value: 'custom' },
+                    { name: 'Custom config file (config/mcp.json)', value: 'custom' },
                     { name: 'Show environment variable examples', value: 'env' },
                     { name: 'Show CLI option examples', value: 'cli' }
                 ]
@@ -108,7 +115,7 @@ export default class CliHandler {
                 name: 'configType',
                 message: 'Which configuration file format?',
                 choices: [
-                    { name: 'Custom config (ml-container.config.json)', value: 'custom' }
+                    { name: 'Custom config (config/mcp.json)', value: 'custom' }
                 ]
             }
         ]);
@@ -116,7 +123,10 @@ export default class CliHandler {
         const emptyConfig = this._getEmptyConfig();
 
         if (answers.configType === 'custom') {
-            const configPath = 'ml-container.config.json';
+            const configPath = 'config/mcp.json';
+            if (!fs.existsSync('config')) {
+                fs.mkdirSync('config', { recursive: true });
+            }
             fs.writeFileSync(configPath, JSON.stringify(emptyConfig, null, 2));
             console.log(`\n✅ Created empty configuration file: ${configPath}`);
         }
@@ -215,7 +225,7 @@ CONFIGURATION FILES (in precedence order):
   1. CLI options (highest precedence)
   2. Environment variables
   3. --config file
-  4. ml-container.config.json
+  4. config/mcp.json
   5. package.json "ml-container-creator" section
   6. Registry defaults (framework/model registries)
   7. Generator defaults
@@ -282,8 +292,11 @@ For more information, visit: https://github.com/awslabs/ml-container-creator
      */
     async _createCustomConfig() {
         const config = await this._promptForConfig();
-        const configPath = 'ml-container.config.json';
+        const configPath = 'config/mcp.json';
         
+        if (!fs.existsSync('config')) {
+            fs.mkdirSync('config', { recursive: true });
+        }
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
         console.log(`\n✅ Created configuration file: ${configPath}`);
         console.log('\n📝 You can now run: yo ml-container-creator --skip-prompts');

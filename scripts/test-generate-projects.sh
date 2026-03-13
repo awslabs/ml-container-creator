@@ -680,7 +680,7 @@ test_cli_commands() {
     cd "cli-test-config"
     
     if echo "1" | yo ml-container-creator generate-empty-config > ../empty-config.log 2>&1; then
-        if [[ -f "ml-container.config.json" ]]; then
+        if [[ -f "config/mcp.json" ]]; then
             verbose_log "Generate empty config works correctly"
             ((cli_tests_passed++))
         fi

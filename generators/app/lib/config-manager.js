@@ -9,7 +9,7 @@
  * 2. CLI Arguments (yo generator projectName)
  * 3. Environment Variables (AWS_REGION=us-east-1)
  * 4. CLI Config File (--config=prod.json)
- * 5. Custom Config File (ml-container.config.json)
+ * 5. Custom Config File (config/mcp.json)
  * 6. Package.json Section ("ml-container-creator": {...})
  * 7. Generator Defaults
  * 8. Prompting (fallback)
@@ -17,6 +17,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { McpClient } from './mcp-client.js';
 
 /**
  * Configuration error for invalid configuration values
@@ -48,6 +49,8 @@ export default class ConfigManager {
         this.config = {};
         this.skipPrompts = false;
         this.parameterMatrix = this._getParameterMatrix();
+        this.mcpSources = {};
+        this.mcpChoices = {};
     }
 
     /**
@@ -68,6 +71,9 @@ export default class ConfigManager {
         await this._loadEnvironmentVariables();
         await this._loadCliArguments();
         await this._loadCliOptions();
+
+        // Query configured MCP servers for unbounded parameter values
+        await this._queryMcpServers();
 
         // Check if we should skip prompts
         this.skipPrompts = this.generator.options['skip-prompts'] || 
@@ -233,6 +239,14 @@ export default class ConfigManager {
     }
 
     /**
+     * Gets the MCP source tracking information
+     * @returns {Object} Map of parameter names to their MCP source info
+     */
+    getMcpSources() {
+        return this.mcpSources || {};
+    }
+
+    /**
      * Gets the parameter matrix configuration
      * @private
      */
@@ -243,162 +257,198 @@ export default class ConfigManager {
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: false,  // Not required because we support backward compatibility with framework + modelServer
-                default: null
+                default: null,
+                valueSpace: 'bounded'
             },
             framework: {
                 cliOption: 'framework',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: true,
-                default: null
+                default: null,
+                valueSpace: 'bounded'
             },
             modelServer: {
                 cliOption: 'model-server',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: true,
-                default: null
+                default: null,
+                valueSpace: 'bounded'
             },
             modelFormat: {
                 cliOption: 'model-format',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: true,
-                default: null
+                default: null,
+                valueSpace: 'bounded'
             },
             modelName: {
                 cliOption: 'model-name',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: false,
-                default: 'openai/gpt-oss-20b'
+                default: 'openai/gpt-oss-20b',
+                valueSpace: 'bounded'
             },
             includeSampleModel: {
                 cliOption: 'include-sample',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: true,
-                default: false
+                default: false,
+                valueSpace: 'bounded'
             },
             includeTesting: {
                 cliOption: 'include-testing',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: false,
                 required: false,
-                default: true
+                default: true,
+                valueSpace: 'bounded'
             },
             instanceType: {
                 cliOption: 'instance-type',
                 envVar: 'ML_INSTANCE_TYPE',
                 configFile: true,
                 packageJson: false,
+                mcp: true,
                 promptable: true,
                 required: true,
-                default: null
+                default: null,
+                valueSpace: 'unbounded'
             },
             awsRegion: {
                 cliOption: 'region',
                 envVar: 'AWS_REGION',
                 configFile: true,
                 packageJson: true,
+                mcp: true,
                 promptable: true,
                 required: false,
-                default: 'us-east-1'
+                default: 'us-east-1',
+                valueSpace: 'unbounded'
             },
             awsRoleArn: {
                 cliOption: 'role-arn',
                 envVar: 'AWS_ROLE',
                 configFile: true,
                 packageJson: true,
+                mcp: true,
                 promptable: true,
                 required: false,
-                default: null
+                default: null,
+                valueSpace: 'unbounded'
             },
             configFile: {
                 cliOption: 'config',
                 envVar: 'ML_CONTAINER_CREATOR_CONFIG',
                 configFile: false,
                 packageJson: true,
+                mcp: false,
                 promptable: true,
                 required: false,
-                default: null
+                default: null,
+                valueSpace: 'bounded'
             },
             skipPrompts: {
                 cliOption: 'skip-prompts',
                 envVar: null,
                 configFile: false,
                 packageJson: false,
+                mcp: false,
                 promptable: false,
                 required: false,
-                default: false
+                default: false,
+                valueSpace: 'bounded'
             },
             projectName: {
                 cliOption: 'project-name',
                 envVar: null,
                 configFile: true,
                 packageJson: true,
+                mcp: false,
                 promptable: false,
                 required: true,
-                default: null
+                default: null,
+                valueSpace: 'bounded'
             },
             destinationDir: {
                 cliOption: 'project-dir',
                 envVar: null,
                 configFile: true,
                 packageJson: true,
+                mcp: false,
                 promptable: false,
                 required: true,
-                default: '.'
+                default: '.',
+                valueSpace: 'bounded'
             },
             deployTarget: {
                 cliOption: 'deploy-target',
                 envVar: 'ML_DEPLOY_TARGET',
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: true,
-                default: 'codebuild'
+                default: 'codebuild',
+                valueSpace: 'bounded'
             },
             codebuildComputeType: {
                 cliOption: 'codebuild-compute-type',
                 envVar: 'ML_CODEBUILD_COMPUTE_TYPE',
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: false,
-                default: 'BUILD_GENERAL1_MEDIUM'
+                default: 'BUILD_GENERAL1_MEDIUM',
+                valueSpace: 'bounded'
             },
             codebuildProjectName: {
                 cliOption: null,
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: false,
                 required: false,
-                default: null
+                default: null,
+                valueSpace: 'bounded'
             },
             hfToken: {
                 cliOption: 'hf-token',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
+                mcp: false,
                 promptable: true,
                 required: false,
-                default: null
+                default: null,
+                valueSpace: 'bounded'
             }
         };
     }
@@ -495,12 +545,12 @@ export default class ConfigManager {
     }
 
     /**
-     * Load from ml-container.config.json
+     * Load from config/mcp.json
      * @private
      */
     async _loadCustomConfigFile() {
         try {
-            const configPath = this.generator.destinationPath('ml-container.config.json');
+            const configPath = this.generator.destinationPath('config/mcp.json');
             if (fs.existsSync(configPath)) {
                 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
                 this._mergeConfig(config);
@@ -629,6 +679,104 @@ export default class ConfigManager {
                 this.explicitConfig[param] = this._parseValue(param, options[config.cliOption]);
             }
         });
+    }
+
+    /**
+     * Query configured MCP servers for unbounded parameter values.
+     * Reads mcpServers from config/mcp.json, spawns each one,
+     * and stores results in mcpSources/mcpChoices.
+     * @private
+     */
+    async _queryMcpServers() {
+        // No-op: MCP queries now happen on-demand during prompting
+        // via queryMcpServer(). This method is kept for backward compatibility.
+    }
+
+    /**
+     * Query a single named MCP server on-demand with the given context.
+     * Stores results in mcpSources/mcpChoices and returns the result.
+     * @param {string} serverName - Name of the server in mcpServers config
+     * @param {object} context - Context to pass to the MCP tool (e.g. { regionSearch: 'europe' })
+     * @returns {Promise<{ values: object, choices: object } | null>}
+     */
+    async queryMcpServer(serverName, context = {}) {
+        let mcpServerConfigs;
+        try {
+            const configPath = this.generator.destinationPath('config/mcp.json');
+            if (!fs.existsSync(configPath)) return null;
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            mcpServerConfigs = config.mcpServers;
+        } catch {
+            return null;
+        }
+
+        if (!mcpServerConfigs || !mcpServerConfigs[serverName]) return null;
+
+        const smart = this.generator.options.smart === true;
+        const serverConfig = mcpServerConfigs[serverName];
+
+        // Build a custom McpClient that passes context through
+        const client = new McpClient(serverConfig, {
+            timeout: 15000,
+            parameterMatrix: this.parameterMatrix,
+            smart
+        });
+
+        // Override the _buildContext to merge our search context
+        const origBuildContext = client._buildContext.bind(client);
+        client._buildContext = () => ({ ...origBuildContext(), ...context });
+
+        try {
+            const result = await client.query();
+            await client.close();
+
+            if (!result) {
+                const diag = client.getDiagnosticMessage();
+                if (diag) console.log(`   ⚠️  ${serverName}: ${diag}`);
+                return null;
+            }
+
+            // Store values
+            for (const [param, value] of Object.entries(result.values || {})) {
+                const paramConfig = this.parameterMatrix[param];
+                if (paramConfig && paramConfig.valueSpace === 'unbounded' && paramConfig.mcp === true) {
+                    this.mcpSources[param] = {
+                        server: serverName,
+                        value,
+                        timestamp: new Date().toISOString()
+                    };
+                }
+            }
+
+            // Store choices
+            for (const [param, choices] of Object.entries(result.choices || {})) {
+                const paramConfig = this.parameterMatrix[param];
+                if (paramConfig && paramConfig.valueSpace === 'unbounded' && paramConfig.mcp === true && Array.isArray(choices)) {
+                    this.mcpChoices[param] = choices;
+                }
+            }
+
+            return result;
+        } catch (err) {
+            await client.close().catch(() => {});
+            console.log(`   ⚠️  ${serverName}: ${err.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Get the names of configured MCP servers.
+     * @returns {string[]}
+     */
+    getMcpServerNames() {
+        try {
+            const configPath = this.generator.destinationPath('config/mcp.json');
+            if (!fs.existsSync(configPath)) return [];
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            return Object.keys(config.mcpServers || {});
+        } catch {
+            return [];
+        }
     }
 
     /**
