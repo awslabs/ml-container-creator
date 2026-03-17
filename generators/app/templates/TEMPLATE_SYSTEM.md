@@ -29,7 +29,7 @@ All user answers from the prompting phase are available in templates:
 | `includeSampleModel` | boolean | Include sample model | `true`, `false` |
 | `includeTesting` | boolean | Include test suite | `true`, `false` |
 | `testTypes` | string[] | Selected test types | `['local-model-cli', 'hosted-model-endpoint']` |
-| `deployTarget` | string | Deployment target | `sagemaker` |
+| `buildTarget` | string | Build target | `codebuild` |
 | `instanceType` | string | Instance configuration | `cpu-optimized`, `gpu-enabled`, `custom` |
 | `customInstanceType` | string | Custom AWS instance type | `ml.m5.large`, `ml.g4dn.xlarge` |
 | `awsRegion` | string | AWS region | `us-east-1` |

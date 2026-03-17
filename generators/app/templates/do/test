@@ -10,8 +10,13 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
+<% if (deploymentTarget === 'managed-inference') { %>
+# ============================================================
+# SageMaker Managed Inference Testing
+# ============================================================
+
 # Parse arguments
-ENDPOINT_NAME="${1:-}"
+ENDPOINT_NAME="${1:-${ENDPOINT_NAME:-}}"
 
 if [ -z "${ENDPOINT_NAME}" ]; then
     echo "🧪 Testing local container at localhost:8080"
@@ -43,7 +48,7 @@ if [ "${TEST_MODE}" = "local" ]; then
     fi
     
     HTTP_CODE=$(echo "${PING_RESPONSE}" | tail -n1)
-    RESPONSE_BODY=$(echo "${PING_RESPONSE}" | head -n-1)
+    RESPONSE_BODY=$(echo "${PING_RESPONSE}" | sed '$d')
     
     if [ "${HTTP_CODE}" = "200" ]; then
         echo "✅ Health check passed (HTTP ${HTTP_CODE})"
@@ -124,7 +129,7 @@ if [ "${TEST_MODE}" = "local" ]; then
     fi
     
     HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
-    RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | head -n-1)
+    RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
     
     if [ "${HTTP_CODE}" = "200" ]; then
         echo "✅ Inference request successful (HTTP ${HTTP_CODE})"
@@ -147,12 +152,21 @@ else
     # Create temporary file for response
     TEMP_RESPONSE=$(mktemp)
     
-    # Invoke endpoint
+    # Invoke endpoint via inference component
+    IC_NAME="${INFERENCE_COMPONENT_NAME:-}"
+    INVOKE_ARGS=(
+        --endpoint-name "${ENDPOINT_NAME}"
+        --region "${AWS_REGION}"
+        --content-type "application/json"
+        --body "fileb://${TEMP_PAYLOAD}"
+    )
+    if [ -n "${IC_NAME}" ]; then
+        INVOKE_ARGS+=(--inference-component-name "${IC_NAME}")
+        echo "   Inference component: ${IC_NAME}"
+    fi
+
     if ! aws sagemaker-runtime invoke-endpoint \
-        --endpoint-name "${ENDPOINT_NAME}" \
-        --region "${AWS_REGION}" \
-        --content-type "application/json" \
-        --body "fileb://${TEMP_PAYLOAD}" \
+        "${INVOKE_ARGS[@]}" \
         "${TEMP_RESPONSE}" &> /dev/null; then
         echo "❌ Inference request failed"
         rm -f "${TEMP_PAYLOAD}" "${TEMP_RESPONSE}"
@@ -185,3 +199,210 @@ else
     echo "  • Endpoint name: ${ENDPOINT_NAME}"
     echo "  • Region: ${AWS_REGION}"
 fi
+
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+# ============================================================
+# HyperPod EKS Testing
+# ============================================================
+
+# Parse arguments: local or hyperpod test mode
+# Default to hyperpod if no argument given (deployment target is hyperpod-eks)
+TEST_TARGET="${1:-hyperpod}"
+
+case "${TEST_TARGET}" in
+    local)
+        echo "🧪 Testing local container at localhost:8080"
+        echo "   Project: ${PROJECT_NAME}"
+        echo "   Framework: ${FRAMEWORK}"
+        echo "   Model server: ${MODEL_SERVER}"
+        TARGET_URL="http://localhost:8080"
+        ;;
+    hyperpod)
+        echo "🧪 Testing HyperPod EKS deployment"
+        echo "   Project: ${PROJECT_NAME}"
+        echo "   Framework: ${FRAMEWORK}"
+        echo "   Model server: ${MODEL_SERVER}"
+        echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
+        echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+        echo "   Region: ${AWS_REGION}"
+        echo ""
+        
+        # Get kubeconfig for HyperPod cluster
+        echo "🔑 Configuring kubectl for HyperPod cluster..."
+        KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+        
+        EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+            --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Orchestrator.Eks.ClusterArn" \
+            --output text 2>&1) || {
+            echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+            echo ""
+            echo "   Check that:"
+            echo "   • The cluster name is correct"
+            echo "   • The cluster exists in region: ${AWS_REGION}"
+            echo "   • Your IAM user/role has permission to access the cluster"
+            exit 4
+        }
+        
+        EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+        
+        if ! aws eks update-kubeconfig \
+            --name "${EKS_CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+            echo "❌ Failed to configure kubectl for EKS cluster: ${EKS_CLUSTER_NAME}"
+            exit 4
+        fi
+        
+        export KUBECONFIG="${KUBECONFIG_PATH}"
+        
+        # Verify cluster connectivity
+        if ! kubectl cluster-info &> /dev/null; then
+            echo "❌ Cannot connect to HyperPod cluster"
+            exit 4
+        fi
+        echo "✅ Connected to HyperPod cluster"
+        
+        # Port-forward the service to a local port
+        LOCAL_PORT=8080
+        echo ""
+        echo "🔌 Port-forwarding svc/${PROJECT_NAME} to localhost:${LOCAL_PORT}..."
+        kubectl port-forward "svc/${PROJECT_NAME}" "${LOCAL_PORT}:8080" \
+            -n "${HYPERPOD_NAMESPACE}" &
+        PF_PID=$!
+        
+        # Wait for port-forward to establish
+        sleep 3
+        
+        # Ensure cleanup on exit
+        trap "kill ${PF_PID} 2>/dev/null || true" EXIT
+        
+        # Verify port-forward is running
+        if ! kill -0 ${PF_PID} 2>/dev/null; then
+            echo "❌ Port-forward failed to start"
+            echo ""
+            echo "   Check that:"
+            echo "   • The service exists: kubectl get svc ${PROJECT_NAME} -n ${HYPERPOD_NAMESPACE}"
+            echo "   • The deployment is running: kubectl get pods -n ${HYPERPOD_NAMESPACE}"
+            exit 1
+        fi
+        echo "✅ Port-forward established"
+        
+        TARGET_URL="http://localhost:${LOCAL_PORT}"
+        ;;
+    *)
+        echo "Usage: ./do/test [local|hyperpod]"
+        echo ""
+        echo "Test modes:"
+        echo "  local    - Test local container at localhost:8080"
+        echo "  hyperpod - Test HyperPod EKS deployment via port-forward"
+        exit 1
+        ;;
+esac
+
+echo ""
+
+# Test 1: Health check (/ping)
+echo "🔍 Test 1: Health check"
+echo "   Sending GET request to ${TARGET_URL}/ping"
+
+if ! PING_RESPONSE=$(curl -s -w "\n%{http_code}" -X GET "${TARGET_URL}/ping" 2>&1); then
+    echo "❌ Health check failed: Could not connect"
+    if [ "${TEST_TARGET}" = "local" ]; then
+        echo "   Make sure the container is running: ./do/run"
+    else
+        echo "   Check that the port-forward is working and pods are running"
+    fi
+    exit 1
+fi
+
+HTTP_CODE=$(echo "${PING_RESPONSE}" | tail -n1)
+RESPONSE_BODY=$(echo "${PING_RESPONSE}" | sed '$d')
+
+if [ "${HTTP_CODE}" = "200" ]; then
+    echo "✅ Health check passed (HTTP ${HTTP_CODE})"
+else
+    echo "❌ Health check failed (HTTP ${HTTP_CODE})"
+    echo "   Response: ${RESPONSE_BODY}"
+    exit 1
+fi
+
+echo ""
+
+# Test 2: Inference request (/invocations)
+echo "🔍 Test 2: Inference request"
+
+# Create framework-specific test payload
+case "${FRAMEWORK}" in
+    sklearn|xgboost)
+        # Traditional ML: JSON with instances array
+        TEST_PAYLOAD='{"instances": [[1.0, 2.0, 3.0, 4.0]]}'
+        echo "   Payload: Sample feature vector"
+        ;;
+    tensorflow)
+        # TensorFlow: JSON with instances array
+        TEST_PAYLOAD='{"instances": [[1.0, 2.0, 3.0, 4.0]]}'
+        echo "   Payload: Sample feature vector"
+        ;;
+    transformers)
+        # Transformers: payload format depends on model server
+        case "${MODEL_SERVER}" in
+            vllm|sglang)
+                # OpenAI-compatible chat completions format
+                TEST_PAYLOAD='{"model": "'"${MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                echo "   Payload: OpenAI-compatible chat completion request"
+                ;;
+            *)
+                # HuggingFace-style format for LMI, DJL, TensorRT-LLM
+                TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50, "temperature": 0.7}}'
+                echo "   Payload: HuggingFace-style text generation request"
+                ;;
+        esac
+        ;;
+    *)
+        echo "❌ Unknown framework: ${FRAMEWORK}"
+        exit 3
+        ;;
+esac
+
+echo "   Sending POST request to ${TARGET_URL}/invocations"
+
+if ! INVOKE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${TARGET_URL}/invocations" \
+    -H "Content-Type: application/json" \
+    -d "${TEST_PAYLOAD}" 2>&1); then
+    echo "❌ Inference request failed: Could not connect"
+    exit 1
+fi
+
+HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
+RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
+
+if [ "${HTTP_CODE}" = "200" ]; then
+    echo "✅ Inference request successful (HTTP ${HTTP_CODE})"
+    echo "   Response preview: ${RESPONSE_BODY:0:200}"
+    if [ ${#RESPONSE_BODY} -gt 200 ]; then
+        echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+    fi
+else
+    echo "❌ Inference request failed (HTTP ${HTTP_CODE})"
+    echo "   Response: ${RESPONSE_BODY}"
+    exit 1
+fi
+
+echo ""
+echo "✅ All tests passed!"
+echo ""
+
+if [ "${TEST_TARGET}" = "local" ]; then
+    echo "Next steps:"
+    echo "  • Push to ECR: ./do/push"
+    echo "  • Deploy to HyperPod: ./do/deploy"
+else
+    echo "HyperPod deployment is ready for production use!"
+    echo "  • Cluster: ${HYPERPOD_CLUSTER_NAME}"
+    echo "  • Namespace: ${HYPERPOD_NAMESPACE}"
+    echo "  • Service: ${PROJECT_NAME}"
+fi
+
+<% } %>

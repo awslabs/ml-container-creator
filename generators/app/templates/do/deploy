@@ -10,32 +10,19 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
-echo "🚀 Deploying to AWS SageMaker"
+echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"
 echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
 echo "   Region: ${AWS_REGION}"
+echo "   Build target: ${BUILD_TARGET}"
+echo "   Deployment target: ${DEPLOYMENT_TARGET}"
+<% if (deploymentTarget === 'managed-inference') { %>
 echo "   Instance type: ${INSTANCE_TYPE}"
-echo "   Deploy target: ${DEPLOY_TARGET}"
-
-# Validate execution role ARN
-if [ -z "${ROLE_ARN:-}" ]; then
-    echo "❌ Execution role ARN not provided"
-    echo ""
-    echo "Usage:"
-    echo "  export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE"
-    echo "  ./do/deploy"
-    echo ""
-    echo "Or set ROLE_ARN in do/config"
-    echo ""
-    echo "The execution role must have permissions for:"
-    echo "  • SageMaker model creation and endpoint management"
-    echo "  • ECR image access"
-    echo "  • S3 access (if using model artifacts)"
-    echo "  • CloudWatch Logs"
-    exit 3
-fi
-
-echo "   Using execution role: ${ROLE_ARN}"
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+echo "   Replicas: ${HYPERPOD_REPLICAS}"
+<% } %>
 
 # Check AWS credentials
 echo "🔍 Validating AWS credentials..."
@@ -52,104 +39,80 @@ echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
 # Construct ECR repository URL
 ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
 
-# Deployment target branching
-case "${DEPLOY_TARGET}" in
-    codebuild)
-        echo "🔍 CodeBuild deployment - verifying ECR image exists..."
-        
-        # Verify ECR image exists
-        if ! aws ecr describe-images \
-            --repository-name "${ECR_REPOSITORY_NAME}" \
-            --image-ids imageTag="${PROJECT_NAME}-latest" \
-            --region "${AWS_REGION}" &> /dev/null; then
-            
-            echo "❌ ECR image not found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
-            echo ""
-            echo "The CodeBuild deployment requires the Docker image to be built and pushed to ECR first."
-            echo "Please run the following command to build and push your image:"
-            echo "  ./do/submit"
-            echo ""
-            echo "After the build completes successfully, run this deploy script again."
-            exit 4
-        fi
-        
-        echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
-        IMAGE_TAG="${PROJECT_NAME}-latest"
-        ;;
-        
-    sagemaker)
-        echo "🔍 SageMaker deployment - using latest image from ECR..."
-        
-        # Verify ECR image exists
-        if ! aws ecr describe-images \
-            --repository-name "${ECR_REPOSITORY_NAME}" \
-            --image-ids imageTag="${PROJECT_NAME}-latest" \
-            --region "${AWS_REGION}" &> /dev/null; then
-            
-            echo "❌ ECR image not found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
-            echo ""
-            echo "Please build and push your image first:"
-            echo "  ./do/build"
-            echo "  ./do/push"
-            echo ""
-            echo "Then run this deploy script again."
-            exit 4
-        fi
-        
-        echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
-        IMAGE_TAG="${PROJECT_NAME}-latest"
-        ;;
-        
-    *)
-        echo "❌ Unknown deployment target: ${DEPLOY_TARGET}"
-        echo "   Valid values: codebuild, sagemaker"
-        exit 3
-        ;;
-esac
-
-# Generate unique names with timestamp
-TIMESTAMP=$(date +%s)
-MODEL_NAME="${PROJECT_NAME}-model-${TIMESTAMP}"
-ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-endpoint-config-${TIMESTAMP}"
-ENDPOINT_NAME="${PROJECT_NAME}-endpoint-${TIMESTAMP}"
-
-# Create SageMaker model
-echo "📦 Creating SageMaker model: ${MODEL_NAME}"
-if ! aws sagemaker create-model \
-    --model-name "${MODEL_NAME}" \
-    --primary-container Image="${ECR_REPOSITORY}:${IMAGE_TAG}",Mode=SingleModel \
-    --execution-role-arn "${ROLE_ARN}" \
-    --region "${AWS_REGION}"; then
+# ============================================================
+# Shared: Verify ECR image exists
+# ============================================================
+echo "🔍 Verifying ECR image exists..."
+if ! aws ecr describe-images \
+    --repository-name "${ECR_REPOSITORY_NAME}" \
+    --image-ids imageTag="${PROJECT_NAME}-latest" \
+    --region "${AWS_REGION}" &> /dev/null; then
     
-    echo "❌ Failed to create SageMaker model"
-    echo "   Check that:"
-    echo "   • The execution role ARN is valid"
-    echo "   • The role has permissions to access the ECR image"
-    echo "   • The ECR image exists and is accessible"
+    echo "❌ ECR image not found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+    echo ""
+    echo "Please build and push your image first:"
+    echo "  ./do/submit"
+    echo ""
+    echo "After the build completes successfully, run this deploy script again."
     exit 4
 fi
 
-echo "✅ SageMaker model created: ${MODEL_NAME}"
+echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+IMAGE_TAG="${PROJECT_NAME}-latest"
 
-# Create endpoint configuration
-echo "⚙️  Creating endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
+<% if (deploymentTarget === 'managed-inference') { %>
+# ============================================================
+# SageMaker Managed Inference Deployment (Inference Components)
+# ============================================================
 
-# Build production variant arguments
-VARIANT_ARGS="VariantName=primary,ModelName=${MODEL_NAME},InitialInstanceCount=1,InstanceType=${INSTANCE_TYPE},InitialVariantWeight=1"
+# Validate execution role ARN
+if [ -z "${ROLE_ARN:-}" ]; then
+    echo "❌ Execution role ARN not provided"
+    echo ""
+    echo "Usage:"
+    echo "  export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE"
+    echo "  ./do/deploy"
+    echo ""
+    echo "Or set ROLE_ARN in do/config"
+    echo ""
+    echo "The execution role must have permissions for:"
+    echo "  • SageMaker endpoint and inference component management"
+    echo "  • ECR image access"
+    echo "  • S3 access (if using model artifacts)"
+    echo "  • CloudWatch Logs"
+    exit 3
+fi
+
+echo "   Using execution role: ${ROLE_ARN}"
+
+# Generate unique names with timestamp
+TIMESTAMP=$(date +%s)
+ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-epc-${TIMESTAMP}"
+ENDPOINT_NAME="${PROJECT_NAME}-endpoint-${TIMESTAMP}"
+IC_NAME="${PROJECT_NAME}-ic-${TIMESTAMP}"
+
+# Build production variant JSON — no ModelName, just instance provisioning
+VARIANT_JSON="[{\"VariantName\":\"AllTraffic\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
 
 # Append InferenceAmiVersion if configured (controls CUDA driver version on the instance)
 if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
-    VARIANT_ARGS="${VARIANT_ARGS},InferenceAmiVersion=${INFERENCE_AMI_VERSION}"
+    VARIANT_JSON="${VARIANT_JSON},\"InferenceAmiVersion\":\"${INFERENCE_AMI_VERSION}\""
     echo "   AMI version: ${INFERENCE_AMI_VERSION}"
 fi
 
+VARIANT_JSON="${VARIANT_JSON}}]"
+
+# Step 1: Create endpoint configuration
+echo "⚙️  Creating endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
 if ! aws sagemaker create-endpoint-config \
     --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-    --production-variants "${VARIANT_ARGS}" \
+    --execution-role-arn "${ROLE_ARN}" \
+    --production-variants "${VARIANT_JSON}" \
     --region "${AWS_REGION}"; then
-    
+
     echo "❌ Failed to create endpoint configuration"
     echo "   Check that:"
+    echo "   • The execution role ARN is valid"
     echo "   • The instance type is valid: ${INSTANCE_TYPE}"
     echo "   • The instance type is available in region: ${AWS_REGION}"
     echo "   • You have sufficient service quota for the instance type"
@@ -158,52 +121,324 @@ fi
 
 echo "✅ Endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
 
-# Create endpoint
+# Step 2: Create endpoint
 echo "🚀 Creating endpoint: ${ENDPOINT_NAME}"
 if ! aws sagemaker create-endpoint \
     --endpoint-name "${ENDPOINT_NAME}" \
     --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
     --region "${AWS_REGION}"; then
-    
+
     echo "❌ Failed to create endpoint"
+    echo "   Check that:"
+    echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
+    echo "   • You have sufficient service quota in region: ${AWS_REGION}"
     exit 4
 fi
 
 echo "✅ Endpoint creation initiated: ${ENDPOINT_NAME}"
 
-# Wait for endpoint to reach InService status
+# Wait for endpoint to be in service before creating inference component
 echo "⏳ Waiting for endpoint to reach InService status..."
-echo "   This may take 5-10 minutes..."
+echo "   This may take a few minutes..."
 
 if ! aws sagemaker wait endpoint-in-service \
     --endpoint-name "${ENDPOINT_NAME}" \
     --region "${AWS_REGION}"; then
-    
+
     echo "❌ Endpoint failed to reach InService status"
     echo "   Check CloudWatch Logs for details:"
     echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
     exit 4
 fi
 
+echo "✅ Endpoint is InService: ${ENDPOINT_NAME}"
+
+# Step 3: Create inference component on the endpoint
+echo "📦 Creating inference component: ${IC_NAME}"
+if ! aws sagemaker create-inference-component \
+    --inference-component-name "${IC_NAME}" \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --variant-name "AllTraffic" \
+    --specification "{
+        \"Container\": {
+            \"Image\": \"${ECR_REPOSITORY}:${IMAGE_TAG}\"
+        },
+        \"ComputeResourceRequirements\": {
+            \"NumberOfAcceleratorDevicesRequired\": 1,
+            \"MinMemoryRequiredInMb\": 1024
+        }
+    }" \
+    --runtime-config "{\"CopyCount\": 1}" \
+    --region "${AWS_REGION}"; then
+
+    echo "❌ Failed to create inference component"
+    echo "   Check that:"
+    echo "   • The ECR image exists and is accessible"
+    echo "   • The endpoint is in InService status"
+    echo "   • The compute resource requirements fit the instance type: ${INSTANCE_TYPE}"
+    exit 4
+fi
+
+echo "✅ Inference component creation initiated: ${IC_NAME}"
+
+# Wait for inference component to reach InService status
+echo "⏳ Waiting for inference component to reach InService status..."
+echo "   This may take 5-10 minutes..."
+
+if ! aws sagemaker wait inference-component-in-service \
+    --inference-component-name "${IC_NAME}" \
+    --region "${AWS_REGION}"; then
+
+    echo "❌ Inference component failed to reach InService status"
+    echo "   Check CloudWatch Logs for details:"
+    echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
+    echo ""
+    echo "   Debug:"
+    echo "   aws sagemaker describe-inference-component --inference-component-name ${IC_NAME} --region ${AWS_REGION}"
+    exit 4
+fi
+
 echo "✅ Deployment complete!"
 echo ""
-echo "📋 Endpoint Details:"
-echo "   Name: ${ENDPOINT_NAME}"
+echo "📋 Deployment Details:"
+echo "   Endpoint: ${ENDPOINT_NAME}"
+echo "   Endpoint Config: ${ENDPOINT_CONFIG_NAME}"
+echo "   Inference Component: ${IC_NAME}"
 echo "   Region: ${AWS_REGION}"
 echo "   Instance Type: ${INSTANCE_TYPE}"
-echo "   Model: ${MODEL_NAME}"
 echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"
 echo ""
 echo "🧪 Test your endpoint:"
-echo "   ./do/test ${ENDPOINT_NAME}"
+echo "   ./do/test"
 echo ""
-echo "🔍 Monitor your endpoint:"
+echo "🔍 Monitor your deployment:"
+echo "   aws sagemaker describe-inference-component --inference-component-name ${IC_NAME} --region ${AWS_REGION}"
 echo "   aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION}"
 echo ""
 echo "🧹 Clean up when done:"
 echo "   ./do/clean endpoint"
 
-# Write endpoint name to config so other scripts can use it
-echo "" >> "${SCRIPT_DIR}/config"
-echo "# Last deployed endpoint (auto-generated by do/deploy)" >> "${SCRIPT_DIR}/config"
-echo "export ENDPOINT_NAME=\"${ENDPOINT_NAME}\"" >> "${SCRIPT_DIR}/config"
+# Write names to config so other scripts can use them (idempotent)
+_update_config_var() {
+    local var_name="$1" var_value="$2" config_file="${SCRIPT_DIR}/config"
+    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
+        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
+        rm -f "${config_file}.bak"
+    else
+        echo "" >> "${config_file}"
+        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
+    fi
+}
+
+_update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
+_update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
+_update_config_var "INFERENCE_COMPONENT_NAME" "${IC_NAME}"
+
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+# ============================================================
+# HyperPod EKS Deployment
+# ============================================================
+
+# Get kubeconfig for HyperPod cluster
+echo "🔑 Configuring kubectl for HyperPod cluster..."
+KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+
+# Step 1: Describe the HyperPod cluster to get the underlying EKS cluster ARN
+EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+    --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+    --region "${AWS_REGION}" \
+    --query "Orchestrator.Eks.ClusterArn" \
+    --output text 2>&1) || {
+    echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+    echo ""
+    echo "   Error details:"
+    echo "   ${EKS_CLUSTER_ARN}"
+    echo ""
+    echo "   Check that:"
+    echo "   • The cluster name is correct"
+    echo "   • The cluster exists in region: ${AWS_REGION}"
+    echo "   • Your IAM user/role has permission to access the cluster"
+    echo ""
+    echo "   Required IAM permissions:"
+    echo "   • sagemaker:DescribeCluster"
+    echo "   • eks:DescribeCluster"
+    exit 4
+}
+
+# Step 2: Extract the EKS cluster name from the ARN
+EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+echo "   EKS cluster: ${EKS_CLUSTER_NAME}"
+
+# Step 3: Update kubeconfig using the EKS cluster
+if ! aws eks update-kubeconfig \
+    --name "${EKS_CLUSTER_NAME}" \
+    --region "${AWS_REGION}" \
+    --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+    echo "❌ Failed to configure kubectl for EKS cluster: ${EKS_CLUSTER_NAME}"
+    echo ""
+    echo "   Required IAM permissions:"
+    echo "   • eks:DescribeCluster"
+    echo "   • eks:AccessKubernetesApi"
+    exit 4
+fi
+
+export KUBECONFIG="${KUBECONFIG_PATH}"
+echo "✅ Kubeconfig saved to: ${KUBECONFIG_PATH}"
+
+# Verify cluster connectivity
+echo "🔍 Verifying cluster connectivity..."
+if ! kubectl cluster-info &> /dev/null; then
+    echo "❌ Cannot connect to HyperPod cluster"
+    echo ""
+    echo "   Check that:"
+    echo "   • The cluster is in 'InService' status"
+    echo "   • Your network can reach the cluster API server"
+    echo "   • Your IAM credentials are valid"
+    exit 4
+fi
+echo "✅ Connected to HyperPod cluster"
+
+# Create namespace if it doesn't exist
+echo "📁 Ensuring namespace exists: ${HYPERPOD_NAMESPACE}"
+if ! kubectl create namespace "${HYPERPOD_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
+    echo "⚠️  Warning: Could not create/verify namespace"
+fi
+
+# Apply Kubernetes manifests
+echo "📄 Applying Kubernetes manifests from hyperpod/..."
+
+# Substitute shell variables (e.g. ${AWS_ACCOUNT_ID}) in manifests before applying
+export AWS_ACCOUNT_ID
+export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+APPLY_OUTPUT=""
+APPLY_EXIT_CODE=0
+for manifest in hyperpod/*.yaml; do
+    # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
+    RENDERED=$(envsubst < "${manifest}")
+    if echo "${RENDERED}" | grep -q '^kind:'; then
+        FILE_OUTPUT=$(echo "${RENDERED}" | kubectl apply -n "${HYPERPOD_NAMESPACE}" -f - 2>&1) || {
+            APPLY_EXIT_CODE=$?
+        }
+        APPLY_OUTPUT="${APPLY_OUTPUT}${FILE_OUTPUT}\n"
+    fi
+done
+
+if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then
+    echo ""
+    echo "❌ Failed to apply Kubernetes manifests"
+    echo ""
+    echo "   Error details:"
+    echo "   ${APPLY_OUTPUT}"
+    echo ""
+    echo "   Common issues:"
+    echo "   • Insufficient node capacity - check available GPU nodes"
+    echo "   • Resource requests exceed node capacity"
+    echo "   • RBAC permissions - ensure you have permission to create resources in namespace '${HYPERPOD_NAMESPACE}'"
+    echo "   • Invalid manifest syntax"
+<% if (fsxVolumeHandle) { %>
+    echo "   • PVC creation failure - verify the FSx CSI driver is installed on the cluster"
+    echo "     kubectl get csidriver -o name | grep fsx"
+<% } %>
+    echo ""
+    echo "   Debug commands:"
+    echo "   kubectl get nodes -o wide"
+    echo "   kubectl describe nodes"
+    echo "   kubectl get events -n ${HYPERPOD_NAMESPACE}"
+    exit ${APPLY_EXIT_CODE}
+fi
+
+echo "✅ Kubernetes manifests applied"
+
+# Wait for deployment to be ready
+DEPLOY_TIMEOUT=${DEPLOY_TIMEOUT:-1200}
+echo "⏳ Waiting for deployment to be ready (timeout: ${DEPLOY_TIMEOUT}s)..."
+echo "   This may take several minutes for GPU workloads..."
+echo ""
+
+# Poll pod status every 30s while rollout is in progress
+(
+    while true; do
+        sleep 30
+        POD_STATUS=$(kubectl get pods -n "${HYPERPOD_NAMESPACE}" -l app=${PROJECT_NAME} \
+            --no-headers 2>/dev/null | head -5)
+        if [ -n "${POD_STATUS}" ]; then
+            echo "   📊 $(date +%H:%M:%S) Pod status:"
+            echo "${POD_STATUS}" | while read -r line; do echo "      ${line}"; done
+        fi
+    done
+) &
+STATUS_PID=$!
+trap "kill ${STATUS_PID} 2>/dev/null; wait ${STATUS_PID} 2>/dev/null" EXIT
+
+ROLLOUT_OUTPUT=$(kubectl rollout status deployment/${PROJECT_NAME} -n "${HYPERPOD_NAMESPACE}" --timeout=${DEPLOY_TIMEOUT}s 2>&1) || {
+    ROLLOUT_EXIT_CODE=$?
+    kill ${STATUS_PID} 2>/dev/null
+    echo ""
+    echo "❌ Deployment failed to become ready within timeout"
+    echo ""
+    echo "   Error details:"
+    echo "   ${ROLLOUT_OUTPUT}"
+    echo ""
+    echo "   Current pod state:"
+    kubectl get pods -n "${HYPERPOD_NAMESPACE}" -l app=${PROJECT_NAME} -o wide 2>/dev/null
+    echo ""
+    echo "   Debug commands:"
+    echo "   kubectl describe pods -n ${HYPERPOD_NAMESPACE} -l app=${PROJECT_NAME}"
+    echo "   kubectl logs -n ${HYPERPOD_NAMESPACE} -l app=${PROJECT_NAME} --tail=100"
+    echo ""
+    echo "   Common issues:"
+    echo "   • Image pull errors - check ECR permissions"
+    echo "   • Resource scheduling - insufficient GPU nodes"
+    echo "   • Container crash - check application logs"
+<% if (fsxVolumeHandle) { %>
+    echo "   • PVC binding errors - verify FSx CSI driver is installed on the cluster"
+    echo "     kubectl get pvc -n ${HYPERPOD_NAMESPACE}"
+    echo "     kubectl describe pvc -n ${HYPERPOD_NAMESPACE}"
+    echo "     kubectl get csidriver -o name | grep fsx"
+<% } %>
+    exit ${ROLLOUT_EXIT_CODE}
+}
+
+kill ${STATUS_PID} 2>/dev/null
+wait ${STATUS_PID} 2>/dev/null
+
+echo "✅ HyperPod EKS deployment complete!"
+echo ""
+echo "📋 Deployment Details:"
+echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
+echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+echo "   Deployment: ${PROJECT_NAME}"
+echo "   Replicas: ${HYPERPOD_REPLICAS}"
+echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"
+echo ""
+echo "🔍 Check deployment status:"
+echo "   export KUBECONFIG=${KUBECONFIG_PATH}"
+echo "   kubectl get pods -n ${HYPERPOD_NAMESPACE}"
+echo "   kubectl get svc -n ${HYPERPOD_NAMESPACE}"
+echo ""
+echo "🧪 Test your deployment:"
+echo "   ./do/test"
+echo ""
+echo "📋 View logs:"
+echo "   ./do/logs"
+echo ""
+echo "🧹 Clean up when done:"
+echo "   ./do/clean hyperpod"
+
+# Write kubeconfig path to config so other scripts can use it (idempotent)
+_update_config_var() {
+    local var_name="$1" var_value="$2" config_file="${SCRIPT_DIR}/config"
+    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
+        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
+        rm -f "${config_file}.bak"
+    else
+        echo "" >> "${config_file}"
+        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
+    fi
+}
+
+_update_config_var "KUBECONFIG" "${KUBECONFIG_PATH}"
+
+<% } %>

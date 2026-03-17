@@ -17,7 +17,8 @@ describe('TemplateManager', () => {
         it('should pass validation for supported deployment configurations', () => {
             const answers = {
                 deploymentConfig: 'sklearn-flask',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: '',
@@ -32,7 +33,8 @@ describe('TemplateManager', () => {
         it('should pass validation for transformers deployment configurations', () => {
             const answers = {
                 deploymentConfig: 'transformers-vllm',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference',
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: '',
@@ -47,7 +49,7 @@ describe('TemplateManager', () => {
         it('should throw error for unsupported deployment configuration', () => {
             const answers = {
                 deploymentConfig: 'pytorch-torchserve',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -61,7 +63,7 @@ describe('TemplateManager', () => {
             const answers = {
                 framework: 'sklearn',
                 modelServer: 'flask',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: '',
@@ -77,7 +79,7 @@ describe('TemplateManager', () => {
             const answers = {
                 framework: 'pytorch',
                 modelServer: 'flask',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -91,7 +93,7 @@ describe('TemplateManager', () => {
             const answers = {
                 framework: 'sklearn',
                 modelServer: 'torchserve',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -105,7 +107,7 @@ describe('TemplateManager', () => {
             const answers = {
                 framework: 'sklearn',
                 modelServer: 'tensorrt-llm',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''

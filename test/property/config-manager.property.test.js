@@ -108,7 +108,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                 fc.record({
                     'AWS_REGION': fc.option(fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1')),
                     'ML_INSTANCE_TYPE': fc.option(fc.constantFrom('ml.m5.large', 'ml.g5.xlarge')),
-                    'ML_DEPLOY_TARGET': fc.option(fc.constantFrom('codebuild'))
+                    'ML_BUILD_TARGET': fc.option(fc.constantFrom('codebuild'))
                 }),
                 async (envVars) => {
                     // Set environment variables
@@ -132,8 +132,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                         assert.strictEqual(config.instanceType, envVars.ML_INSTANCE_TYPE);
                     }
                     
-                    if (envVars.ML_DEPLOY_TARGET) {
-                        assert.strictEqual(config.deployTarget, envVars.ML_DEPLOY_TARGET);
+                    if (envVars.ML_BUILD_TARGET) {
+                        assert.strictEqual(config.buildTarget, envVars.ML_BUILD_TARGET);
                     }
                     
                     return true;

@@ -24,7 +24,7 @@ describe('generator-ml-container-creator:app', () => {
                     includeSampleModel: true,
                     includeTesting: true,
                     testTypes: ['local-model-cli', 'local-model-server'],
-                    deployTarget: 'sagemaker',
+                    buildTarget: 'codebuild',
                     instanceType: 'ml.m5.large',
                     awsRegion: 'us-east-1',
                     awsRoleArn: ''
@@ -105,7 +105,7 @@ describe('generator-ml-container-creator:app', () => {
                     includeSampleModel: false,
                     includeTesting: true,
                     testTypes: ['hosted-model-endpoint'],
-                    deployTarget: 'sagemaker',
+                    buildTarget: 'codebuild',
                     instanceType: 'ml.g5.xlarge',
                     awsRegion: 'us-east-1',
                     awsRoleArn: ''
@@ -175,7 +175,7 @@ describe('generator-ml-container-creator:app', () => {
                     modelFormat: 'json',
                     includeSampleModel: false,
                     includeTesting: false,
-                    deployTarget: 'sagemaker',
+                    buildTarget: 'codebuild',
                     instanceType: 'ml.m5.large',
                     awsRegion: 'us-east-1',
                     awsRoleArn: ''
@@ -236,7 +236,7 @@ describe('generator-ml-container-creator:app', () => {
                     modelFormat: 'pkl',
                     includeSampleModel: false,
                     includeTesting: false,
-                    deployTarget: 'sagemaker',
+                    buildTarget: 'codebuild',
                     instanceType: 'ml.m5.large',
                     awsRegion: 'us-east-1',
                     awsRoleArn: ''

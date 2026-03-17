@@ -1,4 +1,4 @@
-<% if (deployTarget === 'codebuild') { %>#!/bin/bash
+<% if (buildTarget === 'codebuild') { %>#!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 

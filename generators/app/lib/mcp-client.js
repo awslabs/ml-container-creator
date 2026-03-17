@@ -97,12 +97,10 @@ class McpClient {
 
         // Build environment: merge process.env with server-specific env
         // When --smart flag is active, inject BEDROCK_SMART=true for this run
+        // Always pass process.env so child processes inherit AWS credentials, profiles, etc.
         const smartEnv = this.smart ? { BEDROCK_SMART: 'true' } : {};
         const serverEnv = env && Object.keys(env).length > 0 ? env : {};
-        const mergedEnv = { ...smartEnv, ...serverEnv };
-        const spawnEnv = Object.keys(mergedEnv).length > 0
-            ? { ...process.env, ...mergedEnv }
-            : undefined;
+        const spawnEnv = { ...process.env, ...smartEnv, ...serverEnv };
 
         // Create stdio transport — spawns the server process
         this._transport = new StdioClientTransport({
@@ -231,7 +229,7 @@ class McpClient {
             }
         }
 
-        return { values, choices };
+        return { values, choices, message: parsed.message || null };
     }
 
     /**

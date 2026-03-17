@@ -13,13 +13,33 @@ export MODEL_SERVER="<%= modelServer %>"
 # AWS configuration
 export AWS_REGION="<%= awsRegion %>"
 export ECR_REPOSITORY_NAME="ml-container-creator"
-export INSTANCE_TYPE="<%= instanceType %>"
 
-# Deployment configuration
-export DEPLOY_TARGET="<%= deployTarget %>"
-<% if (deployTarget === 'codebuild') { %>
+# Build configuration — WHERE the Docker image gets built
+export BUILD_TARGET="<%= buildTarget %>"
+<% if (buildTarget === 'codebuild') { %>
 export CODEBUILD_COMPUTE_TYPE="<%= codebuildComputeType %>"
 export CODEBUILD_PROJECT_NAME="${PROJECT_NAME}-build-$(date +%Y%m%d)"
+<% } %>
+
+# Deployment configuration — WHERE the model runs
+export DEPLOYMENT_TARGET="<%= deploymentTarget %>"
+
+<% if (deploymentTarget === 'managed-inference') { %>
+# SageMaker Managed Inference configuration
+export INSTANCE_TYPE="<%= instanceType %>"
+<% if (inferenceAmiVersion) { %>
+export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
+<% } %>
+<% } %>
+
+<% if (deploymentTarget === 'hyperpod-eks') { %>
+# HyperPod EKS configuration
+export HYPERPOD_CLUSTER_NAME="<%= hyperPodCluster %>"
+export HYPERPOD_NAMESPACE="<%= hyperPodNamespace %>"
+export HYPERPOD_REPLICAS="<%= hyperPodReplicas %>"
+<% if (fsxVolumeHandle) { %>
+export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
+<% } %>
 <% } %>
 
 # Framework-specific configuration
@@ -37,18 +57,15 @@ export NGC_API_KEY="<%= ngcApiKey %>"
 export MODEL_FORMAT="<%= modelFormat %>"
 <% } %>
 
-<% if (inferenceAmiVersion) { %>
-# SageMaker inference AMI version (determines CUDA driver version on the instance)
-export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
-<% } %>
-
 <% if (roleArn) { %>
 export ROLE_ARN="<%= roleArn %>"
 <% } %>
 
 # Allow environment variable overrides
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
+<% if (deploymentTarget === 'managed-inference') { %>
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
+<% } %>
 export ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-ml-container-creator}
 
 # Print configuration summary
@@ -56,4 +73,11 @@ echo "⚙️  Configuration loaded"
 echo "   Project: ${PROJECT_NAME}"
 echo "   Config:  ${DEPLOYMENT_CONFIG}"
 echo "   Region:  ${AWS_REGION}"
+echo "   Build target: ${BUILD_TARGET}"
+echo "   Deployment target: ${DEPLOYMENT_TARGET}"
+<% if (deploymentTarget === 'managed-inference') { %>
 echo "   Instance: ${INSTANCE_TYPE}"
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+<% } %>

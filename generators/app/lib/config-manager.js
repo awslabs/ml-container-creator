@@ -17,7 +17,13 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { McpClient } from './mcp-client.js';
+
+// Resolve the generator project root (three levels up from generators/app/lib/)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const GENERATOR_ROOT = path.resolve(__dirname, '..', '..', '..');
 
 /**
  * Configuration error for invalid configuration values
@@ -122,6 +128,21 @@ export default class ConfigManager {
             }
         });
 
+        // Derive framework and modelServer from deploymentConfig if present.
+        // In prompted mode the PromptRunner does this split, but in --skip-prompts
+        // mode we need to do it here so the values are available for downstream logic.
+        if (finalConfig.deploymentConfig) {
+            const parts = finalConfig.deploymentConfig.split('-');
+            const derivedFramework = parts[0];
+            const derivedModelServer = parts.slice(1).join('-');
+            if (!finalConfig.framework || finalConfig.framework === null) {
+                finalConfig.framework = derivedFramework;
+            }
+            if (!finalConfig.modelServer || finalConfig.modelServer === null) {
+                finalConfig.modelServer = derivedModelServer;
+            }
+        }
+
         // When skipping prompts, provide reasonable defaults for missing required parameters
         if (this.skipPrompts) {
             Object.entries(this.parameterMatrix).forEach(([param, config]) => {
@@ -202,8 +223,8 @@ export default class ConfigManager {
             finalConfig.destinationDir = `./${finalConfig.projectName}`;
         }
         
-        // Generate CodeBuild project name if deployTarget is codebuild
-        if (finalConfig.deployTarget === 'codebuild' && !finalConfig.codebuildProjectName) {
+        // Generate CodeBuild project name if buildTarget is codebuild
+        if ((finalConfig.buildTarget === 'codebuild' || finalConfig.deployTarget === 'codebuild') && !finalConfig.codebuildProjectName) {
             finalConfig.codebuildProjectName = this._generateCodeBuildProjectName(
                 finalConfig.projectName, 
                 finalConfig.framework
@@ -343,6 +364,7 @@ export default class ConfigManager {
             awsRegion: {
                 cliOption: 'region',
                 envVar: 'AWS_REGION',
+                ambientEnvVar: true, // AWS_REGION is commonly set in shells; treat as default, not explicit override
                 configFile: true,
                 packageJson: true,
                 mcp: true,
@@ -406,9 +428,9 @@ export default class ConfigManager {
                 default: '.',
                 valueSpace: 'bounded'
             },
-            deployTarget: {
-                cliOption: 'deploy-target',
-                envVar: 'ML_DEPLOY_TARGET',
+            buildTarget: {
+                cliOption: 'build-target',
+                envVar: 'ML_BUILD_TARGET',
                 configFile: true,
                 packageJson: false,
                 mcp: false,
@@ -441,6 +463,61 @@ export default class ConfigManager {
             },
             hfToken: {
                 cliOption: 'hf-token',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'bounded'
+            },
+            deploymentTarget: {
+                cliOption: 'deployment-target',
+                envVar: 'ML_DEPLOYMENT_TARGET',
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: true,
+                default: 'managed-inference',
+                valueSpace: 'bounded'
+            },
+            hyperPodCluster: {
+                cliOption: 'hyperpod-cluster',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: true,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'unbounded'
+            },
+            hyperPodNamespace: {
+                cliOption: 'hyperpod-namespace',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 'default',
+                valueSpace: 'bounded'
+            },
+            hyperPodReplicas: {
+                cliOption: 'hyperpod-replicas',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 1,
+                valueSpace: 'bounded'
+            },
+            fsxVolumeHandle: {
+                cliOption: 'fsx-volume-handle',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
@@ -550,7 +627,7 @@ export default class ConfigManager {
      */
     async _loadCustomConfigFile() {
         try {
-            const configPath = this.generator.destinationPath('config/mcp.json');
+            const configPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
             if (fs.existsSync(configPath)) {
                 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
                 this._mergeConfig(config);
@@ -626,19 +703,22 @@ export default class ConfigManager {
         const envMapping = {};
         Object.entries(this.parameterMatrix).forEach(([param, config]) => {
             if (config.envVar) {
-                envMapping[config.envVar] = param;
+                envMapping[config.envVar] = { param, ambient: config.ambientEnvVar === true };
             }
         });
 
-        Object.entries(envMapping).forEach(([envVar, configKey]) => {
+        Object.entries(envMapping).forEach(([envVar, { param: configKey, ambient }]) => {
             const value = process.env[envVar];
             if (value !== undefined && value !== '' && this._isSourceSupported(configKey, 'envVar')) {
                 this.config[configKey] = this._parseValue(configKey, value);
-                // Track as explicit configuration
-                if (!this.explicitConfig) {
-                    this.explicitConfig = {};
+                // Track as explicit configuration — unless the env var is ambient
+                // (e.g. AWS_REGION is commonly set in shells as a default, not an override)
+                if (!ambient) {
+                    if (!this.explicitConfig) {
+                        this.explicitConfig = {};
+                    }
+                    this.explicitConfig[configKey] = this._parseValue(configKey, value);
                 }
-                this.explicitConfig[configKey] = this._parseValue(configKey, value);
             }
         });
     }
@@ -702,7 +782,7 @@ export default class ConfigManager {
     async queryMcpServer(serverName, context = {}) {
         let mcpServerConfigs;
         try {
-            const configPath = this.generator.destinationPath('config/mcp.json');
+            const configPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
             if (!fs.existsSync(configPath)) return null;
             const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
             mcpServerConfigs = config.mcpServers;
@@ -770,7 +850,7 @@ export default class ConfigManager {
      */
     getMcpServerNames() {
         try {
-            const configPath = this.generator.destinationPath('config/mcp.json');
+            const configPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
             if (!fs.existsSync(configPath)) return [];
             const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
             return Object.keys(config.mcpServers || {});
@@ -868,9 +948,10 @@ export default class ConfigManager {
             }
         }
 
-        // Validate deployment target
-        if (this.config.deployTarget && !supportedOptions.deployTargets.includes(this.config.deployTarget)) {
-            errors.push(`Unsupported deployment target: ${this.config.deployTarget}. Supported targets: ${supportedOptions.deployTargets.join(', ')}`);
+        // Validate build target (renamed from deployTarget)
+        const buildTarget = this.config.buildTarget || this.config.deployTarget;
+        if (buildTarget && !supportedOptions.buildTargets.includes(buildTarget)) {
+            errors.push(`Unsupported build target: ${buildTarget}. Supported targets: ${supportedOptions.buildTargets.join(', ')}`);
         }
 
         // Validate CodeBuild compute type
@@ -942,6 +1023,13 @@ export default class ConfigManager {
                 // Special case: modelFormat is not required for transformers
                 if (param === 'modelFormat' && finalConfig.framework === 'transformers') {
                     return; // Skip validation for transformers
+                }
+                
+                // Special case: instanceType is not required for hyperpod-eks
+                // when not provided (backward compatibility) — but it IS prompted now
+                // so it should normally be present
+                if (param === 'instanceType' && finalConfig.deploymentTarget === 'hyperpod-eks' && !finalConfig.instanceType) {
+                    return; // Skip validation only if truly missing for backward compat
                 }
                 
                 if (isEmpty) {
@@ -1154,10 +1242,11 @@ export default class ConfigManager {
             }
             break;
             
+        case 'buildTarget':
         case 'deployTarget':
-            if (value && !supportedOptions.deployTargets.includes(value)) {
+            if (value && !supportedOptions.buildTargets.includes(value)) {
                 throw new ValidationError(
-                    `Unsupported deployment target: ${value}. Supported targets: ${supportedOptions.deployTargets.join(', ')}`,
+                    `Unsupported build target: ${value}. Supported targets: ${supportedOptions.buildTargets.join(', ')}`,
                     parameter,
                     value
                 );
@@ -1253,7 +1342,7 @@ export default class ConfigManager {
                 'tensorflow': ['keras', 'h5', 'SavedModel'],
                 'transformers': [] // No format needed
             },
-            deployTargets: ['codebuild'],
+            buildTargets: ['codebuild'],
             codebuildComputeTypes: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',

@@ -32,7 +32,7 @@ export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE
 - Model Server: `<%= modelServer %>`
 - AWS Region: `<%= awsRegion %>`
 - Instance Type: `<%= instanceType %>`
-- Deploy Target: `<%= deployTarget %>`
+- Build Target: `<%= buildTarget %>`
 
 All configuration is centralized in `do/config`. You can override any setting by exporting environment variables before running scripts.
 
@@ -110,7 +110,7 @@ Deploy the container to AWS SageMaker as a managed endpoint.
 
 **Prerequisites:**
 - AWS credentials configured
-- Docker image pushed to ECR (`./do/push`<% if (deployTarget === 'codebuild') { %> or `./do/submit`<% } %>)
+- Docker image pushed to ECR (`./do/push`<% if (buildTarget === 'codebuild') { %> or `./do/submit`<% } %>)
 - SageMaker execution role ARN
 
 **Usage:**
@@ -262,7 +262,7 @@ Clean everything:
 
 ---
 
-<% if (deployTarget === 'codebuild') { %>
+<% if (buildTarget === 'codebuild') { %>
 ### `./do/submit`
 
 Submit a build job to AWS CodeBuild (CodeBuild deployment only).
@@ -319,7 +319,7 @@ All scripts source configuration from `do/config`. Key variables:
 | `AWS_REGION` | AWS region for deployment | `<%= awsRegion %>` |
 | `ECR_REPOSITORY_NAME` | ECR repository name | `ml-container-creator` |
 | `INSTANCE_TYPE` | SageMaker instance type | `<%= instanceType %>` |
-| `DEPLOY_TARGET` | Deployment target | `<%= deployTarget %>` |
+| `BUILD_TARGET` | Build target | `<%= buildTarget %>` |
 <% if (framework === 'transformers') { %>| `MODEL_NAME` | HuggingFace model name | `<%= modelName %>` |
 <% } %><% if (modelFormat) { %>| `MODEL_FORMAT` | Model file format | `<%= modelFormat %>` |
 <% } %>
@@ -392,7 +392,7 @@ export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE
 ```
 ❌ ECR image not found
 ```
-<% if (deployTarget === 'codebuild') { %>Run `./do/submit` to build and push the image via CodeBuild.
+<% if (buildTarget === 'codebuild') { %>Run `./do/submit` to build and push the image via CodeBuild.
 <% } else { %>Run `./do/build` and `./do/push` to build and push the image.
 <% } %>
 
@@ -455,7 +455,7 @@ Try:
 
 2. **Deploy to SageMaker:**
    ```bash
-   <% if (deployTarget === 'codebuild') { %>./do/submit<% } else { %>./do/push<% } %>
+   <% if (buildTarget === 'codebuild') { %>./do/submit<% } else { %>./do/push<% } %>
    export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE
    ./do/deploy
    ```
@@ -472,7 +472,7 @@ Try:
 
 ### CI/CD Workflow
 
-<% if (deployTarget === 'codebuild') { %>
+<% if (buildTarget === 'codebuild') { %>
 ```bash
 # In your CI/CD pipeline
 ./do/submit              # Build and push via CodeBuild
@@ -501,7 +501,7 @@ vim code/model_handler.py
 ./do/test
 
 # Deploy updated version
-<% if (deployTarget === 'codebuild') { %>./do/submit<% } else { %>./do/push<% } %>
+<% if (buildTarget === 'codebuild') { %>./do/submit<% } else { %>./do/push<% } %>
 ./do/deploy
 ```
 
@@ -513,7 +513,7 @@ The `deploy/` directory contains legacy wrapper scripts for backward compatibili
 |---------------|------------------------|--------|
 | `deploy/build_and_push.sh` | `./do/build && ./do/push` | Deprecated |
 | `deploy/deploy.sh` | `./do/deploy` | Deprecated |
-<% if (deployTarget === 'codebuild') { %>| `deploy/submit_build.sh` | `./do/submit` | Deprecated |
+<% if (buildTarget === 'codebuild') { %>| `deploy/submit_build.sh` | `./do/submit` | Deprecated |
 <% } %>
 
 **Migration:** The legacy scripts display deprecation warnings and forward to do-framework scripts. Update your workflows to use `do/` scripts directly.

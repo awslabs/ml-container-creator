@@ -45,9 +45,9 @@ export const PARAMETER_MATRIX = {
         values: ['pkl', 'joblib', 'json', 'model', 'ubj', 'keras', 'h5', 'SavedModel']
     },
     
-    deployTarget: {
-        cliOption: 'deploy-target',
-        envVar: 'ML_DEPLOY_TARGET',
+    buildTarget: {
+        cliOption: 'build-target',
+        envVar: 'ML_BUILD_TARGET',
         configFile: true,
         packageJson: false,
         promptable: true,
@@ -170,7 +170,7 @@ export const PARAMETER_MATRIX = {
 // Environment variable mappings
 export const ENV_VAR_MAPPING = {
     'ML_INSTANCE_TYPE': 'instanceType',
-    'ML_DEPLOY_TARGET': 'deployTarget',
+    'ML_BUILD_TARGET': 'buildTarget',
     'ML_CODEBUILD_COMPUTE_TYPE': 'codebuildComputeType',
     'AWS_REGION': 'awsRegion',
     'AWS_ROLE': 'awsRoleArn',
@@ -221,7 +221,7 @@ export const generateConfiguration = () => fc.record({
     framework: fc.constantFrom(...PARAMETER_MATRIX.framework.values),
     modelServer: fc.constantFrom(...PARAMETER_MATRIX.modelServer.values),
     modelFormat: fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values),
-    deployTarget: fc.constantFrom(...PARAMETER_MATRIX.deployTarget.values),
+    buildTarget: fc.constantFrom(...PARAMETER_MATRIX.buildTarget.values),
     codebuildComputeType: fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
     codebuildProjectName: fc.option(generateCodeBuildProjectName()),
     includeSampleModel: fc.boolean(),
@@ -238,7 +238,7 @@ export const generateCliOptions = () => fc.record({
     'framework': fc.option(fc.constantFrom(...PARAMETER_MATRIX.framework.values)),
     'model-server': fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelServer.values)),
     'model-format': fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values)),
-    'deploy-target': fc.option(fc.constantFrom(...PARAMETER_MATRIX.deployTarget.values)),
+    'build-target': fc.option(fc.constantFrom(...PARAMETER_MATRIX.buildTarget.values)),
     'codebuild-compute-type': fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
     'codebuild-project-name': fc.option(generateCodeBuildProjectName()),
     'include-sample': fc.option(fc.boolean()),
@@ -255,7 +255,7 @@ export const generateCliOptions = () => fc.record({
 // Generate environment variables object
 export const generateEnvironmentVariables = () => fc.record({
     'ML_INSTANCE_TYPE': fc.option(fc.constantFrom(...PARAMETER_MATRIX.instanceType.values)),
-    'ML_DEPLOY_TARGET': fc.option(fc.constantFrom(...PARAMETER_MATRIX.deployTarget.values)),
+    'ML_BUILD_TARGET': fc.option(fc.constantFrom(...PARAMETER_MATRIX.buildTarget.values)),
     'ML_CODEBUILD_COMPUTE_TYPE': fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
     'AWS_REGION': fc.option(fc.constantFrom(...PARAMETER_MATRIX.awsRegion.values)),
     'AWS_ROLE': fc.option(generateValidArn()),
@@ -285,7 +285,7 @@ export const generateConfigFileContent = () => fc.record({
     framework: fc.option(fc.constantFrom(...PARAMETER_MATRIX.framework.values)),
     modelServer: fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelServer.values)),
     modelFormat: fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values)),
-    deployTarget: fc.option(fc.constantFrom(...PARAMETER_MATRIX.deployTarget.values)),
+    buildTarget: fc.option(fc.constantFrom(...PARAMETER_MATRIX.buildTarget.values)),
     codebuildComputeType: fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
     codebuildProjectName: fc.option(generateCodeBuildProjectName()),
     includeSampleModel: fc.option(fc.boolean()),
@@ -380,7 +380,7 @@ export function createMinimalValidConfig() {
         framework: 'sklearn',
         modelServer: 'flask',
         modelFormat: 'pkl',
-        deployTarget: 'codebuild',
+        buildTarget: 'codebuild',
         includeSampleModel: false,
         includeTesting: true,
         instanceType: 'cpu-optimized',
@@ -396,7 +396,7 @@ export function createMinimalValidCodeBuildConfig() {
         framework: 'sklearn',
         modelServer: 'flask',
         modelFormat: 'pkl',
-        deployTarget: 'codebuild',
+        buildTarget: 'codebuild',
         codebuildComputeType: 'BUILD_GENERAL1_MEDIUM',
         codebuildProjectName: 'test-project-build',
         includeSampleModel: false,

@@ -367,36 +367,53 @@ const modulePrompts = [
     }
 ];
 
-const infrastructurePrompts = [
+/**
+ * Infrastructure prompts split into sub-phases so the prompt runner can
+ * interleave MCP queries between them (e.g. query instance-recommender
+ * only after we know the deployment target is managed-inference).
+ *
+ * Ordering: Region → Deployment Target → Instance/HyperPod → Build Target → Role
+ */
+
+// Sub-phase A: Region + Deployment Target (always asked first)
+const infraRegionAndTargetPrompts = [
     {
         type: 'list',
-        name: 'deployTarget',
+        name: 'awsRegion',
+        message: 'Target AWS region?',
+        choices: [
+            'us-east-1',
+            { name: 'Custom...', value: 'custom' }
+        ],
+        default: 'us-east-1'
+    },
+    {
+        type: 'input',
+        name: 'customAwsRegion',
+        message: 'Enter AWS region (e.g., us-west-2, eu-west-1):',
+        when: answers => answers.awsRegion === 'custom'
+    },
+    {
+        type: 'list',
+        name: 'deploymentTarget',
         message: 'Deployment target?',
         choices: [
-            { name: 'codebuild (recommended)', value: 'codebuild' }
+            { name: 'SageMaker Managed Inference - Real Time', value: 'managed-inference' },
+            { name: 'SageMaker HyperPod - EKS', value: 'hyperpod-eks' }
         ],
-        default: 'codebuild'
-    },
-    {
-        type: 'list',
-        name: 'codebuildComputeType',
-        message: 'CodeBuild compute type?',
-        choices: [
-            'BUILD_GENERAL1_SMALL',
-            'BUILD_GENERAL1_MEDIUM',
-            'BUILD_GENERAL1_LARGE'
-        ],
-        default: 'BUILD_GENERAL1_MEDIUM',
-        when: answers => answers.deployTarget === 'codebuild'
-    },
+        default: 'managed-inference'
+    }
+];
+
+// Sub-phase B: Instance type (only when deploymentTarget === 'managed-inference')
+const infraInstancePrompts = [
     {
         type: 'list',
         name: 'instanceType',
+        when: answers => answers.deploymentTarget === 'managed-inference' || answers.deploymentTarget === 'hyperpod-eks',
         message: (answers) => {
-            // Derive framework and modelServer from deploymentConfig if not already set
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             
-            // Display instance type table
             const table = new Table({
                 head: [
                     chalk.cyan('Instance Type'),
@@ -408,20 +425,17 @@ const infrastructurePrompts = [
                 colWidths: [20, 8, 12, 20, 25]
             });
             
-            // Filter instances based on framework
             const instances = Object.values(instanceTypeRegistry);
             let filteredInstances = framework === 'transformers' 
                 ? instances.filter(i => i.category === 'gpu')
                 : instances;
             
-            // Further filter by MCP results when available
             const mcpChoices = answers._mcpInstanceChoices;
             if (mcpChoices && mcpChoices.length > 0) {
                 const mcpSet = new Set(mcpChoices);
                 filteredInstances = filteredInstances.filter(i => mcpSet.has(i.type));
             }
             
-            // Add rows to table
             filteredInstances.forEach(instance => {
                 table.push([
                     instance.type,
@@ -432,7 +446,6 @@ const infrastructurePrompts = [
                 ]);
             });
             
-            // Add custom option
             table.push([
                 chalk.yellow('Custom...'),
                 '-',
@@ -451,29 +464,24 @@ const infrastructurePrompts = [
             return 'Select instance type:';
         },
         choices: (answers) => {
-            // Derive framework from deploymentConfig if not already set
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             
-            // Get instance types based on framework
             const instances = Object.values(instanceTypeRegistry);
             let filteredInstances = framework === 'transformers' 
                 ? instances.filter(i => i.category === 'gpu')
                 : instances;
             
-            // Further filter by MCP results when available
             const mcpChoices = answers._mcpInstanceChoices;
             if (mcpChoices && mcpChoices.length > 0) {
                 const mcpSet = new Set(mcpChoices);
                 filteredInstances = filteredInstances.filter(i => mcpSet.has(i.type));
             }
             
-            // Build choices array
             const choices = filteredInstances.map(instance => ({
                 name: instance.type,
                 value: instance.type
             }));
             
-            // Add custom option
             choices.push({
                 name: 'Custom...',
                 value: 'custom'
@@ -485,14 +493,13 @@ const infrastructurePrompts = [
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             const modelServer = answers.modelServer || answers.deploymentConfig?.split('-')[1];
             
-            // Default recommendations
             if (framework === 'transformers') {
                 if (modelServer === 'tensorrt-llm') {
-                    return 'ml.g5.12xlarge'; // TensorRT-LLM needs more GPU memory
+                    return 'ml.g5.12xlarge';
                 }
-                return 'ml.g5.2xlarge'; // Good default for vLLM/SGLang
+                return 'ml.g5.2xlarge';
             }
-            return 'ml.m5.xlarge'; // Good default for CPU workloads
+            return 'ml.m5.xlarge';
         }
     },
     {
@@ -503,7 +510,6 @@ const infrastructurePrompts = [
             if (!input || input.trim() === '') {
                 return 'Instance type is required';
             }
-            // Validate AWS SageMaker instance type format
             const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
             if (!instancePattern.test(input.trim())) {
                 return 'Invalid instance type format. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g4dn.xlarge)';
@@ -511,22 +517,81 @@ const infrastructurePrompts = [
             return true;
         },
         when: answers => answers.instanceType === 'custom'
-    },
+    }
+];
+
+// Sub-phase C: HyperPod EKS-specific prompts (only when deploymentTarget === 'hyperpod-eks')
+const infraHyperPodPrompts = [
     {
         type: 'list',
-        name: 'awsRegion',
-        message: 'Target AWS region?',
-        choices: [
-            'us-east-1',
-            { name: 'Custom...', value: 'custom' }
-        ],
-        default: 'us-east-1'
+        name: 'hyperPodCluster',
+        message: 'Select HyperPod EKS cluster:',
+        choices: (answers) => {
+            const mcpChoices = answers._mcpHyperPodChoices || [];
+            if (mcpChoices.length > 0) {
+                return [...mcpChoices, { name: 'Custom (enter manually)', value: 'custom' }];
+            }
+            // No MCP results — offer manual entry as the only option
+            return [{ name: 'Enter cluster name manually', value: 'custom' }];
+        },
+        when: answers => answers.deploymentTarget === 'hyperpod-eks'
     },
     {
         type: 'input',
-        name: 'customAwsRegion',
-        message: 'Enter AWS region (e.g., us-west-2, eu-west-1):',
-        when: answers => answers.awsRegion === 'custom'
+        name: 'customHyperPodCluster',
+        message: 'Enter HyperPod EKS cluster name:',
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return 'Cluster name is required';
+            }
+            return true;
+        },
+        when: answers => answers.deploymentTarget === 'hyperpod-eks' && answers.hyperPodCluster === 'custom'
+    },
+    {
+        type: 'input',
+        name: 'hyperPodNamespace',
+        message: 'Kubernetes namespace?',
+        default: 'default',
+        when: answers => answers.deploymentTarget === 'hyperpod-eks'
+    },
+    {
+        type: 'number',
+        name: 'hyperPodReplicas',
+        message: 'Number of pod replicas?',
+        default: 1,
+        when: answers => answers.deploymentTarget === 'hyperpod-eks'
+    },
+    {
+        type: 'input',
+        name: 'fsxVolumeHandle',
+        message: 'FSx for Lustre volume handle (optional, press Enter to skip):',
+        when: answers => answers.deploymentTarget === 'hyperpod-eks'
+    }
+];
+
+// Sub-phase D: Build target + role ARN (always asked last)
+const infraBuildPrompts = [
+    {
+        type: 'list',
+        name: 'buildTarget',
+        message: 'Build target?',
+        choices: [
+            { name: 'CodeBuild (recommended)', value: 'codebuild' }
+        ],
+        default: 'codebuild'
+    },
+    {
+        type: 'list',
+        name: 'codebuildComputeType',
+        message: 'CodeBuild compute type?',
+        choices: [
+            'BUILD_GENERAL1_SMALL',
+            'BUILD_GENERAL1_MEDIUM',
+            'BUILD_GENERAL1_LARGE'
+        ],
+        default: 'BUILD_GENERAL1_MEDIUM',
+        when: answers => answers.buildTarget === 'codebuild'
     },
     {
         type: 'input',
@@ -534,7 +599,7 @@ const infrastructurePrompts = [
         message: 'AWS IAM Role ARN for SageMaker execution (optional)?',
         validate: (input) => {
             if (!input || input.trim() === '') {
-                return true; // Optional parameter
+                return true;
             }
             const arnPattern = /^arn:aws:iam::\d{12}:role\/[\w+=,.@-]+$/;
             if (!arnPattern.test(input)) {
@@ -543,6 +608,14 @@ const infrastructurePrompts = [
             return true;
         }
     }
+];
+
+// Combined view for tests and backward compatibility
+const infrastructurePrompts = [
+    ...infraRegionAndTargetPrompts,
+    ...infraInstancePrompts,
+    ...infraHyperPodPrompts,
+    ...infraBuildPrompts
 ];
 
 const projectPrompts = [
@@ -582,6 +655,10 @@ export {
     ngcApiKeyPrompts,
     modulePrompts,
     infrastructurePrompts,
+    infraRegionAndTargetPrompts,
+    infraInstancePrompts,
+    infraHyperPodPrompts,
+    infraBuildPrompts,
     projectPrompts,
     destinationPrompts
 };

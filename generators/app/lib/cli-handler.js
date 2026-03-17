@@ -169,12 +169,17 @@ CLI OPTIONS:
   --include-sample            Include sample model code
   --include-testing           Include test suite
   --test-types=<types>        Comma-separated test types (local-model-cli,local-model-server,hosted-model-endpoint)
-  --deploy-target=<target>    Deployment target (sagemaker|codebuild)
+  --build-target=<target>     Build target (codebuild)
   --codebuild-compute-type=<type> CodeBuild compute type (BUILD_GENERAL1_SMALL|BUILD_GENERAL1_MEDIUM|BUILD_GENERAL1_LARGE)
   --codebuild-project-name=<name> CodeBuild project name
   --instance-type=<type>      SageMaker instance type (e.g., ml.m5.large, ml.g5.xlarge)
   --region=<region>           AWS region
   --role-arn=<arn>            AWS IAM role ARN for SageMaker execution
+  --deployment-target=<target> Deployment target (managed-inference|hyperpod-eks)
+  --hyperpod-cluster=<name> HyperPod EKS cluster name
+  --hyperpod-namespace=<ns> Kubernetes namespace for HyperPod (default: default)
+  --hyperpod-replicas=<n>   Number of replicas for HyperPod (default: 1)
+  --fsx-volume-handle=<id>  FSx for Lustre volume handle for HyperPod storage
   --hf-token=<token>          HuggingFace token (or "$HF_TOKEN" for env var)
 
 VALIDATION OPTIONS:
@@ -211,7 +216,7 @@ REGISTRY SYSTEM:
 
 ENVIRONMENT VARIABLES:
   ML_INSTANCE_TYPE           Instance type
-  ML_DEPLOY_TARGET           Deployment target
+  ML_BUILD_TARGET            Build target
   ML_CODEBUILD_COMPUTE_TYPE  CodeBuild compute type
   AWS_REGION                 AWS region
   AWS_ROLE                   AWS IAM role ARN
@@ -460,7 +465,7 @@ yo ml-container-creator my-codebuild-project \\
   --framework=sklearn \\
   --model-server=flask \\
   --model-format=pkl \\
-  --deploy-target=codebuild \\
+  --build-target=codebuild \\
   --codebuild-compute-type=BUILD_GENERAL1_MEDIUM \\
   --codebuild-project-name=my-build-project \\
   --skip-prompts
@@ -494,7 +499,7 @@ yo ml-container-creator \\
             'includeSampleModel': false,
             'includeTesting': true,
             'testTypes': ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
-            'deployTarget': 'codebuild',
+            'buildTarget': 'codebuild',
             'codebuildComputeType': 'BUILD_GENERAL1_MEDIUM',
             'codebuildProjectName': 'my-build-project',
             'instanceType': 'ml.m5.large',

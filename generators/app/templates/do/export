@@ -1,0 +1,77 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Export current configuration as a single yo ml-container-creator command
+
+# Source configuration (suppress the summary output)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config" > /dev/null 2>&1
+
+# Build the command
+CMD="yo ml-container-creator"
+CMD="${CMD} --project-name=${PROJECT_NAME}"
+
+# Use deployment-config if available (bundles framework + model server)
+if [ -n "${DEPLOYMENT_CONFIG:-}" ]; then
+    CMD="${CMD} --deployment-config=${DEPLOYMENT_CONFIG}"
+else
+    CMD="${CMD} --framework=${FRAMEWORK}"
+    CMD="${CMD} --model-server=${MODEL_SERVER}"
+fi
+
+# Model format (traditional ML only)
+if [ -n "${MODEL_FORMAT:-}" ]; then
+    CMD="${CMD} --model-format=${MODEL_FORMAT}"
+fi
+
+# Model name (transformers only)
+if [ -n "${MODEL_NAME:-}" ]; then
+    CMD="${CMD} --model-name=${MODEL_NAME}"
+fi
+
+# Build configuration
+CMD="${CMD} --build-target=${BUILD_TARGET}"
+if [ "${BUILD_TARGET}" = "codebuild" ] && [ -n "${CODEBUILD_COMPUTE_TYPE:-}" ]; then
+    CMD="${CMD} --codebuild-compute-type=${CODEBUILD_COMPUTE_TYPE}"
+fi
+
+# Deployment target
+CMD="${CMD} --deployment-target=${DEPLOYMENT_TARGET}"
+
+<% if (deploymentTarget === 'managed-inference') { %>
+# SageMaker Managed Inference
+CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+# HyperPod EKS
+CMD="${CMD} --hyperpod-cluster=${HYPERPOD_CLUSTER_NAME}"
+if [ "${HYPERPOD_NAMESPACE}" != "default" ]; then
+    CMD="${CMD} --hyperpod-namespace=${HYPERPOD_NAMESPACE}"
+fi
+if [ "${HYPERPOD_REPLICAS}" != "1" ]; then
+    CMD="${CMD} --hyperpod-replicas=${HYPERPOD_REPLICAS}"
+fi
+<% if (fsxVolumeHandle) { %>
+CMD="${CMD} --fsx-volume-handle=${FSX_VOLUME_HANDLE}"
+<% } %>
+<% } %>
+
+# AWS region
+CMD="${CMD} --region=${AWS_REGION}"
+
+# Role ARN
+if [ -n "${ROLE_ARN:-}" ]; then
+    CMD="${CMD} --role-arn=${ROLE_ARN}"
+fi
+
+# HuggingFace token — reference env var, don't leak the actual value
+if [ -n "${HF_TOKEN:-}" ]; then
+    CMD="${CMD} --hf-token=\$HF_TOKEN"
+fi
+
+CMD="${CMD} --skip-prompts"
+
+echo ""
+echo "# Reproduce this project with a single command:"
+echo "${CMD}"
+echo ""
