@@ -18,7 +18,7 @@ The do-framework provides:
 |----------------|---------------------|-------|
 | `./deploy/build_and_push.sh` | `./do/build && ./do/push` | Now split into two commands |
 | `./deploy/deploy.sh <role>` | `./do/deploy <role>` | Same functionality |
-<% if (deployTarget === 'codebuild') { %>| `./deploy/submit_build.sh` | `./do/submit` | CodeBuild integration |
+<% if (buildTarget === 'codebuild') { %>| `./deploy/submit_build.sh` | `./do/submit` | CodeBuild integration |
 <% } %>| N/A | `./do/run` | New: Run container locally |
 | N/A | `./do/test [endpoint]` | New: Test container or endpoint |
 | N/A | `./do/clean <target>` | New: Clean up resources |
@@ -38,7 +38,7 @@ do/
 ├── run         # Run locally
 ├── test        # Test container/endpoint
 ├── clean       # Clean up resources
-<% if (deployTarget === 'codebuild') { %>├── submit      # Submit to CodeBuild
+<% if (buildTarget === 'codebuild') { %>├── submit      # Submit to CodeBuild
 <% } %>└── README.md   # Detailed documentation
 ```
 
@@ -74,7 +74,7 @@ do/
 ./do/test <%= projectName %>-endpoint
 ```
 
-<% if (deployTarget === 'codebuild') { %>#### CodeBuild Workflow
+<% if (buildTarget === 'codebuild') { %>#### CodeBuild Workflow
 
 **Old**:
 ```bash
@@ -151,7 +151,7 @@ Update any project documentation that references the old scripts:
 **Find and replace**:
 - `./deploy/build_and_push.sh` → `./do/build && ./do/push`
 - `./deploy/deploy.sh` → `./do/deploy`
-<% if (deployTarget === 'codebuild') { %>- `./deploy/submit_build.sh` → `./do/submit`
+<% if (buildTarget === 'codebuild') { %>- `./deploy/submit_build.sh` → `./do/submit`
 <% } %>
 ## Command Mapping Details
 
@@ -203,7 +203,7 @@ This single script built the Docker image and pushed it to ECR.
 - Automatic endpoint status polling
 - Displays test command when complete
 
-<% if (deployTarget === 'codebuild') { %>### CodeBuild Submit
+<% if (buildTarget === 'codebuild') { %>### CodeBuild Submit
 
 **Legacy**:
 ```bash
@@ -309,7 +309,7 @@ export MODEL_SERVER="<%= modelServer %>"
 export AWS_REGION="<%= awsRegion %>"
 export INSTANCE_TYPE="<%= instanceType %>"
 export ECR_REPOSITORY_NAME="ml-container-creator"
-<% if (deployTarget === 'codebuild') { %>export DEPLOY_TARGET="codebuild"
+<% if (buildTarget === 'codebuild') { %>export BUILD_TARGET="codebuild"
 export CODEBUILD_COMPUTE_TYPE="<%= codebuildComputeType %>"
 <% } %><% if (framework === 'transformers') { %>export MODEL_NAME="<%= modelName %>"
 <% if (hfToken) { %>export HF_TOKEN="<%= hfToken %>"
@@ -329,7 +329,7 @@ The legacy scripts are still available in the `deploy/` directory for backward c
 ```bash
 ./deploy/build_and_push.sh  # Still works
 ./deploy/deploy.sh          # Still works
-<% if (deployTarget === 'codebuild') { %>./deploy/submit_build.sh     # Still works
+<% if (buildTarget === 'codebuild') { %>./deploy/submit_build.sh     # Still works
 <% } %>
 ```
 

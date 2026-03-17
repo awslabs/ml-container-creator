@@ -1,0 +1,42 @@
+<% if (fsxVolumeHandle) { %>
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: <%= projectName %>-fsx-pvc
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    managed-by: ml-container-creator
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: fsx-lustre
+  resources:
+    requests:
+      storage: 1200Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: <%= projectName %>-fsx-pv
+  labels:
+    app: <%= projectName %>
+    managed-by: ml-container-creator
+spec:
+  capacity:
+    storage: 1200Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: fsx-lustre
+  csi:
+    driver: fsx.csi.aws.com
+    volumeHandle: <%= fsxVolumeHandle %>
+    volumeAttributes:
+      dnsname: <%= fsxVolumeHandle %>.fsx.<%= awsRegion %>.amazonaws.com
+      mountname: fsx
+<% } else { %>
+# PVC not generated - no FSx volume handle provided
+# To enable FSx for Lustre storage, provide fsxVolumeHandle during generation
+<% } %>

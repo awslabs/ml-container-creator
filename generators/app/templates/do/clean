@@ -15,18 +15,30 @@ CLEANUP_TARGET="${1:-}"
 
 # Function to display usage
 show_usage() {
+<% if (deploymentTarget === 'managed-inference') { %>
     echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+    echo "Usage: ./do/clean [local|ecr|hyperpod|codebuild|all]"
+<% } %>
     echo ""
     echo "Cleanup targets:"
     echo "  local     - Remove local Docker images"
     echo "  ecr       - Remove images from Amazon ECR"
+<% if (deploymentTarget === 'managed-inference') { %>
     echo "  endpoint  - Delete SageMaker endpoint, configuration, and model"
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+    echo "  hyperpod  - Delete HyperPod EKS deployment and services"
+<% } %>
     echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
     echo "  all       - Perform all cleanup operations"
     echo ""
     echo "Examples:"
     echo "  ./do/clean local      # Remove local Docker images only"
+<% if (deploymentTarget === 'managed-inference') { %>
     echo "  ./do/clean endpoint   # Delete SageMaker resources only"
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+    echo "  ./do/clean hyperpod   # Delete HyperPod EKS resources only"
+<% } %>
     echo "  ./do/clean codebuild  # Delete CodeBuild project and rebuild fresh"
     echo "  ./do/clean all        # Clean up everything"
 }
@@ -154,7 +166,8 @@ clean_ecr() {
     fi
 }
 
-# Function to clean SageMaker endpoint
+<% if (deploymentTarget === 'managed-inference') { %>
+# Function to clean SageMaker endpoint and inference components
 clean_endpoint() {
     echo "🧹 Cleaning SageMaker resources"
     echo "   Project: ${PROJECT_NAME}"
@@ -167,8 +180,11 @@ clean_endpoint() {
         exit 4
     fi
     
-    # Use ENDPOINT_NAME from config (set by do/deploy) or argument
+    # Use names from config (set by do/deploy) or argument
     local EP_NAME="${ENDPOINT_NAME:-}"
+    local IC_NAME="${INFERENCE_COMPONENT_NAME:-}"
+    local EPC_NAME="${ENDPOINT_CONFIG_NAME:-}"
+
     if [ -z "${EP_NAME}" ]; then
         echo "❌ No endpoint name found"
         echo "   Run ./do/deploy first, or set ENDPOINT_NAME in do/config"
@@ -178,48 +194,55 @@ clean_endpoint() {
     echo ""
     echo "Checking for SageMaker resources..."
 
-    # Discover endpoint config and model from the endpoint itself
-    local ENDPOINT_CONFIG_NAME=""
-    local MODEL_NAME=""
     local ENDPOINT_EXISTS=false
 
     if aws sagemaker describe-endpoint \
         --endpoint-name "${EP_NAME}" \
         --region "${AWS_REGION}" &> /dev/null; then
         ENDPOINT_EXISTS=true
-        ENDPOINT_CONFIG_NAME=$(aws sagemaker describe-endpoint \
-            --endpoint-name "${EP_NAME}" \
-            --region "${AWS_REGION}" \
-            --query 'EndpointConfigName' --output text 2>/dev/null || echo "")
         echo "   ✓ Endpoint: ${EP_NAME}"
-        echo "   ✓ Endpoint config: ${ENDPOINT_CONFIG_NAME}"
     else
         echo "ℹ️  Endpoint not found: ${EP_NAME}"
         return 0
     fi
 
-    # Discover model from endpoint config
-    if [ -n "${ENDPOINT_CONFIG_NAME}" ]; then
-        MODEL_NAME=$(aws sagemaker describe-endpoint-config \
-            --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-            --region "${AWS_REGION}" \
-            --query 'ProductionVariants[0].ModelName' --output text 2>/dev/null || echo "")
-        if [ -n "${MODEL_NAME}" ] && [ "${MODEL_NAME}" != "None" ]; then
-            echo "   ✓ Model: ${MODEL_NAME}"
+    # Check for inference component
+    local IC_EXISTS=false
+    if [ -n "${IC_NAME}" ]; then
+        if aws sagemaker describe-inference-component \
+            --inference-component-name "${IC_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            IC_EXISTS=true
+            echo "   ✓ Inference component: ${IC_NAME}"
         fi
     fi
 
-    if ! confirm_action "This will delete the SageMaker endpoint, endpoint configuration, and model"; then
+    if ! confirm_action "This will delete the SageMaker endpoint and inference component(s)"; then
         return 1
     fi
-    
-    # Delete endpoint first (must be deleted before config)
+
+    # Delete inference component first (must be deleted before endpoint)
+    if [ "${IC_EXISTS}" = true ]; then
+        echo "🗑️  Deleting inference component: ${IC_NAME}"
+        if aws sagemaker delete-inference-component \
+            --inference-component-name "${IC_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "⏳ Waiting for inference component deletion..."
+            aws sagemaker wait inference-component-deleted \
+                --inference-component-name "${IC_NAME}" \
+                --region "${AWS_REGION}" 2>/dev/null || sleep 15
+            echo "✅ Inference component deleted"
+        else
+            echo "❌ Failed to delete inference component"
+        fi
+    fi
+
+    # Delete endpoint
     echo "🗑️  Deleting endpoint: ${EP_NAME}"
     if aws sagemaker delete-endpoint \
         --endpoint-name "${EP_NAME}" \
         --region "${AWS_REGION}" &> /dev/null; then
         echo "✅ Endpoint deleted"
-        # Wait briefly for endpoint deletion to propagate
         echo "⏳ Waiting for endpoint deletion..."
         aws sagemaker wait endpoint-deleted \
             --endpoint-name "${EP_NAME}" \
@@ -227,39 +250,95 @@ clean_endpoint() {
     else
         echo "❌ Failed to delete endpoint"
     fi
-    
+
     # Delete endpoint configuration
-    if [ -n "${ENDPOINT_CONFIG_NAME}" ] && [ "${ENDPOINT_CONFIG_NAME}" != "None" ]; then
-        echo "🗑️  Deleting endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
+    if [ -n "${EPC_NAME}" ]; then
+        echo "🗑️  Deleting endpoint configuration: ${EPC_NAME}"
         if aws sagemaker delete-endpoint-config \
-            --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+            --endpoint-config-name "${EPC_NAME}" \
             --region "${AWS_REGION}" &> /dev/null; then
             echo "✅ Endpoint configuration deleted"
         else
             echo "❌ Failed to delete endpoint configuration"
         fi
     fi
-    
-    # Delete model
-    if [ -n "${MODEL_NAME}" ] && [ "${MODEL_NAME}" != "None" ]; then
-        echo "🗑️  Deleting model: ${MODEL_NAME}"
-        if aws sagemaker delete-model \
-            --model-name "${MODEL_NAME}" \
-            --region "${AWS_REGION}" &> /dev/null; then
-            echo "✅ Model deleted"
-        else
-            echo "❌ Failed to delete model"
-        fi
-    fi
 
-    # Remove ENDPOINT_NAME from config
+    # Remove saved names from config
     if grep -q "^export ENDPOINT_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
-        sed -i.bak '/^# Last deployed endpoint/d;/^export ENDPOINT_NAME=/d' "${SCRIPT_DIR}/config"
+        sed -i.bak '/^# Last deployed resources/d;/^export ENDPOINT_NAME=/d;/^export ENDPOINT_CONFIG_NAME=/d;/^export INFERENCE_COMPONENT_NAME=/d' "${SCRIPT_DIR}/config"
         rm -f "${SCRIPT_DIR}/config.bak"
     fi
     
     echo "✅ SageMaker resources cleaned"
 }
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+# Function to clean HyperPod EKS deployment
+clean_hyperpod() {
+    echo "🧹 Cleaning HyperPod EKS resources"
+    echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
+    echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+    
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    # Get kubeconfig for HyperPod cluster
+    echo "🔑 Configuring kubectl for HyperPod cluster..."
+    KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+
+    EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+        --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "Orchestrator.Eks.ClusterArn" \
+        --output text 2>&1) || {
+        echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+        echo "   Check that the cluster exists and you have permission to access it"
+        return 1
+    }
+
+    EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+
+    if ! aws eks update-kubeconfig \
+        --name "${EKS_CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+        echo "❌ Failed to configure kubectl for EKS cluster: ${EKS_CLUSTER_NAME}"
+        return 1
+    fi
+
+    export KUBECONFIG="${KUBECONFIG_PATH}"
+    
+    if ! confirm_action "This will delete the HyperPod deployment in namespace ${HYPERPOD_NAMESPACE}"; then
+        return 1
+    fi
+    
+    # Delete Kubernetes resources
+    echo "🗑️  Deleting Kubernetes resources..."
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    export AWS_ACCOUNT_ID
+    DELETE_FAILED=false
+    for manifest in hyperpod/*.yaml; do
+        # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
+        RENDERED=$(envsubst < "${manifest}")
+        if echo "${RENDERED}" | grep -q '^kind:'; then
+            if ! echo "${RENDERED}" | kubectl delete -n "${HYPERPOD_NAMESPACE}" --ignore-not-found -f - 2>&1; then
+                DELETE_FAILED=true
+            fi
+        fi
+    done
+    if [ "${DELETE_FAILED}" = true ]; then
+        echo "❌ Failed to delete some Kubernetes resources"
+        echo "   You may need to manually clean up:"
+        echo "   kubectl get all -n ${HYPERPOD_NAMESPACE}"
+        return 1
+    fi
+    
+    echo "✅ HyperPod EKS resources cleaned"
+}
+<% } %>
 
 # Function to clean CodeBuild project and related resources
 clean_codebuild() {
@@ -268,7 +347,7 @@ clean_codebuild() {
     echo "   Region: ${AWS_REGION}"
 
     if [ -z "${CODEBUILD_PROJECT_NAME:-}" ]; then
-        echo "ℹ️  No CodeBuild project name configured (deploy target may not be codebuild)"
+        echo "ℹ️  No CodeBuild project name configured (build target may not be codebuild)"
         return 0
     fi
 
@@ -375,9 +454,15 @@ case "${CLEANUP_TARGET}" in
     ecr)
         clean_ecr
         ;;
+<% if (deploymentTarget === 'managed-inference') { %>
     endpoint)
         clean_endpoint
         ;;
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+    hyperpod)
+        clean_hyperpod
+        ;;
+<% } %>
     codebuild)
         clean_codebuild
         ;;
@@ -402,10 +487,17 @@ case "${CLEANUP_TARGET}" in
         
         echo ""
         
+<% if (deploymentTarget === 'managed-inference') { %>
         # Clean SageMaker resources
         if clean_endpoint; then
             CLEANED_ITEMS+=("SageMaker resources")
         fi
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+        # Clean HyperPod EKS resources
+        if clean_hyperpod; then
+            CLEANED_ITEMS+=("HyperPod EKS resources")
+        fi
+<% } %>
         
         echo ""
         

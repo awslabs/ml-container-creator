@@ -446,7 +446,8 @@ describe('Error Handling and Validation', () => {
                 instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deployTarget: 'codebuild'
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference'
             };
             
             const completeErrors = configManager.validateRequiredParameters(completeConfig);

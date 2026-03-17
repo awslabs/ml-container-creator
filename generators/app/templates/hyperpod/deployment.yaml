@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <%= projectName %>
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    framework: <%= framework %>
+    managed-by: ml-container-creator
+spec:
+  replicas: <%= hyperPodReplicas %>
+  selector:
+    matchLabels:
+      app: <%= projectName %>
+  template:
+    metadata:
+      labels:
+        app: <%= projectName %>
+        framework: <%= framework %>
+    spec:
+      containers:
+        - name: <%= projectName %>
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.<%= awsRegion %>.amazonaws.com/ml-container-creator:<%= projectName %>-latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: <%= projectName %>-config
+          resources:
+            requests:
+              cpu: "4"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: "32Gi"
+              nvidia.com/gpu: "1"
+<% if (fsxVolumeHandle) { %>
+          volumeMounts:
+            - name: fsx-storage
+              mountPath: /opt/ml/model
+<% } %>
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 900
+            periodSeconds: 30
+            failureThreshold: 5
+      nodeSelector:
+        node.kubernetes.io/instance-type: <%= instanceType %>
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "sagemaker.amazonaws.com/hyperpod"
+          operator: "Exists"
+          effect: "NoSchedule"
+<% if (fsxVolumeHandle) { %>
+      volumes:
+        - name: fsx-storage
+          persistentVolumeClaim:
+            claimName: <%= projectName %>-fsx-pvc
+<% } %>

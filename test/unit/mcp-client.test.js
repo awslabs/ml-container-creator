@@ -74,7 +74,8 @@ describe('McpClient Unit Tests', () => {
             assert.ok(names.includes('instanceType'));
             assert.ok(names.includes('awsRoleArn'));
             assert.ok(names.includes('awsRegion'));
-            assert.strictEqual(names.length, 3);
+            assert.ok(names.includes('hyperPodCluster'));
+            assert.strictEqual(names.length, 4);
         });
 
         it('should not include bounded parameters', () => {
@@ -383,8 +384,8 @@ describe('McpClient Unit Tests', () => {
 
             const context = client._buildContext();
 
-            // deployTarget has default 'codebuild' and is bounded
-            assert.strictEqual(context.deployTarget, 'codebuild');
+            // buildTarget has default 'codebuild' and is bounded
+            assert.strictEqual(context.buildTarget, 'codebuild');
         });
 
         it('should not include parameters with null defaults', () => {

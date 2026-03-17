@@ -101,9 +101,9 @@ export default class extends Generator {
         });
 
         // Infrastructure options
-        this.option('deploy-target', {
+        this.option('build-target', {
             type: String,
-            description: 'Deployment target (sagemaker, codebuild)'
+            description: 'Build target (codebuild)'
         });
 
         this.option('codebuild-compute-type', {
@@ -124,6 +124,31 @@ export default class extends Generator {
         this.option('role-arn', {
             type: String,
             description: 'AWS IAM role ARN for SageMaker execution'
+        });
+
+        this.option('deployment-target', {
+            type: String,
+            description: 'Deployment target (managed-inference, hyperpod-eks)'
+        });
+
+        this.option('hyperpod-cluster', {
+            type: String,
+            description: 'HyperPod EKS cluster name'
+        });
+
+        this.option('hyperpod-namespace', {
+            type: String,
+            description: 'Kubernetes namespace for HyperPod deployment (default: default)'
+        });
+
+        this.option('hyperpod-replicas', {
+            type: Number,
+            description: 'Number of replicas for HyperPod deployment (default: 1)'
+        });
+
+        this.option('fsx-volume-handle', {
+            type: String,
+            description: 'FSx for Lustre volume handle for HyperPod storage'
         });
 
         this.option('hf-token', {
@@ -361,11 +386,21 @@ export default class extends Generator {
             orderedEnvVars
         };
 
+        // Build ignore patterns for conditional directory exclusion
+        const ignorePatterns = [];
+
+        // Exclude HyperPod K8s manifests when not deploying to HyperPod
+        if (this.answers.deploymentTarget !== 'hyperpod-eks') {
+            ignorePatterns.push('**/hyperpod/**');
+        }
+
         // Copy all templates, processing EJS variables
         this.fs.copyTpl(
             this.templatePath('**/*'),
             this.destinationPath(),
-            templateVars
+            templateVars,
+            {},
+            { globOptions: { ignore: ignorePatterns, dot: true } }
         );
 
         // Remove files that don't belong in this deployment configuration
@@ -723,7 +758,13 @@ export default class extends Generator {
             includeSampleModel: false,
             includeTesting: true,
             testTypes: [],
-            buildTimestamp: new Date().toISOString()
+            buildTimestamp: new Date().toISOString(),
+            buildTarget: 'codebuild',
+            deploymentTarget: 'managed-inference',
+            hyperPodCluster: null,
+            hyperPodNamespace: 'default',
+            hyperPodReplicas: 1,
+            fsxVolumeHandle: null
         };
         
         // Apply defaults for any missing fields

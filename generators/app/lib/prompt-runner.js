@@ -18,7 +18,10 @@ import {
     hfTokenPrompts,
     ngcApiKeyPrompts,
     modulePrompts,
-    infrastructurePrompts,
+    infraRegionAndTargetPrompts,
+    infraInstancePrompts,
+    infraHyperPodPrompts,
+    infraBuildPrompts,
     projectPrompts,
     destinationPrompts
 } from './prompts.js';
@@ -44,9 +47,52 @@ export default class PromptRunner {
         // Get only explicit configuration (not defaults) for prompt skipping
         const explicitConfig = this.configManager ? this.configManager.getExplicitConfiguration() : {};
 
-        // Phase 1: Core Configuration (deployment config first)
-        console.log('\n🔧 Core Configuration');
-        const deploymentConfigAnswers = await this._runPhase(deploymentConfigPrompts, {}, explicitConfig, existingConfig);
+        // Phase 1: Infrastructure & Deployment
+        // Requirements: 3.1 — infrastructure prompts run first
+        // Ordering: Region → Deployment Target → Instance (if managed) → HyperPod (if eks) → Build Target
+        console.log('\n💪 Infrastructure & Deployment');
+
+        // 1a. Query region MCP, then prompt for region + deployment target
+        await this._queryMcpForRegion({}, explicitConfig);
+        const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, {}, explicitConfig, existingConfig);
+
+        // 1b. Instance type — query MCP and prompt for managed-inference and hyperpod-eks
+        let instanceAnswers = {};
+        if (regionAndTargetAnswers.deploymentTarget === 'managed-inference' ||
+            regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
+            await this._queryMcpForInstance({}, explicitConfig);
+            const mcpInstanceChoices = this.configManager?.mcpChoices?.instanceType;
+            const instancePreviousAnswers = {
+                ...regionAndTargetAnswers,
+                ...(mcpInstanceChoices && mcpInstanceChoices.length > 0 ? { _mcpInstanceChoices: mcpInstanceChoices } : {})
+            };
+            instanceAnswers = await this._runPhase(infraInstancePrompts, instancePreviousAnswers, explicitConfig, existingConfig);
+        }
+
+        // 1c. HyperPod prompts — only query MCP and prompt when deployment target is hyperpod-eks
+        let hyperPodAnswers = {};
+        if (regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
+            // Resolve the actual region (handle 'custom' selection)
+            const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
+            await this._queryMcpForHyperPod({ ...regionAndTargetAnswers, awsRegion: resolvedRegion }, explicitConfig);
+            hyperPodAnswers = await this._runPhase(infraHyperPodPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
+        }
+
+        // 1d. Build target + role ARN (always)
+        const buildAnswers = await this._runPhase(infraBuildPrompts, { ...regionAndTargetAnswers, ...instanceAnswers, ...hyperPodAnswers }, explicitConfig, existingConfig);
+
+        // Combine all infrastructure answers
+        const infraAnswers = {
+            ...regionAndTargetAnswers,
+            ...instanceAnswers,
+            ...hyperPodAnswers,
+            ...buildAnswers
+        };
+
+        // Phase 2: Core ML Configuration
+        // Requirements: 3.2 — ML configuration prompts run after infrastructure
+        console.log('\n🔧 Core ML Configuration');
+        const deploymentConfigAnswers = await this._runPhase(deploymentConfigPrompts, { ...infraAnswers }, explicitConfig, existingConfig);
         
         // Derive framework and modelServer from deploymentConfig
         // Requirements: 16.3
@@ -132,31 +178,7 @@ export default class PromptRunner {
             { ...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
             explicitConfig, existingConfig);
 
-        // Phase 2: Module Selection
-        console.log('\n📦 Module Selection');
-        const moduleAnswers = await this._runPhase(modulePrompts, frameworkAnswers, explicitConfig, existingConfig);
-        
-        // Ensure transformers don't get sample model
-        if (frameworkAnswers.framework === 'transformers') {
-            moduleAnswers.includeSampleModel = false;
-        }
-
-        // Phase 3: Infrastructure & Performance
-        console.log('\n💪 Infrastructure & Performance');
-
-        // Query MCP servers on-demand with user search terms
-        await this._queryMcpForInfrastructure(frameworkAnswers, explicitConfig);
-
-        // Pass MCP instance choices so the table and choices in prompts.js can filter
-        const mcpInstanceChoices = this.configManager?.mcpChoices?.instanceType;
-        const infraPreviousAnswers = {
-            ...frameworkAnswers,
-            ...(mcpInstanceChoices && mcpInstanceChoices.length > 0 ? { _mcpInstanceChoices: mcpInstanceChoices } : {})
-        };
-
-        const infraAnswers = await this._runPhase(infrastructurePrompts, infraPreviousAnswers, explicitConfig, existingConfig);
-
-        // Validate instance type against framework requirements
+        // Validate instance type against framework requirements (now that framework is known)
         // Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
         const instanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;
         if (instanceType && frameworkVersionAnswers.frameworkVersion) {
@@ -179,10 +201,18 @@ export default class PromptRunner {
             infraAnswers._resolvedInferenceAmiVersion = cudaAnswer.inferenceAmiVersion;
         }
 
-        // Show warning for SageMaker deployment target
-        // Note: sagemaker deploy target has been removed; only codebuild is supported
+        // Phase 3: Module Selection
+        // Requirements: 3.3 — module selection after ML configuration
+        console.log('\n📦 Module Selection');
+        const moduleAnswers = await this._runPhase(modulePrompts, frameworkAnswers, explicitConfig, existingConfig);
+        
+        // Ensure transformers don't get sample model
+        if (frameworkAnswers.framework === 'transformers') {
+            moduleAnswers.includeSampleModel = false;
+        }
 
-        // Phase 4: Project Configuration (moved to end)
+        // Phase 4: Project Configuration
+        // Requirements: 3.4 — project configuration last
         console.log('\n📋 Project Configuration');
         const allTechnicalAnswers = {
             ...frameworkAnswers,
@@ -195,11 +225,12 @@ export default class PromptRunner {
         const destinationAnswers = await this._runPhase(destinationPrompts, 
             { ...allTechnicalAnswers, ...projectAnswers }, explicitConfig, existingConfig);
 
-        // Phase 5: Deployment Instructions
+        // Deployment Instructions
         this._showDeploymentInstructions();
 
         // Combine all answers
         const combinedAnswers = {
+            ...infraAnswers,
             ...frameworkAnswers,
             ...frameworkVersionAnswers,
             ...frameworkProfileAnswers,
@@ -209,7 +240,6 @@ export default class PromptRunner {
             ...hfTokenAnswers,
             ...ngcApiKeyAnswers,
             ...moduleAnswers,
-            ...infraAnswers,
             ...projectAnswers,
             ...destinationAnswers,
             buildTimestamp
@@ -225,6 +255,12 @@ export default class PromptRunner {
         if (combinedAnswers.customInstanceType) {
             combinedAnswers.instanceType = combinedAnswers.customInstanceType;
             delete combinedAnswers.customInstanceType;
+        }
+
+        // Handle custom HyperPod cluster name
+        if (combinedAnswers.customHyperPodCluster) {
+            combinedAnswers.hyperPodCluster = combinedAnswers.customHyperPodCluster;
+            delete combinedAnswers.customHyperPodCluster;
         }
 
         // Apply CUDA version selection → inference AMI override
@@ -349,11 +385,59 @@ export default class PromptRunner {
     }
 
     /**
-     * Query MCP servers for infrastructure parameters using user-provided search terms.
+     * Query MCP region-picker server before infrastructure prompts.
      * Populates configManager.mcpChoices so _runPhase injects them into list prompts.
      * @private
      */
-    async _queryMcpForInfrastructure(frameworkAnswers, explicitConfig) {
+    async _queryMcpForRegion(frameworkAnswers, explicitConfig) {
+        const cm = this.configManager;
+        if (!cm) return;
+
+        const mcpServers = cm.getMcpServerNames();
+        if (mcpServers.length === 0) return;
+
+        const smart = this.generator.options.smart === true;
+
+        // Region: query unless explicitly provided via CLI option or config file
+        // Note: AWS_REGION env var is treated as a default, not an explicit override,
+        // so we only skip when awsRegion was set via --region CLI flag or config file
+        const cliRegion = this.generator.options.region;
+        const skipRegionQuery = cliRegion !== undefined && cliRegion !== null;
+
+        if (!skipRegionQuery && mcpServers.includes('region-picker')) {
+            const { regionSearch } = await this.generator.prompt([{
+                type: 'input',
+                name: 'regionSearch',
+                message: '🔌 Search for a region (e.g. "europe", "us west", "tokyo"):',
+                default: ''
+            }]);
+
+            if (regionSearch && regionSearch.trim()) {
+                console.log(`   🔍 Querying region-picker${smart ? ' [smart]' : ''}...`);
+                const result = await cm.queryMcpServer('region-picker', {
+                    ...frameworkAnswers,
+                    regionSearch: regionSearch.trim()
+                });
+                if (result && result.choices?.awsRegion?.length > 0) {
+                    const choices = result.choices.awsRegion;
+                    const preview = choices.length <= 5
+                        ? choices.join(', ')
+                        : `${choices.slice(0, 5).join(', ')  } (+${choices.length - 5} more)`;
+                    console.log(`   ✓ ${choices.length} region(s): [${preview}]`);
+                } else {
+                    console.log('   ↳ No MCP results, using static list');
+                }
+            }
+        }
+    }
+
+    /**
+     * Query MCP instance-recommender server after deployment target is known.
+     * Only runs when deploymentTarget is managed-inference.
+     * Populates configManager.mcpChoices so _runPhase injects them into list prompts.
+     * @private
+     */
+    async _queryMcpForInstance(frameworkAnswers, explicitConfig) {
         const cm = this.configManager;
         if (!cm) return;
 
@@ -388,31 +472,44 @@ export default class PromptRunner {
                 }
             }
         }
+    }
 
-        // Region: query if not already provided via CLI/config
-        if (!explicitConfig.awsRegion && mcpServers.includes('region-picker')) {
-            const { regionSearch } = await this.generator.prompt([{
-                type: 'input',
-                name: 'regionSearch',
-                message: '🔌 Search for a region (e.g. "europe", "us west", "tokyo"):',
-                default: ''
-            }]);
+    /**
+     * Query the hyperpod-cluster-picker MCP server for available HyperPod EKS clusters.
+     * Populates configManager.mcpChoices.hyperPodCluster so _runPhase injects them into the list prompt.
+     * Falls back to manual entry if the MCP server is not configured or fails.
+     * Requirements: 12.1, 12.2, 12.3
+     * @private
+     */
+    async _queryMcpForHyperPod(infraAnswers, explicitConfig) {
+        const cm = this.configManager;
+        if (!cm) return;
 
-            if (regionSearch && regionSearch.trim()) {
-                console.log(`   🔍 Querying region-picker${smart ? ' [smart]' : ''}...`);
-                const result = await cm.queryMcpServer('region-picker', {
-                    ...frameworkAnswers,
-                    regionSearch: regionSearch.trim()
-                });
-                if (result && result.choices?.awsRegion?.length > 0) {
-                    const choices = result.choices.awsRegion;
-                    const preview = choices.length <= 5
-                        ? choices.join(', ')
-                        : `${choices.slice(0, 5).join(', ')  } (+${choices.length - 5} more)`;
-                    console.log(`   ✓ ${choices.length} region(s): [${preview}]`);
-                } else {
-                    console.log('   ↳ No MCP results, using static list');
-                }
+        const mcpServers = cm.getMcpServerNames();
+        if (!mcpServers.includes('hyperpod-cluster-picker')) return;
+
+        // Skip if cluster already provided via CLI/config
+        if (explicitConfig.hyperPodCluster) return;
+
+        const smart = this.generator.options.smart === true;
+        console.log(`   🔍 Querying hyperpod-cluster-picker${smart ? ' [smart]' : ''}...`);
+
+        const result = await cm.queryMcpServer('hyperpod-cluster-picker', {
+            ...infraAnswers
+        });
+
+        if (result && result.choices?.hyperPodCluster?.length > 0) {
+            const choices = result.choices.hyperPodCluster;
+            const preview = choices.length <= 5
+                ? choices.join(', ')
+                : `${choices.slice(0, 5).join(', ')} (+${choices.length - 5} more)`;
+            console.log(`   ✓ ${choices.length} cluster(s): [${preview}]`);
+        } else {
+            // Surface any error message from the MCP server
+            if (result?.message) {
+                console.log(`   ⚠️  ${result.message}`);
+            } else {
+                console.log('   ↳ No HyperPod clusters found via MCP, manual entry available');
             }
         }
     }

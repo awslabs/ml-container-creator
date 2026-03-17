@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: <%= projectName %>-config
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    managed-by: ml-container-creator
+data:
+  DEPLOYMENT_CONFIG: "<%= deploymentConfig %>"
+  FRAMEWORK: "<%= framework %>"
+  MODEL_SERVER: "<%= modelServer %>"
+<% if (framework === 'transformers') { %>
+  MODEL_NAME: "<%= modelName %>"
+<% if (hfToken) { %>
+  HF_TOKEN: "<%= hfToken %>"
+<% } %>
+<% if (ngcApiKey) { %>
+  NGC_API_KEY: "<%= ngcApiKey %>"
+<% } %>
+<% } %>
+<% if (modelFormat) { %>
+  MODEL_FORMAT: "<%= modelFormat %>"
+<% } %>

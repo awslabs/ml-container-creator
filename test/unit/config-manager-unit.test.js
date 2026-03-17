@@ -136,16 +136,16 @@ describe('ConfigManager Unit Tests', () => {
                 assert.strictEqual(config.instanceType, 'ml.g5.xlarge');
             });
 
-            it('should load ML_DEPLOY_TARGET from environment', async () => {
-                process.env.ML_DEPLOY_TARGET = 'codebuild';
-                envVarsToCleanup.push('ML_DEPLOY_TARGET');
+            it('should load ML_BUILD_TARGET from environment', async () => {
+                process.env.ML_BUILD_TARGET = 'codebuild';
+                envVarsToCleanup.push('ML_BUILD_TARGET');
                 
                 mockGenerator = createMockGenerator();
                 configManager = new ConfigManager(mockGenerator);
                 
                 const config = await configManager.loadConfiguration();
                 
-                assert.strictEqual(config.deployTarget, 'codebuild');
+                assert.strictEqual(config.buildTarget, 'codebuild');
             });
 
             it('should load AWS_ROLE from environment', async () => {
@@ -208,7 +208,7 @@ describe('ConfigManager Unit Tests', () => {
                 const config = await configManager.loadConfiguration();
                 
                 assert.strictEqual(config.awsRegion, 'us-east-1'); // Default
-                assert.strictEqual(config.deployTarget, 'codebuild'); // Default
+                assert.strictEqual(config.buildTarget, 'codebuild'); // Default
                 assert.strictEqual(config.includeTesting, true); // Default
             });
         });
@@ -398,7 +398,7 @@ describe('ConfigManager Unit Tests', () => {
             const finalConfig = configManager.getFinalConfiguration({});
             
             assert.strictEqual(finalConfig.awsRegion, 'us-east-1');
-            assert.strictEqual(finalConfig.deployTarget, 'codebuild');
+            assert.strictEqual(finalConfig.buildTarget, 'codebuild');
             assert.strictEqual(finalConfig.includeTesting, true);
         });
 
@@ -415,13 +415,13 @@ describe('ConfigManager Unit Tests', () => {
             assert.strictEqual(finalConfig.includeSampleModel, false);
         });
 
-        it('should generate CodeBuild project name when deployTarget is codebuild', async () => {
+        it('should generate CodeBuild project name when buildTarget is codebuild', async () => {
             await configManager.loadConfiguration();
             
             const promptAnswers = {
                 projectName: 'my-project',
                 framework: 'sklearn',
-                deployTarget: 'codebuild'
+                buildTarget: 'codebuild'
             };
             
             const finalConfig = configManager.getFinalConfiguration(promptAnswers);
@@ -518,7 +518,8 @@ describe('ConfigManager Unit Tests', () => {
                 instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deployTarget: 'codebuild',
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference',
                 includeSampleModel: false,
                 includeTesting: true
             };
@@ -554,7 +555,8 @@ describe('ConfigManager Unit Tests', () => {
                 instanceType: 'ml.g5.xlarge',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deployTarget: 'codebuild',
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference',
                 includeSampleModel: false,
                 includeTesting: true
             };
@@ -583,6 +585,19 @@ describe('ConfigManager Unit Tests', () => {
         });
 
         it('should include environment variables in explicit config', async () => {
+            process.env.ML_INSTANCE_TYPE = 'ml.m5.xlarge';
+            envVarsToCleanup.push('ML_INSTANCE_TYPE');
+            
+            mockGenerator = createMockGenerator();
+            configManager = new ConfigManager(mockGenerator);
+            
+            await configManager.loadConfiguration();
+            const explicitConfig = configManager.getExplicitConfiguration();
+            
+            assert.strictEqual(explicitConfig.instanceType, 'ml.m5.xlarge');
+        });
+
+        it('should treat ambient env vars as defaults, not explicit config', async () => {
             process.env.AWS_REGION = 'eu-west-1';
             envVarsToCleanup.push('AWS_REGION');
             
@@ -592,7 +607,9 @@ describe('ConfigManager Unit Tests', () => {
             await configManager.loadConfiguration();
             const explicitConfig = configManager.getExplicitConfiguration();
             
-            assert.strictEqual(explicitConfig.awsRegion, 'eu-west-1');
+            // AWS_REGION is ambient — sets the config value but not explicit config
+            assert.strictEqual(configManager.config.awsRegion, 'eu-west-1');
+            assert.strictEqual(explicitConfig.awsRegion, undefined);
         });
     });
 

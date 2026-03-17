@@ -13,7 +13,7 @@ describe('Unit Tests', () => {
         it('should validate supported deployment configurations', () => {
             const answers = {
                 deploymentConfig: 'sklearn-flask',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -26,7 +26,7 @@ describe('Unit Tests', () => {
         it('should validate transformers deployment configurations', () => {
             const answers = {
                 deploymentConfig: 'transformers-vllm',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -40,7 +40,7 @@ describe('Unit Tests', () => {
             const answers = {
                 framework: 'sklearn',
                 modelServer: 'flask',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -54,7 +54,7 @@ describe('Unit Tests', () => {
             const answers = {
                 framework: 'pytorch',
                 modelServer: 'flask',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -67,7 +67,7 @@ describe('Unit Tests', () => {
         it('should throw error for unsupported deployment configuration', () => {
             const answers = {
                 deploymentConfig: 'pytorch-torchserve',
-                deployTarget: 'sagemaker',
+                buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''

@@ -121,8 +121,8 @@ describe('DO Framework - Simplified Tests', () => {
                 'FRAMEWORK',
                 'MODEL_SERVER',
                 'AWS_REGION',
-                'INSTANCE_TYPE',
-                'DEPLOY_TARGET'
+                'BUILD_TARGET',
+                'DEPLOYMENT_TARGET'
             ];
             
             requiredVars.forEach(varName => {

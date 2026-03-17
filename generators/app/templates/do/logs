@@ -10,23 +10,38 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
-# Allow endpoint name as argument or from config
-ENDPOINT="${1:-${ENDPOINT_NAME:-}}"
+<% if (deploymentTarget === 'managed-inference') { %>
+# ============================================================
+# SageMaker Managed Inference Logs (CloudWatch)
+# ============================================================
 
-if [ -z "${ENDPOINT}" ]; then
-    echo "❌ No endpoint name provided"
+# Allow inference component name as argument or from config
+IC_NAME="${1:-${INFERENCE_COMPONENT_NAME:-}}"
+ENDPOINT="${ENDPOINT_NAME:-}"
+
+if [ -z "${IC_NAME}" ] && [ -z "${ENDPOINT}" ]; then
+    echo "❌ No inference component or endpoint name provided"
     echo ""
     echo "Usage:"
-    echo "  ./do/logs <endpoint-name>"
-    echo "  ./do/logs                  # uses ENDPOINT_NAME from do/config"
+    echo "  ./do/logs <inference-component-name>"
+    echo "  ./do/logs                  # uses INFERENCE_COMPONENT_NAME from do/config"
     echo ""
-    echo "Run ./do/deploy first to set ENDPOINT_NAME automatically."
+    echo "Run ./do/deploy first to set INFERENCE_COMPONENT_NAME automatically."
     exit 1
 fi
 
-LOG_GROUP="/aws/sagemaker/Endpoints/${ENDPOINT}"
+# Inference component logs live under the endpoint log group
+# but in log streams named after the inference component
+if [ -z "${ENDPOINT}" ]; then
+    echo "⚠️  ENDPOINT_NAME not set in config — cannot determine log group"
+    echo "   Run ./do/deploy first, or set ENDPOINT_NAME in do/config"
+    exit 1
+fi
 
-echo "📋 Tailing logs for endpoint: ${ENDPOINT}"
+LOG_GROUP="/aws/sagemaker/InferenceComponents/${IC_NAME}"
+
+echo "📋 Tailing logs for inference component: ${IC_NAME}"
+echo "   Endpoint: ${ENDPOINT}"
 echo "   Log group: ${LOG_GROUP}"
 echo "   Region: ${AWS_REGION}"
 echo ""
@@ -42,12 +57,95 @@ if ! aws logs describe-log-groups \
     --query "logGroups[?logGroupName=='${LOG_GROUP}'].logGroupName" \
     --output text 2>/dev/null | grep -q "${LOG_GROUP}"; then
     echo "⚠️  Log group not found yet: ${LOG_GROUP}"
-    echo "   The endpoint may still be starting up. Waiting for logs..."
+    echo "   The inference component may still be starting up. Waiting for logs..."
+    echo ""
+    echo "   Also check the endpoint log group:"
+    echo "   aws logs tail /aws/sagemaker/Endpoints/${ENDPOINT} --follow --region ${AWS_REGION}"
     echo ""
 fi
 
-# Tail logs using aws logs tail
+# Tail logs
 aws logs tail "${LOG_GROUP}" \
     --region "${AWS_REGION}" \
     --follow \
     --format short
+
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+# ============================================================
+# HyperPod EKS Logs (kubectl)
+# ============================================================
+
+# Allow pod selector as argument, default to app label
+POD_SELECTOR="${1:-app=${PROJECT_NAME}}"
+
+echo "📋 Tailing logs for HyperPod EKS deployment"
+echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
+echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+echo "   Selector: ${POD_SELECTOR}"
+echo "   Region: ${AWS_REGION}"
+echo ""
+
+# Get kubeconfig for HyperPod cluster
+echo "🔑 Configuring kubectl for HyperPod cluster..."
+KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+
+EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+    --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+    --region "${AWS_REGION}" \
+    --query "Orchestrator.Eks.ClusterArn" \
+    --output text 2>&1) || {
+    echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+    echo ""
+    echo "   Check that:"
+    echo "   • The cluster name is correct"
+    echo "   • The cluster exists in region: ${AWS_REGION}"
+    echo "   • Your IAM user/role has permission to access the cluster"
+    exit 4
+}
+
+EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+
+if ! aws eks update-kubeconfig \
+    --name "${EKS_CLUSTER_NAME}" \
+    --region "${AWS_REGION}" \
+    --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+    echo "❌ Failed to configure kubectl for EKS cluster: ${EKS_CLUSTER_NAME}"
+    exit 4
+fi
+
+export KUBECONFIG="${KUBECONFIG_PATH}"
+
+# Verify cluster connectivity
+if ! kubectl cluster-info &> /dev/null; then
+    echo "❌ Cannot connect to HyperPod cluster"
+    echo ""
+    echo "   Check that:"
+    echo "   • The cluster is in 'InService' status"
+    echo "   • Your network can reach the cluster API server"
+    exit 4
+fi
+
+# Check if any pods match the selector
+POD_COUNT=$(kubectl get pods -n "${HYPERPOD_NAMESPACE}" -l "${POD_SELECTOR}" --no-headers 2>/dev/null | wc -l || echo "0")
+if [ "${POD_COUNT}" -eq 0 ]; then
+    echo "⚠️  No pods found matching selector: ${POD_SELECTOR}"
+    echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+    echo ""
+    echo "   Run ./do/deploy first to create the deployment."
+    echo ""
+    echo "   To list all pods in the namespace:"
+    echo "   kubectl get pods -n ${HYPERPOD_NAMESPACE}"
+    exit 1
+fi
+
+echo "   Found ${POD_COUNT} pod(s) matching selector"
+echo ""
+echo "   Press Ctrl+C to stop"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Tail logs from all matching pods
+kubectl logs -f -l "${POD_SELECTOR}" -n "${HYPERPOD_NAMESPACE}" --all-containers --prefix
+
+<% } %>

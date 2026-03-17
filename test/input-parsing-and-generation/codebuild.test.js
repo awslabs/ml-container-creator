@@ -52,35 +52,35 @@ describe('CodeBuild Feature', () => {
     });
 
     describe('Deployment Target Validation', () => {
-        it('should reject invalid deployment target values', () => {
+        it('should reject invalid build target values', () => {
             const configManager = new ConfigManager(mockGenerator);
             
             const invalidTargets = ['invalid-target', 'aws-batch', 'kubernetes', 'docker-compose', 'local'];
             
             invalidTargets.forEach(target => {
                 try {
-                    configManager._validateParameterValue('deployTarget', target, {});
-                    throw new Error(`Invalid deployment target was accepted: ${target}`);
+                    configManager._validateParameterValue('buildTarget', target, {});
+                    throw new Error(`Invalid build target was accepted: ${target}`);
                 } catch (error) {
                     if (!(error instanceof ValidationError)) {
                         throw new Error(`Expected ValidationError, got: ${error.constructor.name}`);
                     }
-                    if (!error.message.includes('Unsupported deployment target')) {
-                        throw new Error(`Error message should mention unsupported deployment target: ${error.message}`);
+                    if (!error.message.includes('Unsupported build target')) {
+                        throw new Error(`Error message should mention unsupported build target: ${error.message}`);
                     }
                 }
             });
         });
 
-        it('should accept valid deployment target values', () => {
+        it('should accept valid build target values', () => {
             const configManager = new ConfigManager(mockGenerator);
             const validTargets = ['codebuild'];
             
             validTargets.forEach(target => {
                 try {
-                    configManager._validateParameterValue('deployTarget', target, {});
+                    configManager._validateParameterValue('buildTarget', target, {});
                 } catch (error) {
-                    throw new Error(`Valid deployment target rejected: ${target} - ${error.message}`);
+                    throw new Error(`Valid build target rejected: ${target} - ${error.message}`);
                 }
             });
         });
@@ -187,7 +187,7 @@ describe('CodeBuild Feature', () => {
             const configManager = new ConfigManager(mockGenerator);
             const parameterMatrix = configManager._getParameterMatrix();
             
-            const codebuildParams = ['deployTarget', 'codebuildComputeType', 'codebuildProjectName'];
+            const codebuildParams = ['buildTarget', 'codebuildComputeType', 'codebuildProjectName'];
             
             codebuildParams.forEach(param => {
                 if (!parameterMatrix[param]) {
@@ -203,14 +203,15 @@ describe('CodeBuild Feature', () => {
                 framework: 'sklearn',
                 modelServer: 'flask',
                 modelFormat: 'pkl',
-                deployTarget: 'codebuild',
+                buildTarget: 'codebuild',
                 codebuildComputeType: 'BUILD_GENERAL1_MEDIUM',
                 codebuildProjectName: 'valid-project-name',
                 includeSampleModel: false,
                 includeTesting: true,
                 instanceType: 'ml.m5.large',
                 projectName: 'test-project',
-                destinationDir: '.'
+                destinationDir: '.',
+                deploymentTarget: 'managed-inference'
             };
             
             const validationErrors = configManager.validateRequiredParameters(validConfig);

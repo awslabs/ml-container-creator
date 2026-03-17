@@ -57,7 +57,7 @@ Creates a SageMaker endpoint named `<%= projectName %>-endpoint`.
 │   ├── run                  # Run container locally
 │   ├── test                 # Test container or endpoint
 │   ├── clean                # Clean up resources
-<% if (deployTarget === 'codebuild') { %>│   ├── submit               # Submit build to CodeBuild
+<% if (buildTarget === 'codebuild') { %>│   ├── submit               # Submit build to CodeBuild
 <% } %>│   ├── config               # Configuration variables
 │   └── README.md            # Detailed do-framework documentation
 ├── code/                    # Model serving code
@@ -118,7 +118,7 @@ You can override these values by setting environment variables before running do
 ./do/push
 ```
 
-<% if (deployTarget === 'codebuild') { %>### CodeBuild Workflow
+<% if (buildTarget === 'codebuild') { %>### CodeBuild Workflow
 
 ```bash
 # Submit build to CodeBuild (builds and pushes to ECR)
@@ -173,7 +173,7 @@ This project uses the [do-framework](https://github.com/iankoulski/do-framework)
 | `./do/run` | Run container locally on port 8080 |
 | `./do/test [endpoint]` | Test local container or SageMaker endpoint |
 | `./do/clean <target>` | Clean up resources (local/ecr/endpoint/all) |
-<% if (deployTarget === 'codebuild') { %>| `./do/submit` | Submit build to AWS CodeBuild |
+<% if (buildTarget === 'codebuild') { %>| `./do/submit` | Submit build to AWS CodeBuild |
 <% } %>
 For detailed documentation on each command, see `do/README.md`.
 
@@ -408,7 +408,7 @@ If you're familiar with the old `deploy/` scripts, see `MIGRATION.md` for a comm
 |----------------|---------------------|
 | `./deploy/build_and_push.sh` | `./do/build && ./do/push` |
 | `./deploy/deploy.sh <role>` | `./do/deploy <role>` |
-<% if (deployTarget === 'codebuild') { %>| `./deploy/submit_build.sh` | `./do/submit` |
+<% if (buildTarget === 'codebuild') { %>| `./deploy/submit_build.sh` | `./do/submit` |
 <% } %>
 The legacy scripts are still available but deprecated. They will display warnings and forward to do-framework commands.
 

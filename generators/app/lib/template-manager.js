@@ -30,7 +30,8 @@ export default class TemplateManager {
                 'transformers-vllm', 'transformers-sglang',
                 'transformers-tensorrt-llm', 'transformers-lmi', 'transformers-djl'
             ],
-            deployment: ['codebuild'],
+            buildTargets: ['codebuild'],
+            deploymentTargets: ['managed-inference', 'hyperpod-eks'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
@@ -57,9 +58,25 @@ export default class TemplateManager {
             }
         }
 
-        this._validateChoice('deployTarget', supportedOptions.deployment);
+        // Validate buildTarget (replaces deployTarget)
+        if (this.answers.buildTarget) {
+            this._validateChoice('buildTarget', supportedOptions.buildTargets);
+        } else if (this.answers.deployTarget) {
+            // Backward compatibility: validate deployTarget against buildTargets
+            this._validateChoice('deployTarget', supportedOptions.buildTargets);
+        }
+
+        // Validate deploymentTarget
+        if (this.answers.deploymentTarget) {
+            this._validateChoice('deploymentTarget', supportedOptions.deploymentTargets);
+        }
+
+        // Validate HyperPod EKS specific fields
+        if (this.answers.deploymentTarget === 'hyperpod-eks') {
+            this._validateHyperPodConfig();
+        }
         
-        // Validate instance type format (ml.*.*)
+        // Validate instance type format (ml.*.*) - only for managed-inference
         if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
             const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
             if (!instancePattern.test(this.answers.instanceType)) {
@@ -75,6 +92,48 @@ export default class TemplateManager {
                 this._validateChoice('testType', supportedOptions.testTypes, testType);
             }
         }
+    }
+
+    /**
+     * Validates HyperPod EKS specific configuration
+     * @private
+     * @throws {Error} If HyperPod configuration is invalid
+     */
+    _validateHyperPodConfig() {
+        // Validate hyperPodCluster is non-empty
+        if (!this.answers.hyperPodCluster || this.answers.hyperPodCluster.trim() === '') {
+            throw new Error('⚠️  hyperPodCluster is required when deploymentTarget is "hyperpod-eks". Please provide a valid HyperPod cluster name.');
+        }
+
+        // Validate hyperPodNamespace conforms to RFC 1123 DNS label format
+        if (this.answers.hyperPodNamespace) {
+            if (!this._isValidRfc1123DnsLabel(this.answers.hyperPodNamespace)) {
+                throw new Error(`⚠️  Invalid hyperPodNamespace: "${this.answers.hyperPodNamespace}". Namespace must conform to RFC 1123 DNS label format: lowercase alphanumeric characters or hyphens, must start and end with an alphanumeric character, and be at most 63 characters.`);
+            }
+        }
+
+        // Validate hyperPodReplicas is an integer >= 1
+        if (this.answers.hyperPodReplicas !== undefined) {
+            const replicas = this.answers.hyperPodReplicas;
+            if (!Number.isInteger(replicas) || replicas < 1) {
+                throw new Error(`⚠️  Invalid hyperPodReplicas: "${replicas}". Replicas must be an integer greater than or equal to 1.`);
+            }
+        }
+    }
+
+    /**
+     * Validates a string conforms to RFC 1123 DNS label format
+     * @private
+     * @param {string} value - The value to validate
+     * @returns {boolean} True if valid RFC 1123 DNS label
+     */
+    _isValidRfc1123DnsLabel(value) {
+        if (!value || typeof value !== 'string') {
+            return false;
+        }
+        // RFC 1123 DNS label: lowercase alphanumeric, hyphens allowed (not at start/end), max 63 chars
+        const rfc1123Pattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+        return value.length <= 63 && rfc1123Pattern.test(value);
     }
 
     /**
