@@ -1,0 +1,358 @@
+{
+    "catalog": {
+        "ml.m5.large": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 2,
+            "memGb": 8,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "small",
+                "cpu",
+                "general",
+                "cheap",
+                "cost-effective",
+                "budget"
+            ]
+        },
+        "ml.m5.xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "medium",
+                "cpu",
+                "general",
+                "cost-effective"
+            ]
+        },
+        "ml.m5.2xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "large",
+                "cpu",
+                "general",
+                "high-memory"
+            ]
+        },
+        "ml.m5.4xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 16,
+            "memGb": 64,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "xlarge",
+                "cpu",
+                "general",
+                "high-memory",
+                "high-cpu"
+            ]
+        },
+        "ml.c5.xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 4,
+            "memGb": 8,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "compute",
+                "cpu",
+                "cost-effective"
+            ]
+        },
+        "ml.c5.2xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 8,
+            "memGb": 16,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "compute",
+                "cpu",
+                "high-cpu"
+            ]
+        },
+        "ml.r5.large": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 2,
+            "memGb": 16,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "memory",
+                "cpu",
+                "high-memory"
+            ]
+        },
+        "ml.r5.xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 4,
+            "memGb": 32,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "memory",
+                "cpu",
+                "high-memory"
+            ]
+        },
+        "ml.g4dn.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "T4 16GB",
+            "cudaVersions": [
+                "11.4",
+                "11.8"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "budget",
+                "cost-effective",
+                "inference",
+                "t4",
+                "cuda-11"
+            ]
+        },
+        "ml.g4dn.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "T4 16GB",
+            "cudaVersions": [
+                "11.4",
+                "11.8"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "budget",
+                "cost-effective",
+                "inference",
+                "t4",
+                "cuda-11"
+            ]
+        },
+        "ml.g5.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ]
+        },
+        "ml.g5.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ]
+        },
+        "ml.g5.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 64,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "large",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ]
+        },
+        "ml.g5.12xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 48,
+            "memGb": 192,
+            "accelerator": "4x A10G 96GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "large",
+                "a10g",
+                "parallel",
+                "cuda-11",
+                "cuda-12"
+            ]
+        },
+        "ml.g6.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.1",
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "newer",
+                "cuda-12"
+            ]
+        },
+        "ml.g6.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.1",
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "newer",
+                "cuda-12"
+            ]
+        },
+        "ml.g6.12xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 48,
+            "memGb": 192,
+            "accelerator": "4x L4 96GB",
+            "cudaVersions": [
+                "12.1",
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "large",
+                "l4",
+                "newer",
+                "parallel",
+                "cuda-12"
+            ]
+        },
+        "ml.p3.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 61,
+            "accelerator": "V100 16GB",
+            "cudaVersions": [
+                "11.0",
+                "11.4",
+                "11.8"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "high-performance",
+                "training",
+                "v100",
+                "cuda-11"
+            ]
+        },
+        "ml.p3.8xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 32,
+            "memGb": 244,
+            "accelerator": "4x V100 64GB",
+            "cudaVersions": [
+                "11.0",
+                "11.4",
+                "11.8"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "high-performance",
+                "training",
+                "v100",
+                "parallel",
+                "cuda-11"
+            ]
+        }
+    },
+    "recommendations": {
+        "cpu": [
+            "ml.m5.large",
+            "ml.m5.xlarge",
+            "ml.m5.2xlarge",
+            "ml.m5.4xlarge",
+            "ml.c5.xlarge",
+            "ml.c5.2xlarge",
+            "ml.r5.large",
+            "ml.r5.xlarge"
+        ],
+        "gpu": [
+            "ml.g4dn.xlarge",
+            "ml.g4dn.2xlarge",
+            "ml.g5.xlarge",
+            "ml.g5.2xlarge",
+            "ml.g5.4xlarge",
+            "ml.p3.2xlarge"
+        ]
+    }
+}

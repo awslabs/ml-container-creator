@@ -13,7 +13,7 @@
  *   - Smart (BEDROCK_SMART=true): Queries Amazon Bedrock for context-aware
  *     region suggestions, falling back to static on failure
  *
- * Tool: get_ml_config
+ * Tool: get_regions
  *   Accepts: { parameters: string[], limit: number, context: object }
  *   Returns: { values: Record<string, string>, choices: Record<string, string[]> }
  *
@@ -26,42 +26,50 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
+import { resolve, dirname } from 'node:path'
 import { queryBedrock } from '../lib/bedrock-client.js'
 
-/**
- * AWS regions with SageMaker availability and descriptive labels.
- * `labels` is an array of searchable strings: the official name plus colloquial
- * names, city aliases, country names, and common misspellings so that both
- * human search terms and LLM-resolved queries can match.
- */
-const AWS_REGIONS = [
-    { code: 'us-east-1', labels: ['US East (N. Virginia)', 'virginia', 'nova', 'n. virginia', 'east coast', 'us east', 'new york', 'washington dc', 'dc'] },
-    { code: 'us-east-2', labels: ['US East (Ohio)', 'ohio', 'columbus', 'us east', 'midwest'] },
-    { code: 'us-west-1', labels: ['US West (N. California)', 'california', 'n. california', 'san francisco', 'sf', 'bay area', 'us west', 'norcal'] },
-    { code: 'us-west-2', labels: ['US West (Oregon)', 'oregon', 'portland', 'us west', 'pacific northwest', 'pnw', 'seattle'] },
-    { code: 'ca-central-1', labels: ['Canada (Central)', 'canada', 'montreal', 'toronto', 'canadian'] },
-    { code: 'eu-west-1', labels: ['Europe (Ireland)', 'ireland', 'dublin', 'europe west', 'eu west', 'uk nearby'] },
-    { code: 'eu-west-2', labels: ['Europe (London)', 'london', 'uk', 'united kingdom', 'england', 'britain', 'europe west', 'eu west'] },
-    { code: 'eu-west-3', labels: ['Europe (Paris)', 'paris', 'france', 'french', 'europe west', 'eu west'] },
-    { code: 'eu-central-1', labels: ['Europe (Frankfurt)', 'frankfurt', 'germany', 'german', 'europe central', 'eu central', 'dach'] },
-    { code: 'eu-central-2', labels: ['Europe (Zurich)', 'zurich', 'switzerland', 'swiss', 'europe central', 'eu central', 'dach'] },
-    { code: 'eu-north-1', labels: ['Europe (Stockholm)', 'stockholm', 'sweden', 'swedish', 'nordic', 'scandinavia', 'europe north', 'eu north'] },
-    { code: 'eu-south-1', labels: ['Europe (Milan)', 'milan', 'italy', 'italian', 'europe south', 'eu south', 'mediterranean'] },
-    { code: 'ap-northeast-1', labels: ['Asia Pacific (Tokyo)', 'tokyo', 'japan', 'japanese', 'asia pacific', 'apac', 'east asia'] },
-    { code: 'ap-northeast-2', labels: ['Asia Pacific (Seoul)', 'seoul', 'korea', 'korean', 'south korea', 'asia pacific', 'apac', 'east asia'] },
-    { code: 'ap-northeast-3', labels: ['Asia Pacific (Osaka)', 'osaka', 'japan', 'japanese', 'kansai', 'asia pacific', 'apac'] },
-    { code: 'ap-southeast-1', labels: ['Asia Pacific (Singapore)', 'singapore', 'sg', 'southeast asia', 'sea', 'asia pacific', 'apac'] },
-    { code: 'ap-southeast-2', labels: ['Asia Pacific (Sydney)', 'sydney', 'australia', 'australian', 'oceania', 'asia pacific', 'apac', 'down under'] },
-    { code: 'ap-south-1', labels: ['Asia Pacific (Mumbai)', 'mumbai', 'india', 'indian', 'south asia', 'asia pacific', 'apac', 'bombay'] },
-    { code: 'sa-east-1', labels: ['South America (São Paulo)', 'sao paulo', 'brazil', 'brazilian', 'south america', 'latin america', 'latam'] },
-    { code: 'me-south-1', labels: ['Middle East (Bahrain)', 'bahrain', 'middle east', 'gulf', 'gcc', 'mena'] },
-    { code: 'af-south-1', labels: ['Africa (Cape Town)', 'cape town', 'africa', 'south africa', 'african'] },
-    { code: 'il-central-1', labels: ['Israel (Tel Aviv)', 'tel aviv', 'israel', 'israeli', 'middle east'] }
-]
+// ── Catalog loader ───────────────────────────────────────────────────────────
 
-const VALID_REGION_CODES = new Set(AWS_REGIONS.map(r => r.code))
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+/**
+ * Load and parse a JSON catalog file relative to the server directory.
+ * Throws on missing file or invalid JSON with the file path in the message.
+ *
+ * @param {string} relativePath - Path relative to server dir (e.g. './catalogs/regions.json')
+ * @returns {any} Parsed JSON content
+ */
+function loadCatalog(relativePath) {
+    const fullPath = resolve(__dirname, relativePath)
+    let raw
+    try {
+        raw = readFileSync(fullPath, 'utf8')
+    } catch (err) {
+        throw new Error(`Catalog file not found: ${fullPath}`)
+    }
+    try {
+        return JSON.parse(raw)
+    } catch (err) {
+        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`)
+    }
+}
+
+// ── Load catalogs from JSON files ─────────────────────────────────────────────
+
+let AWS_REGIONS
+let VALID_REGION_CODES
+
+try {
+    AWS_REGIONS = loadCatalog('./catalogs/regions.json')
+    VALID_REGION_CODES = new Set(AWS_REGIONS.map(r => r.code))
+} catch (err) {
+    process.stderr.write(`[region-picker] Fatal: ${err.message}\n`)
+    process.exit(1)
+}
 
 // Bedrock / smart-mode configuration
 const SMART_MODE = process.env.BEDROCK_SMART === 'true'
@@ -145,9 +153,9 @@ const server = new McpServer({
     version: '1.0.0'
 })
 
-// Register the get_ml_config tool
+// Register the get_regions tool
 server.tool(
-    'get_ml_config',
+    'get_regions',
     'Returns recommended AWS regions for SageMaker deployments',
     {
         parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
@@ -205,10 +213,9 @@ server.tool(
 )
 
 // Export for standalone testing
-export { filterRegions, AWS_REGIONS, VALID_REGION_CODES }
+export { loadCatalog, filterRegions, AWS_REGIONS, VALID_REGION_CODES }
 
 // Guard MCP transport — only connect when run as main module
-const __filename = fileURLToPath(import.meta.url)
 const isMain = process.argv[1] && resolve(process.argv[1]) === __filename
 
 if (isMain) {

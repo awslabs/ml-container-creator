@@ -11,7 +11,7 @@
  * Only clusters that are InService and use EKS orchestration are returned.
  * Slurm-based clusters are excluded.
  *
- * Tool: get_ml_config
+ * Tool: get_hyperpod_clusters
  *   Accepts: { parameters: string[], limit: number, context: object }
  *   Returns: { values: Record<string, string>, choices: Record<string, string[]> }
  *
@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { DynamicResolver } from '../lib/dynamic-resolver.js'
 
 /**
  * Log to stderr so it doesn't interfere with MCP stdio protocol on stdout.
@@ -215,15 +216,92 @@ function buildResponse(clusters) {
     }
 }
 
+// ── ClusterResolver ──────────────────────────────────────────────────────────
+
+/**
+ * ClusterResolver — discovers HyperPod EKS clusters via AWS SageMaker APIs.
+ *
+ * Extends DynamicResolver to fit the shared resolver pattern. Wraps the
+ * existing fetchHyperPodClusters logic with credential strategy fallback.
+ */
+class ClusterResolver extends DynamicResolver {
+    constructor(options = {}) {
+        super()
+        this._region = options.region || process.env.AWS_REGION || 'us-east-1'
+        this._profile = options.profile || process.env.AWS_PROFILE || null
+        this._clientFactory = options.clientFactory || null
+    }
+
+    async fetch(key, options = {}) {
+        const { limit = 10 } = options
+
+        await _ensureSdkLoaded()
+
+        let clusters = null
+        let lastError = null
+
+        // Strategy 1: If a specific profile was requested, use it directly
+        if (this._profile) {
+            try {
+                const client = _createClientWithProfile(this._region, this._profile)
+                clusters = await fetchHyperPodClusters(client, { limit })
+            } catch (err) {
+                log(`Profile "${this._profile}" failed: ${err.message}`)
+                lastError = err
+            }
+        }
+
+        // Strategy 2: Try the default credential chain
+        if (!clusters) {
+            try {
+                const client = createSageMakerClient(this._region, this._clientFactory)
+                clusters = await fetchHyperPodClusters(client, { limit })
+            } catch (err) {
+                log(`Default credential chain failed: ${err.message}`)
+                lastError = err
+            }
+        }
+
+        // Strategy 3: Detect available AWS profiles and try each
+        if (!clusters && _fromIni) {
+            const profiles = _detectAwsProfiles()
+            for (const p of profiles) {
+                try {
+                    const client = _createClientWithProfile(this._region, p)
+                    clusters = await fetchHyperPodClusters(client, { limit })
+                    log(`Profile "${p}" succeeded`)
+                    break
+                } catch (err) {
+                    log(`Profile "${p}" failed: ${err.message}`)
+                    lastError = err
+                }
+            }
+        }
+
+        if (!clusters) {
+            throw lastError || new Error('No AWS credentials available')
+        }
+
+        return {
+            items: clusters,
+            defaultItem: clusters[0] || null
+        }
+    }
+
+    supportedKeys() {
+        return ['hyperPodCluster']
+    }
+}
+
 // Create MCP server
 const server = new McpServer({
     name: 'hyperpod-cluster-picker',
     version: '1.0.0'
 })
 
-// Register the get_ml_config tool
+// Register the get_hyperpod_clusters tool
 server.tool(
-    'get_ml_config',
+    'get_hyperpod_clusters',
     'Discovers available SageMaker HyperPod EKS clusters for deployment target selection',
     {
         parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
@@ -332,7 +410,7 @@ server.tool(
 )
 
 // Export for testing
-export { fetchHyperPodClusters, buildResponse, createSageMakerClient, _ensureSdkLoaded }
+export { fetchHyperPodClusters, buildResponse, createSageMakerClient, _ensureSdkLoaded, ClusterResolver }
 
 // Guard MCP transport — only connect when run as main module
 const __filename = fileURLToPath(import.meta.url)

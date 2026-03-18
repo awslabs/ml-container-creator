@@ -643,6 +643,79 @@ const destinationPrompts = [
     }
 ];
 
+/**
+ * Format ImageEntry[] into Inquirer list choices with tabular display.
+ *
+ * @param {ImageEntry[]} entries - Image entries from the resolver
+ * @param {boolean} isTransformer - Whether to show CUDA column
+ * @returns {Array<{name: string, value: string}>} Inquirer choices
+ */
+function formatImageChoices(entries, isTransformer) {
+    return entries.map(entry => {
+        const cuda = entry.labels.cuda_version || '-'
+        const python = entry.labels.python_version || '-'
+        const date = entry.created.slice(0, 10)
+
+        const name = isTransformer
+            ? `${entry.repository.padEnd(30)} ${entry.tag.padEnd(16)} ${entry.architecture.padEnd(7)} ${cuda.padEnd(6)} ${python.padEnd(8)} ${date}`
+            : `${entry.repository.padEnd(30)} ${entry.tag.padEnd(16)} ${entry.architecture.padEnd(7)} ${python.padEnd(8)} ${date}`
+
+        return { name, value: entry.image }
+    })
+}
+
+/**
+ * Base image search prompt (non-transformer only)
+ * Requirements: 5.2, 5.4
+ */
+const baseImageSearchPrompts = [
+    {
+        type: 'input',
+        name: 'baseImageSearch',
+        message: '🔌 Search for a Python base image (e.g. "3.11", "3.10", or leave empty for all):',
+        default: '',
+        when: (answers) => {
+            const framework = answers.framework || answers.deploymentConfig?.split('-')[0]
+            return framework !== 'transformers'
+        }
+    }
+]
+
+/**
+ * Base image selection prompt (all frameworks)
+ * Requirements: 5.2, 5.4, 10.1, 10.2, 10.3
+ */
+const baseImagePrompts = [
+    {
+        type: 'list',
+        name: 'baseImage',
+        message: 'Select base container image:',
+        choices: (answers) => {
+            const mcpChoices = answers._mcpBaseImageChoices || []
+            return [...mcpChoices, { name: 'Custom (enter your own)', value: 'custom' }]
+        },
+        when: (answers) => {
+            return answers._mcpBaseImageChoices && answers._mcpBaseImageChoices.length > 0
+        }
+    },
+    {
+        type: 'input',
+        name: 'customBaseImage',
+        message: 'Enter custom base container image (e.g. myrepo/myimage:v1):',
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return 'Base image is required'
+            }
+            const pattern = /^[a-zA-Z0-9][a-zA-Z0-9._\-\/]*(:[a-zA-Z0-9._\-]+)?$/
+            if (!pattern.test(input.trim())) {
+                return 'Invalid image format. Expected: [registry/]repository[:tag]'
+            }
+            return true
+        },
+        when: (answers) => answers.baseImage === 'custom'
+    }
+]
+
 export {
     deploymentConfigPrompts,
     frameworkPrompts, // Deprecated: kept for backward compatibility
@@ -660,5 +733,8 @@ export {
     infraHyperPodPrompts,
     infraBuildPrompts,
     projectPrompts,
-    destinationPrompts
+    destinationPrompts,
+    baseImageSearchPrompts,
+    baseImagePrompts,
+    formatImageChoices
 };

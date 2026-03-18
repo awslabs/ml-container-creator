@@ -1,0 +1,64 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": [
+        "name",
+        "version",
+        "description",
+        "modes",
+        "catalogs",
+        "tool"
+    ],
+    "properties": {
+        "name": {
+            "type": "string",
+            "minLength": 1
+        },
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+"
+        },
+        "description": {
+            "type": "string"
+        },
+        "modes": {
+            "type": "object",
+            "required": [
+                "static",
+                "smart",
+                "discover"
+            ],
+            "properties": {
+                "static": {
+                    "type": "boolean"
+                },
+                "smart": {
+                    "type": "boolean"
+                },
+                "discover": {
+                    "type": "boolean"
+                }
+            },
+            "additionalProperties": false
+        },
+        "catalogs": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
+        "tool": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}
