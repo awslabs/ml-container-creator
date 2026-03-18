@@ -1,0 +1,16 @@
+{
+    "name": "@ml-container-creator/instance-recommender",
+    "version": "1.0.0",
+    "description": "MCP server that recommends SageMaker instance types for ML Container Creator.",
+    "modes": {
+        "static": true,
+        "smart": true,
+        "discover": false
+    },
+    "catalogs": {
+        "instances": "./catalogs/instances.json"
+    },
+    "tool": {
+        "name": "get_instance_types"
+    }
+}

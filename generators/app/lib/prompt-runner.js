@@ -23,7 +23,10 @@ import {
     infraHyperPodPrompts,
     infraBuildPrompts,
     projectPrompts,
-    destinationPrompts
+    destinationPrompts,
+    baseImageSearchPrompts,
+    baseImagePrompts,
+    formatImageChoices
 } from './prompts.js';
 
 import instanceAcceleratorMapping from '../config/registries/instance-accelerator-mapping.js';
@@ -111,6 +114,20 @@ export default class PromptRunner {
             modelServer: modelServer || deploymentConfigAnswers.modelServer
         };
         
+        // Query base-image-picker MCP server for base image choices
+        // Requirements: 5.1, 5.2, 5.3
+        await this._queryMcpForBaseImage(frameworkAnswers, explicitConfig)
+        const baseImagePreviousAnswers = {
+            ...frameworkAnswers,
+            ...(this._mcpBaseImageChoices ? { _mcpBaseImageChoices: this._mcpBaseImageChoices } : {})
+        }
+        const baseImageAnswers = await this._runPhase(
+            baseImagePrompts,
+            baseImagePreviousAnswers,
+            explicitConfig,
+            existingConfig
+        )
+
         // Populate framework version choices from registry
         const frameworkVersionChoices = this._getFrameworkVersionChoices(frameworkAnswers.framework);
         const frameworkVersionAnswers = await this._runPhase(
@@ -232,6 +249,7 @@ export default class PromptRunner {
         const combinedAnswers = {
             ...infraAnswers,
             ...frameworkAnswers,
+            ...baseImageAnswers,
             ...frameworkVersionAnswers,
             ...frameworkProfileAnswers,
             ...modelFormatAnswers,
@@ -278,6 +296,18 @@ export default class PromptRunner {
         if (combinedAnswers.customAwsRegion) {
             combinedAnswers.awsRegion = combinedAnswers.customAwsRegion;
             delete combinedAnswers.customAwsRegion;
+        }
+
+        // Handle custom base image
+        if (combinedAnswers.customBaseImage) {
+            combinedAnswers.baseImage = combinedAnswers.customBaseImage
+            combinedAnswers._baseImageSource = 'custom'
+            delete combinedAnswers.customBaseImage
+        }
+
+        // Handle --base-image CLI override
+        if (this.generator.options['base-image']) {
+            combinedAnswers.baseImage = this.generator.options['base-image']
         }
 
         // Map awsRoleArn to roleArn for templates
@@ -511,6 +541,56 @@ export default class PromptRunner {
             } else {
                 console.log('   ↳ No HyperPod clusters found via MCP, manual entry available');
             }
+        }
+    }
+
+    /**
+     * Query MCP base-image-picker server after deployment config is selected.
+     * Populates _mcpBaseImageChoices for the base image selection prompt.
+     * Requirements: 5.1, 5.2, 5.3, 5.4, 9.1, 9.2, 9.3
+     * @private
+     */
+    async _queryMcpForBaseImage(frameworkAnswers, explicitConfig) {
+        // Skip if base image provided via CLI --base-image flag
+        if (this.generator.options['base-image']) return
+
+        const cm = this.configManager
+        if (!cm) return
+
+        const mcpServers = cm.getMcpServerNames()
+        if (!mcpServers.includes('base-image-picker')) return
+
+        const smart = this.generator.options.smart === true
+        const framework = frameworkAnswers.framework
+        const modelServer = frameworkAnswers.modelServer
+        const isTransformer = framework === 'transformers'
+
+        // For non-transformer frameworks, prompt for optional search criteria
+        let searchCriteria
+        if (!isTransformer) {
+            const searchAnswer = await this.generator.prompt(baseImageSearchPrompts.map(p => ({
+                ...p,
+                when: () => true // Always show for non-transformer since we already checked
+            })))
+            searchCriteria = searchAnswer.baseImageSearch
+        }
+
+        console.log(`   🔍 Querying base-image-picker${smart ? ' [smart]' : ''}...`)
+
+        const context = { framework, modelServer }
+        if (searchCriteria && searchCriteria.trim()) {
+            context.searchCriteria = searchCriteria.trim()
+        }
+
+        const result = await cm.queryMcpServer('base-image-picker', context)
+
+        if (result && result.metadata?.baseImage?.length > 0) {
+            const entries = result.metadata.baseImage
+            this._mcpBaseImageChoices = formatImageChoices(entries, isTransformer)
+            const count = entries.length
+            console.log(`   ✓ ${count} base image(s) available`)
+        } else {
+            console.log('   ↳ No MCP results, using default image')
         }
     }
 

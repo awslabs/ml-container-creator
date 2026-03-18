@@ -1,0 +1,93 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": [
+        "catalog",
+        "recommendations"
+    ],
+    "properties": {
+        "catalog": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+                "type": "object",
+                "required": [
+                    "category",
+                    "gpus",
+                    "vcpus",
+                    "memGb",
+                    "accelerator",
+                    "cudaVersions",
+                    "tags"
+                ],
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "cpu",
+                            "gpu"
+                        ]
+                    },
+                    "gpus": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "vcpus": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "memGb": {
+                        "type": "number",
+                        "minimum": 0
+                    },
+                    "accelerator": {
+                        "type": "string"
+                    },
+                    "cudaVersions": {
+                        "oneOf": [
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "recommendations": {
+            "type": "object",
+            "required": [
+                "cpu",
+                "gpu"
+            ],
+            "properties": {
+                "cpu": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "gpu": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}

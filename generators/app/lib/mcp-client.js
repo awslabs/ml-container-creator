@@ -212,6 +212,7 @@ class McpClient {
 
         const values = {};
         const choices = {};
+        const metadata = {};
 
         // Extract values — only for unbounded parameters
         if (parsed.values && typeof parsed.values === 'object') {
@@ -229,7 +230,18 @@ class McpClient {
             }
         }
 
-        return { values, choices, message: parsed.message || null };
+        // Extract metadata — pass through for rich display (e.g., ImageEntry objects)
+        if (parsed.metadata && typeof parsed.metadata === 'object') {
+            for (const [key, value] of Object.entries(parsed.metadata)) {
+                metadata[key] = value;
+            }
+        }
+
+        const response = { values, choices, message: parsed.message || null };
+        if (Object.keys(metadata).length > 0) {
+            response.metadata = metadata;
+        }
+        return response;
     }
 
     /**

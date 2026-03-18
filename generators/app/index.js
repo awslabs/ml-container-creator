@@ -176,6 +176,11 @@ export default class extends Generator {
             type: Boolean,
             description: 'Enable Bedrock-powered smart mode on all configured MCP servers for this run'
         });
+
+        this.option('base-image', {
+            type: String,
+            description: 'Base container image for Dockerfile'
+        });
     }
 
     /**
@@ -764,7 +769,8 @@ export default class extends Generator {
             hyperPodCluster: null,
             hyperPodNamespace: 'default',
             hyperPodReplicas: 1,
-            fsxVolumeHandle: null
+            fsxVolumeHandle: null,
+            baseImage: null
         };
         
         // Apply defaults for any missing fields

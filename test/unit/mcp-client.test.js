@@ -75,7 +75,8 @@ describe('McpClient Unit Tests', () => {
             assert.ok(names.includes('awsRoleArn'));
             assert.ok(names.includes('awsRegion'));
             assert.ok(names.includes('hyperPodCluster'));
-            assert.strictEqual(names.length, 4);
+            assert.ok(names.includes('baseImage'));
+            assert.strictEqual(names.length, 5);
         });
 
         it('should not include bounded parameters', () => {

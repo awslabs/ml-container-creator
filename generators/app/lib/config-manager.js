@@ -526,6 +526,17 @@ export default class ConfigManager {
                 required: false,
                 default: null,
                 valueSpace: 'bounded'
+            },
+            baseImage: {
+                cliOption: 'base-image',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: true,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'unbounded'
             }
         };
     }

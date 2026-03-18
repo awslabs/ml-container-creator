@@ -203,3 +203,22 @@ jobs:
           else
             echo "✅ No high vulnerabilities found"
           fi
+
+  mcp-servers:
+    name: MCP Server Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate schemas, manifests, catalogs, and tool uniqueness
+        run: node scripts/validate-servers.js

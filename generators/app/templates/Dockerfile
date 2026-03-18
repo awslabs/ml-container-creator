@@ -10,7 +10,7 @@
 <% } %>
 
 <% if (framework !== 'transformers') { %>
-FROM python:3.12-slim
+FROM <%= baseImage || 'python:3.12-slim' %>
 
 # Set a docker label to name this project, postpended with the build time
 LABEL project.name="<%= projectName %>-<%= buildTimestamp %>" \
@@ -115,9 +115,9 @@ ENTRYPOINT ["python", "/opt/ml/code/start_server.py"]
 
 <% if (modelServer === 'vllm') { %>
 # https://github.com/aws-samples/sagemaker-genai-hosting-examples/tree/main/OpenAI/gpt-oss/deploy/docker
-ARG BASE_IMAGE=vllm/vllm-openai:v0.10.1
+ARG BASE_IMAGE=<%= baseImage || 'vllm/vllm-openai:v0.10.1' %>
 <% } else if (modelServer === 'sglang') { %>
-ARG BASE_IMAGE=lmsysorg/sglang:v0.5.4.post1
+ARG BASE_IMAGE=<%= baseImage || 'lmsysorg/sglang:v0.5.4.post1' %>
 <% } else if (modelServer === 'tensorrt-llm') { %>
 # TensorRT-LLM requires NVIDIA NGC authentication
 # Before building, authenticate with NGC:
@@ -127,18 +127,18 @@ ARG BASE_IMAGE=lmsysorg/sglang:v0.5.4.post1
 #      Username: $oauthtoken
 #      Password: <your-ngc-api-key>
 # Using a stable release for better SageMaker compatibility
-ARG BASE_IMAGE=nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc8
+ARG BASE_IMAGE=<%= baseImage || 'nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc8' %>
 <% } else if (modelServer === 'lmi') { %>
 # AWS Large Model Inference (LMI) Container
 # LMI containers are pre-built by AWS and include DJL Serving with optimized inference libraries
 # Available backends: vLLM, TensorRT-LLM, LMI-Dist (DeepSpeed), Transformers NeuronX
 # Documentation: https://docs.djl.ai/master/docs/serving/serving/docs/lmi/index.html
-ARG BASE_IMAGE=763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.32.0-lmi14.0.0-cu126
+ARG BASE_IMAGE=<%= baseImage || '763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.32.0-lmi14.0.0-cu126' %>
 <% } else if (modelServer === 'djl') { %>
 # DJL Serving Container
 # Deep Java Library serving with support for multiple inference backends
 # Documentation: https://djl.ai/
-ARG BASE_IMAGE=deepjavalibrary/djl-serving:0.36.0-pytorch-gpu
+ARG BASE_IMAGE=<%= baseImage || 'deepjavalibrary/djl-serving:0.36.0-pytorch-gpu' %>
 <% } %>
 
 FROM ${BASE_IMAGE}

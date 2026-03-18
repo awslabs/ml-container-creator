@@ -1,0 +1,103 @@
+{
+    "vllm": [
+        {
+            "image": "vllm/vllm-openai:v0.10.1",
+            "tag": "v0.10.1",
+            "architecture": "amd64",
+            "created": "2025-01-15T00:00:00Z",
+            "labels": { "cuda_version": "12.4", "python_version": "3.12", "framework_version": "0.10.1" },
+            "registry": "dockerhub",
+            "repository": "vllm/vllm-openai"
+        },
+        {
+            "image": "vllm/vllm-openai:v0.9.1",
+            "tag": "v0.9.1",
+            "architecture": "amd64",
+            "created": "2024-12-10T00:00:00Z",
+            "labels": { "cuda_version": "12.1", "python_version": "3.12", "framework_version": "0.9.1" },
+            "registry": "dockerhub",
+            "repository": "vllm/vllm-openai"
+        }
+    ],
+    "sglang": [
+        {
+            "image": "lmsysorg/sglang:v0.5.4.post1-cu121",
+            "tag": "v0.5.4.post1-cu121",
+            "architecture": "amd64",
+            "created": "2025-01-20T00:00:00Z",
+            "labels": { "cuda_version": "12.1", "python_version": "3.10", "framework_version": "0.5.4" },
+            "registry": "dockerhub",
+            "repository": "lmsysorg/sglang"
+        },
+        {
+            "image": "lmsysorg/sglang:v0.4.6-cu121",
+            "tag": "v0.4.6-cu121",
+            "architecture": "amd64",
+            "created": "2024-11-15T00:00:00Z",
+            "labels": { "cuda_version": "12.1", "python_version": "3.10", "framework_version": "0.4.6" },
+            "registry": "dockerhub",
+            "repository": "lmsysorg/sglang"
+        }
+    ],
+
+    "tensorrt-llm": [
+        {
+            "image": "nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc8",
+            "tag": "1.2.0rc8",
+            "architecture": "amd64",
+            "created": "2025-01-05T00:00:00Z",
+            "labels": { "cuda_version": "12.4", "python_version": "3.10", "framework_version": "1.2.0" },
+            "registry": "ngc",
+            "repository": "nvidia/tensorrt-llm"
+        },
+        {
+            "image": "nvcr.io/nvidia/tensorrt-llm/release:1.1.0",
+            "tag": "1.1.0",
+            "architecture": "amd64",
+            "created": "2024-10-20T00:00:00Z",
+            "labels": { "cuda_version": "12.1", "python_version": "3.10", "framework_version": "1.1.0" },
+            "registry": "ngc",
+            "repository": "nvidia/tensorrt-llm"
+        }
+    ],
+    "lmi": [
+        {
+            "image": "763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.32.0-lmi14.0.0-cu126",
+            "tag": "0.32.0-lmi14.0.0-cu126",
+            "architecture": "amd64",
+            "created": "2025-01-12T00:00:00Z",
+            "labels": { "cuda_version": "12.6", "python_version": "3.10", "framework_version": "14.0.0" },
+            "registry": "ecr",
+            "repository": "djl-inference"
+        },
+        {
+            "image": "763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.31.0-lmi13.0.0-cu124",
+            "tag": "0.31.0-lmi13.0.0-cu124",
+            "architecture": "amd64",
+            "created": "2024-11-01T00:00:00Z",
+            "labels": { "cuda_version": "12.4", "python_version": "3.10", "framework_version": "13.0.0" },
+            "registry": "ecr",
+            "repository": "djl-inference"
+        }
+    ],
+    "djl": [
+        {
+            "image": "deepjavalibrary/djl-serving:0.36.0-pytorch-gpu",
+            "tag": "0.36.0-pytorch-gpu",
+            "architecture": "amd64",
+            "created": "2025-01-08T00:00:00Z",
+            "labels": { "cuda_version": "12.6", "python_version": "3.10", "framework_version": "0.36.0" },
+            "registry": "dockerhub",
+            "repository": "deepjavalibrary/djl-serving"
+        },
+        {
+            "image": "deepjavalibrary/djl-serving:0.35.0-pytorch-gpu",
+            "tag": "0.35.0-pytorch-gpu",
+            "architecture": "amd64",
+            "created": "2024-10-15T00:00:00Z",
+            "labels": { "cuda_version": "12.4", "python_version": "3.10", "framework_version": "0.35.0" },
+            "registry": "dockerhub",
+            "repository": "deepjavalibrary/djl-serving"
+        }
+    ]
+}

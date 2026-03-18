@@ -13,7 +13,7 @@
  *   - Smart (--smart flag or BEDROCK_SMART=true): Queries Amazon Bedrock for
  *     context-aware recommendations, falling back to static on failure
  *
- * Tool: get_ml_config
+ * Tool: get_instance_types
  *   Accepts: { parameters: string[], limit: number, context: object }
  *   Returns: { values: Record<string, string>, choices: Record<string, string[]> }
  */
@@ -21,64 +21,50 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
+import { resolve, dirname } from 'node:path'
 import { queryBedrock } from '../lib/bedrock-client.js'
 
-/**
- * Instance recommendations by framework category.
- * Traditional ML frameworks use CPU instances; transformer frameworks use GPU instances.
- * Each entry includes metadata for keyword-based search filtering.
- *
- * cudaVersions is derived from the GPU architecture's supported CUDA toolkit versions
- * (see generators/app/config/registries/instance-accelerator-mapping.js).
- * CPU instances have cudaVersions: null.
- */
-const INSTANCE_CATALOG = {
-    'ml.m5.large':     { category: 'cpu', gpus: 0, vcpus: 2,  memGb: 8,   accelerator: '',              cudaVersions: null,                    tags: ['small', 'cpu', 'general', 'cheap', 'cost-effective', 'budget'] },
-    'ml.m5.xlarge':    { category: 'cpu', gpus: 0, vcpus: 4,  memGb: 16,  accelerator: '',              cudaVersions: null,                    tags: ['medium', 'cpu', 'general', 'cost-effective'] },
-    'ml.m5.2xlarge':   { category: 'cpu', gpus: 0, vcpus: 8,  memGb: 32,  accelerator: '',              cudaVersions: null,                    tags: ['large', 'cpu', 'general', 'high-memory'] },
-    'ml.m5.4xlarge':   { category: 'cpu', gpus: 0, vcpus: 16, memGb: 64,  accelerator: '',              cudaVersions: null,                    tags: ['xlarge', 'cpu', 'general', 'high-memory', 'high-cpu'] },
-    'ml.c5.xlarge':    { category: 'cpu', gpus: 0, vcpus: 4,  memGb: 8,   accelerator: '',              cudaVersions: null,                    tags: ['compute', 'cpu', 'cost-effective'] },
-    'ml.c5.2xlarge':   { category: 'cpu', gpus: 0, vcpus: 8,  memGb: 16,  accelerator: '',              cudaVersions: null,                    tags: ['compute', 'cpu', 'high-cpu'] },
-    'ml.r5.large':     { category: 'cpu', gpus: 0, vcpus: 2,  memGb: 16,  accelerator: '',              cudaVersions: null,                    tags: ['memory', 'cpu', 'high-memory'] },
-    'ml.r5.xlarge':    { category: 'cpu', gpus: 0, vcpus: 4,  memGb: 32,  accelerator: '',              cudaVersions: null,                    tags: ['memory', 'cpu', 'high-memory'] },
-    'ml.g4dn.xlarge':  { category: 'gpu', gpus: 1, vcpus: 4,  memGb: 16,  accelerator: 'T4 16GB',      cudaVersions: ['11.4', '11.8'],        tags: ['gpu', 'single-gpu', 'budget', 'cost-effective', 'inference', 't4', 'cuda-11'] },
-    'ml.g4dn.2xlarge': { category: 'gpu', gpus: 1, vcpus: 8,  memGb: 32,  accelerator: 'T4 16GB',      cudaVersions: ['11.4', '11.8'],        tags: ['gpu', 'single-gpu', 'budget', 'cost-effective', 'inference', 't4', 'cuda-11'] },
-    'ml.g5.xlarge':    { category: 'gpu', gpus: 1, vcpus: 4,  memGb: 16,  accelerator: 'A10G 24GB',    cudaVersions: ['11.8', '12.1', '12.2'], tags: ['gpu', 'single-gpu', 'inference', 'a10g', 'cuda-11', 'cuda-12'] },
-    'ml.g5.2xlarge':   { category: 'gpu', gpus: 1, vcpus: 8,  memGb: 32,  accelerator: 'A10G 24GB',    cudaVersions: ['11.8', '12.1', '12.2'], tags: ['gpu', 'single-gpu', 'inference', 'a10g', 'cuda-11', 'cuda-12'] },
-    'ml.g5.4xlarge':   { category: 'gpu', gpus: 1, vcpus: 16, memGb: 64,  accelerator: 'A10G 24GB',    cudaVersions: ['11.8', '12.1', '12.2'], tags: ['gpu', 'single-gpu', 'large', 'a10g', 'cuda-11', 'cuda-12'] },
-    'ml.g5.12xlarge':  { category: 'gpu', gpus: 4, vcpus: 48, memGb: 192, accelerator: '4x A10G 96GB', cudaVersions: ['11.8', '12.1', '12.2'], tags: ['gpu', 'multi-gpu', 'large', 'a10g', 'parallel', 'cuda-11', 'cuda-12'] },
-    'ml.g6.xlarge':    { category: 'gpu', gpus: 1, vcpus: 4,  memGb: 16,  accelerator: 'L4 24GB',      cudaVersions: ['12.1', '12.2', '12.4'], tags: ['gpu', 'single-gpu', 'inference', 'l4', 'newer', 'cuda-12'] },
-    'ml.g6.2xlarge':   { category: 'gpu', gpus: 1, vcpus: 8,  memGb: 32,  accelerator: 'L4 24GB',      cudaVersions: ['12.1', '12.2', '12.4'], tags: ['gpu', 'single-gpu', 'inference', 'l4', 'newer', 'cuda-12'] },
-    'ml.g6.12xlarge':  { category: 'gpu', gpus: 4, vcpus: 48, memGb: 192, accelerator: '4x L4 96GB',   cudaVersions: ['12.1', '12.2', '12.4'], tags: ['gpu', 'multi-gpu', 'large', 'l4', 'newer', 'parallel', 'cuda-12'] },
-    'ml.p3.2xlarge':   { category: 'gpu', gpus: 1, vcpus: 8,  memGb: 61,  accelerator: 'V100 16GB',    cudaVersions: ['11.0', '11.4', '11.8'], tags: ['gpu', 'single-gpu', 'high-performance', 'training', 'v100', 'cuda-11'] },
-    'ml.p3.8xlarge':   { category: 'gpu', gpus: 4, vcpus: 32, memGb: 244, accelerator: '4x V100 64GB', cudaVersions: ['11.0', '11.4', '11.8'], tags: ['gpu', 'multi-gpu', 'high-performance', 'training', 'v100', 'parallel', 'cuda-11'] }
-}
+// ── Catalog loader ───────────────────────────────────────────────────────────
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 /**
- * Legacy flat lists — used when no search term is provided.
- * Kept as original hardcoded values for backward compatibility with existing tests.
+ * Load and parse a JSON catalog file relative to the server directory.
+ * Throws on missing file or invalid JSON with the file path in the message.
+ *
+ * @param {string} relativePath - Path relative to server dir (e.g. './catalogs/instances.json')
+ * @returns {any} Parsed JSON content
  */
-const INSTANCE_RECOMMENDATIONS = {
-    cpu: [
-        'ml.m5.large',
-        'ml.m5.xlarge',
-        'ml.m5.2xlarge',
-        'ml.m5.4xlarge',
-        'ml.c5.xlarge',
-        'ml.c5.2xlarge',
-        'ml.r5.large',
-        'ml.r5.xlarge'
-    ],
-    gpu: [
-        'ml.g4dn.xlarge',
-        'ml.g4dn.2xlarge',
-        'ml.g5.xlarge',
-        'ml.g5.2xlarge',
-        'ml.g5.4xlarge',
-        'ml.p3.2xlarge'
-    ]
+function loadCatalog(relativePath) {
+    const fullPath = resolve(__dirname, relativePath)
+    let raw
+    try {
+        raw = readFileSync(fullPath, 'utf8')
+    } catch (err) {
+        throw new Error(`Catalog file not found: ${fullPath}`)
+    }
+    try {
+        return JSON.parse(raw)
+    } catch (err) {
+        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`)
+    }
+}
+
+// ── Load catalogs from JSON files ─────────────────────────────────────────────
+
+let INSTANCE_CATALOG
+let INSTANCE_RECOMMENDATIONS
+
+try {
+    const data = loadCatalog('./catalogs/instances.json')
+    INSTANCE_CATALOG = data.catalog
+    INSTANCE_RECOMMENDATIONS = data.recommendations
+} catch (err) {
+    process.stderr.write(`[instance-recommender] Fatal: ${err.message}\n`)
+    process.exit(1)
 }
 
 const GPU_FRAMEWORKS = new Set(['transformers'])
@@ -225,9 +211,9 @@ const server = new McpServer({
     version: '1.0.0'
 })
 
-// Register the get_ml_config tool
+// Register the get_instance_types tool
 server.tool(
-    'get_ml_config',
+    'get_instance_types',
     'Returns recommended SageMaker instance types and configuration values for ML Container Creator',
     {
         parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
@@ -281,10 +267,9 @@ server.tool(
 )
 
 // Export for standalone testing
-export { getStaticInstances, INSTANCE_CATALOG, INSTANCE_RECOMMENDATIONS, GPU_FRAMEWORKS }
+export { loadCatalog, getStaticInstances, INSTANCE_CATALOG, INSTANCE_RECOMMENDATIONS, GPU_FRAMEWORKS }
 
 // Guard MCP transport — only connect when run as main module
-const __filename = fileURLToPath(import.meta.url)
 const isMain = process.argv[1] && resolve(process.argv[1]) === __filename
 
 if (isMain) {
