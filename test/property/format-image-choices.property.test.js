@@ -12,22 +12,38 @@
  * Validates: Requirements 6.1, 6.2
  */
 
+<<<<<<< HEAD
 import fc from 'fast-check'
 import { describe, it } from 'mocha'
 import assert from 'assert'
 import { formatImageChoices } from '../../generators/app/lib/prompts.js'
+=======
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import { formatImageChoices } from '../../generators/app/lib/prompts.js';
+>>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
+<<<<<<< HEAD
 }
+=======
+};
+>>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 // Arbitrary generator for a valid ImageEntry
 const arbImageEntry = fc.record({
     image: fc.tuple(
+<<<<<<< HEAD
         fc.stringMatching(/^[a-z][a-z0-9\-]{1,20}$/),
         fc.stringMatching(/^[a-z][a-z0-9\-]{1,20}$/),
+=======
+        fc.stringMatching(/^[a-z][a-z0-9-]{1,20}$/),
+        fc.stringMatching(/^[a-z][a-z0-9-]{1,20}$/),
+>>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
         fc.stringMatching(/^v?[0-9]+\.[0-9]+(\.[0-9]+)?$/)
     ).map(([org, repo, tag]) => `${org}/${repo}:${tag}`),
     tag: fc.stringMatching(/^v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-z0-9]+)?$/),
@@ -43,6 +59,7 @@ const arbImageEntry = fc.record({
     }),
     registry: fc.constantFrom('dockerhub', 'ngc', 'ecr'),
     repository: fc.tuple(
+<<<<<<< HEAD
         fc.stringMatching(/^[a-z][a-z0-9\-]{1,20}$/),
         fc.stringMatching(/^[a-z][a-z0-9\-]{1,20}$/)
     ).map(([org, repo]) => `${org}/${repo}`)
@@ -51,10 +68,21 @@ const arbImageEntry = fc.record({
 describe('Property 10: formatImageChoices includes all expected metadata', () => {
     it('for any ImageEntry and isTransformer=true, formatted string contains repository, tag, architecture, cuda_version, python_version, and date', function () {
         this.timeout(FAST_PROPERTY_CONFIG.timeout)
+=======
+        fc.stringMatching(/^[a-z][a-z0-9-]{1,20}$/),
+        fc.stringMatching(/^[a-z][a-z0-9-]{1,20}$/)
+    ).map(([org, repo]) => `${org}/${repo}`)
+});
+
+describe('Property 10: formatImageChoices includes all expected metadata', () => {
+    it('for any ImageEntry and isTransformer=true, formatted string contains repository, tag, architecture, cuda_version, python_version, and date', function () {
+        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+>>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
         fc.assert(fc.property(
             arbImageEntry,
             (entry) => {
+<<<<<<< HEAD
                 const choices = formatImageChoices([entry], true)
                 assert.strictEqual(choices.length, 1)
 
@@ -80,10 +108,38 @@ describe('Property 10: formatImageChoices includes all expected metadata', () =>
 
     it('for any ImageEntry and isTransformer=false, formatted string contains repository, tag, architecture, python_version, date but NOT cuda_version column', function () {
         this.timeout(FAST_PROPERTY_CONFIG.timeout)
+=======
+                const choices = formatImageChoices([entry], true);
+                assert.strictEqual(choices.length, 1);
+
+                const { name, value } = choices[0];
+                assert.strictEqual(value, entry.image);
+                assert.ok(name.includes(entry.repository),
+                    `Formatted string should contain repository "${entry.repository}"`);
+                assert.ok(name.includes(entry.tag),
+                    `Formatted string should contain tag "${entry.tag}"`);
+                assert.ok(name.includes(entry.architecture),
+                    `Formatted string should contain architecture "${entry.architecture}"`);
+                assert.ok(name.includes(entry.labels.cuda_version),
+                    `Formatted string should contain cuda_version "${entry.labels.cuda_version}"`);
+                assert.ok(name.includes(entry.labels.python_version),
+                    `Formatted string should contain python_version "${entry.labels.python_version}"`);
+                assert.ok(name.includes(entry.created.slice(0, 10)),
+                    `Formatted string should contain date "${entry.created.slice(0, 10)}"`);
+
+                return true;
+            }
+        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+    });
+
+    it('for any ImageEntry and isTransformer=false, formatted string contains repository, tag, architecture, python_version, date but NOT cuda_version column', function () {
+        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+>>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
         fc.assert(fc.property(
             arbImageEntry,
             (entry) => {
+<<<<<<< HEAD
                 const choices = formatImageChoices([entry], false)
                 assert.strictEqual(choices.length, 1)
 
@@ -106,6 +162,30 @@ describe('Property 10: formatImageChoices includes all expected metadata', () =>
     })
 
     it('for entries with missing labels, uses "-" as fallback', function () {
+=======
+                const choices = formatImageChoices([entry], false);
+                assert.strictEqual(choices.length, 1);
+
+                const { name, value } = choices[0];
+                assert.strictEqual(value, entry.image);
+                assert.ok(name.includes(entry.repository),
+                    `Formatted string should contain repository "${entry.repository}"`);
+                assert.ok(name.includes(entry.tag),
+                    `Formatted string should contain tag "${entry.tag}"`);
+                assert.ok(name.includes(entry.architecture),
+                    `Formatted string should contain architecture "${entry.architecture}"`);
+                assert.ok(name.includes(entry.labels.python_version),
+                    `Formatted string should contain python_version "${entry.labels.python_version}"`);
+                assert.ok(name.includes(entry.created.slice(0, 10)),
+                    `Formatted string should contain date "${entry.created.slice(0, 10)}"`);
+
+                return true;
+            }
+        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+    });
+
+    it('for entries with missing labels, uses "-" as fallback', () => {
+>>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
         const entry = {
             image: 'python:3.12-slim',
             tag: '3.12-slim',
@@ -114,6 +194,7 @@ describe('Property 10: formatImageChoices includes all expected metadata', () =>
             labels: {},
             registry: 'dockerhub',
             repository: 'python'
+<<<<<<< HEAD
         }
 
         const transformerChoices = formatImageChoices([entry], true)
@@ -125,3 +206,16 @@ describe('Property 10: formatImageChoices includes all expected metadata', () =>
             'Should use "-" fallback for missing python_version')
     })
 })
+=======
+        };
+
+        const transformerChoices = formatImageChoices([entry], true);
+        assert.ok(transformerChoices[0].name.includes('-'),
+            'Should use "-" fallback for missing cuda_version');
+
+        const nonTransformerChoices = formatImageChoices([entry], false);
+        assert.ok(nonTransformerChoices[0].name.includes('-'),
+            'Should use "-" fallback for missing python_version');
+    });
+});
+>>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
