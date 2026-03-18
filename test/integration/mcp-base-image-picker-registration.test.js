@@ -16,18 +16,9 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-<<<<<<< HEAD
-import { fileURLToPath } from 'url';
 import McpCommandHandler from '../../generators/app/lib/mcp-command-handler.js';
 import { McpClient } from '../../generators/app/lib/mcp-client.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-=======
-import McpCommandHandler from '../../generators/app/lib/mcp-command-handler.js';
-import { McpClient } from '../../generators/app/lib/mcp-client.js';
-
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 const CONFIG_FILENAME = 'config/mcp.json';
 
 function createMockGen(tmpDir) {

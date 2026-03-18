@@ -11,27 +11,16 @@
  * Feature: mcp-server-externalization
  */
 
-<<<<<<< HEAD
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import { CUSTOM_VALIDATORS } from '../../servers/lib/custom-validators.js'
-=======
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { CUSTOM_VALIDATORS } from '../../servers/lib/custom-validators.js';
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-<<<<<<< HEAD
-}
-=======
 };
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 // ── Property tests ───────────────────────────────────────────────────────────
 
@@ -47,17 +36,10 @@ describe('Custom Value Validation Property-Based Tests', () => {
         // ── base-image-picker ────────────────────────────────────────────
 
         describe('base-image-picker', () => {
-<<<<<<< HEAD
-            const validator = CUSTOM_VALIDATORS['base-image-picker']
-
-            it('accepts valid container image references', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
             const validator = CUSTOM_VALIDATORS['base-image-picker'];
 
             it('accepts valid container image references', function () {
                 this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 const arbValidImage = fc.constantFrom(
                     'nginx:latest',
@@ -72,34 +54,16 @@ describe('Custom Value Validation Property-Based Tests', () => {
                     'a',
                     '0start:tag',
                     'repo/sub-repo:tag.1'
-<<<<<<< HEAD
-                )
-=======
                 );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 fc.assert(fc.property(
                     arbValidImage,
                     (value) => {
-<<<<<<< HEAD
-                        const result = validator.validate(value)
-=======
                         const result = validator.validate(value);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                         assert.strictEqual(
                             result,
                             true,
                             `base-image-picker should accept "${value}" but got: ${result}`
-<<<<<<< HEAD
-                        )
-                        return true
-                    }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-            })
-
-            it('rejects strings not matching image reference pattern', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
                         );
                         return true;
                     }
@@ -108,7 +72,6 @@ describe('Custom Value Validation Property-Based Tests', () => {
 
             it('rejects strings not matching image reference pattern', function () {
                 this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 const arbInvalidImage = fc.constantFrom(
                     ':notag',
@@ -119,34 +82,16 @@ describe('Custom Value Validation Property-Based Tests', () => {
                     'image::doubletag',
                     '.starts-with-dot',
                     '-starts-with-dash'
-<<<<<<< HEAD
-                )
-=======
                 );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 fc.assert(fc.property(
                     arbInvalidImage,
                     (value) => {
-<<<<<<< HEAD
-                        const result = validator.validate(value)
-=======
                         const result = validator.validate(value);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                         assert.strictEqual(
                             typeof result,
                             'string',
                             `base-image-picker should reject "${value}" with error message but got: ${result}`
-<<<<<<< HEAD
-                        )
-                        return true
-                    }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-            })
-
-            it('rejects empty strings', function () {
-                const result = validator.validate('')
-=======
                         );
                         return true;
                     }
@@ -155,69 +100,37 @@ describe('Custom Value Validation Property-Based Tests', () => {
 
             it('rejects empty strings', () => {
                 const result = validator.validate('');
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                 assert.strictEqual(
                     typeof result,
                     'string',
                     `base-image-picker should reject empty string with error message but got: ${result}`
-<<<<<<< HEAD
-                )
-            })
-        })
-=======
                 );
             });
         });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
         // ── instance-recommender ─────────────────────────────────────────
 
         describe('instance-recommender', () => {
-<<<<<<< HEAD
-            const validator = CUSTOM_VALIDATORS['instance-recommender']
-
-            it('accepts valid SageMaker instance type patterns', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
             const validator = CUSTOM_VALIDATORS['instance-recommender'];
 
             it('accepts valid SageMaker instance type patterns', function () {
                 this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 const arbValidInstance = fc.tuple(
                     fc.constant('ml.'),
                     fc.stringMatching(/^[a-z0-9]{1,8}$/),
                     fc.constant('.'),
                     fc.stringMatching(/^[a-z0-9]{1,10}$/)
-<<<<<<< HEAD
-                ).map(parts => parts.join(''))
-=======
                 ).map(parts => parts.join(''));
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 fc.assert(fc.property(
                     arbValidInstance,
                     (value) => {
-<<<<<<< HEAD
-                        const result = validator.validate(value)
-=======
                         const result = validator.validate(value);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                         assert.strictEqual(
                             result,
                             true,
                             `instance-recommender should accept "${value}" but got: ${result}`
-<<<<<<< HEAD
-                        )
-                        return true
-                    }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-            })
-
-            it('rejects strings not matching ml.<family>.<size> pattern', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
                         );
                         return true;
                     }
@@ -226,7 +139,6 @@ describe('Custom Value Validation Property-Based Tests', () => {
 
             it('rejects strings not matching ml.<family>.<size> pattern', function () {
                 this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 const arbInvalidInstance = fc.oneof(
                     // Missing ml. prefix
@@ -237,34 +149,16 @@ describe('Custom Value Validation Property-Based Tests', () => {
                     fc.constantFrom('ml.g5', 'ml.m5'),
                     // Extra dots
                     fc.constantFrom('ml.g5.x.large', 'ml.g5.xlarge.extra')
-<<<<<<< HEAD
-                )
-=======
                 );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 fc.assert(fc.property(
                     arbInvalidInstance,
                     (value) => {
-<<<<<<< HEAD
-                        const result = validator.validate(value)
-=======
                         const result = validator.validate(value);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                         assert.strictEqual(
                             typeof result,
                             'string',
                             `instance-recommender should reject "${value}" with error message but got: ${result}`
-<<<<<<< HEAD
-                        )
-                        return true
-                    }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-            })
-
-            it('rejects empty strings', function () {
-                const result = validator.validate('')
-=======
                         );
                         return true;
                     }
@@ -273,35 +167,21 @@ describe('Custom Value Validation Property-Based Tests', () => {
 
             it('rejects empty strings', () => {
                 const result = validator.validate('');
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                 assert.strictEqual(
                     typeof result,
                     'string',
                     `instance-recommender should reject empty string with error message but got: ${result}`
-<<<<<<< HEAD
-                )
-            })
-        })
-=======
                 );
             });
         });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
         // ── region-picker ────────────────────────────────────────────────
 
         describe('region-picker', () => {
-<<<<<<< HEAD
-            const validator = CUSTOM_VALIDATORS['region-picker']
-
-            it('accepts valid AWS region code patterns', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
             const validator = CUSTOM_VALIDATORS['region-picker'];
 
             it('accepts valid AWS region code patterns', function () {
                 this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 const arbValidRegion = fc.tuple(
                     fc.stringMatching(/^[a-z]{2,4}$/),
@@ -309,34 +189,16 @@ describe('Custom Value Validation Property-Based Tests', () => {
                     fc.stringMatching(/^[a-z]{1,10}$/),
                     fc.constant('-'),
                     fc.nat({ max: 99 }).map(n => String(n + 1))
-<<<<<<< HEAD
-                ).map(parts => parts.join(''))
-=======
                 ).map(parts => parts.join(''));
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 fc.assert(fc.property(
                     arbValidRegion,
                     (value) => {
-<<<<<<< HEAD
-                        const result = validator.validate(value)
-=======
                         const result = validator.validate(value);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                         assert.strictEqual(
                             result,
                             true,
                             `region-picker should accept "${value}" but got: ${result}`
-<<<<<<< HEAD
-                        )
-                        return true
-                    }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-            })
-
-            it('rejects strings not matching region code pattern', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
                         );
                         return true;
                     }
@@ -345,7 +207,6 @@ describe('Custom Value Validation Property-Based Tests', () => {
 
             it('rejects strings not matching region code pattern', function () {
                 this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 const arbInvalidRegion = fc.oneof(
                     // Uppercase
@@ -356,34 +217,16 @@ describe('Custom Value Validation Property-Based Tests', () => {
                     fc.constantFrom('us--1', '-east-1'),
                     // Single char prefix (less than 2)
                     fc.constantFrom('u-east-1')
-<<<<<<< HEAD
-                )
-=======
                 );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 fc.assert(fc.property(
                     arbInvalidRegion,
                     (value) => {
-<<<<<<< HEAD
-                        const result = validator.validate(value)
-=======
                         const result = validator.validate(value);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                         assert.strictEqual(
                             typeof result,
                             'string',
                             `region-picker should reject "${value}" with error message but got: ${result}`
-<<<<<<< HEAD
-                        )
-                        return true
-                    }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-            })
-
-            it('rejects empty strings', function () {
-                const result = validator.validate('')
-=======
                         );
                         return true;
                     }
@@ -392,33 +235,17 @@ describe('Custom Value Validation Property-Based Tests', () => {
 
             it('rejects empty strings', () => {
                 const result = validator.validate('');
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                 assert.strictEqual(
                     typeof result,
                     'string',
                     `region-picker should reject empty string with error message but got: ${result}`
-<<<<<<< HEAD
-                )
-            })
-        })
-=======
                 );
             });
         });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
         // ── hyperpod-cluster-picker ──────────────────────────────────────
 
         describe('hyperpod-cluster-picker', () => {
-<<<<<<< HEAD
-            const validator = CUSTOM_VALIDATORS['hyperpod-cluster-picker']
-
-            it('accepts any non-empty string', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout)
-
-                const arbNonEmpty = fc.string({ minLength: 1, maxLength: 100 })
-                    .filter(s => s.trim().length > 0)
-=======
             const validator = CUSTOM_VALIDATORS['hyperpod-cluster-picker'];
 
             it('accepts any non-empty string', function () {
@@ -426,30 +253,15 @@ describe('Custom Value Validation Property-Based Tests', () => {
 
                 const arbNonEmpty = fc.string({ minLength: 1, maxLength: 100 })
                     .filter(s => s.trim().length > 0);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                 fc.assert(fc.property(
                     arbNonEmpty,
                     (value) => {
-<<<<<<< HEAD
-                        const result = validator.validate(value)
-=======
                         const result = validator.validate(value);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                         assert.strictEqual(
                             result,
                             true,
                             `hyperpod-cluster-picker should accept "${value}" but got: ${result}`
-<<<<<<< HEAD
-                        )
-                        return true
-                    }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-            })
-
-            it('rejects empty strings', function () {
-                const result = validator.validate('')
-=======
                         );
                         return true;
                     }
@@ -458,21 +270,12 @@ describe('Custom Value Validation Property-Based Tests', () => {
 
             it('rejects empty strings', () => {
                 const result = validator.validate('');
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                 assert.strictEqual(
                     typeof result,
                     'string',
                     `hyperpod-cluster-picker should reject empty string with error message but got: ${result}`
-<<<<<<< HEAD
-                )
-            })
-        })
-    })
-})
-=======
                 );
             });
         });
     });
 });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)

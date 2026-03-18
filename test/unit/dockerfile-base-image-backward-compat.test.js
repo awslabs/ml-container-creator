@@ -11,17 +11,6 @@
  * Validates: Requirements 7.3, 7.4
  */
 
-<<<<<<< HEAD
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import ejs from 'ejs'
-import { readFileSync } from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-=======
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import ejs from 'ejs';
@@ -31,16 +20,11 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 const dockerfileTemplate = readFileSync(
     path.join(__dirname, '../../generators/app/templates/Dockerfile'),
     'utf8'
-<<<<<<< HEAD
-)
-=======
 );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 /**
  * Minimal template variables needed to render the Dockerfile.
@@ -60,30 +44,13 @@ function baseVars(overrides = {}) {
         chatTemplate: null,
         baseImage: null,
         ...overrides
-<<<<<<< HEAD
-    }
-=======
     };
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 }
 
 describe('Dockerfile template backward compatibility', () => {
 
     describe('non-transformer fallback (Req 7.3)', () => {
         it('should render FROM python:3.12-slim when baseImage is null', () => {
-<<<<<<< HEAD
-            const output = ejs.render(dockerfileTemplate, baseVars({ baseImage: null }))
-            assert.ok(output.includes('FROM python:3.12-slim'),
-                'Should fall back to python:3.12-slim when baseImage is null')
-        })
-
-        it('should render FROM python:3.12-slim when baseImage is undefined', () => {
-            const output = ejs.render(dockerfileTemplate, baseVars({ baseImage: undefined }))
-            assert.ok(output.includes('FROM python:3.12-slim'),
-                'Should fall back to python:3.12-slim when baseImage is undefined')
-        })
-    })
-=======
             const output = ejs.render(dockerfileTemplate, baseVars({ baseImage: null }));
             assert.ok(output.includes('FROM python:3.12-slim'),
                 'Should fall back to python:3.12-slim when baseImage is null');
@@ -95,7 +62,6 @@ describe('Dockerfile template backward compatibility', () => {
                 'Should fall back to python:3.12-slim when baseImage is undefined');
         });
     });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
     describe('transformer fallback per model server (Req 7.4)', () => {
         const transformerDefaults = {
@@ -104,11 +70,7 @@ describe('Dockerfile template backward compatibility', () => {
             'tensorrt-llm': 'nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc8',
             lmi: '763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.32.0-lmi14.0.0-cu126',
             djl: 'deepjavalibrary/djl-serving:0.36.0-pytorch-gpu'
-<<<<<<< HEAD
-        }
-=======
         };
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
         for (const [modelServer, expectedDefault] of Object.entries(transformerDefaults)) {
             it(`should render ARG BASE_IMAGE=${expectedDefault} for ${modelServer} when baseImage is null`, () => {
@@ -116,15 +78,6 @@ describe('Dockerfile template backward compatibility', () => {
                     framework: 'transformers',
                     modelServer,
                     baseImage: null
-<<<<<<< HEAD
-                })
-                const output = ejs.render(dockerfileTemplate, vars)
-                assert.ok(
-                    output.includes(`ARG BASE_IMAGE=${expectedDefault}`),
-                    `${modelServer} should fall back to ${expectedDefault} when baseImage is null`
-                )
-            })
-=======
                 });
                 const output = ejs.render(dockerfileTemplate, vars);
                 assert.ok(
@@ -132,25 +85,12 @@ describe('Dockerfile template backward compatibility', () => {
                     `${modelServer} should fall back to ${expectedDefault} when baseImage is null`
                 );
             });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
             it(`should render ARG BASE_IMAGE=${expectedDefault} for ${modelServer} when baseImage is undefined`, () => {
                 const vars = baseVars({
                     framework: 'transformers',
                     modelServer,
                     baseImage: undefined
-<<<<<<< HEAD
-                })
-                const output = ejs.render(dockerfileTemplate, vars)
-                assert.ok(
-                    output.includes(`ARG BASE_IMAGE=${expectedDefault}`),
-                    `${modelServer} should fall back to ${expectedDefault} when baseImage is undefined`
-                )
-            })
-        }
-    })
-})
-=======
                 });
                 const output = ejs.render(dockerfileTemplate, vars);
                 assert.ok(
@@ -161,4 +101,3 @@ describe('Dockerfile template backward compatibility', () => {
         }
     });
 });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
