@@ -19,13 +19,13 @@ class ConfigurationMatcher {
      * @returns {Object|null} Framework configuration or null if not found
      */
     matchFramework(framework, version) {
-        const frameworkVersions = this.frameworkRegistry[framework];
-        if (!frameworkVersions) {
+        if (!Object.hasOwn(this.frameworkRegistry, framework)) {
             return null;
         }
+        const frameworkVersions = this.frameworkRegistry[framework];
 
         // Exact match first
-        if (frameworkVersions[version]) {
+        if (Object.hasOwn(frameworkVersions, version)) {
             return {
                 ...frameworkVersions[version],
                 matchType: 'exact',
@@ -149,7 +149,7 @@ class ConfigurationMatcher {
         }
 
         // Check exact match first
-        if (this.modelRegistry[modelId]) {
+        if (Object.hasOwn(this.modelRegistry, modelId)) {
             return {
                 ...this.modelRegistry[modelId],
                 matchType: 'exact',
