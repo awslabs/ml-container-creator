@@ -12,27 +12,16 @@
  * Feature: mcp-server-externalization, Property 11: Custom values include source marker in metadata
  */
 
-<<<<<<< HEAD
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import { CUSTOM_VALIDATORS } from '../../servers/lib/custom-validators.js'
-=======
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { CUSTOM_VALIDATORS } from '../../servers/lib/custom-validators.js';
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-<<<<<<< HEAD
-}
-=======
 };
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 // ── Transformation logic (extracted from prompt-runner.js) ───────────────────
 
@@ -45,15 +34,6 @@ const FAST_PROPERTY_CONFIG = {
  * `_baseImageSource` is set to 'custom', and `customBaseImage` is removed.
  */
 function applyCustomBaseImageTransform(answers) {
-<<<<<<< HEAD
-    const result = { ...answers }
-    if (result.customBaseImage) {
-        result.baseImage = result.customBaseImage
-        result._baseImageSource = 'custom'
-        delete result.customBaseImage
-    }
-    return result
-=======
     const result = { ...answers };
     if (result.customBaseImage) {
         result.baseImage = result.customBaseImage;
@@ -61,16 +41,11 @@ function applyCustomBaseImageTransform(answers) {
         delete result.customBaseImage;
     }
     return result;
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 }
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
-<<<<<<< HEAD
-const validImagePattern = CUSTOM_VALIDATORS['base-image-picker'].pattern
-=======
 const validImagePattern = CUSTOM_VALIDATORS['base-image-picker'].pattern;
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 /**
  * Generate valid custom image values using known-good examples and
@@ -90,11 +65,7 @@ const arbValidCustomImage = fc.oneof(
     ),
     fc.string({ minLength: 1, maxLength: 40 })
         .filter(s => validImagePattern.test(s))
-<<<<<<< HEAD
-)
-=======
 );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 /**
  * Generate a base answers object with typical fields that would exist
@@ -103,11 +74,7 @@ const arbValidCustomImage = fc.oneof(
 const arbBaseAnswers = fc.record({
     framework: fc.constantFrom('transformers', 'sklearn', 'xgboost', 'tensorflow'),
     projectName: fc.string({ minLength: 1, maxLength: 20 }).filter(s => /^[a-z]/.test(s))
-<<<<<<< HEAD
-})
-=======
 });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
 // ── Property tests ───────────────────────────────────────────────────────────
 
@@ -124,11 +91,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
          * baseImage to the custom value.
          */
         it('custom values get _baseImageSource set to "custom"', function () {
-<<<<<<< HEAD
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
             fc.assert(fc.property(
                 arbBaseAnswers,
@@ -138,53 +101,30 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
                         ...baseAnswers,
                         baseImage: 'original/image:v1',
                         customBaseImage: customImage
-<<<<<<< HEAD
-                    }
-
-                    const result = applyCustomBaseImageTransform(answers)
-=======
                     };
 
                     const result = applyCustomBaseImageTransform(answers);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                     assert.strictEqual(
                         result._baseImageSource,
                         'custom',
                         `_baseImageSource should be 'custom' but got: ${result._baseImageSource}`
-<<<<<<< HEAD
-                    )
-=======
                     );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                     assert.strictEqual(
                         result.baseImage,
                         customImage,
                         `baseImage should be the custom value "${customImage}" but got: ${result.baseImage}`
-<<<<<<< HEAD
-                    )
-=======
                     );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                     assert.strictEqual(
                         result.customBaseImage,
                         undefined,
                         'customBaseImage should be deleted from the result'
-<<<<<<< HEAD
-                    )
-
-                    return true
-                }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
-=======
                     );
 
                     return true;
                 }
             ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
         });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
         /**
          * Validates: Requirements 10.8
@@ -193,11 +133,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
          * _baseImageSource should remain undefined.
          */
         it('non-custom values do not get the source marker', function () {
-<<<<<<< HEAD
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
             fc.assert(fc.property(
                 arbBaseAnswers,
@@ -207,44 +143,25 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
                         ...baseAnswers,
                         baseImage: catalogImage
                         // no customBaseImage — user picked from catalog
-<<<<<<< HEAD
-                    }
-
-                    const result = applyCustomBaseImageTransform(answers)
-=======
                     };
 
                     const result = applyCustomBaseImageTransform(answers);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                     assert.strictEqual(
                         result._baseImageSource,
                         undefined,
                         `_baseImageSource should be undefined for catalog selections but got: ${result._baseImageSource}`
-<<<<<<< HEAD
-                    )
-=======
                     );
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
                     assert.strictEqual(
                         result.baseImage,
                         catalogImage,
                         `baseImage should remain unchanged as "${catalogImage}"`
-<<<<<<< HEAD
-                    )
-
-                    return true
-                }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
-=======
                     );
 
                     return true;
                 }
             ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
         });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
         /**
          * Validates: Requirements 10.8
@@ -252,11 +169,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
          * The transformation preserves all other answer fields unchanged.
          */
         it('transformation preserves all other answer fields', function () {
-<<<<<<< HEAD
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
-=======
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
             fc.assert(fc.property(
                 arbBaseAnswers,
@@ -266,15 +179,9 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
                         ...baseAnswers,
                         baseImage: 'original/image:v1',
                         customBaseImage: customImage
-<<<<<<< HEAD
-                    }
-
-                    const result = applyCustomBaseImageTransform(answers)
-=======
                     };
 
                     const result = applyCustomBaseImageTransform(answers);
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
 
                     // All original base fields should be preserved
                     for (const [key, value] of Object.entries(baseAnswers)) {
@@ -282,17 +189,6 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
                             result[key],
                             value,
                             `Field "${key}" should be preserved but changed`
-<<<<<<< HEAD
-                        )
-                    }
-
-                    return true
-                }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
-    })
-})
-=======
                         );
                     }
 
@@ -302,4 +198,3 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
         });
     });
 });
->>>>>>> bad17e2 (feat: add MCP server validation CI job and prune orphaned scripts)
