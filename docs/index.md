@@ -48,7 +48,7 @@ npm install
 npm link
 
 # Generate your project
-yo ml-container-creator
+yo @aws/ml-container-creator
 ```
 
 The Yeoman generator prompts users for details about the deployment they are building. Answer a few questions about your model, the configuration, and the serving architecture, and get a complete project directory containging model serving, mdoel testing, deployment, and endpoint testing scripts. 

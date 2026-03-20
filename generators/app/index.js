@@ -7,6 +7,8 @@ import TemplateManager from './lib/template-manager.js';
 import ConfigManager from './lib/config-manager.js';
 import CliHandler from './lib/cli-handler.js';
 import ConfigurationManager from './lib/configuration-manager.js';
+import DeploymentConfigResolver from './lib/deployment-config-resolver.js';
+import tritonBackends from './config/registries/triton-backends.js';
 
 /**
  * ML Container Creator Generator
@@ -277,6 +279,12 @@ export default class extends Generator {
             if (this.baseConfig.projectName !== 'ml-container-creator') {
                 console.log(`   • Project name: ${this.baseConfig.projectName}`);
             }
+            if (this.baseConfig.deploymentConfig) {
+                console.log(`   • Deployment config: ${this.baseConfig.deploymentConfig}`);
+            }
+            if (this.baseConfig.architecture) {
+                console.log(`   • Architecture: ${this.baseConfig.architecture}`);
+            }
             if (this.baseConfig.framework) {
                 console.log(`   • Framework: ${this.baseConfig.framework}`);
             }
@@ -364,7 +372,7 @@ export default class extends Generator {
 
         // Validate environment variables if registry system is available
         // Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.19, 13.20, 13.21, 13.22, 13.23
-        if (this.registryConfigManager && this.answers.frameworkVersion) {
+        if (this.registryConfigManager && (this.answers.frameworkVersion || this.answers.architecture === 'triton')) {
             await this._validateEnvironmentVariables();
         }
 
@@ -399,6 +407,34 @@ export default class extends Generator {
             ignorePatterns.push('**/hyperpod/**');
         }
 
+        // Determine architecture from deployment-config using DeploymentConfigResolver
+        // Requirements: 4.1, 4.2, 4.3, 4.4, 5.5, 5.6
+        const resolver = new DeploymentConfigResolver();
+        let architecture = this.answers.architecture;
+        
+        // If architecture not already set, derive it from deploymentConfig
+        if (!architecture && this.answers.deploymentConfig) {
+            try {
+                const parts = resolver.decompose(this.answers.deploymentConfig);
+                architecture = parts.architecture;
+            } catch (e) {
+                // Fallback: derive from framework for backward compatibility
+                architecture = this.answers.framework === 'transformers' ? 'transformers' : 'http';
+            }
+        } else if (!architecture) {
+            // Fallback: derive from framework for backward compatibility
+            architecture = this.answers.framework === 'transformers' ? 'transformers' : 'http';
+        }
+
+        // Always exclude triton source directory from initial copy (it's a source, not output)
+        ignorePatterns.push('**/triton/**');
+
+        // For triton architecture, exclude the default Dockerfile from initial copy
+        // The triton case generates its own Dockerfile via _generateTritonFiles()
+        if (architecture === 'triton') {
+            ignorePatterns.push('**/Dockerfile');
+        }
+
         // Copy all templates, processing EJS variables
         this.fs.copyTpl(
             this.templatePath('**/*'),
@@ -408,31 +444,72 @@ export default class extends Generator {
             { globOptions: { ignore: ignorePatterns, dot: true } }
         );
 
-        // Remove files that don't belong in this deployment configuration
-        // Transformer-only files: not needed for sklearn, xgboost, tensorflow
-        if (this.answers.framework !== 'transformers') {
+        // Three-way architecture routing for file cleanup and Triton-specific generation
+        // Requirements: 4.1, 4.2, 4.3, 4.4
+        switch (architecture) {
+        case 'http':
+            // HTTP architecture: delete transformers and triton files
+            // Delete transformers-specific files
             this.fs.delete(this.destinationPath('code/chat_template.jinja'));
             this.fs.delete(this.destinationPath('code/serve'));
             this.fs.delete(this.destinationPath('code/serving.properties'));
             this.fs.delete(this.destinationPath('code/start_server.sh'));
-        }
+                
+            // Flask directory: not needed for FastAPI-based configurations
+            if (this.answers.modelServer !== 'flask' && this.answers.backend !== 'flask') {
+                this.fs.delete(this.destinationPath('code/flask/wsgi.py'));
+                this.fs.delete(this.destinationPath('code/flask/gunicorn_config.py'));
+            }
 
-        // Traditional ML files: not needed for transformers (vLLM, SGLang, TensorRT-LLM, LMI, DJL)
-        if (this.answers.framework === 'transformers') {
+            break;
+
+        case 'transformers':
+            // Transformers architecture: delete HTTP and triton files
+            // Delete HTTP-specific files
             this.fs.delete(this.destinationPath('code/model_handler.py'));
             this.fs.delete(this.destinationPath('code/serve.py'));
             this.fs.delete(this.destinationPath('code/start_server.py'));
             this.fs.delete(this.destinationPath('nginx-predictors.conf'));
-        }
-
-        // Flask directory: not needed for FastAPI-based configurations
-        if (this.answers.modelServer !== 'flask') {
+                
+            // Flask directory not needed for transformers
             this.fs.delete(this.destinationPath('code/flask/wsgi.py'));
             this.fs.delete(this.destinationPath('code/flask/gunicorn_config.py'));
+
+            break;
+
+        case 'triton':
+            // Triton architecture: delete HTTP and transformers files, generate model repository
+            // Requirements: 4.3, 4.4, 5.1, 5.2, 5.3, 5.4
+                
+            // Delete HTTP-specific files
+            this.fs.delete(this.destinationPath('code/serve.py'));
+            this.fs.delete(this.destinationPath('code/model_handler.py'));
+            this.fs.delete(this.destinationPath('code/start_server.py'));
+            this.fs.delete(this.destinationPath('nginx-predictors.conf'));
+            this.fs.delete(this.destinationPath('code/flask/wsgi.py'));
+            this.fs.delete(this.destinationPath('code/flask/gunicorn_config.py'));
+                
+            // Delete transformers-specific files
+            this.fs.delete(this.destinationPath('code/chat_template.jinja'));
+            this.fs.delete(this.destinationPath('code/serve'));
+            this.fs.delete(this.destinationPath('code/serving.properties'));
+            this.fs.delete(this.destinationPath('code/start_server.sh'));
+
+            // Generate Triton-specific files (Dockerfile excluded from initial copy via ignorePatterns)
+            await this._generateTritonFiles(templateVars);
+            break;
+
+        default:
+            // Fallback to HTTP behavior for unknown architectures
+            this.fs.delete(this.destinationPath('code/chat_template.jinja'));
+            this.fs.delete(this.destinationPath('code/serve'));
+            this.fs.delete(this.destinationPath('code/serving.properties'));
+            this.fs.delete(this.destinationPath('code/start_server.sh'));
+
         }
 
         // nginx-tensorrt.conf: only needed for TensorRT-LLM
-        if (this.answers.modelServer !== 'tensorrt-llm') {
+        if (this.answers.modelServer !== 'tensorrt-llm' && this.answers.backend !== 'tensorrt-llm') {
             this.fs.delete(this.destinationPath('nginx-tensorrt.conf'));
         }
 
@@ -442,6 +519,57 @@ export default class extends Generator {
             this.destinationPath('README.md'),
             templateVars
         );
+    }
+
+    /**
+     * Generate Triton-specific files including model repository structure
+     * Requirements: 4.4, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
+     * @private
+     * @param {Object} templateVars - Template variables for EJS processing
+     */
+    async _generateTritonFiles(templateVars) {
+        const modelName = this.answers.modelName || 'model';
+        const backend = this.answers.backend;
+        
+        // Copy Triton Dockerfile
+        this.fs.copyTpl(
+            this.templatePath('triton/Dockerfile'),
+            this.destinationPath('Dockerfile'),
+            templateVars
+        );
+        
+        // Create model repository directory structure
+        // model_repository/<model-name>/config.pbtxt
+        // model_repository/<model-name>/1/
+        const modelRepoPath = `model_repository/${modelName}`;
+        
+        // Copy config.pbtxt to model repository
+        this.fs.copyTpl(
+            this.templatePath('triton/config.pbtxt'),
+            this.destinationPath(`${modelRepoPath}/config.pbtxt`),
+            templateVars
+        );
+        
+        // Create version 1 directory with .gitkeep
+        this.fs.write(
+            this.destinationPath(`${modelRepoPath}/1/.gitkeep`),
+            '# Placeholder for model artifacts\n'
+        );
+        
+        // For triton-python backend only: copy model.py and requirements.txt
+        if (backend === 'python') {
+            this.fs.copyTpl(
+                this.templatePath('triton/model.py'),
+                this.destinationPath(`${modelRepoPath}/1/model.py`),
+                templateVars
+            );
+            
+            this.fs.copyTpl(
+                this.templatePath('triton/requirements.txt'),
+                this.destinationPath('triton/requirements.txt'),
+                templateVars
+            );
+        }
     }
 
     /**
@@ -460,7 +588,11 @@ export default class extends Generator {
         }
 
         // Run sample model training if requested
-        if (this.answers.includeSampleModel && this.answers.framework !== 'transformers') {
+        // Skip for transformers and ineligible Triton backends
+        const architecture = this.answers.architecture;
+        const skipSampleTraining = architecture === 'transformers' || 
+            (architecture === 'triton' && !tritonBackends[this.answers.backend]?.supportsSampleModel);
+        if (this.answers.includeSampleModel && !skipSampleTraining) {
             await this._runSampleModelTraining();
         }
         
@@ -478,8 +610,10 @@ export default class extends Generator {
         console.log('\n🤖 Training sample model...');
         console.log('This will generate the model file needed for Docker build.');
 
-        const trainingScript = this.destinationPath('sample_model/train_abalone.py');
+        const trainingScriptName = 'train_abalone.py';
+        const trainingScript = this.destinationPath(`sample_model/${trainingScriptName}`);
         const sampleModelDir = this.destinationPath('sample_model');
+        const requirementsFile = this.destinationPath('requirements.txt');
 
         try {
             // Check if training script exists
@@ -488,9 +622,35 @@ export default class extends Generator {
                 return;
             }
 
+            // Install dependencies from requirements.txt before training
+            if (this.fs.exists(requirementsFile)) {
+                console.log('📦 Installing dependencies from requirements.txt...');
+                await new Promise((resolve) => {
+                    const pipProcess = spawn('pip', ['install', '-q', '-r', requirementsFile], {
+                        cwd: this.destinationPath(),
+                        stdio: 'inherit'
+                    });
+
+                    pipProcess.on('close', (code) => {
+                        if (code === 0) {
+                            console.log('✅ Dependencies installed');
+                            resolve(true);
+                        } else {
+                            console.log('⚠️  pip install failed, training may fail due to missing dependencies');
+                            resolve(false);
+                        }
+                    });
+
+                    pipProcess.on('error', () => {
+                        console.log('⚠️  pip not found, skipping dependency install');
+                        resolve(false);
+                    });
+                });
+            }
+
             // Run the training script
             await new Promise((resolve, _reject) => {
-                const pythonProcess = spawn('python', ['train_abalone.py'], {
+                const pythonProcess = spawn('python', [trainingScriptName], {
                     cwd: sampleModelDir,
                     stdio: 'inherit'
                 });
@@ -503,7 +663,7 @@ export default class extends Generator {
                     } else {
                         console.log(`⚠️  Training script exited with code ${code}`);
                         console.log('You may need to install dependencies: pip install -r requirements.txt');
-                        console.log('Or run the training manually: python sample_model/train_abalone.py');
+                        console.log(`Or run the training manually: python sample_model/${trainingScriptName}`);
                         resolve(); // Don't fail the generator, just warn
                     }
                 });
@@ -511,14 +671,14 @@ export default class extends Generator {
                 pythonProcess.on('error', (error) => {
                     console.log('⚠️  Could not run training script automatically');
                     console.log('Error:', error.message);
-                    console.log('Please run manually: python sample_model/train_abalone.py');
+                    console.log(`Please run manually: python sample_model/${trainingScriptName}`);
                     resolve(); // Don't fail the generator, just warn
                 });
             });
 
         } catch (error) {
             console.log('⚠️  Error during sample model training:', error.message);
-            console.log('Please run manually: python sample_model/train_abalone.py');
+            console.log(`Please run manually: python sample_model/${trainingScriptName}`);
         }
     }
     
@@ -598,7 +758,22 @@ export default class extends Generator {
      */
     async _validateEnvironmentVariables() {
         // Get framework configuration
-        const frameworkConfig = this.registryConfigManager.frameworkRegistry?.[this.answers.framework]?.[this.answers.frameworkVersion];
+        // For Triton configs, look up using deploymentConfig key (e.g. 'triton-fil')
+        // For other configs, use the traditional framework/version lookup
+        // Requirements: 6.2
+        let frameworkConfig;
+        if (this.answers.architecture === 'triton' && this.answers.deploymentConfig) {
+            const tritonEntry = this.registryConfigManager.frameworkRegistry?.[this.answers.deploymentConfig];
+            if (tritonEntry) {
+                const versions = Object.keys(tritonEntry);
+                if (versions.length > 0) {
+                    frameworkConfig = tritonEntry[versions[0]];
+                }
+            }
+        }
+        if (!frameworkConfig) {
+            frameworkConfig = this.registryConfigManager.frameworkRegistry?.[this.answers.framework]?.[this.answers.frameworkVersion];
+        }
         
         if (!frameworkConfig || !frameworkConfig.envVars) {
             return; // No env vars to validate
@@ -756,6 +931,9 @@ export default class extends Generator {
             recommendedInstanceTypes: [],
             roleArn: null,
             deploymentConfig: '',
+            architecture: null,
+            backend: null,
+            engine: null,
             codebuildComputeType: null,
             codebuildProjectName: null,
             modelName: null,
@@ -780,16 +958,61 @@ export default class extends Generator {
             }
         });
 
+        // Backward compatibility: populate framework and modelServer from architecture/backend
+        // so EJS templates that use <%= framework %> and <%= modelServer %> still work
+        // Requirements: 6.2
+        if (!this.answers.framework && this.answers.architecture) {
+            this.answers.framework = this.answers.architecture;
+        }
+        if (!this.answers.modelServer && this.answers.backend) {
+            this.answers.modelServer = this.answers.backend;
+        }
+
         // Always include testing with all available test types for the framework
         this.answers.includeTesting = true;
         if (!this.answers.testTypes || this.answers.testTypes.length === 0) {
-            if (this.answers.framework === 'transformers') {
+            if (this.answers.architecture === 'transformers' || this.answers.framework === 'transformers') {
                 this.answers.testTypes = ['hosted-model-endpoint'];
             } else {
                 this.answers.testTypes = ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
             }
         }
         
+        // For Triton architecture, set default base image fallback
+        // Requirements: 10.1, 10.2
+        if (this.answers.architecture === 'triton' && !this.answers.baseImage) {
+            // Try to look up base image from framework registry using deployment-config key
+            const tritonRegistryKey = this.answers.deploymentConfig; // e.g. 'triton-fil'
+            if (tritonRegistryKey && this.registryConfigManager?.frameworkRegistry) {
+                const tritonFrameworkConfig = this.registryConfigManager.frameworkRegistry[tritonRegistryKey];
+                if (tritonFrameworkConfig) {
+                    // Get the latest version entry
+                    const versions = Object.keys(tritonFrameworkConfig).sort((a, b) =>
+                        b.localeCompare(a, undefined, { numeric: true })
+                    );
+                    if (versions.length > 0) {
+                        const latestConfig = tritonFrameworkConfig[versions[0]];
+                        if (latestConfig.baseImage) {
+                            this.answers.baseImage = latestConfig.baseImage;
+                        }
+                        if (latestConfig.envVars) {
+                            this.answers.envVars = { ...latestConfig.envVars, ...this.answers.envVars };
+                        }
+                        if (latestConfig.inferenceAmiVersion && !this.answers.inferenceAmiVersion) {
+                            this.answers.inferenceAmiVersion = latestConfig.inferenceAmiVersion;
+                        }
+                        if (latestConfig.accelerator) {
+                            this.answers.accelerator = latestConfig.accelerator;
+                        }
+                    }
+                }
+            }
+            // Final fallback: hardcoded default Triton base image
+            if (!this.answers.baseImage) {
+                this.answers.baseImage = 'nvcr.io/nvidia/tritonserver:24.08-py3';
+            }
+        }
+
         // For transformer models, try to enrich with registry data if available
         if (this.answers.framework === 'transformers' && this.answers.modelName && this.registryConfigManager) {
             try {

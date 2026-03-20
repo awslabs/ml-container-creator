@@ -1,5 +1,5 @@
 {
-  "name": "generator-ml-container-creator",
+  "name": "@aws/generator-ml-container-creator",
   "version": "1.0.0",
   "description": "Generator for SageMaker AI BYOC paradigm for predictive inference use-cases.",
   "type": "module",
@@ -29,10 +29,11 @@
     "security-fix": "npm audit fix",
     "lint": "eslint generators/**/*.js test/**/*.js",
     "lint:fix": "eslint generators/**/*.js test/**/*.js --fix",
-    "start": "yo ml-container-creator",
-    "dev": "npm link && yo ml-container-creator",
+    "start": "yo @aws/ml-container-creator",
+    "dev": "npm link && yo @aws/ml-container-creator",
     "clean": "rm -rf test-output-*",
     "validate": "npm run lint && npm run test:all",
+    "validate:namespaces": "node scripts/validate-namespaces.js",
     "docs:serve": "mkdocs serve",
     "docs:build": "mkdocs build",
     "docs:deploy": "mkdocs gh-deploy",
@@ -106,7 +107,6 @@
   },
   "author": "Dan Ferguson",
   "license": "Apache-2.0",
-  "private": true,
   "peerDependencies": {
     "yo": "^1.4.2"
   }

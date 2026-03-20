@@ -1,5 +1,5 @@
 {
-    "name": "@ml-container-creator/hyperpod-cluster-picker",
+    "name": "@amzn/ml-container-creator-hyperpod-cluster-picker",
     "version": "1.0.0",
     "description": "MCP server that discovers available SageMaker HyperPod EKS clusters.",
     "modes": {

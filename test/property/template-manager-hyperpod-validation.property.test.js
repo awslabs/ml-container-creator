@@ -28,7 +28,7 @@ const FAST_PROPERTY_CONFIG = {
 
 /** Base answers that are always valid (non-HyperPod fields) */
 const baseValidAnswers = {
-    deploymentConfig: 'sklearn-flask',
+    deploymentConfig: 'http-flask',
     awsRegion: 'us-east-1'
 };
 

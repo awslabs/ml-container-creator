@@ -10,6 +10,7 @@
 
 import {
     deploymentConfigPrompts,
+    enginePrompts,
     frameworkVersionPrompts,
     frameworkProfilePrompts,
     modelFormatPrompts,
@@ -30,6 +31,7 @@ import {
 } from './prompts.js';
 
 import instanceAcceleratorMapping from '../config/registries/instance-accelerator-mapping.js';
+import tritonBackends from '../config/registries/triton-backends.js';
 
 export default class PromptRunner {
     constructor(generator) {
@@ -93,32 +95,45 @@ export default class PromptRunner {
         };
 
         // Phase 2: Core ML Configuration
-        // Requirements: 3.2 — ML configuration prompts run after infrastructure
+        // Requirements: 3.1, 3.2 — ML configuration prompts run after infrastructure
         console.log('\n🔧 Core ML Configuration');
         const deploymentConfigAnswers = await this._runPhase(deploymentConfigPrompts, { ...infraAnswers }, explicitConfig, existingConfig);
         
-        // Derive framework and modelServer from deploymentConfig
-        // Requirements: 16.3
-        let framework, modelServer;
+        // Derive architecture, backend, and legacy framework/modelServer from deploymentConfig
+        // Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7
+        let architecture, backend, framework, modelServer;
         if (deploymentConfigAnswers.deploymentConfig) {
             const parts = deploymentConfigAnswers.deploymentConfig.split('-');
-            framework = parts[0];
-            // Handle multi-part model servers (e.g., tensorrt-llm)
-            modelServer = parts.slice(1).join('-');
+            architecture = parts[0];
+            backend = parts.slice(1).join('-');
+            // Legacy compatibility: derive framework and modelServer
+            framework = architecture;
+            modelServer = backend;
         }
         
         // Add derived values to answers
         const frameworkAnswers = {
             ...deploymentConfigAnswers,
+            architecture: architecture || deploymentConfigAnswers.architecture,
+            backend: backend || deploymentConfigAnswers.backend,
             framework: framework || deploymentConfigAnswers.framework,
             modelServer: modelServer || deploymentConfigAnswers.modelServer
         };
+        
+        // Engine prompt for http architecture
+        // Requirements: 3.7
+        const engineAnswers = await this._runPhase(enginePrompts, { ...frameworkAnswers }, explicitConfig, existingConfig);
+        
+        // Auto-set model format for Triton backends with single format
+        // Requirements: 3.3, 3.4, 3.5
+        const tritonAutoFormat = this._getTritonAutoModelFormat(architecture, backend);
         
         // Query base-image-picker MCP server for base image choices
         // Requirements: 5.1, 5.2, 5.3
         await this._queryMcpForBaseImage(frameworkAnswers, explicitConfig)
         const baseImagePreviousAnswers = {
             ...frameworkAnswers,
+            ...engineAnswers,
             ...(this._mcpBaseImageChoices ? { _mcpBaseImageChoices: this._mcpBaseImageChoices } : {})
         }
         const baseImageAnswers = await this._runPhase(
@@ -132,7 +147,7 @@ export default class PromptRunner {
         const frameworkVersionChoices = this._getFrameworkVersionChoices(frameworkAnswers.framework);
         const frameworkVersionAnswers = await this._runPhase(
             frameworkVersionPrompts, 
-            {...frameworkAnswers, _frameworkVersionChoices: frameworkVersionChoices}, 
+            {...frameworkAnswers, ...engineAnswers, _frameworkVersionChoices: frameworkVersionChoices}, 
             explicitConfig, 
             existingConfig
         );
@@ -149,14 +164,14 @@ export default class PromptRunner {
         );
         const frameworkProfileAnswers = await this._runPhase(
             frameworkProfilePrompts,
-            {...frameworkAnswers, ...frameworkVersionAnswers, _frameworkProfileChoices: frameworkProfileChoices},
+            {...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, _frameworkProfileChoices: frameworkProfileChoices},
             explicitConfig,
             existingConfig
         );
         
         const modelFormatAnswers = await this._runPhase(
             modelFormatPrompts, 
-            {...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers}, 
+            {...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers}, 
             explicitConfig, 
             existingConfig
         );
@@ -164,13 +179,13 @@ export default class PromptRunner {
         // Model server prompts are now deprecated (empty array)
         const modelServerAnswers = await this._runPhase(
             modelServerPrompts, 
-            {...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers}, 
+            {...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers}, 
             explicitConfig, 
             existingConfig
         );
         
         // Populate model profile choices from registry (if model ID is available)
-        const currentAnswers = {...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers};
+        const currentAnswers = {...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers};
         const modelId = currentAnswers.customModelName || currentAnswers.modelName;
         
         // Fetch model information from HuggingFace and Model Registry
@@ -188,11 +203,11 @@ export default class PromptRunner {
         );
         
         const hfTokenAnswers = await this._runPhase(hfTokenPrompts, 
-            { ...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers }, 
+            { ...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers }, 
             explicitConfig, existingConfig);
 
         const ngcApiKeyAnswers = await this._runPhase(ngcApiKeyPrompts,
-            { ...frameworkAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
+            { ...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
             explicitConfig, existingConfig);
 
         // Validate instance type against framework requirements (now that framework is known)
@@ -221,10 +236,12 @@ export default class PromptRunner {
         // Phase 3: Module Selection
         // Requirements: 3.3 — module selection after ML configuration
         console.log('\n📦 Module Selection');
-        const moduleAnswers = await this._runPhase(modulePrompts, frameworkAnswers, explicitConfig, existingConfig);
+        const moduleAnswers = await this._runPhase(modulePrompts, { ...frameworkAnswers, ...engineAnswers }, explicitConfig, existingConfig);
         
-        // Ensure transformers don't get sample model
-        if (frameworkAnswers.framework === 'transformers') {
+        // Ensure transformers and ineligible Triton backends don't get sample model
+        if (frameworkAnswers.architecture === 'transformers' ||
+            (frameworkAnswers.architecture === 'triton' && 
+             !tritonBackends[frameworkAnswers.backend]?.supportsSampleModel)) {
             moduleAnswers.includeSampleModel = false;
         }
 
@@ -233,6 +250,7 @@ export default class PromptRunner {
         console.log('\n📋 Project Configuration');
         const allTechnicalAnswers = {
             ...frameworkAnswers,
+            ...engineAnswers,
             ...modelFormatAnswers,
             ...modelServerAnswers,
             ...moduleAnswers,
@@ -242,13 +260,11 @@ export default class PromptRunner {
         const destinationAnswers = await this._runPhase(destinationPrompts, 
             { ...allTechnicalAnswers, ...projectAnswers }, explicitConfig, existingConfig);
 
-        // Deployment Instructions
-        this._showDeploymentInstructions();
-
         // Combine all answers
         const combinedAnswers = {
             ...infraAnswers,
             ...frameworkAnswers,
+            ...engineAnswers,
             ...baseImageAnswers,
             ...frameworkVersionAnswers,
             ...frameworkProfileAnswers,
@@ -263,8 +279,16 @@ export default class PromptRunner {
             buildTimestamp
         };
 
-        // Handle custom model name for transformers
-        if (combinedAnswers.framework === 'transformers' && combinedAnswers.customModelName) {
+        // Apply auto-set model format for Triton backends with single format
+        // Requirements: 3.3, 3.4, 3.5
+        if (tritonAutoFormat) {
+            combinedAnswers.modelFormat = tritonAutoFormat
+        }
+
+        // Handle custom model name for transformers and Triton LLM backends
+        if ((combinedAnswers.architecture === 'transformers' || 
+             (combinedAnswers.architecture === 'triton' && (combinedAnswers.backend === 'vllm' || combinedAnswers.backend === 'tensorrtllm'))) 
+            && combinedAnswers.customModelName) {
             combinedAnswers.modelName = combinedAnswers.customModelName;
             delete combinedAnswers.customModelName;
         }
@@ -402,16 +426,27 @@ export default class PromptRunner {
     }
 
     /**
-     * Shows deployment instructions to user
+     * Get auto-set model format for Triton backends with a single format.
+     * Returns null if the backend requires user selection (FIL, Python) or
+     * doesn't use model formats (vllm, tensorrtllm).
+     * Requirements: 3.3, 3.4, 3.5
+     * @param {string} architecture - Resolved architecture
+     * @param {string} backend - Resolved backend
+     * @returns {string|null} Auto-set model format or null
      * @private
      */
-    _showDeploymentInstructions() {
-        console.log('\n🚀 Manual Deployment');
-        console.log('\n☁️ The following steps assume authentication to an AWS account.');
-        console.log('\n💰 The following commands will incur charges to your AWS account.');
-        console.log('\t ./build_and_push.sh -- Builds the image and pushes to ECR.');
-        console.log('\t ./deploy.sh -- Deploys the image to a SageMaker AI Managed Inference Endpoint.');
-        console.log('\t\t deploy.sh needs a valid IAM Role ARN as a parameter.');
+    _getTritonAutoModelFormat(architecture, backend) {
+        if (architecture !== 'triton') return null
+
+        const meta = tritonBackends[backend]
+        if (!meta || !meta.modelFormats) return null
+
+        // Only auto-set if there's exactly one format
+        if (meta.modelFormats.length === 1) {
+            return meta.modelFormats[0]
+        }
+
+        return null
     }
 
     /**
@@ -563,11 +598,13 @@ export default class PromptRunner {
         const smart = this.generator.options.smart === true
         const framework = frameworkAnswers.framework
         const modelServer = frameworkAnswers.modelServer
+        const architecture = frameworkAnswers.architecture || frameworkAnswers.deploymentConfig?.split('-')[0]
         const isTransformer = framework === 'transformers'
+        const isTriton = architecture === 'triton'
 
-        // For non-transformer frameworks, prompt for optional search criteria
+        // For non-transformer, non-triton frameworks, prompt for optional search criteria
         let searchCriteria
-        if (!isTransformer) {
+        if (!isTransformer && !isTriton) {
             const searchAnswer = await this.generator.prompt(baseImageSearchPrompts.map(p => ({
                 ...p,
                 when: () => true // Always show for non-transformer since we already checked
@@ -577,7 +614,7 @@ export default class PromptRunner {
 
         console.log(`   🔍 Querying base-image-picker${smart ? ' [smart]' : ''}...`)
 
-        const context = { framework, modelServer }
+        const context = { framework, modelServer, architecture }
         if (searchCriteria && searchCriteria.trim()) {
             context.searchCriteria = searchCriteria.trim()
         }
@@ -586,7 +623,7 @@ export default class PromptRunner {
 
         if (result && result.metadata?.baseImage?.length > 0) {
             const entries = result.metadata.baseImage
-            this._mcpBaseImageChoices = formatImageChoices(entries, isTransformer)
+            this._mcpBaseImageChoices = formatImageChoices(entries, isTransformer || isTriton)
             const count = entries.length
             console.log(`   ✓ ${count} base image(s) available`)
         } else {

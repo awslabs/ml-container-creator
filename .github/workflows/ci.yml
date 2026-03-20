@@ -77,13 +77,13 @@ jobs:
           npm install -g yo@latest
           npm link
           echo "Testing generator help command..."
-          yo ml-container-creator help
+          yo @aws/ml-container-creator help
 
       - name: Test generator with CLI options (legacy format)
         run: |
           mkdir -p test-output-legacy
           cd test-output-legacy
-          yo ml-container-creator test-project-legacy \
+          yo @aws/ml-container-creator test-project-legacy \
             --framework=sklearn \
             --model-server=flask \
             --model-format=pkl \
@@ -113,7 +113,7 @@ jobs:
         run: |
           mkdir -p test-output-new
           cd test-output-new
-          yo ml-container-creator test-project-new \
+          yo @aws/ml-container-creator test-project-new \
             --deployment-config=sklearn-flask \
             --model-format=pkl \
             --skip-prompts
@@ -137,6 +137,9 @@ jobs:
           grep -q "MODEL_SERVER=\"flask\"" test-project-new/do/config
           
           echo "✅ Generator CLI test (deployment config) passed"
+
+      - name: Validate package namespaces
+        run: node scripts/validate-namespaces.js
 
   security:
     name: Security Scan

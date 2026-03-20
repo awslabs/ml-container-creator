@@ -44,8 +44,8 @@ Common issues and solutions for ML Container Creator.
 
 **Symptom:**
 ```bash
-$ yo ml-container-creator
-Error: ml-container-creator generator not found
+$ yo @aws/ml-container-creator
+Error: @aws/ml-container-creator generator not found
 ```
 
 **Solution:**
@@ -55,7 +55,7 @@ cd ml-container-creator
 npm link
 
 # Verify it's linked
-npm list -g generator-ml-container-creator
+npm list -g @aws/generator-ml-container-creator
 
 # If still not working, reinstall Yeoman
 npm install -g yo
@@ -105,7 +105,7 @@ Generated files contain `<%= projectName %>` instead of actual values.
 ```bash
 yo: command not found
 # OR
-generator-ml-container-creator not found
+@aws/generator-ml-container-creator not found
 ```
 
 **Solution:**
@@ -300,7 +300,7 @@ yo: command not found in CI
   run: npm link
 
 - name: Test generator
-  run: yo ml-container-creator --help
+  run: yo @aws/ml-container-creator --help
 ```
 
 ### ESLint Failing in CI
@@ -964,7 +964,7 @@ cat generators/app/config/registries/frameworks.js | grep -A 20 "vllm"
 # Priority: Framework base → Framework profile → HF API → Model registry → Model profile
 
 # 3. Enable debug logging
-DEBUG=* yo ml-container-creator
+DEBUG=* yo @aws/ml-container-creator
 
 # 4. Check if graceful degradation is occurring
 # If registry is empty, generator uses defaults
@@ -1002,7 +1002,7 @@ Warning: Profile 'low-latency' not found for vllm 0.5.0
 }
 
 // Or skip profile selection
-yo ml-container-creator --skip-profile-selection
+yo @aws/ml-container-creator --skip-profile-selection
 ```
 
 ---
@@ -1020,13 +1020,13 @@ Consider using ml.g5.xlarge, ml.g5.2xlarge, ml.g5.4xlarge
 **Solution:**
 ```bash
 # Option 1: Use recommended instance type
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=vllm \
   --instance-type=ml.g5.xlarge
 
 # Option 2: Choose framework compatible with your instance
 # For ml.inf2 (Neuron SDK), use transformers-neuron
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=transformers-neuron \
   --instance-type=ml.inf2.xlarge
 
@@ -1049,13 +1049,13 @@ Consider using ml.g5 or ml.g6 instances for CUDA 12.x support
 # ml.g4dn family: CUDA 11.x
 # ml.p3 family: CUDA 11.x
 
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=vllm \
   --version=0.5.0 \
   --instance-type=ml.g5.xlarge  # CUDA 12.x
 
 # Option 2: Use older framework version
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=vllm \
   --version=0.3.0 \  # Requires CUDA 11.x
   --instance-type=ml.g4dn.xlarge
@@ -1167,7 +1167,7 @@ Warning: HuggingFace API timeout, checking local registry
 this.timeout = 10000;  // 10 seconds instead of 5
 
 # Option 2: Use offline mode
-yo ml-container-creator --offline
+yo @aws/ml-container-creator --offline
 
 # Option 3: Check network connectivity
 curl -I https://huggingface.co
@@ -1202,7 +1202,7 @@ Warning: Model 'my-org/my-model' not found on HuggingFace, proceeding with defau
 }
 
 # Option 3: Use offline mode
-yo ml-container-creator --offline
+yo @aws/ml-container-creator --offline
 
 # Option 4: Proceed without model-specific config
 # Generator will use framework defaults
@@ -1222,10 +1222,10 @@ Warning: HuggingFace API rate limit exceeded, using cached data
 
 # Option 2: Use HF_TOKEN for higher limits
 export HF_TOKEN=hf_your_token_here
-yo ml-container-creator
+yo @aws/ml-container-creator
 
 # Option 3: Use offline mode
-yo ml-container-creator --offline
+yo @aws/ml-container-creator --offline
 
 # Option 4: Use model registry
 # Pre-configure models in local registry
@@ -1291,7 +1291,7 @@ Warning: Environment variable 'CUSTOM_FLAG' not found in known flags registry
 }
 
 # Option 2: Disable validation
-yo ml-container-creator --validate-env-vars=false
+yo @aws/ml-container-creator --validate-env-vars=false
 
 # Option 3: Contribute flag definition
 # See docs/REGISTRY_CONTRIBUTION_GUIDE.md
@@ -1352,7 +1352,7 @@ Warning: Environment variable 'GPU_MEMORY_UTILIZATION' value 1.5 exceeds maximum
 GPU_MEMORY_UTILIZATION=0.9
 
 # Or disable validation
-yo ml-container-creator --validate-env-vars=false
+yo @aws/ml-container-creator --validate-env-vars=false
 ```
 
 ### Deprecated Environment Variable

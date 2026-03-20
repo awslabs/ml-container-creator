@@ -1,5 +1,5 @@
 {
-    "name": "@ml-container-creator/region-picker",
+    "name": "@amzn/ml-container-creator-region-picker",
     "version": "1.0.0",
     "description": "MCP server that suggests AWS regions for SageMaker deployments.",
     "modes": {

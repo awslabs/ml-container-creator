@@ -80,10 +80,10 @@ Suggests AWS regions for SageMaker deployments based on a search term. Filters t
 
 ```bash
 # Add instance-recommender
-yo ml-container-creator mcp add instance-recommender --bundled
+yo @aws/ml-container-creator mcp add instance-recommender --bundled
 
 # Add region-picker with a search filter for European regions
-yo ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
+yo @aws/ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
 ```
 
 Dependencies are installed automatically on first use.
@@ -91,7 +91,7 @@ Dependencies are installed automatically on first use.
 ### Listing Bundled Servers
 
 ```bash
-yo ml-container-creator mcp list --bundled
+yo @aws/ml-container-creator mcp list --bundled
 ```
 
 ### Enabling Smart Mode
@@ -99,8 +99,8 @@ yo ml-container-creator mcp list --bundled
 Pass `BEDROCK_SMART=true` as an environment variable when adding the server:
 
 ```bash
-yo ml-container-creator mcp add instance-recommender --bundled -e BEDROCK_SMART=true
-yo ml-container-creator mcp add region-picker --bundled -e BEDROCK_SMART=true
+yo @aws/ml-container-creator mcp add instance-recommender --bundled -e BEDROCK_SMART=true
+yo @aws/ml-container-creator mcp add region-picker --bundled -e BEDROCK_SMART=true
 ```
 
 ## Environment Variables
@@ -164,12 +164,12 @@ Bedrock models must be explicitly enabled in your AWS account:
 
 ## How Servers Impact the Generator Flow
 
-When you run `yo ml-container-creator`, the generator queries any configured MCP servers during the configuration loading phase. Here's how the bundled servers influence the flow:
+When you run `yo @aws/ml-container-creator`, the generator queries any configured MCP servers during the configuration loading phase. Here's how the bundled servers influence the flow:
 
 ### Without MCP Servers
 
 ```
-$ yo ml-container-creator
+$ yo @aws/ml-container-creator
 
 ? AWS Region: (use arrow keys or type to search)
 ❯ us-east-1
@@ -187,8 +187,8 @@ The user sees a generic list of regions and must know which instance type to pic
 ### With instance-recommender (Static Mode)
 
 ```bash
-yo ml-container-creator mcp add instance-recommender --bundled
-yo ml-container-creator
+yo @aws/ml-container-creator mcp add instance-recommender --bundled
+yo @aws/ml-container-creator
 ```
 
 ```
@@ -206,8 +206,8 @@ The server detects the transformer framework from context and suggests GPU insta
 ### With region-picker (Static Mode)
 
 ```bash
-yo ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
-yo ml-container-creator
+yo @aws/ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
+yo @aws/ml-container-creator
 ```
 
 ```
@@ -227,9 +227,9 @@ The search term `"europe"` filters the region list to only show European regions
 ### With Smart Mode (Bedrock)
 
 ```bash
-yo ml-container-creator mcp add instance-recommender --bundled -e BEDROCK_SMART=true
-yo ml-container-creator mcp add region-picker --bundled -e BEDROCK_SMART=true
-yo ml-container-creator
+yo @aws/ml-container-creator mcp add instance-recommender --bundled -e BEDROCK_SMART=true
+yo @aws/ml-container-creator mcp add region-picker --bundled -e BEDROCK_SMART=true
+yo @aws/ml-container-creator
 ```
 
 ```
@@ -289,7 +289,7 @@ The Bedrock API didn't respond within 10 seconds. This usually means network con
 
 ### Server Not Returning Results
 
-1. Check the server is registered: `yo ml-container-creator mcp list`
+1. Check the server is registered: `yo @aws/ml-container-creator mcp list`
 2. Check stderr output — all diagnostic messages go to stderr
 3. Verify the tool is being called with the right parameters (e.g., `"awsRegion"` for region-picker, `"instanceType"` for instance-recommender)
 4. Try running the standalone tests to verify the server logic:
@@ -302,7 +302,7 @@ node servers/instance-recommender/test.js
 ### Smart Mode Not Activating
 
 Smart mode only activates when `BEDROCK_SMART` is exactly `"true"`. Check:
-- The env var is set in the server config: `yo ml-container-creator mcp get <server-name>`
+- The env var is set in the server config: `yo @aws/ml-container-creator mcp get <server-name>`
 - It's not `"True"`, `"TRUE"`, or `"1"` — only `"true"` works
 
 ## Testing
@@ -402,7 +402,7 @@ await server.connect(transport)
 Register it:
 
 ```bash
-yo ml-container-creator mcp add my-server -- node path/to/my-server.js
+yo @aws/ml-container-creator mcp add my-server -- node path/to/my-server.js
 ```
 
 ## License Compliance

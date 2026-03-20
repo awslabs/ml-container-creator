@@ -14,9 +14,9 @@ describe('TemplateManager', () => {
     // conditional logic based on deployment configuration.
 
     describe('validate', () => {
-        it('should pass validation for supported deployment configurations', () => {
+        it('should pass validation for http deployment configurations', () => {
             const answers = {
-                deploymentConfig: 'sklearn-flask',
+                deploymentConfig: 'http-flask',
                 buildTarget: 'codebuild',
                 deploymentTarget: 'managed-inference',
                 instanceType: 'ml.m5.large',
@@ -24,11 +24,11 @@ describe('TemplateManager', () => {
                 awsRoleArn: '',
                 includeTesting: true,
                 testTypes: ['local-model-cli']
-            };
+            }
             
-            const manager = new TemplateManager(answers);
-            assert.doesNotThrow(() => manager.validate());
-        });
+            const manager = new TemplateManager(answers)
+            assert.doesNotThrow(() => manager.validate())
+        })
 
         it('should pass validation for transformers deployment configurations', () => {
             const answers = {
@@ -40,11 +40,27 @@ describe('TemplateManager', () => {
                 awsRoleArn: '',
                 includeTesting: true,
                 testTypes: ['local-model-cli']
-            };
+            }
             
-            const manager = new TemplateManager(answers);
-            assert.doesNotThrow(() => manager.validate());
-        });
+            const manager = new TemplateManager(answers)
+            assert.doesNotThrow(() => manager.validate())
+        })
+
+        it('should pass validation for triton deployment configurations', () => {
+            const answers = {
+                deploymentConfig: 'triton-fil',
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference',
+                instanceType: 'ml.g5.xlarge',
+                awsRegion: 'us-east-1',
+                awsRoleArn: '',
+                includeTesting: true,
+                testTypes: ['local-model-cli']
+            }
+            
+            const manager = new TemplateManager(answers)
+            assert.doesNotThrow(() => manager.validate())
+        })
 
         it('should throw error for unsupported deployment configuration', () => {
             const answers = {
@@ -53,68 +69,123 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            };
+            }
             
-            const manager = new TemplateManager(answers);
-            assert.throws(() => manager.validate(), /pytorch-torchserve not implemented yet/);
-        });
+            const manager = new TemplateManager(answers)
+            assert.throws(() => manager.validate(), /pytorch-torchserve not implemented yet/)
+        })
 
-        it('should support backward compatibility with separate framework and modelServer', () => {
+        it('should reject old-format deployment configs', () => {
             const answers = {
-                framework: 'sklearn',
-                modelServer: 'flask',
+                deploymentConfig: 'sklearn-flask',
+                buildTarget: 'codebuild',
+                instanceType: 'ml.m5.large',
+                awsRegion: 'us-east-1',
+                awsRoleArn: ''
+            }
+            
+            const manager = new TemplateManager(answers)
+            assert.throws(() => manager.validate(), /sklearn-flask not implemented yet/)
+        })
+
+        it('should support fallback validation with separate architecture and backend', () => {
+            const answers = {
+                architecture: 'http',
+                backend: 'flask',
                 buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: '',
                 includeTesting: true,
                 testTypes: ['local-model-cli']
-            };
+            }
             
-            const manager = new TemplateManager(answers);
-            assert.doesNotThrow(() => manager.validate());
-        });
+            const manager = new TemplateManager(answers)
+            assert.doesNotThrow(() => manager.validate())
+        })
 
-        it('should throw error for unsupported framework in backward compatibility mode', () => {
+        it('should throw error for unsupported architecture in fallback mode', () => {
             const answers = {
-                framework: 'pytorch',
-                modelServer: 'flask',
+                architecture: 'custom',
+                backend: 'flask',
                 buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            };
+            }
             
-            const manager = new TemplateManager(answers);
-            assert.throws(() => manager.validate(), /pytorch not implemented yet/);
-        });
+            const manager = new TemplateManager(answers)
+            assert.throws(() => manager.validate(), /custom not implemented yet/)
+        })
 
-        it('should throw error for unsupported model server in backward compatibility mode', () => {
+        it('should throw error for unsupported backend in fallback mode', () => {
             const answers = {
-                framework: 'sklearn',
-                modelServer: 'torchserve',
+                architecture: 'http',
+                backend: 'torchserve',
                 buildTarget: 'codebuild',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            };
+            }
             
-            const manager = new TemplateManager(answers);
-            assert.throws(() => manager.validate(), /torchserve not implemented yet/);
-        });
+            const manager = new TemplateManager(answers)
+            assert.throws(() => manager.validate(), /torchserve not implemented yet/)
+        })
 
-        it('should throw error for tensorrt-llm with non-transformers framework', () => {
+        it('should throw error for tensorrt-llm with non-transformers architecture', () => {
             const answers = {
-                framework: 'sklearn',
-                modelServer: 'tensorrt-llm',
+                architecture: 'http',
+                backend: 'tensorrt-llm',
                 buildTarget: 'codebuild',
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            };
+            }
             
-            const manager = new TemplateManager(answers);
-            assert.throws(() => manager.validate(), /TensorRT-LLM is only supported with the transformers framework/);
-        });
-    });
+            const manager = new TemplateManager(answers)
+            assert.throws(() => manager.validate(), /TensorRT-LLM is only supported with the transformers architecture/)
+        })
+
+        it('should reject triton-vllm with CPU-only instance type', () => {
+            const answers = {
+                deploymentConfig: 'triton-vllm',
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference',
+                instanceType: 'ml.m5.xlarge',
+                awsRegion: 'us-east-1',
+                awsRoleArn: ''
+            }
+            
+            const manager = new TemplateManager(answers)
+            assert.throws(() => manager.validate(), /triton-vllm requires a GPU instance type/)
+        })
+
+        it('should reject triton-tensorrtllm with CPU-only instance type', () => {
+            const answers = {
+                deploymentConfig: 'triton-tensorrtllm',
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference',
+                instanceType: 'ml.c5.xlarge',
+                awsRegion: 'us-east-1',
+                awsRoleArn: ''
+            }
+            
+            const manager = new TemplateManager(answers)
+            assert.throws(() => manager.validate(), /triton-tensorrtllm requires a GPU instance type/)
+        })
+
+        it('should accept triton-vllm with GPU instance type', () => {
+            const answers = {
+                deploymentConfig: 'triton-vllm',
+                buildTarget: 'codebuild',
+                deploymentTarget: 'managed-inference',
+                instanceType: 'ml.g5.xlarge',
+                awsRegion: 'us-east-1',
+                awsRoleArn: ''
+            }
+            
+            const manager = new TemplateManager(answers)
+            assert.doesNotThrow(() => manager.validate())
+        })
+    })
 });

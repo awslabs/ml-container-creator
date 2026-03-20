@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-describe('generator-ml-container-creator:app', () => {
+describe('@aws/generator-ml-container-creator:app', () => {
     // Note: With do-framework integration, ALL template files are now generated unconditionally.
     // Runtime scripts (in do/ directory) handle conditional logic based on deployment configuration.
     

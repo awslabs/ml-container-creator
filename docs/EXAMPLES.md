@@ -22,7 +22,7 @@ You have a trained scikit-learn model saved as `model.pkl` and want to deploy it
 ### Step 1: Generate Project
 
 ```bash
-yo ml-container-creator
+yo @aws/ml-container-creator
 ```
 
 **Prompts and Answers:**
@@ -96,7 +96,7 @@ You have an XGBoost model saved in JSON format for a regression task.
 ### Step 1: Generate Project
 
 ```bash
-yo ml-container-creator
+yo @aws/ml-container-creator
 ```
 
 **Configuration:**
@@ -257,7 +257,7 @@ When generating a transformer project, you'll be prompted to select a model. The
 **Example: Using a Custom Model with Authentication**
 
 ```bash
-yo ml-container-creator
+yo @aws/ml-container-creator
 
 # When prompted:
 ? Which model do you want to use? Custom (enter manually)
@@ -353,7 +353,7 @@ TensorRT-LLM is NVIDIA's high-performance inference engine specifically designed
 ### Step 1: Generate Project
 
 ```bash
-yo ml-container-creator
+yo @aws/ml-container-creator
 ```
 
 **Configuration:**
@@ -635,7 +635,7 @@ For automated deployments:
 
 ```bash
 # Generate TensorRT-LLM project with CLI
-yo ml-container-creator tensorrt-llm-project \
+yo @aws/ml-container-creator tensorrt-llm-project \
   --framework=transformers \
   --model-server=tensorrt-llm \
   --model-name=meta-llama/Llama-3.2-3B-Instruct \
@@ -751,7 +751,7 @@ You want to set up an enterprise-ready CI/CD pipeline using AWS CodeBuild for au
 
 ```bash
 # Using CLI for automation
-yo ml-container-creator sklearn-codebuild-project \
+yo @aws/ml-container-creator sklearn-codebuild-project \
   --framework=sklearn \
   --model-server=flask \
   --model-format=pkl \
@@ -895,7 +895,7 @@ You want to optimize costs and performance by using specific AWS instance types 
 
 ```bash
 # Generate project with small instance for development
-yo ml-container-creator dev-sklearn-model \
+yo @aws/ml-container-creator dev-sklearn-model \
   --framework=sklearn \
   --model-server=flask \
   --model-format=pkl \
@@ -914,7 +914,7 @@ yo ml-container-creator dev-sklearn-model \
 
 ```bash
 # Generate project optimized for AWS Inferentia chips
-yo ml-container-creator inferentia-model \
+yo @aws/ml-container-creator inferentia-model \
   --framework=tensorflow \
   --model-server=flask \
   --model-format=SavedModel \
@@ -932,7 +932,7 @@ yo ml-container-creator inferentia-model \
 
 ```bash
 # Generate project for memory-intensive models
-yo ml-container-creator memory-intensive-model \
+yo @aws/ml-container-creator memory-intensive-model \
   --framework=sklearn \
   --model-server=fastapi \
   --model-format=pkl \
@@ -950,7 +950,7 @@ yo ml-container-creator memory-intensive-model \
 
 ```bash
 # Generate project for high-throughput inference
-yo ml-container-creator high-throughput-model \
+yo @aws/ml-container-creator high-throughput-model \
   --framework=xgboost \
   --model-server=fastapi \
   --model-format=json \
@@ -968,7 +968,7 @@ yo ml-container-creator high-throughput-model \
 
 ```bash
 # Generate project with single GPU for cost-effective deep learning
-yo ml-container-creator single-gpu-model \
+yo @aws/ml-container-creator single-gpu-model \
   --framework=tensorflow \
   --model-server=flask \
   --model-format=SavedModel \
@@ -1009,10 +1009,10 @@ Create reusable configurations for different environments:
 #### Usage
 ```bash
 # Development deployment
-yo ml-container-creator --config=dev-config.json --framework=sklearn --skip-prompts
+yo @aws/ml-container-creator --config=dev-config.json --framework=sklearn --skip-prompts
 
 # Production deployment  
-yo ml-container-creator --config=prod-config.json --framework=sklearn --skip-prompts
+yo @aws/ml-container-creator --config=prod-config.json --framework=sklearn --skip-prompts
 ```
 
 ### Environment Variable Approach
@@ -1031,7 +1031,7 @@ export ML_CUSTOM_INSTANCE_TYPE=ml.inf1.xlarge
 export AWS_REGION=us-west-2
 
 # Generate project (inherits environment config)
-yo ml-container-creator --framework=sklearn --model-server=flask --skip-prompts
+yo @aws/ml-container-creator --framework=sklearn --model-server=flask --skip-prompts
 ```
 
 ### Cost Comparison
@@ -1078,10 +1078,10 @@ The generator validates custom instance types:
 
 ```bash
 # Valid format
-yo ml-container-creator --instance-type=custom --custom-instance-type=ml.g4dn.xlarge ✅
+yo @aws/ml-container-creator --instance-type=custom --custom-instance-type=ml.g4dn.xlarge ✅
 
 # Invalid format
-yo ml-container-creator --instance-type=custom --custom-instance-type=invalid-type ❌
+yo @aws/ml-container-creator --instance-type=custom --custom-instance-type=invalid-type ❌
 # Error: Invalid custom instance type format: invalid-type
 ```
 
@@ -1225,7 +1225,7 @@ Use the custom instance type option for specialized hardware:
 
 ```bash
 # Generate project with custom instance type
-yo ml-container-creator my-optimized-model \
+yo @aws/ml-container-creator my-optimized-model \
   --framework=sklearn \
   --model-server=flask \
   --model-format=pkl \

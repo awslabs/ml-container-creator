@@ -1,0 +1,38 @@
+[
+    {
+        "image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+        "tag": "24.08-py3",
+        "architecture": "amd64",
+        "created": "2024-08-15T00:00:00Z",
+        "labels": { "cuda_version": "12.5", "python_version": "3.10", "triton_version": "24.08" },
+        "registry": "ngc",
+        "repository": "nvidia/tritonserver"
+    },
+    {
+        "image": "nvcr.io/nvidia/tritonserver:24.05-py3",
+        "tag": "24.05-py3",
+        "architecture": "amd64",
+        "created": "2024-05-15T00:00:00Z",
+        "labels": { "cuda_version": "12.4", "python_version": "3.10", "triton_version": "24.05" },
+        "registry": "ngc",
+        "repository": "nvidia/tritonserver"
+    },
+    {
+        "image": "nvcr.io/nvidia/tritonserver:24.01-py3",
+        "tag": "24.01-py3",
+        "architecture": "amd64",
+        "created": "2024-01-15T00:00:00Z",
+        "labels": { "cuda_version": "12.3", "python_version": "3.10", "triton_version": "24.01" },
+        "registry": "ngc",
+        "repository": "nvidia/tritonserver"
+    },
+    {
+        "image": "nvcr.io/nvidia/tritonserver:23.10-py3",
+        "tag": "23.10-py3",
+        "architecture": "amd64",
+        "created": "2023-10-15T00:00:00Z",
+        "labels": { "cuda_version": "12.2", "python_version": "3.10", "triton_version": "23.10" },
+        "registry": "ngc",
+        "repository": "nvidia/tritonserver"
+    }
+]

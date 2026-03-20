@@ -115,7 +115,7 @@ const helpers = require('yeoman-test');
 const assert = require('yeoman-assert');
 const path = require('path');
 
-describe('generator-ml-container-creator:pytorch', () => {
+describe('@aws/generator-ml-container-creator:pytorch', () => {
     it('creates pytorch project with pt format', async () => {
         await helpers.run(path.join(__dirname, '../generators/app'))
             .withPrompts({
@@ -160,7 +160,7 @@ scripted_model.save('model.torchscript')
 ### Step 2: Generate Project
 
 \`\`\`bash
-yo ml-container-creator
+yo @aws/ml-container-creator
 # Select pytorch, pt format, flask server
 \`\`\`
 ```
@@ -519,7 +519,7 @@ npm test -- --coverage
 npm link
 
 # Test generation
-yo ml-container-creator
+yo @aws/ml-container-creator
 
 # Test all combinations
 # - New framework + flask
@@ -532,7 +532,7 @@ yo ml-container-creator
 
 ```bash
 # Generate project
-yo ml-container-creator
+yo @aws/ml-container-creator
 
 # Build container
 cd generated-project

@@ -156,8 +156,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
             
             await fc.assert(fc.asyncProperty(
                 fc.record({
-                    'framework': fc.option(fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers')),
-                    'model-server': fc.option(fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang')),
+                    'deployment-config': fc.option(fc.constantFrom('http-flask', 'http-fastapi', 'transformers-vllm', 'transformers-sglang')),
+                    'engine': fc.option(fc.constantFrom('sklearn', 'xgboost', 'tensorflow')),
                     'model-format': fc.option(fc.constantFrom('pkl', 'json', 'keras')),
                     'instance-type': fc.option(fc.constantFrom('ml.m5.large', 'ml.g5.xlarge')),
                     'region': fc.option(fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1')),
@@ -179,11 +179,11 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     const config = await configManager.loadConfiguration();
                     
                     // Verify CLI options were mapped correctly
-                    if (cleanOptions.framework) {
-                        assert.strictEqual(config.framework, cleanOptions.framework);
+                    if (cleanOptions['deployment-config']) {
+                        assert.strictEqual(config.deploymentConfig, cleanOptions['deployment-config']);
                     }
-                    if (cleanOptions['model-server']) {
-                        assert.strictEqual(config.modelServer, cleanOptions['model-server']);
+                    if (cleanOptions['engine']) {
+                        assert.strictEqual(config.engine, cleanOptions['engine']);
                     }
                     if (cleanOptions['model-format']) {
                         assert.strictEqual(config.modelFormat, cleanOptions['model-format']);

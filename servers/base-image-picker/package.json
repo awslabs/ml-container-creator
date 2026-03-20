@@ -1,5 +1,6 @@
 {
-  "name": "@ml-container-creator/base-image-picker",
+  "name": "@amzn/ml-container-creator-base-image-picker",
+  "private": true,
   "version": "1.0.0",
   "description": "MCP server that returns curated base container images for ML Container Creator. Supports transformer serving frameworks and Python slim images for traditional ML.",
   "type": "module",

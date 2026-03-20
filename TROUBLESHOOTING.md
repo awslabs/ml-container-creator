@@ -21,7 +21,7 @@ Common issues and solutions when using ML Container Creator.
 
 **Problem:**
 ```bash
-$ yo ml-container-creator
+$ yo @aws/ml-container-creator
 Error: ml-container-creator generator not found
 ```
 
@@ -465,7 +465,7 @@ Error: Failed to download model from HuggingFace Hub
    
    Rebuild with token:
    ```bash
-   yo ml-container-creator my-llm-project \
+   yo @aws/ml-container-creator my-llm-project \
      --framework=transformers \
      --model-name=meta-llama/Llama-2-7b-hf \
      --model-server=vllm \
@@ -496,7 +496,7 @@ Concerned about token security in Docker image
 1. **Use environment variable reference** (recommended for CI/CD):
    ```bash
    # During generation, use $HF_TOKEN reference
-   yo ml-container-creator --hf-token='$HF_TOKEN' --skip-prompts
+   yo @aws/ml-container-creator --hf-token='$HF_TOKEN' --skip-prompts
    
    # Set environment variable before building
    export HF_TOKEN=hf_your_token_here
@@ -556,7 +556,7 @@ Error: Rate limit exceeded
 1. **Use authentication**:
    Authenticated requests have higher rate limits:
    ```bash
-   yo ml-container-creator --hf-token=hf_your_token_here --skip-prompts
+   yo @aws/ml-container-creator --hf-token=hf_your_token_here --skip-prompts
    ```
 
 2. **Wait and retry**:

@@ -285,84 +285,71 @@ describe('Error Handling and Validation', () => {
     });
 
     describe('Parameter Validation', () => {
-        it('should validate framework parameter', () => {
-            console.log('\n  🧪 Testing framework parameter validation...');
+        it('should validate deployment-config parameter', () => {
+            console.log('\n  🧪 Testing deployment-config parameter validation...');
             
             const configManager = new ConfigManager(mockGenerator);
             
-            // Test valid frameworks
-            const validFrameworks = ['sklearn', 'xgboost', 'tensorflow', 'transformers'];
-            validFrameworks.forEach(framework => {
+            // Test valid deployment configs
+            const validConfigs = ['http-flask', 'http-fastapi', 'transformers-vllm', 'triton-fil'];
+            validConfigs.forEach(dc => {
                 try {
-                    configManager._validateParameterValue('framework', framework, {});
-                    console.log(`    ✅ Valid framework accepted: ${framework}`);
+                    configManager._validateParameterValue('deploymentConfig', dc, {});
+                    console.log(`    ✅ Valid deployment-config accepted: ${dc}`);
                 } catch (error) {
-                    throw new Error(`Valid framework rejected: ${framework} - ${error.message}`);
+                    throw new Error(`Valid deployment-config rejected: ${dc} - ${error.message}`);
                 }
             });
             
-            // Test invalid framework
+            // Test invalid deployment-config
             try {
-                configManager._validateParameterValue('framework', 'invalid-framework', {});
-                throw new Error('Invalid framework was accepted');
+                configManager._validateParameterValue('deploymentConfig', 'invalid-config', {});
+                throw new Error('Invalid deployment-config was accepted');
             } catch (error) {
                 if (error instanceof ValidationError) {
-                    console.log('    ✅ Invalid framework correctly rejected');
+                    console.log('    ✅ Invalid deployment-config correctly rejected');
                     console.log(`    📝 Error message: ${error.message}`);
                     
-                    if (!error.message.includes('Unsupported framework')) {
-                        throw new Error(`Error message should mention unsupported framework: ${error.message}`);
+                    if (!error.message.includes('Unsupported deployment-config')) {
+                        throw new Error(`Error message should mention unsupported deployment-config: ${error.message}`);
                     }
                 } else {
                     throw new Error(`Expected ValidationError, got: ${error.constructor.name}`);
                 }
             }
             
-            console.log('    ✅ Framework parameter validation working correctly');
+            console.log('    ✅ Deployment-config parameter validation working correctly');
         });
 
-        it('should validate model server compatibility with framework', () => {
-            console.log('\n  🧪 Testing model server compatibility validation...');
+        it('should validate old-format deployment-config with migration message', () => {
+            console.log('\n  🧪 Testing old-format deployment-config migration validation...');
             
             const configManager = new ConfigManager(mockGenerator);
             
-            // Test valid combinations
-            const validCombinations = [
-                { framework: 'sklearn', modelServer: 'flask' },
-                { framework: 'sklearn', modelServer: 'fastapi' },
-                { framework: 'transformers', modelServer: 'vllm' },
-                { framework: 'transformers', modelServer: 'sglang' },
-                { framework: 'transformers', modelServer: 'lmi' },
-                { framework: 'transformers', modelServer: 'djl' }
+            // Test old-format configs get migration messages
+            const oldFormats = [
+                { old: 'sklearn-flask', expected: 'Use --deployment-config=http-flask --engine=sklearn instead' },
+                { old: 'xgboost-fastapi', expected: 'Use --deployment-config=http-fastapi --engine=xgboost instead' },
+                { old: 'tensorflow-flask', expected: 'Use --deployment-config=http-flask --engine=tensorflow instead' }
             ];
             
-            validCombinations.forEach(({ framework, modelServer }) => {
+            oldFormats.forEach(({ old, expected }) => {
                 try {
-                    configManager._validateParameterValue('modelServer', modelServer, { framework });
-                    console.log(`    ✅ Valid combination accepted: ${framework} + ${modelServer}`);
+                    configManager._validateParameterValue('deploymentConfig', old, {});
+                    throw new Error(`Old-format deployment-config was accepted: ${old}`);
                 } catch (error) {
-                    throw new Error(`Valid combination rejected: ${framework} + ${modelServer} - ${error.message}`);
+                    if (error instanceof ValidationError) {
+                        console.log(`    ✅ Old-format correctly rejected: ${old}`);
+                        if (!error.message.includes(expected)) {
+                            throw new Error(`Error message should include migration guidance: ${error.message}`);
+                        }
+                    } else {
+                        throw new Error(`Expected ValidationError, got: ${error.constructor.name}`);
+                    }
                 }
             });
             
-            // Test invalid combination
-            try {
-                configManager._validateParameterValue('modelServer', 'vllm', { framework: 'sklearn' });
-                throw new Error('Invalid framework/server combination was accepted');
-            } catch (error) {
-                if (error instanceof ValidationError) {
-                    console.log('    ✅ Invalid combination correctly rejected: sklearn + vllm');
-                    console.log(`    📝 Error message: ${error.message}`);
-                    
-                    if (!error.message.includes('not compatible with framework')) {
-                        throw new Error(`Error message should mention compatibility: ${error.message}`);
-                    }
-                } else {
-                    throw new Error(`Expected ValidationError, got: ${error.constructor.name}`);
-                }
-            }
-            
-            console.log('    ✅ Model server compatibility validation working correctly');
+            console.log('    ✅ Old-format deployment-config migration validation working correctly');
         });
 
         it('should validate instance type requirements for transformers', () => {
@@ -372,7 +359,7 @@ describe('Error Handling and Validation', () => {
             
             // Test valid instance type for transformers
             try {
-                configManager._validateParameterValue('instanceType', 'ml.g5.xlarge', { framework: 'transformers' });
+                configManager._validateParameterValue('instanceType', 'ml.g5.xlarge', { architecture: 'transformers' });
                 console.log('    ✅ GPU instance accepted for transformers');
             } catch (error) {
                 throw new Error(`Valid instance type rejected for transformers: ${error.message}`);
@@ -389,7 +376,7 @@ describe('Error Handling and Validation', () => {
                     originalWarn(...args);
                 };
                 
-                configManager._validateParameterValue('instanceType', 'ml.m5.large', { framework: 'transformers' });
+                configManager._validateParameterValue('instanceType', 'ml.m5.large', { architecture: 'transformers' });
                 
                 console.warn = originalWarn;
                 
@@ -414,8 +401,10 @@ describe('Error Handling and Validation', () => {
             
             // Test configuration missing required parameters
             const incompleteConfig = {
-                framework: 'sklearn'
-                // Missing modelServer, modelFormat, etc.
+                deploymentConfig: 'http-flask',
+                architecture: 'http',
+                backend: 'flask'
+                // Missing engine, modelFormat, etc.
             };
             
             const errors = configManager.validateRequiredParameters(incompleteConfig);
@@ -438,8 +427,10 @@ describe('Error Handling and Validation', () => {
             
             // Test complete configuration
             const completeConfig = {
-                framework: 'sklearn',
-                modelServer: 'flask',
+                deploymentConfig: 'http-flask',
+                architecture: 'http',
+                backend: 'flask',
+                engine: 'sklearn',
                 modelFormat: 'pkl',
                 includeSampleModel: false,
                 includeTesting: true,
@@ -468,8 +459,7 @@ describe('Error Handling and Validation', () => {
             await helpers.default.run(getGeneratorPath())
                 .withOptions({
                     'skip-prompts': true,
-                    'framework': 'invalid-framework',
-                    'model-server': 'flask'
+                    'deployment-config': 'invalid-config'
                 });
             
             // Check that no files were generated due to validation failure

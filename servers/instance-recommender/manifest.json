@@ -1,5 +1,5 @@
 {
-    "name": "@ml-container-creator/instance-recommender",
+    "name": "@amzn/ml-container-creator-instance-recommender",
     "version": "1.0.0",
     "description": "MCP server that recommends SageMaker instance types for ML Container Creator.",
     "modes": {

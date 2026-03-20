@@ -101,10 +101,12 @@ class ImageResolver extends DynamicResolverBase {
 
 let TRANSFORMER_IMAGE_CATALOG
 let PYTHON_SLIM_CATALOG
+let TRITON_IMAGE_CATALOG
 
 try {
     TRANSFORMER_IMAGE_CATALOG = loadCatalog('./catalogs/model-servers.json')
     PYTHON_SLIM_CATALOG = loadCatalog('./catalogs/python-slim.json')
+    TRITON_IMAGE_CATALOG = loadCatalog('./catalogs/triton.json')
 } catch (err) {
     process.stderr.write(`[base-image-picker] Fatal: ${err.message}\n`)
     process.exit(1)
@@ -226,10 +228,11 @@ function mergeStaticAndDynamic(staticImages, dynamicImages, limit) {
  * No network calls, no auth, no external dependencies.
  */
 class StaticCatalogResolver extends ImageResolver {
-    constructor(transformerCatalog, pythonSlimCatalog) {
+    constructor(transformerCatalog, pythonSlimCatalog, tritonCatalog) {
         super()
         this._transformerCatalog = transformerCatalog
         this._pythonSlimCatalog = pythonSlimCatalog
+        this._tritonCatalog = tritonCatalog || []
     }
 
     async fetchImages(framework, options = {}) {
@@ -237,6 +240,10 @@ class StaticCatalogResolver extends ImageResolver {
 
         if (framework === 'python-slim') {
             return this._resolvePythonSlim(limit, searchCriteria)
+        }
+
+        if (framework === 'triton') {
+            return this._resolveTriton(limit, searchCriteria)
         }
 
         const catalog = this._transformerCatalog[framework] || []
@@ -250,7 +257,8 @@ class StaticCatalogResolver extends ImageResolver {
     supportedFrameworks() {
         return [
             ...Object.keys(this._transformerCatalog),
-            'python-slim'
+            'python-slim',
+            'triton'
         ]
     }
 
@@ -263,6 +271,26 @@ class StaticCatalogResolver extends ImageResolver {
                 entry.tag.toLowerCase().includes(query) ||
                 entry.image.toLowerCase().includes(query) ||
                 (entry.labels.python_version && entry.labels.python_version.toLowerCase().includes(query))
+            )
+        }
+
+        const sliced = catalog.slice(0, limit)
+        return {
+            images: sliced,
+            defaultImage: sliced[0]?.image || null
+        }
+    }
+
+    _resolveTriton(limit, searchCriteria) {
+        let catalog = [...this._tritonCatalog]
+
+        if (searchCriteria && searchCriteria.trim()) {
+            const query = searchCriteria.trim().toLowerCase()
+            catalog = catalog.filter(entry =>
+                entry.tag.toLowerCase().includes(query) ||
+                entry.image.toLowerCase().includes(query) ||
+                (entry.labels.triton_version && entry.labels.triton_version.toLowerCase().includes(query)) ||
+                (entry.labels.cuda_version && entry.labels.cuda_version.toLowerCase().includes(query))
             )
         }
 
@@ -318,7 +346,7 @@ class ResolverRegistry {
 
 // ── V1 wiring ────────────────────────────────────────────────────────────────
 
-const staticResolver = new StaticCatalogResolver(TRANSFORMER_IMAGE_CATALOG, PYTHON_SLIM_CATALOG)
+const staticResolver = new StaticCatalogResolver(TRANSFORMER_IMAGE_CATALOG, PYTHON_SLIM_CATALOG, TRITON_IMAGE_CATALOG)
 const registry = new ResolverRegistry()
 registry.register(staticResolver)
 registry.setDefault(staticResolver)
@@ -347,12 +375,17 @@ if (discoverMode) {
  * When discover mode is active, merges static and dynamic results.
  */
 async function resolveBaseImage(context, limit) {
-    const { framework, modelServer, searchCriteria } = context
+    const { framework, modelServer, searchCriteria, architecture } = context
 
     // Determine which framework identifier to resolve
-    const resolverKey = (framework === 'transformers' && modelServer)
-        ? modelServer
-        : 'python-slim'
+    let resolverKey
+    if (architecture === 'triton') {
+        resolverKey = 'triton'
+    } else if (framework === 'transformers' && modelServer) {
+        resolverKey = modelServer
+    } else {
+        resolverKey = 'python-slim'
+    }
 
     const resolver = registry.getResolver(resolverKey)
     if (!resolver) {
@@ -434,6 +467,7 @@ export {
     ResolverRegistry,
     TRANSFORMER_IMAGE_CATALOG,
     PYTHON_SLIM_CATALOG,
+    TRITON_IMAGE_CATALOG,
     resolveBaseImage,
     mergeStaticAndDynamic,
     registry,

@@ -473,7 +473,7 @@ npm run validate
 
 # Test generator functionality manually
 npm link
-yo ml-container-creator test-project --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts
+yo @aws/ml-container-creator test-project --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts
 
 # Verify generated project works
 cd test-project

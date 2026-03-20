@@ -1,0 +1,163 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Triton Model Configuration
+# Backend: <%= backend %>
+# Model: <%= modelName || 'model' %>
+
+name: "<%= modelName || 'model' %>"
+backend: "<%= backend %>"
+
+<% if (backend === 'vllm' || backend === 'tensorrtllm') { %>
+# LLM backends (vllm, tensorrtllm) auto-configure most settings
+# Minimal configuration is sufficient
+max_batch_size: 0
+
+<% if (backend === 'vllm') { %>
+# vLLM backend parameters
+parameters: {
+    key: "model"
+    value: { string_value: "<%= modelName %>" }
+}
+parameters: {
+    key: "gpu_memory_utilization"
+    value: { string_value: "0.9" }
+}
+<% } else if (backend === 'tensorrtllm') { %>
+# TensorRT-LLM backend parameters
+parameters: {
+    key: "model"
+    value: { string_value: "<%= modelName %>" }
+}
+<% } %>
+<% } else { %>
+# Maximum batch size (0 = batching disabled)
+max_batch_size: 8
+
+<% if (backend === 'fil') { %>
+# FIL (Forest Inference Library) backend for tree-based models
+# Supports XGBoost, LightGBM, and scikit-learn random forests
+input [
+    {
+        name: "input__0"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic feature dimension
+    }
+]
+output [
+    {
+        name: "output__0"
+        data_type: TYPE_FP32
+        dims: [ 1 ]  # Single prediction value
+    }
+]
+
+# FIL-specific parameters
+parameters: {
+    key: "model_type"
+<% if (modelFormat === 'xgboost_json' || modelFormat === 'xgboost_ubj') { %>
+    value: { string_value: "xgboost_json" }
+<% } else if (modelFormat === 'lightgbm_txt') { %>
+    value: { string_value: "lightgbm" }
+<% } %>
+}
+parameters: {
+    key: "output_class"
+    value: { string_value: "false" }
+}
+<% } else if (backend === 'onnxruntime') { %>
+# ONNX Runtime backend
+# Input/output shapes depend on your specific model
+input [
+    {
+        name: "input"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic input dimension
+    }
+]
+output [
+    {
+        name: "output"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic output dimension
+    }
+]
+<% } else if (backend === 'tensorflow') { %>
+# TensorFlow SavedModel backend
+# Input/output shapes depend on your specific model
+input [
+    {
+        name: "input"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic input dimension
+    }
+]
+output [
+    {
+        name: "output"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic output dimension
+    }
+]
+
+# TensorFlow-specific parameters
+parameters: {
+    key: "TF_INTER_OP_PARALLELISM"
+    value: { string_value: "0" }
+}
+parameters: {
+    key: "TF_INTRA_OP_PARALLELISM"
+    value: { string_value: "0" }
+}
+<% } else if (backend === 'pytorch') { %>
+# PyTorch TorchScript backend
+# Input/output shapes depend on your specific model
+input [
+    {
+        name: "INPUT__0"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic input dimension
+    }
+]
+output [
+    {
+        name: "OUTPUT__0"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic output dimension
+    }
+]
+<% } else if (backend === 'python') { %>
+# Python backend
+# Custom model implementation in model.py
+input [
+    {
+        name: "INPUT"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic input dimension
+    }
+]
+output [
+    {
+        name: "OUTPUT"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic output dimension
+    }
+]
+<% } %>
+
+# Instance group configuration
+# Specifies how many instances of the model to run and on which device
+instance_group [
+    {
+        count: 1
+        kind: KIND_AUTO  # Automatically select CPU or GPU based on availability
+    }
+]
+
+# Dynamic batching configuration
+# Enables automatic request batching for improved throughput
+dynamic_batching {
+    preferred_batch_size: [ 4, 8 ]
+    max_queue_delay_microseconds: 100
+}
+<% } %>

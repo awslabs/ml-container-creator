@@ -444,7 +444,7 @@ Before contributing, test your configuration:
 
 ```bash
 # Generate project with your configuration
-yo ml-container-creator test-project \
+yo @aws/ml-container-creator test-project \
   --framework=your-framework \
   --version=your-version \
   --skip-prompts
@@ -520,7 +520,7 @@ Test your configuration manually:
 npm link
 
 # 2. Generate project with your configuration
-yo ml-container-creator test-project \
+yo @aws/ml-container-creator test-project \
   --framework=your-framework \
   --version=your-version \
   --skip-prompts

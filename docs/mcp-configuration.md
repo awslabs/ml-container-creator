@@ -12,7 +12,7 @@ sequenceDiagram
     participant Generator as ML Container Creator
     participant MCP as MCP Server (child process)
 
-    User->>Generator: yo ml-container-creator
+    User->>Generator: yo @aws/ml-container-creator
     Generator->>Generator: Load config files
     Generator->>MCP: Spawn process, handshake
     Generator->>MCP: Call get_ml_config tool
@@ -66,7 +66,7 @@ MCP servers can return values for any parameter, but the generator silently disc
 The fastest way to set up MCP is to register all bundled servers at once:
 
 ```bash
-yo ml-container-creator mcp init
+yo @aws/ml-container-creator mcp init
 ```
 
 This creates `config/mcp.json` with every bundled server pre-configured. Existing servers are preserved (not overwritten). Run this after cloning the repo or whenever you need to recreate the config file.
@@ -76,13 +76,13 @@ This creates `config/mcp.json` with every bundled server pre-configured. Existin
 Register an MCP server in your `config/mcp.json`:
 
 ```bash
-yo ml-container-creator mcp add team-config -- node path/to/server.js
+yo @aws/ml-container-creator mcp add team-config -- node path/to/server.js
 ```
 
 With environment variables and options:
 
 ```bash
-yo ml-container-creator mcp add team-config -- npx -y @corp/mcp-config \
+yo @aws/ml-container-creator mcp add team-config -- npx -y @corp/mcp-config \
   -e TEAM_ID=ml-platform \
   --tool-name get_approved_config \
   --limit 5
@@ -93,7 +93,7 @@ yo ml-container-creator mcp add team-config -- npx -y @corp/mcp-config \
 The generator ships with first-party MCP servers in the `servers/` directory:
 
 ```bash
-yo ml-container-creator mcp add instance-recommender --bundled
+yo @aws/ml-container-creator mcp add instance-recommender --bundled
 ```
 
 Dependencies are installed automatically on first use.
@@ -102,26 +102,26 @@ Dependencies are installed automatically on first use.
 
 ```bash
 # List configured servers
-yo ml-container-creator mcp list
+yo @aws/ml-container-creator mcp list
 
 # List available bundled servers
-yo ml-container-creator mcp list --bundled
+yo @aws/ml-container-creator mcp list --bundled
 ```
 
 ### Inspect a Server
 
 ```bash
-yo ml-container-creator mcp get team-config
+yo @aws/ml-container-creator mcp get team-config
 ```
 
 ### Remove a Server
 
 ```bash
-yo ml-container-creator mcp remove team-config
+yo @aws/ml-container-creator mcp remove team-config
 ```
 
 !!! note "Registration vs. Execution"
-    The `mcp add` command only **registers** a server in your config file. The server is actually **spawned and queried** later, when you run `yo ml-container-creator` to generate a project. This separation means you can configure servers without them needing to be available at registration time.
+    The `mcp add` command only **registers** a server in your config file. The server is actually **spawned and queried** later, when you run `yo @aws/ml-container-creator` to generate a project. This separation means you can configure servers without them needing to be available at registration time.
 
 ## Config File Format
 
@@ -160,13 +160,13 @@ When multiple servers are configured, they are queried in order. Later servers t
 Recommends SageMaker instance types based on the current framework. Traditional ML frameworks (sklearn, xgboost, tensorflow) get CPU instance suggestions; transformer frameworks get GPU instances.
 
 ```bash
-yo ml-container-creator mcp add instance-recommender --bundled
+yo @aws/ml-container-creator mcp add instance-recommender --bundled
 ```
 
 With Bedrock-powered smart recommendations:
 
 ```bash
-yo ml-container-creator mcp add instance-recommender --bundled \
+yo @aws/ml-container-creator mcp add instance-recommender --bundled \
   -e BEDROCK_SMART=true
 ```
 
@@ -176,16 +176,16 @@ Suggests AWS regions based on a search term. Set the `REGION_SEARCH` environment
 
 ```bash
 # Filter for European regions
-yo ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
+yo @aws/ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
 
 # Popular regions (no filter)
-yo ml-container-creator mcp add region-picker --bundled
+yo @aws/ml-container-creator mcp add region-picker --bundled
 ```
 
 With Bedrock-powered smart recommendations:
 
 ```bash
-yo ml-container-creator mcp add region-picker --bundled \
+yo @aws/ml-container-creator mcp add region-picker --bundled \
   -e REGION_SEARCH=europe \
   -e BEDROCK_SMART=true
 ```
@@ -228,14 +228,14 @@ The calling identity needs `bedrock:InvokeModel` permission on the inference pro
 
 ```bash
 # Add instance-recommender with smart mode and a custom model
-yo ml-container-creator mcp add instance-recommender --bundled \
+yo @aws/ml-container-creator mcp add instance-recommender --bundled \
   -e BEDROCK_SMART=true \
   -e BEDROCK_MODEL=us.anthropic.claude-sonnet-4-20250514-v1:0 \
   -e BEDROCK_REGION=us-west-2
 ```
 
 !!! tip "Cost"
-    Each `yo ml-container-creator` run with smart mode enabled makes one Bedrock API call per server. With Claude Sonnet 4, this typically costs a fraction of a cent per invocation.
+    Each `yo @aws/ml-container-creator` run with smart mode enabled makes one Bedrock API call per server. With Claude Sonnet 4, this typically costs a fraction of a cent per invocation.
 
 ## Graceful Degradation
 
@@ -330,7 +330,7 @@ await server.connect(transport)
 Register it:
 
 ```bash
-yo ml-container-creator mcp add my-server -- node path/to/my-server.js
+yo @aws/ml-container-creator mcp add my-server -- node path/to/my-server.js
 ```
 
 See `servers/README.md` for the full directory structure and license requirements for bundled servers.

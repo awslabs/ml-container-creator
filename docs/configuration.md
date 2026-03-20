@@ -9,7 +9,7 @@ Configuration sources are applied in strict precedence order (highest to lowest 
 | Priority | Source | Description | Example |
 |----------|--------|-------------|---------|
 | **1** | CLI Options | Command-line flags | `--framework=sklearn` |
-| **2** | CLI Arguments | Positional arguments | `yo ml-container-creator my-project` |
+| **2** | CLI Arguments | Positional arguments | `yo @aws/ml-container-creator my-project` |
 | **3** | Environment Variables | Shell environment | `export AWS_REGION=us-east-1` |
 | **4** | CLI Config File | `--config` specified file | `--config=production.json` |
 | **5** | Custom Config File | `config/mcp.json` | Auto-discovered in current directory |
@@ -58,7 +58,7 @@ This table shows which parameters are supported by each configuration source:
 The simplest approach - just run the generator and answer the prompts:
 
 ```bash
-yo ml-container-creator
+yo @aws/ml-container-creator
 ```
 
 The generator will guide you through all configuration options with smart defaults and validation.
@@ -69,14 +69,14 @@ Use command-line flags for quick one-off configurations:
 
 ```bash
 # Basic sklearn project
-yo ml-container-creator my-project \
+yo @aws/ml-container-creator my-project \
   --framework=sklearn \
   --model-server=flask \
   --model-format=pkl \
   --skip-prompts
 
 # Advanced configuration
-yo ml-container-creator my-llm-project \
+yo @aws/ml-container-creator my-llm-project \
   --framework=transformers \
   --model-server=vllm \
   --instance-type=gpu-enabled \
@@ -109,7 +109,7 @@ Use positional arguments for the project name:
 
 ```bash
 # Project name as first argument
-yo ml-container-creator my-awesome-model --framework=sklearn --skip-prompts
+yo @aws/ml-container-creator my-awesome-model --framework=sklearn --skip-prompts
 ```
 
 ### 4. Environment Variables
@@ -124,7 +124,7 @@ export AWS_ROLE="arn:aws:iam::123456789012:role/SageMakerRole"
 export ML_CONTAINER_CREATOR_CONFIG="./production.json"
 
 # Generate with environment config + CLI options for core parameters
-yo ml-container-creator --framework=transformers --model-server=vllm --skip-prompts
+yo @aws/ml-container-creator --framework=transformers --model-server=vllm --skip-prompts
 ```
 
 #### Supported Environment Variables
@@ -165,7 +165,7 @@ Create a configuration file in your project directory:
 
 ```bash
 # Use the config file
-yo ml-container-creator --skip-prompts
+yo @aws/ml-container-creator --skip-prompts
 ```
 
 #### CLI Config File (`--config`)
@@ -174,11 +174,11 @@ Specify a custom config file location:
 
 ```bash
 # Use specific config file
-yo ml-container-creator --config=production.json --skip-prompts
+yo @aws/ml-container-creator --config=production.json --skip-prompts
 
 # Config file via environment variable
 export ML_CONTAINER_CREATOR_CONFIG="./staging.json"
-yo ml-container-creator --skip-prompts
+yo @aws/ml-container-creator --skip-prompts
 ```
 
 #### Package.json Section
@@ -207,7 +207,7 @@ Special CLI commands for configuration management:
 ### Interactive Configuration Setup
 
 ```bash
-yo ml-container-creator configure
+yo @aws/ml-container-creator configure
 ```
 
 Guides you through creating configuration files with validation and examples.
@@ -215,7 +215,7 @@ Guides you through creating configuration files with validation and examples.
 ### Generate Empty Config
 
 ```bash
-yo ml-container-creator generate-empty-config
+yo @aws/ml-container-creator generate-empty-config
 ```
 
 Creates an empty configuration file template that you can customize.
@@ -223,9 +223,9 @@ Creates an empty configuration file template that you can customize.
 ### Help
 
 ```bash
-yo ml-container-creator help
+yo @aws/ml-container-creator help
 # or
-yo ml-container-creator --help
+yo @aws/ml-container-creator --help
 ```
 
 Shows comprehensive help with all options, examples, and configuration methods.
@@ -266,7 +266,7 @@ You can:
 
 ```bash
 # Direct token
-yo ml-container-creator my-llm-project \
+yo @aws/ml-container-creator my-llm-project \
   --framework=transformers \
   --model-name=meta-llama/Llama-2-7b-hf \
   --model-server=vllm \
@@ -274,7 +274,7 @@ yo ml-container-creator my-llm-project \
   --skip-prompts
 
 # Environment variable reference
-yo ml-container-creator my-llm-project \
+yo @aws/ml-container-creator my-llm-project \
   --framework=transformers \
   --model-name=meta-llama/Llama-2-7b-hf \
   --model-server=vllm \
@@ -303,7 +303,7 @@ yo ml-container-creator my-llm-project \
 1. **Use environment variable references for CI/CD**:
    ```bash
    export HF_TOKEN=hf_your_token_here
-   yo ml-container-creator --framework=transformers --hf-token='$HF_TOKEN' --skip-prompts
+   yo @aws/ml-container-creator --framework=transformers --hf-token='$HF_TOKEN' --skip-prompts
    ```
 
 2. **Never commit tokens to version control**: Use `$HF_TOKEN` in config files, not actual tokens.
@@ -344,7 +344,7 @@ For more troubleshooting, see the [Troubleshooting Guide](./TROUBLESHOOTING.md).
 
 ```bash
 # scikit-learn with Flask
-yo ml-container-creator sklearn-project \
+yo @aws/ml-container-creator sklearn-project \
   --framework=sklearn \
   --model-server=flask \
   --model-format=pkl \
@@ -352,7 +352,7 @@ yo ml-container-creator sklearn-project \
   --skip-prompts
 
 # XGBoost with FastAPI
-yo ml-container-creator xgb-project \
+yo @aws/ml-container-creator xgb-project \
   --framework=xgboost \
   --model-server=fastapi \
   --model-format=json \
@@ -360,7 +360,7 @@ yo ml-container-creator xgb-project \
   --skip-prompts
 
 # TensorFlow with custom format
-yo ml-container-creator tf-project \
+yo @aws/ml-container-creator tf-project \
   --framework=tensorflow \
   --model-server=flask \
   --model-format=SavedModel \
@@ -379,7 +379,7 @@ yo ml-container-creator tf-project \
 
 ```bash
 # Transformers with vLLM
-yo ml-container-creator llm-project \
+yo @aws/ml-container-creator llm-project \
   --framework=transformers \
   --model-server=vllm \
   --instance-type=gpu-enabled \
@@ -387,7 +387,7 @@ yo ml-container-creator llm-project \
   --skip-prompts
 
 # Transformers with SGLang
-yo ml-container-creator llm-project \
+yo @aws/ml-container-creator llm-project \
   --framework=transformers \
   --model-server=sglang \
   --instance-type=gpu-enabled \
@@ -454,13 +454,13 @@ yo ml-container-creator llm-project \
 
 ```bash
 # DON'T: sklearn with vLLM server
-yo ml-container-creator --framework=sklearn --model-server=vllm --skip-prompts
+yo @aws/ml-container-creator --framework=sklearn --model-server=vllm --skip-prompts
 
 # DON'T: transformers with model format
-yo ml-container-creator --framework=transformers --model-format=pkl --skip-prompts
+yo @aws/ml-container-creator --framework=transformers --model-format=pkl --skip-prompts
 
 # DON'T: transformers with sample model
-yo ml-container-creator --framework=transformers --include-sample --skip-prompts
+yo @aws/ml-container-creator --framework=transformers --include-sample --skip-prompts
 ```
 
 ### ❌ Using Unsupported Environment Variables
@@ -472,7 +472,7 @@ export ML_MODEL_SERVER=flask       # Not supported
 export ML_MODEL_FORMAT=pkl         # Not supported
 
 # DO: Use CLI options or config files for core parameters
-yo ml-container-creator --framework=sklearn --model-server=flask --skip-prompts
+yo @aws/ml-container-creator --framework=sklearn --model-server=flask --skip-prompts
 ```
 
 ### ❌ Invalid Configuration Files
@@ -493,7 +493,7 @@ yo ml-container-creator --framework=sklearn --model-server=flask --skip-prompts
 ```bash
 # DON'T: Rely on precedence for critical settings
 export AWS_REGION=us-east-1
-yo ml-container-creator --region=us-west-2 --skip-prompts
+yo @aws/ml-container-creator --region=us-west-2 --skip-prompts
 # Confusing: CLI option wins, but not obvious
 ```
 
@@ -504,28 +504,28 @@ The generator validates all configuration and provides clear error messages:
 ### Framework Validation
 
 ```bash
-yo ml-container-creator --framework=invalid --skip-prompts
+yo @aws/ml-container-creator --framework=invalid --skip-prompts
 # Error: ⚠️ invalid not implemented yet.
 ```
 
 ### Format Validation
 
 ```bash
-yo ml-container-creator --framework=sklearn --model-format=json --skip-prompts
+yo @aws/ml-container-creator --framework=sklearn --model-format=json --skip-prompts
 # Error: Invalid model format 'json' for framework 'sklearn'
 ```
 
 ### ARN Validation
 
 ```bash
-yo ml-container-creator --role-arn=invalid-arn --skip-prompts
+yo @aws/ml-container-creator --role-arn=invalid-arn --skip-prompts
 # Error: Invalid AWS Role ARN format
 ```
 
 ### Required Parameter Validation
 
 ```bash
-yo ml-container-creator --skip-prompts
+yo @aws/ml-container-creator --skip-prompts
 # Error: Missing required parameter: framework
 ```
 
@@ -535,8 +535,8 @@ yo ml-container-creator --skip-prompts
 
 ```bash
 # Create once, use many times
-yo ml-container-creator configure
-yo ml-container-creator --skip-prompts  # Uses config/mcp.json
+yo @aws/ml-container-creator configure
+yo @aws/ml-container-creator --skip-prompts  # Uses config/mcp.json
 ```
 
 ### 2. Use Environment Variables for Deployment Environments
@@ -551,7 +551,7 @@ export AWS_REGION=us-west-2     # Production
 
 ```bash
 # Quick test with different server
-yo ml-container-creator --model-server=fastapi --skip-prompts
+yo @aws/ml-container-creator --model-server=fastapi --skip-prompts
 ```
 
 ### 4. Combine Methods Strategically
@@ -559,14 +559,14 @@ yo ml-container-creator --model-server=fastapi --skip-prompts
 ```bash
 # Base config in file, environment-specific overrides
 export AWS_REGION=us-west-2
-yo ml-container-creator --config=base-config.json --skip-prompts
+yo @aws/ml-container-creator --config=base-config.json --skip-prompts
 ```
 
 ### 5. Validate Configuration Before Deployment
 
 ```bash
 # Test configuration without skipping prompts first
-yo ml-container-creator --config=production.json
+yo @aws/ml-container-creator --config=production.json
 # Review all settings, then use --skip-prompts for automation
 ```
 
@@ -577,7 +577,7 @@ yo ml-container-creator --config=production.json
 The generator shows which configuration sources are being used:
 
 ```bash
-yo ml-container-creator --framework=sklearn --skip-prompts
+yo @aws/ml-container-creator --framework=sklearn --skip-prompts
 
 # Output shows:
 # ⚙️ Configuration will be collected from prompts and merged with:
@@ -596,13 +596,13 @@ yo ml-container-creator --framework=sklearn --skip-prompts
 
 ```bash
 # Show all configuration options
-yo ml-container-creator help
+yo @aws/ml-container-creator help
 
 # Show interactive configuration
-yo ml-container-creator configure
+yo @aws/ml-container-creator configure
 
 # Show environment variable examples
-yo ml-container-creator configure  # Choose "Show environment variable examples"
+yo @aws/ml-container-creator configure  # Choose "Show environment variable examples"
 ```
 
 This comprehensive configuration system ensures you can use ML Container Creator in any workflow, from interactive development to fully automated CI/CD pipelines.

@@ -200,8 +200,10 @@ describe('CodeBuild Feature', () => {
             const configManager = new ConfigManager(mockGenerator);
             
             const validConfig = {
-                framework: 'sklearn',
-                modelServer: 'flask',
+                deploymentConfig: 'http-flask',
+                architecture: 'http',
+                backend: 'flask',
+                engine: 'sklearn',
                 modelFormat: 'pkl',
                 buildTarget: 'codebuild',
                 codebuildComputeType: 'BUILD_GENERAL1_MEDIUM',

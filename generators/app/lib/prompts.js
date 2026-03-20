@@ -45,8 +45,8 @@ function generateProjectName(framework) {
 
 /**
  * Phase 1: Core ML configuration (moved to first)
- * Flattened deployment configuration combining framework + model server
- * Requirements: 16.1, 16.2, 16.3, 16.4, 16.8, 16.9
+ * Flattened deployment configuration combining architecture + backend
+ * Requirements: 3.1, 3.2, 16.1, 16.2, 16.3, 16.4, 16.8, 16.9
  */
 const deploymentConfigPrompts = [
     {
@@ -80,36 +80,52 @@ const deploymentConfigPrompts = [
                 value: 'transformers-djl',
                 short: 'transformers-djl'
             },
-            { type: 'separator', separator: '── Traditional ML ──' },
+            { type: 'separator', separator: '── HTTP Serving ──' },
             {
-                name: 'scikit-learn with Flask',
-                value: 'sklearn-flask',
-                short: 'sklearn-flask'
+                name: 'HTTP with Flask',
+                value: 'http-flask',
+                short: 'http-flask'
             },
             {
-                name: 'scikit-learn with FastAPI',
-                value: 'sklearn-fastapi',
-                short: 'sklearn-fastapi'
+                name: 'HTTP with FastAPI',
+                value: 'http-fastapi',
+                short: 'http-fastapi'
+            },
+            { type: 'separator', separator: '── NVIDIA Triton Inference Server ──' },
+            {
+                name: 'Triton FIL (XGBoost, LightGBM)',
+                value: 'triton-fil',
+                short: 'triton-fil'
             },
             {
-                name: 'XGBoost with Flask',
-                value: 'xgboost-flask',
-                short: 'xgboost-flask'
+                name: 'Triton ONNX Runtime',
+                value: 'triton-onnxruntime',
+                short: 'triton-onnxruntime'
             },
             {
-                name: 'XGBoost with FastAPI',
-                value: 'xgboost-fastapi',
-                short: 'xgboost-fastapi'
+                name: 'Triton TensorFlow',
+                value: 'triton-tensorflow',
+                short: 'triton-tensorflow'
             },
             {
-                name: 'TensorFlow with Flask',
-                value: 'tensorflow-flask',
-                short: 'tensorflow-flask'
+                name: 'Triton PyTorch',
+                value: 'triton-pytorch',
+                short: 'triton-pytorch'
             },
             {
-                name: 'TensorFlow with FastAPI',
-                value: 'tensorflow-fastapi',
-                short: 'tensorflow-fastapi'
+                name: 'Triton vLLM',
+                value: 'triton-vllm',
+                short: 'triton-vllm'
+            },
+            {
+                name: 'Triton TensorRT-LLM',
+                value: 'triton-tensorrtllm',
+                short: 'triton-tensorrtllm'
+            },
+            {
+                name: 'Triton Python Backend',
+                value: 'triton-python',
+                short: 'triton-python'
             }
         ]
     }
@@ -117,6 +133,27 @@ const deploymentConfigPrompts = [
 
 // Keep legacy frameworkPrompts for backward compatibility (deprecated)
 const frameworkPrompts = deploymentConfigPrompts;
+
+/**
+ * Engine selection prompt for http architecture
+ * Requirements: 3.7
+ */
+const enginePrompts = [
+    {
+        type: 'list',
+        name: 'engine',
+        message: 'Select ML engine:',
+        choices: [
+            { name: 'scikit-learn', value: 'sklearn' },
+            { name: 'XGBoost', value: 'xgboost' },
+            { name: 'TensorFlow', value: 'tensorflow' }
+        ],
+        when: (answers) => {
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            return architecture === 'http'
+        }
+    }
+];
 
 /**
  * Framework version selection prompts (for registry system)
@@ -164,19 +201,71 @@ const modelFormatPrompts = [
         name: 'modelFormat',
         message: 'In which format is your model serialized?',
         choices: (answers) => {
-            // Derive framework from deploymentConfig if not already set
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            // Derive architecture from deploymentConfig
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
+            
+            // For http architecture, use engine to determine formats
+            if (architecture === 'http') {
+                const engine = answers.engine
+                const formatMap = {
+                    'xgboost': ['json', 'model', 'ubj'],
+                    'sklearn': ['pkl', 'joblib'],
+                    'tensorflow': ['keras', 'h5', 'SavedModel']
+                }
+                return formatMap[engine] || []
+            }
+            
+            // For triton architecture, use backend-specific formats
+            if (architecture === 'triton') {
+                // FIL backend has multiple format choices
+                if (backend === 'fil') {
+                    return ['xgboost_json', 'xgboost_ubj', 'lightgbm_txt']
+                }
+                // Python backend has multiple format choices
+                if (backend === 'python') {
+                    return ['pkl', 'joblib', 'custom']
+                }
+                // Other Triton backends have auto-set formats (handled in when clause)
+                return []
+            }
+            
+            // Legacy support for old format (should not be reached with new configs)
+            const framework = answers.framework || architecture
             const formatMap = {
                 'xgboost': ['json', 'model', 'ubj'],
                 'sklearn': ['pkl', 'joblib'],
                 'tensorflow': ['keras', 'h5', 'SavedModel']
-            };
-            return formatMap[framework] || [];
+            }
+            return formatMap[framework] || []
         },
         when: answers => {
-            // Derive framework from deploymentConfig if not already set
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            return framework !== 'transformers';
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
+            
+            // Skip for transformers (they use HF Hub)
+            if (architecture === 'transformers') {
+                return false
+            }
+            
+            // For http architecture, always show
+            if (architecture === 'http') {
+                return true
+            }
+            
+            // For triton architecture, only show for backends with multiple format choices
+            if (architecture === 'triton') {
+                // FIL and Python backends have multiple format choices
+                if (backend === 'fil' || backend === 'python') {
+                    return true
+                }
+                // Other backends have auto-set formats
+                return false
+            }
+            
+            // Legacy support
+            const framework = answers.framework || architecture
+            return framework !== 'transformers'
         }
     },
     {
@@ -191,9 +280,20 @@ const modelFormatPrompts = [
         ],
         default: 'openai/gpt-oss-20b',
         when: answers => {
-            // Derive framework from deploymentConfig if not already set
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            return framework === 'transformers';
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
+            
+            // Show for transformers architecture
+            if (architecture === 'transformers') {
+                return true
+            }
+            
+            // Show for Triton LLM backends (vllm, tensorrtllm)
+            if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')) {
+                return true
+            }
+            
+            return false
         }
     },
     {
@@ -202,18 +302,29 @@ const modelFormatPrompts = [
         message: 'Enter the Hugging Face model path:',
         validate: (input) => {
             if (!input || input.trim() === '') {
-                return 'Model name is required for transformers';
+                return 'Model name is required'
             }
             // Basic validation for Hugging Face model format (org/model-name)
             if (!input.includes('/')) {
-                return 'Please use the full Hugging Face model path (e.g., microsoft/DialoGPT-medium)';
+                return 'Please use the full Hugging Face model path (e.g., microsoft/DialoGPT-medium)'
             }
-            return true;
+            return true
         },
         when: answers => {
-            // Derive framework from deploymentConfig if not already set
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            return framework === 'transformers' && answers.modelName === 'Custom (enter manually)';
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
+            
+            // Show for transformers with custom model selection
+            if (architecture === 'transformers' && answers.modelName === 'Custom (enter manually)') {
+                return true
+            }
+            
+            // Show for Triton LLM backends with custom model selection
+            if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm') && answers.modelName === 'Custom (enter manually)') {
+                return true
+            }
+            
+            return false
         }
     }
 ];
@@ -258,42 +369,48 @@ const hfTokenPrompts = [
         name: 'hfToken',
         message: 'HuggingFace token (enter token, "$HF_TOKEN" for env var, or leave empty):',
         when: (answers) => {
-            // Derive framework from deploymentConfig if not already set
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
             
-            // Only prompt for transformers framework
-            if (framework !== 'transformers') {
-                return false;
+            // Prompt for transformers architecture
+            const isTransformers = architecture === 'transformers'
+            
+            // Prompt for Triton LLM backends (vllm, tensorrtllm)
+            // Requirements: 9.1, 9.2
+            const isTritonLlm = architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')
+            
+            if (!isTransformers && !isTritonLlm) {
+                return false
             }
             
             // Display security warning before prompting
-            console.log('\n🔐 HuggingFace Authentication');
-            console.log('   Many models (e.g. Llama, Mistral) are gated and require a token.');
-            console.log('⚠️  Security Note: The token will be baked into the Docker image.');
-            console.log('   Anyone with access to the image can extract the token using \'docker inspect\'.');
-            console.log('   For CI/CD pipelines, use "$HF_TOKEN" to reference an environment variable.');
-            console.log('   This keeps the token out of the image and allows rotation without rebuilding.\n');
+            console.log('\n🔐 HuggingFace Authentication')
+            console.log('   Many models (e.g. Llama, Mistral) are gated and require a token.')
+            console.log('⚠️  Security Note: The token will be baked into the Docker image.')
+            console.log('   Anyone with access to the image can extract the token using \'docker inspect\'.')
+            console.log('   For CI/CD pipelines, use "$HF_TOKEN" to reference an environment variable.')
+            console.log('   This keeps the token out of the image and allows rotation without rebuilding.\n')
             
-            return true;
+            return true
         },
         validate: (input) => {
             // Empty is valid (not all models require auth)
             if (!input || input.trim() === '') {
-                return true;
+                return true
             }
             
             // $HF_TOKEN reference is valid
             if (input.trim() === '$HF_TOKEN') {
-                return true;
+                return true
             }
             
             // Direct token should start with hf_ (warning only, not blocking)
             if (!input.startsWith('hf_')) {
-                console.warn('\n⚠️  Warning: HuggingFace tokens typically start with "hf_"');
-                console.warn('   If this is intentional, you can ignore this warning.');
+                console.warn('\n⚠️  Warning: HuggingFace tokens typically start with "hf_"')
+                console.warn('   If this is intentional, you can ignore this warning.')
             }
             
-            return true; // Always return true (non-blocking validation)
+            return true // Always return true (non-blocking validation)
         }
     }
 ];
@@ -304,30 +421,37 @@ const ngcApiKeyPrompts = [
         name: 'ngcApiKey',
         message: 'NVIDIA NGC API key (enter key, "$NGC_API_KEY" for env var, or leave empty):',
         when: (answers) => {
-            const modelServer = answers.modelServer || answers.deploymentConfig?.split('-').slice(1).join('-');
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
             
-            if (modelServer !== 'tensorrt-llm') {
-                return false;
+            // Never prompt for NGC key for Triton configs (public images)
+            // Requirements: 9.2
+            if (architecture === 'triton') {
+                return false
             }
             
-            console.log('\n🔐 NVIDIA NGC Authentication');
-            console.log('   TensorRT-LLM base images are hosted on NVIDIA NGC and require an API key.');
-            console.log('   1. Create account at: https://ngc.nvidia.com/');
-            console.log('   2. Generate API key in account settings');
-            console.log('   For CI/CD pipelines, use "$NGC_API_KEY" to reference an environment variable.\n');
+            // Only prompt for transformers-tensorrt-llm
+            if (architecture === 'transformers' && backend === 'tensorrt-llm') {
+                console.log('\n🔐 NVIDIA NGC Authentication')
+                console.log('   TensorRT-LLM base images are hosted on NVIDIA NGC and require an API key.')
+                console.log('   1. Create account at: https://ngc.nvidia.com/')
+                console.log('   2. Generate API key in account settings')
+                console.log('   For CI/CD pipelines, use "$NGC_API_KEY" to reference an environment variable.\n')
+                return true
+            }
             
-            return true;
+            return false
         },
         validate: (input) => {
             if (!input || input.trim() === '') {
-                return true;
+                return true
             }
             
             if (input.trim() === '$NGC_API_KEY') {
-                return true;
+                return true
             }
             
-            return true;
+            return true
         }
     }
 ];
@@ -339,9 +463,26 @@ const modulePrompts = [
         message: 'Include sample Abalone classifier?',
         default: false,
         when: (answers) => {
-            // Derive framework from deploymentConfig if not already set
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            return framework !== 'transformers';
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
+            
+            // Never for transformers
+            if (architecture === 'transformers') {
+                return false
+            }
+            
+            // For Triton, check if backend supports sample model
+            if (architecture === 'triton') {
+                // Triton LLM backends don't support sample model
+                if (backend === 'vllm' || backend === 'tensorrtllm' || backend === 'pytorch') {
+                    return false
+                }
+                // Other Triton backends support sample model
+                return true
+            }
+            
+            // For http architecture, always show
+            return true
         }
     },
     {
@@ -349,20 +490,31 @@ const modulePrompts = [
         name: 'testTypes',
         message: 'Test type?',
         choices: (answers) => {
-            // Derive framework from deploymentConfig if not already set
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            if (framework === 'transformers') {
-                return ['hosted-model-endpoint'];
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
+            
+            // Transformers and Triton LLM backends only support hosted endpoint tests
+            if (architecture === 'transformers') {
+                return ['hosted-model-endpoint']
             }
-            return ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
+            if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')) {
+                return ['hosted-model-endpoint']
+            }
+            
+            return ['local-model-cli', 'local-model-server', 'hosted-model-endpoint']
         },
         default: (answers) => {
-            // Derive framework from deploymentConfig if not already set
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            if (framework === 'transformers') {
-                return ['hosted-model-endpoint'];
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')
+            
+            if (architecture === 'transformers') {
+                return ['hosted-model-endpoint']
             }
-            return ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
+            if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')) {
+                return ['hosted-model-endpoint']
+            }
+            
+            return ['local-model-cli', 'local-model-server', 'hosted-model-endpoint']
         }
     }
 ];
@@ -675,8 +827,9 @@ const baseImageSearchPrompts = [
         message: '🔌 Search for a Python base image (e.g. "3.11", "3.10", or leave empty for all):',
         default: '',
         when: (answers) => {
-            const framework = answers.framework || answers.deploymentConfig?.split('-')[0]
-            return framework !== 'transformers'
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            // Skip for transformers (uses model-server images) and triton (uses NGC images)
+            return architecture !== 'transformers' && architecture !== 'triton'
         }
     }
 ]
@@ -719,6 +872,7 @@ const baseImagePrompts = [
 export {
     deploymentConfigPrompts,
     frameworkPrompts, // Deprecated: kept for backward compatibility
+    enginePrompts,
     frameworkVersionPrompts,
     frameworkProfilePrompts,
     modelFormatPrompts,

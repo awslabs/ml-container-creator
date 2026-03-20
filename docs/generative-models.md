@@ -24,7 +24,7 @@ Some HuggingFace models are gated, requiring a HuggingFace API Token to access t
 
 1. CLI Flag (highest precedence)
 ```bash
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=transformers \
   --model-name="meta-llama/Llama-2-7b-chat-hf" \
   --hf-token="hf_your_token_here"
@@ -32,14 +32,14 @@ yo ml-container-creator \
 2. Environment Variable 
 ```bash
 export HF_TOKEN="hf_your_token_here"
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=transformers \
   --model-name="meta-llama/Llama-2-7b-chat-hf" \
   --hf-token='$HF_TOKEN'
 ```
 3. Interactive Prompt (Yeoman REPL)
 ```bash
-yo ml-container-creator
+yo @aws/ml-container-creator
 # When prompted for transformers, you'll be asked for HF token
 # Enter: $HF_TOKEN (to use env var) or hf_your_token_here (direct)
 ```
