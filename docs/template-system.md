@@ -197,7 +197,7 @@ Document the new template and when it's included/excluded.
 npm link
 
 # Run generator
-yo ml-container-creator
+yo @aws/ml-container-creator
 
 # Test different configurations
 # - sklearn + flask

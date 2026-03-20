@@ -169,7 +169,7 @@ You can specify any AWS SageMaker instance type using the custom option:
 
 ```bash
 # CLI usage
-yo ml-container-creator --instance-type=custom --custom-instance-type=ml.g4dn.xlarge
+yo @aws/ml-container-creator --instance-type=custom --custom-instance-type=ml.g4dn.xlarge
 
 # Configuration file
 {

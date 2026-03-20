@@ -21,7 +21,7 @@ npm link
 npm test
 
 # 3. Try the generator
-yo ml-container-creator
+yo @aws/ml-container-creator
 ```
 
 That's it! You're ready to contribute.
@@ -286,7 +286,7 @@ npm link
 
 # 3. Test in a temporary directory
 cd /tmp
-yo ml-container-creator
+yo @aws/ml-container-creator
 
 # 4. Verify generated project structure
 cd your-generated-project
@@ -308,10 +308,10 @@ docker images | grep your-project  # Verify image was created
 
 ```bash
 # See detailed Yeoman output
-DEBUG=yeoman:* yo ml-container-creator
+DEBUG=yeoman:* yo @aws/ml-container-creator
 
 # See generator-specific output
-DEBUG=generator-ml-container-creator:* yo ml-container-creator
+DEBUG=@aws/generator-ml-container-creator:* yo @aws/ml-container-creator
 ```
 
 ### Common Issues

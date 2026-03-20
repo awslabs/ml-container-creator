@@ -433,7 +433,7 @@ print_info "Testing basic framework configurations..."
 for config in basic-*.json; do
     if [[ -f "$config" ]]; then
         echo "Testing: $config"
-        if yo ml-container-creator --config="$config" --skip-prompts > "${config%.json}.log" 2>&1; then
+        if yo @aws/ml-container-creator --config="$config" --skip-prompts > "${config%.json}.log" 2>&1; then
             print_success "Config test passed: $config"
             ((TESTS_PASSED++))
         else
@@ -448,7 +448,7 @@ print_info "Testing edge case configurations..."
 for config in edge-*.json; do
     if [[ -f "$config" ]]; then
         echo "Testing: $config"
-        if yo ml-container-creator --config="$config" --skip-prompts > "${config%.json}.log" 2>&1; then
+        if yo @aws/ml-container-creator --config="$config" --skip-prompts > "${config%.json}.log" 2>&1; then
             print_success "Edge case test passed: $config"
             ((TESTS_PASSED++))
         else
@@ -463,7 +463,7 @@ print_info "Testing error configurations (should fail)..."
 for config in error-*.json; do
     if [[ -f "$config" ]]; then
         echo "Testing: $config (expecting failure)"
-        if yo ml-container-creator --config="$config" --skip-prompts > "${config%.json}.log" 2>&1; then
+        if yo @aws/ml-container-creator --config="$config" --skip-prompts > "${config%.json}.log" 2>&1; then
             print_error "Error test unexpectedly passed: $config"
             ((TESTS_FAILED++))
         else

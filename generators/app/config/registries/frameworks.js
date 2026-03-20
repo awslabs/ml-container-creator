@@ -386,5 +386,124 @@ export default {
             },
             notes: 'DJL Serving 0.32.0 with PyTorch backend. Flexible Java-based serving framework with Python engine support'
         }
+    },
+    'triton-fil': {
+        '24.08': {
+            baseImage: 'nvcr.io/nvidia/tritonserver:24.08-py3',
+            accelerator: {
+                type: 'cuda',
+                version: '12.5',
+                versionRange: { min: '12.0', max: '12.6' }
+            },
+            envVars: {
+                'TRITON_MODEL_REPOSITORY': '/opt/ml/model/model_repository'
+            },
+            inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-2',
+            recommendedInstanceTypes: ['ml.g5.xlarge', 'ml.g5.2xlarge'],
+            validationLevel: 'experimental',
+            notes: 'Triton FIL backend for tree-based models (XGBoost, LightGBM). GPU optional but recommended for performance'
+        }
+    },
+    'triton-onnxruntime': {
+        '24.08': {
+            baseImage: 'nvcr.io/nvidia/tritonserver:24.08-py3',
+            accelerator: {
+                type: 'cuda',
+                version: '12.5',
+                versionRange: { min: '12.0', max: '12.6' }
+            },
+            envVars: {
+                'TRITON_MODEL_REPOSITORY': '/opt/ml/model/model_repository'
+            },
+            inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-2',
+            recommendedInstanceTypes: ['ml.g5.xlarge', 'ml.g5.2xlarge'],
+            validationLevel: 'experimental',
+            notes: 'Triton ONNX Runtime backend for ONNX models. GPU optional but recommended for performance'
+        }
+    },
+    'triton-tensorflow': {
+        '24.08': {
+            baseImage: 'nvcr.io/nvidia/tritonserver:24.08-py3',
+            accelerator: {
+                type: 'cuda',
+                version: '12.5',
+                versionRange: { min: '12.0', max: '12.6' }
+            },
+            envVars: {
+                'TRITON_MODEL_REPOSITORY': '/opt/ml/model/model_repository'
+            },
+            inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-2',
+            recommendedInstanceTypes: ['ml.g5.xlarge', 'ml.g5.2xlarge'],
+            validationLevel: 'experimental',
+            notes: 'Triton TensorFlow backend for SavedModel format. GPU optional but recommended for performance'
+        }
+    },
+    'triton-pytorch': {
+        '24.08': {
+            baseImage: 'nvcr.io/nvidia/tritonserver:24.08-py3',
+            accelerator: {
+                type: 'cuda',
+                version: '12.5',
+                versionRange: { min: '12.0', max: '12.6' }
+            },
+            envVars: {
+                'TRITON_MODEL_REPOSITORY': '/opt/ml/model/model_repository'
+            },
+            inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-2',
+            recommendedInstanceTypes: ['ml.g5.xlarge', 'ml.g5.2xlarge'],
+            validationLevel: 'experimental',
+            notes: 'Triton PyTorch backend for TorchScript models. GPU recommended for performance'
+        }
+    },
+    'triton-vllm': {
+        '24.08': {
+            baseImage: 'nvcr.io/nvidia/tritonserver:24.08-py3',
+            accelerator: {
+                type: 'cuda',
+                version: '12.5',
+                versionRange: { min: '12.0', max: '12.6' }
+            },
+            envVars: {
+                'TRITON_MODEL_REPOSITORY': '/opt/ml/model/model_repository'
+            },
+            inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-2',
+            recommendedInstanceTypes: ['ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.g5.4xlarge'],
+            validationLevel: 'experimental',
+            notes: 'Triton vLLM backend for LLM serving. Requires GPU instance'
+        }
+    },
+    'triton-tensorrtllm': {
+        '24.08': {
+            baseImage: 'nvcr.io/nvidia/tritonserver:24.08-py3',
+            accelerator: {
+                type: 'cuda',
+                version: '12.5',
+                versionRange: { min: '12.0', max: '12.6' }
+            },
+            envVars: {
+                'TRITON_MODEL_REPOSITORY': '/opt/ml/model/model_repository'
+            },
+            inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-2',
+            recommendedInstanceTypes: ['ml.g5.2xlarge', 'ml.g5.4xlarge', 'ml.g5.12xlarge'],
+            validationLevel: 'experimental',
+            notes: 'Triton TensorRT-LLM backend for optimized LLM serving. Requires GPU instance'
+        }
+    },
+    'triton-python': {
+        '24.08': {
+            baseImage: 'nvcr.io/nvidia/tritonserver:24.08-py3',
+            accelerator: {
+                type: 'cuda',
+                version: '12.5',
+                versionRange: { min: '12.0', max: '12.6' }
+            },
+            envVars: {
+                'TRITON_MODEL_REPOSITORY': '/opt/ml/model/model_repository'
+            },
+            inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-2',
+            recommendedInstanceTypes: ['ml.g5.xlarge', 'ml.g5.2xlarge'],
+            validationLevel: 'experimental',
+            notes: 'Triton Python backend for custom model serving with TritonPythonModel interface. GPU optional'
+        }
     }
 };

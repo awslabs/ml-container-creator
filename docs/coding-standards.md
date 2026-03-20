@@ -165,7 +165,7 @@ except Exception as e:
 const helpers = require('yeoman-test');
 const assert = require('yeoman-assert');
 
-describe('generator-ml-container-creator:app', () => {
+describe('@aws/generator-ml-container-creator:app', () => {
     it('creates expected files', async () => {
         await helpers.run(path.join(__dirname, '../generators/app'))
             .withPrompts({

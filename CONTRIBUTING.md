@@ -183,7 +183,7 @@ test_your_new_feature() {
     mkdir -p "your-feature-test"
     cd "your-feature-test"
     
-    if yo ml-container-creator --your-new-option --skip-prompts > ../test.log 2>&1; then
+    if yo @aws/ml-container-creator --your-new-option --skip-prompts > ../test.log 2>&1; then
         validate_files ["expected-file.txt"] "your feature test"
         cd ..
         record_test_result "Your Feature" "PASS"

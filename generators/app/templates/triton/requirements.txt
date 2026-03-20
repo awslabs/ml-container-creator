@@ -1,0 +1,11 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Python dependencies for Triton Python backend
+numpy>=1.24.0
+<% if (modelFormat === 'pkl') { %>
+scikit-learn>=1.3.0
+<% } else if (modelFormat === 'joblib') { %>
+scikit-learn>=1.3.0
+joblib>=1.3.0
+<% } %>

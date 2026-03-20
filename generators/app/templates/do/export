@@ -2,14 +2,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Export current configuration as a single yo ml-container-creator command
+# Export current configuration as a single yo @aws/ml-container-creator command
 
 # Source configuration (suppress the summary output)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config" > /dev/null 2>&1
 
 # Build the command
-CMD="yo ml-container-creator"
+CMD="yo @aws/ml-container-creator"
 CMD="${CMD} --project-name=${PROJECT_NAME}"
 
 # Use deployment-config if available (bundles framework + model server)

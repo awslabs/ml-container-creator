@@ -1,5 +1,6 @@
 {
-  "name": "@ml-container-creator/lib",
+  "name": "@amzn/ml-container-creator-lib",
+  "private": true,
   "version": "1.0.0",
   "description": "Shared library for ML Container Creator bundled MCP servers. Provides a reusable Bedrock client for context-aware recommendations.",
   "type": "module",

@@ -58,7 +58,7 @@ yo --generators
 npm test
 
 # Generate your project
-yo ml-container-creator
+yo @aws/ml-container-creator
 ```
 
 ## Predictive ML
@@ -78,12 +78,12 @@ In this example, we'll use the sample Abalone classifier. This deployment option
 
 ### Step 2: Generate Container Project
 
-Run the generator using the `yo` command and selecting the generator from the provided list. Alternatively, specify the generator inline: `yo ml-container-creator`. You'll be prompted with questions. Each option creates conditional branching logic custom to the selected values. For a basic scikit-learn container using the default regression model, follow the prompts as defined below. You'll want to do this in a new directory.
+Run the generator using the `yo` command and selecting the generator from the provided list. Alternatively, specify the generator inline: `yo @aws/ml-container-creator`. You'll be prompted with questions. Each option creates conditional branching logic custom to the selected values. For a basic scikit-learn container using the default regression model, follow the prompts as defined below. You'll want to do this in a new directory.
 
 ```
 (base) frgud@842f5776eab6 ml-container-creator % mkdir scikit-test
 (base) frgud@842f5776eab6 ml-container-creator % cd scikit-test 
-(base) frgud@842f5776eab6 scikit-test % yo ml-container-creator scikit-test-project
+(base) frgud@842f5776eab6 scikit-test % yo @aws/ml-container-creator scikit-test-project
 
 📚 Registry System Initialized
    • Framework Registry: Loaded
@@ -386,7 +386,7 @@ Just as with the [predictive scenario](#predictive-ml), we can use MCC to genera
 
 
 ```bash
-(base) frgud@842f5776eab6 transformers-test % yo ml-container-creator sglang-gptoss-test 
+(base) frgud@842f5776eab6 transformers-test % yo @aws/ml-container-creator sglang-gptoss-test 
 
 📚 Registry System Initialized
    • Framework Registry: Loaded
@@ -626,7 +626,7 @@ Skip prompts entirely using CLI options:
 
 ```bash
 # Generate sklearn project with CLI options
-yo ml-container-creator iris-classifier \
+yo @aws/ml-container-creator iris-classifier \
   --framework=sklearn \
   --model-server=flask \
   --model-format=pkl \
@@ -641,7 +641,7 @@ Set deployment-specific variables:
 ```bash
 export AWS_REGION=us-west-2
 export ML_INSTANCE_TYPE=gpu-enabled
-yo ml-container-creator --framework=transformers --model-server=vllm --skip-prompts
+yo @aws/ml-container-creator --framework=transformers --model-server=vllm --skip-prompts
 ```
 
 ### Configuration Precedence
@@ -649,7 +649,7 @@ yo ml-container-creator --framework=transformers --model-server=vllm --skip-prom
 Configuration sources are applied in order (highest to lowest priority):
 
 1. **CLI Options** (`--framework=sklearn`)
-2. **CLI Arguments** (`yo ml-container-creator my-project`)
+2. **CLI Arguments** (`yo @aws/ml-container-creator my-project`)
 3. **Environment Variables** (`AWS_REGION=us-east-1`)
 4. **Config Files** (`--config=prod.json` or `config/mcp.json`)
 5. **Package.json** (`"ml-container-creator": {...}`)

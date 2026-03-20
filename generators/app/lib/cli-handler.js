@@ -5,9 +5,9 @@
  * CLI Handler - Handles special CLI arguments and commands
  * 
  * Supports behavioral CLI arguments like:
- * - yo ml-container-creator configure
- * - yo ml-container-creator generate-empty-config
- * - yo ml-container-creator --help
+ * - yo @aws/ml-container-creator configure
+ * - yo @aws/ml-container-creator generate-empty-config
+ * - yo @aws/ml-container-creator --help
  */
 
 import fs from 'fs';
@@ -143,7 +143,7 @@ export default class CliHandler {
 🚀 ML Container Creator Generator
 
 USAGE:
-  yo ml-container-creator [command] [project-name] [options]
+  yo @aws/ml-container-creator [command] [project-name] [options]
 
 COMMANDS:
   configure              Interactive configuration setup
@@ -151,11 +151,11 @@ COMMANDS:
   help                   Show this help message
 
 EXAMPLES:
-  yo ml-container-creator                           # Interactive mode
-  yo ml-container-creator my-project               # With project name
-  yo ml-container-creator --skip-prompts           # Skip prompts, use config
-  yo ml-container-creator --framework=sklearn      # With CLI options
-  yo ml-container-creator --config=prod.json       # With config file
+  yo @aws/ml-container-creator                           # Interactive mode
+  yo @aws/ml-container-creator my-project               # With project name
+  yo @aws/ml-container-creator --skip-prompts           # Skip prompts, use config
+  yo @aws/ml-container-creator --framework=sklearn      # With CLI options
+  yo @aws/ml-container-creator --config=prod.json       # With config file
 
 CLI OPTIONS:
   --skip-prompts              Skip interactive prompts
@@ -238,7 +238,7 @@ CONFIGURATION FILES (in precedence order):
 
 TRANSFORMER MODEL EXAMPLES:
   # vLLM with Llama-2 7B
-  yo ml-container-creator --framework=transformers \\
+  yo @aws/ml-container-creator --framework=transformers \\
     --model-name=meta-llama/Llama-2-7b-chat-hf \\
     --model-server=vllm \\
     --instance-type=ml.g5.xlarge \\
@@ -246,14 +246,14 @@ TRANSFORMER MODEL EXAMPLES:
     --skip-prompts
 
   # TensorRT-LLM with custom model
-  yo ml-container-creator --framework=transformers \\
+  yo @aws/ml-container-creator --framework=transformers \\
     --model-name=openai/gpt-oss-20b \\
     --model-server=tensorrt-llm \\
     --instance-type=ml.g6.12xlarge \\
     --skip-prompts
 
   # SGLang with Mistral
-  yo ml-container-creator --framework=transformers \\
+  yo @aws/ml-container-creator --framework=transformers \\
     --model-name=mistralai/Mistral-7B-Instruct-v0.2 \\
     --model-server=sglang \\
     --instance-type=ml.g5.xlarge \\
@@ -288,7 +288,7 @@ For more information, visit: https://github.com/awslabs/ml-container-creator
 
         fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
         console.log(`\n✅ Added configuration to ${packageJsonPath}`);
-        console.log('\n📝 You can now run: yo ml-container-creator --skip-prompts');
+        console.log('\n📝 You can now run: yo @aws/ml-container-creator --skip-prompts');
     }
 
     /**
@@ -304,7 +304,7 @@ For more information, visit: https://github.com/awslabs/ml-container-creator
         }
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
         console.log(`\n✅ Created configuration file: ${configPath}`);
-        console.log('\n📝 You can now run: yo ml-container-creator --skip-prompts');
+        console.log('\n📝 You can now run: yo @aws/ml-container-creator --skip-prompts');
     }
 
 
@@ -405,7 +405,7 @@ export AWS_ROLE="arn:aws:iam::123456789012:role/SageMakerRole"
 export ML_CONTAINER_CREATOR_CONFIG="./my-config.json"
 
 # Then run with CLI options for core parameters:
-yo ml-container-creator --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts
+yo @aws/ml-container-creator --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts
 `);
     }
 
@@ -418,14 +418,14 @@ yo ml-container-creator --framework=sklearn --model-server=flask --model-format=
 💻 CLI Option Examples:
 
 # Basic sklearn project
-yo ml-container-creator my-sklearn-project \\
+yo @aws/ml-container-creator my-sklearn-project \\
   --framework=sklearn \\
   --model-server=flask \\
   --model-format=pkl \\
   --skip-prompts
 
 # Transformers project with vLLM
-yo ml-container-creator my-llm-project \\
+yo @aws/ml-container-creator my-llm-project \\
   --framework=transformers \\
   --model-name=meta-llama/Llama-2-7b-chat-hf \\
   --model-server=vllm \\
@@ -435,7 +435,7 @@ yo ml-container-creator my-llm-project \\
   --skip-prompts
 
 # TensorRT-LLM with custom instance type
-yo ml-container-creator my-tensorrt-project \\
+yo @aws/ml-container-creator my-tensorrt-project \\
   --framework=transformers \\
   --model-name=openai/gpt-oss-20b \\
   --model-server=tensorrt-llm \\
@@ -443,7 +443,7 @@ yo ml-container-creator my-tensorrt-project \\
   --skip-prompts
 
 # SGLang with Mistral model
-yo ml-container-creator my-sglang-project \\
+yo @aws/ml-container-creator my-sglang-project \\
   --framework=transformers \\
   --model-name=mistralai/Mistral-7B-Instruct-v0.2 \\
   --model-server=sglang \\
@@ -451,7 +451,7 @@ yo ml-container-creator my-sglang-project \\
   --skip-prompts
 
 # XGBoost with FastAPI and custom role
-yo ml-container-creator my-xgb-project \\
+yo @aws/ml-container-creator my-xgb-project \\
   --framework=xgboost \\
   --model-server=fastapi \\
   --model-format=json \\
@@ -461,7 +461,7 @@ yo ml-container-creator my-xgb-project \\
   --skip-prompts
 
 # CodeBuild deployment target
-yo ml-container-creator my-codebuild-project \\
+yo @aws/ml-container-creator my-codebuild-project \\
   --framework=sklearn \\
   --model-server=flask \\
   --model-format=pkl \\
@@ -471,10 +471,10 @@ yo ml-container-creator my-codebuild-project \\
   --skip-prompts
 
 # Using configuration file
-yo ml-container-creator --config=production.json --skip-prompts
+yo @aws/ml-container-creator --config=production.json --skip-prompts
 
 # With validation options
-yo ml-container-creator \\
+yo @aws/ml-container-creator \\
   --framework=transformers \\
   --model-name=meta-llama/Llama-2-7b-chat-hf \\
   --model-server=vllm \\

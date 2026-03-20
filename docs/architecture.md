@@ -9,7 +9,7 @@ This is a Yeoman generator that creates Docker containers for deploying ML model
 For newcomers, here's how the generator works:
 
 ```
-User runs: yo ml-container-creator
+User runs: yo @aws/ml-container-creator
            ↓
     ┌─────────────────┐
     │   index.js      │  ← Main generator (orchestration)
@@ -234,7 +234,7 @@ Files are conditionally excluded based on configuration:
    - Orchestration: `generators/app/index.js`
 2. Edit templates in `generators/app/templates/`
 3. Run `npm link` to test locally
-4. Test with `yo ml-container-creator`
+4. Test with `yo @aws/ml-container-creator`
 5. Run `npm test` before committing
 
 ### Testing

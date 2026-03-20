@@ -73,7 +73,7 @@ export default class McpCommandHandler {
      */
     async _handleAdd(positionalArgs, options) {
         if (positionalArgs.length === 0) {
-            console.log('Usage: yo ml-container-creator mcp add <name> -- <command> [args...]');
+            console.log('Usage: yo @aws/ml-container-creator mcp add <name> -- <command> [args...]');
             return;
         }
 
@@ -97,7 +97,7 @@ export default class McpCommandHandler {
             // Find the '--' separator to split name from command
             const separatorIndex = positionalArgs.indexOf('--');
             if (separatorIndex === -1 || separatorIndex + 1 >= positionalArgs.length) {
-                console.log('Usage: yo ml-container-creator mcp add <name> -- <command> [args...]');
+                console.log('Usage: yo @aws/ml-container-creator mcp add <name> -- <command> [args...]');
                 console.log('The "--" separator is required between the server name and the command.');
                 return;
             }
@@ -233,7 +233,7 @@ export default class McpCommandHandler {
 
         if (!servers || Object.keys(servers).length === 0) {
             console.log('No MCP servers configured.');
-            console.log('Use "yo ml-container-creator mcp add <name> -- <command> [args...]" to add one.');
+            console.log('Use "yo @aws/ml-container-creator mcp add <name> -- <command> [args...]" to add one.');
             return;
         }
 
@@ -251,7 +251,7 @@ export default class McpCommandHandler {
      */
     _handleGet(name) {
         if (!name) {
-            console.log('Usage: yo ml-container-creator mcp get <name>');
+            console.log('Usage: yo @aws/ml-container-creator mcp get <name>');
             return;
         }
 
@@ -283,7 +283,7 @@ export default class McpCommandHandler {
      */
     async _handleRemove(name) {
         if (!name) {
-            console.log('Usage: yo ml-container-creator mcp remove <name>');
+            console.log('Usage: yo @aws/ml-container-creator mcp remove <name>');
             return;
         }
 
@@ -314,7 +314,7 @@ export default class McpCommandHandler {
 MCP Server Management
 
 USAGE:
-  yo ml-container-creator mcp <subcommand> [options]
+  yo @aws/ml-container-creator mcp <subcommand> [options]
 
 SUBCOMMANDS:
   init                                Add all bundled servers at once
@@ -332,14 +332,14 @@ ADD OPTIONS:
   --bundled                           Use a bundled server from servers/
 
 EXAMPLES:
-  yo ml-container-creator mcp init
-  yo ml-container-creator mcp add team-config -- node servers/instance-recommender/index.js
-  yo ml-container-creator mcp add instance-recommender --bundled
-  yo ml-container-creator mcp add corp-policy -- npx -y @corp/mcp-policy -e TEAM_ID=ml-platform
-  yo ml-container-creator mcp list
-  yo ml-container-creator mcp list --bundled
-  yo ml-container-creator mcp get team-config
-  yo ml-container-creator mcp remove team-config
+  yo @aws/ml-container-creator mcp init
+  yo @aws/ml-container-creator mcp add team-config -- node servers/instance-recommender/index.js
+  yo @aws/ml-container-creator mcp add instance-recommender --bundled
+  yo @aws/ml-container-creator mcp add corp-policy -- npx -y @corp/mcp-policy -e TEAM_ID=ml-platform
+  yo @aws/ml-container-creator mcp list
+  yo @aws/ml-container-creator mcp list --bundled
+  yo @aws/ml-container-creator mcp get team-config
+  yo @aws/ml-container-creator mcp remove team-config
 `);
     }
 
@@ -421,7 +421,7 @@ EXAMPLES:
         for (const server of servers) {
             console.log(`  ${server.name}: ${server.description}`);
         }
-        console.log('\nUse "yo ml-container-creator mcp add <name> --bundled" to add one.');
+        console.log('\nUse "yo @aws/ml-container-creator mcp add <name> --bundled" to add one.');
         console.log('');
     }
 

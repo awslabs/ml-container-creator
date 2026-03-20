@@ -76,7 +76,7 @@ Profiles provide pre-configured optimization settings for common use cases:
 **Example Usage:**
 
 ```bash
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=transformers \
   --model-server=vllm \
   --framework-version=0.4.0 \
@@ -183,7 +183,7 @@ When you run the generator, registries are loaded automatically:
 The generator matches your selections against registry entries:
 
 ```bash
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=transformers \
   --model-server=vllm \
   --model-name="meta-llama/Llama-2-7b-chat-hf"
@@ -224,7 +224,7 @@ The registry system validates environment variables against framework requiremen
 ### View Available Frameworks
 
 ```bash
-yo ml-container-creator --help
+yo @aws/ml-container-creator --help
 ```
 
 Look for the "REGISTRY SYSTEM" section showing available frameworks and versions.
@@ -266,7 +266,7 @@ Or via CLI:
 If you don't have internet access or want to skip HuggingFace API lookups:
 
 ```bash
-yo ml-container-creator --offline
+yo @aws/ml-container-creator --offline
 ```
 
 This disables:
@@ -298,10 +298,10 @@ By default, the generator validates environment variables:
 
 ```bash
 # Enable validation (default)
-yo ml-container-creator --validate-env-vars=true
+yo @aws/ml-container-creator --validate-env-vars=true
 
 # Disable validation
-yo ml-container-creator --validate-env-vars=false
+yo @aws/ml-container-creator --validate-env-vars=false
 ```
 
 **What gets validated:**
@@ -315,7 +315,7 @@ yo ml-container-creator --validate-env-vars=false
 For advanced validation, enable Docker introspection:
 
 ```bash
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --validate-env-vars=true \
   --validate-with-docker=true
 ```
@@ -337,7 +337,7 @@ The registry is community-driven. You can contribute:
 Try a new framework version and report results:
 
 ```bash
-yo ml-container-creator \
+yo @aws/ml-container-creator \
   --framework=transformers \
   --model-server=vllm \
   --framework-version=0.5.0
@@ -434,7 +434,7 @@ For enterprise deployments, you can maintain a custom registry:
 
 ```bash
 export REGISTRY_PATH=/path/to/custom/registries
-yo ml-container-creator
+yo @aws/ml-container-creator
 ```
 
 ### Registry Versioning

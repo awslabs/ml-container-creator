@@ -34,8 +34,28 @@ sagemaker-training==5.1.0
 psutil==6.0.0  # For system monitoring
 prometheus-client==0.20.0  # For metrics (if needed)
 
-<% if (includeSampleModel) { %>
+<% if (includeSampleModel && architecture !== 'triton') { %>
 # Sample model dependencies
 ucimlrepo
 pandas
+<% } %>
+
+<% if (includeSampleModel && architecture === 'triton') { %>
+# Triton sample model training dependencies
+ucimlrepo
+pandas
+numpy
+<% if (backend === 'fil' && (modelFormat === 'xgboost_json' || modelFormat === 'xgboost_ubj')) { %>
+xgboost
+<% } else if (backend === 'fil' && modelFormat === 'lightgbm_txt') { %>
+lightgbm
+<% } else if (backend === 'onnxruntime') { %>
+scikit-learn
+skl2onnx
+onnxruntime
+<% } else if (backend === 'tensorflow') { %>
+tensorflow
+<% } else if (backend === 'python') { %>
+scikit-learn
+<% } %>
 <% } %>

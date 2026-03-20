@@ -31,28 +31,28 @@ describe('ConfigManager Unit Tests', () => {
 
     describe('loadConfiguration()', () => {
         describe('CLI Options (Highest Priority)', () => {
-            it('should load framework from CLI option', async () => {
-                mockGenerator = createMockGeneratorWithOptions({ framework: 'xgboost' });
+            it('should load deployment-config from CLI option', async () => {
+                mockGenerator = createMockGeneratorWithOptions({ 'deployment-config': 'http-flask' });
                 configManager = new ConfigManager(mockGenerator);
                 
                 const config = await configManager.loadConfiguration();
                 
-                assert.strictEqual(config.framework, 'xgboost');
+                assert.strictEqual(config.deploymentConfig, 'http-flask');
             });
 
-            it('should load model-server from CLI option', async () => {
-                mockGenerator = createMockGeneratorWithOptions({ 'model-server': 'fastapi' });
+            it('should load engine from CLI option', async () => {
+                mockGenerator = createMockGeneratorWithOptions({ engine: 'sklearn' });
                 configManager = new ConfigManager(mockGenerator);
                 
                 const config = await configManager.loadConfiguration();
                 
-                assert.strictEqual(config.modelServer, 'fastapi');
+                assert.strictEqual(config.engine, 'sklearn');
             });
 
             it('should load multiple CLI options', async () => {
                 mockGenerator = createMockGeneratorWithOptions({
-                    framework: 'sklearn',
-                    'model-server': 'flask',
+                    'deployment-config': 'http-flask',
+                    engine: 'sklearn',
                     'model-format': 'pkl',
                     'include-sample': true,
                     'include-testing': false
@@ -61,8 +61,8 @@ describe('ConfigManager Unit Tests', () => {
                 
                 const config = await configManager.loadConfiguration();
                 
-                assert.strictEqual(config.framework, 'sklearn');
-                assert.strictEqual(config.modelServer, 'flask');
+                assert.strictEqual(config.deploymentConfig, 'http-flask');
+                assert.strictEqual(config.engine, 'sklearn');
                 assert.strictEqual(config.modelFormat, 'pkl');
                 assert.strictEqual(config.includeSampleModel, true);
                 assert.strictEqual(config.includeTesting, false);
@@ -170,8 +170,9 @@ describe('ConfigManager Unit Tests', () => {
                 
                 const config = await configManager.loadConfiguration();
                 
-                assert.strictEqual(config.framework, null);
-                assert.strictEqual(config.modelServer, null);
+                // These env vars are not mapped to any parameter
+                assert.strictEqual(config.architecture, null);
+                assert.strictEqual(config.backend, null);
             });
         });
 
@@ -220,10 +221,10 @@ describe('ConfigManager Unit Tests', () => {
             configManager = new ConfigManager(mockGenerator);
         });
 
-        describe('Framework Validation', () => {
-            it('should accept valid frameworks', async () => {
+        describe('Deployment Config Validation', () => {
+            it('should accept valid deployment configs', async () => {
                 await configManager.loadConfiguration();
-                configManager.config.framework = 'sklearn';
+                configManager.config.deploymentConfig = 'http-flask';
                 
                 const errors = configManager.validateConfiguration();
                 
@@ -231,65 +232,115 @@ describe('ConfigManager Unit Tests', () => {
                 assert.strictEqual(errors.length, 0);
             });
 
-            it('should reject invalid frameworks', async () => {
+            it('should reject invalid deployment configs', async () => {
                 await configManager.loadConfiguration();
-                configManager.config.framework = 'pytorch';
+                configManager.config.deploymentConfig = 'invalid-config';
                 
                 const errors = configManager.validateConfiguration();
                 
                 assert.strictEqual(errors.length, 1);
-                assert.ok(errors[0].includes('Unsupported framework: pytorch'));
+                assert.ok(errors[0].includes('Unsupported deployment-config: invalid-config'));
+            });
+        });
+
+        describe('Old Format Migration', () => {
+            it('should reject old-format sklearn-flask with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'sklearn-flask';
+                
+                const errors = configManager.validateConfiguration();
+                
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Use --deployment-config=http-flask --engine=sklearn instead'));
+            });
+
+            it('should reject old-format xgboost-fastapi with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'xgboost-fastapi';
+                
+                const errors = configManager.validateConfiguration();
+                
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Use --deployment-config=http-fastapi --engine=xgboost instead'));
+            });
+
+            it('should reject old-format tensorflow-flask with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'tensorflow-flask';
+                
+                const errors = configManager.validateConfiguration();
+                
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Use --deployment-config=http-flask --engine=tensorflow instead'));
+            });
+        });
+
+        describe('Engine Validation', () => {
+            it('should accept valid engines', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.engine = 'sklearn';
+                
+                const errors = configManager.validateConfiguration();
+                
+                assert.strictEqual(errors.length, 0);
+            });
+
+            it('should reject invalid engines', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.engine = 'pytorch';
+                
+                const errors = configManager.validateConfiguration();
+                
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Unsupported engine: pytorch'));
             });
         });
 
         describe('Model Server Validation', () => {
-            it('should accept valid sklearn + flask combination', async () => {
+            it('should accept valid http-flask deployment config', async () => {
                 await configManager.loadConfiguration();
-                configManager.config.framework = 'sklearn';
-                configManager.config.modelServer = 'flask';
+                configManager.config.deploymentConfig = 'http-flask';
                 
                 const errors = configManager.validateConfiguration();
                 
                 assert.strictEqual(errors.length, 0);
             });
 
-            it('should accept valid transformers + vllm combination', async () => {
+            it('should accept valid transformers-vllm deployment config', async () => {
                 await configManager.loadConfiguration();
-                configManager.config.framework = 'transformers';
-                configManager.config.modelServer = 'vllm';
+                configManager.config.deploymentConfig = 'transformers-vllm';
                 
                 const errors = configManager.validateConfiguration();
                 
                 assert.strictEqual(errors.length, 0);
             });
 
-            it('should reject invalid sklearn + vllm combination', async () => {
+            it('should reject invalid sklearn + vllm combination (old format)', async () => {
                 await configManager.loadConfiguration();
-                configManager.config.framework = 'sklearn';
-                configManager.config.modelServer = 'vllm';
+                configManager.config.deploymentConfig = 'sklearn-vllm';
                 
                 const errors = configManager.validateConfiguration();
                 
                 assert.strictEqual(errors.length, 1);
-                assert.ok(errors[0].includes('Unsupported model server'));
+                assert.ok(errors[0].includes('Unsupported deployment-config'));
             });
 
-            it('should provide special error for tensorrt-llm with non-transformers', async () => {
+            it('should reject unsupported triton backend', async () => {
                 await configManager.loadConfiguration();
-                configManager.config.framework = 'sklearn';
-                configManager.config.modelServer = 'tensorrt-llm';
+                configManager.config.deploymentConfig = 'triton-openvino';
                 
                 const errors = configManager.validateConfiguration();
                 
                 assert.strictEqual(errors.length, 1);
-                assert.ok(errors[0].includes('TensorRT-LLM is only supported with the transformers framework'));
+                assert.ok(errors[0].includes('Unsupported deployment-config'));
             });
         });
 
         describe('Model Format Validation', () => {
             it('should accept valid sklearn + pkl combination', async () => {
                 await configManager.loadConfiguration();
-                configManager.config.framework = 'sklearn';
+                configManager.config.deploymentConfig = 'http-flask';
+                configManager.config.engine = 'sklearn';
                 configManager.config.modelFormat = 'pkl';
                 
                 const errors = configManager.validateConfiguration();
@@ -299,7 +350,8 @@ describe('ConfigManager Unit Tests', () => {
 
             it('should reject invalid sklearn + keras combination', async () => {
                 await configManager.loadConfiguration();
-                configManager.config.framework = 'sklearn';
+                configManager.config.deploymentConfig = 'http-flask';
+                configManager.config.engine = 'sklearn';
                 configManager.config.modelFormat = 'keras';
                 
                 const errors = configManager.validateConfiguration();
@@ -379,17 +431,17 @@ describe('ConfigManager Unit Tests', () => {
 
         it('should merge prompt answers with explicit configuration', async () => {
             await configManager.loadConfiguration();
-            configManager.explicitConfig = { framework: 'sklearn' };
+            configManager.explicitConfig = { deploymentConfig: 'http-flask' };
             
             const promptAnswers = {
-                framework: 'xgboost', // Should be overridden
-                modelServer: 'flask'
+                deploymentConfig: 'http-fastapi', // Should be overridden
+                engine: 'sklearn'
             };
             
             const finalConfig = configManager.getFinalConfiguration(promptAnswers);
             
-            assert.strictEqual(finalConfig.framework, 'sklearn'); // Explicit config wins
-            assert.strictEqual(finalConfig.modelServer, 'flask'); // From prompts
+            assert.strictEqual(finalConfig.deploymentConfig, 'http-flask'); // Explicit config wins
+            assert.strictEqual(finalConfig.engine, 'sklearn'); // From prompts
         });
 
         it('should fill in missing values with defaults', async () => {
@@ -402,11 +454,11 @@ describe('ConfigManager Unit Tests', () => {
             assert.strictEqual(finalConfig.includeTesting, true);
         });
 
-        it('should disable sample models for transformers framework', async () => {
+        it('should disable sample models for transformers architecture', async () => {
             await configManager.loadConfiguration();
             
             const promptAnswers = {
-                framework: 'transformers',
+                deploymentConfig: 'transformers-vllm',
                 includeSampleModel: true
             };
             
@@ -420,7 +472,8 @@ describe('ConfigManager Unit Tests', () => {
             
             const promptAnswers = {
                 projectName: 'my-project',
-                framework: 'sklearn',
+                deploymentConfig: 'http-flask',
+                engine: 'sklearn',
                 buildTarget: 'codebuild'
             };
             
@@ -428,7 +481,7 @@ describe('ConfigManager Unit Tests', () => {
             
             assert.ok(typeof finalConfig.codebuildProjectName === 'string');
             assert.ok(finalConfig.codebuildProjectName.includes('my-project'));
-            assert.ok(finalConfig.codebuildProjectName.includes('sklearn'));
+            assert.ok(finalConfig.codebuildProjectName.includes('http'));
         });
 
         it('should add build timestamp', async () => {
@@ -476,8 +529,8 @@ describe('ConfigManager Unit Tests', () => {
 
         it('should return true when all required parameters are provided', async () => {
             mockGenerator = createMockGeneratorWithOptions({
-                framework: 'sklearn',
-                'model-server': 'flask',
+                'deployment-config': 'http-flask',
+                engine: 'sklearn',
                 'model-format': 'pkl',
                 'instance-type': 'ml.m5.large',
                 'project-name': 'test-project'
@@ -491,7 +544,7 @@ describe('ConfigManager Unit Tests', () => {
 
         it('should return false when required parameters are missing', async () => {
             mockGenerator = createMockGeneratorWithOptions({
-                framework: 'sklearn'
+                'deployment-config': 'http-flask'
                 // Missing other required parameters
             });
             configManager = new ConfigManager(mockGenerator);
@@ -512,8 +565,10 @@ describe('ConfigManager Unit Tests', () => {
             await configManager.loadConfiguration();
             
             const finalConfig = {
-                framework: 'sklearn',
-                modelServer: 'flask',
+                deploymentConfig: 'http-flask',
+                architecture: 'http',
+                backend: 'flask',
+                engine: 'sklearn',
                 modelFormat: 'pkl',
                 instanceType: 'ml.m5.large',
                 projectName: 'test-project',
@@ -533,24 +588,25 @@ describe('ConfigManager Unit Tests', () => {
             await configManager.loadConfiguration();
             
             const finalConfig = {
-                framework: 'sklearn',
-                // Missing modelServer
-                modelFormat: 'pkl',
+                deploymentConfig: 'http-flask',
+                architecture: 'http',
+                backend: 'flask',
+                // Missing engine, modelFormat, etc.
                 instanceType: 'ml.m5.large'
             };
             
             const errors = configManager.validateRequiredParameters(finalConfig);
             
             assert.ok(errors.length > 0);
-            assert.ok(errors.some(e => e.includes('modelServer')));
         });
 
         it('should not require modelFormat for transformers', async () => {
             await configManager.loadConfiguration();
             
             const finalConfig = {
-                framework: 'transformers',
-                modelServer: 'vllm',
+                deploymentConfig: 'transformers-vllm',
+                architecture: 'transformers',
+                backend: 'vllm',
                 // No modelFormat - should be OK for transformers
                 instanceType: 'ml.g5.xlarge',
                 projectName: 'test-project',
@@ -570,16 +626,16 @@ describe('ConfigManager Unit Tests', () => {
     describe('getExplicitConfiguration()', () => {
         it('should return only explicitly set configuration', async () => {
             mockGenerator = createMockGeneratorWithOptions({
-                framework: 'sklearn',
-                'model-server': 'flask'
+                'deployment-config': 'http-flask',
+                engine: 'sklearn'
             });
             configManager = new ConfigManager(mockGenerator);
             
             await configManager.loadConfiguration();
             const explicitConfig = configManager.getExplicitConfiguration();
             
-            assert.strictEqual(explicitConfig.framework, 'sklearn');
-            assert.strictEqual(explicitConfig.modelServer, 'flask');
+            assert.strictEqual(explicitConfig.deploymentConfig, 'http-flask');
+            assert.strictEqual(explicitConfig.engine, 'sklearn');
             // Defaults should not be in explicit config
             assert.strictEqual(explicitConfig.awsRegion, undefined);
         });
@@ -620,14 +676,14 @@ describe('ConfigManager Unit Tests', () => {
         });
 
         describe('_generateProjectName()', () => {
-            it('should generate project name for sklearn', () => {
-                const projectName = configManager._generateProjectName('sklearn');
+            it('should generate project name for http architecture', () => {
+                const projectName = configManager._generateProjectName('http');
                 
                 assert.ok(typeof projectName === 'string');
                 assert.ok(/^[a-z]+-[a-z]+-[a-z]+$/.test(projectName));
             });
 
-            it('should generate project name for transformers', () => {
+            it('should generate project name for transformers architecture', () => {
                 const projectName = configManager._generateProjectName('transformers');
                 
                 assert.ok(typeof projectName === 'string');
@@ -637,16 +693,16 @@ describe('ConfigManager Unit Tests', () => {
 
         describe('_generateCodeBuildProjectName()', () => {
             it('should generate valid CodeBuild project name', () => {
-                const buildName = configManager._generateCodeBuildProjectName('my-project', 'sklearn');
+                const buildName = configManager._generateCodeBuildProjectName('my-project', 'http');
                 
                 assert.ok(typeof buildName === 'string');
                 assert.ok(buildName.includes('my-project'));
-                assert.ok(buildName.includes('sklearn'));
+                assert.ok(buildName.includes('http'));
                 assert.ok(/^[a-z0-9][a-z0-9\-_]+$/.test(buildName));
             });
 
             it('should sanitize invalid characters', () => {
-                const buildName = configManager._generateCodeBuildProjectName('my@project!', 'sklearn');
+                const buildName = configManager._generateCodeBuildProjectName('my@project!', 'http');
                 
                 assert.ok(!buildName.includes('@'));
                 assert.ok(!buildName.includes('!'));
@@ -700,14 +756,312 @@ describe('ConfigManager Unit Tests', () => {
 
         describe('_canAutoGenerate()', () => {
             it('should return true for auto-generatable parameters', () => {
-                assert.strictEqual(configManager._canAutoGenerate('framework'), true);
-                assert.strictEqual(configManager._canAutoGenerate('modelServer'), true);
+                assert.strictEqual(configManager._canAutoGenerate('modelFormat'), true);
+                assert.strictEqual(configManager._canAutoGenerate('includeSampleModel'), true);
                 assert.strictEqual(configManager._canAutoGenerate('instanceType'), true);
             });
 
             it('should return false for non-auto-generatable parameters', () => {
                 assert.strictEqual(configManager._canAutoGenerate('projectName'), false);
                 assert.strictEqual(configManager._canAutoGenerate('awsRoleArn'), false);
+            });
+        });
+    });
+
+    /**
+     * DeploymentConfigResolver Integration Tests
+     *
+     * Validates that ConfigManager correctly uses DeploymentConfigResolver
+     * to populate architecture/backend/engine and rejects old-format configs.
+     *
+     * Validates: Requirements 6.1, 6.2, 6.3, 6.4
+     */
+    describe('DeploymentConfigResolver Integration', () => {
+        let configManager;
+        let mockGenerator;
+
+        beforeEach(() => {
+            mockGenerator = createMockGenerator();
+            configManager = new ConfigManager(mockGenerator);
+        });
+
+        describe('getFinalConfiguration() populates architecture, backend, engine (Req 6.1)', () => {
+            it('should derive architecture, backend, engine for http-flask', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'http-flask',
+                    engine: 'sklearn'
+                });
+
+                assert.strictEqual(finalConfig.architecture, 'http');
+                assert.strictEqual(finalConfig.backend, 'flask');
+                assert.strictEqual(finalConfig.engine, 'sklearn');
+            });
+
+            it('should derive architecture, backend, engine for http-fastapi', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'http-fastapi',
+                    engine: 'xgboost'
+                });
+
+                assert.strictEqual(finalConfig.architecture, 'http');
+                assert.strictEqual(finalConfig.backend, 'fastapi');
+                assert.strictEqual(finalConfig.engine, 'xgboost');
+            });
+
+            it('should derive architecture, backend, engine for transformers-vllm', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'transformers-vllm'
+                });
+
+                assert.strictEqual(finalConfig.architecture, 'transformers');
+                assert.strictEqual(finalConfig.backend, 'vllm');
+                assert.strictEqual(finalConfig.engine, null);
+            });
+
+            it('should derive architecture, backend, engine for triton-fil', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'triton-fil'
+                });
+
+                assert.strictEqual(finalConfig.architecture, 'triton');
+                assert.strictEqual(finalConfig.backend, 'fil');
+                assert.strictEqual(finalConfig.engine, null);
+            });
+
+            it('should derive architecture, backend, engine for triton-vllm', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'triton-vllm'
+                });
+
+                assert.strictEqual(finalConfig.architecture, 'triton');
+                assert.strictEqual(finalConfig.backend, 'vllm');
+                assert.strictEqual(finalConfig.engine, null);
+            });
+
+            it('should derive architecture, backend, engine for triton-tensorrtllm', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'triton-tensorrtllm'
+                });
+
+                assert.strictEqual(finalConfig.architecture, 'triton');
+                assert.strictEqual(finalConfig.backend, 'tensorrtllm');
+                assert.strictEqual(finalConfig.engine, null);
+            });
+
+            it('should derive architecture, backend, engine for triton-python', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'triton-python'
+                });
+
+                assert.strictEqual(finalConfig.architecture, 'triton');
+                assert.strictEqual(finalConfig.backend, 'python');
+                assert.strictEqual(finalConfig.engine, null);
+            });
+        });
+
+        describe('framework and modelServer are no longer populated (Req 6.2)', () => {
+            it('should not populate framework for http-flask config', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'http-flask',
+                    engine: 'sklearn'
+                });
+
+                assert.strictEqual(finalConfig.framework, undefined);
+                assert.strictEqual(finalConfig.modelServer, undefined);
+            });
+
+            it('should not populate framework for transformers-vllm config', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'transformers-vllm'
+                });
+
+                assert.strictEqual(finalConfig.framework, undefined);
+                assert.strictEqual(finalConfig.modelServer, undefined);
+            });
+
+            it('should not populate framework for triton-fil config', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'triton-fil'
+                });
+
+                assert.strictEqual(finalConfig.framework, undefined);
+                assert.strictEqual(finalConfig.modelServer, undefined);
+            });
+        });
+
+        describe('parameter matrix includes architecture, backend, engine (Req 6.3)', () => {
+            it('should include architecture in parameter matrix', () => {
+                const matrix = configManager.parameterMatrix;
+                assert.ok(matrix.architecture, 'architecture should be in parameter matrix');
+                assert.strictEqual(matrix.architecture.valueSpace, 'bounded');
+            });
+
+            it('should include backend in parameter matrix', () => {
+                const matrix = configManager.parameterMatrix;
+                assert.ok(matrix.backend, 'backend should be in parameter matrix');
+                assert.strictEqual(matrix.backend.valueSpace, 'bounded');
+            });
+
+            it('should include engine in parameter matrix', () => {
+                const matrix = configManager.parameterMatrix;
+                assert.ok(matrix.engine, 'engine should be in parameter matrix');
+                assert.strictEqual(matrix.engine.cliOption, 'engine');
+            });
+
+            it('should not include framework in parameter matrix', () => {
+                const matrix = configManager.parameterMatrix;
+                assert.strictEqual(matrix.framework, undefined);
+            });
+
+            it('should not include modelServer in parameter matrix', () => {
+                const matrix = configManager.parameterMatrix;
+                assert.strictEqual(matrix.modelServer, undefined);
+            });
+        });
+
+        describe('old-format values rejected with migration messages (Req 6.4)', () => {
+            it('should reject sklearn-flask with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'sklearn-flask';
+
+                const errors = configManager.validateConfiguration();
+
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('sklearn-flask'));
+                assert.ok(errors[0].includes('Use --deployment-config=http-flask --engine=sklearn instead'));
+            });
+
+            it('should reject sklearn-fastapi with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'sklearn-fastapi';
+
+                const errors = configManager.validateConfiguration();
+
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Use --deployment-config=http-fastapi --engine=sklearn instead'));
+            });
+
+            it('should reject xgboost-flask with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'xgboost-flask';
+
+                const errors = configManager.validateConfiguration();
+
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Use --deployment-config=http-flask --engine=xgboost instead'));
+            });
+
+            it('should reject xgboost-fastapi with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'xgboost-fastapi';
+
+                const errors = configManager.validateConfiguration();
+
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Use --deployment-config=http-fastapi --engine=xgboost instead'));
+            });
+
+            it('should reject tensorflow-flask with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'tensorflow-flask';
+
+                const errors = configManager.validateConfiguration();
+
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Use --deployment-config=http-flask --engine=tensorflow instead'));
+            });
+
+            it('should reject tensorflow-fastapi with migration message', async () => {
+                await configManager.loadConfiguration();
+                configManager.config.deploymentConfig = 'tensorflow-fastapi';
+
+                const errors = configManager.validateConfiguration();
+
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('Use --deployment-config=http-fastapi --engine=tensorflow instead'));
+            });
+        });
+
+        describe('--engine flag parsing for http architecture (Req 6.1, 6.3)', () => {
+            it('should use engine from CLI option for http-flask', async () => {
+                mockGenerator = createMockGeneratorWithOptions({
+                    'deployment-config': 'http-flask',
+                    engine: 'sklearn'
+                });
+                configManager = new ConfigManager(mockGenerator);
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({});
+
+                assert.strictEqual(finalConfig.architecture, 'http');
+                assert.strictEqual(finalConfig.backend, 'flask');
+                assert.strictEqual(finalConfig.engine, 'sklearn');
+            });
+
+            it('should use engine from prompt answers when not in CLI', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'http-flask',
+                    engine: 'tensorflow'
+                });
+
+                assert.strictEqual(finalConfig.engine, 'tensorflow');
+            });
+
+            it('should prefer CLI engine over prompt engine', async () => {
+                mockGenerator = createMockGeneratorWithOptions({
+                    engine: 'sklearn'
+                });
+                configManager = new ConfigManager(mockGenerator);
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'http-flask',
+                    engine: 'xgboost'
+                });
+
+                assert.strictEqual(finalConfig.engine, 'sklearn');
+            });
+
+            it('should not set engine for triton configs even if provided', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'triton-fil'
+                });
+
+                assert.strictEqual(finalConfig.engine, null);
+            });
+
+            it('should not set engine for transformers configs', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'transformers-vllm'
+                });
+
+                assert.strictEqual(finalConfig.engine, null);
             });
         });
     });

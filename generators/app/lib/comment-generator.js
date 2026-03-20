@@ -48,9 +48,10 @@ export default class CommentGenerator {
             return '# No accelerator requirements specified';
         }
 
+        const frameworkLabel = config.backend || config.framework
         const lines = [
             '# Accelerator Compatibility Information',
-            `# Framework: ${config.framework} ${config.version}`,
+            `# Framework: ${frameworkLabel} ${config.version}`,
             `# Required Accelerator: ${config.accelerator.type} ${config.accelerator.version || 'any'}`
         ];
 
@@ -107,7 +108,8 @@ export default class CommentGenerator {
         }
 
         // Group environment variables by category
-        const groups = this._groupEnvVars(config.envVars, config.framework);
+        const frameworkLabel = config.backend || config.framework
+        const groups = this._groupEnvVars(config.envVars, frameworkLabel);
 
         for (const [category, vars] of Object.entries(groups)) {
             const categoryComments = [
@@ -116,7 +118,7 @@ export default class CommentGenerator {
             ];
 
             // Add warnings for specific variable types
-            const warnings = this._getEnvVarWarnings(vars, config.framework);
+            const warnings = this._getEnvVarWarnings(vars, frameworkLabel);
             if (warnings.length > 0) {
                 categoryComments.push('# Warnings:');
                 warnings.forEach(warning => {
@@ -125,7 +127,7 @@ export default class CommentGenerator {
             }
 
             // Add documentation links if available
-            const docLink = this._getDocumentationLink(config.framework, category);
+            const docLink = this._getDocumentationLink(frameworkLabel, category);
             if (docLink) {
                 categoryComments.push(`# Documentation: ${docLink}`);
             }
@@ -194,9 +196,10 @@ export default class CommentGenerator {
         ];
 
         // Framework-specific tips
-        const frameworkTips = this._getFrameworkTroubleshootingTips(config.framework);
+        const frameworkLabel = config.backend || config.framework
+        const frameworkTips = this._getFrameworkTroubleshootingTips(frameworkLabel);
         if (frameworkTips.length > 0) {
-            lines.push(`# ${config.framework} Common Issues:`);
+            lines.push(`# ${frameworkLabel} Common Issues:`);
             frameworkTips.forEach(tip => {
                 lines.push(`#   - ${tip}`);
             });
@@ -257,11 +260,12 @@ export default class CommentGenerator {
      * @returns {string} Deployment header comment
      */
     generateDeploymentHeader(config) {
+        const frameworkLabel = config.backend || config.framework
         const lines = [
             '#!/bin/bash',
             '#',
             '# SageMaker Deployment Script',
-            `# Framework: ${config.framework} ${config.version}`,
+            `# Framework: ${frameworkLabel} ${config.version}`,
             `# Generated: ${config.generatedAt || new Date().toISOString().split('T')[0]}`,
             '#'
         ];
@@ -431,7 +435,11 @@ export default class CommentGenerator {
             'vllm': 'https://docs.vllm.ai/en/latest/serving/env_vars.html',
             'tensorrt-llm': 'https://nvidia.github.io/TensorRT-LLM/',
             'sglang': 'https://sgl-project.github.io/',
-            'transformers': 'https://huggingface.co/docs/transformers/'
+            'transformers': 'https://huggingface.co/docs/transformers/',
+            'fil': 'https://github.com/triton-inference-server/fil_backend',
+            'onnxruntime': 'https://onnxruntime.ai/docs/',
+            'tensorrtllm': 'https://nvidia.github.io/TensorRT-LLM/',
+            'triton-python': 'https://github.com/triton-inference-server/python_backend'
         };
 
         return links[framework?.toLowerCase()] || null;
@@ -477,6 +485,26 @@ export default class CommentGenerator {
                 'Verify model files are present in /opt/ml/model/',
                 'Check tokenizer configuration for chat models',
                 'Ensure sufficient memory for model loading'
+            ],
+            'fil': [
+                'Verify model format matches config.pbtxt backend setting',
+                'Check that model file is in the correct version directory',
+                'Ensure input tensor dimensions match your model features'
+            ],
+            'onnxruntime': [
+                'Verify ONNX model was exported correctly',
+                'Check input/output tensor names match config.pbtxt',
+                'Ensure ONNX opset version is supported by the runtime'
+            ],
+            'tensorrtllm': [
+                'Ensure CUDA version matches TensorRT-LLM requirements',
+                'Model must be converted to TensorRT format before deployment',
+                'Check GPU memory is sufficient for the model'
+            ],
+            'python': [
+                'Verify model.py implements initialize(), execute(), finalize()',
+                'Check that dependencies are listed in requirements.txt',
+                'Ensure model artifacts are in the correct version directory'
             ]
         };
 

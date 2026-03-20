@@ -12,26 +12,48 @@ import fc from 'fast-check';
 
 // Parameter Matrix Configuration (matches design document)
 export const PARAMETER_MATRIX = {
-    framework: {
-        cliOption: 'framework',
+    deploymentConfig: {
+        cliOption: 'deployment-config',
         envVar: null,
         configFile: true,
         packageJson: false,
         promptable: true,
         required: true,
         default: null,
-        values: ['sklearn', 'xgboost', 'tensorflow', 'transformers']
+        values: ['http-flask', 'http-fastapi', 'transformers-vllm', 'transformers-sglang', 'transformers-tensorrt-llm', 'transformers-lmi', 'transformers-djl', 'triton-fil', 'triton-onnxruntime', 'triton-tensorflow', 'triton-pytorch', 'triton-vllm', 'triton-tensorrtllm', 'triton-python']
     },
-    
-    modelServer: {
-        cliOption: 'model-server',
+
+    architecture: {
+        cliOption: null,
+        envVar: null,
+        configFile: false,
+        packageJson: false,
+        promptable: false,
+        required: false,
+        default: null,
+        values: ['http', 'transformers', 'triton']
+    },
+
+    backend: {
+        cliOption: null,
+        envVar: null,
+        configFile: false,
+        packageJson: false,
+        promptable: false,
+        required: false,
+        default: null,
+        values: ['flask', 'fastapi', 'vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl', 'fil', 'onnxruntime', 'tensorflow', 'pytorch', 'tensorrtllm', 'python']
+    },
+
+    engine: {
+        cliOption: 'engine',
         envVar: null,
         configFile: true,
         packageJson: false,
         promptable: true,
-        required: true,
+        required: false,
         default: null,
-        values: ['flask', 'fastapi', 'vllm', 'sglang', 'tensorrt-llm']
+        values: ['sklearn', 'xgboost', 'tensorflow']
     },
     
     modelFormat: {
@@ -218,8 +240,8 @@ export const generateFilePath = () =>
 
 // Generate configuration objects
 export const generateConfiguration = () => fc.record({
-    framework: fc.constantFrom(...PARAMETER_MATRIX.framework.values),
-    modelServer: fc.constantFrom(...PARAMETER_MATRIX.modelServer.values),
+    deploymentConfig: fc.constantFrom(...PARAMETER_MATRIX.deploymentConfig.values),
+    engine: fc.option(fc.constantFrom(...PARAMETER_MATRIX.engine.values)),
     modelFormat: fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values),
     buildTarget: fc.constantFrom(...PARAMETER_MATRIX.buildTarget.values),
     codebuildComputeType: fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
@@ -235,8 +257,8 @@ export const generateConfiguration = () => fc.record({
 
 // Generate CLI options object
 export const generateCliOptions = () => fc.record({
-    'framework': fc.option(fc.constantFrom(...PARAMETER_MATRIX.framework.values)),
-    'model-server': fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelServer.values)),
+    'deployment-config': fc.option(fc.constantFrom(...PARAMETER_MATRIX.deploymentConfig.values)),
+    'engine': fc.option(fc.constantFrom(...PARAMETER_MATRIX.engine.values)),
     'model-format': fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values)),
     'build-target': fc.option(fc.constantFrom(...PARAMETER_MATRIX.buildTarget.values)),
     'codebuild-compute-type': fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
@@ -273,8 +295,8 @@ export const generatePackageJsonConfig = () => fc.record({
     awsRoleArn: fc.option(generateValidArn()),
     destinationDir: fc.option(fc.constantFrom(...PARAMETER_MATRIX.destinationDir.values)),
     // Include some unsupported parameters that should be ignored
-    framework: fc.option(fc.constantFrom(...PARAMETER_MATRIX.framework.values)),
-    modelServer: fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelServer.values)),
+    deploymentConfig: fc.option(fc.constantFrom(...PARAMETER_MATRIX.deploymentConfig.values)),
+    engine: fc.option(fc.constantFrom(...PARAMETER_MATRIX.engine.values)),
     includeSampleModel: fc.option(fc.boolean()),
     includeTesting: fc.option(fc.boolean())
 });
@@ -282,8 +304,8 @@ export const generatePackageJsonConfig = () => fc.record({
 // Generate config file content (all parameters supported)
 export const generateConfigFileContent = () => fc.record({
     projectName: fc.option(generateProjectName()),
-    framework: fc.option(fc.constantFrom(...PARAMETER_MATRIX.framework.values)),
-    modelServer: fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelServer.values)),
+    deploymentConfig: fc.option(fc.constantFrom(...PARAMETER_MATRIX.deploymentConfig.values)),
+    engine: fc.option(fc.constantFrom(...PARAMETER_MATRIX.engine.values)),
     modelFormat: fc.option(fc.constantFrom(...PARAMETER_MATRIX.modelFormat.values)),
     buildTarget: fc.option(fc.constantFrom(...PARAMETER_MATRIX.buildTarget.values)),
     codebuildComputeType: fc.option(fc.constantFrom(...PARAMETER_MATRIX.codebuildComputeType.values)),
@@ -349,36 +371,19 @@ export function getDefaultValue(parameter) {
     return paramConfig ? paramConfig.default : null;
 }
 
-// Validate framework/server compatibility
-export function isValidFrameworkServerCombination(framework, modelServer) {
-    const validCombinations = {
-        sklearn: ['flask', 'fastapi'],
-        xgboost: ['flask', 'fastapi'],
-        tensorflow: ['flask', 'fastapi'],
-        transformers: ['vllm', 'sglang', 'tensorrt-llm']
-    };
-    
-    return validCombinations[framework]?.includes(modelServer) || false;
-}
-
-// Validate framework/format compatibility
-export function isValidFrameworkFormatCombination(framework, modelFormat) {
-    const validCombinations = {
-        sklearn: ['pkl', 'joblib'],
-        xgboost: ['json', 'model', 'ubj'],
-        tensorflow: ['keras', 'h5', 'SavedModel'],
-        transformers: [] // No format needed for transformers
-    };
-    
-    return validCombinations[framework]?.includes(modelFormat) || 
-           (framework === 'transformers' && !modelFormat);
+// Validate deployment-config validity
+export function isValidDeploymentConfig(deploymentConfig) {
+    const validConfigs = PARAMETER_MATRIX.deploymentConfig.values;
+    return validConfigs.includes(deploymentConfig);
 }
 
 // Create a minimal valid configuration for testing
 export function createMinimalValidConfig() {
     return {
-        framework: 'sklearn',
-        modelServer: 'flask',
+        deploymentConfig: 'http-flask',
+        architecture: 'http',
+        backend: 'flask',
+        engine: 'sklearn',
         modelFormat: 'pkl',
         buildTarget: 'codebuild',
         includeSampleModel: false,
@@ -393,8 +398,10 @@ export function createMinimalValidConfig() {
 // Create a minimal valid CodeBuild configuration for testing
 export function createMinimalValidCodeBuildConfig() {
     return {
-        framework: 'sklearn',
-        modelServer: 'flask',
+        deploymentConfig: 'http-flask',
+        architecture: 'http',
+        backend: 'flask',
+        engine: 'sklearn',
         modelFormat: 'pkl',
         buildTarget: 'codebuild',
         codebuildComputeType: 'BUILD_GENERAL1_MEDIUM',

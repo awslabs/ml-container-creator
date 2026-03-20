@@ -19,6 +19,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
 import { McpClient } from './mcp-client.js';
+import DeploymentConfigResolver from './deployment-config-resolver.js';
+import tritonBackends from '../config/registries/triton-backends.js';
 
 // Resolve the generator project root (three levels up from generators/app/lib/)
 const __filename = fileURLToPath(import.meta.url);
@@ -54,6 +56,7 @@ export default class ConfigManager {
         this.generator = generator;
         this.config = {};
         this.skipPrompts = false;
+        this.deploymentConfigResolver = new DeploymentConfigResolver();
         this.parameterMatrix = this._getParameterMatrix();
         this.mcpSources = {};
         this.mcpChoices = {};
@@ -128,18 +131,20 @@ export default class ConfigManager {
             }
         });
 
-        // Derive framework and modelServer from deploymentConfig if present.
-        // In prompted mode the PromptRunner does this split, but in --skip-prompts
+        // Derive architecture, backend, and engine from deploymentConfig using DeploymentConfigResolver.
+        // In prompted mode the PromptRunner may do this, but in --skip-prompts
         // mode we need to do it here so the values are available for downstream logic.
         if (finalConfig.deploymentConfig) {
-            const parts = finalConfig.deploymentConfig.split('-');
-            const derivedFramework = parts[0];
-            const derivedModelServer = parts.slice(1).join('-');
-            if (!finalConfig.framework || finalConfig.framework === null) {
-                finalConfig.framework = derivedFramework;
-            }
-            if (!finalConfig.modelServer || finalConfig.modelServer === null) {
-                finalConfig.modelServer = derivedModelServer;
+            const parts = this.deploymentConfigResolver.decompose(finalConfig.deploymentConfig)
+            finalConfig.architecture = parts.architecture
+            finalConfig.backend = parts.backend
+            // For http architecture, engine comes from the --engine CLI option or prompt
+            if (parts.architecture === 'http') {
+                if (!finalConfig.engine) {
+                    finalConfig.engine = parts.engine
+                }
+            } else {
+                finalConfig.engine = parts.engine
             }
         }
 
@@ -150,30 +155,25 @@ export default class ConfigManager {
                     (finalConfig[param] === null || finalConfig[param] === undefined)) {
                     
                     // Provide reasonable defaults for missing required parameters
-                    if (param === 'framework') {
-                        finalConfig[param] = 'sklearn'; // Default framework
-                    } else if (param === 'modelServer') {
-                        // Infer model server from framework
-                        const framework = finalConfig.framework || 'sklearn';
-                        finalConfig[param] = framework === 'transformers' ? 'vllm' : 'flask';
-                    } else if (param === 'modelFormat') {
-                        // Infer model format from framework (skip for transformers)
-                        const framework = finalConfig.framework || 'sklearn';
-                        if (framework !== 'transformers') {
+                    if (param === 'modelFormat') {
+                        // Infer model format from architecture/engine (skip for transformers/triton)
+                        const architecture = finalConfig.architecture || 'http'
+                        if (architecture === 'http') {
+                            const engine = finalConfig.engine || 'sklearn'
                             const formatMap = {
                                 'sklearn': 'pkl',
                                 'xgboost': 'json',
                                 'tensorflow': 'keras'
-                            };
-                            finalConfig[param] = formatMap[framework] || 'pkl';
+                            }
+                            finalConfig[param] = formatMap[engine] || 'pkl'
                         }
                     } else if (param === 'instanceType') {
-                        // Default to ml.m5.large for traditional ML, ml.g5.xlarge for transformers
-                        const framework = finalConfig.framework || 'sklearn';
-                        finalConfig[param] = framework === 'transformers' ? 'ml.g5.xlarge' : 'ml.m5.large';
+                        // Default to ml.m5.large for http, ml.g5.xlarge for transformers/triton
+                        const architecture = finalConfig.architecture || 'http'
+                        finalConfig[param] = architecture === 'http' ? 'ml.m5.large' : 'ml.g5.xlarge'
                     } else if (param === 'projectName') {
                         // Generate project name
-                        finalConfig[param] = this._generateProjectName(finalConfig.framework);
+                        finalConfig[param] = this._generateProjectName(finalConfig.architecture)
                     } else if (config.default !== null) {
                         // Use default value if available
                         finalConfig[param] = config.default;
@@ -188,8 +188,8 @@ export default class ConfigManager {
                 (finalConfig[param] === null || finalConfig[param] === undefined)) {
                 
                 if (param === 'projectName') {
-                    // Generate project name based on framework or use default
-                    finalConfig[param] = this._generateProjectName(finalConfig.framework);
+                    // Generate project name based on architecture or use default
+                    finalConfig[param] = this._generateProjectName(finalConfig.architecture);
                 } else if (config.default !== null) {
                     // Use default value if available
                     finalConfig[param] = config.default;
@@ -197,10 +197,15 @@ export default class ConfigManager {
             }
         });
 
-        // Apply framework-specific overrides
-        if (finalConfig.framework === 'transformers') {
-            // Transformers don't support sample models
+        // Apply architecture-specific overrides
+        if (finalConfig.architecture === 'transformers') {
             finalConfig.includeSampleModel = false;
+        }
+        if (finalConfig.architecture === 'triton') {
+            const backendMeta = tritonBackends[finalConfig.backend];
+            if (!backendMeta || !backendMeta.supportsSampleModel) {
+                finalConfig.includeSampleModel = false;
+            }
         }
         
         // Set destinationDir based on projectName if not explicitly provided via --project-dir
@@ -227,7 +232,7 @@ export default class ConfigManager {
         if ((finalConfig.buildTarget === 'codebuild' || finalConfig.deployTarget === 'codebuild') && !finalConfig.codebuildProjectName) {
             finalConfig.codebuildProjectName = this._generateCodeBuildProjectName(
                 finalConfig.projectName, 
-                finalConfig.framework
+                finalConfig.architecture
             );
         }
 
@@ -280,29 +285,40 @@ export default class ConfigManager {
                 packageJson: false,
                 mcp: false,
                 promptable: true,
-                required: false,  // Not required because we support backward compatibility with framework + modelServer
+                required: true,
                 default: null,
                 valueSpace: 'bounded'
             },
-            framework: {
-                cliOption: 'framework',
+            architecture: {
+                cliOption: null,
+                envVar: null,
+                configFile: false,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: null,
+                valueSpace: 'bounded'
+            },
+            backend: {
+                cliOption: null,
+                envVar: null,
+                configFile: false,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: null,
+                valueSpace: 'bounded'
+            },
+            engine: {
+                cliOption: 'engine',
                 envVar: null,
                 configFile: true,
                 packageJson: false,
                 mcp: false,
                 promptable: true,
-                required: true,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            modelServer: {
-                cliOption: 'model-server',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: true,
+                required: false,
                 default: null,
                 valueSpace: 'bounded'
             },
@@ -898,15 +914,18 @@ export default class ConfigManager {
             .filter(([_param, config]) => config.required && config.promptable)
             .map(([param]) => param);
         
-        // Special case: modelFormat is not required for transformers
-        const requiredForFramework = promptableRequired.filter(param => {
-            if (param === 'modelFormat' && this.config.framework === 'transformers') {
-                return false;
+        // Special case: modelFormat is not required for transformers/triton architectures
+        const requiredForConfig = promptableRequired.filter(param => {
+            if (param === 'modelFormat') {
+                const architecture = this.config.architecture
+                if (architecture === 'transformers' || architecture === 'triton') {
+                    return false
+                }
             }
             return true;
         });
         
-        return requiredForFramework.every(key => 
+        return requiredForConfig.every(key => 
             this.config[key] !== undefined && this.config[key] !== null
         );
     }
@@ -918,31 +937,52 @@ export default class ConfigManager {
      */
     validateConfiguration() {
         const errors = [];
-        const supportedOptions = this._getSupportedOptions();
 
-        // Validate framework
-        if (this.config.framework && !supportedOptions.frameworks.includes(this.config.framework)) {
-            errors.push(`Unsupported framework: ${this.config.framework}. Supported: ${supportedOptions.frameworks.join(', ')}`);
+        // Old-format deployment-config migration messages
+        const oldFormatMigration = {
+            'sklearn-flask': 'Use --deployment-config=http-flask --engine=sklearn instead',
+            'sklearn-fastapi': 'Use --deployment-config=http-fastapi --engine=sklearn instead',
+            'xgboost-flask': 'Use --deployment-config=http-flask --engine=xgboost instead',
+            'xgboost-fastapi': 'Use --deployment-config=http-fastapi --engine=xgboost instead',
+            'tensorflow-flask': 'Use --deployment-config=http-flask --engine=tensorflow instead',
+            'tensorflow-fastapi': 'Use --deployment-config=http-fastapi --engine=tensorflow instead'
         }
 
-        // Validate model server based on framework
-        if (this.config.modelServer && this.config.framework) {
-            const validServers = supportedOptions.modelServers[this.config.framework] || [];
-            if (!validServers.includes(this.config.modelServer)) {
-                // Special error message for tensorrt-llm with non-transformers framework
-                if (this.config.modelServer === 'tensorrt-llm' && this.config.framework !== 'transformers') {
-                    errors.push('TensorRT-LLM is only supported with the transformers framework. Please select "transformers" as your framework or choose a different model server.');
-                } else {
-                    errors.push(`Unsupported model server '${this.config.modelServer}' for framework '${this.config.framework}'. Supported: ${validServers.join(', ')}`);
-                }
+        // Validate deployment-config
+        if (this.config.deploymentConfig) {
+            const migrationMsg = oldFormatMigration[this.config.deploymentConfig]
+            if (migrationMsg) {
+                errors.push(`Unsupported deployment-config: ${this.config.deploymentConfig}. This value has been replaced. ${migrationMsg}`)
+            } else if (!this.deploymentConfigResolver.isValid(this.config.deploymentConfig)) {
+                const valid = this.deploymentConfigResolver.getAllConfigs().join(', ')
+                errors.push(`Unsupported deployment-config: ${this.config.deploymentConfig}. Valid configs: ${valid}`)
             }
         }
 
-        // Validate model format based on framework (transformers don't need model format)
-        if (this.config.modelFormat && this.config.framework) {
-            const validFormats = supportedOptions.modelFormats[this.config.framework] || [];
-            if (validFormats.length > 0 && !validFormats.includes(this.config.modelFormat)) {
-                errors.push(`Unsupported model format '${this.config.modelFormat}' for framework '${this.config.framework}'. Supported: ${validFormats.join(', ')}`);
+        // Validate engine (only valid for http architecture)
+        if (this.config.engine) {
+            const validEngines = ['sklearn', 'xgboost', 'tensorflow']
+            if (!validEngines.includes(this.config.engine)) {
+                errors.push(`Unsupported engine: ${this.config.engine}. Supported: ${validEngines.join(', ')}`)
+            }
+        }
+
+        // Validate model format based on architecture/engine
+        if (this.config.modelFormat && this.config.deploymentConfig) {
+            try {
+                const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig)
+                if (parts.architecture === 'http') {
+                    const engine = this.config.engine || parts.engine
+                    if (engine) {
+                        const supportedOptions = this._getSupportedOptions()
+                        const validFormats = supportedOptions.modelFormats[engine] || []
+                        if (validFormats.length > 0 && !validFormats.includes(this.config.modelFormat)) {
+                            errors.push(`Unsupported model format '${this.config.modelFormat}' for engine '${engine}'. Supported: ${validFormats.join(', ')}`)
+                        }
+                    }
+                }
+            } catch {
+                // deploymentConfig already flagged as invalid above
             }
         }
 
@@ -961,13 +1001,13 @@ export default class ConfigManager {
 
         // Validate build target (renamed from deployTarget)
         const buildTarget = this.config.buildTarget || this.config.deployTarget;
-        if (buildTarget && !supportedOptions.buildTargets.includes(buildTarget)) {
-            errors.push(`Unsupported build target: ${buildTarget}. Supported targets: ${supportedOptions.buildTargets.join(', ')}`);
+        if (buildTarget && !this._getSupportedOptions().buildTargets.includes(buildTarget)) {
+            errors.push(`Unsupported build target: ${buildTarget}. Supported targets: ${this._getSupportedOptions().buildTargets.join(', ')}`);
         }
 
         // Validate CodeBuild compute type
-        if (this.config.codebuildComputeType && !supportedOptions.codebuildComputeTypes.includes(this.config.codebuildComputeType)) {
-            errors.push(`Unsupported CodeBuild compute type: ${this.config.codebuildComputeType}. Supported types: ${supportedOptions.codebuildComputeTypes.join(', ')}`);
+        if (this.config.codebuildComputeType && !this._getSupportedOptions().codebuildComputeTypes.includes(this.config.codebuildComputeType)) {
+            errors.push(`Unsupported CodeBuild compute type: ${this.config.codebuildComputeType}. Supported types: ${this._getSupportedOptions().codebuildComputeTypes.join(', ')}`);
         }
 
         // Validate CodeBuild project name format
@@ -985,9 +1025,17 @@ export default class ConfigManager {
                 if (config.required && 
                     (this.config[param] === null || this.config[param] === undefined)) {
                     
-                    // Special case: modelFormat is not required for transformers
-                    if (param === 'modelFormat' && this.config.framework === 'transformers') {
-                        return; // Skip validation for transformers
+                    // Special case: modelFormat is not required for transformers/triton
+                    if (param === 'modelFormat') {
+                        try {
+                            const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig)
+                            if (parts.architecture === 'transformers' || parts.architecture === 'triton') {
+                                return
+                            }
+                        } catch {
+                            // If deploymentConfig is invalid, skip this check
+                            return
+                        }
                     }
                     
                     // Only error for promptable required parameters that have no default and can't be auto-generated
@@ -1031,9 +1079,9 @@ export default class ConfigManager {
                 const value = finalConfig[param];
                 const isEmpty = value === null || value === undefined || value === '';
                 
-                // Special case: modelFormat is not required for transformers
-                if (param === 'modelFormat' && finalConfig.framework === 'transformers') {
-                    return; // Skip validation for transformers
+                // Special case: modelFormat is not required for transformers/triton
+                if (param === 'modelFormat' && (finalConfig.architecture === 'transformers' || finalConfig.architecture === 'triton')) {
+                    return; // Skip validation
                 }
                 
                 // Special case: instanceType is not required for hyperpod-eks
@@ -1046,7 +1094,7 @@ export default class ConfigManager {
                 if (isEmpty) {
                     if (config.promptable) {
                         // Promptable required parameter is missing - this should not happen after prompting
-                        errors.push(`Required parameter '${param}' is missing. This parameter is required for ${finalConfig.framework || 'the selected'} framework.`);
+                        errors.push(`Required parameter '${param}' is missing. This parameter is required for ${finalConfig.architecture || 'the selected'} architecture.`);
                     } else {
                         // Non-promptable required parameter is missing - this is a configuration error
                         errors.push(`Required non-promptable parameter '${param}' is missing. This parameter must be provided through CLI options, environment variables, or configuration files.`);
@@ -1074,9 +1122,16 @@ export default class ConfigManager {
         // Additional combination validations that aren't covered by individual parameter validation
         // For example, complex business rules that involve multiple parameters
         
-        // Validate that transformers framework has sample model disabled
-        if (config.framework === 'transformers' && config.includeSampleModel === true) {
-            errors.push('Framework \'transformers\' does not support sample models. The \'includeSampleModel\' parameter will be automatically set to false.');
+        // Validate that transformers architecture has sample model disabled
+        if (config.architecture === 'transformers' && config.includeSampleModel === true) {
+            errors.push(`Architecture '${config.architecture}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
+        }
+        // Validate that ineligible Triton backends have sample model disabled
+        if (config.architecture === 'triton' && config.includeSampleModel === true) {
+            const backendMeta = tritonBackends[config.backend];
+            if (!backendMeta || !backendMeta.supportsSampleModel) {
+                errors.push(`Triton backend '${config.backend}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
+            }
         }
 
         return errors;
@@ -1091,9 +1146,7 @@ export default class ConfigManager {
     _canAutoGenerate(param) {
         // Parameters that can be auto-generated even when missing
         const autoGeneratable = [
-            'framework',     // Can default to a reasonable choice
-            'modelServer',   // Can be inferred from framework
-            'modelFormat',   // Can be inferred from framework
+            'modelFormat',        // Can be inferred from engine
             'includeSampleModel', // Has default
             'includeTesting',     // Has default
             'instanceType'        // Has default
@@ -1108,17 +1161,16 @@ export default class ConfigManager {
      * @returns {string} Generated project name
      * @private
      */
-    _generateProjectName(framework) {
+    _generateProjectName(architecture) {
         const adjectives = [
             'smart', 'fast', 'clever', 'bright', 'swift', 'agile', 'sharp', 'quick',
             'wise', 'keen', 'bold', 'sleek', 'neat', 'cool', 'fresh', 'prime'
         ];
         
-        const frameworkNames = {
-            'sklearn': ['sklearn', 'scikit', 'sk'],
-            'xgboost': ['xgb', 'xgboost', 'boost'],
-            'tensorflow': ['tf', 'tensorflow', 'tensor'],
-            'transformers': ['llm', 'transformer', 'gpt', 'bert', 'ai']
+        const architectureNames = {
+            'http': ['http', 'api', 'serve'],
+            'transformers': ['llm', 'transformer', 'gpt', 'bert', 'ai'],
+            'triton': ['triton', 'inference', 'nvidia']
         };
         
         const suffixes = [
@@ -1128,12 +1180,12 @@ export default class ConfigManager {
         
         // Get random elements
         const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
-        const frameworkName = frameworkNames[framework] ? 
-            frameworkNames[framework][Math.floor(Math.random() * frameworkNames[framework].length)] :
+        const archName = architectureNames[architecture] ? 
+            architectureNames[architecture][Math.floor(Math.random() * architectureNames[architecture].length)] :
             'ml';
         const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
         
-        return `${adjective}-${frameworkName}-${suffix}`;
+        return `${adjective}-${archName}-${suffix}`;
     }
 
     /**
@@ -1143,19 +1195,18 @@ export default class ConfigManager {
      * @returns {string} Generated CodeBuild project name
      * @private
      */
-    _generateCodeBuildProjectName(projectName, framework) {
-        const frameworkMap = {
-            'sklearn': 'sklearn',
-            'xgboost': 'xgboost', 
-            'tensorflow': 'tensorflow',
-            'transformers': 'llm'
+    _generateCodeBuildProjectName(projectName, architecture) {
+        const architectureMap = {
+            'http': 'http',
+            'transformers': 'llm',
+            'triton': 'triton'
         };
         
-        const frameworkName = frameworkMap[framework] || 'ml';
+        const archName = architectureMap[architecture] || 'ml';
         const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
         
         // Create a descriptive name that indicates it's a build project
-        const buildProjectName = `${projectName}-${frameworkName}-build-${timestamp}`;
+        const buildProjectName = `${projectName}-${archName}-build-${timestamp}`;
         
         // Ensure it meets AWS CodeBuild naming requirements (2-255 chars, alphanumeric + hyphens/underscores)
         return buildProjectName
@@ -1178,35 +1229,55 @@ export default class ConfigManager {
         const supportedOptions = this._getSupportedOptions();
         
         switch (parameter) {
-        case 'framework':
-            if (value && !supportedOptions.frameworks.includes(value)) {
-                throw new ValidationError(
-                    `Unsupported framework: ${value}. Supported: ${supportedOptions.frameworks.join(', ')}`,
-                    parameter,
-                    value
-                );
-            }
-            break;
-                
-        case 'modelServer':
-            if (value && context.framework) {
-                const validServers = supportedOptions.modelServers[context.framework] || [];
-                if (!validServers.includes(value)) {
+        case 'deploymentConfig':
+            if (value) {
+                // Check for old-format configs with migration messages
+                const oldFormatMigration = {
+                    'sklearn-flask': 'Use --deployment-config=http-flask --engine=sklearn instead',
+                    'sklearn-fastapi': 'Use --deployment-config=http-fastapi --engine=sklearn instead',
+                    'xgboost-flask': 'Use --deployment-config=http-flask --engine=xgboost instead',
+                    'xgboost-fastapi': 'Use --deployment-config=http-fastapi --engine=xgboost instead',
+                    'tensorflow-flask': 'Use --deployment-config=http-flask --engine=tensorflow instead',
+                    'tensorflow-fastapi': 'Use --deployment-config=http-fastapi --engine=tensorflow instead'
+                }
+                const migrationMsg = oldFormatMigration[value]
+                if (migrationMsg) {
                     throw new ValidationError(
-                        `Model server '${value}' is not compatible with framework '${context.framework}'. Compatible servers: ${validServers.join(', ')}`,
+                        `Unsupported deployment-config: ${value}. This value has been replaced. ${migrationMsg}`,
                         parameter,
                         value
-                    );
+                    )
+                }
+                if (!this.deploymentConfigResolver.isValid(value)) {
+                    const valid = this.deploymentConfigResolver.getAllConfigs().join(', ')
+                    throw new ValidationError(
+                        `Unsupported deployment-config: ${value}. Valid configs: ${valid}`,
+                        parameter,
+                        value
+                    )
                 }
             }
-            break;
+            break
+
+        case 'engine':
+            if (value) {
+                const validEngines = ['sklearn', 'xgboost', 'tensorflow']
+                if (!validEngines.includes(value)) {
+                    throw new ValidationError(
+                        `Unsupported engine: ${value}. Supported: ${validEngines.join(', ')}`,
+                        parameter,
+                        value
+                    )
+                }
+            }
+            break
                 
         case 'modelFormat':
-            if (value && context.framework && context.framework !== 'transformers') {
-                const validFormats = supportedOptions.modelFormats[context.framework] || [];
+            if (value && context.architecture === 'http' && context.engine) {
+                const validFormats = supportedOptions.modelFormats[context.engine] || [];
                 if (validFormats.length > 0 && !validFormats.includes(value)) {
                     throw new ValidationError(
-                        `Model format '${value}' is not compatible with framework '${context.framework}'. Compatible formats: ${validFormats.join(', ')}`,
+                        `Model format '${value}' is not compatible with engine '${context.engine}'. Compatible formats: ${validFormats.join(', ')}`,
                         parameter,
                         value
                     );
@@ -1225,13 +1296,12 @@ export default class ConfigManager {
                         value
                     );
                 }
-                // Warn about CPU instances for transformers (but don't block)
-                if (context.framework === 'transformers') {
+                // Warn about CPU instances for transformers/triton (but don't block)
+                if (context.architecture === 'transformers' || context.architecture === 'triton') {
                     const cpuFamilies = ['t2', 't3', 't3a', 't4g', 'm4', 'm5', 'm5a', 'm5ad', 'm5d', 'm5dn', 'm5n', 'm5zn', 'm6a', 'm6g', 'm6gd', 'm6i', 'm6id', 'm6idn', 'm6in', 'c4', 'c5', 'c5a', 'c5ad', 'c5d', 'c5n', 'c6a', 'c6g', 'c6gd', 'c6gn', 'c6i', 'c6id', 'c6in', 'r4', 'r5', 'r5a', 'r5ad', 'r5b', 'r5d', 'r5dn', 'r5n', 'r6a', 'r6g', 'r6gd', 'r6i', 'r6id', 'r6idn', 'r6in'];
                     const instanceFamily = value.split('.')[1];
                     if (cpuFamilies.includes(instanceFamily)) {
-                        // This is a warning, not an error - user might know what they're doing
-                        console.warn(`⚠️  Warning: Using CPU instance ${value} with transformers framework. GPU instances are recommended for better performance.`);
+                        console.warn(`⚠️  Warning: Using CPU instance ${value} with ${context.architecture} architecture. GPU instances are recommended for better performance.`);
                     }
                 }
             }
@@ -1340,18 +1410,12 @@ export default class ConfigManager {
      */
     _getSupportedOptions() {
         return {
-            frameworks: ['sklearn', 'xgboost', 'tensorflow', 'transformers'],
-            modelServers: {
-                'sklearn': ['flask', 'fastapi'],
-                'xgboost': ['flask', 'fastapi'],
-                'tensorflow': ['flask', 'fastapi'],
-                'transformers': ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl']
-            },
+            deploymentConfigs: this.deploymentConfigResolver.getAllConfigs(),
+            engines: ['sklearn', 'xgboost', 'tensorflow'],
             modelFormats: {
                 'sklearn': ['pkl', 'joblib'],
                 'xgboost': ['json', 'model', 'ubj'],
-                'tensorflow': ['keras', 'h5', 'SavedModel'],
-                'transformers': [] // No format needed
+                'tensorflow': ['keras', 'h5', 'SavedModel']
             },
             buildTargets: ['codebuild'],
             codebuildComputeTypes: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'],

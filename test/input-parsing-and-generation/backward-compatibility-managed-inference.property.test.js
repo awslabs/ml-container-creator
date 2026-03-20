@@ -47,11 +47,11 @@ function renderTemplate(template, vars) {
 const managedInferenceConfigArb = fc.record({
     projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
     deploymentConfig: fc.constantFrom(
-        'sklearn-flask', 'sklearn-fastapi',
-        'xgboost-flask', 'xgboost-fastapi',
-        'tensorflow-flask', 'tensorflow-fastapi',
+        'http-flask', 'http-fastapi',
         'transformers-vllm', 'transformers-sglang'
     ),
+    architecture: fc.constantFrom('http', 'transformers'),
+    backend: fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang'),
     framework: fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers'),
     modelServer: fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang'),
     awsRegion: fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1'),
@@ -394,8 +394,8 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
 
         fc.assert(fc.property(
             fc.record({
-                framework: fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers'),
-                modelServer: fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang'),
+                architecture: fc.constantFrom('http', 'transformers'),
+                backend: fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang'),
                 awsRegion: fc.constantFrom('us-east-1', 'us-west-2')
             }),
             (config) => {
@@ -429,8 +429,8 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
 
         fc.assert(fc.property(
             fc.record({
-                framework: fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers'),
-                modelServer: fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang'),
+                architecture: fc.constantFrom('http', 'transformers'),
+                backend: fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang'),
                 awsRegion: fc.constantFrom('us-east-1', 'us-west-2')
             }),
             (config) => {
