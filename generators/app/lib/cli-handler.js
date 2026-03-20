@@ -54,6 +54,13 @@ export default class CliHandler {
             return true;
         }
 
+        case 'registry': {
+            const { default: RegistryCommandHandler } = await import('./registry-command-handler.js');
+            const registryHandler = new RegistryCommandHandler(this.generator);
+            await registryHandler.handle(args.slice(1), options);
+            return true;
+        }
+
         case 'help':
         case '--help':
         case '-h':

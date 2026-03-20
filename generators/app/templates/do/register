@@ -1,0 +1,376 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# ============================================================
+# Register deployment to the deployment registry
+# ============================================================
+
+# Parse command line arguments
+NOTES=""
+STATUS="success"
+PROJECT_FLAG=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --notes)
+            NOTES="$2"
+            shift 2
+            ;;
+        --notes=*)
+            NOTES="${1#*=}"
+            shift
+            ;;
+        --status)
+            STATUS="$2"
+            shift 2
+            ;;
+        --status=*)
+            STATUS="${1#*=}"
+            shift
+            ;;
+        --project)
+            PROJECT_FLAG="--project"
+            shift
+            ;;
+        *)
+            echo "⚠️  Unknown option: $1"
+            echo ""
+            echo "Usage: ./do/register [--notes \"text\"] [--status success|partial|failed] [--project]"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate status
+case "${STATUS}" in
+    success|partial|failed) ;;
+    *)
+        echo "❌ Invalid status: ${STATUS}"
+        echo "   Valid values: success, partial, failed"
+        exit 1
+        ;;
+esac
+
+# ============================================================
+# Derive architecture and backend from DEPLOYMENT_CONFIG
+# ============================================================
+
+# DEPLOYMENT_CONFIG format: <architecture>-<backend> (e.g., transformers-vllm, http-flask, triton-fil)
+ARCHITECTURE="${DEPLOYMENT_CONFIG%%-*}"
+BACKEND="${DEPLOYMENT_CONFIG#*-}"
+
+echo "📋 Registering deployment to registry"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
+echo "   Architecture: ${ARCHITECTURE}"
+echo "   Backend: ${BACKEND}"
+echo ""
+
+# ============================================================
+# Engine prefix mapping for transformer env var filtering
+# ============================================================
+
+get_engine_prefix() {
+    local backend="$1"
+    case "${backend}" in
+        vllm)         echo "VLLM_" ;;
+        sglang)       echo "SGLANG_" ;;
+        tensorrt-llm) echo "TRTLLM_" ;;
+        lmi)          echo "LMI_" ;;
+        djl)          echo "DJL_" ;;
+        *)            echo "" ;;
+    esac
+}
+
+# ============================================================
+# Image resolution fallback chain
+# ============================================================
+
+IMAGE_SOURCE="none"
+ENV_JSON=""
+
+resolve_image() {
+    # Try 1: Local image
+    if docker image inspect "${PROJECT_NAME}:latest" &> /dev/null; then
+        IMAGE_SOURCE="local"
+        ENV_JSON=$(docker inspect --format='{{json .Config.Env}}' "${PROJECT_NAME}:latest" 2>/dev/null || echo "")
+        return 0
+    fi
+
+    # Try 2: Pull from ECR
+    echo "⚠️  Local image not found, attempting ECR pull..."
+    if ! command -v aws &> /dev/null; then
+        echo "   ⚠️  AWS CLI not found, skipping ECR pull"
+    else
+        echo "   Checking AWS credentials..."
+        AWS_ACCOUNT_ID=""
+        # Use timeout if available, otherwise run directly
+        if command -v timeout &> /dev/null; then
+            AWS_ACCOUNT_ID=$(timeout 10 aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+        else
+            AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+        fi
+        if [ -n "${AWS_ACCOUNT_ID}" ]; then
+            ECR_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-latest"
+
+            echo "   Authenticating with ECR (account ${AWS_ACCOUNT_ID})..."
+            if aws ecr get-login-password --region "${AWS_REGION}" 2>/dev/null | \
+                docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" &> /dev/null; then
+
+                echo "   Pulling ${ECR_IMAGE}..."
+                echo "   (this may take a few minutes for large images)"
+                if docker pull "${ECR_IMAGE}"; then
+                    IMAGE_SOURCE="ecr"
+                    ENV_JSON=$(docker inspect --format='{{json .Config.Env}}' "${ECR_IMAGE}" 2>/dev/null || echo "")
+                    return 0
+                else
+                    echo "   ⚠️  ECR pull failed"
+                fi
+            else
+                echo "   ⚠️  ECR authentication failed"
+            fi
+        else
+            echo "   ⚠️  AWS credentials not configured or timed out"
+        fi
+    fi
+
+    # Try 3: Proceed without env vars
+    echo "⚠️  Could not inspect Docker image — env vars will not be captured"
+    IMAGE_SOURCE="none"
+    ENV_JSON=""
+    return 0
+}
+
+resolve_image
+
+# ============================================================
+# Extract base image from docker inspect
+# ============================================================
+
+BASE_IMAGE=""
+
+# Try 1: Parse base image from the project's Dockerfile ARG or FROM
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+if [ -f "${PROJECT_DIR}/Dockerfile" ]; then
+    # Check for ARG BASE_IMAGE=<value> (used when FROM references a build arg)
+    ARG_VALUE=$(grep -m1 '^ARG BASE_IMAGE=' "${PROJECT_DIR}/Dockerfile" 2>/dev/null | sed 's/^ARG BASE_IMAGE=//' || echo "")
+    if [ -n "${ARG_VALUE}" ]; then
+        BASE_IMAGE="${ARG_VALUE}"
+    else
+        # Fall back to parsing FROM directly (works when FROM has a hardcoded image)
+        FROM_VALUE=$(grep -m1 '^FROM ' "${PROJECT_DIR}/Dockerfile" 2>/dev/null | awk '{print $2}' || echo "")
+        # Skip if it's a variable reference like ${BASE_IMAGE}
+        if [ -n "${FROM_VALUE}" ] && [[ "${FROM_VALUE}" != *'${'* ]]; then
+            BASE_IMAGE="${FROM_VALUE%% AS *}"
+            BASE_IMAGE="${BASE_IMAGE%% as *}"
+        fi
+    fi
+fi
+
+# Try 2: OCI label from docker image
+if [ -z "${BASE_IMAGE}" ] && [ "${IMAGE_SOURCE}" != "none" ]; then
+    if [ "${IMAGE_SOURCE}" = "local" ]; then
+        INSPECT_TARGET="${PROJECT_NAME}:latest"
+    else
+        INSPECT_TARGET="${ECR_IMAGE}"
+    fi
+    LABEL_VALUE=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.base.name"}}' "${INSPECT_TARGET}" 2>/dev/null || echo "")
+    if [ -n "${LABEL_VALUE}" ] && [ "${LABEL_VALUE}" != "<no value>" ]; then
+        BASE_IMAGE="${LABEL_VALUE}"
+    fi
+fi
+
+# ============================================================
+# Three-way parameter extraction
+# ============================================================
+
+PARAMETERS="{}"
+
+case "${ARCHITECTURE}" in
+    transformers)
+        # Extract env vars matching engine prefix + HF_TOKEN + HF_MODEL_ID
+        ENGINE_PREFIX=$(get_engine_prefix "${BACKEND}")
+
+        if [ -n "${ENV_JSON}" ] && [ "${ENV_JSON}" != "null" ] && [ "${ENV_JSON}" != "" ]; then
+            # Parse env vars from JSON array format: ["KEY=VALUE", ...]
+            PARAMETERS=$(echo "${ENV_JSON}" | python3 -c "
+import sys, json
+env_list = json.load(sys.stdin)
+prefix = '${ENGINE_PREFIX}'
+result = {}
+for item in env_list:
+    if '=' in item:
+        key, value = item.split('=', 1)
+        if prefix and key.startswith(prefix):
+            result[key] = value
+        elif key in ('HF_TOKEN', 'HF_MODEL_ID'):
+            result[key] = value
+print(json.dumps(result))
+" 2>/dev/null || echo "{}")
+        fi
+        ;;
+
+    http)
+        # Extract all env vars except system vars
+        if [ -n "${ENV_JSON}" ] && [ "${ENV_JSON}" != "null" ] && [ "${ENV_JSON}" != "" ]; then
+            PARAMETERS=$(echo "${ENV_JSON}" | python3 -c "
+import sys, json
+env_list = json.load(sys.stdin)
+exclude = {
+    'PATH', 'PYTHONPATH', 'SAGEMAKER_BIND_TO_PORT', 'LANG', 'GPG_KEY',
+    'PYTHON_VERSION', 'PYTHON_PIP_VERSION', 'PYTHON_SETUPTOOLS_VERSION',
+    'PYTHON_GET_PIP_URL', 'PYTHON_GET_PIP_SHA256'
+}
+result = {}
+for item in env_list:
+    if '=' in item:
+        key, value = item.split('=', 1)
+        if key not in exclude:
+            result[key] = value
+print(json.dumps(result))
+" 2>/dev/null || echo "{}")
+        fi
+        ;;
+
+    triton)
+        # Read config.pbtxt from model repository
+        TRITON_MODEL_REPO="${TRITON_MODEL_REPOSITORY:-/opt/ml/model/model_repository}"
+        CONFIG_PBTXT=""
+
+        # Try to find config.pbtxt in the project directory
+        PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+        if [ -f "${PROJECT_DIR}/model_repository/model/config.pbtxt" ]; then
+            CONFIG_PBTXT=$(cat "${PROJECT_DIR}/model_repository/model/config.pbtxt" 2>/dev/null || echo "")
+        elif [ -f "${PROJECT_DIR}/model_repository/config.pbtxt" ]; then
+            CONFIG_PBTXT=$(cat "${PROJECT_DIR}/model_repository/config.pbtxt" 2>/dev/null || echo "")
+        fi
+
+        # Also capture TRITON_MODEL_REPOSITORY from docker image if available
+        TRITON_REPO_VAR=""
+        if [ -n "${ENV_JSON}" ] && [ "${ENV_JSON}" != "null" ] && [ "${ENV_JSON}" != "" ]; then
+            TRITON_REPO_VAR=$(echo "${ENV_JSON}" | python3 -c "
+import sys, json
+env_list = json.load(sys.stdin)
+for item in env_list:
+    if '=' in item:
+        key, value = item.split('=', 1)
+        if key == 'TRITON_MODEL_REPOSITORY':
+            print(value)
+            break
+" 2>/dev/null || echo "")
+        fi
+
+        # Build parameters JSON (pipe config.pbtxt via stdin to avoid quoting issues)
+        PARAMETERS=$(printf '%s' "${CONFIG_PBTXT}" | python3 -c "
+import sys, json
+config_pbtxt = sys.stdin.read()
+result = {}
+if config_pbtxt.strip():
+    result['config.pbtxt'] = config_pbtxt.strip()
+triton_repo = '${TRITON_REPO_VAR}'
+if triton_repo:
+    result['TRITON_MODEL_REPOSITORY'] = triton_repo
+print(json.dumps(result))
+" 2>/dev/null || echo "{}")
+        ;;
+esac
+
+# Count captured parameters
+PARAM_COUNT=$(echo "${PARAMETERS}" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+# ============================================================
+# Display summary before writing
+# ============================================================
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📋 Registration Summary"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
+echo "   Architecture:      ${ARCHITECTURE}"
+echo "   Backend:           ${BACKEND}"
+<% if (framework === 'transformers') { %>
+echo "   Model name:        ${MODEL_NAME:-N/A}"
+<% } %>
+<% if (deploymentTarget === 'managed-inference') { %>
+echo "   Instance type:     ${INSTANCE_TYPE}"
+<% } %>
+echo "   Region:            ${AWS_REGION}"
+echo "   Status:            ${STATUS}"
+echo "   Env var source:    ${IMAGE_SOURCE}"
+echo "   Parameters:        ${PARAM_COUNT} captured"
+if [ -n "${BASE_IMAGE}" ]; then
+echo "   Base image:        ${BASE_IMAGE}"
+fi
+if [ -n "${NOTES}" ]; then
+echo "   Notes:             ${NOTES}"
+fi
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# ============================================================
+# Call yo @aws/ml-container-creator registry log
+# ============================================================
+
+# Build the registry log command
+CMD_ARGS=(
+    "registry" "log"
+    "--deployment-config" "${DEPLOYMENT_CONFIG}"
+    "--architecture" "${ARCHITECTURE}"
+    "--backend" "${BACKEND}"
+    "--region" "${AWS_REGION}"
+    "--status" "${STATUS}"
+    "--deployment-target" "${DEPLOYMENT_TARGET}"
+    "--build-target" "${BUILD_TARGET}"
+)
+
+<% if (framework === 'transformers') { %>
+if [ -n "${MODEL_NAME:-}" ]; then
+    CMD_ARGS+=("--model-name" "${MODEL_NAME}")
+fi
+<% } %>
+
+<% if (deploymentTarget === 'managed-inference') { %>
+CMD_ARGS+=("--instance-type" "${INSTANCE_TYPE}")
+<% } %>
+
+<% if (modelFormat) { %>
+if [ -n "${MODEL_FORMAT:-}" ]; then
+    CMD_ARGS+=("--model-format" "${MODEL_FORMAT}")
+fi
+<% } %>
+
+if [ -n "${BASE_IMAGE}" ]; then
+    CMD_ARGS+=("--base-image" "${BASE_IMAGE}")
+fi
+
+if [ -n "${NOTES}" ]; then
+    CMD_ARGS+=("--notes" "${NOTES}")
+fi
+
+if [ -n "${PROJECT_FLAG}" ]; then
+    CMD_ARGS+=("${PROJECT_FLAG}")
+fi
+
+# Pass parameters as JSON string
+CMD_ARGS+=("--parameters" "${PARAMETERS}")
+
+# Pass generator version from package.json if available
+GENERATOR_VERSION=""
+if command -v node &> /dev/null; then
+    GENERATOR_VERSION=$(node -e "try{console.log(require('$(npm root -g)/@aws/generator-ml-container-creator/package.json').version)}catch(e){console.log('')}" 2>/dev/null || echo "")
+fi
+if [ -n "${GENERATOR_VERSION}" ]; then
+    CMD_ARGS+=("--generator-version" "${GENERATOR_VERSION}")
+fi
+
+echo "📝 Writing to registry..."
+yo @aws/ml-container-creator "${CMD_ARGS[@]}"

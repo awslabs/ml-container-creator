@@ -700,7 +700,8 @@ export default class extends Generator {
             'do/test',
             'do/logs',
             'do/clean',
-            'do/submit'
+            'do/submit',
+            'do/register'
         ];
         
         shellScripts.forEach(script => {
