@@ -79,13 +79,13 @@ jobs:
           echo "Testing generator help command..."
           yo @aws/ml-container-creator help
 
-      - name: Test generator with CLI options (legacy format)
+      - name: Test generator with CLI options (new format)
         run: |
           mkdir -p test-output-legacy
           cd test-output-legacy
           yo @aws/ml-container-creator test-project-legacy \
-            --framework=sklearn \
-            --model-server=flask \
+            --deployment-config=http-flask \
+            --engine=sklearn \
             --model-format=pkl \
             --skip-prompts
           
@@ -107,14 +107,15 @@ jobs:
           test -f test-project-legacy/deploy/deploy.sh
           grep -q "DEPRECATED" test-project-legacy/deploy/build_and_push.sh
           
-          echo "✅ Generator CLI test (legacy format) passed"
+          echo "✅ Generator CLI test (new format) passed"
       
       - name: Test generator with deployment config option
         run: |
           mkdir -p test-output-new
           cd test-output-new
           yo @aws/ml-container-creator test-project-new \
-            --deployment-config=sklearn-flask \
+            --deployment-config=http-flask \
+            --engine=sklearn \
             --model-format=pkl \
             --skip-prompts
           
@@ -132,8 +133,8 @@ jobs:
           test -f test-project-new/do/README.md
           
           # Verify do/config contains correct deployment config
-          grep -q "DEPLOYMENT_CONFIG=\"sklearn-flask\"" test-project-new/do/config
-          grep -q "FRAMEWORK=\"sklearn\"" test-project-new/do/config
+          grep -q "DEPLOYMENT_CONFIG=\"http-flask\"" test-project-new/do/config
+          grep -q "FRAMEWORK=\"http\"" test-project-new/do/config
           grep -q "MODEL_SERVER=\"flask\"" test-project-new/do/config
           
           echo "✅ Generator CLI test (deployment config) passed"
