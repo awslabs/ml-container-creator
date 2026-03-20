@@ -16,7 +16,7 @@ MCC is built to assist customers in standardizing and simplifying the  technical
 
 While these decisions seem independent, they become interrelated as you consider approaches to containerizing and customizing models. Moreover, each decision is an inflexion point that influences the technical assets used in deployment, such as Dockerfiles or start-up scripts for serving. 
 
-MCC provides users with a standard interface for building and deploying these technical assets. This is accomplished using templated assets that accommodate a growing list of options. Actions can be taken using standardized scripts built in a manner reminiscent of the [do-framework](https://github.com/iankoulski/do-framework). 
+MCC provides users with a standard interface for building and deploying these technical assets. This is accomplished using templated assets that accommodate a growing list of options. Actions can be taken using standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). MCC adapts the do-framework conventions into a `do/` subdirectory with scripts like `build`, `push`, `run`, `test`, `deploy`, `clean`, `logs`, and `export`, and extends the pattern with AWS-specific lifecycle commands for SageMaker deployment.
 
 MCC started as a [Yeoman Generator](https://yeoman.io/), allowing users to generate containerized deployment assets using a decision-tree style REPL. This is an easy way to understand the generation flow, though not the only way to interact with MCC. Users can automate the generation of these assets using a CLI configured by environment variables, CLI flags, and configuration files.
 
@@ -55,14 +55,19 @@ For more information, check out the sections on supported [HTTP Servers](http-se
 
 ## Container Building
 
-MCC generates Docker containers that package everything needed to serve model inference requests over HTTP. The generated Dockerfile bundles the appropriate base image, application code (model handlers and web servers), configuration files, and dependencies. For traditional ML frameworks (scikit-learn, XGBoost, TensorFlow), model artifacts are included directly in the container. For transformer models, the container downloads models from HuggingFace Hub at runtime to keep image sizes manageable.
+MCC generates Docker containers that package everything needed to serve model inference requests over HTTP. The generated Dockerfile bundles the appropriate base image, application code (model handlers and web servers), configuration files, and dependencies. For traditional ML frameworks (scikit-learn, XGBoost, TensorFlow), model artifacts are included directly in the container. For transformer models, the container downloads models from HuggingFace Hub at runtime to keep image sizes manageable. For Triton Inference Server configurations, MCC generates the model repository structure, `config.pbtxt`, and backend-specific files.
 
-The build process follows a standard Docker workflow: build the image locally, push it to Amazon Elastic Container Registry (ECR), and deploy to SageMaker. MCC generates deployment scripts (`build_and_push.sh` and `deploy.sh`) that automate this entire process, handling AWS authentication, ECR repository creation, and SageMaker resource provisioning. The resulting container exposes SageMaker-compatible endpoints (`/ping` for health checks and `/invocations` for inference) on port 8080, ready for production deployment.
+The build process follows a standard Docker workflow managed by `do/` scripts: `./do/build` creates the image locally, `./do/push` uploads it to Amazon Elastic Container Registry (ECR), and `./do/deploy` provisions the deployment target. For CI/CD workflows, `./do/submit` handles building and pushing via AWS CodeBuild. The resulting container exposes SageMaker-compatible endpoints (`/ping` for health checks and `/invocations` for inference) on port 8080, ready for production deployment.
 
 
 For more information, check out the section on [Containerization](containerization.md).
 
 ### Endpoint Deployment
-Once an MCC container is built, it can be launched as a process. MCC is opinionated about deployment targets, building containers specifically designed to run on Amazon Sagemaker AI managed inference endpoints. Currently, these are real-time endpoints. 
+Once an MCC container is built, it can be launched as a process. MCC supports two deployment targets:
+
+- **Managed Inference** (`managed-inference`): Deploys to Amazon SageMaker AI managed inference endpoints using the Inference Components API. This is the default target and supports real-time inference.
+- **HyperPod EKS** (`hyperpod-eks`): Deploys to an existing SageMaker HyperPod cluster running on Amazon EKS using Kubernetes manifests.
+
+Both targets are managed through the `./do/deploy` script. After deployment, `./do/test` validates the endpoint, `./do/logs` tails deployment logs, and `./do/clean` tears down resources.
 
 For more information, check out the deployment deep-dive on the [Deployment & Inference](deployments.md) page.

@@ -8,7 +8,7 @@ Configuration sources are applied in strict precedence order (highest to lowest 
 
 | Priority | Source | Description | Example |
 |----------|--------|-------------|---------|
-| **1** | CLI Options | Command-line flags | `--framework=sklearn` |
+| **1** | CLI Options | Command-line flags | `--deployment-config=http-flask` |
 | **2** | CLI Arguments | Positional arguments | `yo @aws/ml-container-creator my-project` |
 | **3** | Environment Variables | Shell environment | `export AWS_REGION=us-east-1` |
 | **4** | CLI Config File | `--config` specified file | `--config=production.json` |
@@ -27,17 +27,26 @@ This table shows which parameters are supported by each configuration source:
 | Parameter | CLI Option | CLI Arg | Env Var | Config File | Package.json | Default | Promptable | Required |
 |-----------|------------|---------|---------|-------------|--------------|---------|------------|----------|
 | **Core Parameters** |
-| Framework | `--framework` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ✅ |
-| Model Server | `--model-server` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ✅ |
+| Deployment Config | `--deployment-config` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ✅ |
+| Engine | `--engine` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ❌ |
+| Framework | `--framework` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ❌ |
+| Model Server | `--model-server` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ❌ |
 | Model Format | `--model-format` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ✅ |
 | **Module Options** |
 | Include Sample | `--include-sample` | ❌ | ❌ | ✅ | ❌ | `false` | ✅ | ✅ |
 | Include Testing | `--include-testing` | ❌ | ❌ | ✅ | ❌ | `true` | ✅ | ✅ |
 | **Infrastructure** |
+| Deployment Target | `--deployment-target` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ✅ |
+| Build Target | `--build-target` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ✅ |
 | Instance Type | `--instance-type` | ❌ | `ML_INSTANCE_TYPE` | ✅ | ❌ | N/A | ✅ | ✅ |
-| Custom Instance Type | `--custom-instance-type` | ❌ | `ML_CUSTOM_INSTANCE_TYPE` | ✅ | ❌ | N/A | ✅ | ❌ |
+| CodeBuild Compute Type | `--codebuild-compute-type` | ❌ | ❌ | ✅ | ❌ | `BUILD_GENERAL1_MEDIUM` | ✅ | ❌ |
 | AWS Region | `--region` | ❌ | `AWS_REGION` | ✅ | ✅ | `us-east-1` | ✅ | ❌ |
 | AWS Role ARN | `--role-arn` | ❌ | `AWS_ROLE` | ✅ | ✅ | N/A | ✅ | ❌ |
+| **HyperPod EKS** |
+| HyperPod Cluster | `--hyperpod-cluster` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ❌ |
+| HyperPod Namespace | `--hyperpod-namespace` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ❌ |
+| HyperPod Replicas | `--hyperpod-replicas` | ❌ | ❌ | ✅ | ❌ | `1` | ✅ | ❌ |
+| FSx Volume Handle | `--fsx-volume-handle` | ❌ | ❌ | ✅ | ❌ | N/A | ✅ | ❌ |
 | **Project Settings** |
 | Project Name | `--project-name` | ✅ | ❌ | ✅ | ✅ | N/A | ❌ | ✅ |
 | Project Directory | `--project-dir` | ❌ | ❌ | ✅ | ✅ | `.` | ❌ | ✅ |
@@ -70,18 +79,22 @@ Use command-line flags for quick one-off configurations:
 ```bash
 # Basic sklearn project
 yo @aws/ml-container-creator my-project \
-  --framework=sklearn \
-  --model-server=flask \
+  --deployment-config=http-flask \
+  --engine=sklearn \
   --model-format=pkl \
+  --deployment-target=managed-inference \
+  --instance-type=ml.m5.large \
+  --build-target=codebuild \
   --skip-prompts
 
-# Advanced configuration
+# Advanced LLM configuration
 yo @aws/ml-container-creator my-llm-project \
-  --framework=transformers \
-  --model-server=vllm \
-  --instance-type=gpu-enabled \
+  --deployment-config=transformers-vllm \
+  --deployment-target=managed-inference \
+  --instance-type=ml.g5.2xlarge \
   --region=us-west-2 \
   --role-arn=arn:aws:iam::123456789012:role/SageMakerRole \
+  --build-target=codebuild \
   --skip-prompts
 ```
 
@@ -93,15 +106,46 @@ yo @aws/ml-container-creator my-llm-project \
 | `--config=<file>` | String | Load configuration from file | File path |
 | `--project-name=<name>` | String | Project name | Any valid name |
 | `--project-dir=<dir>` | String | Output directory | Directory path |
-| `--framework=<framework>` | String | ML framework | `sklearn`, `xgboost`, `tensorflow`, `transformers` |
-| `--model-server=<server>` | String | Model server | `flask`, `fastapi`, `vllm`, `sglang` |
+| `--deployment-config=<config>` | String | Deployment configuration | See [Deployment Configs](#deployment-configs) |
+| `--engine=<engine>` | String | ML engine (traditional ML only) | `sklearn`, `xgboost`, `tensorflow` |
+| `--framework=<framework>` | String | ML framework (deprecated) | Use `--deployment-config` instead |
+| `--model-server=<server>` | String | Model server (deprecated) | Use `--deployment-config` instead |
 | `--model-format=<format>` | String | Model format | Framework-dependent |
 | `--include-sample` | Boolean | Include sample model code | `true`/`false` |
 | `--include-testing` | Boolean | Include test suite | `true`/`false` |
-| `--instance-type=<type>` | String | Instance type | `cpu-optimized`, `gpu-enabled`, `custom` |
-| `--custom-instance-type=<type>` | String | Custom AWS instance type | `ml.m5.large`, `ml.g4dn.xlarge` |
+| `--deployment-target=<target>` | String | Where the model runs | `managed-inference`, `hyperpod-eks` |
+| `--build-target=<target>` | String | Where Docker image is built | `codebuild` |
+| `--instance-type=<type>` | String | AWS instance type | `ml.m5.large`, `ml.g5.2xlarge`, etc. |
+| `--codebuild-compute-type=<type>` | String | CodeBuild compute type | `BUILD_GENERAL1_SMALL`, `BUILD_GENERAL1_MEDIUM`, `BUILD_GENERAL1_LARGE` |
 | `--region=<region>` | String | AWS region | AWS region code |
 | `--role-arn=<arn>` | String | AWS IAM role ARN | Valid ARN |
+| `--hyperpod-cluster=<name>` | String | HyperPod EKS cluster name | Cluster name |
+| `--hyperpod-namespace=<ns>` | String | HyperPod K8s namespace | Namespace |
+| `--hyperpod-replicas=<n>` | Number | HyperPod replica count | `1` (default) |
+| `--fsx-volume-handle=<id>` | String | FSx volume handle for HyperPod | Volume ID |
+
+#### Deployment Configs
+
+The `--deployment-config` flag bundles the architecture and model server into a single value:
+
+| Config | Architecture | Backend | Use Case |
+|--------|-------------|---------|----------|
+| `http-flask` | HTTP | Flask | Traditional ML with Flask server |
+| `http-fastapi` | HTTP | FastAPI | Traditional ML with FastAPI server |
+| `transformers-vllm` | Transformers | vLLM | LLM serving with vLLM |
+| `transformers-sglang` | Transformers | SGLang | LLM serving with SGLang |
+| `transformers-tensorrt-llm` | Transformers | TensorRT-LLM | LLM serving with TensorRT-LLM |
+| `transformers-lmi` | Transformers | LMI | LLM serving with Large Model Inference |
+| `transformers-djl` | Transformers | DJL | LLM serving with Deep Java Library |
+| `triton-fil` | Triton | FIL | Tree models (XGBoost, LightGBM) on Triton |
+| `triton-onnxruntime` | Triton | ONNX Runtime | ONNX models on Triton |
+| `triton-tensorflow` | Triton | TensorFlow | TensorFlow models on Triton |
+| `triton-pytorch` | Triton | PyTorch | PyTorch models on Triton |
+| `triton-vllm` | Triton | vLLM | LLM serving on Triton |
+| `triton-tensorrtllm` | Triton | TensorRT-LLM | LLM serving on Triton with TensorRT-LLM |
+| `triton-python` | Triton | Python | Custom Python models on Triton |
+
+For traditional ML configs (`http-flask`, `http-fastapi`), also specify `--engine` to set the ML framework (e.g., `--engine=sklearn`).
 
 ### 3. CLI Arguments
 
@@ -109,7 +153,7 @@ Use positional arguments for the project name:
 
 ```bash
 # Project name as first argument
-yo @aws/ml-container-creator my-awesome-model --framework=sklearn --skip-prompts
+yo @aws/ml-container-creator my-awesome-model --deployment-config=http-flask --engine=sklearn --skip-prompts
 ```
 
 ### 4. Environment Variables
@@ -118,27 +162,26 @@ Set environment variables for deployment-specific configuration:
 
 ```bash
 # Set environment variables
-export ML_INSTANCE_TYPE="gpu-enabled"
+export ML_INSTANCE_TYPE="ml.g5.2xlarge"
 export AWS_REGION="us-west-2"
 export AWS_ROLE="arn:aws:iam::123456789012:role/SageMakerRole"
 export ML_CONTAINER_CREATOR_CONFIG="./production.json"
 
 # Generate with environment config + CLI options for core parameters
-yo @aws/ml-container-creator --framework=transformers --model-server=vllm --skip-prompts
+yo @aws/ml-container-creator --deployment-config=transformers-vllm --skip-prompts
 ```
 
 #### Supported Environment Variables
 
 | Variable | Maps To | Description | Example |
 |----------|---------|-------------|---------|
-| `ML_INSTANCE_TYPE` | `instanceType` | Instance type | `cpu-optimized`, `gpu-enabled`, `custom` |
-| `ML_CUSTOM_INSTANCE_TYPE` | `customInstanceType` | Custom AWS instance type | `ml.g4dn.xlarge` |
+| `ML_INSTANCE_TYPE` | `instanceType` | AWS instance type | `ml.m5.large`, `ml.g5.2xlarge` |
 | `AWS_REGION` | `awsRegion` | AWS region | `us-east-1` |
 | `AWS_ROLE` | `awsRoleArn` | AWS IAM role ARN | `arn:aws:iam::123456789012:role/SageMakerRole` |
 | `ML_CONTAINER_CREATOR_CONFIG` | `configFile` | Config file path | `./my-config.json` |
 
 !!! note "Limited Environment Variable Support"
-    Only infrastructure and system parameters support environment variables. Core parameters (framework, model-server, etc.) must be configured via CLI options or configuration files for security and clarity.
+    Only infrastructure and system parameters support environment variables. Core parameters (deployment-config, engine, etc.) must be configured via CLI options or configuration files for security and clarity.
 
 ### 5. Configuration Files
 
@@ -149,15 +192,15 @@ Create a configuration file in your project directory:
 ```json
 {
   "projectName": "my-ml-project",
-  "framework": "sklearn",
-  "modelServer": "flask",
+  "deploymentConfig": "http-flask",
+  "engine": "sklearn",
   "modelFormat": "pkl",
   "includeSampleModel": false,
   "includeTesting": true,
   "testTypes": ["local-model-cli", "hosted-model-endpoint"],
-  "deployTarget": "sagemaker",
-  "instanceType": "cpu-optimized",
-  "customInstanceType": "ml.m5.large",
+  "deploymentTarget": "managed-inference",
+  "buildTarget": "codebuild",
+  "instanceType": "ml.m5.large",
   "awsRegion": "us-east-1",
   "awsRoleArn": "arn:aws:iam::123456789012:role/SageMakerRole"
 }
@@ -198,7 +241,7 @@ Add configuration to your `package.json` for project-specific defaults:
 ```
 
 !!! note "Package.json Limitations"
-    Only infrastructure and project settings are supported in package.json. Core parameters (framework, model-server, etc.) are not supported to avoid confusion.
+    Only infrastructure and project settings are supported in package.json. Core parameters (deployment-config, engine, etc.) are not supported to avoid confusion.
 
 ## CLI Commands
 
@@ -267,17 +310,15 @@ You can:
 ```bash
 # Direct token
 yo @aws/ml-container-creator my-llm-project \
-  --framework=transformers \
+  --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-2-7b-hf \
-  --model-server=vllm \
   --hf-token=hf_abc123... \
   --skip-prompts
 
 # Environment variable reference
 yo @aws/ml-container-creator my-llm-project \
-  --framework=transformers \
+  --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-2-7b-hf \
-  --model-server=vllm \
   --hf-token='$HF_TOKEN' \
   --skip-prompts
 ```
@@ -286,9 +327,8 @@ yo @aws/ml-container-creator my-llm-project \
 
 ```json
 {
-  "framework": "transformers",
+  "deploymentConfig": "transformers-vllm",
   "modelName": "meta-llama/Llama-2-7b-hf",
-  "modelServer": "vllm",
   "hfToken": "$HF_TOKEN"
 }
 ```
@@ -303,7 +343,7 @@ yo @aws/ml-container-creator my-llm-project \
 1. **Use environment variable references for CI/CD**:
    ```bash
    export HF_TOKEN=hf_your_token_here
-   yo @aws/ml-container-creator --framework=transformers --hf-token='$HF_TOKEN' --skip-prompts
+   yo @aws/ml-container-creator --deployment-config=transformers-vllm --hf-token='$HF_TOKEN' --skip-prompts
    ```
 
 2. **Never commit tokens to version control**: Use `$HF_TOKEN` in config files, not actual tokens.
@@ -345,25 +385,30 @@ For more troubleshooting, see the [Troubleshooting Guide](./TROUBLESHOOTING.md).
 ```bash
 # scikit-learn with Flask
 yo @aws/ml-container-creator sklearn-project \
-  --framework=sklearn \
-  --model-server=flask \
+  --deployment-config=http-flask \
+  --engine=sklearn \
   --model-format=pkl \
+  --deployment-target=managed-inference \
+  --instance-type=ml.m5.large \
   --include-sample \
   --skip-prompts
 
 # XGBoost with FastAPI
 yo @aws/ml-container-creator xgb-project \
-  --framework=xgboost \
-  --model-server=fastapi \
+  --deployment-config=http-fastapi \
+  --engine=xgboost \
   --model-format=json \
-  --instance-type=cpu-optimized \
+  --deployment-target=managed-inference \
+  --instance-type=ml.m5.large \
   --skip-prompts
 
-# TensorFlow with custom format
+# TensorFlow with Flask
 yo @aws/ml-container-creator tf-project \
-  --framework=tensorflow \
-  --model-server=flask \
+  --deployment-config=http-flask \
+  --engine=tensorflow \
   --model-format=SavedModel \
+  --deployment-target=managed-inference \
+  --instance-type=ml.m5.large \
   --skip-prompts
 ```
 
@@ -380,17 +425,17 @@ yo @aws/ml-container-creator tf-project \
 ```bash
 # Transformers with vLLM
 yo @aws/ml-container-creator llm-project \
-  --framework=transformers \
-  --model-server=vllm \
-  --instance-type=gpu-enabled \
+  --deployment-config=transformers-vllm \
+  --deployment-target=managed-inference \
+  --instance-type=ml.g5.2xlarge \
   --region=us-west-2 \
   --skip-prompts
 
 # Transformers with SGLang
 yo @aws/ml-container-creator llm-project \
-  --framework=transformers \
-  --model-server=sglang \
-  --instance-type=gpu-enabled \
+  --deployment-config=transformers-sglang \
+  --deployment-target=managed-inference \
+  --instance-type=ml.g5.2xlarge \
   --skip-prompts
 ```
 
@@ -406,12 +451,13 @@ yo @aws/ml-container-creator llm-project \
 ```json
 {
   "projectName": "dev-model",
-  "framework": "sklearn",
-  "modelServer": "flask",
+  "deploymentConfig": "http-flask",
+  "engine": "sklearn",
   "modelFormat": "pkl",
   "includeSampleModel": true,
   "includeTesting": true,
-  "instanceType": "cpu-optimized",
+  "deploymentTarget": "managed-inference",
+  "instanceType": "ml.m5.large",
   "awsRegion": "us-east-1"
 }
 ```
@@ -421,13 +467,15 @@ yo @aws/ml-container-creator llm-project \
 ```json
 {
   "projectName": "prod-recommendation-service",
-  "framework": "tensorflow",
-  "modelServer": "fastapi",
+  "deploymentConfig": "http-fastapi",
+  "engine": "tensorflow",
   "modelFormat": "SavedModel",
   "includeSampleModel": false,
   "includeTesting": true,
   "testTypes": ["local-model-server", "hosted-model-endpoint"],
-  "instanceType": "gpu-enabled",
+  "deploymentTarget": "managed-inference",
+  "buildTarget": "codebuild",
+  "instanceType": "ml.g4dn.xlarge",
   "awsRegion": "us-west-2",
   "awsRoleArn": "arn:aws:iam::123456789012:role/ProdSageMakerRole"
 }
@@ -438,11 +486,12 @@ yo @aws/ml-container-creator llm-project \
 ```json
 {
   "projectName": "llm-chat-service",
-  "framework": "transformers",
-  "modelServer": "vllm",
+  "deploymentConfig": "transformers-vllm",
   "includeSampleModel": false,
   "includeTesting": true,
-  "instanceType": "gpu-enabled",
+  "deploymentTarget": "managed-inference",
+  "buildTarget": "codebuild",
+  "instanceType": "ml.g5.12xlarge",
   "awsRegion": "us-west-2",
   "awsRoleArn": "arn:aws:iam::123456789012:role/LLMSageMakerRole"
 }
@@ -453,14 +502,14 @@ yo @aws/ml-container-creator llm-project \
 ### ❌ Mixing Incompatible Options
 
 ```bash
-# DON'T: sklearn with vLLM server
-yo @aws/ml-container-creator --framework=sklearn --model-server=vllm --skip-prompts
+# DON'T: traditional ML engine with LLM deployment config
+yo @aws/ml-container-creator --deployment-config=transformers-vllm --engine=sklearn --skip-prompts
 
 # DON'T: transformers with model format
-yo @aws/ml-container-creator --framework=transformers --model-format=pkl --skip-prompts
+yo @aws/ml-container-creator --deployment-config=transformers-vllm --model-format=pkl --skip-prompts
 
 # DON'T: transformers with sample model
-yo @aws/ml-container-creator --framework=transformers --include-sample --skip-prompts
+yo @aws/ml-container-creator --deployment-config=transformers-vllm --include-sample --skip-prompts
 ```
 
 ### ❌ Using Unsupported Environment Variables
@@ -472,7 +521,7 @@ export ML_MODEL_SERVER=flask       # Not supported
 export ML_MODEL_FORMAT=pkl         # Not supported
 
 # DO: Use CLI options or config files for core parameters
-yo @aws/ml-container-creator --framework=sklearn --model-server=flask --skip-prompts
+yo @aws/ml-container-creator --deployment-config=http-flask --engine=sklearn --skip-prompts
 ```
 
 ### ❌ Invalid Configuration Files
@@ -504,15 +553,15 @@ The generator validates all configuration and provides clear error messages:
 ### Framework Validation
 
 ```bash
-yo @aws/ml-container-creator --framework=invalid --skip-prompts
+yo @aws/ml-container-creator --deployment-config=invalid --skip-prompts
 # Error: ⚠️ invalid not implemented yet.
 ```
 
 ### Format Validation
 
 ```bash
-yo @aws/ml-container-creator --framework=sklearn --model-format=json --skip-prompts
-# Error: Invalid model format 'json' for framework 'sklearn'
+yo @aws/ml-container-creator --deployment-config=http-flask --engine=sklearn --model-format=json --skip-prompts
+# Error: Unsupported model format 'json' for engine 'sklearn'
 ```
 
 ### ARN Validation
@@ -526,7 +575,7 @@ yo @aws/ml-container-creator --role-arn=invalid-arn --skip-prompts
 
 ```bash
 yo @aws/ml-container-creator --skip-prompts
-# Error: Missing required parameter: framework
+# Error: Required parameter 'deploymentConfig' is missing
 ```
 
 ## Best Practices
@@ -550,8 +599,8 @@ export AWS_REGION=us-west-2     # Production
 ### 3. Use CLI Options for One-Off Changes
 
 ```bash
-# Quick test with different server
-yo @aws/ml-container-creator --model-server=fastapi --skip-prompts
+# Quick test with different deployment config
+yo @aws/ml-container-creator --deployment-config=http-fastapi --engine=sklearn --skip-prompts
 ```
 
 ### 4. Combine Methods Strategically
@@ -577,11 +626,11 @@ yo @aws/ml-container-creator --config=production.json
 The generator shows which configuration sources are being used:
 
 ```bash
-yo @aws/ml-container-creator --framework=sklearn --skip-prompts
+yo @aws/ml-container-creator --deployment-config=http-flask --engine=sklearn --skip-prompts
 
 # Output shows:
 # ⚙️ Configuration will be collected from prompts and merged with:
-#    • Framework: sklearn
+#    • Deployment config: http-flask
 #    • No external configuration found
 ```
 
