@@ -42,7 +42,7 @@ yo @aws/ml-container-creator
 ? Test type? local-model-cli, local-model-server, hosted-model-endpoint
 
 💪 Infrastructure & Performance
-? Deployment target? sagemaker
+? Deployment target? managed-inference
 ? Instance type? cpu-optimized
 ? Target AWS region? us-east-1
 ```
@@ -58,32 +58,32 @@ cp /path/to/your/model.pkl code/model.pkl
 
 ```bash
 # Build Docker image
-docker build -t sklearn-iris-classifier .
+./do/build
 
 # Run container locally
-docker run -p 8080:8080 sklearn-iris-classifier
+./do/run
 
-# Test in another terminal
-curl -X POST http://localhost:8080/invocations \
-  -H "Content-Type: application/json" \
-  -d '{"instances": [[5.1, 3.5, 1.4, 0.2]]}'
+# In another terminal, test the endpoints
+./do/test
 ```
 
 ### Step 4: Deploy to SageMaker
 
 ```bash
 # Build and push to ECR
-./deploy/build_and_push.sh
+./do/build
+./do/push
 
-# Deploy to SageMaker (replace with your IAM role ARN)
-./deploy/deploy.sh arn:aws:iam::123456789012:role/SageMakerExecutionRole
+# Deploy to SageMaker (set ROLE_ARN in do/config or export it)
+export ROLE_ARN=arn:aws:iam::123456789012:role/SageMakerExecutionRole
+./do/deploy
 ```
 
 ### Step 5: Test Endpoint
 
 ```bash
 # Test the deployed endpoint
-./test/test_endpoint.sh sklearn-iris-classifier
+./do/test
 ```
 
 ---
@@ -142,8 +142,9 @@ def preprocess(data):
 
 ```bash
 cd xgboost-house-prices-*
-./deploy/build_and_push.sh
-./deploy/deploy.sh arn:aws:iam::123456789012:role/SageMakerExecutionRole
+./do/build
+./do/push
+./do/deploy
 ```
 
 ---
@@ -206,8 +207,9 @@ def preprocess(data):
 
 ```bash
 cd tensorflow-image-classifier-*
-./deploy/build_and_push.sh
-./deploy/deploy.sh arn:aws:iam::123456789012:role/SageMakerExecutionRole
+./do/build
+./do/push
+./do/deploy
 ```
 
 The deployment script will automatically select a GPU instance (ml.g4dn.xlarge) based on your configuration.
@@ -296,8 +298,8 @@ cp -r /path/to/llama2-model/* llama2-7b-chat-*/model/
 ```bash
 cd llama2-7b-chat-*
 
-# Upload model to S3 (script will prompt for bucket name)
-./deploy/upload_to_s3.sh
+# Upload model to S3 (if using S3-based model loading)
+aws s3 cp model/ s3://my-bucket/models/llama2-7b/ --recursive
 ```
 
 ### Step 4: Update Dockerfile
@@ -313,8 +315,13 @@ ENV MODEL_NAME="meta-llama/Llama-2-7b-chat-hf"
 ### Step 5: Deploy
 
 ```bash
-./deploy/build_and_push.sh
-./deploy/deploy.sh arn:aws:iam::123456789012:role/SageMakerExecutionRole
+# Build and push (or use ./do/submit for CodeBuild)
+./do/build
+./do/push
+
+# Deploy (set ROLE_ARN in do/config or export it)
+export ROLE_ARN=arn:aws:iam::123456789012:role/SageMakerExecutionRole
+./do/deploy
 ```
 
 **Note:** Transformer deployments require:
@@ -400,9 +407,11 @@ ls -la
 # Key files for TensorRT-LLM:
 # - Dockerfile (uses TensorRT-LLM base image)
 # - code/serve (TensorRT-LLM entrypoint script)
-# - deploy/upload_to_s3.sh (Upload model to S3)
-# - deploy/build_and_push.sh (Build and push to ECR)
-# - deploy/deploy.sh (Deploy to SageMaker)
+# - do/build (Build Docker image)
+# - do/push (Push to ECR)
+# - do/deploy (Deploy to SageMaker)
+# - do/test (Test endpoint)
+# - do/clean (Clean up resources)
 ```
 
 ### Step 5: Prepare Model Files
@@ -432,11 +441,8 @@ cp -r /path/to/llama3-model/* ./model/
 TensorRT-LLM models are typically loaded from S3 for SageMaker deployments:
 
 ```bash
-# Upload model to S3 (script will prompt for bucket name)
-./deploy/upload_to_s3.sh
-
-# Or specify bucket directly:
-# aws s3 cp model/ s3://my-bucket/models/llama3-3b/ --recursive
+# Upload model to S3
+aws s3 cp model/ s3://my-bucket/models/llama3-3b/ --recursive
 ```
 
 ### Step 7: Build and Push Container
@@ -447,8 +453,9 @@ Before building, you need to authenticate with NVIDIA NGC (NVIDIA GPU Cloud) to 
 # Set your NGC API key (get from https://ngc.nvidia.com/setup/api-key)
 export NGC_API_KEY='your-ngc-api-key-here'
 
-# Build Docker image with TensorRT-LLM
-./deploy/build_and_push.sh
+# Build and push Docker image with TensorRT-LLM
+./do/build
+./do/push
 ```
 
 The build script automatically:
@@ -471,8 +478,9 @@ This creates a container with:
 ### Step 8: Deploy to SageMaker
 
 ```bash
-# Deploy to SageMaker endpoint (replace with your IAM role ARN)
-./deploy/deploy.sh arn:aws:iam::123456789012:role/SageMakerExecutionRole
+# Deploy to SageMaker endpoint (set ROLE_ARN in do/config or export it)
+export ROLE_ARN=arn:aws:iam::123456789012:role/SageMakerExecutionRole
+./do/deploy
 ```
 
 **Important Notes:**
@@ -591,7 +599,7 @@ For optimal performance:
 
 ```bash
 # Use larger GPU instance for better throughput
-# Edit deploy/deploy.sh:
+# Edit do/config:
 INSTANCE_TYPE="ml.g5.12xlarge"  # 4 GPUs
 
 # Enable tensor parallelism in Dockerfile:
@@ -673,7 +681,7 @@ CUDA out of memory
 **Solution:**
 ```bash
 # Use larger GPU instance
-# Edit deploy/deploy.sh:
+# Edit do/config:
 INSTANCE_TYPE="ml.g5.12xlarge"  # More memory
 
 # Or reduce batch size in Dockerfile:
@@ -769,14 +777,16 @@ The CodeBuild deployment includes additional files:
 cd sklearn-codebuild-project
 ls -la
 
+# do-framework scripts (primary):
+# - do/build, do/push, do/deploy, do/test, do/clean, do/submit, do/logs, do/export
+# - do/config (centralized configuration)
+
 # CodeBuild-specific files:
 # - buildspec.yml (CodeBuild build specification)
-# - deploy/submit_build.sh (Submit build job script)
 # - IAM_PERMISSIONS.md (Required IAM permissions documentation)
 
-# Standard files:
-# - Dockerfile, requirements.txt, code/, test/
-# - deploy/deploy.sh (SageMaker deployment script)
+# Legacy scripts (deprecated, forward to do/ equivalents):
+# - deploy/submit_build.sh, deploy/deploy.sh, deploy/build_and_push.sh
 ```
 
 ### Step 3: Add Your Model
@@ -799,7 +809,7 @@ python test/test_local_model_cli.py
 # 4. Upload source code to S3
 # 5. Start build job and monitor progress
 
-./deploy/submit_build.sh
+./do/submit
 ```
 
 **Expected Output:**
@@ -835,7 +845,8 @@ Build started with ID: sklearn-codebuild-project-sklearn-build-20240102:abc123
 
 ```bash
 # Deploy the CodeBuild-generated image to SageMaker
-./deploy/deploy.sh arn:aws:iam::123456789012:role/SageMakerExecutionRole
+export ROLE_ARN=arn:aws:iam::123456789012:role/SageMakerExecutionRole
+./do/deploy
 ```
 
 ### Step 6: Test the Endpoint
@@ -1200,23 +1211,17 @@ http {
 
 ### Custom Deployment Script
 
-Edit `deploy/deploy.sh` to customize instance type:
+Edit `do/config` to customize instance type:
 
 ```bash
-#!/bin/bash
+# In do/config, change the instance type
+export INSTANCE_TYPE="ml.m5.2xlarge"
+```
 
-# Use larger instance for production
-INSTANCE_TYPE="ml.m5.2xlarge"
-INSTANCE_COUNT=2  # Multiple instances for HA
+Or override via environment variable:
 
-# Create endpoint configuration with auto-scaling
-aws sagemaker create-endpoint-config \
-  --endpoint-config-name ${PROJECT_NAME}-config \
-  --production-variants \
-    VariantName=AllTraffic,\
-    ModelName=${PROJECT_NAME}-model,\
-    InstanceType=${INSTANCE_TYPE},\
-    InitialInstanceCount=${INSTANCE_COUNT}
+```bash
+INSTANCE_TYPE=ml.m5.2xlarge ./do/deploy
 ```
 
 ### Custom Instance Types
@@ -1357,7 +1362,7 @@ Container killed due to memory limit
 **Solution:**
 ```bash
 # Use larger instance type
-# Edit deploy/deploy.sh
+# Edit do/config
 INSTANCE_TYPE="ml.m5.2xlarge"  # 32GB RAM instead of 16GB
 
 # Or optimize model

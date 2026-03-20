@@ -8,7 +8,7 @@ Common issues and solutions when using ML Container Creator.
 |-------|-----------|
 | `yo: command not found` | `npm install -g yo` |
 | `generator not found` | `npm link` in project directory |
-| `SyntaxError: Unexpected token` | Update Node.js: `nvm use node` |
+| `SyntaxError: Unexpected token` | Update Node.js to latest: `nvm install node` |
 | Container won't start | Check logs: `docker logs <container-id>` |
 | Health check fails | Verify `/ping` endpoint returns 200 |
 | Model not found | Check model file path in `/opt/ml/model/` |
@@ -52,9 +52,9 @@ Error: The engine "node" is incompatible with this module
 # Check your Node.js version
 node --version
 
-# Update to Node.js 18+ (recommended: latest LTS)
-nvm install --lts
-nvm use --lts
+# Update to Node.js 24+ (required)
+nvm install 24
+nvm use 24
 
 # Or install latest
 nvm install node
@@ -194,7 +194,7 @@ Error: Repository does not exist
 aws ecr create-repository --repository-name my-model-name
 
 # Or let the build script create it automatically
-./deploy/build_and_push.sh
+./do/build && ./do/push
 ```
 
 ### IAM Permissions
@@ -211,9 +211,9 @@ You need these AWS permissions:
 - `ecr:InitiateLayerUpload`
 - `ecr:UploadLayerPart`
 - `ecr:CompleteLayerUpload`
-- `sagemaker:CreateModel`
-- `sagemaker:CreateEndpointConfig` 
+- `sagemaker:CreateEndpointConfig`
 - `sagemaker:CreateEndpoint`
+- `sagemaker:CreateInferenceComponent`
 - `iam:PassRole`
 
 Contact your AWS administrator to add these permissions to your user or role.
@@ -230,8 +230,11 @@ Status: Failed
 
 **Solution:**
 ```bash
-# Check CloudWatch logs for detailed error
-aws logs tail /aws/sagemaker/Endpoints/my-model --follow
+# Use do/logs to tail the correct log group automatically
+./do/logs
+
+# Or check CloudWatch logs manually (inference component logs)
+aws logs tail /aws/sagemaker/InferenceComponents/my-model-ic --follow
 
 # Common causes:
 # 1. Container fails to start - check Dockerfile
@@ -248,15 +251,14 @@ Endpoint stays in "Creating" status for 15+ minutes
 **Solution:**
 ```bash
 # Check logs for errors
-aws logs tail /aws/sagemaker/Endpoints/my-model --follow
+./do/logs
 
-# If truly stuck, delete and recreate
-aws sagemaker delete-endpoint --endpoint-name my-model
-aws sagemaker delete-endpoint-config --endpoint-config-name my-model
-aws sagemaker delete-model --model-name my-model
+# If truly stuck, clean up and recreate
+./do/clean endpoint
 
 # Then redeploy
-./deploy/deploy.sh <your-sagemaker-role-arn>
+export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE
+./do/deploy
 ```
 
 ### Inference Errors
@@ -466,9 +468,8 @@ Error: Failed to download model from HuggingFace Hub
    Rebuild with token:
    ```bash
    yo @aws/ml-container-creator my-llm-project \
-     --framework=transformers \
+     --deployment-config=transformers-vllm \
      --model-name=meta-llama/Llama-2-7b-hf \
-     --model-server=vllm \
      --hf-token=hf_your_token_here \
      --skip-prompts
    ```
@@ -609,7 +610,7 @@ SageMaker endpoint costs are too high
 2. **Use auto-scaling** to scale down during low traffic
 3. **Delete unused endpoints**:
    ```bash
-   aws sagemaker delete-endpoint --endpoint-name unused-model
+   ./do/clean endpoint
    ```
 4. **Consider serverless inference** for sporadic workloads
 
@@ -650,10 +651,14 @@ curl -X POST http://localhost:8080/invocations \
 ### Check All Logs
 
 ```bash
+# Use do/logs for automatic log tailing (detects deployment target)
+./do/logs
+
+# Or check manually:
 # Local container logs
 docker logs <container-id>
 
-# SageMaker endpoint logs  
+# SageMaker endpoint logs
 aws logs tail /aws/sagemaker/Endpoints/my-model --follow
 
 # Build logs
@@ -678,7 +683,7 @@ docker build -t my-model . 2>&1 | tee build.log
 ## Prevention Checklist
 
 Before you start:
-- ✅ Node.js 18+ installed (`node --version`)
+- ✅ Node.js 24+ installed (`node --version`)
 - ✅ Docker installed and running
 - ✅ AWS CLI configured (`aws configure list`)
 - ✅ Model file ready in correct format

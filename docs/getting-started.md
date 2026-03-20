@@ -105,7 +105,7 @@ Run the generator using the `yo` command and selecting the generator from the pr
 ✔ Test type? local-model-cli, local-model-server, hosted-model-endpoint
 
 💪 Infrastructure & Performance
-✔ Deployment target? sagemaker
+✔ Deployment target? managed-inference
 ✔ Instance type? CPU-optimized (ml.m6g.large)
 ✔ Target AWS region? us-east-1
 ✔ AWS IAM Role ARN for SageMaker execution (optional)? <IAM ROLE>
@@ -171,9 +171,20 @@ scikit-test-project/
 │   └── flask/                  # Flask-specific code
 |       ├── gunicorn_config.py    # Gunicorn Config (Flask only)
 |       └── wsgi.py               # Creates Flask app
-├── deploy/
-│   ├── build_and_push.sh  # Build and push to ECR
-│   └── deploy.sh          # Deploy to SageMaker
+├── do/                    # do-framework lifecycle scripts
+│   ├── config             # Centralized configuration
+│   ├── build              # Build Docker image
+│   ├── push               # Push to Amazon ECR
+│   ├── deploy             # Deploy to SageMaker
+│   ├── run                # Run container locally
+│   ├── test               # Test container or endpoint
+│   ├── clean              # Clean up resources
+│   ├── logs               # Tail deployment logs
+│   ├── export             # Export config as CLI command
+│   └── README.md          # Detailed documentation
+├── deploy/                # Legacy scripts (deprecated)
+│   ├── build_and_push.sh  # Use ./do/build && ./do/push instead
+│   └── deploy.sh          # Use ./do/deploy instead
 └── test/
     ├── test_endpoint.sh       # Test hosted endpoint
     ├── test_local_image.sh    # Test local container
@@ -283,100 +294,95 @@ We will come back to this once we deploy the model in the next step.
 #### 5.1: Build and Push to ECR
 
 ```bash
-# Build and push Docker image to ECR
-(base) frgud@842f5776eab6 scikit-test-project % ./deploy/build_and_push.sh
-Building Docker image for project: scikit-test-project...
-[+] Building 0.3s (21/21) 
+# Build Docker image
+(base) frgud@842f5776eab6 scikit-test-project % ./do/build
+🚀 Building Docker image for scikit-test-project
+   Deployment config: sklearn-flask
+   Framework: sklearn
+   Model server: flask
+🏗️  Building CPU-optimized image...
 ...
-View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/uz31052ank7nn4xgmv2pltmm1
-Logging into ECR...
+✅ Build complete!
+   Image: scikit-test-project:latest
+   Tagged: scikit-test-project:20260129-175045
 
-WARNING! Your credentials are stored unencrypted in '/Users/frgud/.docker/config.json'.
-Configure a credential helper to remove this warning. See
-https://docs.docker.com/go/credential-store/
+Next steps:
+  • Test locally: ./do/run
+  • Push to ECR: ./do/push
+  • Deploy to SageMaker: ./do/deploy
 
-Login Succeeded
-📦 Checking ECR repository...
-{
-    "repositories": [
-        {
-            "repositoryArn": "<REPOSITORY_ARN>",
-            "registryId": "<REGISTRY_ID>",
-            "repositoryName": "ml-container-creator",
-            "repositoryUri": "<ECR_URI>/ml-container-creator",
-            "createdAt": "2025-10-29T22:02:34.906000-04:00",
-            "imageTagMutability": "MUTABLE",
-            "imageScanningConfiguration": {
-                "scanOnPush": false
-            },
-            "encryptionConfiguration": {
-                "encryptionType": "AES256"
-            }
-        }
-    ]
-}
-Pushing images to ECR repository: ml-container-creator...
-The push refers to repository [<ECR_URI>/ml-container-creator]
-...
-✅ Images successfully pushed to ECR:
-  - <ECR_URI>:scikit-test-project-20260129-175045 (timestamped build)
-  - <ECR_URI>:scikit-test-project-latest (project latest)
-  - <ECR_URI>:latest (global latest)
-(base) frgud@842f5776eab6 scikit-test-project % 
+# Push to ECR
+(base) frgud@842f5776eab6 scikit-test-project % ./do/push
+🚀 Pushing Docker image to Amazon ECR
+   Project: scikit-test-project
+   Region: us-east-1
+   Repository: ml-container-creator
+🔍 Validating AWS credentials...
+✅ AWS credentials validated (Account: <ACCOUNT_NO>)
+🔐 Authenticating with Amazon ECR...
+✅ ECR authentication successful
+✅ ECR repository exists
+🏷️  Tagging images for ECR...
+📤 Pushing images to ECR...
+✅ Push complete!
+
+📦 Pushed image URIs:
+   <ECR_URI>/ml-container-creator:latest
+   <ECR_URI>/ml-container-creator:scikit-test-project-latest
+   <ECR_URI>/ml-container-creator:scikit-test-project-20260129-175045
 ```
 
 #### 5.2: Deploy to SageMaker AI
 ```bash
-(base) frgud@842f5776eab6 scikit-test-project % ./deploy/deploy.sh 
-Using configured execution role: <EXECUTION_ROLE_ARN>
-🚀 Deploying locally built image to SageMaker...
-Pulling image from ECR...
-latest: Pulling from ml-container-creator
-Digest: <IMAGE_DIGEST>
-Status: Image is up to date for <ECR_URI>/ml-container-creator:latest
-<ECR_URI>/ml-container-creator:latest
-Creating SageMaker model: scikit-test-project-model-1769727239
-{
-    "ModelArn": "arn:aws:sagemaker:us-east-1:<ACCOUNT_NO>:model/scikit-test-project-model-1769727239"
-}
-Creating endpoint configuration: scikit-test-project-endpoint-config-1769727239
-{
-    "EndpointConfigArn": "arn:aws:sagemaker:us-east-1:<ACCOUNT_NO>:endpoint-config/<ENDPOINT_CONFIG_NAME>"
-}
-Creating endpoint: <ENDPOINT_NAME>
-{
-    "EndpointArn": "arn:aws:sagemaker:us-east-1:<ACCOUNT_NO>:endpoint/<ENDPOINT_NAME>"
-}
-Waiting for endpoint to be in service...
-Deployment complete!
-Endpoint name: <ENDPOINT_NAME>
-You can test the endpoint with:
-./test_endpoint.sh <ENDPOINT_NAME>
-(base) frgud@842f5776eab6 scikit-test-project % 
+(base) frgud@842f5776eab6 scikit-test-project % ./do/deploy
+🚀 Deploying to AWS
+   Project: scikit-test-project
+   Deployment config: sklearn-flask
+   Region: us-east-1
+   Build target: local
+   Deployment target: managed-inference
+   Instance type: ml.m6g.large
+🔍 Validating AWS credentials...
+✅ AWS credentials validated (Account: <ACCOUNT_NO>)
+🔍 Verifying ECR image exists...
+✅ ECR image found: <ECR_URI>/ml-container-creator:scikit-test-project-latest
+⚙️  Creating endpoint configuration: scikit-test-project-epc-<TIMESTAMP>
+✅ Endpoint configuration created
+🚀 Creating endpoint: scikit-test-project-endpoint-<TIMESTAMP>
+✅ Endpoint creation initiated
+⏳ Waiting for endpoint to reach InService status...
+✅ Endpoint is InService
+📦 Creating inference component: scikit-test-project-ic-<TIMESTAMP>
+⏳ Waiting for inference component to reach InService status...
+✅ Deployment complete!
+
+📋 Deployment Details:
+   Endpoint: scikit-test-project-endpoint-<TIMESTAMP>
+   Inference Component: scikit-test-project-ic-<TIMESTAMP>
+   Region: us-east-1
+   Instance Type: ml.m6g.large
+
+🧪 Test your endpoint:
+   ./do/test
 ```
 
 #### 5.3: Test the Endpoint
 
 ```bash
-(base) frgud@842f5776eab6 scikit-test-project % ./test/test_endpoint.sh <ENDPOINT_NAME>
-Testing SageMaker endpoint: <ENDPOINT_NAME>
-Checking endpoint status...
-InService
-Testing inference endpoint...
-{
-    "ContentType": "application/json",
-    "InvokedProductionVariant": "primary"
-}
-Response:
-{
-  "predictions": [
-    12.86
-  ]
-}
+(base) frgud@842f5776eab6 scikit-test-project % ./do/test
+🧪 Testing SageMaker endpoint: scikit-test-project-endpoint-<TIMESTAMP>
 
-Cleaning up files...
-Test complete!
-(base) frgud@842f5776eab6 scikit-test-project % 
+🔍 Test 1: Health check
+   Checking endpoint status...
+✅ Endpoint is InService
+
+🔍 Test 2: Inference request
+   Payload: Sample feature vector
+   Invoking SageMaker endpoint...
+✅ Inference request successful
+   Response preview: {"predictions": [12.86]}
+
+✅ All tests passed!
 ```
 
 ## Generative AI
@@ -458,10 +464,19 @@ sglang-gptoss-test/
     ├── code/
     │   ├── serve                     # Shell entrypoint script that launches SGLang server
     │   └── serving.properties        # SGLang server configuration (model ID, port, etc.)
-    ├── deploy/
-    │   ├── deploy.sh                 # Creates SageMaker model and endpoint
-    │   ├── submit_build.sh           # Triggers CodeBuild to build and push Docker image
-    │   └── upload_to_s3.sh           # Uploads model artifacts to S3 (if needed)
+    ├── do/                           # do-framework lifecycle scripts
+    │   ├── config                    # Centralized configuration
+    │   ├── build                     # Build Docker image
+    │   ├── push                      # Push to Amazon ECR
+    │   ├── deploy                    # Deploy to SageMaker
+    │   ├── test                      # Test container or endpoint
+    │   ├── clean                     # Clean up resources
+    │   ├── logs                      # Tail deployment logs
+    │   ├── export                    # Export config as CLI command
+    │   └── submit                    # Submit build to CodeBuild
+    ├── deploy/                       # Legacy scripts (deprecated)
+    │   ├── deploy.sh                 # Use ./do/deploy instead
+    │   └── submit_build.sh           # Use ./do/submit instead
     └── test/
         └── test_endpoint.sh          # Tests the deployed SageMaker endpoint with sample requests
 ```
@@ -469,8 +484,8 @@ sglang-gptoss-test/
 The transformer based projects used managed containers from framework providers to build the final container. These containers take significantly longer to build given how large they are. It is recommended to use AWS CodeBuild for transformer-based containers. Building with AWS CodeBuild helps reduce the likelihood of architecture mismatches as well.
 
 ```bash
-(base) frgud@842f5776eab6 sglang-gptoss-test % ./deploy/submit_build.sh 
-🏗️  Submitting CodeBuild job...
+(base) frgud@842f5776eab6 sglang-gptoss-test % ./do/submit
+🚀 Submitting CodeBuild job for sglang-gptoss-test
 Project: sglang-gptoss-test-llm-build-20260129
 Region: us-east-1
 Compute Type: BUILD_GENERAL1_MEDIUM
@@ -532,8 +547,8 @@ Build started with ID: sglang-gptoss-test-llm-build-20260129:e49cb662-7e0a-485d-
 🐳 Docker image available at: <ACCOUNT_NO>.dkr.ecr.us-east-1.amazonaws.com/ml-container-creator:latest
 
 Next steps:
-  1. Run './deploy/deploy.sh' to deploy to SageMaker
-  2. Or use the ECR image URI in your own deployment process
+  • Deploy to SageMaker: ./do/deploy
+  • Or use the ECR image URI in your own deployment process
 (base) frgud@842f5776eab6 sglang-gptoss-test % 
 ```
 
@@ -542,45 +557,54 @@ Transformer based containers typically require GPU to successfully deploy. Take 
 
 #### 3.1: Deploy
 ```bash
-(base) frgud@842f5776eab6 sglang-gptoss-test % ./deploy/deploy.sh 
-Using configured execution role: <ROLE_ARN>
-🚀 Deploying CodeBuild-generated image to SageMaker...
+(base) frgud@842f5776eab6 sglang-gptoss-test % ./do/deploy
+🚀 Deploying to AWS
+   Project: sglang-gptoss-test
+   Deployment config: transformers-sglang
+   Region: us-east-1
+   Build target: codebuild
+   Deployment target: managed-inference
+   Instance type: ml.g6.12xlarge
+🔍 Validating AWS credentials...
+✅ AWS credentials validated (Account: <ACCOUNT_NO>)
 🔍 Verifying ECR image exists...
-✅ ECR image found: <ACCOUNT_NO>.dkr.ecr.us-east-1.amazonaws.com/ml-container-creator:latest
-Creating SageMaker model: sglang-gptoss-test-model-1769729378
-{
-    "ModelArn": "arn:aws:sagemaker:us-east-1:<ACCOUNT_NO>:model/sglang-gptoss-test-model-1769729378"
-}
-Creating endpoint configuration: sglang-gptoss-test-endpoint-config-1769729378
-{
-    "EndpointConfigArn": "arn:aws:sagemaker:us-east-1:<ACCOUNT_NO>:endpoint-config/<ENDPOINT_CONFIG_NAME>"
-}
-Creating endpoint: sglang-gptoss-test-endpoint-1769729378
-{
-    "EndpointArn": "arn:aws:sagemaker:us-east-1:<ACCOUNT_NO>:endpoint/<ENDPOINT_NAME>"
-}
-Waiting for endpoint to be in service...
-Deployment complete!
-Endpoint name: <ENDPOINT_NAME>
-You can test the endpoint with:
-./test_endpoint.sh <ENDPOINT_NAME> openai/gpt-oss-20b
-(base) frgud@842f5776eab6 sglang-gptoss-test % 
+✅ ECR image found: <ACCOUNT_NO>.dkr.ecr.us-east-1.amazonaws.com/ml-container-creator:sglang-gptoss-test-latest
+⚙️  Creating endpoint configuration: sglang-gptoss-test-epc-<TIMESTAMP>
+✅ Endpoint configuration created
+🚀 Creating endpoint: sglang-gptoss-test-endpoint-<TIMESTAMP>
+✅ Endpoint creation initiated
+⏳ Waiting for endpoint to reach InService status...
+✅ Endpoint is InService
+📦 Creating inference component: sglang-gptoss-test-ic-<TIMESTAMP>
+⏳ Waiting for inference component to reach InService status...
+   This may take 5-10 minutes...
+✅ Deployment complete!
+
+📋 Deployment Details:
+   Endpoint: sglang-gptoss-test-endpoint-<TIMESTAMP>
+   Inference Component: sglang-gptoss-test-ic-<TIMESTAMP>
+   Region: us-east-1
+   Instance Type: ml.g6.12xlarge
+
+🧪 Test your endpoint:
+   ./do/test
 ```
 
-#### 3.1: Test
+#### 3.2: Test
 ```bash
-(base) frgud@842f5776eab6 sglang-gptoss-test % ./test/test_endpoint.sh <ENDPOINT_NAME> openai/gpt-oss-20b
+(base) frgud@842f5776eab6 sglang-gptoss-test % ./do/test
 
-Testing SageMaker endpoint: <ENDPOINT_NAME>
-Checking endpoint status...
-InService
-Testing inference endpoint...
-{
-    "ContentType": "application/json",
-    "InvokedProductionVariant": "primary"
-}
-Response:
-{
+🧪 Testing SageMaker endpoint: sglang-gptoss-test-endpoint-<TIMESTAMP>
+
+🔍 Test 1: Health check
+   Checking endpoint status...
+✅ Endpoint is InService
+
+🔍 Test 2: Inference request
+   Payload: OpenAI-compatible chat completion request
+   Invoking SageMaker endpoint...
+✅ Inference request successful
+   Response preview: {
   "id": "5e7ce6ccc0f04cb8abd320b27b508ff5",
   "object": "chat.completion",
   "created": 1769730729,
@@ -611,9 +635,11 @@ Response:
   }
 }
 
-Cleaning up files...
-Test complete!
-(base) frgud@842f5776eab6 sglang-gptoss-test % 
+✅ All tests passed!
+
+Endpoint is ready for production use!
+  • Endpoint name: sglang-gptoss-test-endpoint-<TIMESTAMP>
+  • Region: us-east-1
 ```
 
 ## Configuration Options
@@ -660,17 +686,22 @@ For complete configuration documentation, see the [Configuration Guide](configur
 
 ## Cleanup
 
-To avoid ongoing charges, delete your SageMaker endpoint:
+To avoid ongoing charges, use the `do/clean` script to tear down all deployed resources:
 
 ```bash
-# Delete endpoint
-aws sagemaker delete-endpoint --endpoint-name <ENDPOINT_NAME>
+# Delete SageMaker endpoint, inference component, and endpoint configuration
+./do/clean endpoint
 
-# Delete endpoint configuration
-aws sagemaker delete-endpoint-config --endpoint-config-name <ENDPOINT_CONFIG_NAME>
+# Or clean everything (local images, ECR images, endpoint, CodeBuild)
+./do/clean all
+```
 
-# Delete model
-aws sagemaker delete-model --model-name <MODEL_NAME>
+You can also clean individual resource types:
+
+```bash
+./do/clean local      # Remove local Docker images
+./do/clean ecr        # Remove images from Amazon ECR
+./do/clean codebuild  # Delete CodeBuild project and IAM role
 ```
 
 <!-- ## Next Steps
