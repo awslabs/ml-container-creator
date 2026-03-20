@@ -198,6 +198,9 @@ else
     echo "Endpoint is ready for production use!"
     echo "  • Endpoint name: ${ENDPOINT_NAME}"
     echo "  • Region: ${AWS_REGION}"
+    echo ""
+    echo "📝 Register this deployment:"
+    echo "  ./do/register"
 fi
 
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
@@ -403,6 +406,9 @@ else
     echo "  • Cluster: ${HYPERPOD_CLUSTER_NAME}"
     echo "  • Namespace: ${HYPERPOD_NAMESPACE}"
     echo "  • Service: ${PROJECT_NAME}"
+    echo ""
+    echo "📝 Register this deployment:"
+    echo "  ./do/register"
 fi
 
 <% } %>
