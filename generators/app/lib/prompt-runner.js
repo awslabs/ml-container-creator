@@ -30,8 +30,15 @@ import {
     formatImageChoices
 } from './prompts.js';
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'node:url';
 import instanceAcceleratorMapping from '../config/registries/instance-accelerator-mapping.js';
 import tritonBackends from '../config/registries/triton-backends.js';
+
+const __pr_filename = fileURLToPath(import.meta.url);
+const __pr_dirname = path.dirname(__pr_filename);
+const GENERATOR_ROOT = path.resolve(__pr_dirname, '..', '..', '..');
 
 export default class PromptRunner {
     constructor(generator) {
@@ -169,9 +176,22 @@ export default class PromptRunner {
             existingConfig
         );
         
+        // Query model-picker MCP server for model choices
+        this._queryMcpForModels()
+        if (this._mcpModelChoices) {
+            console.log(`   🔍 Querying model-picker...`)
+            console.log(`   ✓ ${this._mcpModelChoices.length} model(s) available from catalog`)
+        }
+        const modelFormatPreviousAnswers = {
+            ...frameworkAnswers,
+            ...engineAnswers,
+            ...frameworkVersionAnswers,
+            ...frameworkProfileAnswers,
+            ...(this._mcpModelChoices ? { _mcpModelChoices: this._mcpModelChoices } : {})
+        }
         const modelFormatAnswers = await this._runPhase(
             modelFormatPrompts, 
-            {...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers}, 
+            modelFormatPreviousAnswers, 
             explicitConfig, 
             existingConfig
         );
@@ -632,6 +652,54 @@ export default class PromptRunner {
     }
 
     /**
+     * Query model-picker MCP server catalog for model choices.
+     * Reads the popular-models.json catalog to populate the model selection prompt.
+     * @private
+     */
+    _queryMcpForModels() {
+        const cm = this.configManager
+        if (!cm) return
+
+        const mcpServers = cm.getMcpServerNames()
+        if (!mcpServers.includes('model-picker')) return
+
+        try {
+            const mcpConfigPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json')
+            if (!fs.existsSync(mcpConfigPath)) return
+
+            const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'))
+            const serverConfig = mcpConfig.mcpServers?.['model-picker']
+            if (!serverConfig?.args?.length) return
+
+            // Resolve the server entry point directory from the args
+            const serverEntryPoint = serverConfig.args[serverConfig.args.length - 1]
+            const serverDir = path.dirname(serverEntryPoint)
+
+            // Read manifest to find catalog path
+            const manifestPath = path.join(serverDir, 'manifest.json')
+            if (!fs.existsSync(manifestPath)) return
+
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+            const catalogRelPath = manifest.catalogs?.['popular-models']
+            if (!catalogRelPath) return
+
+            const catalogPath = path.resolve(serverDir, catalogRelPath)
+            if (!fs.existsSync(catalogPath)) return
+
+            const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'))
+
+            // Extract model IDs, filtering out glob patterns (entries with *)
+            const modelIds = Object.keys(catalog).filter(id => !id.includes('*'))
+
+            if (modelIds.length > 0) {
+                this._mcpModelChoices = modelIds
+            }
+        } catch {
+            // Silently fall back to hardcoded defaults
+        }
+    }
+
+    /**
      * Get framework version choices from registry
      * Requirements: 2.1, 2.6, 8.2, 8.3
      * @private
@@ -801,85 +869,166 @@ export default class PromptRunner {
      * @private
      */
     async _fetchAndDisplayModelInfo(modelId) {
-        const registryConfigManager = this.generator.registryConfigManager;
-        
-        if (!registryConfigManager) {
-            return;
-        }
-        
-        console.log(`\n🔍 Fetching model information for: ${modelId}`);
-        
-        const sources = [];
-        let chatTemplate = null;
-        let modelFamily = null;
-        
-        // Try HuggingFace API first
-        try {
-            const hfData = await registryConfigManager._fetchHuggingFaceData(modelId);
-            if (hfData) {
-                sources.push('HuggingFace_Hub_API');
-                if (hfData.chatTemplate) {
-                    chatTemplate = hfData.chatTemplate;
+            console.log(`\n   🔍 Querying model-picker [discover]...`);
+
+            const sources = [];
+            let chatTemplate = null;
+            let modelFamily = null;
+            let mcpUsed = false;
+
+            // Try model-picker MCP server in discover mode (queries HuggingFace + merges with catalog)
+            const cm = this.configManager;
+            if (cm) {
+                const mcpServers = cm.getMcpServerNames();
+                if (mcpServers.includes('model-picker')) {
+                    try {
+                        const mcpConfigPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
+                        if (fs.existsSync(mcpConfigPath)) {
+                            const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'));
+                            const serverConfig = mcpConfig.mcpServers?.['model-picker'];
+                            if (serverConfig) {
+                                const { McpClient } = await import('./mcp-client.js');
+                                const client = new McpClient(serverConfig, { timeout: 15000 });
+
+                                // Override _buildContext to pass model_id and mode directly
+                                client._getUnboundedParameterNames = () => [];
+                                client._buildContext = () => ({});
+
+                                // Connect and call get_models directly
+                                const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+                                const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+
+                                const transport = new StdioClientTransport({
+                                    command: serverConfig.command,
+                                    args: serverConfig.args || [],
+                                    env: { ...process.env, ...(serverConfig.env || {}) },
+                                    stderr: 'pipe'
+                                });
+
+                                const mcpClient = new Client(
+                                    { name: 'ml-container-creator', version: '1.0.0' },
+                                    { capabilities: {} }
+                                );
+
+                                await mcpClient.connect(transport);
+
+                                const result = await mcpClient.callTool({
+                                    name: 'get_models',
+                                    arguments: { model_id: modelId, mode: 'discover' }
+                                });
+
+                                await mcpClient.close();
+
+                                // Parse the response
+                                const textBlock = result?.content?.find(b => b.type === 'text');
+                                if (textBlock) {
+                                    const parsed = JSON.parse(textBlock.text);
+                                    if (parsed.values && Object.keys(parsed.values).length > 0) {
+                                        mcpUsed = true;
+                                        const vals = parsed.values;
+
+                                        if (vals.chat_template) {
+                                            chatTemplate = vals.chat_template;
+                                        }
+                                        if (vals.family) {
+                                            modelFamily = vals.family;
+                                        }
+
+                                        // Determine sources based on what was returned
+                                        if (vals.tags || vals.pipeline_tag) {
+                                            sources.push('HuggingFace_Hub_API');
+                                        }
+                                        if (vals.validation_level || vals.framework_compatibility) {
+                                            sources.push('Model_Picker_Catalog');
+                                        }
+                                        if (sources.length === 0) {
+                                            sources.push('model-picker');
+                                        }
+                                        console.log(`   ✓ Resolved: ${modelId}`);
+                                    } else if (parsed.message) {
+                                        console.log(`   ↳ ${parsed.message}`);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.log('   ↳ model-picker unavailable, using fallback');
+                    }
                 }
-                console.log('   ✅ Found on HuggingFace Hub');
-            } else {
-                console.log('   ℹ️  Not found on HuggingFace Hub (may be private or offline)');
             }
-        } catch (error) {
-            console.log('   ⚠️  HuggingFace API unavailable');
-        }
-        
-        // Check Model Registry for overrides
-        if (registryConfigManager.modelRegistry) {
-            let modelConfig = registryConfigManager.modelRegistry[modelId];
-            
-            // Try pattern matching if no exact match
-            if (!modelConfig) {
-                for (const [pattern, config] of Object.entries(registryConfigManager.modelRegistry)) {
-                    if (pattern.includes('*')) {
-                        const regex = new RegExp(`^${  pattern.replace(/\*/g, '.*')  }$`);
-                        if (regex.test(modelId)) {
-                            modelConfig = config;
-                            console.log(`   ✅ Matched pattern in Model_Registry: ${pattern}`);
-                            break;
+
+            // Fallback to legacy path if MCP didn't resolve
+            if (!mcpUsed) {
+                const registryConfigManager = this.generator.registryConfigManager;
+                if (registryConfigManager) {
+                    // Try HuggingFace API directly
+                    try {
+                        const hfData = await registryConfigManager._fetchHuggingFaceData(modelId);
+                        if (hfData) {
+                            sources.push('HuggingFace_Hub_API');
+                            if (hfData.chatTemplate) {
+                                chatTemplate = hfData.chatTemplate;
+                            }
+                            console.log('   ✅ Found on HuggingFace Hub');
+                        } else {
+                            console.log('   ℹ️  Not found on HuggingFace Hub (may be private or offline)');
+                        }
+                    } catch (error) {
+                        console.log('   ⚠️  HuggingFace API unavailable');
+                    }
+
+                    // Check Model Registry for overrides
+                    if (registryConfigManager.modelRegistry) {
+                        let modelConfig = registryConfigManager.modelRegistry[modelId];
+
+                        if (!modelConfig) {
+                            for (const [pattern, config] of Object.entries(registryConfigManager.modelRegistry)) {
+                                if (pattern.includes('*')) {
+                                    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+                                    if (regex.test(modelId)) {
+                                        modelConfig = config;
+                                        console.log(`   ✅ Matched pattern in Model_Registry: ${pattern}`);
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            console.log('   ✅ Found in Model_Registry');
+                        }
+
+                        if (modelConfig) {
+                            sources.push('Model_Registry');
+                            if (modelConfig.chatTemplate) {
+                                chatTemplate = modelConfig.chatTemplate;
+                            }
+                            if (modelConfig.family) {
+                                modelFamily = modelConfig.family;
+                            }
                         }
                     }
                 }
-            } else {
-                console.log('   ✅ Found in Model_Registry');
             }
-            
-            if (modelConfig) {
-                sources.push('Model_Registry');
-                if (modelConfig.chatTemplate) {
-                    chatTemplate = modelConfig.chatTemplate; // Model registry overrides HF
+
+            // Display information
+            if (sources.length > 0) {
+                console.log('\n📋 Model Information:');
+                console.log(`   • Model ID: ${modelId}`);
+                if (modelFamily) {
+                    console.log(`   • Family: ${modelFamily}`);
                 }
-                if (modelConfig.family) {
-                    modelFamily = modelConfig.family;
+                if (chatTemplate) {
+                    console.log('   • Chat Template: ✅ Available');
+                    console.log('     (Will be injected into generated files)');
+                } else {
+                    console.log('   • Chat Template: ❌ Not available');
+                    console.log('     (Chat endpoints may require manual configuration)');
                 }
+                console.log(`   • Sources: ${sources.join(', ')}`);
+            } else {
+                console.log('   ℹ️  No additional model information available');
+                console.log('   Proceeding with default configuration');
             }
         }
-        
-        // Display information
-        if (sources.length > 0) {
-            console.log('\n📋 Model Information:');
-            console.log(`   • Model ID: ${modelId}`);
-            if (modelFamily) {
-                console.log(`   • Family: ${modelFamily}`);
-            }
-            if (chatTemplate) {
-                console.log('   • Chat Template: ✅ Available');
-                console.log('     (Will be injected into generated files)');
-            } else {
-                console.log('   • Chat Template: ❌ Not available');
-                console.log('     (Chat endpoints may require manual configuration)');
-            }
-            console.log(`   • Sources: ${sources.join(', ')}`);
-        } else {
-            console.log('   ℹ️  No additional model information available');
-            console.log('   Proceeding with default configuration');
-        }
-    }
 
 
 
