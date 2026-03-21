@@ -272,13 +272,25 @@ const modelFormatPrompts = [
         type: 'list',
         name: 'modelName',
         message: 'Which model do you want to use?',
-        choices: [
-            'openai/gpt-oss-20b',
-            'meta-llama/Llama-3.2-3B-Instruct',
-            'meta-llama/Llama-3.2-1B-Instruct',
-            'Custom (enter manually)'
-        ],
-        default: 'openai/gpt-oss-20b',
+        choices: (answers) => {
+            // Use MCP model-picker choices when available
+            if (answers._mcpModelChoices && answers._mcpModelChoices.length > 0) {
+                return [...answers._mcpModelChoices, 'Custom (enter manually)']
+            }
+            // Fallback to hardcoded defaults
+            return [
+                'openai/gpt-oss-20b',
+                'meta-llama/Llama-3.2-3B-Instruct',
+                'meta-llama/Llama-3.2-1B-Instruct',
+                'Custom (enter manually)'
+            ]
+        },
+        default: (answers) => {
+            if (answers._mcpModelChoices && answers._mcpModelChoices.length > 0) {
+                return answers._mcpModelChoices[0]
+            }
+            return 'openai/gpt-oss-20b'
+        },
         when: answers => {
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
             const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-')

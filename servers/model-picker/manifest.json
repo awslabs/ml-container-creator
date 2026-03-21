@@ -1,0 +1,16 @@
+{
+    "name": "@amzn/ml-container-creator-model-picker",
+    "version": "1.0.0",
+    "description": "MCP server that returns model metadata for ML Container Creator.",
+    "modes": {
+        "static": true,
+        "smart": false,
+        "discover": true
+    },
+    "catalogs": {
+        "popular-models": "./catalogs/popular-models.json"
+    },
+    "tool": {
+        "name": "get_models"
+    }
+}
