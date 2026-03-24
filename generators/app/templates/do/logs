@@ -50,19 +50,42 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Check if log group exists
-if ! aws logs describe-log-groups \
-    --log-group-name-prefix "${LOG_GROUP}" \
-    --region "${AWS_REGION}" \
-    --query "logGroups[?logGroupName=='${LOG_GROUP}'].logGroupName" \
-    --output text 2>/dev/null | grep -q "${LOG_GROUP}"; then
-    echo "⚠️  Log group not found yet: ${LOG_GROUP}"
-    echo "   The inference component may still be starting up. Waiting for logs..."
-    echo ""
-    echo "   Also check the endpoint log group:"
-    echo "   aws logs tail /aws/sagemaker/Endpoints/${ENDPOINT} --follow --region ${AWS_REGION}"
-    echo ""
-fi
+# Wait for log group to exist before tailing
+MAX_WAIT=300
+INTERVAL=10
+ELAPSED=0
+
+while true; do
+    if aws logs describe-log-groups \
+        --log-group-name-prefix "${LOG_GROUP}" \
+        --region "${AWS_REGION}" \
+        --query "logGroups[?logGroupName=='${LOG_GROUP}'].logGroupName" \
+        --output text 2>/dev/null | grep -q "${LOG_GROUP}"; then
+        break
+    fi
+
+    if [ "${ELAPSED}" -ge "${MAX_WAIT}" ]; then
+        echo "❌ Timed out after ${MAX_WAIT}s waiting for log group: ${LOG_GROUP}"
+        echo ""
+        echo "   The inference component may have failed to start."
+        echo "   Check the endpoint log group for errors:"
+        echo "   aws logs tail /aws/sagemaker/Endpoints/${ENDPOINT} --follow --region ${AWS_REGION}"
+        exit 1
+    fi
+
+    if [ "${ELAPSED}" -eq 0 ]; then
+        echo "⏳ Log group not found yet: ${LOG_GROUP}"
+        echo "   The inference component may still be starting up. Waiting up to ${MAX_WAIT}s..."
+        echo ""
+    fi
+
+    sleep "${INTERVAL}"
+    ELAPSED=$((ELAPSED + INTERVAL))
+    echo "   Waiting for log group... (${ELAPSED}s/${MAX_WAIT}s)"
+done
+
+echo "✅ Log group found. Tailing logs..."
+echo ""
 
 # Tail logs
 aws logs tail "${LOG_GROUP}" \

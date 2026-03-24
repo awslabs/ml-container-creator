@@ -381,6 +381,8 @@ async function resolveBaseImage(context, limit) {
     let resolverKey
     if (architecture === 'triton') {
         resolverKey = 'triton'
+    } else if (architecture === 'diffusors' && modelServer) {
+        resolverKey = modelServer
     } else if (framework === 'transformers' && modelServer) {
         resolverKey = modelServer
     } else {

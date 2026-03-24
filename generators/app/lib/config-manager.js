@@ -201,6 +201,9 @@ export default class ConfigManager {
         if (finalConfig.architecture === 'transformers') {
             finalConfig.includeSampleModel = false;
         }
+        if (finalConfig.architecture === 'diffusors') {
+            finalConfig.includeSampleModel = false;
+        }
         if (finalConfig.architecture === 'triton') {
             const backendMeta = tritonBackends[finalConfig.backend];
             if (!backendMeta || !backendMeta.supportsSampleModel) {
@@ -914,11 +917,11 @@ export default class ConfigManager {
             .filter(([_param, config]) => config.required && config.promptable)
             .map(([param]) => param);
         
-        // Special case: modelFormat is not required for transformers/triton architectures
+        // Special case: modelFormat is not required for transformers/triton/diffusors architectures
         const requiredForConfig = promptableRequired.filter(param => {
             if (param === 'modelFormat') {
                 const architecture = this.config.architecture
-                if (architecture === 'transformers' || architecture === 'triton') {
+                if (architecture === 'transformers' || architecture === 'triton' || architecture === 'diffusors') {
                     return false
                 }
             }
@@ -1025,11 +1028,11 @@ export default class ConfigManager {
                 if (config.required && 
                     (this.config[param] === null || this.config[param] === undefined)) {
                     
-                    // Special case: modelFormat is not required for transformers/triton
+                    // Special case: modelFormat is not required for transformers/triton/diffusors
                     if (param === 'modelFormat') {
                         try {
                             const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig)
-                            if (parts.architecture === 'transformers' || parts.architecture === 'triton') {
+                            if (parts.architecture === 'transformers' || parts.architecture === 'triton' || parts.architecture === 'diffusors') {
                                 return
                             }
                         } catch {
@@ -1044,6 +1047,21 @@ export default class ConfigManager {
                     }
                 }
             });
+
+            // Validate that modelName is provided for diffusors architecture
+            if (this.config.deploymentConfig) {
+                try {
+                    const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig)
+                    if (parts.architecture === 'diffusors') {
+                        const explicitModelName = this.explicitConfig && this.explicitConfig.modelName
+                        if (!explicitModelName) {
+                            errors.push('Model name is required for diffusors architecture. Use --model-name to specify a HuggingFace diffusion model.')
+                        }
+                    }
+                } catch {
+                    // deploymentConfig already flagged as invalid above
+                }
+            }
         }
 
         return errors;
@@ -1079,8 +1097,8 @@ export default class ConfigManager {
                 const value = finalConfig[param];
                 const isEmpty = value === null || value === undefined || value === '';
                 
-                // Special case: modelFormat is not required for transformers/triton
-                if (param === 'modelFormat' && (finalConfig.architecture === 'transformers' || finalConfig.architecture === 'triton')) {
+                // Special case: modelFormat is not required for transformers/triton/diffusors
+                if (param === 'modelFormat' && (finalConfig.architecture === 'transformers' || finalConfig.architecture === 'triton' || finalConfig.architecture === 'diffusors')) {
                     return; // Skip validation
                 }
                 
@@ -1124,6 +1142,10 @@ export default class ConfigManager {
         
         // Validate that transformers architecture has sample model disabled
         if (config.architecture === 'transformers' && config.includeSampleModel === true) {
+            errors.push(`Architecture '${config.architecture}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
+        }
+        // Validate that diffusors architecture has sample model disabled
+        if (config.architecture === 'diffusors' && config.includeSampleModel === true) {
             errors.push(`Architecture '${config.architecture}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
         }
         // Validate that ineligible Triton backends have sample model disabled
@@ -1170,7 +1192,8 @@ export default class ConfigManager {
         const architectureNames = {
             'http': ['http', 'api', 'serve'],
             'transformers': ['llm', 'transformer', 'gpt', 'bert', 'ai'],
-            'triton': ['triton', 'inference', 'nvidia']
+            'triton': ['triton', 'inference', 'nvidia'],
+            'diffusors': ['diffusion', 'image', 'vllm-omni']
         };
         
         const suffixes = [
@@ -1199,7 +1222,8 @@ export default class ConfigManager {
         const architectureMap = {
             'http': 'http',
             'transformers': 'llm',
-            'triton': 'triton'
+            'triton': 'triton',
+            'diffusors': 'diffusion'
         };
         
         const archName = architectureMap[architecture] || 'ml';

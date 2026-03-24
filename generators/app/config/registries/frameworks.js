@@ -505,5 +505,64 @@ export default {
             validationLevel: 'experimental',
             notes: 'Triton Python backend for custom model serving with TritonPythonModel interface. GPU optional'
         }
+    },
+    'vllm-omni': {
+        '0.16.0': {
+            baseImage: 'vllm/vllm-omni:v0.16.0',
+            accelerator: {
+                type: 'cuda',
+                version: '12.4',
+                versionRange: { min: '12.1', max: '12.6' }
+            },
+            serveCommand: 'vllm serve ${modelName} --omni --port 8080',
+            cliFlags: {
+                '--num-gpus': '${numGpus}',
+                '--cache-backend': 'none',
+                '--vae-use-tiling': false
+            },
+            envVars: {
+                'HF_TOKEN': '${hfToken}',
+                'VLLM_WORKER_MULTIPROC_METHOD': 'spawn'
+            },
+            systemDeps: ['espeak-ng', 'ffmpeg', 'sox', 'libsox-fmt-all'],
+            inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-2',
+            recommendedInstanceTypes: ['ml.g5.2xlarge', 'ml.g5.4xlarge', 'ml.g5.12xlarge'],
+            validationLevel: 'experimental',
+            profiles: {
+                'quality': {
+                    displayName: 'Quality',
+                    description: 'Higher step count for better image quality',
+                    cliFlags: {
+                        '--cache-backend': 'none',
+                        '--vae-use-tiling': true
+                    },
+                    recommendedInstanceTypes: ['ml.g5.4xlarge', 'ml.g5.12xlarge'],
+                    notes: 'Best image quality, no cache acceleration, VAE tiling for memory efficiency'
+                },
+                'speed': {
+                    displayName: 'Speed',
+                    description: 'Cache acceleration for faster generation',
+                    cliFlags: {
+                        '--cache-backend': 'tea_cache',
+                        '--vae-use-tiling': true
+                    },
+                    recommendedInstanceTypes: ['ml.g5.2xlarge', 'ml.g5.4xlarge'],
+                    notes: 'TeaCache acceleration reduces redundant computation between denoising steps'
+                },
+                'multi-gpu': {
+                    displayName: 'Multi-GPU',
+                    description: 'Sequence parallelism for large diffusion models',
+                    cliFlags: {
+                        '--num-gpus': '4',
+                        '--ulysses-degree': '2',
+                        '--cache-backend': 'none',
+                        '--vae-use-tiling': true
+                    },
+                    recommendedInstanceTypes: ['ml.g5.12xlarge', 'ml.g5.48xlarge'],
+                    notes: 'Ulysses sequence parallelism for large models like FLUX on multi-GPU instances'
+                }
+            },
+            notes: 'vLLM-Omni (separate project from vLLM) with diffusion model support. Requires CUDA 12.1+ and GPU instance. Supports FLUX, SD3.5, Qwen-Image, Z-Image-Turbo, Bagel, and other DiT model families. Uses --omni flag for serving. Default port 8000 remapped to 8080 for SageMaker.'
+        }
     }
 };

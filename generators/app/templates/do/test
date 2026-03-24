@@ -112,6 +112,11 @@ case "${FRAMEWORK}" in
                 ;;
         esac
         ;;
+    diffusors)
+        # Diffusors: OpenAI DALL-E compatible image generation request
+        TEST_PAYLOAD='{"prompt": "A white cat", "n": 1, "size": "512x512"}'
+        echo "   Payload: OpenAI DALL-E compatible image generation request"
+        ;;
     *)
         echo "❌ Unknown framework: ${FRAMEWORK}"
         exit 3
@@ -119,28 +124,63 @@ case "${FRAMEWORK}" in
 esac
 
 if [ "${TEST_MODE}" = "local" ]; then
-    echo "   Sending POST request to ${TARGET_URL}/invocations"
-    
-    if ! INVOKE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${TARGET_URL}/invocations" \
-        -H "Content-Type: application/json" \
-        -d "${TEST_PAYLOAD}" 2>&1); then
-        echo "❌ Inference request failed: Could not connect to local container"
-        exit 1
-    fi
-    
-    HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
-    RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
-    
-    if [ "${HTTP_CODE}" = "200" ]; then
-        echo "✅ Inference request successful (HTTP ${HTTP_CODE})"
-        echo "   Response preview: ${RESPONSE_BODY:0:200}"
-        if [ ${#RESPONSE_BODY} -gt 200 ]; then
-            echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+    if [ "${FRAMEWORK}" = "diffusors" ]; then
+        echo "   Sending POST request to ${TARGET_URL}/v1/images/generations"
+        
+        if ! INVOKE_RESPONSE=$(curl -s -m 120 -w "\n%{http_code}" -X POST "${TARGET_URL}/v1/images/generations" \
+            -H "Content-Type: application/json" \
+            -d "${TEST_PAYLOAD}" 2>&1); then
+            echo "❌ Inference request failed: Could not connect to local container"
+            exit 1
+        fi
+        
+        HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
+        RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
+        
+        if [ "${HTTP_CODE}" = "200" ]; then
+            # Validate response contains data array with b64_json
+            if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+assert 'data' in resp, 'Missing data array'
+assert len(resp['data']) > 0, 'Empty data array'
+assert 'b64_json' in resp['data'][0], 'Missing b64_json in data entry'
+" 2>/dev/null; then
+                echo "✅ Image generation successful (HTTP ${HTTP_CODE})"
+                echo "   Response contains valid data array with b64_json image"
+            else
+                echo "⚠️  Image generation returned HTTP ${HTTP_CODE} but response format unexpected"
+                echo "   Response preview: ${RESPONSE_BODY:0:200}"
+            fi
+        else
+            echo "❌ Image generation failed (HTTP ${HTTP_CODE})"
+            echo "   Response: ${RESPONSE_BODY}"
+            exit 1
         fi
     else
-        echo "❌ Inference request failed (HTTP ${HTTP_CODE})"
-        echo "   Response: ${RESPONSE_BODY}"
-        exit 1
+        echo "   Sending POST request to ${TARGET_URL}/invocations"
+        
+        if ! INVOKE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${TARGET_URL}/invocations" \
+            -H "Content-Type: application/json" \
+            -d "${TEST_PAYLOAD}" 2>&1); then
+            echo "❌ Inference request failed: Could not connect to local container"
+            exit 1
+        fi
+        
+        HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
+        RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
+        
+        if [ "${HTTP_CODE}" = "200" ]; then
+            echo "✅ Inference request successful (HTTP ${HTTP_CODE})"
+            echo "   Response preview: ${RESPONSE_BODY:0:200}"
+            if [ ${#RESPONSE_BODY} -gt 200 ]; then
+                echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+            fi
+        else
+            echo "❌ Inference request failed (HTTP ${HTTP_CODE})"
+            echo "   Response: ${RESPONSE_BODY}"
+            exit 1
+        fi
     fi
 else
     echo "   Invoking SageMaker endpoint..."
@@ -179,10 +219,27 @@ else
     # Clean up temp files
     rm -f "${TEMP_PAYLOAD}" "${TEMP_RESPONSE}"
     
-    echo "✅ Inference request successful"
-    echo "   Response preview: ${RESPONSE_BODY:0:200}"
-    if [ ${#RESPONSE_BODY} -gt 200 ]; then
-        echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+    if [ "${FRAMEWORK}" = "diffusors" ]; then
+        # Validate response contains data array with b64_json
+        if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+assert 'data' in resp, 'Missing data array'
+assert len(resp['data']) > 0, 'Empty data array'
+assert 'b64_json' in resp['data'][0], 'Missing b64_json in data entry'
+" 2>/dev/null; then
+            echo "✅ Image generation successful"
+            echo "   Response contains valid data array with b64_json image"
+        else
+            echo "⚠️  Image generation returned but response format unexpected"
+            echo "   Response preview: ${RESPONSE_BODY:0:200}"
+        fi
+    else
+        echo "✅ Inference request successful"
+        echo "   Response preview: ${RESPONSE_BODY:0:200}"
+        if [ ${#RESPONSE_BODY} -gt 200 ]; then
+            echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+        fi
     fi
 fi
 
@@ -363,34 +420,74 @@ case "${FRAMEWORK}" in
                 ;;
         esac
         ;;
+    diffusors)
+        # Diffusors: OpenAI DALL-E compatible image generation request
+        TEST_PAYLOAD='{"prompt": "A white cat", "n": 1, "size": "512x512"}'
+        echo "   Payload: OpenAI DALL-E compatible image generation request"
+        ;;
     *)
         echo "❌ Unknown framework: ${FRAMEWORK}"
         exit 3
         ;;
 esac
 
-echo "   Sending POST request to ${TARGET_URL}/invocations"
+if [ "${FRAMEWORK}" = "diffusors" ]; then
+    echo "   Sending POST request to ${TARGET_URL}/v1/images/generations"
 
-if ! INVOKE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${TARGET_URL}/invocations" \
-    -H "Content-Type: application/json" \
-    -d "${TEST_PAYLOAD}" 2>&1); then
-    echo "❌ Inference request failed: Could not connect"
-    exit 1
-fi
+    if ! INVOKE_RESPONSE=$(curl -s -m 120 -w "\n%{http_code}" -X POST "${TARGET_URL}/v1/images/generations" \
+        -H "Content-Type: application/json" \
+        -d "${TEST_PAYLOAD}" 2>&1); then
+        echo "❌ Inference request failed: Could not connect"
+        exit 1
+    fi
 
-HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
-RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
+    HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
+    RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
 
-if [ "${HTTP_CODE}" = "200" ]; then
-    echo "✅ Inference request successful (HTTP ${HTTP_CODE})"
-    echo "   Response preview: ${RESPONSE_BODY:0:200}"
-    if [ ${#RESPONSE_BODY} -gt 200 ]; then
-        echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+    if [ "${HTTP_CODE}" = "200" ]; then
+        # Validate response contains data array with b64_json
+        if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+assert 'data' in resp, 'Missing data array'
+assert len(resp['data']) > 0, 'Empty data array'
+assert 'b64_json' in resp['data'][0], 'Missing b64_json in data entry'
+" 2>/dev/null; then
+            echo "✅ Image generation successful (HTTP ${HTTP_CODE})"
+            echo "   Response contains valid data array with b64_json image"
+        else
+            echo "⚠️  Image generation returned HTTP ${HTTP_CODE} but response format unexpected"
+            echo "   Response preview: ${RESPONSE_BODY:0:200}"
+        fi
+    else
+        echo "❌ Image generation failed (HTTP ${HTTP_CODE})"
+        echo "   Response: ${RESPONSE_BODY}"
+        exit 1
     fi
 else
-    echo "❌ Inference request failed (HTTP ${HTTP_CODE})"
-    echo "   Response: ${RESPONSE_BODY}"
-    exit 1
+    echo "   Sending POST request to ${TARGET_URL}/invocations"
+
+    if ! INVOKE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${TARGET_URL}/invocations" \
+        -H "Content-Type: application/json" \
+        -d "${TEST_PAYLOAD}" 2>&1); then
+        echo "❌ Inference request failed: Could not connect"
+        exit 1
+    fi
+
+    HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
+    RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
+
+    if [ "${HTTP_CODE}" = "200" ]; then
+        echo "✅ Inference request successful (HTTP ${HTTP_CODE})"
+        echo "   Response preview: ${RESPONSE_BODY:0:200}"
+        if [ ${#RESPONSE_BODY} -gt 200 ]; then
+            echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+        fi
+    else
+        echo "❌ Inference request failed (HTTP ${HTTP_CODE})"
+        echo "   Response: ${RESPONSE_BODY}"
+        exit 1
+    fi
 fi
 
 echo ""

@@ -43,7 +43,7 @@ export default {
                 },
                 architecture: {
                     type: 'string',
-                    enum: ['http', 'transformers', 'triton']
+                    enum: ['http', 'transformers', 'triton', 'diffusors']
                 },
                 backend: {
                     type: 'string',

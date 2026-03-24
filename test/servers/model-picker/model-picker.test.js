@@ -179,8 +179,8 @@ describe('Model Picker Server Unit Tests', () => {
             assert.deepStrictEqual(resolver.supportedPatterns(), ['*'])
         })
 
-        it('loads the real popular-models.json catalog successfully', () => {
-            const catalog = loadCatalog('./catalogs/popular-models.json')
+        it('loads the real popular-transformers.json catalog successfully', () => {
+            const catalog = loadCatalog('./catalogs/popular-transformers.json')
             assert.ok(typeof catalog === 'object' && catalog !== null)
             assert.ok(Object.keys(catalog).length > 0)
         })
@@ -796,7 +796,7 @@ describe('Model Picker Server Unit Tests', () => {
         })
 
         it('successfully loads valid catalog file', () => {
-            const catalog = loadCatalog('./catalogs/popular-models.json')
+            const catalog = loadCatalog('./catalogs/popular-transformers.json')
             assert.ok(typeof catalog === 'object' && catalog !== null)
             assert.ok(Object.keys(catalog).length > 0)
         })

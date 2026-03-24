@@ -641,3 +641,73 @@ trap cleanup EXIT
 ```
 
 For detailed unit testing guidelines, see [`test/README.md`](../test/README.md).
+
+## 📊 First-Call Deck Generator
+
+### `generate-fcd-pptx.py` — Editable PPTX First-Call Deck
+
+Generates a fully editable PowerPoint presentation for introducing ML Container Creator to ML engineers, platform teams, and DevOps leads.
+
+**Usage:**
+```bash
+python3 scripts/generate-fcd-pptx.py
+# Output: docs/first-call-deck.pptx
+```
+
+**Also available as a Kiro prompt:**
+```
+@generate-fcd
+```
+The prompt reads the current codebase, regenerates both `docs/first-call-deck.md` (narrative + speaker notes) and `docs/first-call-deck.marp.md` (Marp slides), and can invoke this script for the editable PPTX.
+
+### Data Sources
+
+The FCD is generated from live codebase data, not hardcoded content. Here's what feeds each part of the deck:
+
+#### Tier 1: Source of Truth (structured data → tables & numbers)
+
+| File | What It Feeds | Slides |
+|------|--------------|--------|
+| `generators/app/lib/deployment-config-resolver.js` | All deployment configs, architecture families | Architectures, title counts |
+| `generators/app/config/registries/frameworks.js` | Framework versions, base images, CUDA ranges, validation levels | Appendix B, Validation |
+| `generators/app/config/registries/models.js` | Model families, compatibility, chat templates | Appendix B |
+| `generators/app/config/registries/instance-types.js` | Instance types, vCPUs, memory, GPUs | Appendix D |
+| `generators/app/lib/config-manager.js` | Parameter matrix (CLI flags, env vars, MCP eligibility) | CI/CD slide, Appendix C |
+| `config/mcp.json` | MCP server names and tool names | MCP Servers slide |
+| `package.json` | Package name, version, description | Title slide |
+
+#### Tier 2: Feature Inventory (existence checks → roadmap & capabilities)
+
+| File/Path | What It Feeds |
+|-----------|--------------|
+| `.kiro/specs/*/requirements.md` | Roadmap items (Shipped / Designed / Planned) |
+| `generators/app/templates/` | Generated project structure tree |
+| `generators/app/templates/do/` | Available lifecycle scripts |
+| `generators/app/templates/hyperpod/` | HyperPod manifest list |
+
+#### Tier 3: Narrative & Positioning (prose → speaker notes & framing)
+
+| File | What It Feeds |
+|------|--------------|
+| `docs/index.md` | Product one-liner, key messaging |
+| `.kiro/steering/project-context.md` | Architecture description, what the tool is/isn't |
+| `.kiro/steering/aws-sagemaker-context.md` | SageMaker BYOC requirements (for "The Problem" slide) |
+
+### Improving the FCD
+
+| What to change | Where to edit |
+|----------------|---------------|
+| **Data is wrong** | Fix the source file (registry, config-manager, etc.) and regenerate |
+| **Slide order, content, or tone** | `.kiro/prompts/generate-fcd.md` |
+| **Visual design** (colors, fonts, layout) | `scripts/generate-fcd-pptx.py` — constants at top of file |
+| **One-off tweaks for a specific call** | Open the `.pptx` in PowerPoint/Keynote and edit directly |
+
+The `.pptx` is a build artifact, not a source file. For permanent changes, fix the source (data, prompt, or script) and regenerate. Hand-edits are for one-off tweaks before a specific presentation.
+
+### Output Files
+
+| File | Format | Purpose |
+|------|--------|---------|
+| `docs/first-call-deck.md` | Markdown | Full narrative with speaker notes (prep document) |
+| `docs/first-call-deck.marp.md` | Marp markdown | Renderable to PDF via `marp --pdf` |
+| `docs/first-call-deck.pptx` | PowerPoint | Fully editable in PowerPoint/Keynote/Google Slides |

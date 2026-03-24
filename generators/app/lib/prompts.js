@@ -126,6 +126,12 @@ const deploymentConfigPrompts = [
                 name: 'Triton Python Backend',
                 value: 'triton-python',
                 short: 'triton-python'
+            },
+            { type: 'separator', separator: '── Diffusion Models ──' },
+            {
+                name: 'Diffusors with vLLM Omni',
+                value: 'diffusors-vllm-omni',
+                short: 'diffusors-vllm-omni'
             }
         ]
     }
@@ -248,6 +254,11 @@ const modelFormatPrompts = [
                 return false
             }
             
+            // Skip for diffusors (they use HF Hub)
+            if (architecture === 'diffusors') {
+                return false
+            }
+            
             // For http architecture, always show
             if (architecture === 'http') {
                 return true
@@ -277,7 +288,16 @@ const modelFormatPrompts = [
             if (answers._mcpModelChoices && answers._mcpModelChoices.length > 0) {
                 return [...answers._mcpModelChoices, 'Custom (enter manually)']
             }
-            // Fallback to hardcoded defaults
+            // Fallback to hardcoded defaults based on architecture
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            if (architecture === 'diffusors') {
+                return [
+                    'stabilityai/stable-diffusion-3.5-medium',
+                    'black-forest-labs/FLUX.1-schnell',
+                    'black-forest-labs/FLUX.1-dev',
+                    'Custom (enter manually)'
+                ]
+            }
             return [
                 'openai/gpt-oss-20b',
                 'meta-llama/Llama-3.2-3B-Instruct',
@@ -289,6 +309,10 @@ const modelFormatPrompts = [
             if (answers._mcpModelChoices && answers._mcpModelChoices.length > 0) {
                 return answers._mcpModelChoices[0]
             }
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0]
+            if (architecture === 'diffusors') {
+                return 'stabilityai/stable-diffusion-3.5-medium'
+            }
             return 'openai/gpt-oss-20b'
         },
         when: answers => {
@@ -297,6 +321,11 @@ const modelFormatPrompts = [
             
             // Show for transformers architecture
             if (architecture === 'transformers') {
+                return true
+            }
+            
+            // Show for diffusors architecture (reuse HuggingFace model selection)
+            if (architecture === 'diffusors') {
                 return true
             }
             
@@ -328,6 +357,11 @@ const modelFormatPrompts = [
             
             // Show for transformers with custom model selection
             if (architecture === 'transformers' && answers.modelName === 'Custom (enter manually)') {
+                return true
+            }
+            
+            // Show for diffusors with custom model selection
+            if (architecture === 'diffusors' && answers.modelName === 'Custom (enter manually)') {
                 return true
             }
             
@@ -387,11 +421,14 @@ const hfTokenPrompts = [
             // Prompt for transformers architecture
             const isTransformers = architecture === 'transformers'
             
+            // Prompt for diffusors architecture (uses HuggingFace Hub)
+            const isDiffusors = architecture === 'diffusors'
+            
             // Prompt for Triton LLM backends (vllm, tensorrtllm)
             // Requirements: 9.1, 9.2
             const isTritonLlm = architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')
             
-            if (!isTransformers && !isTritonLlm) {
+            if (!isTransformers && !isDiffusors && !isTritonLlm) {
                 return false
             }
             
@@ -442,6 +479,11 @@ const ngcApiKeyPrompts = [
                 return false
             }
             
+            // Never prompt for NGC key for diffusors configs (public Docker Hub images)
+            if (architecture === 'diffusors') {
+                return false
+            }
+            
             // Only prompt for transformers-tensorrt-llm
             if (architecture === 'transformers' && backend === 'tensorrt-llm') {
                 console.log('\n🔐 NVIDIA NGC Authentication')
@@ -480,6 +522,11 @@ const modulePrompts = [
             
             // Never for transformers
             if (architecture === 'transformers') {
+                return false
+            }
+            
+            // Never for diffusors (diffusion models cannot be trained inline)
+            if (architecture === 'diffusors') {
                 return false
             }
             

@@ -12,7 +12,7 @@
 
 /**
  * Canonical mapping from deployment-config strings to structured parts.
- * 2 http + 5 transformers + 7 triton = 14 total configs.
+ * 2 http + 5 transformers + 7 triton + 1 diffusors = 15 total configs.
  */
 const CANONICAL_CONFIGS = new Map([
     // HTTP architecture (2)
@@ -34,6 +34,9 @@ const CANONICAL_CONFIGS = new Map([
     ['triton-vllm',             { architecture: 'triton',       backend: 'vllm',          engine: null }],
     ['triton-tensorrtllm',      { architecture: 'triton',       backend: 'tensorrtllm',   engine: null }],
     ['triton-python',           { architecture: 'triton',       backend: 'python',        engine: null }],
+
+    // Diffusors architecture (1)
+    ['diffusors-vllm-omni',     { architecture: 'diffusors',    backend: 'vllm-omni',     engine: null }],
 ])
 
 export default class DeploymentConfigResolver {
@@ -42,7 +45,7 @@ export default class DeploymentConfigResolver {
      *
      * @param {string} deploymentConfig - e.g. 'http-flask', 'transformers-vllm', 'triton-fil'
      * @returns {{ architecture: string, backend: string, engine: string|null }}
-     * @throws {Error} if the deployment-config is not one of the 14 canonical values
+     * @throws {Error} if the deployment-config is not one of the 15 canonical values
      */
     decompose(deploymentConfig) {
         const parts = CANONICAL_CONFIGS.get(deploymentConfig)
@@ -67,7 +70,7 @@ export default class DeploymentConfigResolver {
     }
 
     /**
-     * Get all 14 valid deployment-config strings.
+     * Get all 15 valid deployment-config strings.
      *
      * @returns {string[]}
      */
@@ -78,7 +81,7 @@ export default class DeploymentConfigResolver {
     /**
      * Get valid deployment-config strings for a given architecture.
      *
-     * @param {string} architecture - 'http' | 'transformers' | 'triton'
+     * @param {string} architecture - 'http' | 'transformers' | 'triton' | 'diffusors'
      * @returns {string[]}
      */
     getConfigsForArchitecture(architecture) {

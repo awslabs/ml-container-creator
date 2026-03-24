@@ -8,7 +8,8 @@
         "discover": true
     },
     "catalogs": {
-        "popular-models": "./catalogs/popular-models.json"
+        "popular-transformers": "./catalogs/popular-transformers.json",
+        "popular-diffusors": "./catalogs/popular-diffusors.json"
     },
     "tool": {
         "name": "get_models"

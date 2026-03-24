@@ -99,5 +99,25 @@
             "registry": "dockerhub",
             "repository": "deepjavalibrary/djl-serving"
         }
+    ],
+    "vllm-omni": [
+        {
+            "image": "vllm/vllm-omni:v0.16.0",
+            "tag": "v0.16.0",
+            "architecture": "amd64",
+            "created": "2026-02-01T00:00:00Z",
+            "labels": { "cuda_version": "12.4", "python_version": "3.12", "framework_version": "0.16.0" },
+            "registry": "dockerhub",
+            "repository": "vllm/vllm-omni"
+        },
+        {
+            "image": "vllm/vllm-omni:v0.14.0",
+            "tag": "v0.14.0",
+            "architecture": "amd64",
+            "created": "2025-11-15T00:00:00Z",
+            "labels": { "cuda_version": "12.4", "python_version": "3.12", "framework_version": "0.14.0" },
+            "registry": "dockerhub",
+            "repository": "vllm/vllm-omni"
+        }
     ]
 }

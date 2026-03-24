@@ -224,5 +224,41 @@ export default {
             'tensorrt-llm': '>=0.8.0'
         },
         notes: 'Falcon models typically don\'t require chat templates for instruction following'
+    },
+
+    // Diffusion model families
+    'stabilityai/stable-diffusion-3.5-medium': {
+        family: 'stable-diffusion-3',
+        chatTemplate: null,
+        requiresTemplate: false,
+        validationLevel: 'experimental',
+        frameworkCompatibility: {
+            'vllm-omni': '>=0.14.0'
+        },
+        profiles: {
+            'default': {
+                displayName: 'SD3.5 Medium',
+                envVars: {},
+                recommendedInstanceTypes: ['ml.g5.2xlarge', 'ml.g5.4xlarge']
+            }
+        },
+        notes: 'Stable Diffusion 3.5 medium model. Supported natively by vLLM-Omni StableDiffusion3Pipeline.'
+    },
+    'black-forest-labs/FLUX.1-dev': {
+        family: 'flux',
+        chatTemplate: null,
+        requiresTemplate: false,
+        validationLevel: 'experimental',
+        frameworkCompatibility: {
+            'vllm-omni': '>=0.14.0'
+        },
+        profiles: {
+            'default': {
+                displayName: 'FLUX.1 Dev',
+                envVars: {},
+                recommendedInstanceTypes: ['ml.g5.4xlarge', 'ml.g5.12xlarge']
+            }
+        },
+        notes: 'FLUX.1-dev high-quality generation model. Uses dual text encoders (CLIP + T5) and FlowMatchEuler scheduler. Requires significant VRAM.'
     }
 };

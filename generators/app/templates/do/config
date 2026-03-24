@@ -53,6 +53,13 @@ export NGC_API_KEY="<%= ngcApiKey %>"
 <% } %>
 <% } %>
 
+<% if (framework === 'diffusors') { %>
+export MODEL_NAME="<%= modelName %>"
+<% if (hfToken) { %>
+export HF_TOKEN="<%= hfToken %>"
+<% } %>
+<% } %>
+
 <% if (modelFormat) { %>
 export MODEL_FORMAT="<%= modelFormat %>"
 <% } %>
