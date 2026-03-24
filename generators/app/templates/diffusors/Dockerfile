@@ -43,6 +43,13 @@ ENV <%= key %>=<%= value %>
 <% }); %>
 <% } %>
 
+# Patch vLLM-Omni encode_image_base64 to handle numpy.ndarray outputs
+# Some diffusion models return numpy arrays instead of PIL Images from their
+# pipeline, which causes an AttributeError on .save() during response encoding.
+# This patch adds a safe isinstance guard to convert ndarray → PIL.Image.
+COPY code/patch_image_api.py /tmp/patch_image_api.py
+RUN python3 /tmp/patch_image_api.py && rm /tmp/patch_image_api.py
+
 # Install nginx for SageMaker endpoint routing
 # Maps /invocations -> /v1/images/generations and /ping -> /health
 RUN apt-get update && apt-get install -y --no-install-recommends nginx \

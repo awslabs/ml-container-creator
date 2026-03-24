@@ -83,6 +83,7 @@ get_engine_prefix() {
     local backend="$1"
     case "${backend}" in
         vllm)         echo "VLLM_" ;;
+        vllm-omni)    echo "VLLM_" ;;
         sglang)       echo "SGLANG_" ;;
         tensorrt-llm) echo "TRTLLM_" ;;
         lmi)          echo "LMI_" ;;
@@ -212,7 +213,33 @@ for item in env_list:
         key, value = item.split('=', 1)
         if prefix and key.startswith(prefix):
             result[key] = value
-        elif key in ('HF_TOKEN', 'HF_MODEL_ID'):
+        elif key == 'HF_TOKEN':
+            result[key] = '***REDACTED***'
+        elif key == 'HF_MODEL_ID':
+            result[key] = value
+print(json.dumps(result))
+" 2>/dev/null || echo "{}")
+        fi
+        ;;
+
+    diffusors)
+        # Extract env vars matching engine prefix + HF_TOKEN + HF_MODEL_ID
+        ENGINE_PREFIX=$(get_engine_prefix "${BACKEND}")
+
+        if [ -n "${ENV_JSON}" ] && [ "${ENV_JSON}" != "null" ] && [ "${ENV_JSON}" != "" ]; then
+            PARAMETERS=$(echo "${ENV_JSON}" | python3 -c "
+import sys, json
+env_list = json.load(sys.stdin)
+prefix = '${ENGINE_PREFIX}'
+result = {}
+for item in env_list:
+    if '=' in item:
+        key, value = item.split('=', 1)
+        if prefix and key.startswith(prefix):
+            result[key] = value
+        elif key == 'HF_TOKEN':
+            result[key] = '***REDACTED***'
+        elif key == 'HF_MODEL_ID':
             result[key] = value
 print(json.dumps(result))
 " 2>/dev/null || echo "{}")
@@ -230,12 +257,13 @@ exclude = {
     'PYTHON_VERSION', 'PYTHON_PIP_VERSION', 'PYTHON_SETUPTOOLS_VERSION',
     'PYTHON_GET_PIP_URL', 'PYTHON_GET_PIP_SHA256'
 }
+redact = {'HF_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN'}
 result = {}
 for item in env_list:
     if '=' in item:
         key, value = item.split('=', 1)
         if key not in exclude:
-            result[key] = value
+            result[key] = '***REDACTED***' if key in redact else value
 print(json.dumps(result))
 " 2>/dev/null || echo "{}")
         fi
@@ -332,13 +360,13 @@ CMD_ARGS=(
     "--build-target" "${BUILD_TARGET}"
 )
 
-<% if (framework === 'transformers') { %>
+<% if (framework === 'transformers' || framework === 'diffusors') { %>
 if [ -n "${MODEL_NAME:-}" ]; then
     CMD_ARGS+=("--model-name" "${MODEL_NAME}")
 fi
 <% } %>
 
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference') { %>
 CMD_ARGS+=("--instance-type" "${INSTANCE_TYPE}")
 <% } %>
 

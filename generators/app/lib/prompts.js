@@ -610,6 +610,7 @@ const infraRegionAndTargetPrompts = [
         message: 'Deployment target?',
         choices: [
             { name: 'SageMaker Managed Inference - Real Time', value: 'managed-inference' },
+            { name: 'SageMaker Managed Inference - Async', value: 'async-inference' },
             { name: 'SageMaker HyperPod - EKS', value: 'hyperpod-eks' }
         ],
         default: 'managed-inference'
@@ -621,7 +622,7 @@ const infraInstancePrompts = [
     {
         type: 'list',
         name: 'instanceType',
-        when: answers => answers.deploymentTarget === 'managed-inference' || answers.deploymentTarget === 'hyperpod-eks',
+        when: answers => answers.deploymentTarget === 'managed-inference' || answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'hyperpod-eks',
         message: (answers) => {
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             
@@ -821,6 +822,38 @@ const infraBuildPrompts = [
     }
 ];
 
+/**
+ * Sub-phase: Async-specific prompts (only when deploymentTarget === 'async-inference')
+ * Requirements: 2.1, 2.2, 2.3, 2.4
+ */
+const infraAsyncPrompts = [
+    {
+        type: 'input',
+        name: 'asyncS3OutputPath',
+        message: 'S3 output path for async results (leave empty for default: s3://ml-container-creator-async-{region}-{account-id}/{project-name}/output/):',
+        when: answers => answers.deploymentTarget === 'async-inference'
+    },
+    {
+        type: 'input',
+        name: 'asyncSnsSuccessTopic',
+        message: 'SNS success topic ARN (leave empty for auto-created per-project topic):',
+        when: answers => answers.deploymentTarget === 'async-inference'
+    },
+    {
+        type: 'input',
+        name: 'asyncSnsErrorTopic',
+        message: 'SNS error topic ARN (leave empty for auto-created per-project topic):',
+        when: answers => answers.deploymentTarget === 'async-inference'
+    },
+    {
+        type: 'number',
+        name: 'asyncMaxConcurrentInvocations',
+        message: 'Max concurrent invocations per instance?',
+        default: 1,
+        when: answers => answers.deploymentTarget === 'async-inference'
+    }
+];
+
 // Combined view for tests and backward compatibility
 const infrastructurePrompts = [
     ...infraRegionAndTargetPrompts,
@@ -943,6 +976,7 @@ export {
     infrastructurePrompts,
     infraRegionAndTargetPrompts,
     infraInstancePrompts,
+    infraAsyncPrompts,
     infraHyperPodPrompts,
     infraBuildPrompts,
     projectPrompts,

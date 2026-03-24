@@ -21,6 +21,7 @@ import {
     modulePrompts,
     infraRegionAndTargetPrompts,
     infraInstancePrompts,
+    infraAsyncPrompts,
     infraHyperPodPrompts,
     infraBuildPrompts,
     projectPrompts,
@@ -68,9 +69,10 @@ export default class PromptRunner {
         await this._queryMcpForRegion({}, explicitConfig);
         const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, {}, explicitConfig, existingConfig);
 
-        // 1b. Instance type — query MCP and prompt for managed-inference and hyperpod-eks
+        // 1b. Instance type — query MCP and prompt for managed-inference, async-inference, and hyperpod-eks
         let instanceAnswers = {};
         if (regionAndTargetAnswers.deploymentTarget === 'managed-inference' ||
+            regionAndTargetAnswers.deploymentTarget === 'async-inference' ||
             regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
             await this._queryMcpForInstance({}, explicitConfig);
             const mcpInstanceChoices = this.configManager?.mcpChoices?.instanceType;
@@ -79,6 +81,12 @@ export default class PromptRunner {
                 ...(mcpInstanceChoices && mcpInstanceChoices.length > 0 ? { _mcpInstanceChoices: mcpInstanceChoices } : {})
             };
             instanceAnswers = await this._runPhase(infraInstancePrompts, instancePreviousAnswers, explicitConfig, existingConfig);
+        }
+
+        // 1b-async. Async-specific prompts (only when deploymentTarget === 'async-inference')
+        let asyncAnswers = {};
+        if (regionAndTargetAnswers.deploymentTarget === 'async-inference') {
+            asyncAnswers = await this._runPhase(infraAsyncPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
         }
 
         // 1c. HyperPod prompts — only query MCP and prompt when deployment target is hyperpod-eks
@@ -97,6 +105,7 @@ export default class PromptRunner {
         const infraAnswers = {
             ...regionAndTargetAnswers,
             ...instanceAnswers,
+            ...asyncAnswers,
             ...hyperPodAnswers,
             ...buildAnswers
         };
