@@ -9,19 +9,21 @@ describe('DeploymentConfigResolver', () => {
     });
 
     describe('getAllConfigs()', () => {
-        it('should return exactly 14 valid deployment-config strings', () => {
+        it('should return exactly 15 valid deployment-config strings', () => {
             const configs = resolver.getAllConfigs();
-            assert.equal(configs.length, 14);
+            assert.equal(configs.length, 15);
         });
 
-        it('should include 2 http, 5 transformers, and 7 triton configs', () => {
+        it('should include 2 http, 5 transformers, 7 triton, and 1 diffusors configs', () => {
             const configs = resolver.getAllConfigs();
             const http = configs.filter(c => c.startsWith('http-'));
             const transformers = configs.filter(c => c.startsWith('transformers-'));
             const triton = configs.filter(c => c.startsWith('triton-'));
+            const diffusors = configs.filter(c => c.startsWith('diffusors-'));
             assert.equal(http.length, 2);
             assert.equal(transformers.length, 5);
             assert.equal(triton.length, 7);
+            assert.equal(diffusors.length, 1);
         });
     });
 
@@ -39,6 +41,11 @@ describe('DeploymentConfigResolver', () => {
         it('should decompose transformers-tensorrt-llm correctly', () => {
             const result = resolver.decompose('transformers-tensorrt-llm');
             assert.deepEqual(result, { architecture: 'transformers', backend: 'tensorrt-llm', engine: null });
+        });
+
+        it('should decompose diffusors-vllm-omni correctly', () => {
+            const result = resolver.decompose('diffusors-vllm-omni');
+            assert.deepEqual(result, { architecture: 'diffusors', backend: 'vllm-omni', engine: null });
         });
 
         it('should throw for invalid deployment-config', () => {
@@ -70,10 +77,17 @@ describe('DeploymentConfigResolver', () => {
                 'transformers-tensorrt-llm'
             );
         });
+
+        it('should compose diffusors-vllm-omni', () => {
+            assert.equal(
+                resolver.compose({ architecture: 'diffusors', backend: 'vllm-omni' }),
+                'diffusors-vllm-omni'
+            );
+        });
     });
 
     describe('isValid()', () => {
-        it('should return true for all 14 canonical configs', () => {
+        it('should return true for all 15 canonical configs', () => {
             for (const dc of resolver.getAllConfigs()) {
                 assert.equal(resolver.isValid(dc), true, `Expected ${dc} to be valid`);
             }
@@ -118,6 +132,12 @@ describe('DeploymentConfigResolver', () => {
         it('should return empty array for unknown architecture', () => {
             const configs = resolver.getConfigsForArchitecture('unknown');
             assert.equal(configs.length, 0);
+        });
+
+        it('should return 1 config for diffusors', () => {
+            const configs = resolver.getConfigsForArchitecture('diffusors');
+            assert.equal(configs.length, 1);
+            assert.ok(configs.includes('diffusors-vllm-omni'));
         });
     });
 });

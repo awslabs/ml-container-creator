@@ -41,6 +41,7 @@
         "validation_level": "tested",
         "notes": "Llama-2 13B chat model. Requires more GPU memory than 7B variant"
     },
+
     "meta-llama/Llama-2-70b-chat-hf": {
         "family": "llama-2",
         "chat_template": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",

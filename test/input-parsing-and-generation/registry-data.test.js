@@ -112,7 +112,7 @@ describe('Registry Data - Unit Tests', () => {
                             
                             assert.ok(profile.displayName, `${frameworkName} ${version} profile ${profileName} must have displayName`);
                             assert.ok(profile.description, `${frameworkName} ${version} profile ${profileName} must have description`);
-                            assert.ok(profile.envVars !== undefined, `${frameworkName} ${version} profile ${profileName} must have envVars`);
+                            assert.ok(profile.envVars !== undefined || profile.cliFlags !== undefined, `${frameworkName} ${version} profile ${profileName} must have envVars or cliFlags`);
                         }
                     }
                 }

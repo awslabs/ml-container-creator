@@ -177,7 +177,7 @@ export default class PromptRunner {
         );
         
         // Query model-picker MCP server for model choices
-        this._queryMcpForModels()
+        this._queryMcpForModels(frameworkAnswers.architecture)
         if (this._mcpModelChoices) {
             console.log(`   🔍 Querying model-picker...`)
             console.log(`   ✓ ${this._mcpModelChoices.length} model(s) available from catalog`)
@@ -258,8 +258,9 @@ export default class PromptRunner {
         console.log('\n📦 Module Selection');
         const moduleAnswers = await this._runPhase(modulePrompts, { ...frameworkAnswers, ...engineAnswers }, explicitConfig, existingConfig);
         
-        // Ensure transformers and ineligible Triton backends don't get sample model
+        // Ensure transformers, diffusors, and ineligible Triton backends don't get sample model
         if (frameworkAnswers.architecture === 'transformers' ||
+            frameworkAnswers.architecture === 'diffusors' ||
             (frameworkAnswers.architecture === 'triton' && 
              !tritonBackends[frameworkAnswers.backend]?.supportsSampleModel)) {
             moduleAnswers.includeSampleModel = false;
@@ -305,8 +306,9 @@ export default class PromptRunner {
             combinedAnswers.modelFormat = tritonAutoFormat
         }
 
-        // Handle custom model name for transformers and Triton LLM backends
+        // Handle custom model name for transformers, diffusors, and Triton LLM backends
         if ((combinedAnswers.architecture === 'transformers' || 
+             combinedAnswers.architecture === 'diffusors' ||
              (combinedAnswers.architecture === 'triton' && (combinedAnswers.backend === 'vllm' || combinedAnswers.backend === 'tensorrtllm'))) 
             && combinedAnswers.customModelName) {
             combinedAnswers.modelName = combinedAnswers.customModelName;
@@ -621,10 +623,11 @@ export default class PromptRunner {
         const architecture = frameworkAnswers.architecture || frameworkAnswers.deploymentConfig?.split('-')[0]
         const isTransformer = framework === 'transformers'
         const isTriton = architecture === 'triton'
+        const isDiffusors = architecture === 'diffusors'
 
-        // For non-transformer, non-triton frameworks, prompt for optional search criteria
+        // For non-transformer, non-triton, non-diffusors frameworks, prompt for optional search criteria
         let searchCriteria
-        if (!isTransformer && !isTriton) {
+        if (!isTransformer && !isTriton && !isDiffusors) {
             const searchAnswer = await this.generator.prompt(baseImageSearchPrompts.map(p => ({
                 ...p,
                 when: () => true // Always show for non-transformer since we already checked
@@ -643,7 +646,7 @@ export default class PromptRunner {
 
         if (result && result.metadata?.baseImage?.length > 0) {
             const entries = result.metadata.baseImage
-            this._mcpBaseImageChoices = formatImageChoices(entries, isTransformer || isTriton)
+            this._mcpBaseImageChoices = formatImageChoices(entries, isTransformer || isTriton || isDiffusors)
             const count = entries.length
             console.log(`   ✓ ${count} base image(s) available`)
         } else {
@@ -653,10 +656,12 @@ export default class PromptRunner {
 
     /**
      * Query model-picker MCP server catalog for model choices.
-     * Reads the popular-models.json catalog to populate the model selection prompt.
+     * Reads the architecture-specific catalog (popular-transformers.json or
+     * popular-diffusors.json) to populate the model selection prompt.
+     * @param {string} [architecture] - Current architecture ('transformers', 'diffusors', etc.)
      * @private
      */
-    _queryMcpForModels() {
+    _queryMcpForModels(architecture) {
         const cm = this.configManager
         if (!cm) return
 
@@ -680,7 +685,12 @@ export default class PromptRunner {
             if (!fs.existsSync(manifestPath)) return
 
             const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-            const catalogRelPath = manifest.catalogs?.['popular-models']
+
+            // Select catalog based on architecture
+            const catalogKey = architecture === 'diffusors'
+                ? 'popular-diffusors'
+                : 'popular-transformers'
+            const catalogRelPath = manifest.catalogs?.[catalogKey]
             if (!catalogRelPath) return
 
             const catalogPath = path.resolve(serverDir, catalogRelPath)

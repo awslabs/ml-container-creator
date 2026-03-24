@@ -24,7 +24,7 @@ const FAST_PROPERTY_CONFIG = {
     verbose: false
 };
 
-const VALID_ARCHITECTURES = ['http', 'transformers', 'triton'];
+const VALID_ARCHITECTURES = ['http', 'transformers', 'triton', 'diffusors'];
 
 const resolver = new DeploymentConfigResolver();
 const ALL_CONFIGS = resolver.getAllConfigs();

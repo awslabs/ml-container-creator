@@ -8,7 +8,7 @@
  * component: round-trip identity, architecture consistency, isValid correctness,
  * old format rejection, and getConfigsForArchitecture consistency.
  *
- * Feature: triton-integration
+ * Feature: triton-integration, vllm-omni-diffusors
  */
 
 import fc from 'fast-check';
@@ -27,26 +27,28 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
     let resolver;
     let allConfigs;
     let tritonConfigs;
+    let diffusorsConfigs;
     let validArchitectures;
 
     before(() => {
         resolver = new DeploymentConfigResolver();
         allConfigs = resolver.getAllConfigs();
         tritonConfigs = allConfigs.filter(dc => dc.startsWith('triton-'));
-        validArchitectures = ['http', 'transformers', 'triton'];
+        diffusorsConfigs = allConfigs.filter(dc => dc.startsWith('diffusors-'));
+        validArchitectures = ['http', 'transformers', 'triton', 'diffusors'];
 
         console.log('\n🚀 Starting DeploymentConfigResolver Property Tests');
         console.log('📋 Testing: Universal correctness properties for deployment-config resolution');
         console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property`);
-        console.log(`📦 Total configs: ${allConfigs.length} (${tritonConfigs.length} triton)\n`);
+        console.log(`📦 Total configs: ${allConfigs.length} (${tritonConfigs.length} triton, ${diffusorsConfigs.length} diffusors)\n`);
     });
 
     /**
      * Property 1: Decompose/Compose Round-Trip Identity
      *
-     * Validates: Requirements 1.3, 1.1, 1.2
+     * Validates: Requirements 1.1, 1.2
      *
-     * For all 14 valid deployment-config strings,
+     * For all 15 valid deployment-config strings,
      * compose(decompose(dc)) === dc
      */
     describe('Property 1: Decompose/Compose Round-Trip Identity', () => {
@@ -72,7 +74,100 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
     });
 
     /**
-     * Property 2: Architecture Consistency for Triton Configs
+     * Property 2: Validity Consistency
+     *
+     * Validates: Requirements 1.5, 1.6
+     *
+     * isValid(dc) === true iff decompose(dc) does not throw.
+     * Also verifies diffusors-vllm-omni is valid and unsupported
+     * diffusors configs like diffusors-comfyui are invalid.
+     */
+    describe('Property 2: Validity Consistency', () => {
+        it('isValid(dc) === true iff decompose(dc) does not throw for valid configs', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.constantFrom(...allConfigs),
+                (dc) => {
+                    const valid = resolver.isValid(dc);
+                    let decomposeSucceeded;
+                    try {
+                        resolver.decompose(dc);
+                        decomposeSucceeded = true;
+                    } catch {
+                        decomposeSucceeded = false;
+                    }
+
+                    assert.strictEqual(
+                        valid,
+                        decomposeSucceeded,
+                        `Consistency violation for '${dc}': isValid=${valid}, decompose succeeded=${decomposeSucceeded}`
+                    );
+
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('isValid(s) === false implies decompose(s) throws for arbitrary strings', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.string({ minLength: 1, maxLength: 50 }),
+                (s) => {
+                    const valid = resolver.isValid(s);
+                    let decomposeSucceeded;
+                    try {
+                        resolver.decompose(s);
+                        decomposeSucceeded = true;
+                    } catch {
+                        decomposeSucceeded = false;
+                    }
+
+                    assert.strictEqual(
+                        valid,
+                        decomposeSucceeded,
+                        `Consistency violation for '${s}': isValid=${valid}, decompose succeeded=${decomposeSucceeded}`
+                    );
+
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('diffusors-vllm-omni is valid and decomposes without error', () => {
+            assert.strictEqual(resolver.isValid('diffusors-vllm-omni'), true);
+            const parts = resolver.decompose('diffusors-vllm-omni');
+            assert.strictEqual(parts.architecture, 'diffusors');
+            assert.strictEqual(parts.backend, 'vllm-omni');
+            assert.strictEqual(parts.engine, null);
+        });
+
+        it('unsupported diffusors configs like diffusors-comfyui are invalid', () => {
+            const unsupportedDiffusors = [
+                'diffusors-comfyui',
+                'diffusors-diffusers',
+                'diffusors-automatic1111',
+                'diffusors-invokeai'
+            ];
+
+            for (const dc of unsupportedDiffusors) {
+                assert.strictEqual(
+                    resolver.isValid(dc),
+                    false,
+                    `Expected isValid('${dc}') to be false`
+                );
+                assert.throws(
+                    () => resolver.decompose(dc),
+                    /Unsupported deployment-config/,
+                    `Expected decompose('${dc}') to throw`
+                );
+            }
+        });
+    });
+
+    /**
+     * Property 2b: Architecture Consistency for Triton Configs
      *
      * Validates: Requirements 2.2, 1.1
      *
@@ -104,11 +199,11 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
      *
      * Validates: Requirements 1.6, 1.7, 2.4
      *
-     * isValid(s) returns true iff s is one of the 14 valid configs;
+     * isValid(s) returns true iff s is one of the 15 valid configs;
      * false for everything else including old-format strings.
      */
     describe('Property 3: isValid Correctness', () => {
-        it('isValid returns true for all 14 valid configs', function () {
+        it('isValid returns true for all 15 valid configs', function () {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(

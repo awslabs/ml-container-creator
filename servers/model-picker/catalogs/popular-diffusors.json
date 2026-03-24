@@ -1,0 +1,74 @@
+{
+    "stabilityai/stable-diffusion-3.5-medium": {
+        "family": "stable-diffusion-3",
+        "chat_template": null,
+        "gated": false,
+        "tags": ["image-generation", "diffusion", "stable-diffusion"],
+        "architecture": "StableDiffusion3Pipeline",
+        "framework_compatibility": {
+            "vllm-omni": ">=0.14.0"
+        },
+        "validation_level": "experimental",
+        "notes": "Stable Diffusion 3.5 medium model. Supported natively by vLLM-Omni. Good balance of quality and speed"
+    },
+    "black-forest-labs/FLUX.1-dev": {
+        "family": "flux",
+        "chat_template": null,
+        "gated": true,
+        "tags": ["image-generation", "diffusion", "flux"],
+        "architecture": "FluxPipeline",
+        "framework_compatibility": {
+            "vllm-omni": ">=0.14.0"
+        },
+        "validation_level": "experimental",
+        "notes": "FLUX.1-dev high-quality generation model. Uses dual text encoders (CLIP + T5). Requires significant VRAM and HuggingFace authentication"
+    },
+    "black-forest-labs/FLUX.1-schnell": {
+        "family": "flux",
+        "chat_template": null,
+        "gated": false,
+        "tags": ["image-generation", "diffusion", "flux"],
+        "architecture": "FluxPipeline",
+        "framework_compatibility": {
+            "vllm-omni": ">=0.14.0"
+        },
+        "validation_level": "experimental",
+        "notes": "FLUX.1-schnell fast generation model. Fewer denoising steps for faster inference at slightly lower quality"
+    },
+    "Wan-AI/Wan2.1-T2V-14B-Diffusers": {
+        "family": "wan",
+        "chat_template": null,
+        "gated": false,
+        "tags": ["video-generation", "diffusion", "wan"],
+        "architecture": "WanPipeline",
+        "framework_compatibility": {
+            "vllm-omni": ">=0.16.0"
+        },
+        "validation_level": "experimental",
+        "notes": "Wan2.1 text-to-video 14B model (diffusers format). Requires multi-GPU instance (ml.g5.12xlarge or larger). Must use the -Diffusers variant — the base Wan2.1-T2V-14B repo lacks model_index.json required by vLLM-Omni"
+    },
+    "stabilityai/stable-diffusion-*": {
+        "family": "stable-diffusion",
+        "chat_template": null,
+        "gated": false,
+        "tags": ["image-generation", "diffusion", "stable-diffusion"],
+        "architecture": null,
+        "framework_compatibility": {
+            "vllm-omni": ">=0.14.0"
+        },
+        "validation_level": "experimental",
+        "notes": "Fallback for Stable Diffusion variants not explicitly listed"
+    },
+    "black-forest-labs/FLUX*": {
+        "family": "flux",
+        "chat_template": null,
+        "gated": false,
+        "tags": ["image-generation", "diffusion", "flux"],
+        "architecture": null,
+        "framework_compatibility": {
+            "vllm-omni": ">=0.14.0"
+        },
+        "validation_level": "experimental",
+        "notes": "Fallback for FLUX model variants not explicitly listed"
+    }
+}

@@ -426,12 +426,13 @@ export default class extends Generator {
             architecture = this.answers.framework === 'transformers' ? 'transformers' : 'http';
         }
 
-        // Always exclude triton source directory from initial copy (it's a source, not output)
+        // Always exclude triton and diffusors source directories from initial copy (they are sources, not output)
         ignorePatterns.push('**/triton/**');
+        ignorePatterns.push('**/diffusors/**');
 
-        // For triton architecture, exclude the default Dockerfile from initial copy
-        // The triton case generates its own Dockerfile via _generateTritonFiles()
-        if (architecture === 'triton') {
+        // For triton and diffusors architectures, exclude the default Dockerfile from initial copy
+        // These architectures generate their own Dockerfile from architecture-specific templates
+        if (architecture === 'triton' || architecture === 'diffusors') {
             ignorePatterns.push('**/Dockerfile');
         }
 
@@ -444,8 +445,8 @@ export default class extends Generator {
             { globOptions: { ignore: ignorePatterns, dot: true } }
         );
 
-        // Three-way architecture routing for file cleanup and Triton-specific generation
-        // Requirements: 4.1, 4.2, 4.3, 4.4
+        // Four-way architecture routing for file cleanup and architecture-specific generation
+        // Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3, 5.4
         switch (architecture) {
         case 'http':
             // HTTP architecture: delete transformers and triton files
@@ -499,6 +500,40 @@ export default class extends Generator {
             await this._generateTritonFiles(templateVars);
             break;
 
+        case 'diffusors':
+            // Diffusors architecture: delete HTTP, transformers files; copy diffusors-specific templates
+            // Requirements: 4.5, 5.1, 5.2, 5.3, 5.4
+
+            // Delete HTTP-specific files
+            this.fs.delete(this.destinationPath('code/model_handler.py'));
+            this.fs.delete(this.destinationPath('code/serve.py'));
+            this.fs.delete(this.destinationPath('code/start_server.py'));
+            this.fs.delete(this.destinationPath('nginx-predictors.conf'));
+            this.fs.delete(this.destinationPath('code/flask/wsgi.py'));
+            this.fs.delete(this.destinationPath('code/flask/gunicorn_config.py'));
+
+            // Delete transformers-specific files
+            this.fs.delete(this.destinationPath('code/chat_template.jinja'));
+            this.fs.delete(this.destinationPath('code/serving.properties'));
+
+            // Copy diffusors-specific templates (Dockerfile excluded from initial copy via ignorePatterns)
+            this.fs.copyTpl(
+                this.templatePath('diffusors/Dockerfile'),
+                this.destinationPath('Dockerfile'),
+                templateVars
+            );
+            this.fs.copyTpl(
+                this.templatePath('diffusors/serve'),
+                this.destinationPath('code/serve'),
+                templateVars
+            );
+            this.fs.copyTpl(
+                this.templatePath('diffusors/start_server.sh'),
+                this.destinationPath('code/start_server.sh'),
+                templateVars
+            );
+            break;
+
         default:
             // Fallback to HTTP behavior for unknown architectures
             this.fs.delete(this.destinationPath('code/chat_template.jinja'));
@@ -511,6 +546,11 @@ export default class extends Generator {
         // nginx-tensorrt.conf: only needed for TensorRT-LLM
         if (this.answers.modelServer !== 'tensorrt-llm' && this.answers.backend !== 'tensorrt-llm') {
             this.fs.delete(this.destinationPath('nginx-tensorrt.conf'));
+        }
+
+        // nginx-diffusors.conf: only needed for diffusors architecture
+        if (this.answers.architecture !== 'diffusors') {
+            this.fs.delete(this.destinationPath('nginx-diffusors.conf'));
         }
 
         // Copy PROJECT_README.md as README.md in the generated project

@@ -1065,4 +1065,173 @@ describe('ConfigManager Unit Tests', () => {
             });
         });
     });
+
+    describe('Diffusors Architecture Support', () => {
+        beforeEach(() => {
+            mockGenerator = createMockGenerator();
+            configManager = new ConfigManager(mockGenerator);
+        });
+
+        describe('getFinalConfiguration() for diffusors (Req 8.1)', () => {
+            it('should resolve architecture to diffusors and backend to vllm-omni', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'diffusors-vllm-omni',
+                    modelName: 'stabilityai/stable-diffusion-3.5-medium'
+                });
+
+                assert.strictEqual(finalConfig.architecture, 'diffusors');
+                assert.strictEqual(finalConfig.backend, 'vllm-omni');
+                assert.strictEqual(finalConfig.engine, null);
+            });
+
+            it('should populate modelName from prompt answers', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'diffusors-vllm-omni',
+                    modelName: 'black-forest-labs/FLUX.1-dev'
+                });
+
+                assert.strictEqual(finalConfig.modelName, 'black-forest-labs/FLUX.1-dev');
+            });
+        });
+
+        describe('includeSampleModel override for diffusors (Req 8.1)', () => {
+            it('should set includeSampleModel to false for diffusors architecture', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = configManager.getFinalConfiguration({
+                    deploymentConfig: 'diffusors-vllm-omni',
+                    modelName: 'stabilityai/stable-diffusion-3.5-medium',
+                    includeSampleModel: true
+                });
+
+                assert.strictEqual(finalConfig.includeSampleModel, false);
+            });
+        });
+
+        describe('modelName validation for diffusors with --skip-prompts (Req 8.2)', () => {
+            it('should return error when modelName missing for diffusors with skip-prompts', async () => {
+                mockGenerator = createMockGeneratorWithOptions({
+                    'skip-prompts': true,
+                    'deployment-config': 'diffusors-vllm-omni'
+                });
+                configManager = new ConfigManager(mockGenerator);
+                await configManager.loadConfiguration();
+
+                const errors = configManager.validateConfiguration();
+
+                const modelNameError = errors.find(e => e.includes('Model name is required for diffusors'));
+                assert.ok(modelNameError, 'Expected a validation error about missing model name for diffusors');
+            });
+
+            it('should not return modelName error when modelName is provided', async () => {
+                mockGenerator = createMockGeneratorWithOptions({
+                    'skip-prompts': true,
+                    'deployment-config': 'diffusors-vllm-omni',
+                    'model-name': 'stabilityai/stable-diffusion-3.5-medium'
+                });
+                configManager = new ConfigManager(mockGenerator);
+                await configManager.loadConfiguration();
+
+                const errors = configManager.validateConfiguration();
+
+                const modelNameError = errors.find(e => e.includes('Model name is required for diffusors'));
+                assert.strictEqual(modelNameError, undefined);
+            });
+
+            it('should not return modelName error for non-diffusors architectures', async () => {
+                mockGenerator = createMockGeneratorWithOptions({
+                    'skip-prompts': true,
+                    'deployment-config': 'transformers-vllm'
+                });
+                configManager = new ConfigManager(mockGenerator);
+                await configManager.loadConfiguration();
+
+                const errors = configManager.validateConfiguration();
+
+                const modelNameError = errors.find(e => e.includes('Model name is required for diffusors'));
+                assert.strictEqual(modelNameError, undefined);
+            });
+        });
+
+        describe('modelFormat not required for diffusors', () => {
+            it('should not require modelFormat for diffusors architecture', async () => {
+                await configManager.loadConfiguration();
+
+                const finalConfig = {
+                    deploymentConfig: 'diffusors-vllm-omni',
+                    architecture: 'diffusors',
+                    backend: 'vllm-omni',
+                    modelName: 'stabilityai/stable-diffusion-3.5-medium',
+                    instanceType: 'ml.g5.2xlarge',
+                    projectName: 'test-diffusion',
+                    destinationDir: '.',
+                    buildTarget: 'codebuild',
+                    deploymentTarget: 'managed-inference',
+                    includeSampleModel: false,
+                    includeTesting: true
+                };
+
+                const errors = configManager.validateRequiredParameters(finalConfig);
+
+                assert.strictEqual(errors.length, 0);
+            });
+        });
+
+        describe('_validateParameterCombinations for diffusors', () => {
+            it('should flag includeSampleModel=true for diffusors as invalid', async () => {
+                await configManager.loadConfiguration();
+
+                const errors = configManager._validateParameterCombinations({
+                    architecture: 'diffusors',
+                    backend: 'vllm-omni',
+                    includeSampleModel: true
+                });
+
+                assert.strictEqual(errors.length, 1);
+                assert.ok(errors[0].includes('does not support sample models'));
+            });
+
+            it('should not flag includeSampleModel=false for diffusors', async () => {
+                await configManager.loadConfiguration();
+
+                const errors = configManager._validateParameterCombinations({
+                    architecture: 'diffusors',
+                    backend: 'vllm-omni',
+                    includeSampleModel: false
+                });
+
+                assert.strictEqual(errors.length, 0);
+            });
+        });
+
+        describe('_generateProjectName for diffusors', () => {
+            it('should generate a valid project name for diffusors architecture', () => {
+                const projectName = configManager._generateProjectName('diffusors');
+
+                assert.ok(typeof projectName === 'string');
+                assert.ok(projectName.length > 0);
+            });
+        });
+
+        describe('_generateCodeBuildProjectName for diffusors', () => {
+            it('should include diffusion in CodeBuild project name', () => {
+                const buildName = configManager._generateCodeBuildProjectName('my-project', 'diffusors');
+
+                assert.ok(buildName.includes('diffusion'));
+                assert.ok(buildName.includes('my-project'));
+            });
+        });
+
+        describe('diffusors-vllm-omni in supported options (Req 8.4)', () => {
+            it('should include diffusors-vllm-omni in deployment configs', () => {
+                const supportedOptions = configManager._getSupportedOptions();
+
+                assert.ok(supportedOptions.deploymentConfigs.includes('diffusors-vllm-omni'));
+            });
+        });
+    });
 });

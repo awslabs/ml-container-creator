@@ -7,7 +7,7 @@
  *
  * A bundled MCP server that returns model metadata for ML Container Creator.
  * Supports two operating modes:
- *   - Static: Returns metadata from a local popular-models.json catalog
+ *   - Static: Returns metadata from local catalog files (popular-transformers.json, popular-diffusors.json)
  *   - Discover: Queries HuggingFace Hub API for live metadata, merging with static catalog
  *
  * Uses a pluggable ModelResolver architecture. V1 ships with HuggingFaceResolver
@@ -35,7 +35,7 @@ const __dirname = dirname(__filename)
  * Load and parse a JSON catalog file relative to the server directory.
  * Throws on missing file or invalid JSON with the file path in the message.
  *
- * @param {string} relativePath - Path relative to server dir (e.g. './catalogs/popular-models.json')
+ * @param {string} relativePath - Path relative to server dir (e.g. './catalogs/popular-transformers.json')
  * @returns {any} Parsed JSON content
  */
 function loadCatalog(relativePath) {
@@ -100,7 +100,7 @@ class ModelResolver extends DynamicResolver {
 /**
  * StaticCatalogResolver — fallback resolver.
  *
- * Returns model metadata from the popular-models.json catalog.
+ * Returns model metadata from the static catalog.
  * No network calls, no auth, no external dependencies.
  * Supports exact match and glob-style pattern matching.
  */
@@ -308,12 +308,15 @@ function mergeMetadata(liveData, staticData) {
     return merged
 }
 
-// ── Load catalog ─────────────────────────────────────────────────────────────
+// ── Load catalogs ────────────────────────────────────────────────────────────
 
 let POPULAR_MODELS_CATALOG
 
 try {
-    POPULAR_MODELS_CATALOG = loadCatalog('./catalogs/popular-models.json')
+    POPULAR_MODELS_CATALOG = {
+        ...loadCatalog('./catalogs/popular-transformers.json'),
+        ...loadCatalog('./catalogs/popular-diffusors.json')
+    }
 } catch (err) {
     process.stderr.write(`[model-picker] Fatal: ${err.message}\n`)
     process.exit(1)

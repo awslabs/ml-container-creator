@@ -15,7 +15,7 @@
 /**
  * GPU-requiring Triton backends that must use GPU instance types
  */
-const GPU_REQUIRING_BACKENDS = ['triton-vllm', 'triton-tensorrtllm']
+const GPU_REQUIRING_BACKENDS = ['triton-vllm', 'triton-tensorrtllm', 'diffusors-vllm-omni']
 
 /**
  * CPU-only instance type families (patterns that indicate non-GPU instances)
@@ -50,7 +50,7 @@ export default class TemplateManager {
      */
     validate() {
         const supportedOptions = {
-            // 14 canonical deployment-config values (2 http, 5 transformers, 7 triton)
+            // 15 canonical deployment-config values (2 http, 5 transformers, 7 triton, 1 diffusors)
             deploymentConfigs: [
                 // HTTP architecture (2)
                 'http-flask', 'http-fastapi',
@@ -59,7 +59,9 @@ export default class TemplateManager {
                 'transformers-tensorrt-llm', 'transformers-lmi', 'transformers-djl',
                 // Triton architecture (7)
                 'triton-fil', 'triton-onnxruntime', 'triton-tensorflow',
-                'triton-pytorch', 'triton-vllm', 'triton-tensorrtllm', 'triton-python'
+                'triton-pytorch', 'triton-vllm', 'triton-tensorrtllm', 'triton-python',
+                // Diffusors architecture (1)
+                'diffusors-vllm-omni'
             ],
             buildTargets: ['codebuild'],
             deploymentTargets: ['managed-inference', 'hyperpod-eks'],
@@ -80,14 +82,16 @@ export default class TemplateManager {
             this._validateGpuRequirement()
         } else {
             // Fallback: validate architecture and backend separately (new canonical format)
-            const architectures = ['http', 'transformers', 'triton']
+            const architectures = ['http', 'transformers', 'triton', 'diffusors']
             const backends = [
                 // http backends
                 'flask', 'fastapi',
                 // transformers backends
                 'vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl',
                 // triton backends
-                'fil', 'onnxruntime', 'tensorflow', 'pytorch', 'tensorrtllm', 'python'
+                'fil', 'onnxruntime', 'tensorflow', 'pytorch', 'tensorrtllm', 'python',
+                // diffusors backends
+                'vllm-omni'
             ]
             
             this._validateChoice('architecture', architectures)

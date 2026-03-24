@@ -46,6 +46,12 @@ export default {
                                 }
                             }
                         },
+                        serveCommand: {
+                            type: 'string'
+                        },
+                        cliFlags: {
+                            type: 'object'
+                        },
                         envVars: {
                             type: 'object',
                             patternProperties: {
@@ -53,6 +59,10 @@ export default {
                                     type: 'string'
                                 }
                             }
+                        },
+                        systemDeps: {
+                            type: 'array',
+                            items: { type: 'string' }
                         },
                         inferenceAmiVersion: {
                             type: 'string',
@@ -84,6 +94,9 @@ export default {
                                             patternProperties: {
                                                 '^[A-Z_][A-Z0-9_]*$': { type: 'string' }
                                             }
+                                        },
+                                        cliFlags: {
+                                            type: 'object'
                                         },
                                         recommendedInstanceTypes: {
                                             type: 'array',
