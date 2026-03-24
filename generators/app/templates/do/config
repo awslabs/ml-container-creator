@@ -32,6 +32,40 @@ export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
 <% } %>
 <% } %>
 
+<% if (deploymentTarget === 'async-inference') { %>
+# SageMaker Managed Inference - Async configuration
+export INSTANCE_TYPE="<%= instanceType %>"
+<% if (inferenceAmiVersion) { %>
+export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
+<% } %>
+
+# Async-specific configuration
+# Resolve AWS account ID at runtime for default resource names
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "UNKNOWN")
+
+<% if (asyncS3OutputPath) { %>
+export ASYNC_S3_OUTPUT_PATH="<%= asyncS3OutputPath %>"
+<% } else { %>
+export ASYNC_S3_OUTPUT_PATH="s3://ml-container-creator-async-${AWS_REGION}-${ACCOUNT_ID}/${PROJECT_NAME}/output/"
+<% } %>
+
+<% if (asyncSnsSuccessTopic) { %>
+export ASYNC_SNS_SUCCESS_TOPIC="<%= asyncSnsSuccessTopic %>"
+<% } else { %>
+export ASYNC_SNS_SUCCESS_TOPIC="arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}:ml-container-creator-${PROJECT_NAME}-async-success"
+<% } %>
+
+<% if (asyncSnsErrorTopic) { %>
+export ASYNC_SNS_ERROR_TOPIC="<%= asyncSnsErrorTopic %>"
+<% } else { %>
+export ASYNC_SNS_ERROR_TOPIC="arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}:ml-container-creator-${PROJECT_NAME}-async-error"
+<% } %>
+
+<% if (asyncMaxConcurrentInvocations) { %>
+export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
+<% } %>
+<% } %>
+
 <% if (deploymentTarget === 'hyperpod-eks') { %>
 # HyperPod EKS configuration
 export HYPERPOD_CLUSTER_NAME="<%= hyperPodCluster %>"
@@ -70,7 +104,7 @@ export ROLE_ARN="<%= roleArn %>"
 
 # Allow environment variable overrides
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference') { %>
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 <% } %>
 export ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-ml-container-creator}
@@ -84,6 +118,11 @@ echo "   Build target: ${BUILD_TARGET}"
 echo "   Deployment target: ${DEPLOYMENT_TARGET}"
 <% if (deploymentTarget === 'managed-inference') { %>
 echo "   Instance: ${INSTANCE_TYPE}"
+<% } else if (deploymentTarget === 'async-inference') { %>
+echo "   Instance: ${INSTANCE_TYPE}"
+echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
+echo "   SNS success: ${ASYNC_SNS_SUCCESS_TOPIC}"
+echo "   SNS error: ${ASYNC_SNS_ERROR_TOPIC}"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
 echo "   Namespace: ${HYPERPOD_NAMESPACE}"

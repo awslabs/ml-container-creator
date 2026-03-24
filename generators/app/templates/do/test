@@ -148,6 +148,18 @@ assert 'b64_json' in resp['data'][0], 'Missing b64_json in data entry'
 " 2>/dev/null; then
                 echo "✅ Image generation successful (HTTP ${HTTP_CODE})"
                 echo "   Response contains valid data array with b64_json image"
+                
+                # Save generated image to file
+                OUTPUT_IMAGE="${SCRIPT_DIR}/../test_output.png"
+                if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json, base64
+resp = json.load(sys.stdin)
+img_data = base64.b64decode(resp['data'][0]['b64_json'])
+with open('${OUTPUT_IMAGE}', 'wb') as f:
+    f.write(img_data)
+" 2>/dev/null; then
+                    echo "   🖼️  Image saved to: ${OUTPUT_IMAGE}"
+                fi
             else
                 echo "⚠️  Image generation returned HTTP ${HTTP_CODE} but response format unexpected"
                 echo "   Response preview: ${RESPONSE_BODY:0:200}"
@@ -230,6 +242,18 @@ assert 'b64_json' in resp['data'][0], 'Missing b64_json in data entry'
 " 2>/dev/null; then
             echo "✅ Image generation successful"
             echo "   Response contains valid data array with b64_json image"
+            
+            # Save generated image to file
+            OUTPUT_IMAGE="${SCRIPT_DIR}/../test_output.png"
+            if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json, base64
+resp = json.load(sys.stdin)
+img_data = base64.b64decode(resp['data'][0]['b64_json'])
+with open('${OUTPUT_IMAGE}', 'wb') as f:
+    f.write(img_data)
+" 2>/dev/null; then
+                echo "   🖼️  Image saved to: ${OUTPUT_IMAGE}"
+            fi
         else
             echo "⚠️  Image generation returned but response format unexpected"
             echo "   Response preview: ${RESPONSE_BODY:0:200}"
@@ -255,6 +279,316 @@ else
     echo "Endpoint is ready for production use!"
     echo "  • Endpoint name: ${ENDPOINT_NAME}"
     echo "  • Region: ${AWS_REGION}"
+    echo ""
+    echo "📝 Register this deployment:"
+    echo "  ./do/register"
+fi
+
+<% } else if (deploymentTarget === 'async-inference') { %>
+# ============================================================
+# SageMaker Managed Inference - Async Testing
+# ============================================================
+
+# Parse arguments
+ENDPOINT_NAME="${1:-${ENDPOINT_NAME:-}}"
+
+if [ -z "${ENDPOINT_NAME}" ]; then
+    echo "🧪 Testing local container at localhost:8080"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Framework: ${FRAMEWORK}"
+    echo "   Model server: ${MODEL_SERVER}"
+    TARGET_URL="http://localhost:8080"
+    TEST_MODE="local"
+else
+    echo "🧪 Testing SageMaker async endpoint: ${ENDPOINT_NAME}"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Framework: ${FRAMEWORK}"
+    echo "   Model server: ${MODEL_SERVER}"
+    echo "   Region: ${AWS_REGION}"
+    echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
+    TEST_MODE="sagemaker"
+fi
+
+echo ""
+
+# Test 1: Health check (/ping)
+echo "🔍 Test 1: Health check"
+if [ "${TEST_MODE}" = "local" ]; then
+    echo "   Sending GET request to ${TARGET_URL}/ping"
+    
+    if ! PING_RESPONSE=$(curl -s -w "\n%{http_code}" -X GET "${TARGET_URL}/ping" 2>&1); then
+        echo "❌ Health check failed: Could not connect to local container"
+        echo "   Make sure the container is running: ./do/run"
+        exit 1
+    fi
+    
+    HTTP_CODE=$(echo "${PING_RESPONSE}" | tail -n1)
+    RESPONSE_BODY=$(echo "${PING_RESPONSE}" | sed '$d')
+    
+    if [ "${HTTP_CODE}" = "200" ]; then
+        echo "✅ Health check passed (HTTP ${HTTP_CODE})"
+    else
+        echo "❌ Health check failed (HTTP ${HTTP_CODE})"
+        echo "   Response: ${RESPONSE_BODY}"
+        exit 1
+    fi
+else
+    # For SageMaker endpoints, verify the endpoint exists and is InService
+    echo "   Checking endpoint status..."
+    
+    if ! ENDPOINT_STATUS=$(aws sagemaker describe-endpoint \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'EndpointStatus' \
+        --output text 2>&1); then
+        echo "❌ Endpoint not found or not accessible"
+        echo "   Error: ${ENDPOINT_STATUS}"
+        exit 1
+    fi
+    
+    if [ "${ENDPOINT_STATUS}" = "InService" ]; then
+        echo "✅ Endpoint is InService"
+    else
+        echo "❌ Endpoint is not InService (Status: ${ENDPOINT_STATUS})"
+        exit 1
+    fi
+fi
+
+echo ""
+
+# Test 2: Inference request
+echo "🔍 Test 2: Inference request"
+
+# Create framework-specific test payload
+case "${FRAMEWORK}" in
+    sklearn|xgboost)
+        TEST_PAYLOAD='{"instances": [[1.0, 2.0, 3.0, 4.0]]}'
+        echo "   Payload: Sample feature vector"
+        ;;
+    tensorflow)
+        TEST_PAYLOAD='{"instances": [[1.0, 2.0, 3.0, 4.0]]}'
+        echo "   Payload: Sample feature vector"
+        ;;
+    transformers)
+        case "${MODEL_SERVER}" in
+            vllm|sglang)
+                TEST_PAYLOAD='{"model": "'"${MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                echo "   Payload: OpenAI-compatible chat completion request"
+                ;;
+            *)
+                TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50, "temperature": 0.7}}'
+                echo "   Payload: HuggingFace-style text generation request"
+                ;;
+        esac
+        ;;
+    diffusors)
+        TEST_PAYLOAD='{"prompt": "A white cat", "n": 1, "size": "512x512"}'
+        echo "   Payload: OpenAI DALL-E compatible image generation request"
+        ;;
+    *)
+        echo "❌ Unknown framework: ${FRAMEWORK}"
+        exit 3
+        ;;
+esac
+
+if [ "${TEST_MODE}" = "local" ]; then
+    if [ "${FRAMEWORK}" = "diffusors" ]; then
+        echo "   Sending POST request to ${TARGET_URL}/v1/images/generations"
+        
+        if ! INVOKE_RESPONSE=$(curl -s -m 120 -w "\n%{http_code}" -X POST "${TARGET_URL}/v1/images/generations" \
+            -H "Content-Type: application/json" \
+            -d "${TEST_PAYLOAD}" 2>&1); then
+            echo "❌ Inference request failed: Could not connect to local container"
+            exit 1
+        fi
+        
+        HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
+        RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
+        
+        if [ "${HTTP_CODE}" = "200" ]; then
+            if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+assert 'data' in resp, 'Missing data array'
+assert len(resp['data']) > 0, 'Empty data array'
+assert 'b64_json' in resp['data'][0], 'Missing b64_json in data entry'
+" 2>/dev/null; then
+                echo "✅ Image generation successful (HTTP ${HTTP_CODE})"
+                echo "   Response contains valid data array with b64_json image"
+                
+                # Save generated image to file
+                OUTPUT_IMAGE="${SCRIPT_DIR}/../test_output.png"
+                if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json, base64
+resp = json.load(sys.stdin)
+img_data = base64.b64decode(resp['data'][0]['b64_json'])
+with open('${OUTPUT_IMAGE}', 'wb') as f:
+    f.write(img_data)
+" 2>/dev/null; then
+                    echo "   🖼️  Image saved to: ${OUTPUT_IMAGE}"
+                fi
+            else
+                echo "⚠️  Image generation returned HTTP ${HTTP_CODE} but response format unexpected"
+                echo "   Response preview: ${RESPONSE_BODY:0:200}"
+            fi
+        else
+            echo "❌ Image generation failed (HTTP ${HTTP_CODE})"
+            echo "   Response: ${RESPONSE_BODY}"
+            exit 1
+        fi
+    else
+        echo "   Sending POST request to ${TARGET_URL}/invocations"
+        
+        if ! INVOKE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${TARGET_URL}/invocations" \
+            -H "Content-Type: application/json" \
+            -d "${TEST_PAYLOAD}" 2>&1); then
+            echo "❌ Inference request failed: Could not connect to local container"
+            exit 1
+        fi
+        
+        HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
+        RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
+        
+        if [ "${HTTP_CODE}" = "200" ]; then
+            echo "✅ Inference request successful (HTTP ${HTTP_CODE})"
+            echo "   Response preview: ${RESPONSE_BODY:0:200}"
+            if [ ${#RESPONSE_BODY} -gt 200 ]; then
+                echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+            fi
+        else
+            echo "❌ Inference request failed (HTTP ${HTTP_CODE})"
+            echo "   Response: ${RESPONSE_BODY}"
+            exit 1
+        fi
+    fi
+else
+    # SageMaker async invocation: upload payload to S3, invoke async, poll for result
+    echo "   Uploading test payload to S3..."
+    
+    # Create temporary file for payload
+    TEMP_PAYLOAD=$(mktemp)
+    echo "${TEST_PAYLOAD}" > "${TEMP_PAYLOAD}"
+    
+    # Upload payload to S3 input location
+    ASYNC_INPUT_KEY="${PROJECT_NAME}/input/test-payload-$(date +%s).json"
+    ASYNC_S3_BUCKET=$(echo "${ASYNC_S3_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
+    S3_INPUT_LOCATION="s3://${ASYNC_S3_BUCKET}/${ASYNC_INPUT_KEY}"
+    
+    if ! aws s3 cp "${TEMP_PAYLOAD}" "${S3_INPUT_LOCATION}" --region "${AWS_REGION}" &> /dev/null; then
+        echo "❌ Failed to upload test payload to S3"
+        echo "   Location: ${S3_INPUT_LOCATION}"
+        echo "   Check that your IAM credentials have s3:PutObject permission"
+        rm -f "${TEMP_PAYLOAD}"
+        exit 1
+    fi
+    rm -f "${TEMP_PAYLOAD}"
+    echo "✅ Test payload uploaded to: ${S3_INPUT_LOCATION}"
+    
+    # Invoke endpoint asynchronously (no inference components for async)
+    echo "   Invoking async endpoint..."
+    
+    INVOKE_ARGS=(
+        --endpoint-name "${ENDPOINT_NAME}"
+        --input-location "${S3_INPUT_LOCATION}"
+        --region "${AWS_REGION}"
+        --content-type "application/json"
+    )
+    
+    if ! INVOKE_RESULT=$(aws sagemaker-runtime invoke-endpoint-async \
+        "${INVOKE_ARGS[@]}" 2>&1); then
+        echo "❌ Async invocation failed"
+        echo "   Error: ${INVOKE_RESULT}"
+        exit 1
+    fi
+    
+    # Extract output location from response
+    OUTPUT_LOCATION=$(echo "${INVOKE_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('OutputLocation',''))" 2>/dev/null || echo "")
+    
+    if [ -z "${OUTPUT_LOCATION}" ]; then
+        echo "⚠️  Async invocation accepted but no output location returned"
+        echo "   Check the S3 output path for results: ${ASYNC_S3_OUTPUT_PATH}"
+        echo ""
+        echo "✅ Async invocation submitted successfully"
+    else
+        echo "✅ Async invocation accepted"
+        echo "   Output location: ${OUTPUT_LOCATION}"
+        
+        # Poll S3 output location for result
+        POLL_TIMEOUT=300
+        POLL_INTERVAL=10
+        ELAPSED=0
+        
+        echo "⏳ Polling for async result (timeout: ${POLL_TIMEOUT}s)..."
+        
+        while [ ${ELAPSED} -lt ${POLL_TIMEOUT} ]; do
+            if aws s3 ls "${OUTPUT_LOCATION}" --region "${AWS_REGION}" &> /dev/null; then
+                echo "✅ Async inference result available"
+                
+                # Download and display result
+                TEMP_RESULT=$(mktemp)
+                if aws s3 cp "${OUTPUT_LOCATION}" "${TEMP_RESULT}" --region "${AWS_REGION}" &> /dev/null; then
+                    RESPONSE_BODY=$(cat "${TEMP_RESULT}")
+                    rm -f "${TEMP_RESULT}"
+                    
+                    echo "   Response preview: ${RESPONSE_BODY:0:200}"
+                    if [ ${#RESPONSE_BODY} -gt 200 ]; then
+                        echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+                    fi
+                    
+                    # For diffusors, extract and save the generated image
+                    if [ "${FRAMEWORK}" = "diffusors" ]; then
+                        OUTPUT_IMAGE="${SCRIPT_DIR}/../test_output.png"
+                        if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json, base64
+resp = json.load(sys.stdin)
+if 'data' in resp and len(resp['data']) > 0 and 'b64_json' in resp['data'][0]:
+    img_data = base64.b64decode(resp['data'][0]['b64_json'])
+    with open('${OUTPUT_IMAGE}', 'wb') as f:
+        f.write(img_data)
+    print('ok')
+else:
+    print('skip')
+" 2>/dev/null | grep -q "ok"; then
+                            echo "   🖼️  Image saved to: ${OUTPUT_IMAGE}"
+                        fi
+                    fi
+                else
+                    rm -f "${TEMP_RESULT}"
+                    echo "⚠️  Result exists but could not be downloaded"
+                fi
+                break
+            fi
+            
+            sleep ${POLL_INTERVAL}
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+            echo "   ⏳ Waiting... (${ELAPSED}s / ${POLL_TIMEOUT}s)"
+        done
+        
+        if [ ${ELAPSED} -ge ${POLL_TIMEOUT} ]; then
+            echo "❌ Async inference timed out after ${POLL_TIMEOUT}s"
+            echo ""
+            echo "   The request may still be processing. Check:"
+            echo "   • S3 output path: ${OUTPUT_LOCATION}"
+            echo "   • CloudWatch Logs: /aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
+            echo "   • Endpoint status: aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION}"
+            exit 1
+        fi
+    fi
+fi
+
+echo ""
+echo "✅ All tests passed!"
+echo ""
+
+if [ "${TEST_MODE}" = "local" ]; then
+    echo "Next steps:"
+    echo "  • Push to ECR: ./do/push"
+    echo "  • Deploy to SageMaker: ./do/deploy"
+else
+    echo "Async endpoint is ready for production use!"
+    echo "  • Endpoint name: ${ENDPOINT_NAME}"
+    echo "  • Region: ${AWS_REGION}"
+    echo "  • S3 output: ${ASYNC_S3_OUTPUT_PATH}"
     echo ""
     echo "📝 Register this deployment:"
     echo "  ./do/register"
@@ -455,6 +789,18 @@ assert 'b64_json' in resp['data'][0], 'Missing b64_json in data entry'
 " 2>/dev/null; then
             echo "✅ Image generation successful (HTTP ${HTTP_CODE})"
             echo "   Response contains valid data array with b64_json image"
+            
+            # Save generated image to file
+            OUTPUT_IMAGE="${SCRIPT_DIR}/../test_output.png"
+            if echo "${RESPONSE_BODY}" | python3 -c "
+import sys, json, base64
+resp = json.load(sys.stdin)
+img_data = base64.b64decode(resp['data'][0]['b64_json'])
+with open('${OUTPUT_IMAGE}', 'wb') as f:
+    f.write(img_data)
+" 2>/dev/null; then
+                echo "   🖼️  Image saved to: ${OUTPUT_IMAGE}"
+            fi
         else
             echo "⚠️  Image generation returned HTTP ${HTTP_CODE} but response format unexpected"
             echo "   Response preview: ${RESPONSE_BODY:0:200}"

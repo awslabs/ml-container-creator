@@ -17,6 +17,8 @@ CLEANUP_TARGET="${1:-}"
 show_usage() {
 <% if (deploymentTarget === 'managed-inference') { %>
     echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
+<% } else if (deploymentTarget === 'async-inference') { %>
+    echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     echo "Usage: ./do/clean [local|ecr|hyperpod|codebuild|all]"
 <% } %>
@@ -26,6 +28,8 @@ show_usage() {
     echo "  ecr       - Remove images from Amazon ECR"
 <% if (deploymentTarget === 'managed-inference') { %>
     echo "  endpoint  - Delete SageMaker endpoint, configuration, and model"
+<% } else if (deploymentTarget === 'async-inference') { %>
+    echo "  endpoint  - Delete SageMaker async endpoint, configuration, and inference component"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     echo "  hyperpod  - Delete HyperPod EKS deployment and services"
 <% } %>
@@ -36,6 +40,8 @@ show_usage() {
     echo "  ./do/clean local      # Remove local Docker images only"
 <% if (deploymentTarget === 'managed-inference') { %>
     echo "  ./do/clean endpoint   # Delete SageMaker resources only"
+<% } else if (deploymentTarget === 'async-inference') { %>
+    echo "  ./do/clean endpoint   # Delete SageMaker async resources only"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     echo "  ./do/clean hyperpod   # Delete HyperPod EKS resources only"
 <% } %>
@@ -62,8 +68,14 @@ clean_local() {
     echo "🧹 Cleaning local Docker images"
     echo "   Project: ${PROJECT_NAME}"
     
-    # Check if images exist
-    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${PROJECT_NAME}:"; then
+    # Build list of image patterns to clean
+    # Pattern 1: locally built images (e.g., my-project:latest)
+    # Pattern 2: ECR-pulled images (e.g., <account>.dkr.ecr.<region>.amazonaws.com/<repo>:<project>-latest)
+    LOCAL_PATTERN="^${PROJECT_NAME}:"
+    ECR_PATTERN="\.dkr\.ecr\..*\.amazonaws\.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-"
+
+    # Check if any matching images exist
+    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -qE "${LOCAL_PATTERN}|${ECR_PATTERN}"; then
         echo "ℹ️  No local images found for ${PROJECT_NAME}"
         return 0
     fi
@@ -71,7 +83,9 @@ clean_local() {
     # List images to be removed
     echo ""
     echo "Images to be removed:"
-    docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | grep -E "^REPOSITORY|^${PROJECT_NAME}"
+    docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "${LOCAL_PATTERN}|${ECR_PATTERN}" | while read -r image; do
+        echo "   ${image}"
+    done
     
     if ! confirm_action "This will remove all local Docker images for ${PROJECT_NAME}"; then
         return 1
@@ -79,7 +93,7 @@ clean_local() {
     
     # Remove images
     echo "🗑️  Removing local images..."
-    docker images --format "{{.Repository}}:{{.Tag}}" | grep "^${PROJECT_NAME}:" | while read -r image; do
+    docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "${LOCAL_PATTERN}|${ECR_PATTERN}" | while read -r image; do
         echo "   Removing: ${image}"
         docker rmi "${image}" || echo "   ⚠️  Failed to remove ${image}"
     done
@@ -271,6 +285,96 @@ clean_endpoint() {
     
     echo "✅ SageMaker resources cleaned"
 }
+<% } else if (deploymentTarget === 'async-inference') { %>
+# Function to clean SageMaker async endpoint and model
+clean_endpoint() {
+    echo "🧹 Cleaning SageMaker async resources"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+    
+    # Use names from config (set by do/deploy) or argument
+    local EP_NAME="${ENDPOINT_NAME:-}"
+    local EPC_NAME="${ENDPOINT_CONFIG_NAME:-}"
+    local SM_MODEL_NAME="${SAGEMAKER_MODEL_NAME:-}"
+
+    if [ -z "${EP_NAME}" ]; then
+        echo "❌ No endpoint name found"
+        echo "   Run ./do/deploy first, or set ENDPOINT_NAME in do/config"
+        return 1
+    fi
+
+    echo ""
+    echo "Checking for SageMaker resources..."
+
+    local ENDPOINT_EXISTS=false
+
+    if aws sagemaker describe-endpoint \
+        --endpoint-name "${EP_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        ENDPOINT_EXISTS=true
+        echo "   ✓ Endpoint: ${EP_NAME}"
+    else
+        echo "ℹ️  Endpoint not found: ${EP_NAME}"
+        return 0
+    fi
+
+    if ! confirm_action "This will delete the SageMaker async endpoint and model"; then
+        return 1
+    fi
+
+    # Delete endpoint
+    echo "🗑️  Deleting endpoint: ${EP_NAME}"
+    if aws sagemaker delete-endpoint \
+        --endpoint-name "${EP_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "✅ Endpoint deleted"
+        echo "⏳ Waiting for endpoint deletion..."
+        aws sagemaker wait endpoint-deleted \
+            --endpoint-name "${EP_NAME}" \
+            --region "${AWS_REGION}" 2>/dev/null || sleep 10
+    else
+        echo "❌ Failed to delete endpoint"
+    fi
+
+    # Delete endpoint configuration
+    if [ -n "${EPC_NAME}" ]; then
+        echo "🗑️  Deleting endpoint configuration: ${EPC_NAME}"
+        if aws sagemaker delete-endpoint-config \
+            --endpoint-config-name "${EPC_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ Endpoint configuration deleted"
+        else
+            echo "❌ Failed to delete endpoint configuration"
+        fi
+    fi
+
+    # Delete SageMaker model (async uses classic model-based flow)
+    if [ -n "${SM_MODEL_NAME}" ]; then
+        echo "🗑️  Deleting SageMaker model: ${SM_MODEL_NAME}"
+        if aws sagemaker delete-model \
+            --model-name "${SM_MODEL_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ SageMaker model deleted"
+        else
+            echo "❌ Failed to delete SageMaker model"
+        fi
+    fi
+
+    # Remove saved names from config
+    if grep -q "^export ENDPOINT_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
+        sed -i.bak '/^# Last deployed resources/d;/^export ENDPOINT_NAME=/d;/^export ENDPOINT_CONFIG_NAME=/d;/^export SAGEMAKER_MODEL_NAME=/d' "${SCRIPT_DIR}/config"
+        rm -f "${SCRIPT_DIR}/config.bak"
+    fi
+    
+    echo "✅ SageMaker async resources cleaned"
+}
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 # Function to clean HyperPod EKS deployment
 clean_hyperpod() {
@@ -458,6 +562,10 @@ case "${CLEANUP_TARGET}" in
     endpoint)
         clean_endpoint
         ;;
+<% } else if (deploymentTarget === 'async-inference') { %>
+    endpoint)
+        clean_endpoint
+        ;;
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     hyperpod)
         clean_hyperpod
@@ -491,6 +599,11 @@ case "${CLEANUP_TARGET}" in
         # Clean SageMaker resources
         if clean_endpoint; then
             CLEANED_ITEMS+=("SageMaker resources")
+        fi
+<% } else if (deploymentTarget === 'async-inference') { %>
+        # Clean SageMaker async resources
+        if clean_endpoint; then
+            CLEANED_ITEMS+=("SageMaker async resources")
         fi
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
         # Clean HyperPod EKS resources

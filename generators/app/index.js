@@ -130,7 +130,7 @@ export default class extends Generator {
 
         this.option('deployment-target', {
             type: String,
-            description: 'Deployment target (managed-inference, hyperpod-eks)'
+            description: 'Deployment target (managed-inference, async-inference, hyperpod-eks)'
         });
 
         this.option('hyperpod-cluster', {
@@ -182,6 +182,27 @@ export default class extends Generator {
         this.option('base-image', {
             type: String,
             description: 'Base container image for Dockerfile'
+        });
+
+        // Async inference options
+        this.option('async-s3-output-path', {
+            type: String,
+            description: 'S3 output path for async inference results'
+        });
+
+        this.option('async-sns-success-topic', {
+            type: String,
+            description: 'SNS topic ARN for async inference success notifications'
+        });
+
+        this.option('async-sns-error-topic', {
+            type: String,
+            description: 'SNS topic ARN for async inference error notifications'
+        });
+
+        this.option('async-max-concurrent', {
+            type: Number,
+            description: 'Max concurrent invocations per instance for async inference (default: 1)'
         });
     }
 
@@ -531,6 +552,10 @@ export default class extends Generator {
                 this.templatePath('diffusors/start_server.sh'),
                 this.destinationPath('code/start_server.sh'),
                 templateVars
+            );
+            this.fs.copy(
+                this.templatePath('diffusors/patch_image_api.py'),
+                this.destinationPath('code/patch_image_api.py')
             );
             break;
 

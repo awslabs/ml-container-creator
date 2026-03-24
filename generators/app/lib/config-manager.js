@@ -556,6 +556,50 @@ export default class ConfigManager {
                 required: false,
                 default: null,
                 valueSpace: 'unbounded'
+            },
+            asyncS3OutputPath: {
+                cliOption: 'async-s3-output-path',
+                envVar: 'ML_ASYNC_S3_OUTPUT_PATH',
+                configFile: true,
+                packageJson: false,
+                mcp: true,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'unbounded'
+            },
+            asyncSnsSuccessTopic: {
+                cliOption: 'async-sns-success-topic',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: true,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'unbounded'
+            },
+            asyncSnsErrorTopic: {
+                cliOption: 'async-sns-error-topic',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: true,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'unbounded'
+            },
+            asyncMaxConcurrentInvocations: {
+                cliOption: 'async-max-concurrent',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 1,
+                valueSpace: 'bounded'
             }
         };
     }

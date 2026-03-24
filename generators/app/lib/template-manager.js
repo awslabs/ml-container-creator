@@ -64,7 +64,7 @@ export default class TemplateManager {
                 'diffusors-vllm-omni'
             ],
             buildTargets: ['codebuild'],
-            deploymentTargets: ['managed-inference', 'hyperpod-eks'],
+            deploymentTargets: ['managed-inference', 'async-inference', 'hyperpod-eks'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
@@ -128,6 +128,9 @@ export default class TemplateManager {
         if (this.answers.deploymentTarget === 'hyperpod-eks') {
             this._validateHyperPodConfig()
         }
+
+        // Validate async inference specific fields
+        this._validateAsyncConfig()
         
         // Validate instance type format (ml.*.*) - only for managed-inference
         if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
@@ -187,6 +190,43 @@ export default class TemplateManager {
         // RFC 1123 DNS label: lowercase alphanumeric, hyphens allowed (not at start/end), max 63 chars
         const rfc1123Pattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
         return value.length <= 63 && rfc1123Pattern.test(value)
+    }
+
+    /**
+     * Validates async inference specific configuration
+     * @private
+     * @throws {Error} If async configuration is invalid
+     */
+    _validateAsyncConfig() {
+        if (this.answers.deploymentTarget !== 'async-inference') return
+
+        // Validate S3 output path format if explicitly provided
+        if (this.answers.asyncS3OutputPath && this.answers.asyncS3OutputPath.trim() !== '') {
+            if (!this.answers.asyncS3OutputPath.startsWith('s3://')) {
+                throw new Error('⚠️  asyncS3OutputPath must start with "s3://". Example: s3://my-bucket/output/')
+            }
+        }
+
+        // Validate SNS topic ARN format if explicitly provided
+        const snsArnPattern = /^arn:aws:sns:[a-z0-9-]+:\d{12}:.+$/
+        if (this.answers.asyncSnsSuccessTopic && this.answers.asyncSnsSuccessTopic.trim() !== '') {
+            if (!snsArnPattern.test(this.answers.asyncSnsSuccessTopic)) {
+                throw new Error('⚠️  asyncSnsSuccessTopic must be a valid SNS ARN. Format: arn:aws:sns:<region>:<account-id>:<topic-name>')
+            }
+        }
+        if (this.answers.asyncSnsErrorTopic && this.answers.asyncSnsErrorTopic.trim() !== '') {
+            if (!snsArnPattern.test(this.answers.asyncSnsErrorTopic)) {
+                throw new Error('⚠️  asyncSnsErrorTopic must be a valid SNS ARN. Format: arn:aws:sns:<region>:<account-id>:<topic-name>')
+            }
+        }
+
+        // Validate max concurrent invocations
+        if (this.answers.asyncMaxConcurrentInvocations !== undefined) {
+            const val = this.answers.asyncMaxConcurrentInvocations
+            if (!Number.isInteger(val) || val < 1) {
+                throw new Error('⚠️  asyncMaxConcurrentInvocations must be an integer >= 1')
+            }
+        }
     }
 
     /**

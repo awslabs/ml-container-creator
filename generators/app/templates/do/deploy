@@ -18,6 +18,14 @@ echo "   Build target: ${BUILD_TARGET}"
 echo "   Deployment target: ${DEPLOYMENT_TARGET}"
 <% if (deploymentTarget === 'managed-inference') { %>
 echo "   Instance type: ${INSTANCE_TYPE}"
+<% } else if (deploymentTarget === 'async-inference') { %>
+echo "   Instance type: ${INSTANCE_TYPE}"
+echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
+echo "   SNS success: ${ASYNC_SNS_SUCCESS_TOPIC}"
+echo "   SNS error: ${ASYNC_SNS_ERROR_TOPIC}"
+<% if (asyncMaxConcurrentInvocations) { %>
+echo "   Max concurrent: ${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
+<% } %>
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
 echo "   Namespace: ${HYPERPOD_NAMESPACE}"
@@ -232,6 +240,272 @@ echo "   ./do/register"
 echo ""
 echo "🔍 Monitor your deployment:"
 echo "   aws sagemaker describe-inference-component --inference-component-name ${IC_NAME} --region ${AWS_REGION}"
+echo "   aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION}"
+echo ""
+echo "🧹 Clean up when done:"
+echo "   ./do/clean endpoint"
+
+<% } else if (deploymentTarget === 'async-inference') { %>
+# ============================================================
+# SageMaker Managed Inference - Async Deployment (Model-Based)
+# SageMaker async inference does NOT support Inference Components.
+# Flow: create-model → create-endpoint-config (with AsyncInferenceConfig) → create-endpoint
+# ============================================================
+
+# Validate execution role ARN
+if [ -z "${ROLE_ARN:-}" ]; then
+    echo "❌ Execution role ARN not provided"
+    echo ""
+    echo "Usage:"
+    echo "  export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE"
+    echo "  ./do/deploy"
+    echo ""
+    echo "Or set ROLE_ARN in do/config"
+    echo ""
+    echo "The execution role must have permissions for:"
+    echo "  • SageMaker model and endpoint management"
+    echo "  • ECR image access"
+    echo "  • S3 write access for async output path: ${ASYNC_S3_OUTPUT_PATH}"
+    echo "  • SNS publish permissions (optional, for notifications)"
+    echo "  • CloudWatch Logs"
+    exit 3
+fi
+
+echo "   Using execution role: ${ROLE_ARN}"
+
+# ============================================================
+# Bootstrap async infrastructure (S3 bucket + SNS topics)
+# ============================================================
+
+# Extract bucket name from S3 output path
+ASYNC_S3_BUCKET=$(echo "${ASYNC_S3_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
+
+<% if (!asyncS3OutputPath) { %>
+# Bootstrap default S3 bucket (check-and-create)
+echo "🔍 Checking if S3 bucket exists: ${ASYNC_S3_BUCKET}"
+if ! aws s3api head-bucket --bucket "${ASYNC_S3_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
+    echo "📦 Creating S3 bucket: ${ASYNC_S3_BUCKET}"
+    if [ "${AWS_REGION}" = "us-east-1" ]; then
+        if ! aws s3api create-bucket \
+            --bucket "${ASYNC_S3_BUCKET}" \
+            --region "${AWS_REGION}"; then
+            echo "❌ Failed to create S3 bucket: ${ASYNC_S3_BUCKET}"
+            echo ""
+            echo "   Check that:"
+            echo "   • Your IAM credentials have s3:CreateBucket permission"
+            echo "   • The bucket name is not already taken globally"
+            exit 4
+        fi
+    else
+        if ! aws s3api create-bucket \
+            --bucket "${ASYNC_S3_BUCKET}" \
+            --region "${AWS_REGION}" \
+            --create-bucket-configuration LocationConstraint="${AWS_REGION}"; then
+            echo "❌ Failed to create S3 bucket: ${ASYNC_S3_BUCKET}"
+            echo ""
+            echo "   Check that:"
+            echo "   • Your IAM credentials have s3:CreateBucket permission"
+            echo "   • The bucket name is not already taken globally"
+            exit 4
+        fi
+    fi
+    echo "✅ S3 bucket created: ${ASYNC_S3_BUCKET}"
+else
+    echo "✅ S3 bucket exists: ${ASYNC_S3_BUCKET}"
+fi
+<% } else { %>
+# Custom S3 output path provided — skip bucket creation
+echo "✅ Using custom S3 output path: ${ASYNC_S3_OUTPUT_PATH}"
+<% } %>
+
+# Extract topic name from SNS success topic ARN
+ASYNC_SNS_SUCCESS_TOPIC_NAME=$(echo "${ASYNC_SNS_SUCCESS_TOPIC}" | awk -F: '{print $NF}')
+
+<% if (!asyncSnsSuccessTopic) { %>
+# Bootstrap default SNS success topic (check-and-create)
+echo "🔍 Checking if SNS success topic exists: ${ASYNC_SNS_SUCCESS_TOPIC_NAME}"
+if ! aws sns get-topic-attributes --topic-arn "${ASYNC_SNS_SUCCESS_TOPIC}" --region "${AWS_REGION}" 2>/dev/null; then
+    echo "📦 Creating SNS success topic: ${ASYNC_SNS_SUCCESS_TOPIC_NAME}"
+    if ! aws sns create-topic \
+        --name "${ASYNC_SNS_SUCCESS_TOPIC_NAME}" \
+        --region "${AWS_REGION}" > /dev/null; then
+        echo "❌ Failed to create SNS success topic: ${ASYNC_SNS_SUCCESS_TOPIC_NAME}"
+        echo ""
+        echo "   Check that:"
+        echo "   • Your IAM credentials have sns:CreateTopic permission"
+        exit 4
+    fi
+    echo "✅ SNS success topic created: ${ASYNC_SNS_SUCCESS_TOPIC_NAME}"
+else
+    echo "✅ SNS success topic exists: ${ASYNC_SNS_SUCCESS_TOPIC_NAME}"
+fi
+<% } else { %>
+# Custom SNS success topic ARN provided — skip topic creation
+echo "✅ Using custom SNS success topic: ${ASYNC_SNS_SUCCESS_TOPIC}"
+<% } %>
+
+# Extract topic name from SNS error topic ARN
+ASYNC_SNS_ERROR_TOPIC_NAME=$(echo "${ASYNC_SNS_ERROR_TOPIC}" | awk -F: '{print $NF}')
+
+<% if (!asyncSnsErrorTopic) { %>
+# Bootstrap default SNS error topic (check-and-create)
+echo "🔍 Checking if SNS error topic exists: ${ASYNC_SNS_ERROR_TOPIC_NAME}"
+if ! aws sns get-topic-attributes --topic-arn "${ASYNC_SNS_ERROR_TOPIC}" --region "${AWS_REGION}" 2>/dev/null; then
+    echo "📦 Creating SNS error topic: ${ASYNC_SNS_ERROR_TOPIC_NAME}"
+    if ! aws sns create-topic \
+        --name "${ASYNC_SNS_ERROR_TOPIC_NAME}" \
+        --region "${AWS_REGION}" > /dev/null; then
+        echo "❌ Failed to create SNS error topic: ${ASYNC_SNS_ERROR_TOPIC_NAME}"
+        echo ""
+        echo "   Check that:"
+        echo "   • Your IAM credentials have sns:CreateTopic permission"
+        exit 4
+    fi
+    echo "✅ SNS error topic created: ${ASYNC_SNS_ERROR_TOPIC_NAME}"
+else
+    echo "✅ SNS error topic exists: ${ASYNC_SNS_ERROR_TOPIC_NAME}"
+fi
+<% } else { %>
+# Custom SNS error topic ARN provided — skip topic creation
+echo "✅ Using custom SNS error topic: ${ASYNC_SNS_ERROR_TOPIC}"
+<% } %>
+
+# ============================================================
+# Create async endpoint (classic model-based flow)
+# SageMaker async inference does NOT support Inference Components.
+# Flow: create-model → create-endpoint-config (with AsyncInferenceConfig) → create-endpoint
+# ============================================================
+
+# Generate unique names with timestamp
+TIMESTAMP=$(date +%s)
+MODEL_NAME_SM="${PROJECT_NAME}-async-model-${TIMESTAMP}"
+ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-async-epc-${TIMESTAMP}"
+ENDPOINT_NAME="${PROJECT_NAME}-async-ep-${TIMESTAMP}"
+
+# Persist names to config immediately so ./do/logs works during deployment
+_update_config_var() {
+    local var_name="$1" var_value="$2" config_file="${SCRIPT_DIR}/config"
+    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
+        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
+        rm -f "${config_file}.bak"
+    else
+        echo "" >> "${config_file}"
+        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
+    fi
+}
+
+_update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
+_update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
+_update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
+
+# Step 1: Create SageMaker model
+echo "📦 Creating SageMaker model: ${MODEL_NAME_SM}"
+if ! aws sagemaker create-model \
+    --model-name "${MODEL_NAME_SM}" \
+    --primary-container "{\"Image\":\"${ECR_REPOSITORY}:${IMAGE_TAG}\"}" \
+    --execution-role-arn "${ROLE_ARN}" \
+    --region "${AWS_REGION}"; then
+
+    echo "❌ Failed to create SageMaker model"
+    echo "   Check that:"
+    echo "   • The execution role ARN is valid"
+    echo "   • The ECR image exists and is accessible"
+    echo "   • The IAM role has ecr:GetDownloadUrlForLayer permission"
+    exit 4
+fi
+
+echo "✅ SageMaker model created: ${MODEL_NAME_SM}"
+
+# Build production variant JSON (classic: includes ModelName, no execution-role-arn on endpoint config)
+VARIANT_JSON="[{\"VariantName\":\"AllTraffic\",\"ModelName\":\"${MODEL_NAME_SM}\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
+
+# Append InferenceAmiVersion if configured
+if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
+    VARIANT_JSON="${VARIANT_JSON},\"InferenceAmiVersion\":\"${INFERENCE_AMI_VERSION}\""
+    echo "   AMI version: ${INFERENCE_AMI_VERSION}"
+fi
+
+VARIANT_JSON="${VARIANT_JSON}}]"
+
+# Build AsyncInferenceConfig JSON
+ASYNC_CONFIG="{\"OutputConfig\":{\"S3OutputPath\":\"${ASYNC_S3_OUTPUT_PATH}\",\"NotificationConfig\":{\"SuccessTopic\":\"${ASYNC_SNS_SUCCESS_TOPIC}\",\"ErrorTopic\":\"${ASYNC_SNS_ERROR_TOPIC}\"}}"
+
+if [ -n "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-}" ]; then
+    ASYNC_CONFIG="${ASYNC_CONFIG},\"ClientConfig\":{\"MaxConcurrentInvocationsPerInstance\":${ASYNC_MAX_CONCURRENT_INVOCATIONS}}"
+fi
+
+ASYNC_CONFIG="${ASYNC_CONFIG}}"
+
+# Step 2: Create endpoint configuration with AsyncInferenceConfig (no --execution-role-arn)
+echo "⚙️  Creating async endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
+if ! aws sagemaker create-endpoint-config \
+    --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+    --production-variants "${VARIANT_JSON}" \
+    --async-inference-config "${ASYNC_CONFIG}" \
+    --region "${AWS_REGION}"; then
+
+    echo "❌ Failed to create async endpoint configuration"
+    echo "   Check that:"
+    echo "   • The S3 output path is accessible: ${ASYNC_S3_OUTPUT_PATH}"
+    echo "   • The IAM role has s3:PutObject permission on the output path"
+    echo "   • The instance type is valid: ${INSTANCE_TYPE}"
+    echo "   • The instance type is available in region: ${AWS_REGION}"
+    echo "   • You have sufficient service quota for the instance type"
+    exit 4
+fi
+
+echo "✅ Async endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
+
+# Step 3: Create endpoint
+echo "🚀 Creating async endpoint: ${ENDPOINT_NAME}"
+if ! aws sagemaker create-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+    --region "${AWS_REGION}"; then
+
+    echo "❌ Failed to create async endpoint"
+    echo "   Check that:"
+    echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
+    echo "   • You have sufficient service quota in region: ${AWS_REGION}"
+    exit 4
+fi
+
+echo "✅ Async endpoint creation initiated: ${ENDPOINT_NAME}"
+
+# Wait for endpoint to be in service
+echo "⏳ Waiting for async endpoint to reach InService status..."
+echo "   This may take several minutes..."
+
+if ! aws sagemaker wait endpoint-in-service \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}"; then
+
+    echo "❌ Async endpoint failed to reach InService status"
+    echo "   Check CloudWatch Logs for details:"
+    echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
+    exit 4
+fi
+
+echo "✅ Async deployment complete!"
+echo ""
+echo "📋 Deployment Details:"
+echo "   Endpoint: ${ENDPOINT_NAME}"
+echo "   Endpoint Config: ${ENDPOINT_CONFIG_NAME}"
+echo "   Model: ${MODEL_NAME_SM}"
+echo "   Region: ${AWS_REGION}"
+echo "   Instance Type: ${INSTANCE_TYPE}"
+echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"
+echo "   S3 Output: ${ASYNC_S3_OUTPUT_PATH}"
+echo "   SNS Success: ${ASYNC_SNS_SUCCESS_TOPIC}"
+echo "   SNS Error: ${ASYNC_SNS_ERROR_TOPIC}"
+echo ""
+echo "🧪 Test your async endpoint:"
+echo "   ./do/test"
+echo ""
+echo "📝 Register this deployment:"
+echo "   ./do/register"
+echo ""
+echo "🔍 Monitor your deployment:"
 echo "   aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION}"
 echo ""
 echo "🧹 Clean up when done:"
