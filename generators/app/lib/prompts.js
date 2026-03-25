@@ -611,6 +611,7 @@ const infraRegionAndTargetPrompts = [
         choices: [
             { name: 'SageMaker Managed Inference - Real Time', value: 'managed-inference' },
             { name: 'SageMaker Managed Inference - Async', value: 'async-inference' },
+            { name: 'SageMaker Managed Inference - Batch', value: 'batch-transform' },
             { name: 'SageMaker HyperPod - EKS', value: 'hyperpod-eks' }
         ],
         default: 'managed-inference'
@@ -622,7 +623,7 @@ const infraInstancePrompts = [
     {
         type: 'list',
         name: 'instanceType',
-        when: answers => answers.deploymentTarget === 'managed-inference' || answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'hyperpod-eks',
+        when: answers => answers.deploymentTarget === 'managed-inference' || answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform' || answers.deploymentTarget === 'hyperpod-eks',
         message: (answers) => {
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             
@@ -854,6 +855,80 @@ const infraAsyncPrompts = [
     }
 ];
 
+/**
+ * Sub-phase: Batch transform-specific prompts (only when deploymentTarget === 'batch-transform')
+ * Requirements: 2.1, 2.2, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9
+ */
+const infraBatchTransformPrompts = [
+    {
+        type: 'input',
+        name: 'batchInputPath',
+        message: 'S3 input path for batch transform data (leave empty for default: s3://ml-container-creator-batch-{region}-{account-id}/{project-name}/input/):',
+        when: answers => answers.deploymentTarget === 'batch-transform'
+    },
+    {
+        type: 'input',
+        name: 'batchOutputPath',
+        message: 'S3 output path for batch transform results (leave empty for default: s3://ml-container-creator-batch-{region}-{account-id}/{project-name}/output/):',
+        when: answers => answers.deploymentTarget === 'batch-transform'
+    },
+    {
+        type: 'number',
+        name: 'batchInstanceCount',
+        message: 'How many instances should run the batch job in parallel?',
+        default: 1,
+        when: answers => answers.deploymentTarget === 'batch-transform'
+    },
+    {
+        type: 'list',
+        name: 'batchSplitType',
+        message: 'Input file format — how should SageMaker read your input files?',
+        choices: [
+            { name: 'Line — one record per line (JSON lines, CSV)', value: 'Line' },
+            { name: 'RecordIO — Amazon RecordIO format', value: 'RecordIO' },
+            { name: 'None — send each file as a single request', value: 'None' }
+        ],
+        default: 'Line',
+        when: answers => answers.deploymentTarget === 'batch-transform'
+    },
+    {
+        type: 'list',
+        name: 'batchStrategy',
+        message: 'How many records should be sent per inference request?',
+        choices: [
+            { name: 'MultiRecord — batch multiple records per request (higher throughput)', value: 'MultiRecord' },
+            { name: 'SingleRecord — one record per request (simpler, more predictable)', value: 'SingleRecord' }
+        ],
+        default: 'MultiRecord',
+        when: answers => answers.deploymentTarget === 'batch-transform'
+    },
+    {
+        type: 'list',
+        name: 'batchJoinSource',
+        message: 'Include original input data alongside predictions in the output?',
+        choices: [
+            { name: 'No — output predictions only', value: 'None' },
+            { name: 'Yes — merge input with predictions (useful for traceability)', value: 'Input' }
+        ],
+        default: 'None',
+        when: answers => answers.deploymentTarget === 'batch-transform'
+    },
+    {
+        type: 'number',
+        name: 'batchMaxConcurrentTransforms',
+        message: 'Max concurrent inference requests per instance?',
+        default: 1,
+        when: answers => answers.deploymentTarget === 'batch-transform'
+    },
+    {
+        type: 'number',
+        name: 'batchMaxPayloadInMB',
+        message: 'Max request payload size in MB (0-100)?',
+        default: 6,
+        when: answers => answers.deploymentTarget === 'batch-transform'
+    }
+];
+
 // Combined view for tests and backward compatibility
 const infrastructurePrompts = [
     ...infraRegionAndTargetPrompts,
@@ -977,6 +1052,7 @@ export {
     infraRegionAndTargetPrompts,
     infraInstancePrompts,
     infraAsyncPrompts,
+    infraBatchTransformPrompts,
     infraHyperPodPrompts,
     infraBuildPrompts,
     projectPrompts,

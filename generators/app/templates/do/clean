@@ -19,6 +19,8 @@ show_usage() {
     echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+    echo "Usage: ./do/clean [local|ecr|batch|codebuild|all]"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     echo "Usage: ./do/clean [local|ecr|hyperpod|codebuild|all]"
 <% } %>
@@ -30,6 +32,8 @@ show_usage() {
     echo "  endpoint  - Delete SageMaker endpoint, configuration, and model"
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "  endpoint  - Delete SageMaker async endpoint, configuration, and inference component"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+    echo "  batch     - Stop running transform job and delete SageMaker model"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     echo "  hyperpod  - Delete HyperPod EKS deployment and services"
 <% } %>
@@ -42,6 +46,8 @@ show_usage() {
     echo "  ./do/clean endpoint   # Delete SageMaker resources only"
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "  ./do/clean endpoint   # Delete SageMaker async resources only"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+    echo "  ./do/clean batch      # Stop transform job and delete model"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     echo "  ./do/clean hyperpod   # Delete HyperPod EKS resources only"
 <% } %>
@@ -375,6 +381,108 @@ clean_endpoint() {
     
     echo "✅ SageMaker async resources cleaned"
 }
+<% } else if (deploymentTarget === 'batch-transform') { %>
+# Function to clean SageMaker managed inference batch resources
+clean_batch() {
+    echo "🧹 Cleaning SageMaker managed inference batch resources"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+    
+    # Use names from config (set by do/deploy)
+    local TJ_NAME="${TRANSFORM_JOB_NAME:-}"
+    local SM_MODEL_NAME="${SAGEMAKER_MODEL_NAME:-}"
+
+    if [ -z "${TJ_NAME}" ] && [ -z "${SM_MODEL_NAME}" ]; then
+        echo "❌ No transform job or model name found"
+        echo "   Run ./do/deploy first, or set TRANSFORM_JOB_NAME in do/config"
+        return 1
+    fi
+
+    echo ""
+    echo "Checking for SageMaker resources..."
+
+    # Check transform job status
+    local JOB_EXISTS=false
+    local JOB_STATUS=""
+    if [ -n "${TJ_NAME}" ]; then
+        JOB_STATUS=$(aws sagemaker describe-transform-job \
+            --transform-job-name "${TJ_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'TransformJobStatus' \
+            --output text 2>/dev/null || echo "")
+        if [ -n "${JOB_STATUS}" ]; then
+            JOB_EXISTS=true
+            echo "   ✓ Transform job: ${TJ_NAME} (${JOB_STATUS})"
+        else
+            echo "ℹ️  Transform job not found: ${TJ_NAME}"
+        fi
+    fi
+
+    # Check model
+    local MODEL_EXISTS=false
+    if [ -n "${SM_MODEL_NAME}" ]; then
+        if aws sagemaker describe-model \
+            --model-name "${SM_MODEL_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            MODEL_EXISTS=true
+            echo "   ✓ SageMaker model: ${SM_MODEL_NAME}"
+        else
+            echo "ℹ️  SageMaker model not found: ${SM_MODEL_NAME}"
+        fi
+    fi
+
+    if [ "${JOB_EXISTS}" = false ] && [ "${MODEL_EXISTS}" = false ]; then
+        echo "ℹ️  No batch transform resources found to clean"
+        return 0
+    fi
+
+    if ! confirm_action "This will stop the transform job (if running) and delete the SageMaker model"; then
+        return 1
+    fi
+
+    # Stop transform job if in progress
+    if [ "${JOB_EXISTS}" = true ] && [ "${JOB_STATUS}" = "InProgress" ]; then
+        echo "🗑️  Stopping transform job: ${TJ_NAME}"
+        if aws sagemaker stop-transform-job \
+            --transform-job-name "${TJ_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "⏳ Waiting for transform job to stop..."
+            aws sagemaker wait transform-job-completed-or-stopped \
+                --transform-job-name "${TJ_NAME}" \
+                --region "${AWS_REGION}" 2>/dev/null || sleep 15
+            echo "✅ Transform job stopped"
+        else
+            echo "❌ Failed to stop transform job"
+        fi
+    fi
+
+    # Delete SageMaker model
+    if [ "${MODEL_EXISTS}" = true ]; then
+        echo "🗑️  Deleting SageMaker model: ${SM_MODEL_NAME}"
+        if aws sagemaker delete-model \
+            --model-name "${SM_MODEL_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ SageMaker model deleted"
+        else
+            echo "❌ Failed to delete SageMaker model"
+        fi
+    fi
+
+    # Remove saved names from config
+    if grep -q "^export TRANSFORM_JOB_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
+        sed -i.bak '/^# Last deployed resources/d;/^export TRANSFORM_JOB_NAME=/d;/^export SAGEMAKER_MODEL_NAME=/d' "${SCRIPT_DIR}/config"
+        rm -f "${SCRIPT_DIR}/config.bak"
+    fi
+    
+    echo "✅ SageMaker managed inference batch resources cleaned"
+}
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 # Function to clean HyperPod EKS deployment
 clean_hyperpod() {
@@ -547,8 +655,15 @@ echo "🧹 Cleanup script for ${PROJECT_NAME}"
 echo ""
 
 if [ -z "${CLEANUP_TARGET}" ]; then
+<% if (deploymentTarget === 'batch-transform') { %>
+    CLEANUP_TARGET="batch"
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
     show_usage
     exit 0
+<% } else { %>
+    show_usage
+    exit 0
+<% } %>
 fi
 
 case "${CLEANUP_TARGET}" in
@@ -565,6 +680,10 @@ case "${CLEANUP_TARGET}" in
 <% } else if (deploymentTarget === 'async-inference') { %>
     endpoint)
         clean_endpoint
+        ;;
+<% } else if (deploymentTarget === 'batch-transform') { %>
+    batch)
+        clean_batch
         ;;
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     hyperpod)
@@ -604,6 +723,11 @@ case "${CLEANUP_TARGET}" in
         # Clean SageMaker async resources
         if clean_endpoint; then
             CLEANED_ITEMS+=("SageMaker async resources")
+        fi
+<% } else if (deploymentTarget === 'batch-transform') { %>
+        # Clean SageMaker managed inference batch resources
+        if clean_batch; then
+            CLEANED_ITEMS+=("SageMaker managed inference batch resources")
         fi
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
         # Clean HyperPod EKS resources

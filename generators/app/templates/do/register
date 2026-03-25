@@ -330,6 +330,12 @@ echo "   Model name:        ${MODEL_NAME:-N/A}"
 <% } %>
 <% if (deploymentTarget === 'managed-inference') { %>
 echo "   Instance type:     ${INSTANCE_TYPE}"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+echo "   Instance:          ${INSTANCE_TYPE} x ${BATCH_INSTANCE_COUNT}"
+echo "   S3 input:          ${BATCH_INPUT_PATH}"
+echo "   S3 output:         ${BATCH_OUTPUT_PATH}"
+echo "   Split type:        ${BATCH_SPLIT_TYPE}"
+echo "   Strategy:          ${BATCH_STRATEGY}"
 <% } %>
 echo "   Region:            ${AWS_REGION}"
 echo "   Status:            ${STATUS}"
@@ -366,7 +372,7 @@ if [ -n "${MODEL_NAME:-}" ]; then
 fi
 <% } %>
 
-<% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference') { %>
+<% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
 CMD_ARGS+=("--instance-type" "${INSTANCE_TYPE}")
 <% } %>
 

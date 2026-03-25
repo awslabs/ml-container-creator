@@ -76,6 +76,35 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 <% } %>
 <% } %>
 
+<% if (deploymentTarget === 'batch-transform') { %>
+# SageMaker Managed Inference - Batch configuration
+export INSTANCE_TYPE="<%= instanceType %>"
+
+# Resolve AWS account ID at runtime for default resource names
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "UNKNOWN")
+
+<% if (batchInputPath) { %>
+export BATCH_INPUT_PATH="<%= batchInputPath %>"
+<% } else { %>
+export BATCH_INPUT_PATH="s3://ml-container-creator-batch-${AWS_REGION}-${ACCOUNT_ID}/${PROJECT_NAME}/input/"
+<% } %>
+<% if (batchOutputPath) { %>
+export BATCH_OUTPUT_PATH="<%= batchOutputPath %>"
+<% } else { %>
+export BATCH_OUTPUT_PATH="s3://ml-container-creator-batch-${AWS_REGION}-${ACCOUNT_ID}/${PROJECT_NAME}/output/"
+<% } %>
+export BATCH_INSTANCE_COUNT="<%= batchInstanceCount %>"
+export BATCH_SPLIT_TYPE="<%= batchSplitType %>"
+export BATCH_STRATEGY="<%= batchStrategy %>"
+export BATCH_JOIN_SOURCE="<%= batchJoinSource || 'None' %>"
+<% if (batchMaxConcurrentTransforms) { %>
+export BATCH_MAX_CONCURRENT_TRANSFORMS="<%= batchMaxConcurrentTransforms %>"
+<% } %>
+<% if (batchMaxPayloadInMB) { %>
+export BATCH_MAX_PAYLOAD_IN_MB="<%= batchMaxPayloadInMB %>"
+<% } %>
+<% } %>
+
 # Framework-specific configuration
 <% if (framework === 'transformers') { %>
 export MODEL_NAME="<%= modelName %>"
@@ -104,7 +133,7 @@ export ROLE_ARN="<%= roleArn %>"
 
 # Allow environment variable overrides
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
-<% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference') { %>
+<% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 <% } %>
 export ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-ml-container-creator}
@@ -123,6 +152,12 @@ echo "   Instance: ${INSTANCE_TYPE}"
 echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
 echo "   SNS success: ${ASYNC_SNS_SUCCESS_TOPIC}"
 echo "   SNS error: ${ASYNC_SNS_ERROR_TOPIC}"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+echo "   Instance: ${INSTANCE_TYPE} x ${BATCH_INSTANCE_COUNT}"
+echo "   S3 input: ${BATCH_INPUT_PATH}"
+echo "   S3 output: ${BATCH_OUTPUT_PATH}"
+echo "   Split type: ${BATCH_SPLIT_TYPE}"
+echo "   Strategy: ${BATCH_STRATEGY}"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
 echo "   Namespace: ${HYPERPOD_NAMESPACE}"

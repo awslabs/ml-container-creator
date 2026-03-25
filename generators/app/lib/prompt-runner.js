@@ -22,6 +22,7 @@ import {
     infraRegionAndTargetPrompts,
     infraInstancePrompts,
     infraAsyncPrompts,
+    infraBatchTransformPrompts,
     infraHyperPodPrompts,
     infraBuildPrompts,
     projectPrompts,
@@ -69,10 +70,11 @@ export default class PromptRunner {
         await this._queryMcpForRegion({}, explicitConfig);
         const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, {}, explicitConfig, existingConfig);
 
-        // 1b. Instance type — query MCP and prompt for managed-inference, async-inference, and hyperpod-eks
+        // 1b. Instance type — query MCP and prompt for managed-inference, async-inference, batch-transform, and hyperpod-eks
         let instanceAnswers = {};
         if (regionAndTargetAnswers.deploymentTarget === 'managed-inference' ||
             regionAndTargetAnswers.deploymentTarget === 'async-inference' ||
+            regionAndTargetAnswers.deploymentTarget === 'batch-transform' ||
             regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
             await this._queryMcpForInstance({}, explicitConfig);
             const mcpInstanceChoices = this.configManager?.mcpChoices?.instanceType;
@@ -87,6 +89,17 @@ export default class PromptRunner {
         let asyncAnswers = {};
         if (regionAndTargetAnswers.deploymentTarget === 'async-inference') {
             asyncAnswers = await this._runPhase(infraAsyncPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
+        }
+
+        // 1b-batch. Batch transform-specific prompts (only when deploymentTarget === 'batch-transform')
+        let batchTransformAnswers = {};
+        if (regionAndTargetAnswers.deploymentTarget === 'batch-transform') {
+            batchTransformAnswers = await this._runPhase(
+                infraBatchTransformPrompts,
+                { ...regionAndTargetAnswers },
+                explicitConfig,
+                existingConfig
+            );
         }
 
         // 1c. HyperPod prompts — only query MCP and prompt when deployment target is hyperpod-eks
@@ -106,6 +119,7 @@ export default class PromptRunner {
             ...regionAndTargetAnswers,
             ...instanceAnswers,
             ...asyncAnswers,
+            ...batchTransformAnswers,
             ...hyperPodAnswers,
             ...buildAnswers
         };

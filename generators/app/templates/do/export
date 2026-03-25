@@ -42,6 +42,23 @@ CMD="${CMD} --deployment-target=${DEPLOYMENT_TARGET}"
 <% if (deploymentTarget === 'managed-inference') { %>
 # SageMaker Managed Inference
 CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+# SageMaker Managed Inference - Batch
+CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
+CMD="${CMD} --batch-input-path=${BATCH_INPUT_PATH}"
+CMD="${CMD} --batch-output-path=${BATCH_OUTPUT_PATH}"
+CMD="${CMD} --batch-instance-count=${BATCH_INSTANCE_COUNT}"
+CMD="${CMD} --batch-split-type=${BATCH_SPLIT_TYPE}"
+CMD="${CMD} --batch-strategy=${BATCH_STRATEGY}"
+if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
+    CMD="${CMD} --batch-join-source=${BATCH_JOIN_SOURCE}"
+fi
+if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
+    CMD="${CMD} --batch-max-concurrent=${BATCH_MAX_CONCURRENT_TRANSFORMS}"
+fi
+if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
+    CMD="${CMD} --batch-max-payload=${BATCH_MAX_PAYLOAD_IN_MB}"
+fi
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 # HyperPod EKS
 CMD="${CMD} --hyperpod-cluster=${HYPERPOD_CLUSTER_NAME}"

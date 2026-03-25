@@ -79,7 +79,9 @@ describe('McpClient Unit Tests', () => {
             assert.ok(names.includes('asyncS3OutputPath'));
             assert.ok(names.includes('asyncSnsSuccessTopic'));
             assert.ok(names.includes('asyncSnsErrorTopic'));
-            assert.strictEqual(names.length, 8);
+            assert.ok(names.includes('batchInputPath'));
+            assert.ok(names.includes('batchOutputPath'));
+            assert.strictEqual(names.length, 10);
         });
 
         it('should not include bounded parameters', () => {
