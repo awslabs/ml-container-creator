@@ -600,6 +600,94 @@ export default class ConfigManager {
                 required: false,
                 default: 1,
                 valueSpace: 'bounded'
+            },
+            batchInputPath: {
+                cliOption: 'batch-input-path',
+                envVar: 'ML_BATCH_INPUT_PATH',
+                configFile: true,
+                packageJson: false,
+                mcp: true,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'unbounded'
+            },
+            batchOutputPath: {
+                cliOption: 'batch-output-path',
+                envVar: 'ML_BATCH_OUTPUT_PATH',
+                configFile: true,
+                packageJson: false,
+                mcp: true,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'unbounded'
+            },
+            batchInstanceCount: {
+                cliOption: 'batch-instance-count',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 1,
+                valueSpace: 'bounded'
+            },
+            batchSplitType: {
+                cliOption: 'batch-split-type',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 'Line',
+                valueSpace: 'bounded'
+            },
+            batchStrategy: {
+                cliOption: 'batch-strategy',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 'MultiRecord',
+                valueSpace: 'bounded'
+            },
+            batchJoinSource: {
+                cliOption: 'batch-join-source',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 'None',
+                valueSpace: 'bounded'
+            },
+            batchMaxConcurrentTransforms: {
+                cliOption: 'batch-max-concurrent',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 1,
+                valueSpace: 'bounded'
+            },
+            batchMaxPayloadInMB: {
+                cliOption: 'batch-max-payload',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 6,
+                valueSpace: 'bounded'
             }
         };
     }

@@ -64,7 +64,7 @@ export default class TemplateManager {
                 'diffusors-vllm-omni'
             ],
             buildTargets: ['codebuild'],
-            deploymentTargets: ['managed-inference', 'async-inference', 'hyperpod-eks'],
+            deploymentTargets: ['managed-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
@@ -131,6 +131,9 @@ export default class TemplateManager {
 
         // Validate async inference specific fields
         this._validateAsyncConfig()
+
+        // Validate batch transform specific fields
+        this._validateBatchTransformConfig()
         
         // Validate instance type format (ml.*.*) - only for managed-inference
         if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
@@ -225,6 +228,71 @@ export default class TemplateManager {
             const val = this.answers.asyncMaxConcurrentInvocations
             if (!Number.isInteger(val) || val < 1) {
                 throw new Error('⚠️  asyncMaxConcurrentInvocations must be an integer >= 1')
+            }
+        }
+    }
+
+    /**
+     * Validates batch transform specific configuration
+     * @private
+     * @throws {Error} If batch transform configuration is invalid
+     */
+    _validateBatchTransformConfig() {
+        if (this.answers.deploymentTarget !== 'batch-transform') return
+
+        // Validate S3 input path format if provided
+        if (this.answers.batchInputPath && this.answers.batchInputPath.trim() !== '') {
+            if (!this.answers.batchInputPath.startsWith('s3://')) {
+                throw new Error('⚠️  batchInputPath must start with "s3://". Example: s3://my-bucket/input/')
+            }
+        }
+
+        // Validate S3 output path format if provided
+        if (this.answers.batchOutputPath && this.answers.batchOutputPath.trim() !== '') {
+            if (!this.answers.batchOutputPath.startsWith('s3://')) {
+                throw new Error('⚠️  batchOutputPath must start with "s3://". Example: s3://my-bucket/output/')
+            }
+        }
+
+        // Validate instance count
+        if (this.answers.batchInstanceCount !== undefined) {
+            const val = this.answers.batchInstanceCount
+            if (!Number.isInteger(val) || val < 1) {
+                throw new Error('⚠️  batchInstanceCount must be an integer >= 1')
+            }
+        }
+
+        // Validate split type
+        const validSplitTypes = ['Line', 'RecordIO', 'None']
+        if (this.answers.batchSplitType && !validSplitTypes.includes(this.answers.batchSplitType)) {
+            throw new Error(`⚠️  batchSplitType must be one of: ${validSplitTypes.join(', ')}`)
+        }
+
+        // Validate batch strategy
+        const validStrategies = ['MultiRecord', 'SingleRecord']
+        if (this.answers.batchStrategy && !validStrategies.includes(this.answers.batchStrategy)) {
+            throw new Error(`⚠️  batchStrategy must be one of: ${validStrategies.join(', ')}`)
+        }
+
+        // Validate join source
+        const validJoinSources = ['Input', 'None']
+        if (this.answers.batchJoinSource && !validJoinSources.includes(this.answers.batchJoinSource)) {
+            throw new Error(`⚠️  batchJoinSource must be one of: ${validJoinSources.join(', ')}`)
+        }
+
+        // Validate max concurrent transforms
+        if (this.answers.batchMaxConcurrentTransforms !== undefined) {
+            const val = this.answers.batchMaxConcurrentTransforms
+            if (!Number.isInteger(val) || val < 0) {
+                throw new Error('⚠️  batchMaxConcurrentTransforms must be an integer >= 0')
+            }
+        }
+
+        // Validate max payload in MB
+        if (this.answers.batchMaxPayloadInMB !== undefined) {
+            const val = this.answers.batchMaxPayloadInMB
+            if (!Number.isInteger(val) || val < 0 || val > 100) {
+                throw new Error('⚠️  batchMaxPayloadInMB must be an integer between 0 and 100')
             }
         }
     }

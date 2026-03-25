@@ -164,6 +164,80 @@ aws logs tail "${LOG_GROUP}" \
     --follow \
     --format short
 
+<% } else if (deploymentTarget === 'batch-transform') { %>
+# ============================================================
+# SageMaker Managed Inference - Batch Logs (CloudWatch)
+# ============================================================
+
+# Allow transform job name as argument or from config
+JOB_NAME="${1:-${TRANSFORM_JOB_NAME:-}}"
+
+if [ -z "${JOB_NAME}" ]; then
+    echo "❌ No transform job name provided"
+    echo ""
+    echo "Usage:"
+    echo "  ./do/logs <transform-job-name>"
+    echo "  ./do/logs                  # uses TRANSFORM_JOB_NAME from do/config"
+    echo ""
+    echo "Run ./do/deploy first to set TRANSFORM_JOB_NAME automatically."
+    exit 1
+fi
+
+LOG_GROUP="/aws/sagemaker/TransformJobs"
+
+echo "📋 Tailing logs for batch transform job: ${JOB_NAME}"
+echo "   Log group: ${LOG_GROUP}"
+echo "   Region: ${AWS_REGION}"
+echo ""
+echo "   Press Ctrl+C to stop"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Wait for log group to exist before tailing
+MAX_WAIT=300
+INTERVAL=10
+ELAPSED=0
+
+while true; do
+    if aws logs describe-log-groups \
+        --log-group-name-prefix "${LOG_GROUP}" \
+        --region "${AWS_REGION}" \
+        --query "logGroups[?logGroupName=='${LOG_GROUP}'].logGroupName" \
+        --output text 2>/dev/null | grep -q "${LOG_GROUP}"; then
+        break
+    fi
+
+    if [ "${ELAPSED}" -ge "${MAX_WAIT}" ]; then
+        echo "❌ Timed out after ${MAX_WAIT}s waiting for log group: ${LOG_GROUP}"
+        echo ""
+        echo "   The transform job may not have started logging yet."
+        echo "   Check the job status:"
+        echo "   aws sagemaker describe-transform-job --transform-job-name ${JOB_NAME} --region ${AWS_REGION}"
+        exit 1
+    fi
+
+    if [ "${ELAPSED}" -eq 0 ]; then
+        echo "⏳ Log group not found yet: ${LOG_GROUP}"
+        echo "   The transform job may still be starting up. Waiting up to ${MAX_WAIT}s..."
+        echo ""
+    fi
+
+    sleep "${INTERVAL}"
+    ELAPSED=$((ELAPSED + INTERVAL))
+    echo "   Waiting for log group... (${ELAPSED}s/${MAX_WAIT}s)"
+done
+
+echo "✅ Log group found. Tailing logs..."
+echo ""
+
+# Tail logs, filtering by transform job name
+aws logs tail "${LOG_GROUP}" \
+    --region "${AWS_REGION}" \
+    --log-stream-name-prefix "${JOB_NAME}" \
+    --follow \
+    --format short
+
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 # ============================================================
 # HyperPod EKS Logs (kubectl)

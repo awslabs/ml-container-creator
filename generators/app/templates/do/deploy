@@ -30,6 +30,13 @@ echo "   Max concurrent: ${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
 echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
 echo "   Namespace: ${HYPERPOD_NAMESPACE}"
 echo "   Replicas: ${HYPERPOD_REPLICAS}"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+echo "   Instance type: ${INSTANCE_TYPE}"
+echo "   S3 input: ${BATCH_INPUT_PATH}"
+echo "   S3 output: ${BATCH_OUTPUT_PATH}"
+echo "   Instance count: ${BATCH_INSTANCE_COUNT}"
+echo "   Split type: ${BATCH_SPLIT_TYPE}"
+echo "   Strategy: ${BATCH_STRATEGY}"
 <% } %>
 
 # Check AWS credentials
@@ -720,5 +727,352 @@ _update_config_var() {
 }
 
 _update_config_var "KUBECONFIG" "${KUBECONFIG_PATH}"
+
+<% } else if (deploymentTarget === 'batch-transform') { %>
+# ============================================================
+# SageMaker Managed Inference - Batch Deployment
+# Flow: create-model → create-transform-job → poll until completion
+# ============================================================
+
+# Validate execution role ARN
+if [ -z "${ROLE_ARN:-}" ]; then
+    echo "❌ Execution role ARN not provided"
+    echo ""
+    echo "Usage:"
+    echo "  export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE"
+    echo "  ./do/deploy"
+    echo ""
+    echo "Or set ROLE_ARN in do/config"
+    echo ""
+    echo "The execution role must have permissions for:"
+    echo "  • SageMaker model and transform job management"
+    echo "  • ECR image access"
+    echo "  • S3 read access for input path: ${BATCH_INPUT_PATH}"
+    echo "  • S3 write access for output path: ${BATCH_OUTPUT_PATH}"
+    echo "  • CloudWatch Logs"
+    exit 3
+fi
+
+echo "   Using execution role: ${ROLE_ARN}"
+
+# Validate S3 input path
+if [ -z "${BATCH_INPUT_PATH:-}" ]; then
+    echo "❌ S3 input path not provided"
+    echo ""
+    echo "Set BATCH_INPUT_PATH in do/config or provide via CLI:"
+    echo "  export BATCH_INPUT_PATH=s3://my-bucket/input/"
+    echo "  ./do/deploy"
+    exit 3
+fi
+
+if [[ "${BATCH_INPUT_PATH}" != s3://* ]]; then
+    echo "❌ S3 input path must start with s3://"
+    echo "   Current value: ${BATCH_INPUT_PATH}"
+    echo "   Example: s3://my-bucket/input/"
+    exit 3
+fi
+
+# Validate S3 output path
+if [ -z "${BATCH_OUTPUT_PATH:-}" ]; then
+    echo "❌ S3 output path not provided"
+    echo ""
+    echo "Set BATCH_OUTPUT_PATH in do/config or provide via CLI:"
+    echo "  export BATCH_OUTPUT_PATH=s3://my-bucket/output/"
+    echo "  ./do/deploy"
+    exit 3
+fi
+
+if [[ "${BATCH_OUTPUT_PATH}" != s3://* ]]; then
+    echo "❌ S3 output path must start with s3://"
+    echo "   Current value: ${BATCH_OUTPUT_PATH}"
+    echo "   Example: s3://my-bucket/output/"
+    exit 3
+fi
+
+# ============================================================
+# Bootstrap S3 buckets for batch transform
+# ============================================================
+
+# Extract bucket names from S3 paths
+BATCH_INPUT_BUCKET=$(echo "${BATCH_INPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
+BATCH_OUTPUT_BUCKET=$(echo "${BATCH_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
+
+<% if (!batchInputPath) { %>
+# Bootstrap default S3 input bucket (check-and-create)
+echo "🔍 Checking if S3 input bucket exists: ${BATCH_INPUT_BUCKET}"
+if ! aws s3api head-bucket --bucket "${BATCH_INPUT_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
+    echo "📦 Creating S3 input bucket: ${BATCH_INPUT_BUCKET}"
+    if [ "${AWS_REGION}" = "us-east-1" ]; then
+        if ! aws s3api create-bucket \
+            --bucket "${BATCH_INPUT_BUCKET}" \
+            --region "${AWS_REGION}"; then
+            echo "❌ Failed to create S3 input bucket: ${BATCH_INPUT_BUCKET}"
+            echo ""
+            echo "   Check that:"
+            echo "   • Your IAM credentials have s3:CreateBucket permission"
+            echo "   • The bucket name is not already taken globally"
+            exit 4
+        fi
+    else
+        if ! aws s3api create-bucket \
+            --bucket "${BATCH_INPUT_BUCKET}" \
+            --region "${AWS_REGION}" \
+            --create-bucket-configuration LocationConstraint="${AWS_REGION}"; then
+            echo "❌ Failed to create S3 input bucket: ${BATCH_INPUT_BUCKET}"
+            echo ""
+            echo "   Check that:"
+            echo "   • Your IAM credentials have s3:CreateBucket permission"
+            echo "   • The bucket name is not already taken globally"
+            exit 4
+        fi
+    fi
+    echo "✅ S3 input bucket created: ${BATCH_INPUT_BUCKET}"
+else
+    echo "✅ S3 input bucket exists: ${BATCH_INPUT_BUCKET}"
+fi
+
+# Upload sample input file if the input prefix is empty
+EXISTING_OBJECTS=$(aws s3 ls "${BATCH_INPUT_PATH}" --region "${AWS_REGION}" 2>/dev/null | head -1 || true)
+if [ -z "${EXISTING_OBJECTS}" ]; then
+    echo "📄 Uploading sample input file to ${BATCH_INPUT_PATH}"
+<% if (framework === 'transformers' && (modelServer === 'vllm' || modelServer === 'sglang')) { %>
+    echo '{"model": "<%= modelName %>", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50}' | aws s3 cp - "${BATCH_INPUT_PATH}sample.jsonl" --region "${AWS_REGION}"
+<% } else if (framework === 'transformers') { %>
+    echo '{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50}}' | aws s3 cp - "${BATCH_INPUT_PATH}sample.jsonl" --region "${AWS_REGION}"
+<% } else if (framework === 'diffusors') { %>
+    echo '{"prompt": "A white cat", "n": 1, "size": "512x512"}' | aws s3 cp - "${BATCH_INPUT_PATH}sample.jsonl" --region "${AWS_REGION}"
+<% } else { %>
+    echo '{"instances": [[1.0, 2.0, 3.0, 4.0]]}' | aws s3 cp - "${BATCH_INPUT_PATH}sample.jsonl" --region "${AWS_REGION}"
+<% } %>
+    echo "✅ Sample input uploaded: ${BATCH_INPUT_PATH}sample.jsonl"
+    echo "   ⚠️  Replace this with your actual input data before running production jobs"
+fi
+<% } else { %>
+# Custom S3 input path provided — skip bucket creation
+echo "✅ Using custom S3 input path: ${BATCH_INPUT_PATH}"
+<% } %>
+
+<% if (!batchOutputPath) { %>
+# Bootstrap default S3 output bucket (check-and-create, may be same as input)
+if [ "${BATCH_OUTPUT_BUCKET}" != "${BATCH_INPUT_BUCKET}" ]; then
+    echo "🔍 Checking if S3 output bucket exists: ${BATCH_OUTPUT_BUCKET}"
+    if ! aws s3api head-bucket --bucket "${BATCH_OUTPUT_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
+        echo "📦 Creating S3 output bucket: ${BATCH_OUTPUT_BUCKET}"
+        if [ "${AWS_REGION}" = "us-east-1" ]; then
+            if ! aws s3api create-bucket \
+                --bucket "${BATCH_OUTPUT_BUCKET}" \
+                --region "${AWS_REGION}"; then
+                echo "❌ Failed to create S3 output bucket: ${BATCH_OUTPUT_BUCKET}"
+                exit 4
+            fi
+        else
+            if ! aws s3api create-bucket \
+                --bucket "${BATCH_OUTPUT_BUCKET}" \
+                --region "${AWS_REGION}" \
+                --create-bucket-configuration LocationConstraint="${AWS_REGION}"; then
+                echo "❌ Failed to create S3 output bucket: ${BATCH_OUTPUT_BUCKET}"
+                exit 4
+            fi
+        fi
+        echo "✅ S3 output bucket created: ${BATCH_OUTPUT_BUCKET}"
+    else
+        echo "✅ S3 output bucket exists: ${BATCH_OUTPUT_BUCKET}"
+    fi
+else
+    echo "✅ S3 output bucket same as input: ${BATCH_OUTPUT_BUCKET}"
+fi
+<% } else { %>
+# Custom S3 output path provided — skip bucket creation
+echo "✅ Using custom S3 output path: ${BATCH_OUTPUT_PATH}"
+<% } %>
+
+# Generate unique names with timestamp
+TIMESTAMP=$(date +%s)
+MODEL_NAME_SM="${PROJECT_NAME}-batch-model-${TIMESTAMP}"
+TRANSFORM_JOB_NAME="${PROJECT_NAME}-batch-job-${TIMESTAMP}"
+
+# Persist names to config immediately so ./do/logs works during deployment
+_update_config_var() {
+    local var_name="$1" var_value="$2" config_file="${SCRIPT_DIR}/config"
+    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
+        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
+        rm -f "${config_file}.bak"
+    else
+        echo "" >> "${config_file}"
+        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
+    fi
+}
+
+_update_config_var "TRANSFORM_JOB_NAME" "${TRANSFORM_JOB_NAME}"
+_update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
+
+# Step 1: Create SageMaker model
+echo "📦 Creating SageMaker model: ${MODEL_NAME_SM}"
+if ! aws sagemaker create-model \
+    --model-name "${MODEL_NAME_SM}" \
+    --primary-container "{\"Image\":\"${ECR_REPOSITORY}:${IMAGE_TAG}\"}" \
+    --execution-role-arn "${ROLE_ARN}" \
+    --region "${AWS_REGION}"; then
+
+    echo "❌ Failed to create SageMaker model"
+    echo "   Check that:"
+    echo "   • The execution role ARN is valid"
+    echo "   • The ECR image exists and is accessible"
+    echo "   • The IAM role has ecr:GetDownloadUrlForLayer permission"
+    exit 4
+fi
+
+echo "✅ SageMaker model created: ${MODEL_NAME_SM}"
+
+# Step 2: Build transform job JSON
+TRANSFORM_JOB_JSON="{
+    \"TransformJobName\": \"${TRANSFORM_JOB_NAME}\",
+    \"ModelName\": \"${MODEL_NAME_SM}\",
+    \"TransformInput\": {
+        \"DataSource\": {
+            \"S3DataSource\": {
+                \"S3DataType\": \"S3Prefix\",
+                \"S3Uri\": \"${BATCH_INPUT_PATH}\"
+            }
+        },
+        \"ContentType\": \"application/json\",
+        \"SplitType\": \"${BATCH_SPLIT_TYPE}\"
+    },
+    \"TransformOutput\": {
+        \"S3OutputPath\": \"${BATCH_OUTPUT_PATH}\"
+        $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"Accept\": \"application/json\", \"AssembleWith\": \"${BATCH_SPLIT_TYPE}\"")
+    },
+    \"TransformResources\": {
+        \"InstanceType\": \"${INSTANCE_TYPE}\",
+        \"InstanceCount\": ${BATCH_INSTANCE_COUNT}
+    },
+    \"MaxConcurrentTransforms\": ${BATCH_MAX_CONCURRENT_TRANSFORMS:-1},
+    \"MaxPayloadInMB\": ${BATCH_MAX_PAYLOAD_IN_MB:-6},
+    \"BatchStrategy\": \"${BATCH_STRATEGY}\"
+    $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"DataProcessing\": { \"JoinSource\": \"Input\" }")
+}"
+
+# Step 3: Create transform job
+echo "🚀 Creating transform job: ${TRANSFORM_JOB_NAME}"
+if ! aws sagemaker create-transform-job \
+    --cli-input-json "${TRANSFORM_JOB_JSON}" \
+    --region "${AWS_REGION}"; then
+
+    echo "❌ Failed to create transform job"
+    echo "   Check that:"
+    echo "   • The S3 input path exists and is accessible: ${BATCH_INPUT_PATH}"
+    echo "   • The S3 output path is writable: ${BATCH_OUTPUT_PATH}"
+    echo "   • The IAM role has s3:GetObject permission on the input path"
+    echo "   • The IAM role has s3:PutObject permission on the output path"
+    echo "   • The instance type is valid: ${INSTANCE_TYPE}"
+    echo "   • The instance type is available in region: ${AWS_REGION}"
+    echo "   • You have sufficient service quota for the instance type"
+    exit 4
+fi
+
+echo "✅ Transform job created: ${TRANSFORM_JOB_NAME}"
+
+# Step 4: Poll transform job status until completion or failure
+echo "⏳ Waiting for transform job to complete..."
+echo "   This may take several minutes depending on dataset size..."
+echo ""
+
+while true; do
+    JOB_STATUS=$(aws sagemaker describe-transform-job \
+        --transform-job-name "${TRANSFORM_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "TransformJobStatus" \
+        --output text 2>&1) || {
+        echo "❌ Failed to describe transform job: ${TRANSFORM_JOB_NAME}"
+        exit 4
+    }
+
+    case "${JOB_STATUS}" in
+        Completed)
+            echo "✅ Transform job completed successfully!"
+            break
+            ;;
+        Failed)
+            FAILURE_REASON=$(aws sagemaker describe-transform-job \
+                --transform-job-name "${TRANSFORM_JOB_NAME}" \
+                --region "${AWS_REGION}" \
+                --query "FailureReason" \
+                --output text 2>/dev/null || echo "Unknown")
+            echo "❌ Transform job failed"
+            echo "   Reason: ${FAILURE_REASON}"
+            echo ""
+            echo "   Check CloudWatch Logs for details:"
+            echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/TransformJobs"
+            echo ""
+            echo "   Verify that:"
+            echo "   • The S3 input path exists and contains data: ${BATCH_INPUT_PATH}"
+            echo "   • The input data format matches the container's expected format"
+            echo "   • The container's /ping and /invocations endpoints work correctly"
+            exit 4
+            ;;
+        Stopped)
+            echo "⚠️  Transform job was stopped"
+            exit 4
+            ;;
+        InProgress)
+            echo "   $(date +%H:%M:%S) Job status: InProgress..."
+            sleep 30
+            ;;
+        *)
+            echo "   $(date +%H:%M:%S) Job status: ${JOB_STATUS}..."
+            sleep 30
+            ;;
+    esac
+done
+
+echo ""
+echo "📋 Deployment Details:"
+echo "   Transform Job: ${TRANSFORM_JOB_NAME}"
+echo "   Model: ${MODEL_NAME_SM}"
+echo "   Region: ${AWS_REGION}"
+echo "   Instance Type: ${INSTANCE_TYPE}"
+echo "   Instance Count: ${BATCH_INSTANCE_COUNT}"
+echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"
+echo "   S3 Input: ${BATCH_INPUT_PATH}"
+echo "   S3 Output: ${BATCH_OUTPUT_PATH}"
+echo "   Split Type: ${BATCH_SPLIT_TYPE}"
+echo "   Strategy: ${BATCH_STRATEGY}"
+echo ""
+
+# Download results locally
+LOCAL_OUTPUT_DIR="${SCRIPT_DIR}/../batch-output"
+mkdir -p "${LOCAL_OUTPUT_DIR}"
+echo "📥 Downloading results to ${LOCAL_OUTPUT_DIR}/"
+if aws s3 sync "${BATCH_OUTPUT_PATH}" "${LOCAL_OUTPUT_DIR}/" --region "${AWS_REGION}"; then
+    DOWNLOADED=$(ls -1 "${LOCAL_OUTPUT_DIR}" 2>/dev/null | wc -l | tr -d ' ')
+    echo "✅ Downloaded ${DOWNLOADED} file(s) to ${LOCAL_OUTPUT_DIR}/"
+    echo ""
+
+    # Display first output file preview
+    FIRST_FILE=$(ls -1 "${LOCAL_OUTPUT_DIR}" 2>/dev/null | head -1)
+    if [ -n "${FIRST_FILE}" ]; then
+        echo "📄 Sample output (${FIRST_FILE}):"
+        head -5 "${LOCAL_OUTPUT_DIR}/${FIRST_FILE}"
+        LINES=$(wc -l < "${LOCAL_OUTPUT_DIR}/${FIRST_FILE}" | tr -d ' ')
+        if [ "${LINES}" -gt 5 ]; then
+            echo "   ... (${LINES} total lines)"
+        fi
+    fi
+else
+    echo "⚠️  Could not download output files"
+fi
+
+echo ""
+echo "🧪 Review results:"
+echo "   ./do/test"
+echo ""
+echo "📝 Register this deployment:"
+echo "   ./do/register"
+echo ""
+echo "📋 View logs:"
+echo "   ./do/logs"
+echo ""
+echo "🧹 Clean up when done:"
+echo "   ./do/clean"
 
 <% } %>

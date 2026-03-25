@@ -204,6 +204,47 @@ export default class extends Generator {
             type: Number,
             description: 'Max concurrent invocations per instance for async inference (default: 1)'
         });
+
+        // Batch transform options
+        this.option('batch-input-path', {
+            type: String,
+            description: 'S3 input path for batch transform data'
+        });
+
+        this.option('batch-output-path', {
+            type: String,
+            description: 'S3 output path for batch transform results'
+        });
+
+        this.option('batch-instance-count', {
+            type: Number,
+            description: 'Number of instances for batch transform job (default: 1)'
+        });
+
+        this.option('batch-split-type', {
+            type: String,
+            description: 'Input data split type: Line, RecordIO, None (default: Line)'
+        });
+
+        this.option('batch-strategy', {
+            type: String,
+            description: 'Batch strategy: MultiRecord, SingleRecord (default: MultiRecord)'
+        });
+
+        this.option('batch-join-source', {
+            type: String,
+            description: 'Join source: Input, None (default: None)'
+        });
+
+        this.option('batch-max-concurrent', {
+            type: Number,
+            description: 'Max concurrent transforms per instance (default: 1)'
+        });
+
+        this.option('batch-max-payload', {
+            type: Number,
+            description: 'Max payload size in MB, 0-100 (default: 6)'
+        });
     }
 
     /**
@@ -445,6 +486,12 @@ export default class extends Generator {
         } else if (!architecture) {
             // Fallback: derive from framework for backward compatibility
             architecture = this.answers.framework === 'transformers' ? 'transformers' : 'http';
+        }
+
+        // Exclude sample_model directory when not needed
+        // Transformers and diffusors don't use sample models (they load from HuggingFace Hub)
+        if (!this.answers.includeSampleModel || architecture === 'transformers' || architecture === 'diffusors') {
+            ignorePatterns.push('**/sample_model/**');
         }
 
         // Always exclude triton and diffusors source directories from initial copy (they are sources, not output)
