@@ -35,7 +35,7 @@ const templateContent = readFileSync(templatePath, 'utf8');
  * Render the do/config template with the given variables.
  */
 function renderConfig(vars) {
-    return ejs.render(templateContent, vars);
+    return ejs.render(templateContent, { orderedEnvVars: [], baseImage: '', ...vars });
 }
 
 /** Arbitrary for a base config shared by both deployment targets */

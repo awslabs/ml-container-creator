@@ -51,6 +51,112 @@
                 "repository": {
                     "type": "string",
                     "minLength": 1
+                },
+                "defaults": {
+                    "type": "object",
+                    "properties": {
+                        "envVars": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        },
+                        "inferenceAmiVersion": {
+                            "type": "string"
+                        },
+                        "recommendedInstanceTypes": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "accelerator": {
+                    "type": "object",
+                    "required": [
+                        "type",
+                        "version",
+                        "versionRange"
+                    ],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "cuda",
+                                "neuron",
+                                "cpu",
+                                "rocm"
+                            ]
+                        },
+                        "version": {
+                            "type": "string"
+                        },
+                        "versionRange": {
+                            "type": "object",
+                            "required": [
+                                "min",
+                                "max"
+                            ],
+                            "properties": {
+                                "min": {
+                                    "type": "string"
+                                },
+                                "max": {
+                                    "type": "string"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "validationLevel": {
+                    "type": "string",
+                    "enum": [
+                        "tested",
+                        "community-validated",
+                        "experimental",
+                        "untested"
+                    ]
+                },
+                "profiles": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                            "displayName",
+                            "description"
+                        ],
+                        "properties": {
+                            "displayName": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "envVars": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            },
+                            "recommendedInstanceTypes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "notes": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "notes": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false

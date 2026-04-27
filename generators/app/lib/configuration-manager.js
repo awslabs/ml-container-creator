@@ -619,12 +619,12 @@ export default class ConfigurationManager {
      */
     _generateSubmissionInstructions(registryType, config, configEntry) {
         const registryFile = registryType === 'framework' 
-            ? 'generators/app/config/registries/frameworks.js'
-            : 'generators/app/config/registries/models.js';
+            ? 'servers/base-image-picker/catalogs/model-servers.json'
+            : 'servers/model-picker/catalogs/popular-transformers.json';
         
         const registryName = registryType === 'framework' 
-            ? 'Framework_Registry'
-            : 'Model_Registry';
+            ? 'Framework_Catalog'
+            : 'Model_Catalog';
         
         const key = registryType === 'framework' 
             ? config.framework

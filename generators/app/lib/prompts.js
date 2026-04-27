@@ -8,7 +8,44 @@
 
 import Table from 'cli-table3';
 import chalk from 'chalk';
-import instanceTypeRegistry from '../config/registries/instance-types.js';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __promptsFilename = fileURLToPath(import.meta.url);
+const __promptsDir = dirname(__promptsFilename);
+const instancesCatalogPath = resolve(__promptsDir, '../../../servers/instance-recommender/catalogs/instances.json');
+
+/**
+ * Load instance types from the instances.json catalog and transform
+ * into the display shape expected by prompts (type, vcpus, memory, accelerator, useCase, category).
+ */
+function loadInstanceTypeRegistry() {
+    try {
+        const raw = readFileSync(instancesCatalogPath, 'utf8');
+        const catalog = JSON.parse(raw);
+        const entries = catalog?.catalog || {};
+        const registry = {};
+        for (const [instanceType, entry] of Object.entries(entries)) {
+            registry[instanceType] = {
+                type: instanceType,
+                vcpus: entry.vcpus || 0,
+                memory: entry.memGb ? `${entry.memGb} GB` : '0 GB',
+                accelerator: entry.hardware && entry.hardware !== 'None'
+                    ? entry.accelerator || entry.hardware
+                    : 'None',
+                useCase: entry.notes || entry.tags?.join(', ') || '',
+                category: entry.category || 'cpu',
+            };
+        }
+        return registry;
+    } catch (error) {
+        console.warn(`Failed to load instance type registry from catalog: ${error.message}`);
+        return {};
+    }
+}
+
+const instanceTypeRegistry = loadInstanceTypeRegistry();
 
 /**
  * Generate pseudo-randomized project name based on framework

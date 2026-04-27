@@ -13,9 +13,9 @@
     "docker"
   ],
   "scripts": {
-    "test": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --reporter test/reporters/progress-reporter.cjs",
-    "test:ci": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --reporter spec",
-    "test:verbose": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --reporter spec",
+    "test": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --exit --reporter test/reporters/progress-reporter.cjs",
+    "test:ci": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --exit --reporter spec",
+    "test:verbose": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --exit --reporter spec",
     "test:minimal": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --reporter test/reporters/minimal-reporter.cjs",
     "test:watch": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --watch --reporter test/reporters/progress-reporter.cjs",
     "test:coverage": "VALIDATE_ENV_VARS=false nyc mocha test/**/*.test.js",

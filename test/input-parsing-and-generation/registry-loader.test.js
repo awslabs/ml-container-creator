@@ -135,153 +135,154 @@ describe('Registry Loader', () => {
     });
 
     describe('Schema Validation', () => {
-        it('should validate framework registry schema correctly', async () => {
-            console.log('\n  🧪 Testing framework registry schema validation...');
+        it('should load framework registry with valid structure', async () => {
+            console.log('\n  🧪 Testing framework registry structure from catalog...');
             
-            const validData = {
-                'vllm': {
-                    '0.3.0': {
-                        baseImage: 'vllm/vllm-openai:v0.3.0',
-                        accelerator: {
-                            type: 'cuda',
-                            version: '12.1',
-                            versionRange: { min: '11.8', max: '12.2' }
-                        },
-                        envVars: {
-                            'VLLM_MAX_BATCH_SIZE': '32'
-                        },
-                        inferenceAmiVersion: 'al2-ami-sagemaker-inference-gpu-3-1',
-                        recommendedInstanceTypes: ['ml.g5.xlarge'],
-                        validationLevel: 'experimental'
-                    }
+            const registry = await loader.loadFrameworkRegistry();
+            const frameworks = Object.keys(registry);
+            assert.ok(frameworks.length > 0, 'Framework registry should not be empty');
+            
+            for (const frameworkName of frameworks) {
+                const versions = registry[frameworkName];
+                for (const version of Object.keys(versions)) {
+                    const entry = versions[version];
+                    assert.ok(entry.baseImage, `${frameworkName} ${version} must have baseImage`);
+                    assert.ok(entry.accelerator, `${frameworkName} ${version} must have accelerator`);
+                    assert.ok(entry.accelerator.type, `${frameworkName} ${version} must have accelerator.type`);
                 }
-            };
+            }
             
-            // Should not throw
-            const frameworkSchema = await import('../../generators/app/config/schemas/framework-registry-schema.js');
-            loader.validateSchema(validData, frameworkSchema.default, 'Framework Registry');
-            
-            console.log('    ✅ Framework registry schema validation passed');
+            console.log('    ✅ Framework registry structure validation passed');
         });
 
-        it('should reject invalid framework registry schema', async () => {
-            console.log('\n  🧪 Testing invalid framework registry schema rejection...');
+        it('should load model registry with valid structure', async () => {
+            console.log('\n  🧪 Testing model registry structure from catalog...');
             
-            const invalidData = {
-                'vllm': {
-                    '0.3.0': {
-                        // Missing required fields
-                        baseImage: 'vllm/vllm-openai:v0.3.0'
-                        // Missing: accelerator, envVars, inferenceAmiVersion, recommendedInstanceTypes, validationLevel
-                    }
-                }
-            };
+            const registry = await loader.loadModelRegistry();
+            const modelIds = Object.keys(registry);
+            assert.ok(modelIds.length > 0, 'Model registry should not be empty');
             
-            const frameworkSchema = await import('../../generators/app/config/schemas/framework-registry-schema.js');
+            for (const modelId of modelIds) {
+                const entry = registry[modelId];
+                assert.ok(entry.family, `${modelId} must have family`);
+                assert.ok(entry.validationLevel, `${modelId} must have validationLevel`);
+                assert.ok(entry.frameworkCompatibility, `${modelId} must have frameworkCompatibility`);
+            }
             
-            assert.throws(
-                () => {
-                    loader.validateSchema(invalidData, frameworkSchema.default, 'Framework Registry');
-                },
-                /validation failed/,
-                'Should throw validation error for invalid schema'
-            );
-            
-            console.log('    ✅ Invalid framework registry schema rejected');
+            console.log('    ✅ Model registry structure validation passed');
         });
 
-        it('should validate model registry schema correctly', async () => {
-            console.log('\n  🧪 Testing model registry schema validation...');
+        it('should load instance accelerator mapping with valid structure', async () => {
+            console.log('\n  🧪 Testing instance accelerator mapping structure from catalog...');
             
-            const validData = {
-                'meta-llama/Llama-2-7b-chat-hf': {
-                    family: 'llama-2',
-                    chatTemplate: '{% for message in messages %}...',
-                    requiresTemplate: true,
-                    validationLevel: 'tested',
-                    frameworkCompatibility: {
-                        'vllm': '>=0.3.0',
-                        'tensorrt-llm': '>=0.8.0'
-                    }
-                }
-            };
+            const mapping = await loader.loadInstanceAcceleratorMapping();
+            const instanceTypes = Object.keys(mapping);
+            assert.ok(instanceTypes.length > 0, 'Instance mapping should not be empty');
             
-            // Should not throw
-            const modelSchema = await import('../../generators/app/config/schemas/model-registry-schema.js');
-            loader.validateSchema(validData, modelSchema.default, 'Model Registry');
+            for (const instanceType of instanceTypes) {
+                const entry = mapping[instanceType];
+                assert.ok(entry.family, `${instanceType} must have family`);
+                assert.ok(entry.accelerator, `${instanceType} must have accelerator`);
+                assert.ok(entry.accelerator.type, `${instanceType} must have accelerator.type`);
+            }
             
-            console.log('    ✅ Model registry schema validation passed');
+            console.log('    ✅ Instance accelerator mapping structure validation passed');
+        });
+    });
+
+    describe('Registry_Loader returns valid data from catalog files', () => {
+        it('should return non-empty framework registry with expected framework keys', async () => {
+            const registry = await loader.loadFrameworkRegistry();
+            assert.ok(typeof registry === 'object' && registry !== null);
+            assert.ok(Object.keys(registry).length > 0, 'Framework registry should be non-empty');
+
+            // Verify known framework keys are present
+            const expectedFrameworks = ['vllm', 'sglang', 'tensorrt-llm', 'djl'];
+            for (const fw of expectedFrameworks) {
+                assert.ok(registry[fw], `Expected framework '${fw}' to be present`);
+                assert.ok(typeof registry[fw] === 'object', `Framework '${fw}' should map to version object`);
+                assert.ok(Object.keys(registry[fw]).length > 0, `Framework '${fw}' should have at least one version`);
+            }
+
+            // Verify shape of at least one FrameworkConfig entry
+            const vllmVersions = registry['vllm'];
+            const firstVersion = Object.keys(vllmVersions)[0];
+            const config = vllmVersions[firstVersion];
+            assert.ok(config.baseImage, 'FrameworkConfig should have baseImage');
+            assert.ok(config.accelerator, 'FrameworkConfig should have accelerator');
+            assert.ok(config.accelerator.type, 'FrameworkConfig.accelerator should have type');
+            assert.ok(typeof config.envVars === 'object', 'FrameworkConfig should have envVars object');
+            assert.ok(typeof config.validationLevel === 'string', 'FrameworkConfig should have validationLevel string');
+            assert.ok(typeof config.profiles === 'object', 'FrameworkConfig should have profiles object');
+            assert.ok(typeof config.notes === 'string', 'FrameworkConfig should have notes string');
         });
 
-        it('should reject invalid model registry schema', async () => {
-            console.log('\n  🧪 Testing invalid model registry schema rejection...');
-            
-            const invalidData = {
-                'meta-llama/Llama-2-7b-chat-hf': {
-                    family: 'llama-2'
-                    // Missing: chatTemplate, requiresTemplate, validationLevel, frameworkCompatibility
-                }
-            };
-            
-            const modelSchema = await import('../../generators/app/config/schemas/model-registry-schema.js');
-            
-            assert.throws(
-                () => {
-                    loader.validateSchema(invalidData, modelSchema.default, 'Model Registry');
-                },
-                /validation failed/,
-                'Should throw validation error for invalid schema'
-            );
-            
-            console.log('    ✅ Invalid model registry schema rejected');
+        it('should return non-empty model registry with expected model keys', async () => {
+            const registry = await loader.loadModelRegistry();
+            assert.ok(typeof registry === 'object' && registry !== null);
+            assert.ok(Object.keys(registry).length > 0, 'Model registry should be non-empty');
+
+            // Verify known model IDs are present (from transformers + diffusors)
+            const expectedModels = [
+                'meta-llama/Llama-2-7b-chat-hf',
+                'stabilityai/stable-diffusion-3.5-medium',
+                'black-forest-labs/FLUX.1-dev'
+            ];
+            for (const modelId of expectedModels) {
+                assert.ok(registry[modelId], `Expected model '${modelId}' to be present`);
+            }
+
+            // Verify shape of at least one ModelConfig entry
+            const entry = registry['meta-llama/Llama-2-7b-chat-hf'];
+            assert.ok(typeof entry.family === 'string', 'ModelConfig should have family string');
+            assert.ok('chatTemplate' in entry, 'ModelConfig should have chatTemplate');
+            assert.ok(typeof entry.validationLevel === 'string', 'ModelConfig should have validationLevel string');
+            assert.ok(typeof entry.frameworkCompatibility === 'object', 'ModelConfig should have frameworkCompatibility object');
+            assert.ok(typeof entry.profiles === 'object', 'ModelConfig should have profiles object');
+            assert.ok(typeof entry.notes === 'string', 'ModelConfig should have notes string');
         });
 
-        it('should validate instance accelerator mapping schema correctly', async () => {
-            console.log('\n  🧪 Testing instance accelerator mapping schema validation...');
-            
-            const validData = {
-                'ml.g5.xlarge': {
-                    family: 'g5',
-                    accelerator: {
-                        type: 'cuda',
-                        hardware: 'NVIDIA A10G',
-                        architecture: 'Ampere',
-                        versions: ['11.8', '12.1', '12.2'],
-                        default: '12.1'
-                    },
-                    memory: '16 GB',
-                    vcpus: 4
-                }
-            };
-            
-            // Should not throw
-            const mappingSchema = await import('../../generators/app/config/schemas/instance-accelerator-mapping-schema.js');
-            loader.validateSchema(validData, mappingSchema.default, 'Instance Accelerator Mapping');
-            
-            console.log('    ✅ Instance accelerator mapping schema validation passed');
+        it('should return non-empty instance accelerator mapping with expected keys', async () => {
+            const mapping = await loader.loadInstanceAcceleratorMapping();
+            assert.ok(typeof mapping === 'object' && mapping !== null);
+            assert.ok(Object.keys(mapping).length > 0, 'Instance mapping should be non-empty');
+
+            // Verify known instance types are present
+            const expectedInstances = ['ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.c5.xlarge'];
+            for (const inst of expectedInstances) {
+                assert.ok(mapping[inst], `Expected instance type '${inst}' to be present`);
+            }
+
+            // Verify shape of one entry
+            const entry = mapping['ml.g5.xlarge'];
+            assert.ok(typeof entry.family === 'string', 'Instance entry should have family string');
+            assert.ok(entry.accelerator, 'Instance entry should have accelerator');
+            assert.ok(typeof entry.accelerator.type === 'string', 'accelerator should have type');
+            assert.ok(typeof entry.accelerator.hardware === 'string', 'accelerator should have hardware');
+            assert.ok(typeof entry.accelerator.architecture === 'string', 'accelerator should have architecture');
+            assert.ok(typeof entry.vcpus === 'number', 'Instance entry should have vcpus number');
+            assert.ok(typeof entry.memory === 'string', 'Instance entry should have memory string');
+            assert.ok(typeof entry.notes === 'string', 'Instance entry should have notes string');
         });
 
-        it('should reject invalid instance accelerator mapping schema', async () => {
-            console.log('\n  🧪 Testing invalid instance accelerator mapping schema rejection...');
-            
-            const invalidData = {
-                'ml.g5.xlarge': {
-                    family: 'g5'
-                    // Missing: accelerator, memory, vcpus
-                }
-            };
-            
-            const mappingSchema = await import('../../generators/app/config/schemas/instance-accelerator-mapping-schema.js');
-            
-            assert.throws(
-                () => {
-                    loader.validateSchema(invalidData, mappingSchema.default, 'Instance Accelerator Mapping');
-                },
-                /validation failed/,
-                'Should throw validation error for invalid schema'
-            );
-            
-            console.log('    ✅ Invalid instance accelerator mapping schema rejected');
+        it('should return non-empty triton backends with expected backend keys', async () => {
+            const backends = await loader.loadTritonBackends();
+            assert.ok(typeof backends === 'object' && backends !== null);
+            assert.ok(Object.keys(backends).length > 0, 'Triton backends should be non-empty');
+
+            // Verify known backend keys are present
+            const expectedBackends = ['fil', 'onnxruntime', 'tensorflow', 'pytorch', 'vllm', 'tensorrtllm', 'python'];
+            for (const backend of expectedBackends) {
+                assert.ok(backends[backend], `Expected triton backend '${backend}' to be present`);
+            }
+
+            // Verify shape of one backend entry
+            const filEntry = backends['fil'];
+            assert.ok(typeof filEntry.requiresGpu === 'boolean', 'Backend should have requiresGpu boolean');
+            assert.ok(Array.isArray(filEntry.modelFormats) || filEntry.modelFormats === null, 'Backend should have modelFormats array or null');
+            assert.ok(typeof filEntry.requiresModelName === 'boolean', 'Backend should have requiresModelName boolean');
+            assert.ok(typeof filEntry.supportsSampleModel === 'boolean', 'Backend should have supportsSampleModel boolean');
+            assert.ok('modelArtifactName' in filEntry, 'Backend should have modelArtifactName');
         });
     });
 
@@ -289,28 +290,22 @@ describe('Registry Loader', () => {
         it('should handle malformed JSON gracefully', async () => {
             console.log('\n  🧪 Testing malformed JSON handling...');
             
-            // Create a temporary malformed registry file
-            const tempDir = path.join(__dirname, '../../generators/app/config/registries');
-            const tempFile = path.join(tempDir, 'temp-malformed.js');
+            // Create a temporary malformed catalog file
+            const tempDir = path.join(__dirname, '../../.kiro/tmp');
+            const tempFile = path.join(tempDir, 'temp-malformed.json');
             
             try {
+                // Ensure temp directory exists
+                fs.mkdirSync(tempDir, { recursive: true });
+                
                 // Write malformed content
-                fs.writeFileSync(tempFile, 'module.exports = { invalid json }');
+                fs.writeFileSync(tempFile, '{ invalid json }');
                 
                 // Create a loader that tries to load the malformed file
                 const testLoader = new RegistryLoader();
-                testLoader.loadFrameworkRegistry = async function() {
-                    try {
-                        await import(tempFile);
-                    } catch (error) {
-                        console.warn(`Failed to load framework registry: ${error.message}`);
-                        return {};
-                    }
-                };
+                const result = testLoader._loadCatalog(tempFile);
                 
-                const registry = await testLoader.loadFrameworkRegistry();
-                
-                assert.deepStrictEqual(registry, {}, 'Should return empty object for malformed JSON');
+                assert.strictEqual(result, null, 'Should return null for malformed JSON');
                 console.log('    ✅ Malformed JSON handled gracefully');
             } finally {
                 // Clean up temp file

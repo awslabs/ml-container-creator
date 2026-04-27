@@ -1,63 +1,23 @@
 {
     "catalog": {
-        "ml.m5.large": {
+        "ml.c5.2xlarge": {
             "category": "cpu",
             "gpus": 0,
-            "vcpus": 2,
-            "memGb": 8,
-            "accelerator": "",
-            "cudaVersions": null,
-            "tags": [
-                "small",
-                "cpu",
-                "general",
-                "cheap",
-                "cost-effective",
-                "budget"
-            ]
-        },
-        "ml.m5.xlarge": {
-            "category": "cpu",
-            "gpus": 0,
-            "vcpus": 4,
+            "vcpus": 8,
             "memGb": 16,
             "accelerator": "",
             "cudaVersions": null,
             "tags": [
-                "medium",
+                "compute",
                 "cpu",
-                "general",
-                "cost-effective"
-            ]
-        },
-        "ml.m5.2xlarge": {
-            "category": "cpu",
-            "gpus": 0,
-            "vcpus": 8,
-            "memGb": 32,
-            "accelerator": "",
-            "cudaVersions": null,
-            "tags": [
-                "large",
-                "cpu",
-                "general",
-                "high-memory"
-            ]
-        },
-        "ml.m5.4xlarge": {
-            "category": "cpu",
-            "gpus": 0,
-            "vcpus": 16,
-            "memGb": 64,
-            "accelerator": "",
-            "cudaVersions": null,
-            "tags": [
-                "xlarge",
-                "cpu",
-                "general",
-                "high-memory",
                 "high-cpu"
-            ]
+            ],
+            "family": "c5",
+            "acceleratorType": "cpu",
+            "hardware": "None",
+            "gpuArchitecture": "None",
+            "defaultCudaVersion": null,
+            "notes": ""
         },
         "ml.c5.xlarge": {
             "category": "cpu",
@@ -70,52 +30,42 @@
                 "compute",
                 "cpu",
                 "cost-effective"
-            ]
+            ],
+            "family": "c5",
+            "acceleratorType": "cpu",
+            "hardware": "None",
+            "gpuArchitecture": "None",
+            "defaultCudaVersion": null,
+            "notes": ""
         },
-        "ml.c5.2xlarge": {
-            "category": "cpu",
-            "gpus": 0,
-            "vcpus": 8,
-            "memGb": 16,
-            "accelerator": "",
-            "cudaVersions": null,
+        "ml.g4dn.12xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 48,
+            "memGb": 192,
+            "accelerator": "4x T4 64GB",
+            "cudaVersions": [
+                "11.4",
+                "11.8"
+            ],
             "tags": [
-                "compute",
-                "cpu",
-                "high-cpu"
-            ]
+                "gpu",
+                "multi-gpu",
+                "t4",
+                "cuda-11"
+            ],
+            "family": "g4dn",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA T4",
+            "gpuArchitecture": "Turing",
+            "defaultCudaVersion": "11.8",
+            "notes": "4x NVIDIA T4 GPUs (64GB total). Multi-GPU for tensor parallelism"
         },
-        "ml.r5.large": {
-            "category": "cpu",
-            "gpus": 0,
-            "vcpus": 2,
-            "memGb": 16,
-            "accelerator": "",
-            "cudaVersions": null,
-            "tags": [
-                "memory",
-                "cpu",
-                "high-memory"
-            ]
-        },
-        "ml.r5.xlarge": {
-            "category": "cpu",
-            "gpus": 0,
-            "vcpus": 4,
-            "memGb": 32,
-            "accelerator": "",
-            "cudaVersions": null,
-            "tags": [
-                "memory",
-                "cpu",
-                "high-memory"
-            ]
-        },
-        "ml.g4dn.xlarge": {
+        "ml.g4dn.16xlarge": {
             "category": "gpu",
             "gpus": 1,
-            "vcpus": 4,
-            "memGb": 16,
+            "vcpus": 64,
+            "memGb": 256,
             "accelerator": "T4 16GB",
             "cudaVersions": [
                 "11.4",
@@ -124,12 +74,15 @@
             "tags": [
                 "gpu",
                 "single-gpu",
-                "budget",
-                "cost-effective",
-                "inference",
                 "t4",
                 "cuda-11"
-            ]
+            ],
+            "family": "g4dn",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA T4",
+            "gpuArchitecture": "Turing",
+            "defaultCudaVersion": "11.8",
+            "notes": "1x NVIDIA T4 GPU (16GB). Very high CPU/memory ratio"
         },
         "ml.g4dn.2xlarge": {
             "category": "gpu",
@@ -149,67 +102,85 @@
                 "inference",
                 "t4",
                 "cuda-11"
-            ]
-        },
-        "ml.g5.xlarge": {
-            "category": "gpu",
-            "gpus": 1,
-            "vcpus": 4,
-            "memGb": 16,
-            "accelerator": "A10G 24GB",
-            "cudaVersions": [
-                "11.8",
-                "12.1",
-                "12.2"
             ],
-            "tags": [
-                "gpu",
-                "single-gpu",
-                "inference",
-                "a10g",
-                "cuda-11",
-                "cuda-12"
-            ]
+            "family": "g4dn",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA T4",
+            "gpuArchitecture": "Turing",
+            "defaultCudaVersion": "11.8",
+            "notes": "1x NVIDIA T4 GPU (16GB). Better CPU/memory for preprocessing"
         },
-        "ml.g5.2xlarge": {
-            "category": "gpu",
-            "gpus": 1,
-            "vcpus": 8,
-            "memGb": 32,
-            "accelerator": "A10G 24GB",
-            "cudaVersions": [
-                "11.8",
-                "12.1",
-                "12.2"
-            ],
-            "tags": [
-                "gpu",
-                "single-gpu",
-                "inference",
-                "a10g",
-                "cuda-11",
-                "cuda-12"
-            ]
-        },
-        "ml.g5.4xlarge": {
+        "ml.g4dn.4xlarge": {
             "category": "gpu",
             "gpus": 1,
             "vcpus": 16,
             "memGb": 64,
-            "accelerator": "A10G 24GB",
+            "accelerator": "T4 16GB",
             "cudaVersions": [
-                "11.8",
-                "12.1",
-                "12.2"
+                "11.4",
+                "11.8"
             ],
             "tags": [
                 "gpu",
                 "single-gpu",
-                "large",
-                "a10g",
-                "cuda-11",
-                "cuda-12"
-            ]
+                "t4",
+                "cuda-11"
+            ],
+            "family": "g4dn",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA T4",
+            "gpuArchitecture": "Turing",
+            "defaultCudaVersion": "11.8",
+            "notes": "1x NVIDIA T4 GPU (16GB). High CPU/memory ratio"
+        },
+        "ml.g4dn.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 128,
+            "accelerator": "T4 16GB",
+            "cudaVersions": [
+                "11.4",
+                "11.8"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "t4",
+                "cuda-11"
+            ],
+            "family": "g4dn",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA T4",
+            "gpuArchitecture": "Turing",
+            "defaultCudaVersion": "11.8",
+            "notes": "1x NVIDIA T4 GPU (16GB). Maximum CPU/memory for single GPU"
+        },
+        "ml.g4dn.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "T4 16GB",
+            "cudaVersions": [
+                "11.4",
+                "11.8"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "budget",
+                "cost-effective",
+                "inference",
+                "t4",
+                "cuda-11"
+            ],
+            "family": "g4dn",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA T4",
+            "gpuArchitecture": "Turing",
+            "defaultCudaVersion": "11.8",
+            "notes": "1x NVIDIA T4 GPU (16GB). Cost-effective for smaller models"
         },
         "ml.g5.12xlarge": {
             "category": "gpu",
@@ -230,47 +201,191 @@
                 "parallel",
                 "cuda-11",
                 "cuda-12"
-            ]
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "4x NVIDIA A10G GPUs (96GB total). Good for tensor parallelism"
         },
-        "ml.g6.xlarge": {
+        "ml.g5.16xlarge": {
             "category": "gpu",
             "gpus": 1,
-            "vcpus": 4,
-            "memGb": 16,
-            "accelerator": "L4 24GB",
+            "vcpus": 64,
+            "memGb": 256,
+            "accelerator": "A10G 24GB",
             "cudaVersions": [
+                "11.8",
                 "12.1",
-                "12.2",
-                "12.4"
+                "12.2"
             ],
             "tags": [
                 "gpu",
                 "single-gpu",
-                "inference",
-                "l4",
-                "newer",
+                "a10g",
+                "cuda-11",
                 "cuda-12"
-            ]
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). Very high CPU/memory ratio"
         },
-        "ml.g6.2xlarge": {
+        "ml.g5.24xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 96,
+            "memGb": 384,
+            "accelerator": "4x A10G 96GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "4x NVIDIA A10G GPUs (96GB total). High CPU/memory with multi-GPU"
+        },
+        "ml.g5.2xlarge": {
             "category": "gpu",
             "gpus": 1,
             "vcpus": 8,
             "memGb": 32,
-            "accelerator": "L4 24GB",
+            "accelerator": "A10G 24GB",
             "cudaVersions": [
+                "11.8",
                 "12.1",
-                "12.2",
-                "12.4"
+                "12.2"
             ],
             "tags": [
                 "gpu",
                 "single-gpu",
                 "inference",
-                "l4",
-                "newer",
+                "a10g",
+                "cuda-11",
                 "cuda-12"
-            ]
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). Better CPU/memory for preprocessing"
+        },
+        "ml.g5.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 768,
+            "accelerator": "8x A10G 192GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "8x NVIDIA A10G GPUs (192GB total). Maximum multi-GPU configuration"
+        },
+        "ml.g5.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 64,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "large",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). High CPU/memory for complex preprocessing"
+        },
+        "ml.g5.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 128,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). Maximum CPU/memory for single GPU"
+        },
+        "ml.g5.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). Good for small to medium models"
         },
         "ml.g6.12xlarge": {
             "category": "gpu",
@@ -291,7 +406,268 @@
                 "newer",
                 "parallel",
                 "cuda-12"
-            ]
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.2",
+            "notes": "Multi-GPU (newer)"
+        },
+        "ml.g6.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.1",
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "newer",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.2",
+            "notes": "Medium GPU (newer)"
+        },
+        "ml.g6.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.1",
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "newer",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.2",
+            "notes": "Small GPU (newer)"
+        },
+        "ml.inf2.24xlarge": {
+            "category": "gpu",
+            "gpus": 6,
+            "vcpus": 96,
+            "memGb": 384,
+            "accelerator": "6x Inferentia2",
+            "cudaVersions": [
+                "2.15.0",
+                "2.16.0",
+                "2.17.0"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inferentia2",
+                "neuron"
+            ],
+            "family": "inf2",
+            "acceleratorType": "neuron",
+            "hardware": "AWS Inferentia2",
+            "gpuArchitecture": "Inferentia2",
+            "defaultCudaVersion": "2.16.0",
+            "notes": "6x Inferentia2 chips. Multi-chip for large models"
+        },
+        "ml.inf2.48xlarge": {
+            "category": "gpu",
+            "gpus": 12,
+            "vcpus": 192,
+            "memGb": 768,
+            "accelerator": "12x Inferentia2",
+            "cudaVersions": [
+                "2.15.0",
+                "2.16.0",
+                "2.17.0"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inferentia2",
+                "neuron"
+            ],
+            "family": "inf2",
+            "acceleratorType": "neuron",
+            "hardware": "AWS Inferentia2",
+            "gpuArchitecture": "Inferentia2",
+            "defaultCudaVersion": "2.16.0",
+            "notes": "12x Inferentia2 chips. Maximum multi-chip configuration"
+        },
+        "ml.inf2.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 128,
+            "accelerator": "Inferentia2",
+            "cudaVersions": [
+                "2.15.0",
+                "2.16.0",
+                "2.17.0"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inferentia2",
+                "neuron"
+            ],
+            "family": "inf2",
+            "acceleratorType": "neuron",
+            "hardware": "AWS Inferentia2",
+            "gpuArchitecture": "Inferentia2",
+            "defaultCudaVersion": "2.16.0",
+            "notes": "1x Inferentia2 chip. Higher CPU/memory for preprocessing"
+        },
+        "ml.inf2.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "Inferentia2",
+            "cudaVersions": [
+                "2.15.0",
+                "2.16.0",
+                "2.17.0"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inferentia2",
+                "neuron"
+            ],
+            "family": "inf2",
+            "acceleratorType": "neuron",
+            "hardware": "AWS Inferentia2",
+            "gpuArchitecture": "Inferentia2",
+            "defaultCudaVersion": "2.16.0",
+            "notes": "1x Inferentia2 chip. Cost-effective for transformer inference"
+        },
+        "ml.m5.2xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "large",
+                "cpu",
+                "general",
+                "high-memory"
+            ],
+            "family": "m5",
+            "acceleratorType": "cpu",
+            "hardware": "None",
+            "gpuArchitecture": "None",
+            "defaultCudaVersion": null,
+            "notes": "Large CPU workloads"
+        },
+        "ml.m5.4xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 16,
+            "memGb": 64,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "xlarge",
+                "cpu",
+                "general",
+                "high-memory",
+                "high-cpu"
+            ],
+            "family": "m5",
+            "acceleratorType": "cpu",
+            "hardware": "None",
+            "gpuArchitecture": "None",
+            "defaultCudaVersion": null,
+            "notes": "XL CPU workloads"
+        },
+        "ml.m5.large": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 2,
+            "memGb": 8,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "small",
+                "cpu",
+                "general",
+                "cheap",
+                "cost-effective",
+                "budget"
+            ],
+            "family": "m5",
+            "acceleratorType": "cpu",
+            "hardware": "None",
+            "gpuArchitecture": "None",
+            "defaultCudaVersion": null,
+            "notes": "Small CPU workloads"
+        },
+        "ml.m5.xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "medium",
+                "cpu",
+                "general",
+                "cost-effective"
+            ],
+            "family": "m5",
+            "acceleratorType": "cpu",
+            "hardware": "None",
+            "gpuArchitecture": "None",
+            "defaultCudaVersion": null,
+            "notes": "Medium CPU workloads"
+        },
+        "ml.p3.16xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 64,
+            "memGb": 488,
+            "accelerator": "8x V100 128GB",
+            "cudaVersions": [
+                "11.0",
+                "11.4",
+                "11.8"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "v100",
+                "cuda-11"
+            ],
+            "family": "p3",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA V100",
+            "gpuArchitecture": "Volta",
+            "defaultCudaVersion": "11.8",
+            "notes": "8x NVIDIA V100 GPUs (128GB total). Maximum multi-GPU configuration"
         },
         "ml.p3.2xlarge": {
             "category": "gpu",
@@ -311,7 +687,13 @@
                 "training",
                 "v100",
                 "cuda-11"
-            ]
+            ],
+            "family": "p3",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA V100",
+            "gpuArchitecture": "Volta",
+            "defaultCudaVersion": "11.8",
+            "notes": "1x NVIDIA V100 GPU (16GB). High-performance for training and inference"
         },
         "ml.p3.8xlarge": {
             "category": "gpu",
@@ -332,7 +714,99 @@
                 "v100",
                 "parallel",
                 "cuda-11"
-            ]
+            ],
+            "family": "p3",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA V100",
+            "gpuArchitecture": "Volta",
+            "defaultCudaVersion": "11.8",
+            "notes": "4x NVIDIA V100 GPUs (64GB total). Multi-GPU for large models"
+        },
+        "ml.r5.large": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 2,
+            "memGb": 16,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "memory",
+                "cpu",
+                "high-memory"
+            ],
+            "family": "r5",
+            "acceleratorType": "cpu",
+            "hardware": "None",
+            "gpuArchitecture": "None",
+            "defaultCudaVersion": null,
+            "notes": ""
+        },
+        "ml.r5.xlarge": {
+            "category": "cpu",
+            "gpus": 0,
+            "vcpus": 4,
+            "memGb": 32,
+            "accelerator": "",
+            "cudaVersions": null,
+            "tags": [
+                "memory",
+                "cpu",
+                "high-memory"
+            ],
+            "family": "r5",
+            "acceleratorType": "cpu",
+            "hardware": "None",
+            "gpuArchitecture": "None",
+            "defaultCudaVersion": null,
+            "notes": ""
+        },
+        "ml.trn1.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "Trainium",
+            "cudaVersions": [
+                "2.15.0",
+                "2.16.0",
+                "2.17.0"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "trainium",
+                "neuron"
+            ],
+            "family": "trn1",
+            "acceleratorType": "neuron",
+            "hardware": "AWS Trainium",
+            "gpuArchitecture": "Trainium1",
+            "defaultCudaVersion": "2.16.0",
+            "notes": "1x Trainium chip. Optimized for training, also supports inference"
+        },
+        "ml.trn1.32xlarge": {
+            "category": "gpu",
+            "gpus": 16,
+            "vcpus": 128,
+            "memGb": 512,
+            "accelerator": "16x Trainium",
+            "cudaVersions": [
+                "2.15.0",
+                "2.16.0",
+                "2.17.0"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "trainium",
+                "neuron"
+            ],
+            "family": "trn1",
+            "acceleratorType": "neuron",
+            "hardware": "AWS Trainium",
+            "gpuArchitecture": "Trainium1",
+            "defaultCudaVersion": "2.16.0",
+            "notes": "16x Trainium chips. Maximum multi-chip for large-scale training/inference"
         }
     },
     "recommendations": {
@@ -352,7 +826,27 @@
             "ml.g5.xlarge",
             "ml.g5.2xlarge",
             "ml.g5.4xlarge",
-            "ml.p3.2xlarge"
+            "ml.p3.2xlarge",
+            "ml.g5.12xlarge",
+            "ml.g6.xlarge",
+            "ml.g6.2xlarge",
+            "ml.g6.12xlarge",
+            "ml.p3.8xlarge",
+            "ml.g5.8xlarge",
+            "ml.g5.16xlarge",
+            "ml.g5.24xlarge",
+            "ml.g5.48xlarge",
+            "ml.g4dn.4xlarge",
+            "ml.g4dn.8xlarge",
+            "ml.g4dn.12xlarge",
+            "ml.g4dn.16xlarge",
+            "ml.p3.16xlarge",
+            "ml.inf2.xlarge",
+            "ml.inf2.8xlarge",
+            "ml.inf2.24xlarge",
+            "ml.inf2.48xlarge",
+            "ml.trn1.2xlarge",
+            "ml.trn1.32xlarge"
         ]
     }
 }

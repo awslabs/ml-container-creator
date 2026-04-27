@@ -131,6 +131,17 @@ export MODEL_FORMAT="<%= modelFormat %>"
 export ROLE_ARN="<%= roleArn %>"
 <% } %>
 
+<% if (orderedEnvVars && orderedEnvVars.length > 0) { %>
+# Runtime environment variables (from catalog)
+<% orderedEnvVars.forEach(({ key, value }) => { %>
+export <%= key %>=${<%= key %>:-<%= value %>}
+<% }); %>
+<% } %>
+
+<% if (baseImage) { %>
+export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage %>}
+<% } %>
+
 # Allow environment variable overrides
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
 <% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
@@ -145,6 +156,9 @@ echo "   Config:  ${DEPLOYMENT_CONFIG}"
 echo "   Region:  ${AWS_REGION}"
 echo "   Build target: ${BUILD_TARGET}"
 echo "   Deployment target: ${DEPLOYMENT_TARGET}"
+<% if (orderedEnvVars && orderedEnvVars.length > 0) { %>
+echo "   Runtime env vars: <%= orderedEnvVars.length %>"
+<% } %>
 <% if (deploymentTarget === 'managed-inference') { %>
 echo "   Instance: ${INSTANCE_TYPE}"
 <% } else if (deploymentTarget === 'async-inference') { %>

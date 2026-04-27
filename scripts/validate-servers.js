@@ -23,13 +23,18 @@ const manifestSchema = JSON.parse(readFileSync(resolve(schemasDir, 'manifest.sch
 const imageCatalogSchema = JSON.parse(readFileSync(resolve(schemasDir, 'image-catalog.schema.json'), 'utf8'))
 const instancesSchema = JSON.parse(readFileSync(resolve(schemasDir, 'instances.schema.json'), 'utf8'))
 const regionsSchema = JSON.parse(readFileSync(resolve(schemasDir, 'regions.schema.json'), 'utf8'))
+const tritonBackendsSchema = JSON.parse(readFileSync(resolve(schemasDir, 'triton-backends.schema.json'), 'utf8'))
+const modelCatalogSchema = JSON.parse(readFileSync(resolve(schemasDir, 'model-catalog.schema.json'), 'utf8'))
 
 // Catalog name → schema mapping
 const CATALOG_SCHEMA_MAP = {
     'model-servers': imageCatalogSchema,
     'python-slim': imageCatalogSchema,
+    'triton-backends': tritonBackendsSchema,
     'instances': instancesSchema,
-    'regions': regionsSchema
+    'regions': regionsSchema,
+    'popular-transformers': modelCatalogSchema,
+    'popular-diffusors': modelCatalogSchema
 }
 
 function createAjv() {

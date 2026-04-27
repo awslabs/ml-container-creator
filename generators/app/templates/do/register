@@ -93,165 +93,35 @@ get_engine_prefix() {
 }
 
 # ============================================================
-# Image resolution fallback chain
-# ============================================================
-
-IMAGE_SOURCE="none"
-ENV_JSON=""
-
-resolve_image() {
-    # Try 1: Local image
-    if docker image inspect "${PROJECT_NAME}:latest" &> /dev/null; then
-        IMAGE_SOURCE="local"
-        ENV_JSON=$(docker inspect --format='{{json .Config.Env}}' "${PROJECT_NAME}:latest" 2>/dev/null || echo "")
-        return 0
-    fi
-
-    # Try 2: Pull from ECR
-    echo "⚠️  Local image not found, attempting ECR pull..."
-    if ! command -v aws &> /dev/null; then
-        echo "   ⚠️  AWS CLI not found, skipping ECR pull"
-    else
-        echo "   Checking AWS credentials..."
-        AWS_ACCOUNT_ID=""
-        # Use timeout if available, otherwise run directly
-        if command -v timeout &> /dev/null; then
-            AWS_ACCOUNT_ID=$(timeout 10 aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
-        else
-            AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
-        fi
-        if [ -n "${AWS_ACCOUNT_ID}" ]; then
-            ECR_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-latest"
-
-            echo "   Authenticating with ECR (account ${AWS_ACCOUNT_ID})..."
-            if aws ecr get-login-password --region "${AWS_REGION}" 2>/dev/null | \
-                docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" &> /dev/null; then
-
-                echo "   Pulling ${ECR_IMAGE}..."
-                echo "   (this may take a few minutes for large images)"
-                if docker pull "${ECR_IMAGE}"; then
-                    IMAGE_SOURCE="ecr"
-                    ENV_JSON=$(docker inspect --format='{{json .Config.Env}}' "${ECR_IMAGE}" 2>/dev/null || echo "")
-                    return 0
-                else
-                    echo "   ⚠️  ECR pull failed"
-                fi
-            else
-                echo "   ⚠️  ECR authentication failed"
-            fi
-        else
-            echo "   ⚠️  AWS credentials not configured or timed out"
-        fi
-    fi
-
-    # Try 3: Proceed without env vars
-    echo "⚠️  Could not inspect Docker image — env vars will not be captured"
-    IMAGE_SOURCE="none"
-    ENV_JSON=""
-    return 0
-}
-
-resolve_image
-
-# ============================================================
-# Extract base image from docker inspect
-# ============================================================
-
-BASE_IMAGE=""
-
-# Try 1: Parse base image from the project's Dockerfile ARG or FROM
-PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-if [ -f "${PROJECT_DIR}/Dockerfile" ]; then
-    # Check for ARG BASE_IMAGE=<value> (used when FROM references a build arg)
-    ARG_VALUE=$(grep -m1 '^ARG BASE_IMAGE=' "${PROJECT_DIR}/Dockerfile" 2>/dev/null | sed 's/^ARG BASE_IMAGE=//' || echo "")
-    if [ -n "${ARG_VALUE}" ]; then
-        BASE_IMAGE="${ARG_VALUE}"
-    else
-        # Fall back to parsing FROM directly (works when FROM has a hardcoded image)
-        FROM_VALUE=$(grep -m1 '^FROM ' "${PROJECT_DIR}/Dockerfile" 2>/dev/null | awk '{print $2}' || echo "")
-        # Skip if it's a variable reference like ${BASE_IMAGE}
-        if [ -n "${FROM_VALUE}" ] && [[ "${FROM_VALUE}" != *'${'* ]]; then
-            BASE_IMAGE="${FROM_VALUE%% AS *}"
-            BASE_IMAGE="${BASE_IMAGE%% as *}"
-        fi
-    fi
-fi
-
-# Try 2: OCI label from docker image
-if [ -z "${BASE_IMAGE}" ] && [ "${IMAGE_SOURCE}" != "none" ]; then
-    if [ "${IMAGE_SOURCE}" = "local" ]; then
-        INSPECT_TARGET="${PROJECT_NAME}:latest"
-    else
-        INSPECT_TARGET="${ECR_IMAGE}"
-    fi
-    LABEL_VALUE=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.base.name"}}' "${INSPECT_TARGET}" 2>/dev/null || echo "")
-    if [ -n "${LABEL_VALUE}" ] && [ "${LABEL_VALUE}" != "<no value>" ]; then
-        BASE_IMAGE="${LABEL_VALUE}"
-    fi
-fi
-
-# ============================================================
-# Three-way parameter extraction
+# Build PARAMETERS JSON from shell environment (sourced by do/config)
 # ============================================================
 
 PARAMETERS="{}"
 
 case "${ARCHITECTURE}" in
-    transformers)
+    transformers|diffusors)
         # Extract env vars matching engine prefix + HF_TOKEN + HF_MODEL_ID
         ENGINE_PREFIX=$(get_engine_prefix "${BACKEND}")
 
-        if [ -n "${ENV_JSON}" ] && [ "${ENV_JSON}" != "null" ] && [ "${ENV_JSON}" != "" ]; then
-            # Parse env vars from JSON array format: ["KEY=VALUE", ...]
-            PARAMETERS=$(echo "${ENV_JSON}" | python3 -c "
-import sys, json
-env_list = json.load(sys.stdin)
+        PARAMETERS=$(python3 -c "
+import os, json
 prefix = '${ENGINE_PREFIX}'
 result = {}
-for item in env_list:
-    if '=' in item:
-        key, value = item.split('=', 1)
-        if prefix and key.startswith(prefix):
-            result[key] = value
-        elif key == 'HF_TOKEN':
-            result[key] = '***REDACTED***'
-        elif key == 'HF_MODEL_ID':
-            result[key] = value
+for key, value in os.environ.items():
+    if prefix and key.startswith(prefix):
+        result[key] = value
+    elif key == 'HF_TOKEN':
+        result[key] = '***REDACTED***'
+    elif key == 'HF_MODEL_ID':
+        result[key] = value
 print(json.dumps(result))
 " 2>/dev/null || echo "{}")
-        fi
-        ;;
-
-    diffusors)
-        # Extract env vars matching engine prefix + HF_TOKEN + HF_MODEL_ID
-        ENGINE_PREFIX=$(get_engine_prefix "${BACKEND}")
-
-        if [ -n "${ENV_JSON}" ] && [ "${ENV_JSON}" != "null" ] && [ "${ENV_JSON}" != "" ]; then
-            PARAMETERS=$(echo "${ENV_JSON}" | python3 -c "
-import sys, json
-env_list = json.load(sys.stdin)
-prefix = '${ENGINE_PREFIX}'
-result = {}
-for item in env_list:
-    if '=' in item:
-        key, value = item.split('=', 1)
-        if prefix and key.startswith(prefix):
-            result[key] = value
-        elif key == 'HF_TOKEN':
-            result[key] = '***REDACTED***'
-        elif key == 'HF_MODEL_ID':
-            result[key] = value
-print(json.dumps(result))
-" 2>/dev/null || echo "{}")
-        fi
         ;;
 
     http)
-        # Extract all env vars except system vars
-        if [ -n "${ENV_JSON}" ] && [ "${ENV_JSON}" != "null" ] && [ "${ENV_JSON}" != "" ]; then
-            PARAMETERS=$(echo "${ENV_JSON}" | python3 -c "
-import sys, json
-env_list = json.load(sys.stdin)
+        # Extract all env vars from do/config except system vars, redact secrets
+        PARAMETERS=$(python3 -c "
+import os, json
 exclude = {
     'PATH', 'PYTHONPATH', 'SAGEMAKER_BIND_TO_PORT', 'LANG', 'GPG_KEY',
     'PYTHON_VERSION', 'PYTHON_PIP_VERSION', 'PYTHON_SETUPTOOLS_VERSION',
@@ -259,14 +129,11 @@ exclude = {
 }
 redact = {'HF_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN'}
 result = {}
-for item in env_list:
-    if '=' in item:
-        key, value = item.split('=', 1)
-        if key not in exclude:
-            result[key] = '***REDACTED***' if key in redact else value
+for key, value in os.environ.items():
+    if key not in exclude:
+        result[key] = '***REDACTED***' if key in redact else value
 print(json.dumps(result))
 " 2>/dev/null || echo "{}")
-        fi
         ;;
 
     triton)
@@ -282,20 +149,8 @@ print(json.dumps(result))
             CONFIG_PBTXT=$(cat "${PROJECT_DIR}/model_repository/config.pbtxt" 2>/dev/null || echo "")
         fi
 
-        # Also capture TRITON_MODEL_REPOSITORY from docker image if available
-        TRITON_REPO_VAR=""
-        if [ -n "${ENV_JSON}" ] && [ "${ENV_JSON}" != "null" ] && [ "${ENV_JSON}" != "" ]; then
-            TRITON_REPO_VAR=$(echo "${ENV_JSON}" | python3 -c "
-import sys, json
-env_list = json.load(sys.stdin)
-for item in env_list:
-    if '=' in item:
-        key, value = item.split('=', 1)
-        if key == 'TRITON_MODEL_REPOSITORY':
-            print(value)
-            break
-" 2>/dev/null || echo "")
-        fi
+        # Read TRITON_MODEL_REPOSITORY from shell env (exported by do/config)
+        TRITON_REPO_VAR="${TRITON_MODEL_REPOSITORY:-}"
 
         # Build parameters JSON (pipe config.pbtxt via stdin to avoid quoting issues)
         PARAMETERS=$(printf '%s' "${CONFIG_PBTXT}" | python3 -c "
@@ -339,9 +194,9 @@ echo "   Strategy:          ${BATCH_STRATEGY}"
 <% } %>
 echo "   Region:            ${AWS_REGION}"
 echo "   Status:            ${STATUS}"
-echo "   Env var source:    ${IMAGE_SOURCE}"
+echo "   Env var source:    do/config"
 echo "   Parameters:        ${PARAM_COUNT} captured"
-if [ -n "${BASE_IMAGE}" ]; then
+if [ -n "${BASE_IMAGE:-}" ]; then
 echo "   Base image:        ${BASE_IMAGE}"
 fi
 if [ -n "${NOTES}" ]; then
@@ -382,7 +237,7 @@ if [ -n "${MODEL_FORMAT:-}" ]; then
 fi
 <% } %>
 
-if [ -n "${BASE_IMAGE}" ]; then
+if [ -n "${BASE_IMAGE:-}" ]; then
     CMD_ARGS+=("--base-image" "${BASE_IMAGE}")
 fi
 

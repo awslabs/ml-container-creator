@@ -17,10 +17,27 @@
 
 import fs from 'fs';
 import path from 'path';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { McpClient } from './mcp-client.js';
 import DeploymentConfigResolver from './deployment-config-resolver.js';
-import tritonBackends from '../config/registries/triton-backends.js';
+
+const __configMgrFilename = fileURLToPath(import.meta.url);
+const __configMgrDir = dirname(__configMgrFilename);
+const tritonBackendsCatalogPath = resolve(__configMgrDir, '../../../servers/base-image-picker/catalogs/triton-backends.json');
+
+function loadTritonBackendsFromCatalog() {
+    try {
+        const raw = readFileSync(tritonBackendsCatalogPath, 'utf8');
+        return JSON.parse(raw);
+    } catch (error) {
+        console.warn(`Failed to load triton backends catalog: ${error.message}`);
+        return {};
+    }
+}
+
+const tritonBackends = loadTritonBackendsFromCatalog();
 
 // Resolve the generator project root (three levels up from generators/app/lib/)
 const __filename = fileURLToPath(import.meta.url);
@@ -955,13 +972,15 @@ export default class ConfigManager {
         if (!mcpServerConfigs || !mcpServerConfigs[serverName]) return null;
 
         const smart = this.generator.options.smart === true;
+        const discover = this.generator.options.discover === true;
         const serverConfig = mcpServerConfigs[serverName];
 
         // Build a custom McpClient that passes context through
         const client = new McpClient(serverConfig, {
             timeout: 15000,
             parameterMatrix: this.parameterMatrix,
-            smart
+            smart,
+            discover
         });
 
         // Override the _buildContext to merge our search context

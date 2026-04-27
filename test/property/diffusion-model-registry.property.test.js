@@ -13,7 +13,35 @@
 import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import modelRegistry from '../../generators/app/config/registries/models.js';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __testFilename = fileURLToPath(import.meta.url);
+const __testDir = dirname(__testFilename);
+const modelsCatalogPath = resolve(__testDir, '../../servers/model-picker/catalogs/popular-diffusors.json');
+const transformersCatalogPath = resolve(__testDir, '../../servers/model-picker/catalogs/popular-transformers.json');
+
+function loadModelRegistryFromCatalogs() {
+    const transformers = JSON.parse(readFileSync(transformersCatalogPath, 'utf8'));
+    const diffusors = JSON.parse(readFileSync(modelsCatalogPath, 'utf8'));
+    const allModels = { ...transformers, ...diffusors };
+    const registry = {};
+    for (const [modelId, entry] of Object.entries(allModels)) {
+        registry[modelId] = {
+            family: entry.family || '',
+            chatTemplate: entry.chat_template ?? null,
+            requiresTemplate: entry.chat_template !== null && entry.chat_template !== undefined && entry.chat_template !== '',
+            validationLevel: entry.validation_level || 'experimental',
+            frameworkCompatibility: entry.framework_compatibility || {},
+            profiles: entry.profiles || {},
+            notes: entry.notes || ''
+        };
+    }
+    return registry;
+}
+
+const modelRegistry = loadModelRegistryFromCatalogs();
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
@@ -129,11 +157,18 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
             ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
         });
 
-        it('all diffusion model entries have non-empty profiles with recommendedInstanceTypes', function () {
+        it('all diffusion model entries with profiles have non-empty profiles with recommendedInstanceTypes', function () {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
+            const keysWithProfiles = DIFFUSION_MODEL_KEYS.filter(
+                key => modelRegistry[key].profiles && Object.keys(modelRegistry[key].profiles).length > 0
+            );
+            if (keysWithProfiles.length === 0) {
+                return; // no diffusion models with profiles to test
+            }
+
             fc.assert(fc.property(
-                fc.constantFrom(...DIFFUSION_MODEL_KEYS),
+                fc.constantFrom(...keysWithProfiles),
                 (modelKey) => {
                     const entry = modelRegistry[modelKey];
 

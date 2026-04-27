@@ -20,7 +20,7 @@ import { dirname } from 'node:path'
 import { createHash } from 'node:crypto'
 import Ajv from 'ajv'
 import { minimatch } from 'minimatch'
-import deploymentEntrySchema from '../config/schemas/deployment-entry-schema.js'
+import deploymentEntrySchema from './deployment-entry-schema.js'
 
 const CURRENT_SCHEMA_VERSION = '2026-03-20'
 

@@ -25,6 +25,16 @@
             "sglang": ">=0.2.0"
         },
         "validation_level": "tested",
+        "profiles": {
+            "7b": {
+                "displayName": "Llama-2 7B",
+                "envVars": {
+                    "MAX_MODEL_LEN": "4096",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                },
+                "recommendedInstanceTypes": ["ml.g5.xlarge", "ml.g5.2xlarge"]
+            }
+        },
         "notes": "Llama-2 7B chat model with official chat template. Requires HuggingFace authentication for download"
     },
     "meta-llama/Llama-2-13b-chat-hf": {
@@ -39,6 +49,16 @@
             "sglang": ">=0.2.0"
         },
         "validation_level": "tested",
+        "profiles": {
+            "13b": {
+                "displayName": "Llama-2 13B",
+                "envVars": {
+                    "MAX_MODEL_LEN": "4096",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                },
+                "recommendedInstanceTypes": ["ml.g5.2xlarge", "ml.g5.4xlarge"]
+            }
+        },
         "notes": "Llama-2 13B chat model. Requires more GPU memory than 7B variant"
     },
 
@@ -54,6 +74,26 @@
             "sglang": ">=0.2.0"
         },
         "validation_level": "community-validated",
+        "profiles": {
+            "70b-tp2": {
+                "displayName": "Llama-2 70B (2-GPU)",
+                "envVars": {
+                    "TENSOR_PARALLEL_SIZE": "2",
+                    "MAX_MODEL_LEN": "4096",
+                    "GPU_MEMORY_UTILIZATION": "0.95"
+                },
+                "recommendedInstanceTypes": ["ml.g5.12xlarge"]
+            },
+            "70b-tp4": {
+                "displayName": "Llama-2 70B (4-GPU)",
+                "envVars": {
+                    "TENSOR_PARALLEL_SIZE": "4",
+                    "MAX_MODEL_LEN": "4096",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                },
+                "recommendedInstanceTypes": ["ml.g5.12xlarge", "ml.g5.48xlarge"]
+            }
+        },
         "notes": "Llama-2 70B requires tensor parallelism across multiple GPUs"
     },
     "mistralai/Mistral-7B-Instruct-v0.1": {
@@ -68,6 +108,16 @@
             "sglang": ">=0.2.0"
         },
         "validation_level": "tested",
+        "profiles": {
+            "7b": {
+                "displayName": "Mistral 7B Instruct",
+                "envVars": {
+                    "MAX_MODEL_LEN": "8192",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                },
+                "recommendedInstanceTypes": ["ml.g5.xlarge", "ml.g5.2xlarge"]
+            }
+        },
         "notes": "Mistral 7B v0.1 with 8K context window"
     },
     "mistralai/Mistral-7B-Instruct-v0.2": {
@@ -82,6 +132,16 @@
             "sglang": ">=0.2.0"
         },
         "validation_level": "tested",
+        "profiles": {
+            "7b": {
+                "displayName": "Mistral 7B Instruct v0.2",
+                "envVars": {
+                    "MAX_MODEL_LEN": "32768",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                },
+                "recommendedInstanceTypes": ["ml.g5.2xlarge", "ml.g5.4xlarge"]
+            }
+        },
         "notes": "Mistral 7B v0.2 with extended 32K context window. Requires more memory for long contexts"
     },
     "mistralai/Mixtral-8x7B-Instruct-v0.1": {
@@ -96,6 +156,17 @@
             "sglang": ">=0.2.0"
         },
         "validation_level": "community-validated",
+        "profiles": {
+            "8x7b-tp2": {
+                "displayName": "Mixtral 8x7B (2-GPU)",
+                "envVars": {
+                    "TENSOR_PARALLEL_SIZE": "2",
+                    "MAX_MODEL_LEN": "32768",
+                    "GPU_MEMORY_UTILIZATION": "0.95"
+                },
+                "recommendedInstanceTypes": ["ml.g5.12xlarge"]
+            }
+        },
         "notes": "Mixtral 8x7B MoE model. Requires tensor parallelism for efficient inference"
     },
     "meta-llama/Llama-2-*": {
@@ -110,7 +181,7 @@
             "sglang": ">=0.2.0"
         },
         "validation_level": "experimental",
-        "notes": "Fallback for Llama-2 variants not explicitly listed"
+        "notes": "Fallback configuration for Llama-2 models not explicitly listed. Uses standard Llama-2 chat template"
     },
     "mistralai/Mistral-*": {
         "family": "mistral",

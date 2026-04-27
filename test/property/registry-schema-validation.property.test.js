@@ -17,7 +17,7 @@ import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'node:assert';
 import Ajv from 'ajv';
-import deploymentEntrySchema from '../../generators/app/config/schemas/deployment-entry-schema.js';
+import deploymentEntrySchema from '../../generators/app/lib/deployment-entry-schema.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

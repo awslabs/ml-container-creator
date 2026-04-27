@@ -1,0 +1,91 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "model-catalog.schema.json",
+    "type": "object",
+    "minProperties": 1,
+    "additionalProperties": {
+        "type": "object",
+        "required": [
+            "family",
+            "chat_template",
+            "gated",
+            "tags",
+            "architecture",
+            "framework_compatibility",
+            "validation_level",
+            "notes"
+        ],
+        "properties": {
+            "family": {
+                "type": "string"
+            },
+            "chat_template": {
+                "oneOf": [
+                    { "type": "string" },
+                    { "type": "null" }
+                ]
+            },
+            "gated": {
+                "type": "boolean"
+            },
+            "tags": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "architecture": {
+                "oneOf": [
+                    { "type": "string" },
+                    { "type": "null" }
+                ]
+            },
+            "framework_compatibility": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            },
+            "validation_level": {
+                "type": "string",
+                "enum": [
+                    "tested",
+                    "community-validated",
+                    "experimental",
+                    "untested"
+                ]
+            },
+            "notes": {
+                "type": "string"
+            },
+            "profiles": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "required": [
+                        "displayName"
+                    ],
+                    "properties": {
+                        "displayName": {
+                            "type": "string"
+                        },
+                        "envVars": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        },
+                        "recommendedInstanceTypes": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            }
+        },
+        "additionalProperties": false
+    }
+}

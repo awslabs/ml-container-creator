@@ -35,8 +35,7 @@ import {
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
-import instanceAcceleratorMapping from '../config/registries/instance-accelerator-mapping.js';
-import tritonBackends from '../config/registries/triton-backends.js';
+import RegistryLoader from './registry-loader.js';
 
 const __pr_filename = fileURLToPath(import.meta.url);
 const __pr_dirname = path.dirname(__pr_filename);
@@ -54,6 +53,11 @@ export default class PromptRunner {
      */
     async run() {
         const buildTimestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+        // Load catalog data via Registry_Loader
+        const registryLoader = new RegistryLoader()
+        this._tritonBackends = await registryLoader.loadTritonBackends()
+        this._instanceAcceleratorMapping = await registryLoader.loadInstanceAcceleratorMapping()
 
         // Get existing configuration to use as defaults
         const existingConfig = this.generator.baseConfig || {};
@@ -285,7 +289,7 @@ export default class PromptRunner {
         if (frameworkAnswers.architecture === 'transformers' ||
             frameworkAnswers.architecture === 'diffusors' ||
             (frameworkAnswers.architecture === 'triton' && 
-             !tritonBackends[frameworkAnswers.backend]?.supportsSampleModel)) {
+             !this._tritonBackends[frameworkAnswers.backend]?.supportsSampleModel)) {
             moduleAnswers.includeSampleModel = false;
         }
 
@@ -483,7 +487,7 @@ export default class PromptRunner {
     _getTritonAutoModelFormat(architecture, backend) {
         if (architecture !== 'triton') return null
 
-        const meta = tritonBackends[backend]
+        const meta = this._tritonBackends[backend]
         if (!meta || !meta.modelFormats) return null
 
         // Only auto-set if there's exactly one format
@@ -641,6 +645,7 @@ export default class PromptRunner {
         if (!mcpServers.includes('base-image-picker')) return
 
         const smart = this.generator.options.smart === true
+        const discover = this.generator.options.discover === true
         const framework = frameworkAnswers.framework
         const modelServer = frameworkAnswers.modelServer
         const architecture = frameworkAnswers.architecture || frameworkAnswers.deploymentConfig?.split('-')[0]
@@ -658,7 +663,8 @@ export default class PromptRunner {
             searchCriteria = searchAnswer.baseImageSearch
         }
 
-        console.log(`   🔍 Querying base-image-picker${smart ? ' [smart]' : ''}...`)
+        const modeLabel = [smart && '[smart]', discover && '[discover]'].filter(Boolean).join(' ')
+        console.log(`   🔍 Querying base-image-picker${modeLabel ? ` ${modeLabel}` : ''}...`)
 
         const context = { framework, modelServer, architecture }
         if (searchCriteria && searchCriteria.trim()) {
@@ -1159,7 +1165,7 @@ export default class PromptRunner {
         if (!instanceType) return null;
 
         // Look up instance in accelerator mapping
-        const instanceInfo = instanceAcceleratorMapping[instanceType];
+        const instanceInfo = this._instanceAcceleratorMapping[instanceType];
         if (!instanceInfo || instanceInfo.accelerator.type !== 'cuda') return null;
 
         const instanceCudaVersions = instanceInfo.accelerator.versions;
