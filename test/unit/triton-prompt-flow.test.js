@@ -99,7 +99,7 @@ describe('Triton Prompt Flow', () => {
     describe('_getTritonAutoModelFormat - Backend-specific auto-setting (Requirements 3.3, 3.4, 3.5)', () => {
         let runner;
 
-        beforeEach(() => {
+        beforeEach(async () => {
             // Create a minimal mock generator
             const mockGenerator = {
                 configManager: null,
@@ -109,6 +109,10 @@ describe('Triton Prompt Flow', () => {
                 prompt: async () => ({})
             };
             runner = new PromptRunner(mockGenerator);
+            // Load catalog data that _getTritonAutoModelFormat depends on
+            const { default: RegistryLoader } = await import('../../generators/app/lib/registry-loader.js');
+            const registryLoader = new RegistryLoader();
+            runner._tritonBackends = await registryLoader.loadTritonBackends();
         });
 
         it('should auto-set onnx for triton-onnxruntime', () => {

@@ -16,8 +16,18 @@
 import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import frameworkRegistry from '../../generators/app/config/registries/frameworks.js';
-import tritonBackends from '../../generators/app/config/registries/triton-backends.js';
+import RegistryLoader from '../../generators/app/lib/registry-loader.js';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __testFilename = fileURLToPath(import.meta.url);
+const __testDir = dirname(__testFilename);
+const tritonBackendsCatalogPath = resolve(__testDir, '../../servers/base-image-picker/catalogs/triton-backends.json');
+const tritonBackends = JSON.parse(readFileSync(tritonBackendsCatalogPath, 'utf8'));
+
+const loader = new RegistryLoader();
+const frameworkRegistry = await loader.loadFrameworkRegistry();
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

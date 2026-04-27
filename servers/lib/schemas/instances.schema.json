@@ -61,6 +61,37 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    "family": {
+                        "type": "string"
+                    },
+                    "acceleratorType": {
+                        "type": "string",
+                        "enum": [
+                            "cuda",
+                            "neuron",
+                            "cpu",
+                            "rocm"
+                        ]
+                    },
+                    "hardware": {
+                        "type": "string"
+                    },
+                    "gpuArchitecture": {
+                        "type": "string"
+                    },
+                    "defaultCudaVersion": {
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "notes": {
+                        "type": "string"
                     }
                 },
                 "additionalProperties": false

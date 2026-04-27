@@ -14,7 +14,14 @@ import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
 import DeploymentConfigResolver from '../../generators/app/lib/deployment-config-resolver.js';
-import tritonBackends from '../../generators/app/config/registries/triton-backends.js';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __testFilename = fileURLToPath(import.meta.url);
+const __testDir = dirname(__testFilename);
+const tritonBackendsCatalogPath = resolve(__testDir, '../../servers/base-image-picker/catalogs/triton-backends.json');
+const tritonBackends = JSON.parse(readFileSync(tritonBackendsCatalogPath, 'utf8'));
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

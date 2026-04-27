@@ -5,18 +5,166 @@
             "tag": "v0.10.1",
             "architecture": "amd64",
             "created": "2025-01-15T00:00:00Z",
-            "labels": { "cuda_version": "12.4", "python_version": "3.12", "framework_version": "0.10.1" },
+            "labels": {
+                "cuda_version": "12.4",
+                "python_version": "3.12",
+                "framework_version": "0.10.1"
+            },
             "registry": "dockerhub",
-            "repository": "vllm/vllm-openai"
+            "repository": "vllm/vllm-openai",
+            "defaults": {
+                "envVars": {
+                    "VLLM_TENSOR_PARALLEL_SIZE": "1",
+                    "VLLM_GPU_MEMORY_UTILIZATION": "0.9",
+                    "VLLM_MAX_NUM_SEQS": "256",
+                    "VLLM_MAX_MODEL_LEN": "4096",
+                    "VLLM_ENABLE_PREFIX_CACHING": "true"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.1",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.3"
+                }
+            },
+            "validationLevel": "tested",
+            "profiles": {
+                "low-latency": {
+                    "displayName": "Low Latency",
+                    "description": "Optimized for single-request latency with prefix caching",
+                    "envVars": {
+                        "VLLM_MAX_NUM_SEQS": "32",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.85",
+                        "VLLM_ENABLE_PREFIX_CACHING": "true"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge"
+                    ],
+                    "notes": "Prefix caching improves latency for repeated prompts"
+                },
+                "high-throughput": {
+                    "displayName": "High Throughput",
+                    "description": "Optimized for batch processing with continuous batching",
+                    "envVars": {
+                        "VLLM_MAX_NUM_SEQS": "512",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.95",
+                        "VLLM_MAX_MODEL_LEN": "2048",
+                        "VLLM_ENABLE_PREFIX_CACHING": "false"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.4xlarge",
+                        "ml.g5.12xlarge"
+                    ],
+                    "notes": "Continuous batching maximizes GPU utilization"
+                },
+                "multi-gpu": {
+                    "displayName": "Multi-GPU",
+                    "description": "Tensor parallel across multiple GPUs for large models",
+                    "envVars": {
+                        "VLLM_TENSOR_PARALLEL_SIZE": "4",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.9",
+                        "VLLM_MAX_NUM_SEQS": "256"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.12xlarge",
+                        "ml.g5.48xlarge"
+                    ],
+                    "notes": "Requires instance with 4+ GPUs. Set TENSOR_PARALLEL_SIZE to match GPU count"
+                }
+            },
+            "notes": "vLLM 0.4.0 adds prefix caching and improved performance. Requires CUDA 12.0+"
         },
         {
             "image": "vllm/vllm-openai:v0.9.1",
             "tag": "v0.9.1",
             "architecture": "amd64",
             "created": "2024-12-10T00:00:00Z",
-            "labels": { "cuda_version": "12.1", "python_version": "3.12", "framework_version": "0.9.1" },
+            "labels": {
+                "cuda_version": "12.1",
+                "python_version": "3.12",
+                "framework_version": "0.9.1"
+            },
             "registry": "dockerhub",
-            "repository": "vllm/vllm-openai"
+            "repository": "vllm/vllm-openai",
+            "defaults": {
+                "envVars": {
+                    "VLLM_TENSOR_PARALLEL_SIZE": "1",
+                    "VLLM_GPU_MEMORY_UTILIZATION": "0.9",
+                    "VLLM_MAX_NUM_SEQS": "256",
+                    "VLLM_MAX_MODEL_LEN": "4096",
+                    "VLLM_ENABLE_PREFIX_CACHING": "true"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.1",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.3"
+                }
+            },
+            "validationLevel": "tested",
+            "profiles": {
+                "low-latency": {
+                    "displayName": "Low Latency",
+                    "description": "Optimized for single-request latency with prefix caching",
+                    "envVars": {
+                        "VLLM_MAX_NUM_SEQS": "32",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.85",
+                        "VLLM_ENABLE_PREFIX_CACHING": "true"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge"
+                    ],
+                    "notes": "Prefix caching improves latency for repeated prompts"
+                },
+                "high-throughput": {
+                    "displayName": "High Throughput",
+                    "description": "Optimized for batch processing with continuous batching",
+                    "envVars": {
+                        "VLLM_MAX_NUM_SEQS": "512",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.95",
+                        "VLLM_MAX_MODEL_LEN": "2048",
+                        "VLLM_ENABLE_PREFIX_CACHING": "false"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.4xlarge",
+                        "ml.g5.12xlarge"
+                    ],
+                    "notes": "Continuous batching maximizes GPU utilization"
+                },
+                "multi-gpu": {
+                    "displayName": "Multi-GPU",
+                    "description": "Tensor parallel across multiple GPUs for large models",
+                    "envVars": {
+                        "VLLM_TENSOR_PARALLEL_SIZE": "4",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.9",
+                        "VLLM_MAX_NUM_SEQS": "256"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.12xlarge",
+                        "ml.g5.48xlarge"
+                    ],
+                    "notes": "Requires instance with 4+ GPUs. Set TENSOR_PARALLEL_SIZE to match GPU count"
+                }
+            },
+            "notes": "vLLM 0.4.0 adds prefix caching and improved performance. Requires CUDA 12.0+"
         }
     ],
     "sglang": [
@@ -25,39 +173,308 @@
             "tag": "v0.5.4.post1-cu121",
             "architecture": "amd64",
             "created": "2025-01-20T00:00:00Z",
-            "labels": { "cuda_version": "12.1", "python_version": "3.10", "framework_version": "0.5.4" },
+            "labels": {
+                "cuda_version": "12.1",
+                "python_version": "3.10",
+                "framework_version": "0.5.4"
+            },
             "registry": "dockerhub",
-            "repository": "lmsysorg/sglang"
+            "repository": "lmsysorg/sglang",
+            "defaults": {
+                "envVars": {
+                    "SGLANG_TENSOR_PARALLEL_SIZE": "1",
+                    "SGLANG_MEM_FRACTION": "0.9",
+                    "SGLANG_MAX_RUNNING_REQUESTS": "256",
+                    "SGLANG_CONTEXT_LENGTH": "4096"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.1",
+                "versionRange": {
+                    "min": "11.8",
+                    "max": "12.2"
+                }
+            },
+            "validationLevel": "experimental",
+            "profiles": {
+                "default": {
+                    "displayName": "Default Configuration",
+                    "description": "Balanced configuration for general use",
+                    "envVars": {
+                        "SGLANG_MAX_RUNNING_REQUESTS": "256",
+                        "SGLANG_MEM_FRACTION": "0.9"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge"
+                    ],
+                    "notes": "Good starting point for most workloads"
+                },
+                "high-throughput": {
+                    "displayName": "High Throughput",
+                    "description": "Optimized for maximum throughput with RadixAttention",
+                    "envVars": {
+                        "SGLANG_MAX_RUNNING_REQUESTS": "512",
+                        "SGLANG_MEM_FRACTION": "0.95",
+                        "SGLANG_CONTEXT_LENGTH": "2048",
+                        "SGLANG_ENABLE_RADIX_CACHE": "true"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.4xlarge",
+                        "ml.g5.12xlarge"
+                    ],
+                    "notes": "RadixAttention provides automatic KV cache reuse for improved throughput"
+                }
+            },
+            "notes": "SGLang 0.2.0 features RadixAttention for automatic KV cache reuse. Experimental support"
         },
         {
             "image": "lmsysorg/sglang:v0.4.6-cu121",
             "tag": "v0.4.6-cu121",
             "architecture": "amd64",
             "created": "2024-11-15T00:00:00Z",
-            "labels": { "cuda_version": "12.1", "python_version": "3.10", "framework_version": "0.4.6" },
+            "labels": {
+                "cuda_version": "12.1",
+                "python_version": "3.10",
+                "framework_version": "0.4.6"
+            },
             "registry": "dockerhub",
-            "repository": "lmsysorg/sglang"
+            "repository": "lmsysorg/sglang",
+            "defaults": {
+                "envVars": {
+                    "SGLANG_TENSOR_PARALLEL_SIZE": "1",
+                    "SGLANG_MEM_FRACTION": "0.9",
+                    "SGLANG_MAX_RUNNING_REQUESTS": "256",
+                    "SGLANG_CONTEXT_LENGTH": "4096"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.1",
+                "versionRange": {
+                    "min": "11.8",
+                    "max": "12.2"
+                }
+            },
+            "validationLevel": "experimental",
+            "profiles": {
+                "default": {
+                    "displayName": "Default Configuration",
+                    "description": "Balanced configuration for general use",
+                    "envVars": {
+                        "SGLANG_MAX_RUNNING_REQUESTS": "256",
+                        "SGLANG_MEM_FRACTION": "0.9"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge"
+                    ],
+                    "notes": "Good starting point for most workloads"
+                },
+                "high-throughput": {
+                    "displayName": "High Throughput",
+                    "description": "Optimized for maximum throughput with RadixAttention",
+                    "envVars": {
+                        "SGLANG_MAX_RUNNING_REQUESTS": "512",
+                        "SGLANG_MEM_FRACTION": "0.95",
+                        "SGLANG_CONTEXT_LENGTH": "2048",
+                        "SGLANG_ENABLE_RADIX_CACHE": "true"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.4xlarge",
+                        "ml.g5.12xlarge"
+                    ],
+                    "notes": "RadixAttention provides automatic KV cache reuse for improved throughput"
+                }
+            },
+            "notes": "SGLang 0.2.0 features RadixAttention for automatic KV cache reuse. Experimental support"
         }
     ],
-
     "tensorrt-llm": [
         {
             "image": "nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc8",
             "tag": "1.2.0rc8",
             "architecture": "amd64",
             "created": "2025-01-05T00:00:00Z",
-            "labels": { "cuda_version": "12.4", "python_version": "3.10", "framework_version": "1.2.0" },
+            "labels": {
+                "cuda_version": "12.4",
+                "python_version": "3.10",
+                "framework_version": "1.2.0"
+            },
             "registry": "ngc",
-            "repository": "nvidia/tensorrt-llm"
+            "repository": "nvidia/tensorrt-llm",
+            "defaults": {
+                "envVars": {
+                    "TRTLLM_TENSOR_PARALLEL_SIZE": "1",
+                    "TRTLLM_PIPELINE_PARALLEL_SIZE": "1",
+                    "TRTLLM_MAX_BATCH_SIZE": "8",
+                    "TRTLLM_MAX_INPUT_LEN": "2048",
+                    "TRTLLM_MAX_OUTPUT_LEN": "512",
+                    "TRTLLM_ENABLE_CHUNKED_CONTEXT": "true",
+                    "UCX_MEMTYPE_CACHE": "n"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge",
+                    "ml.g5.48xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.2",
+                "versionRange": {
+                    "min": "12.1",
+                    "max": "12.3"
+                }
+            },
+            "validationLevel": "tested",
+            "profiles": {
+                "fp16": {
+                    "displayName": "FP16 Precision",
+                    "description": "Half-precision inference with chunked context support",
+                    "envVars": {
+                        "TRTLLM_DTYPE": "float16",
+                        "TRTLLM_MAX_BATCH_SIZE": "16",
+                        "TRTLLM_ENABLE_CHUNKED_CONTEXT": "true"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.2xlarge",
+                        "ml.g5.4xlarge"
+                    ],
+                    "notes": "Chunked context allows processing longer sequences"
+                },
+                "int8": {
+                    "displayName": "INT8 Quantization",
+                    "description": "8-bit quantization with weight-only quantization",
+                    "envVars": {
+                        "TRTLLM_DTYPE": "int8",
+                        "TRTLLM_MAX_BATCH_SIZE": "32",
+                        "TRTLLM_USE_WEIGHT_ONLY": "true",
+                        "TRTLLM_WEIGHT_ONLY_PRECISION": "int8"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge"
+                    ],
+                    "notes": "Weight-only quantization provides best speed/accuracy tradeoff"
+                },
+                "int4": {
+                    "displayName": "INT4 Quantization",
+                    "description": "4-bit quantization for maximum memory efficiency",
+                    "envVars": {
+                        "TRTLLM_DTYPE": "int4",
+                        "TRTLLM_MAX_BATCH_SIZE": "64",
+                        "TRTLLM_USE_WEIGHT_ONLY": "true",
+                        "TRTLLM_WEIGHT_ONLY_PRECISION": "int4"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge"
+                    ],
+                    "notes": "Enables running larger models on smaller instances with acceptable accuracy"
+                }
+            },
+            "notes": "TensorRT-LLM 1.0.0 adds chunked context and INT4 support. Requires CUDA 12.1+"
         },
         {
             "image": "nvcr.io/nvidia/tensorrt-llm/release:1.1.0",
             "tag": "1.1.0",
             "architecture": "amd64",
             "created": "2024-10-20T00:00:00Z",
-            "labels": { "cuda_version": "12.1", "python_version": "3.10", "framework_version": "1.1.0" },
+            "labels": {
+                "cuda_version": "12.1",
+                "python_version": "3.10",
+                "framework_version": "1.1.0"
+            },
             "registry": "ngc",
-            "repository": "nvidia/tensorrt-llm"
+            "repository": "nvidia/tensorrt-llm",
+            "defaults": {
+                "envVars": {
+                    "TRTLLM_TENSOR_PARALLEL_SIZE": "1",
+                    "TRTLLM_PIPELINE_PARALLEL_SIZE": "1",
+                    "TRTLLM_MAX_BATCH_SIZE": "8",
+                    "TRTLLM_MAX_INPUT_LEN": "2048",
+                    "TRTLLM_MAX_OUTPUT_LEN": "512",
+                    "TRTLLM_ENABLE_CHUNKED_CONTEXT": "true",
+                    "UCX_MEMTYPE_CACHE": "n"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge",
+                    "ml.g5.48xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.2",
+                "versionRange": {
+                    "min": "12.1",
+                    "max": "12.3"
+                }
+            },
+            "validationLevel": "tested",
+            "profiles": {
+                "fp16": {
+                    "displayName": "FP16 Precision",
+                    "description": "Half-precision inference with chunked context support",
+                    "envVars": {
+                        "TRTLLM_DTYPE": "float16",
+                        "TRTLLM_MAX_BATCH_SIZE": "16",
+                        "TRTLLM_ENABLE_CHUNKED_CONTEXT": "true"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.2xlarge",
+                        "ml.g5.4xlarge"
+                    ],
+                    "notes": "Chunked context allows processing longer sequences"
+                },
+                "int8": {
+                    "displayName": "INT8 Quantization",
+                    "description": "8-bit quantization with weight-only quantization",
+                    "envVars": {
+                        "TRTLLM_DTYPE": "int8",
+                        "TRTLLM_MAX_BATCH_SIZE": "32",
+                        "TRTLLM_USE_WEIGHT_ONLY": "true",
+                        "TRTLLM_WEIGHT_ONLY_PRECISION": "int8"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge"
+                    ],
+                    "notes": "Weight-only quantization provides best speed/accuracy tradeoff"
+                },
+                "int4": {
+                    "displayName": "INT4 Quantization",
+                    "description": "4-bit quantization for maximum memory efficiency",
+                    "envVars": {
+                        "TRTLLM_DTYPE": "int4",
+                        "TRTLLM_MAX_BATCH_SIZE": "64",
+                        "TRTLLM_USE_WEIGHT_ONLY": "true",
+                        "TRTLLM_WEIGHT_ONLY_PRECISION": "int4"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge"
+                    ],
+                    "notes": "Enables running larger models on smaller instances with acceptable accuracy"
+                }
+            },
+            "notes": "TensorRT-LLM 1.0.0 adds chunked context and INT4 support. Requires CUDA 12.1+"
         }
     ],
     "lmi": [
@@ -66,18 +483,192 @@
             "tag": "0.32.0-lmi14.0.0-cu126",
             "architecture": "amd64",
             "created": "2025-01-12T00:00:00Z",
-            "labels": { "cuda_version": "12.6", "python_version": "3.10", "framework_version": "14.0.0" },
+            "labels": {
+                "cuda_version": "12.6",
+                "python_version": "3.10",
+                "framework_version": "14.0.0"
+            },
             "registry": "ecr",
-            "repository": "djl-inference"
+            "repository": "djl-inference",
+            "defaults": {
+                "envVars": {
+                    "SERVING_PORT": "8080",
+                    "OPTION_TENSOR_PARALLEL_DEGREE": "1",
+                    "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
+                    "OPTION_DTYPE": "fp16"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.6",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "tested",
+            "profiles": {
+                "vllm-backend": {
+                    "displayName": "vLLM Backend",
+                    "description": "Use vLLM as the inference backend for LMI",
+                    "envVars": {
+                        "OPTION_ROLLING_BATCH": "vllm",
+                        "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
+                        "OPTION_DTYPE": "fp16"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge"
+                    ],
+                    "notes": "vLLM backend provides excellent performance for most models"
+                },
+                "tensorrt-backend": {
+                    "displayName": "TensorRT-LLM Backend",
+                    "description": "Use TensorRT-LLM for maximum performance",
+                    "envVars": {
+                        "OPTION_ROLLING_BATCH": "tensorrt-llm",
+                        "OPTION_MAX_ROLLING_BATCH_SIZE": "16",
+                        "OPTION_DTYPE": "fp16"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.2xlarge",
+                        "ml.g5.4xlarge"
+                    ],
+                    "notes": "TensorRT-LLM provides best performance but requires model compilation"
+                },
+                "lmi-dist": {
+                    "displayName": "LMI-Dist (DeepSpeed)",
+                    "description": "Use LMI-Dist with DeepSpeed for large models",
+                    "envVars": {
+                        "OPTION_ROLLING_BATCH": "lmi-dist",
+                        "OPTION_TENSOR_PARALLEL_DEGREE": "4",
+                        "OPTION_MAX_ROLLING_BATCH_SIZE": "64"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.12xlarge",
+                        "ml.g5.48xlarge"
+                    ],
+                    "notes": "Best for very large models requiring multi-GPU tensor parallelism"
+                },
+                "auto": {
+                    "displayName": "Auto Backend Selection",
+                    "description": "Let LMI automatically select the best backend",
+                    "envVars": {
+                        "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
+                        "OPTION_DTYPE": "fp16"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge",
+                        "ml.g5.4xlarge"
+                    ],
+                    "notes": "LMI will analyze your model and select the optimal backend automatically"
+                }
+            },
+            "notes": "AWS Large Model Inference (LMI) 14.0.0 with automatic backend selection. Supports vLLM, TensorRT-LLM, LMI-Dist, and Transformers NeuronX backends"
         },
         {
             "image": "763104351884.dkr.ecr.us-east-1.amazonaws.com/djl-inference:0.31.0-lmi13.0.0-cu124",
             "tag": "0.31.0-lmi13.0.0-cu124",
             "architecture": "amd64",
             "created": "2024-11-01T00:00:00Z",
-            "labels": { "cuda_version": "12.4", "python_version": "3.10", "framework_version": "13.0.0" },
+            "labels": {
+                "cuda_version": "12.4",
+                "python_version": "3.10",
+                "framework_version": "13.0.0"
+            },
             "registry": "ecr",
-            "repository": "djl-inference"
+            "repository": "djl-inference",
+            "defaults": {
+                "envVars": {
+                    "SERVING_PORT": "8080",
+                    "OPTION_TENSOR_PARALLEL_DEGREE": "1",
+                    "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
+                    "OPTION_DTYPE": "fp16"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.6",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "tested",
+            "profiles": {
+                "vllm-backend": {
+                    "displayName": "vLLM Backend",
+                    "description": "Use vLLM as the inference backend for LMI",
+                    "envVars": {
+                        "OPTION_ROLLING_BATCH": "vllm",
+                        "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
+                        "OPTION_DTYPE": "fp16"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge"
+                    ],
+                    "notes": "vLLM backend provides excellent performance for most models"
+                },
+                "tensorrt-backend": {
+                    "displayName": "TensorRT-LLM Backend",
+                    "description": "Use TensorRT-LLM for maximum performance",
+                    "envVars": {
+                        "OPTION_ROLLING_BATCH": "tensorrt-llm",
+                        "OPTION_MAX_ROLLING_BATCH_SIZE": "16",
+                        "OPTION_DTYPE": "fp16"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.2xlarge",
+                        "ml.g5.4xlarge"
+                    ],
+                    "notes": "TensorRT-LLM provides best performance but requires model compilation"
+                },
+                "lmi-dist": {
+                    "displayName": "LMI-Dist (DeepSpeed)",
+                    "description": "Use LMI-Dist with DeepSpeed for large models",
+                    "envVars": {
+                        "OPTION_ROLLING_BATCH": "lmi-dist",
+                        "OPTION_TENSOR_PARALLEL_DEGREE": "4",
+                        "OPTION_MAX_ROLLING_BATCH_SIZE": "64"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.12xlarge",
+                        "ml.g5.48xlarge"
+                    ],
+                    "notes": "Best for very large models requiring multi-GPU tensor parallelism"
+                },
+                "auto": {
+                    "displayName": "Auto Backend Selection",
+                    "description": "Let LMI automatically select the best backend",
+                    "envVars": {
+                        "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
+                        "OPTION_DTYPE": "fp16"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge",
+                        "ml.g5.4xlarge"
+                    ],
+                    "notes": "LMI will analyze your model and select the optimal backend automatically"
+                }
+            },
+            "notes": "AWS Large Model Inference (LMI) 14.0.0 with automatic backend selection. Supports vLLM, TensorRT-LLM, LMI-Dist, and Transformers NeuronX backends"
         }
     ],
     "djl": [
@@ -86,18 +677,132 @@
             "tag": "0.36.0-pytorch-gpu",
             "architecture": "amd64",
             "created": "2025-01-08T00:00:00Z",
-            "labels": { "cuda_version": "12.6", "python_version": "3.10", "framework_version": "0.36.0" },
+            "labels": {
+                "cuda_version": "12.6",
+                "python_version": "3.10",
+                "framework_version": "0.36.0"
+            },
             "registry": "dockerhub",
-            "repository": "deepjavalibrary/djl-serving"
+            "repository": "deepjavalibrary/djl-serving",
+            "defaults": {
+                "envVars": {
+                    "SERVING_PORT": "8080",
+                    "OPTION_TENSOR_PARALLEL_DEGREE": "1",
+                    "OPTION_DEVICE_MAP": "auto"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.6",
+                "versionRange": {
+                    "min": "11.8",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "community-validated",
+            "profiles": {
+                "pytorch": {
+                    "displayName": "PyTorch Engine",
+                    "description": "Use PyTorch as the inference engine",
+                    "envVars": {
+                        "ENGINE": "Python",
+                        "OPTION_DEVICE_MAP": "auto",
+                        "BATCH_SIZE": "1"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge"
+                    ],
+                    "notes": "PyTorch engine provides good compatibility with HuggingFace models"
+                },
+                "multi-gpu": {
+                    "displayName": "Multi-GPU",
+                    "description": "Tensor parallel across multiple GPUs",
+                    "envVars": {
+                        "ENGINE": "Python",
+                        "OPTION_TENSOR_PARALLEL_DEGREE": "4",
+                        "OPTION_DEVICE_MAP": "auto"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.12xlarge",
+                        "ml.g5.48xlarge"
+                    ],
+                    "notes": "Distribute model across multiple GPUs for large models"
+                }
+            },
+            "notes": "DJL Serving 0.32.0 with PyTorch backend. Flexible Java-based serving framework with Python engine support"
         },
         {
             "image": "deepjavalibrary/djl-serving:0.35.0-pytorch-gpu",
             "tag": "0.35.0-pytorch-gpu",
             "architecture": "amd64",
             "created": "2024-10-15T00:00:00Z",
-            "labels": { "cuda_version": "12.4", "python_version": "3.10", "framework_version": "0.35.0" },
+            "labels": {
+                "cuda_version": "12.4",
+                "python_version": "3.10",
+                "framework_version": "0.35.0"
+            },
             "registry": "dockerhub",
-            "repository": "deepjavalibrary/djl-serving"
+            "repository": "deepjavalibrary/djl-serving",
+            "defaults": {
+                "envVars": {
+                    "SERVING_PORT": "8080",
+                    "OPTION_TENSOR_PARALLEL_DEGREE": "1",
+                    "OPTION_DEVICE_MAP": "auto"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.6",
+                "versionRange": {
+                    "min": "11.8",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "community-validated",
+            "profiles": {
+                "pytorch": {
+                    "displayName": "PyTorch Engine",
+                    "description": "Use PyTorch as the inference engine",
+                    "envVars": {
+                        "ENGINE": "Python",
+                        "OPTION_DEVICE_MAP": "auto",
+                        "BATCH_SIZE": "1"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.xlarge",
+                        "ml.g5.2xlarge"
+                    ],
+                    "notes": "PyTorch engine provides good compatibility with HuggingFace models"
+                },
+                "multi-gpu": {
+                    "displayName": "Multi-GPU",
+                    "description": "Tensor parallel across multiple GPUs",
+                    "envVars": {
+                        "ENGINE": "Python",
+                        "OPTION_TENSOR_PARALLEL_DEGREE": "4",
+                        "OPTION_DEVICE_MAP": "auto"
+                    },
+                    "recommendedInstanceTypes": [
+                        "ml.g5.12xlarge",
+                        "ml.g5.48xlarge"
+                    ],
+                    "notes": "Distribute model across multiple GPUs for large models"
+                }
+            },
+            "notes": "DJL Serving 0.32.0 with PyTorch backend. Flexible Java-based serving framework with Python engine support"
         }
     ],
     "vllm-omni": [
@@ -106,18 +811,381 @@
             "tag": "v0.16.0",
             "architecture": "amd64",
             "created": "2026-02-01T00:00:00Z",
-            "labels": { "cuda_version": "12.4", "python_version": "3.12", "framework_version": "0.16.0" },
+            "labels": {
+                "cuda_version": "12.4",
+                "python_version": "3.12",
+                "framework_version": "0.16.0"
+            },
             "registry": "dockerhub",
-            "repository": "vllm/vllm-omni"
+            "repository": "vllm/vllm-omni",
+            "defaults": {
+                "envVars": {
+                    "HF_TOKEN": "${hfToken}",
+                    "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.4",
+                "versionRange": {
+                    "min": "12.1",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "profiles": {
+                "quality": {
+                    "displayName": "Quality",
+                    "description": "Higher step count for better image quality",
+                    "envVars": {},
+                    "recommendedInstanceTypes": [
+                        "ml.g5.4xlarge",
+                        "ml.g5.12xlarge"
+                    ],
+                    "notes": "Best image quality, no cache acceleration, VAE tiling for memory efficiency"
+                },
+                "speed": {
+                    "displayName": "Speed",
+                    "description": "Cache acceleration for faster generation",
+                    "envVars": {},
+                    "recommendedInstanceTypes": [
+                        "ml.g5.2xlarge",
+                        "ml.g5.4xlarge"
+                    ],
+                    "notes": "TeaCache acceleration reduces redundant computation between denoising steps"
+                },
+                "multi-gpu": {
+                    "displayName": "Multi-GPU",
+                    "description": "Sequence parallelism for large diffusion models",
+                    "envVars": {},
+                    "recommendedInstanceTypes": [
+                        "ml.g5.12xlarge",
+                        "ml.g5.48xlarge"
+                    ],
+                    "notes": "Ulysses sequence parallelism for large models like FLUX on multi-GPU instances"
+                }
+            },
+            "notes": "vLLM-Omni (separate project from vLLM) with diffusion model support. Requires CUDA 12.1+ and GPU instance. Supports FLUX, SD3.5, Qwen-Image, Z-Image-Turbo, Bagel, and other DiT model families. Uses --omni flag for serving. Default port 8000 remapped to 8080 for SageMaker."
         },
         {
             "image": "vllm/vllm-omni:v0.14.0",
             "tag": "v0.14.0",
             "architecture": "amd64",
             "created": "2025-11-15T00:00:00Z",
-            "labels": { "cuda_version": "12.4", "python_version": "3.12", "framework_version": "0.14.0" },
+            "labels": {
+                "cuda_version": "12.4",
+                "python_version": "3.12",
+                "framework_version": "0.14.0"
+            },
             "registry": "dockerhub",
-            "repository": "vllm/vllm-omni"
+            "repository": "vllm/vllm-omni",
+            "defaults": {
+                "envVars": {
+                    "HF_TOKEN": "${hfToken}",
+                    "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.4",
+                "versionRange": {
+                    "min": "12.1",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "profiles": {
+                "quality": {
+                    "displayName": "Quality",
+                    "description": "Higher step count for better image quality",
+                    "envVars": {},
+                    "recommendedInstanceTypes": [
+                        "ml.g5.4xlarge",
+                        "ml.g5.12xlarge"
+                    ],
+                    "notes": "Best image quality, no cache acceleration, VAE tiling for memory efficiency"
+                },
+                "speed": {
+                    "displayName": "Speed",
+                    "description": "Cache acceleration for faster generation",
+                    "envVars": {},
+                    "recommendedInstanceTypes": [
+                        "ml.g5.2xlarge",
+                        "ml.g5.4xlarge"
+                    ],
+                    "notes": "TeaCache acceleration reduces redundant computation between denoising steps"
+                },
+                "multi-gpu": {
+                    "displayName": "Multi-GPU",
+                    "description": "Sequence parallelism for large diffusion models",
+                    "envVars": {},
+                    "recommendedInstanceTypes": [
+                        "ml.g5.12xlarge",
+                        "ml.g5.48xlarge"
+                    ],
+                    "notes": "Ulysses sequence parallelism for large models like FLUX on multi-GPU instances"
+                }
+            },
+            "notes": "vLLM-Omni (separate project from vLLM) with diffusion model support. Requires CUDA 12.1+ and GPU instance. Supports FLUX, SD3.5, Qwen-Image, Z-Image-Turbo, Bagel, and other DiT model families. Uses --omni flag for serving. Default port 8000 remapped to 8080 for SageMaker."
+        }
+    ],
+    "triton-fil": [
+        {
+            "image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+            "tag": "24.08",
+            "architecture": "amd64",
+            "created": "2026-03-25T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.5",
+                "python_version": "3.10",
+                "framework_version": "24.08"
+            },
+            "registry": "ngc",
+            "repository": "nvcr.io/nvidia/tritonserver",
+            "defaults": {
+                "envVars": {
+                    "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.5",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "Triton FIL backend for tree-based models (XGBoost, LightGBM). GPU optional but recommended for performance"
+        }
+    ],
+    "triton-onnxruntime": [
+        {
+            "image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+            "tag": "24.08",
+            "architecture": "amd64",
+            "created": "2026-03-25T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.5",
+                "python_version": "3.10",
+                "framework_version": "24.08"
+            },
+            "registry": "ngc",
+            "repository": "nvcr.io/nvidia/tritonserver",
+            "defaults": {
+                "envVars": {
+                    "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.5",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "Triton ONNX Runtime backend for ONNX models. GPU optional but recommended for performance"
+        }
+    ],
+    "triton-tensorflow": [
+        {
+            "image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+            "tag": "24.08",
+            "architecture": "amd64",
+            "created": "2026-03-25T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.5",
+                "python_version": "3.10",
+                "framework_version": "24.08"
+            },
+            "registry": "ngc",
+            "repository": "nvcr.io/nvidia/tritonserver",
+            "defaults": {
+                "envVars": {
+                    "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.5",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "Triton TensorFlow backend for SavedModel format. GPU optional but recommended for performance"
+        }
+    ],
+    "triton-pytorch": [
+        {
+            "image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+            "tag": "24.08",
+            "architecture": "amd64",
+            "created": "2026-03-25T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.5",
+                "python_version": "3.10",
+                "framework_version": "24.08"
+            },
+            "registry": "ngc",
+            "repository": "nvcr.io/nvidia/tritonserver",
+            "defaults": {
+                "envVars": {
+                    "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.5",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "Triton PyTorch backend for TorchScript models. GPU recommended for performance"
+        }
+    ],
+    "triton-vllm": [
+        {
+            "image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+            "tag": "24.08",
+            "architecture": "amd64",
+            "created": "2026-03-25T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.5",
+                "python_version": "3.10",
+                "framework_version": "24.08"
+            },
+            "registry": "ngc",
+            "repository": "nvcr.io/nvidia/tritonserver",
+            "defaults": {
+                "envVars": {
+                    "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.5",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "Triton vLLM backend for LLM serving. Requires GPU instance"
+        }
+    ],
+    "triton-tensorrtllm": [
+        {
+            "image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+            "tag": "24.08",
+            "architecture": "amd64",
+            "created": "2026-03-25T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.5",
+                "python_version": "3.10",
+                "framework_version": "24.08"
+            },
+            "registry": "ngc",
+            "repository": "nvcr.io/nvidia/tritonserver",
+            "defaults": {
+                "envVars": {
+                    "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.2xlarge",
+                    "ml.g5.4xlarge",
+                    "ml.g5.12xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.5",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "Triton TensorRT-LLM backend for optimized LLM serving. Requires GPU instance"
+        }
+    ],
+    "triton-python": [
+        {
+            "image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+            "tag": "24.08",
+            "architecture": "amd64",
+            "created": "2026-03-25T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.5",
+                "python_version": "3.10",
+                "framework_version": "24.08"
+            },
+            "registry": "ngc",
+            "repository": "nvcr.io/nvidia/tritonserver",
+            "defaults": {
+                "envVars": {
+                    "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+                "recommendedInstanceTypes": [
+                    "ml.g5.xlarge",
+                    "ml.g5.2xlarge"
+                ]
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.5",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "Triton Python backend for custom model serving with TritonPythonModel interface. GPU optional"
         }
     ]
 }

@@ -40,7 +40,7 @@ const testTemplate = readFileSync(path.join(templatesDir, 'test'), 'utf8');
  * Render a template with the given variables.
  */
 function renderTemplate(template, vars) {
-    return ejs.render(template, vars);
+    return ejs.render(template, { orderedEnvVars: [], baseImage: '', ...vars });
 }
 
 /** Arbitrary for a managed-inference configuration */

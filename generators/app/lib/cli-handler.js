@@ -194,6 +194,10 @@ VALIDATION OPTIONS:
   --validate-with-docker      Enable Docker introspection validation (default: false, opt-in)
   --offline                   Disable HuggingFace API lookups (default: false)
 
+MCP OPTIONS:
+  --smart                     Enable Bedrock-powered smart mode on all MCP servers
+  --discover                  Enable live registry lookups (e.g. Docker Hub) on MCP servers that support it
+
 REGISTRY SYSTEM:
   The generator includes built-in registries for frameworks, models, and instance types:
   
@@ -267,10 +271,10 @@ TRANSFORMER MODEL EXAMPLES:
     --skip-prompts
 
 REGISTRY CONTRIBUTION:
-  To contribute to the registries:
-  - Framework Registry: generators/app/config/registries/frameworks.js
-  - Model Registry: generators/app/config/registries/models.js
-  - Instance Mapping: generators/app/config/registries/instance-accelerator-mapping.js
+  To contribute to the catalogs:
+  - Framework Catalog: servers/base-image-picker/catalogs/model-servers.json
+  - Model Catalog: servers/model-picker/catalogs/popular-transformers.json
+  - Instance Catalog: servers/instance-recommender/catalogs/instances.json
   
   See docs/REGISTRY_CONTRIBUTION_GUIDE.md for detailed contribution guidelines.
 

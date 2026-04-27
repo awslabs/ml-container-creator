@@ -8,7 +8,7 @@ import ConfigManager from './lib/config-manager.js';
 import CliHandler from './lib/cli-handler.js';
 import ConfigurationManager from './lib/configuration-manager.js';
 import DeploymentConfigResolver from './lib/deployment-config-resolver.js';
-import tritonBackends from './config/registries/triton-backends.js';
+import RegistryLoader from './lib/registry-loader.js';
 
 /**
  * ML Container Creator Generator
@@ -179,6 +179,11 @@ export default class extends Generator {
             description: 'Enable Bedrock-powered smart mode on all configured MCP servers for this run'
         });
 
+        this.option('discover', {
+            type: Boolean,
+            description: 'Enable live registry lookups on MCP servers that support discovery (e.g. base-image-picker fetches from Docker Hub)'
+        });
+
         this.option('base-image', {
             type: String,
             description: 'Base container image for Dockerfile'
@@ -310,6 +315,11 @@ export default class extends Generator {
             // Load registries during initialization
             await this.registryConfigManager.loadRegistries();
             
+            // Load Triton backends from catalog via Registry_Loader
+            // Requirements: 6.5
+            const registryLoader = new RegistryLoader();
+            this._tritonBackends = await registryLoader.loadTritonBackends();
+
             console.log('\n📚 Registry System Initialized');
             console.log('   • Framework Registry: Loaded');
             console.log('   • Model Registry: Loaded');
@@ -333,6 +343,7 @@ export default class extends Generator {
             console.log('\n⚠️  Registry system initialization failed, using defaults');
             console.log(`   Error: ${error.message}`);
             this.registryConfigManager = null;
+            this._tritonBackends = {};
         }
 
         // Show configuration source info if not skipping prompts
@@ -703,7 +714,7 @@ export default class extends Generator {
         // Skip for transformers and ineligible Triton backends
         const architecture = this.answers.architecture;
         const skipSampleTraining = architecture === 'transformers' || 
-            (architecture === 'triton' && !tritonBackends[this.answers.backend]?.supportsSampleModel);
+            (architecture === 'triton' && !this._tritonBackends?.[this.answers.backend]?.supportsSampleModel);
         if (this.answers.includeSampleModel && !skipSampleTraining) {
             await this._runSampleModelTraining();
         }
@@ -1091,6 +1102,16 @@ export default class extends Generator {
             }
         }
         
+        // Merge catalog env vars into this.answers.envVars with correct precedence
+        // Requirements: 7.1, 7.2, 7.3, 7.5, 7.6
+        // Precedence (lowest → highest):
+        //   1. catalog defaults (Image_Entry defaults.envVars)
+        //   2. framework profile (Image_Entry profiles[selectedProfile].envVars)
+        //   3. model entry (model catalog entry envVars)
+        //   4. model profile (model catalog entry profiles[selectedProfile].envVars)
+        //   5. CLI overrides (existing this.answers.envVars from user CLI input)
+        await this._mergeEnvVarsWithPrecedence();
+
         // For Triton architecture, set default base image fallback
         // Requirements: 10.1, 10.2
         if (this.answers.architecture === 'triton' && !this.answers.baseImage) {
@@ -1108,9 +1129,6 @@ export default class extends Generator {
                         if (latestConfig.baseImage) {
                             this.answers.baseImage = latestConfig.baseImage;
                         }
-                        if (latestConfig.envVars) {
-                            this.answers.envVars = { ...latestConfig.envVars, ...this.answers.envVars };
-                        }
                         if (latestConfig.inferenceAmiVersion && !this.answers.inferenceAmiVersion) {
                             this.answers.inferenceAmiVersion = latestConfig.inferenceAmiVersion;
                         }
@@ -1126,63 +1144,36 @@ export default class extends Generator {
             }
         }
 
-        // For transformer models, try to enrich with registry data if available
+        // For transformer models, enrich with HuggingFace data and non-envVar metadata
         if (this.answers.framework === 'transformers' && this.answers.modelName && this.registryConfigManager) {
             try {
                 // Fetch HuggingFace data for model-specific info
                 const hfData = await this.registryConfigManager._fetchHuggingFaceData(this.answers.modelName);
-                
+
                 // Merge chatTemplate if available and not already set
                 if (hfData && hfData.chatTemplate && !this.answers.chatTemplate) {
                     this.answers.chatTemplate = hfData.chatTemplate;
                     this.answers.chatTemplateSource = 'HuggingFace_Hub_API';
                 }
-                
-                // Check Model Registry for overrides
+
+                // Check Model Registry for chatTemplate overrides
                 if (this.registryConfigManager.modelRegistry) {
-                    let modelConfig = this.registryConfigManager.modelRegistry[this.answers.modelName];
-                    
-                    // Try pattern matching if no exact match
-                    if (!modelConfig) {
-                        for (const [pattern, config] of Object.entries(this.registryConfigManager.modelRegistry)) {
-                            if (pattern.includes('*')) {
-                                const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
-                                if (regex.test(this.answers.modelName)) {
-                                    modelConfig = config;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Apply model registry overrides
-                    if (modelConfig) {
-                        if (modelConfig.chatTemplate) {
-                            this.answers.chatTemplate = modelConfig.chatTemplate;
-                            this.answers.chatTemplateSource = 'Model_Registry';
-                        }
-                        if (modelConfig.envVars) {
-                            this.answers.envVars = { ...this.answers.envVars, ...modelConfig.envVars };
-                        }
+                    const modelConfig = this._findModelConfig(this.answers.modelName);
+
+                    if (modelConfig && modelConfig.chatTemplate) {
+                        this.answers.chatTemplate = modelConfig.chatTemplate;
+                        this.answers.chatTemplateSource = 'Model_Registry';
                     }
                 }
-                
-                // Fetch framework-specific data if frameworkVersion is available
+
+                // Set framework-level metadata (non-envVar fields)
                 if (this.answers.frameworkVersion && this.registryConfigManager.frameworkRegistry) {
                     const frameworkConfig = this.registryConfigManager.frameworkRegistry[this.answers.framework]?.[this.answers.frameworkVersion];
-                    
+
                     if (frameworkConfig) {
-                        // Merge framework environment variables
-                        if (frameworkConfig.envVars) {
-                            this.answers.envVars = { ...frameworkConfig.envVars, ...this.answers.envVars };
-                        }
-                        
-                        // Set inference AMI version (only if not already resolved by CUDA version selection)
                         if (frameworkConfig.inferenceAmiVersion && !this.answers.inferenceAmiVersion) {
                             this.answers.inferenceAmiVersion = frameworkConfig.inferenceAmiVersion;
                         }
-                        
-                        // Set accelerator info
                         if (frameworkConfig.accelerator) {
                             this.answers.accelerator = frameworkConfig.accelerator;
                         }
@@ -1192,6 +1183,119 @@ export default class extends Generator {
                 // Silently continue - defaults are already set
             }
         }
+    }
+
+    /**
+     * Merge environment variables from all catalog sources with correct precedence.
+     * Precedence (lowest → highest):
+     *   1. catalog defaults (Image_Entry defaults.envVars)
+     *   2. framework profile (Image_Entry profiles[selectedProfile].envVars)
+     *   3. model entry (model catalog entry envVars)
+     *   4. model profile (model catalog entry profiles[selectedProfile].envVars)
+     *   5. CLI overrides (existing this.answers.envVars from user CLI input)
+     *
+     * Requirements: 7.1, 7.2, 7.3, 7.5, 7.6
+     * @private
+     */
+    async _mergeEnvVarsWithPrecedence() {
+        if (!this.registryConfigManager) return;
+
+        // Capture CLI-provided env vars before merging (highest precedence)
+        const cliEnvVars = { ...this.answers.envVars };
+
+        // Resolve the framework config for the selected framework + version
+        const frameworkName = this.answers.framework || this.answers.deploymentConfig;
+        const frameworkVersion = this.answers.frameworkVersion;
+        let frameworkConfig = null;
+
+        if (frameworkName && this.registryConfigManager.frameworkRegistry) {
+            const frameworkVersions = this.registryConfigManager.frameworkRegistry[frameworkName];
+            if (frameworkVersions) {
+                if (frameworkVersion && frameworkVersions[frameworkVersion]) {
+                    frameworkConfig = frameworkVersions[frameworkVersion];
+                } else {
+                    // Fall back to latest version for Triton and other non-versioned lookups
+                    const versions = Object.keys(frameworkVersions).sort((a, b) =>
+                        b.localeCompare(a, undefined, { numeric: true })
+                    );
+                    if (versions.length > 0) {
+                        frameworkConfig = frameworkVersions[versions[0]];
+                    }
+                }
+            }
+        }
+
+        // Resolve the model config (exact match or pattern match)
+        let modelConfig = null;
+        if (this.answers.modelName && this.registryConfigManager.modelRegistry) {
+            modelConfig = this._findModelConfig(this.answers.modelName);
+        }
+
+        // Layer 1: catalog defaults (Image_Entry defaults.envVars)
+        // Requirements: 7.1
+        const catalogDefaults = frameworkConfig?.envVars || {};
+
+        // Layer 2: framework profile envVars
+        // Requirements: 7.2
+        let frameworkProfileEnvVars = {};
+        if (this.answers.frameworkProfile && frameworkConfig?.profiles) {
+            const profile = frameworkConfig.profiles[this.answers.frameworkProfile];
+            if (profile?.envVars) {
+                frameworkProfileEnvVars = profile.envVars;
+            }
+        }
+
+        // Layer 3: model entry envVars
+        // Requirements: 7.3
+        const modelEntryEnvVars = modelConfig?.envVars || {};
+
+        // Layer 4: model profile envVars
+        // Requirements: 7.3
+        let modelProfileEnvVars = {};
+        if (this.answers.modelProfile && modelConfig?.profiles) {
+            const profile = modelConfig.profiles[this.answers.modelProfile];
+            if (profile?.envVars) {
+                modelProfileEnvVars = profile.envVars;
+            }
+        }
+
+        // Layer 5: CLI overrides (captured above)
+        // Requirements: 7.5
+
+        // Merge in precedence order: each layer overrides the previous
+        this.answers.envVars = {
+            ...catalogDefaults,
+            ...frameworkProfileEnvVars,
+            ...modelEntryEnvVars,
+            ...modelProfileEnvVars,
+            ...cliEnvVars
+        };
+    }
+
+    /**
+     * Find model configuration by exact match or glob-pattern match.
+     * @private
+     * @param {string} modelName - Model ID to look up
+     * @returns {Object|null} Model configuration or null
+     */
+    _findModelConfig(modelName) {
+        if (!this.registryConfigManager?.modelRegistry) return null;
+
+        // Exact match first
+        const exact = this.registryConfigManager.modelRegistry[modelName];
+        if (exact) return exact;
+
+        // Pattern matching
+        for (const [pattern, config] of Object.entries(this.registryConfigManager.modelRegistry)) {
+            if (pattern.includes('*')) {
+                const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
+                if (regex.test(modelName)) {
+                    return config;
+                }
+            }
+        }
+
+        return null;
     }
 
 }

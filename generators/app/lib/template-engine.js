@@ -7,7 +7,7 @@ import CommentGenerator from './comment-generator.js';
  * TemplateEngine - Generates files with injected configurations
  * 
  * Responsible for generating Dockerfiles and deployment scripts with
- * configuration data from registries, HuggingFace API, and user input.
+ * configuration data from catalogs, HuggingFace API, and user input.
  * Integrates CommentGenerator for comprehensive documentation.
  */
 export default class TemplateEngine {

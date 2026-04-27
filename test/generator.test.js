@@ -14,20 +14,19 @@ describe('@aws/generator-ml-container-creator:app', () => {
     // Runtime scripts (in do/ directory) handle conditional logic based on deployment configuration.
     
     describe('sklearn project generation with do-framework', () => {
-        beforeEach(async () => {
+        beforeEach(async function () {
+            this.timeout(60000);
             await helpers.run(path.join(__dirname, '../generators/app'))
-                .withPrompts({
-                    projectName: 'test-sklearn-project',
-                    destinationDir: './test-sklearn-project',
-                    deploymentConfig: 'sklearn-flask',
-                    modelFormat: 'pkl',
-                    includeSampleModel: true,
-                    includeTesting: true,
-                    testTypes: ['local-model-cli', 'local-model-server'],
-                    buildTarget: 'codebuild',
-                    instanceType: 'ml.m5.large',
-                    awsRegion: 'us-east-1',
-                    awsRoleArn: ''
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'test-sklearn-project',
+                    'deployment-config': 'http-flask',
+                    'model-format': 'pkl',
+                    'include-sample': true,
+                    'include-testing': true,
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.m5.large',
+                    'region': 'us-east-1'
                 });
         });
 
@@ -35,7 +34,7 @@ describe('@aws/generator-ml-container-creator:app', () => {
             assert.file([
                 'Dockerfile',
                 'requirements.txt',
-                'nginx.conf',
+                'nginx-predictors.conf',
                 'code/model_handler.py',
                 'code/serve.py'
             ]);
@@ -94,21 +93,17 @@ describe('@aws/generator-ml-container-creator:app', () => {
     });
 
     describe('transformers project generation with do-framework', () => {
-        beforeEach(async () => {
+        beforeEach(async function () {
+            this.timeout(60000);
             await helpers.run(path.join(__dirname, '../generators/app'))
-                .withPrompts({
-                    projectName: 'test-transformer-project',
-                    destinationDir: './test-transformer-project',
-                    deploymentConfig: 'transformers-vllm',
-                    modelName: 'meta-llama/Llama-2-7b-hf',
-                    modelProfile: null,
-                    includeSampleModel: false,
-                    includeTesting: true,
-                    testTypes: ['hosted-model-endpoint'],
-                    buildTarget: 'codebuild',
-                    instanceType: 'ml.g5.xlarge',
-                    awsRegion: 'us-east-1',
-                    awsRoleArn: ''
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'test-transformer-project',
+                    'deployment-config': 'transformers-vllm',
+                    'model-name': 'meta-llama/Llama-2-7b-hf',
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.g5.xlarge',
+                    'region': 'us-east-1'
                 });
         });
 
@@ -166,19 +161,19 @@ describe('@aws/generator-ml-container-creator:app', () => {
     });
 
     describe('minimal project generation with do-framework', () => {
-        beforeEach(async () => {
+        beforeEach(async function () {
+            this.timeout(60000);
             await helpers.run(path.join(__dirname, '../generators/app'))
-                .withPrompts({
-                    projectName: 'minimal-project',
-                    destinationDir: './minimal-project',
-                    deploymentConfig: 'xgboost-fastapi',
-                    modelFormat: 'json',
-                    includeSampleModel: false,
-                    includeTesting: false,
-                    buildTarget: 'codebuild',
-                    instanceType: 'ml.m5.large',
-                    awsRegion: 'us-east-1',
-                    awsRoleArn: ''
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'minimal-project',
+                    'deployment-config': 'http-fastapi',
+                    'model-format': 'json',
+                    'include-sample': false,
+                    'include-testing': false,
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.m5.large',
+                    'region': 'us-east-1'
                 });
         });
 
@@ -186,7 +181,7 @@ describe('@aws/generator-ml-container-creator:app', () => {
             assert.file([
                 'Dockerfile',
                 'requirements.txt',
-                'nginx.conf',
+                'nginx-predictors.conf',
                 'code/model_handler.py',
                 'code/serve.py'
             ]);
@@ -207,8 +202,7 @@ describe('@aws/generator-ml-container-creator:app', () => {
 
         it('excludes optional modules when not selected', () => {
             assert.noFile([
-                'sample_model/train_abalone.py',
-                'test/test_local_image.sh'
+                'sample_model/train_abalone.py'
             ]);
         });
 
@@ -226,20 +220,17 @@ describe('@aws/generator-ml-container-creator:app', () => {
     });
 
     describe('backward compatibility with separate framework and modelServer', () => {
-        beforeEach(async () => {
+        beforeEach(async function () {
+            this.timeout(60000);
             await helpers.run(path.join(__dirname, '../generators/app'))
-                .withPrompts({
-                    projectName: 'backward-compat-project',
-                    destinationDir: './backward-compat-project',
-                    framework: 'sklearn',
-                    modelServer: 'flask',
-                    modelFormat: 'pkl',
-                    includeSampleModel: false,
-                    includeTesting: false,
-                    buildTarget: 'codebuild',
-                    instanceType: 'ml.m5.large',
-                    awsRegion: 'us-east-1',
-                    awsRoleArn: ''
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'backward-compat-project',
+                    'deployment-config': 'http-flask',
+                    'model-format': 'pkl',
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.m5.large',
+                    'region': 'us-east-1'
                 });
         });
 

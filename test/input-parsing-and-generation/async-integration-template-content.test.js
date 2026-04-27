@@ -53,6 +53,8 @@ function baseVars(overrides = {}) {
         hyperPodReplicas: undefined,
         fsxVolumeHandle: undefined,
         codebuildComputeType: undefined,
+        orderedEnvVars: [],
+        baseImage: '',
         ...overrides
     };
 }
