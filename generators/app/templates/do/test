@@ -102,8 +102,14 @@ case "${FRAMEWORK}" in
         case "${MODEL_SERVER}" in
             vllm|sglang)
                 # OpenAI-compatible chat completions format
-                TEST_PAYLOAD='{"model": "'"${MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                # For S3/JumpStart models, vLLM registers the model under the local path
+                VLLM_MODEL_NAME="${MODEL_NAME}"
+                if [[ "${MODEL_NAME}" == jumpstart://* ]] || [[ "${MODEL_NAME}" == jumpstart-hub://* ]] || [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                    VLLM_MODEL_NAME="/opt/ml/model"
+                fi
+                TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
                 echo "   Payload: OpenAI-compatible chat completion request"
+                echo "   Model: ${VLLM_MODEL_NAME}"
                 ;;
             *)
                 # HuggingFace-style format for LMI, DJL, TensorRT-LLM
@@ -217,13 +223,16 @@ else
         echo "   Inference component: ${IC_NAME}"
     fi
 
+    INVOKE_ERROR=$(mktemp)
     if ! aws sagemaker-runtime invoke-endpoint \
         "${INVOKE_ARGS[@]}" \
-        "${TEMP_RESPONSE}" &> /dev/null; then
+        "${TEMP_RESPONSE}" 2>"${INVOKE_ERROR}"; then
         echo "❌ Inference request failed"
-        rm -f "${TEMP_PAYLOAD}" "${TEMP_RESPONSE}"
+        echo "   Error: $(cat "${INVOKE_ERROR}")"
+        rm -f "${TEMP_PAYLOAD}" "${TEMP_RESPONSE}" "${INVOKE_ERROR}"
         exit 1
     fi
+    rm -f "${INVOKE_ERROR}"
     
     # Read response
     RESPONSE_BODY=$(cat "${TEMP_RESPONSE}")
@@ -372,8 +381,13 @@ case "${FRAMEWORK}" in
     transformers)
         case "${MODEL_SERVER}" in
             vllm|sglang)
-                TEST_PAYLOAD='{"model": "'"${MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                VLLM_MODEL_NAME="${MODEL_NAME}"
+                if [[ "${MODEL_NAME}" == jumpstart://* ]] || [[ "${MODEL_NAME}" == jumpstart-hub://* ]] || [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                    VLLM_MODEL_NAME="/opt/ml/model"
+                fi
+                TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
                 echo "   Payload: OpenAI-compatible chat completion request"
+                echo "   Model: ${VLLM_MODEL_NAME}"
                 ;;
             *)
                 TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50, "temperature": 0.7}}'
@@ -744,8 +758,13 @@ case "${FRAMEWORK}" in
         case "${MODEL_SERVER}" in
             vllm|sglang)
                 # OpenAI-compatible chat completions format
-                TEST_PAYLOAD='{"model": "'"${MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                VLLM_MODEL_NAME="${MODEL_NAME}"
+                if [[ "${MODEL_NAME}" == jumpstart://* ]] || [[ "${MODEL_NAME}" == jumpstart-hub://* ]] || [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                    VLLM_MODEL_NAME="/opt/ml/model"
+                fi
+                TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
                 echo "   Payload: OpenAI-compatible chat completion request"
+                echo "   Model: ${VLLM_MODEL_NAME}"
                 ;;
             *)
                 # HuggingFace-style format for LMI, DJL, TensorRT-LLM
@@ -1023,8 +1042,13 @@ case "${FRAMEWORK}" in
     transformers)
         case "${MODEL_SERVER}" in
             vllm|sglang)
-                TEST_PAYLOAD='{"model": "'"${MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                VLLM_MODEL_NAME="${MODEL_NAME}"
+                if [[ "${MODEL_NAME}" == jumpstart://* ]] || [[ "${MODEL_NAME}" == jumpstart-hub://* ]] || [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                    VLLM_MODEL_NAME="/opt/ml/model"
+                fi
+                TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
                 echo "   Payload: OpenAI-compatible chat completion request"
+                echo "   Model: ${VLLM_MODEL_NAME}"
                 ;;
             *)
                 TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50, "temperature": 0.7}}'

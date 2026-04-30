@@ -50,29 +50,18 @@ nav:
   - Getting Started: getting-started.md
   - User Guide:
       - How It Works: how-it-works.md
-      - Models: 
-          - Predictive Models: predictive-models.md
-          - Generative Models: generative-models.md
-      - Frameworks: 
-          - HTTP Serving: http-serving.md
-          - LLM Serving: llm-serving.md
-      - Containerization: containerization.md
+      - Configuration: configuration.md
+      - MCP Servers: mcp-configuration.md
       - Deployment & Inference: deployments.md
-      - Additional Features & Misc:
-          # - Registry: registry.md
-          - Configuration Guide: configuration.md
-          - MCP Configuration: mcp-configuration.md
-          - Examples: EXAMPLES.md
-          - Troubleshooting: TROUBLESHOOTING.md
+      - Examples: EXAMPLES.md
+      - Troubleshooting: TROUBLESHOOTING.md
   - Developer Guide:
       - Contributing: CONTRIBUTING.md
-      # - Testing Guide: testing.md
-      # - Adding Features: ADDING_FEATURES.md
-      # - Template System: template-system.md
-      # - Project Architecture: architecture.md
-      # - Coding Standards: coding-standards.md
-      # - AWS/SageMaker Guide: aws-sagemaker.md
-      # - Deployment: DEPLOYMENT.md
+      - Generator Architecture: dev/generator-architecture.md
+      - Template System: dev/template-system.md
+      - MCP Server Development: dev/mcp-server-development.md
+      - Registries and Catalogs: dev/registries-and-catalogs.md
+      - Testing: dev/testing.md
 
 markdown_extensions:
   - admonition

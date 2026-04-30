@@ -4,6 +4,24 @@
 
 echo "Starting vLLM-Omni server (diffusion model serving)"
 
+# Resolve model URI prefixes that engines cannot handle natively.
+# The generator's model-picker may store provider-specific URIs
+# (e.g. jumpstart://model-txt2img-stabilityai-stable-diffusion-v2-1-base)
+# as the model identifier. vLLM expects a HuggingFace repo ID or local path.
+_RAW_MODEL="${VLLM_MODEL:-}"
+if [[ "$_RAW_MODEL" == jumpstart://* ]] || [[ "$_RAW_MODEL" == jumpstart-hub://* ]] || [[ "$_RAW_MODEL" == registry://* ]]; then
+    if [ -d /opt/ml/model ] && [ "$(ls -A /opt/ml/model 2>/dev/null)" ]; then
+        echo "Resolved VLLM_MODEL='${_RAW_MODEL}' → /opt/ml/model (local artifacts found)"
+        export VLLM_MODEL="/opt/ml/model"
+    else
+        _BARE_ID="${_RAW_MODEL#*://}"
+        echo "Warning: VLLM_MODEL='${_RAW_MODEL}' has a provider prefix but /opt/ml/model is empty."
+        echo "Stripping prefix → '${_BARE_ID}' (engine will attempt to fetch from model hub)"
+        export VLLM_MODEL="${_BARE_ID}"
+    fi
+fi
+unset _RAW_MODEL _BARE_ID
+
 # Validate that the model name is set
 if [ -z "$VLLM_MODEL" ]; then
     echo "Error: VLLM_MODEL environment variable is not set"
