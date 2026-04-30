@@ -234,7 +234,7 @@ export default class PromptRunner {
         
         // Populate model profile choices from registry (if model ID is available)
         const currentAnswers = {...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers};
-        const modelId = currentAnswers.customModelName || currentAnswers.modelName;
+        const modelId = currentAnswers.customModelName || currentAnswers.modelName || explicitConfig.modelName;
         
         // Fetch model information from HuggingFace and Model Registry
         // Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.11, 11.1, 11.2, 11.3, 11.5, 11.6, 11.7
@@ -338,6 +338,11 @@ export default class PromptRunner {
             buildTimestamp
         };
 
+        // Ensure CLI-provided values that were skipped during prompting are in combinedAnswers
+        if (explicitConfig.modelName && !combinedAnswers.modelName) {
+            combinedAnswers.modelName = explicitConfig.modelName;
+        }
+
         // Flow model source metadata from model-picker MCP response
         // Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
         if (this._mcpModelSource) {
@@ -369,13 +374,29 @@ export default class PromptRunner {
                 combinedAnswers.artifactUri = modelName;
             }
         }
-        const downloadSources = ['jumpstart', 's3', 'registry'];
+        const downloadSources = ['jumpstart', 's3'];
         if (downloadSources.includes(combinedAnswers.modelSource) && !combinedAnswers.artifactUri) {
             console.log(`\n   ⚠️  Model source is '${combinedAnswers.modelSource}' but no artifact URI was resolved.`);
             console.log('   The model-picker could not determine the download location.');
             console.log('   Falling back to HuggingFace source — the model will be loaded by name.');
             console.log('   If this model requires S3 download, set MODEL_ARTIFACT_URI in do/config after generation.\n');
             combinedAnswers.modelSource = 'huggingface';
+        }
+
+        // Registry models — note about InferenceSpecification requirement
+        if (combinedAnswers.modelSource === 'registry') {
+            if (!combinedAnswers.artifactUri) {
+                console.log(`\n   ⚠️  Model source is 'registry' but no artifact URI was resolved.`);
+                console.log('   The model package must have an InferenceSpecification with a valid');
+                console.log('   ModelDataUrl or S3DataSource for the runtime resolver to work.');
+                console.log('   If your model package was registered without an InferenceSpecification,');
+                console.log('   use the S3 path directly instead: --model-name="s3://bucket/path/model.tar.gz"');
+                console.log('   Or set MODEL_ARTIFACT_URI in do/config before deploying.\n');
+            } else {
+                console.log('\n   ℹ️  Registry model: the container will resolve the artifact URI at startup');
+                console.log('   via DescribeModelPackage. Ensure the model package has a valid');
+                console.log('   InferenceSpecification with ModelDataUrl or S3DataSource.\n');
+            }
         }
 
         // Warn about jumpstart-hub:// models — private hub deployment requires

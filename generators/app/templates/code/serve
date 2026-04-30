@@ -112,6 +112,85 @@ resolve_model() {
                 echo "$LOCAL_MODEL_PATH"
                 return
             fi
+
+            # For registry:// models, resolve artifact URI at runtime via SageMaker API
+            if [ "$MODEL_SOURCE" = "registry" ] && [ -z "$MODEL_ARTIFACT_URI" ]; then
+                local model_uri="${!_MODEL_VAR}"
+                local registry_prefix="registry://"
+                if [[ "$model_uri" == "${registry_prefix}"* ]]; then
+                    local registry_path="${model_uri#${registry_prefix}}"
+                    local group_name="${registry_path%%/*}"
+                    local version="${registry_path#*/}"
+                    local region="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+
+                    # Get account ID for ARN construction
+                    local account_id
+                    account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || {
+                        echo "Error: Failed to get AWS account ID for model package ARN" >&2
+                        exit 1
+                    }
+
+                    local package_arn="arn:aws:sagemaker:${region}:${account_id}:model-package/${group_name}/${version}"
+                    echo "Resolving ${model_uri} via SageMaker DescribeModelPackage..." >&2
+                    echo "   ARN: ${package_arn}" >&2
+
+                    local describe_output
+                    describe_output=$(aws sagemaker describe-model-package \
+                        --model-package-name "$package_arn" \
+                        --region "$region" \
+                        --output json 2>/dev/null) || {
+                        echo "Error: Failed to describe model package: ${package_arn}" >&2
+                        exit 1
+                    }
+
+                    # Try ModelDataUrl first, then S3DataSource.S3Uri, then description
+                    MODEL_ARTIFACT_URI=$(echo "$describe_output" | python3 -c "
+import sys, json, re
+try:
+    pkg = json.load(sys.stdin)
+    uri = ''
+    # Check InferenceSpecification.Containers[0]
+    containers = pkg.get('InferenceSpecification', {}).get('Containers', [])
+    if containers:
+        c = containers[0]
+        uri = c.get('ModelDataUrl', '')
+        if not uri:
+            uri = c.get('ModelDataSource', {}).get('S3DataSource', {}).get('S3Uri', '')
+    # Fallback: extract S3 URI from ModelPackageDescription
+    if not uri:
+        desc = pkg.get('ModelPackageDescription', '')
+        m = re.search(r's3://[^\s]+', desc)
+        if m:
+            uri = m.group(0)
+    # Fallback: check ModelCard hyperparameters for model_artifacts_s3
+    if not uri:
+        try:
+            card = pkg.get('ModelCard', {})
+            content = card.get('ModelCardContent', '{}')
+            card_data = json.loads(content) if isinstance(content, str) else content
+            params = card_data.get('training_details', {}).get('training_job_details', {}).get('hyper_parameters', [])
+            for p in params:
+                if p.get('name') == 'model_artifacts_s3':
+                    uri = p.get('value', '')
+                    break
+        except:
+            pass
+    print(uri)
+except:
+    print('')
+" 2>/dev/null)
+
+                    if [ -n "$MODEL_ARTIFACT_URI" ] && [ "$MODEL_ARTIFACT_URI" != "None" ]; then
+                        echo "Resolved artifact URI: ${MODEL_ARTIFACT_URI}" >&2
+                    else
+                        echo "Error: No model artifact URI found in model package: ${package_arn}" >&2
+                        echo "   Checked: InferenceSpecification.Containers[0].ModelDataUrl" >&2
+                        echo "   Checked: InferenceSpecification.Containers[0].ModelDataSource.S3DataSource.S3Uri" >&2
+                        exit 1
+                    fi
+                fi
+            fi
+
             # Need artifact URI for download
             if [ -z "$MODEL_ARTIFACT_URI" ]; then
                 echo "Error: ${MODEL_SOURCE} model requires artifact URI or pre-mounted artifacts at $LOCAL_MODEL_PATH" >&2
@@ -132,7 +211,7 @@ resolve_model() {
     esac
 }
 
-_RESOLVED_MODEL=$(resolve_model)
+_RESOLVED_MODEL=$(resolve_model) || exit 1
 export "${_MODEL_VAR}=${_RESOLVED_MODEL}"
 echo "Resolved ${_MODEL_VAR}=${_RESOLVED_MODEL} (source: ${MODEL_SOURCE})"
 unset _MODEL_VAR _RESOLVED_MODEL

@@ -392,6 +392,42 @@ export default class extends Generator {
             console.log('\n🚀 Skipping prompts - using configuration from other sources');
             this.answers = this.configManager.getFinalConfiguration();
             
+            // Infer modelSource from model name prefix if not set
+            const modelName = this.answers.modelName;
+            if (!this.answers.modelSource && modelName) {
+                if (modelName.startsWith('s3://')) {
+                    this.answers.modelSource = 's3';
+                    if (!this.answers.artifactUri) {
+                        this.answers.artifactUri = modelName;
+                    }
+                } else if (modelName.startsWith('jumpstart://')) {
+                    this.answers.modelSource = 'jumpstart';
+                } else if (modelName.startsWith('jumpstart-hub://')) {
+                    this.answers.modelSource = 'jumpstart-hub';
+                } else if (modelName.startsWith('registry://')) {
+                    this.answers.modelSource = 'registry';
+                }
+            }
+
+            // Warn about unsupported model sources
+            if (this.answers.modelSource === 'jumpstart-hub') {
+                console.log('\n   ⚠️  JumpStart Private Hub models are not yet fully supported.');
+                console.log('   The generated project will not be able to download model artifacts at runtime.');
+                console.log('   This feature is tracked for a future release.');
+                console.log('   Falling back to HuggingFace source.\n');
+                this.answers.modelSource = 'huggingface';
+                delete this.answers.artifactUri;
+            }
+
+            // Note about registry model requirements
+            if (this.answers.modelSource === 'registry') {
+                console.log('\n   ℹ️  Registry model: the container will resolve the artifact URI at startup');
+                console.log('   via DescribeModelPackage. Ensure the model package has a valid');
+                console.log('   InferenceSpecification with ModelDataUrl or S3DataSource.');
+                console.log('   If your model package lacks an InferenceSpecification, use the S3 path');
+                console.log('   directly instead: --model-name="s3://bucket/path/model.tar.gz"\n');
+            }
+
             // Ensure all template variables are initialized
             await this._ensureTemplateVariables();
             
