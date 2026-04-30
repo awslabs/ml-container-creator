@@ -22,28 +22,28 @@
  * Validates: Requirements 9.1, 9.2, 9.3, 9.5, 9.7, 10.1, 10.2, 10.3
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'node:assert'
-import ejs from 'ejs'
-import { readFileSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'node:assert';
+import ejs from 'ejs';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false }
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
 // ── Load the actual Dockerfile template ──────────────────────────────────────
 
-const DOCKERFILE_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/Dockerfile')
-const DOCKERFILE_TEMPLATE = readFileSync(DOCKERFILE_TEMPLATE_PATH, 'utf-8')
+const DOCKERFILE_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/Dockerfile');
+const DOCKERFILE_TEMPLATE = readFileSync(DOCKERFILE_TEMPLATE_PATH, 'utf-8');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const MODEL_SOURCES = ['huggingface', 's3', 'jumpstart', 'jumpstart-hub', 'registry']
-const S3_SOURCES = ['s3', 'jumpstart', 'jumpstart-hub', 'registry']
-const MODEL_SERVERS = ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl']
-const LOAD_STRATEGIES = ['runtime', 'build-time']
+const MODEL_SOURCES = ['huggingface', 's3', 'jumpstart', 'jumpstart-hub', 'registry'];
+const S3_SOURCES = ['s3', 'jumpstart', 'jumpstart-hub', 'registry'];
+const MODEL_SERVERS = ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl'];
+const LOAD_STRATEGIES = ['runtime', 'build-time'];
 
 const SERVER_ENV_VAR_MAP = {
     'vllm': 'VLLM_MODEL',
@@ -51,17 +51,17 @@ const SERVER_ENV_VAR_MAP = {
     'tensorrt-llm': 'TRTLLM_MODEL',
     'lmi': 'HF_MODEL_ID',
     'djl': 'HF_MODEL_ID'
-}
+};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
-const arbModelSource = fc.constantFrom(...MODEL_SOURCES)
-const arbModelServer = fc.constantFrom(...MODEL_SERVERS)
-const arbLoadStrategy = fc.constantFrom(...LOAD_STRATEGIES)
+const arbModelSource = fc.constantFrom(...MODEL_SOURCES);
+const arbModelServer = fc.constantFrom(...MODEL_SERVERS);
+const arbLoadStrategy = fc.constantFrom(...LOAD_STRATEGIES);
 const arbArtifactUri = fc.option(
     fc.stringMatching(/^s3:\/\/[a-z0-9-]{3,20}\/[a-z0-9/_-]{1,30}$/)
-)
-const arbModelName = fc.stringMatching(/^[a-zA-Z0-9/_-]{1,40}$/)
+);
+const arbModelName = fc.stringMatching(/^[a-zA-Z0-9/_-]{1,40}$/);
 
 // ── Helper: render Dockerfile template ───────────────────────────────────────
 
@@ -81,7 +81,7 @@ function renderDockerfile(modelSource, modelLoadStrategy, modelServer, modelName
         comments: {},
         orderedEnvVars: [],
         includeSampleModel: false
-    })
+    });
 }
 
 // ── Property tests ───────────────────────────────────────────────────────────
@@ -91,137 +91,137 @@ describe('Feature: model-server-loading-adapter, Property 5: Dockerfile build-ti
     describe('Build-time + huggingface: contains huggingface-cli download and sets env var to /opt/ml/model', () => {
 
         it('for any modelServer, build-time + huggingface renders huggingface-cli download instruction', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
             // **Validates: Requirements 9.3, 9.5**
             fc.assert(fc.property(
                 arbModelServer,
                 arbModelName,
                 (modelServer, modelName) => {
-                    const rendered = renderDockerfile('huggingface', 'build-time', modelServer, modelName, '')
+                    const rendered = renderDockerfile('huggingface', 'build-time', modelServer, modelName, '');
                     assert.ok(
                         rendered.includes('RUN huggingface-cli download'),
                         `build-time + huggingface must contain RUN huggingface-cli download for ${modelServer}`
-                    )
+                    );
                     assert.ok(
                         rendered.includes('ARG HF_TOKEN'),
                         `build-time + huggingface must contain ARG HF_TOKEN for ${modelServer}`
-                    )
+                    );
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('for vllm/sglang/tensorrt-llm, build-time + huggingface sets server env var to /opt/ml/model', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
             // **Validates: Requirements 9.5**
-            const nonDjlServers = fc.constantFrom('vllm', 'sglang', 'tensorrt-llm')
+            const nonDjlServers = fc.constantFrom('vllm', 'sglang', 'tensorrt-llm');
             fc.assert(fc.property(
                 nonDjlServers,
                 arbModelName,
                 (modelServer, modelName) => {
-                    const rendered = renderDockerfile('huggingface', 'build-time', modelServer, modelName, '')
-                    const envVarName = SERVER_ENV_VAR_MAP[modelServer]
+                    const rendered = renderDockerfile('huggingface', 'build-time', modelServer, modelName, '');
+                    const envVarName = SERVER_ENV_VAR_MAP[modelServer];
                     assert.ok(
                         rendered.includes(`ENV ${envVarName}="/opt/ml/model"`),
                         `build-time + huggingface must set ${envVarName}="/opt/ml/model" for ${modelServer}`
-                    )
+                    );
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
-    })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+    });
 
     describe('Build-time + S3 sources with artifactUri: contains aws s3 sync instruction', () => {
 
         it('for any S3-based source with non-empty artifactUri, build-time renders aws s3 sync', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
             // **Validates: Requirements 9.1, 9.2**
-            const arbS3Source = fc.constantFrom(...S3_SOURCES)
-            const arbNonEmptyUri = fc.stringMatching(/^s3:\/\/[a-z0-9-]{3,20}\/[a-z0-9/_-]{1,30}$/)
+            const arbS3Source = fc.constantFrom(...S3_SOURCES);
+            const arbNonEmptyUri = fc.stringMatching(/^s3:\/\/[a-z0-9-]{3,20}\/[a-z0-9/_-]{1,30}$/);
             fc.assert(fc.property(
                 arbS3Source,
                 arbModelServer,
                 arbModelName,
                 arbNonEmptyUri,
                 (modelSource, modelServer, modelName, artifactUri) => {
-                    const rendered = renderDockerfile(modelSource, 'build-time', modelServer, modelName, artifactUri)
+                    const rendered = renderDockerfile(modelSource, 'build-time', modelServer, modelName, artifactUri);
                     assert.ok(
                         rendered.includes('aws s3 sync'),
                         `build-time + ${modelSource} with artifactUri must contain aws s3 sync for ${modelServer}`
-                    )
+                    );
                     assert.ok(
                         rendered.includes(artifactUri),
                         `build-time + ${modelSource} must reference the artifactUri ${artifactUri} in the download instruction`
-                    )
+                    );
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
-    })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+    });
 
     describe('Runtime + S3 sources: contains AWS CLI installation (except LMI/DJL)', () => {
 
         it('for non-LMI/DJL servers with S3 sources at runtime, Dockerfile installs AWS CLI', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
             // **Validates: Requirements 10.1, 10.3**
-            const arbS3Source = fc.constantFrom(...S3_SOURCES)
-            const arbNonDjlServer = fc.constantFrom('vllm', 'sglang', 'tensorrt-llm')
+            const arbS3Source = fc.constantFrom(...S3_SOURCES);
+            const arbNonDjlServer = fc.constantFrom('vllm', 'sglang', 'tensorrt-llm');
             fc.assert(fc.property(
                 arbS3Source,
                 arbNonDjlServer,
                 arbModelName,
                 arbArtifactUri,
                 (modelSource, modelServer, modelName, artifactUri) => {
-                    const rendered = renderDockerfile(modelSource, 'runtime', modelServer, modelName, artifactUri)
+                    const rendered = renderDockerfile(modelSource, 'runtime', modelServer, modelName, artifactUri);
                     assert.ok(
                         rendered.includes('pip install') && rendered.includes('awscli'),
                         `runtime + ${modelSource} must install AWS CLI for ${modelServer}`
-                    )
+                    );
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('for LMI/DJL servers with S3 sources at runtime, Dockerfile does NOT install AWS CLI', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
             // **Validates: Requirements 10.3**
-            const arbS3Source = fc.constantFrom(...S3_SOURCES)
-            const arbDjlServer = fc.constantFrom('lmi', 'djl')
+            const arbS3Source = fc.constantFrom(...S3_SOURCES);
+            const arbDjlServer = fc.constantFrom('lmi', 'djl');
             fc.assert(fc.property(
                 arbS3Source,
                 arbDjlServer,
                 arbModelName,
                 arbArtifactUri,
                 (modelSource, modelServer, modelName, artifactUri) => {
-                    const rendered = renderDockerfile(modelSource, 'runtime', modelServer, modelName, artifactUri)
+                    const rendered = renderDockerfile(modelSource, 'runtime', modelServer, modelName, artifactUri);
                     assert.ok(
                         !rendered.includes('pip install awscli') && !rendered.includes('awscli'),
                         `runtime + ${modelSource} must NOT install AWS CLI for ${modelServer} (already included)`
-                    )
+                    );
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
-    })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+    });
 
     describe('Runtime + huggingface: no AWS CLI installation', () => {
 
         it('for any modelServer with huggingface at runtime, Dockerfile does NOT install AWS CLI', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
             // **Validates: Requirements 10.2**
             fc.assert(fc.property(
                 arbModelServer,
                 arbModelName,
                 (modelServer, modelName) => {
-                    const rendered = renderDockerfile('huggingface', 'runtime', modelServer, modelName, '')
+                    const rendered = renderDockerfile('huggingface', 'runtime', modelServer, modelName, '');
                     assert.ok(
                         !rendered.includes('pip install awscli') && !rendered.includes('awscli'),
                         `runtime + huggingface must NOT install AWS CLI for ${modelServer}`
-                    )
+                    );
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
-    })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+    });
 
     describe('Runtime: no model download RUN instructions', () => {
 
         it('for any (modelSource, modelServer) at runtime, Dockerfile does NOT contain model download instructions', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
             // **Validates: Requirements 9.7**
             fc.assert(fc.property(
                 arbModelSource,
@@ -229,24 +229,24 @@ describe('Feature: model-server-loading-adapter, Property 5: Dockerfile build-ti
                 arbModelName,
                 arbArtifactUri,
                 (modelSource, modelServer, modelName, artifactUri) => {
-                    const rendered = renderDockerfile(modelSource, 'runtime', modelServer, modelName, artifactUri)
+                    const rendered = renderDockerfile(modelSource, 'runtime', modelServer, modelName, artifactUri);
                     assert.ok(
                         !rendered.includes('RUN huggingface-cli download'),
                         `runtime must NOT contain RUN huggingface-cli download for ${modelSource}/${modelServer}`
-                    )
+                    );
                     assert.ok(
                         !rendered.includes('aws s3 sync'),
                         `runtime must NOT contain aws s3 sync for ${modelSource}/${modelServer}`
-                    )
+                    );
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
-    })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+    });
 
     describe('All (modelSource, modelLoadStrategy, modelServer) combinations render without error', () => {
 
         it('for any valid tuple, the template renders successfully', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
             fc.assert(fc.property(
                 arbModelSource,
                 arbLoadStrategy,
@@ -254,17 +254,17 @@ describe('Feature: model-server-loading-adapter, Property 5: Dockerfile build-ti
                 arbModelServer,
                 arbModelName,
                 (modelSource, modelLoadStrategy, artifactUri, modelServer, modelName) => {
-                    const rendered = renderDockerfile(modelSource, modelLoadStrategy, modelServer, modelName, artifactUri)
+                    const rendered = renderDockerfile(modelSource, modelLoadStrategy, modelServer, modelName, artifactUri);
                     assert.ok(
                         typeof rendered === 'string' && rendered.length > 0,
                         'Rendered output must be a non-empty string'
-                    )
+                    );
                     assert.ok(
                         rendered.includes('FROM'),
                         'Rendered Dockerfile must contain a FROM instruction'
-                    )
+                    );
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
-    })
-})
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+    });
+});
