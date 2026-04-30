@@ -1,10 +1,10 @@
-# MCP Configuration
+# MCP Servers
 
-ML Container Creator supports [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) as a configuration source. MCP servers provide configuration values — like recommended instance types or AWS regions — that the generator merges into its configuration chain during project generation.
+ML Container Creator supports [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) as a configuration source. MCP servers provide configuration values -- like recommended instance types or AWS regions -- that the generator merges into its configuration chain during project generation.
 
 ## How It Works
 
-MCP is an open protocol that standardizes how applications communicate with external tool servers. In ML Container Creator, MCP serves as a **configuration provider protocol**: the generator spawns MCP servers as child processes, queries them for parameter values over stdio, and merges the results into the configuration.
+MCP is an open protocol that standardizes how applications communicate with external tool servers. In ML Container Creator, MCP serves as a configuration provider protocol: the generator spawns MCP servers as child processes, queries them for parameter values over stdio, and merges the results into the configuration. No LLM is in the loop -- the generator programmatically queries servers and merges results. The servers themselves are fully MCP-compliant, so any MCP client (Claude, Kiro, or your own) can also connect to them.
 
 ```mermaid
 sequenceDiagram
@@ -22,58 +22,36 @@ sequenceDiagram
     Generator->>User: Present prompts with MCP choices
 ```
 
-!!! info "MCP Without an LLM"
-    The standard MCP pattern places an LLM between the user and the tool servers, with the LLM deciding which tools to call and reasoning over results. ML Container Creator uses MCP differently — as a **standardized tool protocol** for configuration providers. The generator programmatically queries MCP servers and merges results without an LLM in the loop. This is a deliberate design choice: configuration loading should be deterministic and fast, not dependent on model inference.
+MCP sits at priority 4 in the [configuration precedence chain](configuration.md#precedence) -- below CLI options, arguments, and environment variables, but above config files and defaults.
 
-    The servers themselves are fully MCP-compliant. Any LLM-backed MCP client (Claude, Kiro, or your own) can also connect to these servers and reason over the results.
-
-## Configuration Precedence
-
-MCP sits between config files and environment variables in the precedence chain:
-
-| Priority | Source |
-|----------|--------|
-| 1 (highest) | CLI Options |
-| 2 | CLI Arguments |
-| 3 | Environment Variables |
-| **4** | **MCP Servers** |
-| 5 | CLI Config File |
-| 6 | Custom Config File |
-| 7 | Package.json |
-| 8 (lowest) | Generator Defaults |
-
-Environment variables, CLI arguments, and CLI options always override MCP-provided values. MCP overrides config files and defaults.
+MCP is entirely optional. If a server is not configured, unreachable, times out (default 10s), or returns errors, the generator logs a warning and continues without MCP values. Prompts fall back to their default choices.
 
 ## Eligible Parameters
 
-Not all parameters can be set via MCP. Only parameters with **unbounded value spaces** — where valid values form an open-ended set — are eligible:
+Only parameters with unbounded value spaces are eligible for MCP:
 
 | Parameter | MCP Eligible | Reason |
 |-----------|:---:|--------|
-| `instanceType` | ✅ | Open-ended set of SageMaker instance types |
-| `awsRegion` | ✅ | AWS adds new regions over time |
-| `awsRoleArn` | ✅ | Arbitrary IAM role ARNs |
-| `framework` | ❌ | Fixed set: sklearn, xgboost, tensorflow, transformers |
-| `modelServer` | ❌ | Fixed set: flask, fastapi, vllm, sglang, etc. |
-| All others | ❌ | Bounded value spaces |
+| `instanceType` | yes | Open-ended set of SageMaker instance types |
+| `awsRegion` | yes | AWS adds new regions over time |
+| `awsRoleArn` | yes | Arbitrary IAM role ARNs |
+| `framework` | no | Fixed set: sklearn, xgboost, tensorflow, transformers |
+| `modelServer` | no | Fixed set: flask, fastapi, vllm, sglang, etc. |
+| All others | no | Bounded value spaces |
 
-MCP servers can return values for any parameter, but the generator silently discards values for ineligible (bounded) parameters.
+MCP servers can return values for any parameter, but the generator silently discards values for ineligible parameters.
 
 ## Managing MCP Servers
 
-### Quick Start — Initialize All Bundled Servers
-
-The fastest way to set up MCP is to register all bundled servers at once:
+### Initialize All Bundled Servers
 
 ```bash
 yo @aws/ml-container-creator mcp init
 ```
 
-This creates `config/mcp.json` with every bundled server pre-configured. Existing servers are preserved (not overwritten). Run this after cloning the repo or whenever you need to recreate the config file.
+Creates `config/mcp.json` with every bundled server pre-configured. Existing servers are preserved.
 
 ### Add a Server
-
-Register an MCP server in your `config/mcp.json`:
 
 ```bash
 yo @aws/ml-container-creator mcp add team-config -- node path/to/server.js
@@ -88,6 +66,8 @@ yo @aws/ml-container-creator mcp add team-config -- npx -y @corp/mcp-config \
   --limit 5
 ```
 
+The `mcp add` command registers a server in your config file. The server is spawned and queried later, when you run the generator.
+
 ### Add a Bundled Server
 
 The generator ships with first-party MCP servers in the `servers/` directory:
@@ -98,30 +78,14 @@ yo @aws/ml-container-creator mcp add instance-recommender --bundled
 
 Dependencies are installed automatically on first use.
 
-### List Servers
+### List, Inspect, Remove
 
 ```bash
-# List configured servers
-yo @aws/ml-container-creator mcp list
-
-# List available bundled servers
-yo @aws/ml-container-creator mcp list --bundled
+yo @aws/ml-container-creator mcp list              # List configured servers
+yo @aws/ml-container-creator mcp list --bundled     # List available bundled servers
+yo @aws/ml-container-creator mcp get team-config    # Inspect a server
+yo @aws/ml-container-creator mcp remove team-config # Remove a server
 ```
-
-### Inspect a Server
-
-```bash
-yo @aws/ml-container-creator mcp get team-config
-```
-
-### Remove a Server
-
-```bash
-yo @aws/ml-container-creator mcp remove team-config
-```
-
-!!! note "Registration vs. Execution"
-    The `mcp add` command only **registers** a server in your config file. The server is actually **spawned and queried** later, when you run `yo @aws/ml-container-creator` to generate a project. This separation means you can configure servers without them needing to be available at registration time.
 
 ## Config File Format
 
@@ -145,76 +109,59 @@ MCP servers are configured under the `mcpServers` key in `config/mcp.json`:
 
 | Field | Type | Required | Default | Description |
 |-------|------|:---:|---------|-------------|
-| `command` | string | ✅ | — | Executable to spawn |
-| `args` | string[] | — | `[]` | Command-line arguments |
-| `env` | object | — | `{}` | Additional environment variables |
-| `toolName` | string | — | `get_ml_config` | MCP tool to call |
-| `limit` | integer | — | `10` | Max choices per parameter |
+| `command` | string | yes | -- | Executable to spawn |
+| `args` | string[] | -- | `[]` | Command-line arguments |
+| `env` | object | -- | `{}` | Additional environment variables |
+| `toolName` | string | -- | `get_ml_config` | MCP tool to call |
+| `limit` | integer | -- | `10` | Max choices per parameter |
 
-When multiple servers are configured, they are queried in order. Later servers take precedence over earlier ones for conflicting values.
+When multiple servers are configured, they are queried in order. Later servers take precedence for conflicting values.
 
 ## Bundled Servers
 
 ### instance-recommender
 
-Recommends SageMaker instance types based on the current framework. Traditional ML frameworks (sklearn, xgboost, tensorflow) get CPU instance suggestions; transformer frameworks get GPU instances.
+Recommends SageMaker instance types based on the current framework. Traditional ML frameworks get CPU instance suggestions; transformer frameworks get GPU instances.
 
 ```bash
 yo @aws/ml-container-creator mcp add instance-recommender --bundled
 ```
 
-With Bedrock-powered smart recommendations:
+### region-picker
+
+Suggests AWS regions based on a search term. Set `REGION_SEARCH` to filter by region code or location name (e.g., "europe", "tokyo", "us-west"). Without a search term, returns popular SageMaker regions.
+
+```bash
+yo @aws/ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
+```
+
+## Smart Mode (Amazon Bedrock)
+
+Both bundled servers support an optional smart mode that queries Amazon Bedrock for context-aware recommendations instead of returning static lists. Set `BEDROCK_SMART=true` in the server's environment to enable it. If the Bedrock call fails, the server falls back to static recommendations.
 
 ```bash
 yo @aws/ml-container-creator mcp add instance-recommender --bundled \
   -e BEDROCK_SMART=true
 ```
 
-### region-picker
-
-Suggests AWS regions based on a search term. Set the `REGION_SEARCH` environment variable to filter by region code or location name (e.g., "europe", "tokyo", "us-west"). Without a search term, returns popular SageMaker regions.
-
-```bash
-# Filter for European regions
-yo @aws/ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
-
-# Popular regions (no filter)
-yo @aws/ml-container-creator mcp add region-picker --bundled
-```
-
-With Bedrock-powered smart recommendations:
-
-```bash
-yo @aws/ml-container-creator mcp add region-picker --bundled \
-  -e REGION_SEARCH=europe \
-  -e BEDROCK_SMART=true
-```
-
-## Smart Mode (Amazon Bedrock)
-
-Both bundled servers support an optional smart mode that queries Amazon Bedrock for context-aware recommendations instead of returning static lists. When enabled, the server sends the current ML configuration context to a Bedrock model and uses the LLM's response to inform its recommendations.
-
-Smart mode is opt-in. Set `BEDROCK_SMART=true` in the server's environment to enable it. If the Bedrock call fails for any reason (missing credentials, model not available, rate limit, timeout), the server falls back to its static recommendations with a descriptive log message.
-
 ### Configuration
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `BEDROCK_SMART` | `false` | Set to `true` to enable Bedrock-powered recommendations |
-| `BEDROCK_MODEL` | `global.anthropic.claude-sonnet-4-20250514-v1:0` | Bedrock model ID to use |
+| `BEDROCK_SMART` | `false` | Enable Bedrock-powered recommendations |
+| `BEDROCK_MODEL` | `global.anthropic.claude-sonnet-4-20250514-v1:0` | Bedrock model ID |
 | `BEDROCK_REGION` | `us-east-1` | AWS region for Bedrock API calls |
 
-The default model uses Anthropic Claude Sonnet 4 via the global cross-region inference profile, which routes requests to the nearest available region for best throughput. You can override this with any Bedrock model ID that supports the Messages API.
+The default model uses the global cross-region inference profile, which routes requests to the nearest available region. You can override this with any Bedrock model ID that supports the Messages API.
 
 ### Prerequisites
 
 - AWS credentials configured (via environment, profile, or IAM role)
 - Access to the specified Bedrock model enabled in your account
-- The `@aws-sdk/client-bedrock-runtime` package installed (included in bundled server dependencies)
 
 ### IAM Permissions
 
-The calling identity needs `bedrock:InvokeModel` permission on the inference profile:
+The calling identity needs `bedrock:InvokeModel` on the inference profile:
 
 ```json
 {
@@ -223,25 +170,6 @@ The calling identity needs `bedrock:InvokeModel` permission on the inference pro
     "Resource": "arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-20250514-v1:0"
 }
 ```
-
-### Example
-
-```bash
-# Add instance-recommender with smart mode and a custom model
-yo @aws/ml-container-creator mcp add instance-recommender --bundled \
-  -e BEDROCK_SMART=true \
-  -e BEDROCK_MODEL=us.anthropic.claude-sonnet-4-20250514-v1:0 \
-  -e BEDROCK_REGION=us-west-2
-```
-
-!!! tip "Cost"
-    Each `yo @aws/ml-container-creator` run with smart mode enabled makes one Bedrock API call per server. With Claude Sonnet 4, this typically costs a fraction of a cent per invocation.
-
-## Graceful Degradation
-
-MCP is entirely optional. If a server is not configured, unreachable, times out (default 10s), or returns errors, the generator logs a warning and continues without MCP values. Prompts fall back to their default choices with a "Custom (enter manually)" option.
-
-This means MCP enhances the experience when available but never blocks project generation.
 
 ## Writing a Custom MCP Server
 
@@ -265,9 +193,9 @@ Any process that speaks the MCP protocol over stdio can serve as a configuration
 }
 ```
 
-- `parameters` — which unbounded parameter names the generator is requesting
-- `limit` — maximum number of choices to return per parameter
-- `context` — current configuration state (framework, model server, etc.) for informed recommendations
+- `parameters` -- which unbounded parameter names the generator is requesting
+- `limit` -- maximum number of choices to return per parameter
+- `context` -- current configuration state for informed recommendations
 
 ### Tool Response
 
@@ -286,8 +214,8 @@ Any process that speaks the MCP protocol over stdio can serve as a configuration
 }
 ```
 
-- `values` — recommended default value per parameter (merged into config)
-- `choices` — list of options per parameter (shown during prompting)
+- `values` -- recommended default value per parameter (merged into config)
+- `choices` -- list of options per parameter (shown during prompting)
 
 Both fields are optional. A server may return only values, only choices, or both.
 

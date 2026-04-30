@@ -152,6 +152,19 @@ describe('@aws/generator-ml-container-creator:app', () => {
             ]);
         });
 
+        it('serve script contains source-aware model resolution logic', () => {
+            assert.fileContent('code/serve', 'MODEL_SOURCE');
+            assert.fileContent('code/serve', 'resolve_model');
+            assert.fileContent('code/serve', '/opt/ml/model');
+        });
+
+        it('serve script does not contain old prefix-stripping block', () => {
+            assert.noFileContent('code/serve', 'jumpstart://*');
+            assert.noFileContent('code/serve', 'jumpstart-hub://*');
+            assert.noFileContent('code/serve', 'registry://*');
+            assert.noFileContent('code/serve', '_BARE_ID');
+        });
+
         it('does not create sample model (transformers do not support sample models)', () => {
             assert.noFile([
                 'sample_model/train_abalone.py',
@@ -256,6 +269,54 @@ describe('@aws/generator-ml-container-creator:app', () => {
                 'deploy/build_and_push.sh',
                 'deploy/deploy.sh'
             ]);
+        });
+    });
+
+    describe('transformers project with jumpstart:// model name', () => {
+        beforeEach(async function () {
+            this.timeout(60000);
+            await helpers.run(path.join(__dirname, '../generators/app'))
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'test-jumpstart-project',
+                    'deployment-config': 'transformers-vllm',
+                    'model-name': 'jumpstart://huggingface-reasoning-qwen3-14b',
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.g5.xlarge',
+                    'region': 'us-east-1'
+                });
+        });
+
+        it('Dockerfile sets VLLM_MODEL to the jumpstart URI', () => {
+            assert.fileContent('Dockerfile', 'VLLM_MODEL="jumpstart://huggingface-reasoning-qwen3-14b"');
+        });
+
+        it('serve script uses source-aware model resolution at runtime', () => {
+            assert.fileContent('code/serve', 'MODEL_SOURCE');
+            assert.fileContent('code/serve', 'resolve_model');
+            assert.fileContent('code/serve', '/opt/ml/model');
+        });
+    });
+
+    describe('transformers project with sglang and jumpstart:// model name', () => {
+        beforeEach(async function () {
+            this.timeout(60000);
+            await helpers.run(path.join(__dirname, '../generators/app'))
+                .withOptions({
+                    'skip-prompts': true,
+                    'project-name': 'test-sglang-jumpstart',
+                    'deployment-config': 'transformers-sglang',
+                    'model-name': 'jumpstart://huggingface-reasoning-qwen3-14b',
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.g5.xlarge',
+                    'region': 'us-east-1'
+                });
+        });
+
+        it('serve script uses source-aware model resolution for SGLang', () => {
+            assert.fileContent('code/serve', 'SGLANG_MODEL_PATH');
+            assert.fileContent('code/serve', 'resolve_model');
+            assert.fileContent('code/serve', '/opt/ml/model');
         });
     });
 });

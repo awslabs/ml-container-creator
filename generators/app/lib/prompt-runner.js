@@ -15,6 +15,7 @@ import {
     frameworkProfilePrompts,
     modelFormatPrompts,
     modelServerPrompts,
+    modelLoadStrategyPrompts,
     modelProfilePrompts,
     hfTokenPrompts,
     ngcApiKeyPrompts,
@@ -248,7 +249,16 @@ export default class PromptRunner {
             explicitConfig,
             existingConfig
         );
-        
+
+        // Model loading strategy prompt (build-time vs runtime)
+        // Requirements: 13.1, 13.2, 13.3, 13.4, 13.5
+        const modelLoadStrategyAnswers = await this._runPhase(
+            modelLoadStrategyPrompts,
+            { ...frameworkAnswers, ...engineAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
+            explicitConfig,
+            existingConfig
+        );
+
         const hfTokenAnswers = await this._runPhase(hfTokenPrompts, 
             { ...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers }, 
             explicitConfig, existingConfig);
@@ -319,6 +329,7 @@ export default class PromptRunner {
             ...modelFormatAnswers,
             ...modelServerAnswers,
             ...modelProfileAnswers,
+            ...modelLoadStrategyAnswers,
             ...hfTokenAnswers,
             ...ngcApiKeyAnswers,
             ...moduleAnswers,
@@ -326,6 +337,59 @@ export default class PromptRunner {
             ...destinationAnswers,
             buildTimestamp
         };
+
+        // Flow model source metadata from model-picker MCP response
+        // Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+        if (this._mcpModelSource) {
+            combinedAnswers.modelSource = this._mcpModelSource;
+        }
+        if (this._mcpArtifactUri) {
+            combinedAnswers.artifactUri = this._mcpArtifactUri;
+        }
+
+        // Validate: non-HF model sources require an artifact URI
+        // Without it, the serve script can't download the model at runtime
+        // Infer modelSource from model name prefix if not set by MCP
+        const modelName = combinedAnswers.customModelName || combinedAnswers.modelName;
+        if (!combinedAnswers.modelSource && modelName) {
+            if (modelName.startsWith('s3://')) {
+                combinedAnswers.modelSource = 's3';
+                combinedAnswers.artifactUri = modelName;
+            } else if (modelName.startsWith('jumpstart://')) {
+                combinedAnswers.modelSource = 'jumpstart';
+            } else if (modelName.startsWith('jumpstart-hub://')) {
+                combinedAnswers.modelSource = 'jumpstart-hub';
+            } else if (modelName.startsWith('registry://')) {
+                combinedAnswers.modelSource = 'registry';
+            }
+        }
+        // For s3:// models, the model name IS the artifact URI
+        if (combinedAnswers.modelSource === 's3' && !combinedAnswers.artifactUri) {
+            if (modelName && modelName.startsWith('s3://')) {
+                combinedAnswers.artifactUri = modelName;
+            }
+        }
+        const downloadSources = ['jumpstart', 's3', 'registry'];
+        if (downloadSources.includes(combinedAnswers.modelSource) && !combinedAnswers.artifactUri) {
+            console.log(`\n   ⚠️  Model source is '${combinedAnswers.modelSource}' but no artifact URI was resolved.`);
+            console.log('   The model-picker could not determine the download location.');
+            console.log('   Falling back to HuggingFace source — the model will be loaded by name.');
+            console.log('   If this model requires S3 download, set MODEL_ARTIFACT_URI in do/config after generation.\n');
+            combinedAnswers.modelSource = 'huggingface';
+        }
+
+        // Warn about jumpstart-hub:// models — private hub deployment requires
+        // HubAccessConfig on CreateModel, which is not yet supported by the generator.
+        if (combinedAnswers.modelSource === 'jumpstart-hub') {
+            console.log('\n   ⚠️  JumpStart Private Hub models are not yet fully supported.');
+            console.log('   Private hub artifacts live in AWS-managed S3 buckets that require');
+            console.log('   SageMaker\'s HubAccessConfig mechanism for access.');
+            console.log('   The generated project will not be able to download model artifacts at runtime.');
+            console.log('   This feature is tracked for a future release.\n');
+            console.log('   Falling back to HuggingFace source.\n');
+            combinedAnswers.modelSource = 'huggingface';
+            delete combinedAnswers.artifactUri;
+        }
 
         // Apply auto-set model format for Triton backends with single format
         // Requirements: 3.3, 3.4, 3.5
@@ -973,6 +1037,15 @@ export default class PromptRunner {
                                             modelFamily = vals.family;
                                         }
 
+                                        // Extract model source metadata for loading adapter
+                                        // Requirements: 2.1, 2.2, 2.3, 2.4
+                                        if (vals.provider) {
+                                            this._mcpModelSource = vals.provider;
+                                        }
+                                        if (vals.artifactUri) {
+                                            this._mcpArtifactUri = vals.artifactUri;
+                                        }
+
                                         // Determine sources based on what was returned
                                         if (vals.tags || vals.pipeline_tag) {
                                             sources.push('HuggingFace_Hub_API');
@@ -1000,20 +1073,31 @@ export default class PromptRunner {
             if (!mcpUsed) {
                 const registryConfigManager = this.generator.registryConfigManager;
                 if (registryConfigManager) {
-                    // Try HuggingFace API directly
-                    try {
-                        const hfData = await registryConfigManager._fetchHuggingFaceData(modelId);
-                        if (hfData) {
-                            sources.push('HuggingFace_Hub_API');
-                            if (hfData.chatTemplate) {
-                                chatTemplate = hfData.chatTemplate;
+                    // Only try HuggingFace API for bare model IDs (not prefixed URIs)
+                    const isNonHfUri = modelId.startsWith('jumpstart://') ||
+                        modelId.startsWith('jumpstart-hub://') ||
+                        modelId.startsWith('s3://') ||
+                        modelId.startsWith('registry://');
+
+                    if (!isNonHfUri) {
+                        // Try HuggingFace API directly
+                        try {
+                            const hfData = await registryConfigManager._fetchHuggingFaceData(modelId);
+                            if (hfData) {
+                                sources.push('HuggingFace_Hub_API');
+                                if (hfData.chatTemplate) {
+                                    chatTemplate = hfData.chatTemplate;
+                                }
+                                console.log('   ✅ Found on HuggingFace Hub');
+                            } else {
+                                console.log('   ℹ️  Not found on HuggingFace Hub (may be private or offline)');
                             }
-                            console.log('   ✅ Found on HuggingFace Hub');
-                        } else {
-                            console.log('   ℹ️  Not found on HuggingFace Hub (may be private or offline)');
+                        } catch (error) {
+                            console.log('   ⚠️  HuggingFace API unavailable');
                         }
-                    } catch (error) {
-                        console.log('   ⚠️  HuggingFace API unavailable');
+                    } else {
+                        // Non-HF URI (jumpstart://, s3://, etc.) — skip HF lookup silently
+                        // The summary at the end of this function will report "No additional model information"
                     }
 
                     // Check Model Registry for overrides

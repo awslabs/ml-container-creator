@@ -6,6 +6,26 @@ set -e
 set -u
 set -o pipefail
 
+# Parse flags
+FORCE_NEW=false
+FORCE_IC=false
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE_NEW=true ;;
+        --force-ic) FORCE_IC=true ;;
+        --help|-h)
+            echo "Usage: ./do/deploy [--force] [--force-ic]"
+            echo ""
+            echo "Options:"
+            echo "  --force      Create a new endpoint and IC, even if one already exists."
+            echo "  --force-ic   Recreate just the IC on the existing endpoint."
+            echo ""
+            echo "Without flags, deploy resumes from the last run."
+            exit 0
+            ;;
+    esac
+done
+
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
@@ -100,13 +120,7 @@ fi
 
 echo "   Using execution role: ${ROLE_ARN}"
 
-# Generate unique names with timestamp
-TIMESTAMP=$(date +%s)
-ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-epc-${TIMESTAMP}"
-ENDPOINT_NAME="${PROJECT_NAME}-endpoint-${TIMESTAMP}"
-IC_NAME="${PROJECT_NAME}-ic-${TIMESTAMP}"
-
-# Persist names to config immediately so ./do/logs works during deployment
+# Helper: persist a variable to do/config so other scripts can use it
 _update_config_var() {
     local var_name="$1" var_value="$2" config_file="${SCRIPT_DIR}/config"
     if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
@@ -118,107 +132,309 @@ _update_config_var() {
     fi
 }
 
-_update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
-_update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
-_update_config_var "INFERENCE_COMPONENT_NAME" "${IC_NAME}"
+# Helper: query a SageMaker resource status, returns empty string if not found
+_get_endpoint_status() {
+    aws sagemaker describe-endpoint \
+        --endpoint-name "$1" \
+        --region "${AWS_REGION}" \
+        --query EndpointStatus \
+        --output text 2>/dev/null || echo ""
+}
 
-# Build production variant JSON — no ModelName, just instance provisioning
-VARIANT_JSON="[{\"VariantName\":\"AllTraffic\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
+_get_ic_status() {
+    aws sagemaker describe-inference-component \
+        --inference-component-name "$1" \
+        --region "${AWS_REGION}" \
+        --query InferenceComponentStatus \
+        --output text 2>/dev/null || echo ""
+}
 
-# Append InferenceAmiVersion if configured (controls CUDA driver version on the instance)
-if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
-    VARIANT_JSON="${VARIANT_JSON},\"InferenceAmiVersion\":\"${INFERENCE_AMI_VERSION}\""
-    echo "   AMI version: ${INFERENCE_AMI_VERSION}"
+# Helper: find an InService IC on an endpoint (returns first match or empty)
+_find_active_ic_on_endpoint() {
+    aws sagemaker list-inference-components \
+        --endpoint-name "$1" \
+        --status-equals InService \
+        --region "${AWS_REGION}" \
+        --query 'InferenceComponents[0].InferenceComponentName' \
+        --output text 2>/dev/null || echo ""
+}
+
+# ============================================================
+# Idempotency: check for existing deployment from a previous run
+# ============================================================
+SKIP_TO=""
+
+if [ "${FORCE_NEW}" = true ]; then
+    echo "🔄 --force: ignoring previous deployment, creating new resources."
+elif [ "${FORCE_IC}" = true ] && [ -n "${ENDPOINT_NAME:-}" ]; then
+    EP_STATUS=$(_get_endpoint_status "${ENDPOINT_NAME}")
+    if [ "${EP_STATUS}" = "InService" ]; then
+        echo "🔄 --force-ic: recreating inference component on existing endpoint: ${ENDPOINT_NAME}"
+        SKIP_TO="create_ic"
+    else
+        echo "⚠️  --force-ic requires an InService endpoint, but ${ENDPOINT_NAME} is: ${EP_STATUS:-not found}"
+        echo "   Use --force to create a new endpoint, or wait for the current one."
+        exit 4
+    fi
+elif [ -n "${ENDPOINT_NAME:-}" ]; then
+    echo "🔍 Checking for existing deployment: ${ENDPOINT_NAME}"
+
+    EP_STATUS=$(_get_endpoint_status "${ENDPOINT_NAME}")
+
+    case "${EP_STATUS}" in
+        InService)
+            echo "✅ Endpoint already InService: ${ENDPOINT_NAME}"
+
+            # Check inference component
+            if [ -n "${INFERENCE_COMPONENT_NAME:-}" ]; then
+                IC_STATUS=$(_get_ic_status "${INFERENCE_COMPONENT_NAME}")
+
+                case "${IC_STATUS}" in
+                    InService)
+                        echo "✅ Inference component already InService: ${INFERENCE_COMPONENT_NAME}"
+                        echo ""
+                        echo "📋 Deployment is already live. Nothing to do."
+                        echo "   Endpoint: ${ENDPOINT_NAME}"
+                        echo "   Inference Component: ${INFERENCE_COMPONENT_NAME}"
+                        echo ""
+                        echo "🧪 Test your endpoint:"
+                        echo "   ./do/test"
+                        echo ""
+                        echo "🧹 Clean up when done:"
+                        echo "   ./do/clean endpoint"
+                        exit 0
+                        ;;
+                    Creating)
+                        echo "⏳ Inference component still creating: ${INFERENCE_COMPONENT_NAME}"
+                        SKIP_TO="wait_ic"
+                        IC_NAME="${INFERENCE_COMPONENT_NAME}"
+                        ;;
+                    Failed)
+                        echo "⚠️  Inference component failed: ${INFERENCE_COMPONENT_NAME}"
+                        echo "   Will create a new inference component on the existing endpoint."
+                        SKIP_TO="create_ic"
+                        ;;
+                    *)
+                        # Stored IC not found — check if a different IC is running on this endpoint
+                        LIVE_IC=$(_find_active_ic_on_endpoint "${ENDPOINT_NAME}")
+                        if [ -n "${LIVE_IC}" ] && [ "${LIVE_IC}" != "None" ]; then
+                            echo "✅ Found running inference component on endpoint: ${LIVE_IC}"
+                            echo "   (config had stale reference: ${INFERENCE_COMPONENT_NAME})"
+                            _update_config_var "INFERENCE_COMPONENT_NAME" "${LIVE_IC}"
+                            echo ""
+                            echo "📋 Deployment is already live. Nothing to do."
+                            echo "   Endpoint: ${ENDPOINT_NAME}"
+                            echo "   Inference Component: ${LIVE_IC}"
+                            echo ""
+                            echo "🧪 Test your endpoint:"
+                            echo "   ./do/test"
+                            echo ""
+                            echo "🧹 Clean up when done:"
+                            echo "   ./do/clean endpoint"
+                            exit 0
+                        else
+                            echo "   No existing inference component found on endpoint. Will create one."
+                            SKIP_TO="create_ic"
+                        fi
+                        ;;
+                esac
+            else
+                # No IC name in config — check if one is already running on the endpoint
+                LIVE_IC=$(_find_active_ic_on_endpoint "${ENDPOINT_NAME}")
+                if [ -n "${LIVE_IC}" ] && [ "${LIVE_IC}" != "None" ]; then
+                    echo "✅ Found running inference component on endpoint: ${LIVE_IC}"
+                    _update_config_var "INFERENCE_COMPONENT_NAME" "${LIVE_IC}"
+                    echo ""
+                    echo "📋 Deployment is already live. Nothing to do."
+                    echo "   Endpoint: ${ENDPOINT_NAME}"
+                    echo "   Inference Component: ${LIVE_IC}"
+                    echo ""
+                    echo "🧪 Test your endpoint:"
+                    echo "   ./do/test"
+                    echo ""
+                    echo "🧹 Clean up when done:"
+                    echo "   ./do/clean endpoint"
+                    exit 0
+                else
+                    SKIP_TO="create_ic"
+                fi
+            fi
+            ;;
+        Creating|Updating)
+            echo "⏳ Endpoint still ${EP_STATUS}: ${ENDPOINT_NAME}"
+            SKIP_TO="wait_endpoint"
+            ;;
+        Failed)
+            echo "⚠️  Previous endpoint failed: ${ENDPOINT_NAME}"
+            echo "   Creating a new deployment. Clean up the failed endpoint with:"
+            echo "   ./do/clean endpoint"
+            echo ""
+            # Fall through to create new resources
+            ;;
+        "")
+            echo "   Previous endpoint not found (may have been cleaned up). Creating new deployment."
+            ;;
+        *)
+            echo "   Endpoint in unexpected state: ${EP_STATUS}. Creating new deployment."
+            ;;
+    esac
 fi
 
-VARIANT_JSON="${VARIANT_JSON}}]"
+# ============================================================
+# Step 1: Create endpoint configuration (skip if resuming)
+# ============================================================
+if [ -z "${SKIP_TO}" ]; then
+    TIMESTAMP=$(date +%s)
+    ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-epc-${TIMESTAMP}"
+    ENDPOINT_NAME="${PROJECT_NAME}-endpoint-${TIMESTAMP}"
+    IC_NAME="${PROJECT_NAME}-ic-${TIMESTAMP}"
 
-# Step 1: Create endpoint configuration
-echo "⚙️  Creating endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
-if ! aws sagemaker create-endpoint-config \
-    --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-    --execution-role-arn "${ROLE_ARN}" \
-    --production-variants "${VARIANT_JSON}" \
-    --region "${AWS_REGION}"; then
+    _update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
+    _update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
+    _update_config_var "INFERENCE_COMPONENT_NAME" "${IC_NAME}"
 
-    echo "❌ Failed to create endpoint configuration"
-    echo "   Check that:"
-    echo "   • The execution role ARN is valid"
-    echo "   • The instance type is valid: ${INSTANCE_TYPE}"
-    echo "   • The instance type is available in region: ${AWS_REGION}"
-    echo "   • You have sufficient service quota for the instance type"
-    exit 4
+    # Build production variant JSON
+    VARIANT_JSON="[{\"VariantName\":\"AllTraffic\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
+
+    if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
+        VARIANT_JSON="${VARIANT_JSON},\"InferenceAmiVersion\":\"${INFERENCE_AMI_VERSION}\""
+        echo "   AMI version: ${INFERENCE_AMI_VERSION}"
+    fi
+
+    VARIANT_JSON="${VARIANT_JSON}}]"
+
+    echo "⚙️  Creating endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
+    if ! aws sagemaker create-endpoint-config \
+        --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+        --execution-role-arn "${ROLE_ARN}" \
+        --production-variants "${VARIANT_JSON}" \
+        --region "${AWS_REGION}"; then
+
+        echo "❌ Failed to create endpoint configuration"
+        echo "   Check that:"
+        echo "   • The execution role ARN is valid"
+        echo "   • The instance type is valid: ${INSTANCE_TYPE}"
+        echo "   • The instance type is available in region: ${AWS_REGION}"
+        echo "   • You have sufficient service quota for the instance type"
+        exit 4
+    fi
+
+    echo "✅ Endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
+
+    # Step 2: Create endpoint
+    echo "🚀 Creating endpoint: ${ENDPOINT_NAME}"
+    if ! aws sagemaker create-endpoint \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+        --region "${AWS_REGION}"; then
+
+        echo "❌ Failed to create endpoint"
+        echo "   Check that:"
+        echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
+        echo "   • You have sufficient service quota in region: ${AWS_REGION}"
+        exit 4
+    fi
+
+    echo "✅ Endpoint creation initiated: ${ENDPOINT_NAME}"
 fi
 
-echo "✅ Endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
+# ============================================================
+# Wait for endpoint (skip if already InService)
+# ============================================================
+if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
+    echo "⏳ Waiting for endpoint to reach InService status..."
+    echo "   This may take a few minutes..."
+    echo "   If this times out, re-run ./do/deploy to resume."
 
-# Step 2: Create endpoint
-echo "🚀 Creating endpoint: ${ENDPOINT_NAME}"
-if ! aws sagemaker create-endpoint \
-    --endpoint-name "${ENDPOINT_NAME}" \
-    --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-    --region "${AWS_REGION}"; then
+    if ! aws sagemaker wait endpoint-in-service \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --region "${AWS_REGION}"; then
 
-    echo "❌ Failed to create endpoint"
-    echo "   Check that:"
-    echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
-    echo "   • You have sufficient service quota in region: ${AWS_REGION}"
-    exit 4
+        # Check if it was a credential expiration vs actual failure
+        EP_CHECK=$(_get_endpoint_status "${ENDPOINT_NAME}" 2>/dev/null)
+        if [ "${EP_CHECK}" = "Creating" ]; then
+            echo ""
+            echo "⚠️  Wait interrupted (credentials may have expired), but endpoint is still creating."
+            echo "   Refresh your credentials and re-run ./do/deploy to resume."
+            echo ""
+            echo "   Or check status manually:"
+            echo "   aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION} --query EndpointStatus"
+            exit 4
+        fi
+
+        echo "❌ Endpoint failed to reach InService status"
+        echo "   Check CloudWatch Logs for details:"
+        echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
+        exit 4
+    fi
+
+    echo "✅ Endpoint is InService: ${ENDPOINT_NAME}"
 fi
 
-echo "✅ Endpoint creation initiated: ${ENDPOINT_NAME}"
+# ============================================================
+# Step 3: Create inference component (skip if resuming from wait_ic)
+# ============================================================
+if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "create_ic" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
+    # Generate new IC name if resuming after endpoint wait or failed IC
+    if [ "${SKIP_TO}" = "create_ic" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
+        TIMESTAMP=$(date +%s)
+        IC_NAME="${PROJECT_NAME}-ic-${TIMESTAMP}"
+        _update_config_var "INFERENCE_COMPONENT_NAME" "${IC_NAME}"
+    fi
 
-# Wait for endpoint to be in service before creating inference component
-echo "⏳ Waiting for endpoint to reach InService status..."
-echo "   This may take a few minutes..."
+    echo "📦 Creating inference component: ${IC_NAME}"
+    if ! aws sagemaker create-inference-component \
+        --inference-component-name "${IC_NAME}" \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --variant-name "AllTraffic" \
+        --specification "{
+            \"Container\": {
+                \"Image\": \"${ECR_REPOSITORY}:${IMAGE_TAG}\"
+            },
+            \"StartupParameters\": {
+                \"ContainerStartupHealthCheckTimeoutInSeconds\": 900
+            },
+            \"ComputeResourceRequirements\": {
+                \"NumberOfAcceleratorDevicesRequired\": 1,
+                \"MinMemoryRequiredInMb\": 1024
+            }
+        }" \
+        --runtime-config "{\"CopyCount\": 1}" \
+        --region "${AWS_REGION}"; then
 
-if ! aws sagemaker wait endpoint-in-service \
-    --endpoint-name "${ENDPOINT_NAME}" \
-    --region "${AWS_REGION}"; then
+        echo "❌ Failed to create inference component"
+        echo "   Check that:"
+        echo "   • The ECR image exists and is accessible"
+        echo "   • The endpoint is in InService status"
+        echo "   • The compute resource requirements fit the instance type: ${INSTANCE_TYPE}"
+        exit 4
+    fi
 
-    echo "❌ Endpoint failed to reach InService status"
-    echo "   Check CloudWatch Logs for details:"
-    echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
-    exit 4
+    echo "✅ Inference component creation initiated: ${IC_NAME}"
 fi
 
-echo "✅ Endpoint is InService: ${ENDPOINT_NAME}"
-
-# Step 3: Create inference component on the endpoint
-echo "📦 Creating inference component: ${IC_NAME}"
-if ! aws sagemaker create-inference-component \
-    --inference-component-name "${IC_NAME}" \
-    --endpoint-name "${ENDPOINT_NAME}" \
-    --variant-name "AllTraffic" \
-    --specification "{
-        \"Container\": {
-            \"Image\": \"${ECR_REPOSITORY}:${IMAGE_TAG}\"
-        },
-        \"ComputeResourceRequirements\": {
-            \"NumberOfAcceleratorDevicesRequired\": 1,
-            \"MinMemoryRequiredInMb\": 1024
-        }
-    }" \
-    --runtime-config "{\"CopyCount\": 1}" \
-    --region "${AWS_REGION}"; then
-
-    echo "❌ Failed to create inference component"
-    echo "   Check that:"
-    echo "   • The ECR image exists and is accessible"
-    echo "   • The endpoint is in InService status"
-    echo "   • The compute resource requirements fit the instance type: ${INSTANCE_TYPE}"
-    exit 4
-fi
-
-echo "✅ Inference component creation initiated: ${IC_NAME}"
-
-# Wait for inference component to reach InService status
+# ============================================================
+# Wait for inference component
+# ============================================================
 echo "⏳ Waiting for inference component to reach InService status..."
 echo "   This may take 5-10 minutes..."
+echo "   If this times out, re-run ./do/deploy to resume."
 
 if ! aws sagemaker wait inference-component-in-service \
     --inference-component-name "${IC_NAME}" \
     --region "${AWS_REGION}"; then
+
+    # Check if it was a credential expiration vs actual failure
+    IC_CHECK=$(_get_ic_status "${IC_NAME}" 2>/dev/null)
+    if [ "${IC_CHECK}" = "Creating" ]; then
+        echo ""
+        echo "⚠️  Wait interrupted (credentials may have expired), but inference component is still creating."
+        echo "   Refresh your credentials and re-run ./do/deploy to resume."
+        echo ""
+        echo "   Or check status manually:"
+        echo "   aws sagemaker describe-inference-component --inference-component-name ${IC_NAME} --region ${AWS_REGION}"
+        exit 4
+    fi
 
     echo "❌ Inference component failed to reach InService status"
     echo "   Check CloudWatch Logs for details:"
@@ -383,13 +599,7 @@ echo "✅ Using custom SNS error topic: ${ASYNC_SNS_ERROR_TOPIC}"
 # Flow: create-model → create-endpoint-config (with AsyncInferenceConfig) → create-endpoint
 # ============================================================
 
-# Generate unique names with timestamp
-TIMESTAMP=$(date +%s)
-MODEL_NAME_SM="${PROJECT_NAME}-async-model-${TIMESTAMP}"
-ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-async-epc-${TIMESTAMP}"
-ENDPOINT_NAME="${PROJECT_NAME}-async-ep-${TIMESTAMP}"
-
-# Persist names to config immediately so ./do/logs works during deployment
+# Helper: persist a variable to do/config so other scripts can use it
 _update_config_var() {
     local var_name="$1" var_value="$2" config_file="${SCRIPT_DIR}/config"
     if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
@@ -401,96 +611,177 @@ _update_config_var() {
     fi
 }
 
-_update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
-_update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
-_update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
+# Helper: query a SageMaker resource status, returns empty string if not found
+_get_endpoint_status() {
+    aws sagemaker describe-endpoint \
+        --endpoint-name "$1" \
+        --region "${AWS_REGION}" \
+        --query EndpointStatus \
+        --output text 2>/dev/null || echo ""
+}
 
-# Step 1: Create SageMaker model
-echo "📦 Creating SageMaker model: ${MODEL_NAME_SM}"
-if ! aws sagemaker create-model \
-    --model-name "${MODEL_NAME_SM}" \
-    --primary-container "{\"Image\":\"${ECR_REPOSITORY}:${IMAGE_TAG}\"}" \
-    --execution-role-arn "${ROLE_ARN}" \
-    --region "${AWS_REGION}"; then
+# ============================================================
+# Idempotency: check for existing deployment from a previous run
+# ============================================================
+SKIP_TO=""
 
-    echo "❌ Failed to create SageMaker model"
-    echo "   Check that:"
-    echo "   • The execution role ARN is valid"
-    echo "   • The ECR image exists and is accessible"
-    echo "   • The IAM role has ecr:GetDownloadUrlForLayer permission"
-    exit 4
+if [ "${FORCE_NEW}" = true ]; then
+    echo "🔄 --force: ignoring previous deployment, creating new resources."
+elif [ -n "${ENDPOINT_NAME:-}" ]; then
+    echo "🔍 Checking for existing deployment: ${ENDPOINT_NAME}"
+
+    EP_STATUS=$(_get_endpoint_status "${ENDPOINT_NAME}")
+
+    case "${EP_STATUS}" in
+        InService)
+            echo "✅ Async endpoint already InService: ${ENDPOINT_NAME}"
+            echo ""
+            echo "📋 Deployment is already live. Nothing to do."
+            echo "   Endpoint: ${ENDPOINT_NAME}"
+            echo ""
+            echo "🧪 Test your async endpoint:"
+            echo "   ./do/test"
+            echo ""
+            echo "🧹 Clean up when done:"
+            echo "   ./do/clean endpoint"
+            exit 0
+            ;;
+        Creating|Updating)
+            echo "⏳ Endpoint still ${EP_STATUS}: ${ENDPOINT_NAME}"
+            SKIP_TO="wait_endpoint"
+            ;;
+        Failed)
+            echo "⚠️  Previous endpoint failed: ${ENDPOINT_NAME}"
+            echo "   Creating a new deployment. Clean up the failed endpoint with:"
+            echo "   ./do/clean endpoint"
+            echo ""
+            ;;
+        "")
+            echo "   Previous endpoint not found (may have been cleaned up). Creating new deployment."
+            ;;
+        *)
+            echo "   Endpoint in unexpected state: ${EP_STATUS}. Creating new deployment."
+            ;;
+    esac
 fi
 
-echo "✅ SageMaker model created: ${MODEL_NAME_SM}"
+# ============================================================
+# Create async resources (skip if resuming from wait)
+# ============================================================
+if [ -z "${SKIP_TO}" ]; then
+    TIMESTAMP=$(date +%s)
+    MODEL_NAME_SM="${PROJECT_NAME}-async-model-${TIMESTAMP}"
+    ENDPOINT_CONFIG_NAME="${PROJECT_NAME}-async-epc-${TIMESTAMP}"
+    ENDPOINT_NAME="${PROJECT_NAME}-async-ep-${TIMESTAMP}"
 
-# Build production variant JSON (classic: includes ModelName, no execution-role-arn on endpoint config)
-VARIANT_JSON="[{\"VariantName\":\"AllTraffic\",\"ModelName\":\"${MODEL_NAME_SM}\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
+    _update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
+    _update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
+    _update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
 
-# Append InferenceAmiVersion if configured
-if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
-    VARIANT_JSON="${VARIANT_JSON},\"InferenceAmiVersion\":\"${INFERENCE_AMI_VERSION}\""
-    echo "   AMI version: ${INFERENCE_AMI_VERSION}"
+    # Step 1: Create SageMaker model
+    echo "📦 Creating SageMaker model: ${MODEL_NAME_SM}"
+    if ! aws sagemaker create-model \
+        --model-name "${MODEL_NAME_SM}" \
+        --primary-container "{\"Image\":\"${ECR_REPOSITORY}:${IMAGE_TAG}\"}" \
+        --execution-role-arn "${ROLE_ARN}" \
+        --region "${AWS_REGION}"; then
+
+        echo "❌ Failed to create SageMaker model"
+        echo "   Check that:"
+        echo "   • The execution role ARN is valid"
+        echo "   • The ECR image exists and is accessible"
+        echo "   • The IAM role has ecr:GetDownloadUrlForLayer permission"
+        exit 4
+    fi
+
+    echo "✅ SageMaker model created: ${MODEL_NAME_SM}"
+
+    # Build production variant JSON (classic: includes ModelName, no execution-role-arn on endpoint config)
+    VARIANT_JSON="[{\"VariantName\":\"AllTraffic\",\"ModelName\":\"${MODEL_NAME_SM}\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
+
+    # Append InferenceAmiVersion if configured
+    if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then
+        VARIANT_JSON="${VARIANT_JSON},\"InferenceAmiVersion\":\"${INFERENCE_AMI_VERSION}\""
+        echo "   AMI version: ${INFERENCE_AMI_VERSION}"
+    fi
+
+    VARIANT_JSON="${VARIANT_JSON}}]"
+
+    # Build AsyncInferenceConfig JSON
+    ASYNC_CONFIG="{\"OutputConfig\":{\"S3OutputPath\":\"${ASYNC_S3_OUTPUT_PATH}\",\"NotificationConfig\":{\"SuccessTopic\":\"${ASYNC_SNS_SUCCESS_TOPIC}\",\"ErrorTopic\":\"${ASYNC_SNS_ERROR_TOPIC}\"}}"
+
+    if [ -n "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-}" ]; then
+        ASYNC_CONFIG="${ASYNC_CONFIG},\"ClientConfig\":{\"MaxConcurrentInvocationsPerInstance\":${ASYNC_MAX_CONCURRENT_INVOCATIONS}}"
+    fi
+
+    ASYNC_CONFIG="${ASYNC_CONFIG}}"
+
+    # Step 2: Create endpoint configuration with AsyncInferenceConfig (no --execution-role-arn)
+    echo "⚙️  Creating async endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
+    if ! aws sagemaker create-endpoint-config \
+        --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+        --production-variants "${VARIANT_JSON}" \
+        --async-inference-config "${ASYNC_CONFIG}" \
+        --region "${AWS_REGION}"; then
+
+        echo "❌ Failed to create async endpoint configuration"
+        echo "   Check that:"
+        echo "   • The S3 output path is accessible: ${ASYNC_S3_OUTPUT_PATH}"
+        echo "   • The IAM role has s3:PutObject permission on the output path"
+        echo "   • The instance type is valid: ${INSTANCE_TYPE}"
+        echo "   • The instance type is available in region: ${AWS_REGION}"
+        echo "   • You have sufficient service quota for the instance type"
+        exit 4
+    fi
+
+    echo "✅ Async endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
+
+    # Step 3: Create endpoint
+    echo "🚀 Creating async endpoint: ${ENDPOINT_NAME}"
+    if ! aws sagemaker create-endpoint \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+        --region "${AWS_REGION}"; then
+
+        echo "❌ Failed to create async endpoint"
+        echo "   Check that:"
+        echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
+        echo "   • You have sufficient service quota in region: ${AWS_REGION}"
+        exit 4
+    fi
+
+    echo "✅ Async endpoint creation initiated: ${ENDPOINT_NAME}"
 fi
 
-VARIANT_JSON="${VARIANT_JSON}}]"
+# ============================================================
+# Wait for endpoint (skip if already InService)
+# ============================================================
+if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
+    echo "⏳ Waiting for async endpoint to reach InService status..."
+    echo "   This may take several minutes..."
+    echo "   If this times out, re-run ./do/deploy to resume."
 
-# Build AsyncInferenceConfig JSON
-ASYNC_CONFIG="{\"OutputConfig\":{\"S3OutputPath\":\"${ASYNC_S3_OUTPUT_PATH}\",\"NotificationConfig\":{\"SuccessTopic\":\"${ASYNC_SNS_SUCCESS_TOPIC}\",\"ErrorTopic\":\"${ASYNC_SNS_ERROR_TOPIC}\"}}"
+    if ! aws sagemaker wait endpoint-in-service \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --region "${AWS_REGION}"; then
 
-if [ -n "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-}" ]; then
-    ASYNC_CONFIG="${ASYNC_CONFIG},\"ClientConfig\":{\"MaxConcurrentInvocationsPerInstance\":${ASYNC_MAX_CONCURRENT_INVOCATIONS}}"
-fi
+        # Check if it was a credential expiration vs actual failure
+        EP_CHECK=$(_get_endpoint_status "${ENDPOINT_NAME}" 2>/dev/null)
+        if [ "${EP_CHECK}" = "Creating" ]; then
+            echo ""
+            echo "⚠️  Wait interrupted (credentials may have expired), but endpoint is still creating."
+            echo "   Refresh your credentials and re-run ./do/deploy to resume."
+            echo ""
+            echo "   Or check status manually:"
+            echo "   aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION} --query EndpointStatus"
+            exit 4
+        fi
 
-ASYNC_CONFIG="${ASYNC_CONFIG}}"
-
-# Step 2: Create endpoint configuration with AsyncInferenceConfig (no --execution-role-arn)
-echo "⚙️  Creating async endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
-if ! aws sagemaker create-endpoint-config \
-    --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-    --production-variants "${VARIANT_JSON}" \
-    --async-inference-config "${ASYNC_CONFIG}" \
-    --region "${AWS_REGION}"; then
-
-    echo "❌ Failed to create async endpoint configuration"
-    echo "   Check that:"
-    echo "   • The S3 output path is accessible: ${ASYNC_S3_OUTPUT_PATH}"
-    echo "   • The IAM role has s3:PutObject permission on the output path"
-    echo "   • The instance type is valid: ${INSTANCE_TYPE}"
-    echo "   • The instance type is available in region: ${AWS_REGION}"
-    echo "   • You have sufficient service quota for the instance type"
-    exit 4
-fi
-
-echo "✅ Async endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
-
-# Step 3: Create endpoint
-echo "🚀 Creating async endpoint: ${ENDPOINT_NAME}"
-if ! aws sagemaker create-endpoint \
-    --endpoint-name "${ENDPOINT_NAME}" \
-    --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-    --region "${AWS_REGION}"; then
-
-    echo "❌ Failed to create async endpoint"
-    echo "   Check that:"
-    echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
-    echo "   • You have sufficient service quota in region: ${AWS_REGION}"
-    exit 4
-fi
-
-echo "✅ Async endpoint creation initiated: ${ENDPOINT_NAME}"
-
-# Wait for endpoint to be in service
-echo "⏳ Waiting for async endpoint to reach InService status..."
-echo "   This may take several minutes..."
-
-if ! aws sagemaker wait endpoint-in-service \
-    --endpoint-name "${ENDPOINT_NAME}" \
-    --region "${AWS_REGION}"; then
-
-    echo "❌ Async endpoint failed to reach InService status"
-    echo "   Check CloudWatch Logs for details:"
-    echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
-    exit 4
+        echo "❌ Async endpoint failed to reach InService status"
+        echo "   Check CloudWatch Logs for details:"
+        echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
+        exit 4
+    fi
 fi
 
 echo "✅ Async deployment complete!"
@@ -886,12 +1177,7 @@ fi
 echo "✅ Using custom S3 output path: ${BATCH_OUTPUT_PATH}"
 <% } %>
 
-# Generate unique names with timestamp
-TIMESTAMP=$(date +%s)
-MODEL_NAME_SM="${PROJECT_NAME}-batch-model-${TIMESTAMP}"
-TRANSFORM_JOB_NAME="${PROJECT_NAME}-batch-job-${TIMESTAMP}"
-
-# Persist names to config immediately so ./do/logs works during deployment
+# Helper: persist a variable to do/config so other scripts can use it
 _update_config_var() {
     local var_name="$1" var_value="$2" config_file="${SCRIPT_DIR}/config"
     if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
@@ -902,6 +1188,43 @@ _update_config_var() {
         echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
     fi
 }
+
+# ============================================================
+# Check for previous transform job still running
+# ============================================================
+if [ "${FORCE_NEW}" != true ] && [ -n "${TRANSFORM_JOB_NAME:-}" ]; then
+    echo "🔍 Checking previous transform job: ${TRANSFORM_JOB_NAME}"
+    PREV_JOB_STATUS=$(aws sagemaker describe-transform-job \
+        --transform-job-name "${TRANSFORM_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "TransformJobStatus" \
+        --output text 2>/dev/null || echo "")
+
+    case "${PREV_JOB_STATUS}" in
+        InProgress)
+            echo "⚠️  Previous transform job is still running: ${TRANSFORM_JOB_NAME}"
+            echo "   Wait for it to complete, or stop it with:"
+            echo "   aws sagemaker stop-transform-job --transform-job-name ${TRANSFORM_JOB_NAME} --region ${AWS_REGION}"
+            echo ""
+            echo "   Use --force to create a new job anyway."
+            exit 4
+            ;;
+        Completed)
+            echo "✅ Previous transform job completed: ${TRANSFORM_JOB_NAME}"
+            echo "   Creating a new job. Results from the previous job are in:"
+            echo "   ${BATCH_OUTPUT_PATH}"
+            echo ""
+            ;;
+        *)
+            # Failed, Stopped, or not found — proceed with new job
+            ;;
+    esac
+fi
+
+# Generate unique names with timestamp
+TIMESTAMP=$(date +%s)
+MODEL_NAME_SM="${PROJECT_NAME}-batch-model-${TIMESTAMP}"
+TRANSFORM_JOB_NAME="${PROJECT_NAME}-batch-job-${TIMESTAMP}"
 
 _update_config_var "TRANSFORM_JOB_NAME" "${TRANSFORM_JOB_NAME}"
 _update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
@@ -975,6 +1298,8 @@ echo "✅ Transform job created: ${TRANSFORM_JOB_NAME}"
 # Step 4: Poll transform job status until completion or failure
 echo "⏳ Waiting for transform job to complete..."
 echo "   This may take several minutes depending on dataset size..."
+echo "   If this times out, check status with:"
+echo "   aws sagemaker describe-transform-job --transform-job-name ${TRANSFORM_JOB_NAME} --region ${AWS_REGION}"
 echo ""
 
 while true; do
@@ -983,7 +1308,16 @@ while true; do
         --region "${AWS_REGION}" \
         --query "TransformJobStatus" \
         --output text 2>&1) || {
+        # Check if it was a credential expiration
+        if echo "${JOB_STATUS}" | grep -qi "expired\|token"; then
+            echo ""
+            echo "⚠️  Credentials expired, but the transform job is still running."
+            echo "   Refresh your credentials and check status with:"
+            echo "   aws sagemaker describe-transform-job --transform-job-name ${TRANSFORM_JOB_NAME} --region ${AWS_REGION} --query TransformJobStatus"
+            exit 4
+        fi
         echo "❌ Failed to describe transform job: ${TRANSFORM_JOB_NAME}"
+        echo "   Error: ${JOB_STATUS}"
         exit 4
     }
 

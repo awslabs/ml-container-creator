@@ -1072,7 +1072,10 @@ export default class extends Generator {
             hyperPodNamespace: 'default',
             hyperPodReplicas: 1,
             fsxVolumeHandle: null,
-            baseImage: null
+            baseImage: null,
+            modelSource: 'huggingface',
+            artifactUri: '',
+            modelLoadStrategy: 'runtime'
         };
         
         // Apply defaults for any missing fields

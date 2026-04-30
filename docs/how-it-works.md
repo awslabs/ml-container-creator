@@ -1,73 +1,191 @@
 # How It Works
 
-This guide describes how ML Container Creator (MCC) works. This document is a deeper guide meant for users interested in leveraging MCC for effectively. If you're just getting started, please check out the [Getting Started Guide](getting-started.md), or the [AWS OSS Launch Blog for ml-container-creator](https://aws.amazon.com/blogs/opensource/announcing-ml-container-creator-for-easy-byoc-on-sagemaker/) before proceeding. 
+This guide describes how ML Container Creator (MCC) works: what decisions it captures, how it generates deployment assets, and how those assets get built and deployed. For a hands-on walkthrough, see the [Getting Started Guide](getting-started.md).
 
-## Problem Statement
-The explosion of models, architectures, and ways to serve AI models has made it harder to identify a path forward when deploying a model. Deploying a model can itself become challenging, as engineers copy/paste sample code that works here, but not there. The rationale for decisions made for or against a configuration option are difficult to propogate throughout an organization, necessitating a standardized mechanism for deploying models.
+## The Three Decisions
 
-There will likely never be a shortage of models to use. However, as the AI/ML space coalesces around frameworks, techniques, and deployment options, it becomes easier for tooling to address the complexity of decisions that must be made in the course of deployment. 
+Deploying a model to SageMaker requires three interrelated decisions:
 
-## MCC Solution
-MCC is built to assist customers in standardizing and simplifying the  technical assets associated with the three decisions made in the course of deploying a model:
+1. **Model selection** -- Where does the model come from and in what format?
+2. **Model serving** -- Which framework handles inference requests?
+3. **Model deployment** -- What instance type and deployment target?
 
-1. Model Selection - Where does the model come from?
-2. Model Serving - How will it serve inference requests?
-3. Model Deployment - What infrastructure will this run on?
+Each decision influences the generated technical assets (Dockerfiles, serving code, deployment scripts). MCC captures all three through its prompt flow or CLI flags and produces a complete, buildable project.
 
-While these decisions seem independent, they become interrelated as you consider approaches to containerizing and customizing models. Moreover, each decision is an inflexion point that influences the technical assets used in deployment, such as Dockerfiles or start-up scripts for serving. 
+## Generator Flow
 
-MCC provides users with a standard interface for building and deploying these technical assets. This is accomplished using templated assets that accommodate a growing list of options. Actions can be taken using standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). MCC adapts the do-framework conventions into a `do/` subdirectory with scripts like `build`, `push`, `run`, `test`, `deploy`, `clean`, `logs`, and `export`, and extends the pattern with AWS-specific lifecycle commands for SageMaker deployment.
+MCC collects configuration, validates it, and generates a project directory with all the files needed to build, push, and deploy a container.
 
-MCC started as a [Yeoman Generator](https://yeoman.io/), allowing users to generate containerized deployment assets using a decision-tree style REPL. This is an easy way to understand the generation flow, though not the only way to interact with MCC. Users can automate the generation of these assets using a CLI configured by environment variables, CLI flags, and configuration files.
+```mermaid
+flowchart LR
+    A[Collect config] --> B[Validate]
+    B --> C[Generate project]
+    C --> D[do/build]
+    D --> E[do/push]
+    E --> F[do/deploy]
+```
 
---8<-- "generator-flow-section.md"
+Configuration can come from interactive prompts, CLI flags, environment variables, config files, or MCP servers. These sources are merged in a strict precedence order -- see the [Configuration Guide](configuration.md) for the full precedence chain.
 
-## Architecture
+In interactive mode, the generator walks through four phases: project settings, deployment configuration (framework + server), optional modules (sample model, tests), and infrastructure (instance type, region, build target). In non-interactive mode (`--skip-prompts`), all values come from CLI flags or config files.
 
-The following diagram illustrates the complete flow from model selection through deployment.
-!!! todo "Coming Soon"
-    Features marked with an asterisk(*) are not currently supported, but are coming soon.
+The [Getting Started Guide](getting-started.md) has complete walkthroughs for both a predictive model (sklearn + Flask) and an LLM (SGLang), including the exact CLI commands and generated project structures.
 
---8<-- "architecture-diagram.md"
+## Models
 
-#### Key Architectural Differences: Predictive ML vs Generative AI
-MCC is built to deploy models to [Amazon SageMaker AI Managed Inference endpoints](https://aws.amazon.com/sagemaker/ai/deploy/). As such, MCC-built containers must support the two required HTTP endpoints for a SageMaker AI Managed Inference endpoint, `/ping` and `/invocations`, on port 8080 of the serving endpoint. To support predictive models built using regression or classification techniques, small models with thousands of parameters or less, are built and packed directly into the container and served with an HTTP server inside the container. These servers are configured to respond to HTTP requests on the required endpoints. Generative models are often too large to pull from Amazon S3 or to be loaded directly into the container from local disk. These large models are pulled from HuggingFace by a serving framework, which also handles HTTP requests. 
+MCC handles two categories of models with fundamentally different container architectures.
 
 | Aspect | Predictive ML | Generative AI |
 |--------|---------------|---------------|
-| **Serving Architecture** | Separate layers: Model Handler (Python) + Web Server (Flask/FastAPI) + Nginx | Combined: model loading and HTTP serving is handled by the framework, with some NGINX proxy required by certain frameworks |
-| **Model Storage** | Local files (.pkl, .h5) bundled in container, small size (MB). Amaozn S3* or SageMaker Model Registry* | HuggingFace Hub, downloaded at runtime, large size (GB) |
-| **Instance Types** | CPU-optimized (ml.m5.x) | GPU-required (ml.g5.x) |
-| **Inference** | Fast (milliseconds), batch-friendly, structured input/output | Slower (seconds), streaming responses, text generation |
+| **Examples** | sklearn classifiers, XGBoost regressors, TensorFlow CNNs | Llama, Mistral, GPT |
+| **Model size** | KB -- MB | GB -- hundreds of GB |
+| **Storage** | Local files bundled in container at build time | Downloaded from HuggingFace Hub at runtime |
+| **Instance types** | CPU-optimized (ml.m5, ml.m6g) | GPU-required (ml.g5, ml.g6) |
+| **Inference latency** | Milliseconds | Seconds |
 
-### Incorporating a Model
+### Predictive Models
 
-Users must provide MCC a model to be deployed within the container assets. Failure to provide a model to MCC at generation time will result in unpredictable behavior which is dependent on the selected framework. 
+Predictive models are small models for classification, regression, and similar tasks. MCC requires a model format selection so the model loader knows which file to look for at `/opt/ml/model/`.
 
-MCC is built to support the containerization of specific model assets which are built using specific model training frameworks. Models are deployed directly into the container definition using Dockerfile directives. Alternatively, models can be pulled from model hubs using model serving frameworks. These two approaches are treated differentely by MCC. 
+#### Supported frameworks
 
-For more information, review the deep dives on [predictive](predictive-models.md) and [generative](generative-models.md) models.
+--8<-- "ml-frameworks-table.md"
 
-### ML Hosting & Serving Frameworks
-MCC supports several predictive ML and generative AI frameworks for model serving. This list is evolving, check Frameworks section for more details on how to use these for advanced use cases.
+#### Loading models into the container
 
-For more information, check out the sections on supported [HTTP Servers](http-serving.md) and [LLM Servers](llm-serving.md).
+**Local copy** is the default strategy. A model file from your local filesystem is copied into the container at build time using a Dockerfile `COPY` directive. When bringing your own model, uncomment and edit this line in the generated Dockerfile:
+
+```dockerfile
+# COPY your_model_files /opt/ml/model/
+```
+
+The target directory must be `/opt/ml/model/` for SageMaker compatibility.
+
+**Sample model.** For testing without a real model, MCC can train a sample model on the [Abalone dataset](https://archive.ics.uci.edu/dataset/1/abalone) using the selected framework. The sample model is automatically copied into the container. This is for validating the build and deployment pipeline, not for production use.
+
+### Generative Models
+
+Generative models (LLMs) are specified by HuggingFace model ID at generation time. MCC does not require a model format -- the serving framework handles downloading and loading the model into GPU memory.
+
+```json
+{
+  "framework": "transformers",
+  "modelName": "mistralai/Mistral-7B-Instruct-v0.2",
+  "modelServer": "sglang"
+}
+```
+
+#### HuggingFace authentication
+
+Some models are gated and require a HuggingFace API token. You can provide it via:
+
+- CLI flag: `--hf-token="hf_..."` or `--hf-token='$HF_TOKEN'`
+- Environment variable: `export HF_TOKEN="hf_..."` then reference `$HF_TOKEN`
+- Interactive prompt (when selecting a custom model)
+- Config file: `"hfToken": "$HF_TOKEN"`
+
+See the [Configuration Guide](configuration.md#huggingface-authentication) for details and security best practices.
+
+#### HuggingFace API lookups
+
+When a model ID is specified, MCC validates the model by querying HuggingFace endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/models/{modelId}` | Validate model exists, get metadata |
+| `GET /{modelId}/resolve/main/tokenizer_config.json` | Extract chat template |
+| `GET /{modelId}/resolve/main/config.json` | Get model architecture details |
+
+These calls time out after 5 seconds and handle 404/429 errors gracefully. Use `--offline` to skip them entirely.
+
+## Serving Frameworks
+
+MCC generates different container architectures depending on the serving framework.
+
+### HTTP servers (predictive models)
+
+Predictive models need an HTTP layer to expose the SageMaker-required `/ping` and `/invocations` endpoints on port 8080. MCC generates a model handler (`model_handler.py`) for inference logic and pairs it with a web server and Nginx reverse proxy.
+
+| Web Server | Description |
+|------------|-------------|
+| Flask | Lightweight Python web framework, served via Gunicorn |
+| FastAPI | Modern async framework with automatic OpenAPI docs |
+
+### LLM servers (generative models)
+
+LLM serving frameworks handle both model loading and HTTP serving. Some require an Nginx reverse proxy for SageMaker compatibility.
+
+--8<-- "ai-frameworks-table.md"
+
+### Triton Inference Server
+
+For multi-framework, high-throughput serving, MCC generates Triton-compatible projects with model repository layouts and `config.pbtxt` files. Supported backends: FIL, ONNX Runtime, TensorFlow, PyTorch, vLLM, TensorRT-LLM, and Python.
 
 ## Container Building
 
-MCC generates Docker containers that package everything needed to serve model inference requests over HTTP. The generated Dockerfile bundles the appropriate base image, application code (model handlers and web servers), configuration files, and dependencies. For traditional ML frameworks (scikit-learn, XGBoost, TensorFlow), model artifacts are included directly in the container. For transformer models, the container downloads models from HuggingFace Hub at runtime to keep image sizes manageable. For Triton Inference Server configurations, MCC generates the model repository structure, `config.pbtxt`, and backend-specific files.
+MCC generates Docker containers that package the base image, application code, configuration files, and dependencies. For predictive models, model artifacts are included in the image. For generative models, the container downloads models from HuggingFace Hub at runtime.
 
-The build process follows a standard Docker workflow managed by `do/` scripts: `./do/build` creates the image locally, `./do/push` uploads it to Amazon Elastic Container Registry (ECR), and `./do/deploy` provisions the deployment target. For CI/CD workflows, `./do/submit` handles building and pushing via AWS CodeBuild. The resulting container exposes SageMaker-compatible endpoints (`/ping` for health checks and `/invocations` for inference) on port 8080, ready for production deployment.
+### Local builds
 
+Run `./do/build` to create the image locally and `./do/push` to upload it to Amazon ECR. You can test locally with `./do/run` before pushing.
 
-For more information, check out the section on [Containerization](containerization.md).
+Locally built containers may produce `exec` errors if deployed onto a different architecture (e.g., building on ARM, deploying on x86). Use the `--platform` flag for Docker, or use CodeBuild for production builds.
 
-### Endpoint Deployment
-Once an MCC container is built, it can be launched as a process. MCC supports two deployment targets:
+### AWS CodeBuild
 
-- **Managed Inference** (`managed-inference`): Deploys to Amazon SageMaker AI managed inference endpoints using the Inference Components API. This is the default target and supports real-time inference.
-- **HyperPod EKS** (`hyperpod-eks`): Deploys to an existing SageMaker HyperPod cluster running on Amazon EKS using Kubernetes manifests.
+For CI/CD workflows, `./do/submit` creates a CodeBuild project that builds the image and pushes it to ECR in a single step. MCC generates the IAM policy document and `buildspec.yml` automatically. This is the preferred method for production containers, especially for large LLM images where fast network access to base image registries matters.
 
-Both targets are managed through the `./do/deploy` script. After deployment, `./do/test` validates the endpoint, `./do/logs` tails deployment logs, and `./do/clean` tears down resources.
+## Endpoint Deployment
 
-For more information, check out the deployment deep-dive on the [Deployment & Inference](deployments.md) page.
+Once a container is built and pushed to ECR, `./do/deploy` provisions the deployment target. MCC supports two targets:
+
+- **Managed Inference** (`managed-inference`): SageMaker real-time endpoints via the Inference Components API. This is the default.
+- **HyperPod EKS** (`hyperpod-eks`): Kubernetes deployment on existing SageMaker HyperPod clusters.
+
+After deployment, `./do/test` validates the endpoint, `./do/logs` tails logs, and `./do/clean` tears down resources.
+
+See [Deployment & Inference](deployments.md) for the full lifecycle script reference and target-specific details.
+
+## Architecture Overview
+
+The following diagram shows the end-to-end flow from model source through deployment. Items marked with * are on the roadmap.
+
+```mermaid
+flowchart TB
+    subgraph sources["Model Sources"]
+        local["Local Models<br/>.pkl, .joblib, .h5"]
+        s3["S3 Buckets*"]
+        hf["HuggingFace Hub<br/>LLMs, chat models"]
+    end
+
+    subgraph predict["Predictive ML"]
+        pfw["Framework<br/>scikit-learn, XGBoost, TensorFlow"]
+        handler["model_handler.py"]
+        http["HTTP Server<br/>Flask / FastAPI + Nginx"]
+    end
+
+    subgraph genai["Generative AI"]
+        gfw["Serving Framework<br/>vLLM, SGLang, TensorRT-LLM, LMI, DJL"]
+    end
+
+    subgraph container["Container Build"]
+        dockerfile["Dockerfile Generation"]
+        base["Base Image"]
+        deps["Dependencies"]
+        code["Application Code"]
+        build["Docker Build<br/>local or CodeBuild"]
+        ecr["Push to ECR"]
+    end
+
+    subgraph deploy["Deployment"]
+        endpoint["SageMaker Endpoint<br/>port 8080<br/>GET /ping<br/>POST /invocations"]
+        clients["Client Applications"]
+    end
+
+    sources --> predict & genai
+    pfw --> handler --> http
+    http --> dockerfile
+    gfw --> dockerfile
+    dockerfile --> base & deps & code
+    base & deps & code --> build --> ecr --> endpoint --> clients
+```

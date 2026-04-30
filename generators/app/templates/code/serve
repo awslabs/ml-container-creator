@@ -33,6 +33,110 @@ cat /opt/ml/model/serving.properties
 exit 0
 <% } else { %>
 
+<% if (typeof modelSource !== 'undefined' && modelSource !== 'huggingface') { %>
+# ---------------------------------------------------------------------------
+# download_model_from_s3 — Download model artifacts from S3 to a local path
+# ---------------------------------------------------------------------------
+download_model_from_s3() {
+    local s3_uri="$1"
+    local dest_path="$2"
+    local start_time
+    start_time=$(date +%s)
+
+    if [ -z "$s3_uri" ] || [ -z "$dest_path" ]; then
+        echo "Error: download_model_from_s3 requires S3 URI and destination path" >&2
+        return 1
+    fi
+
+    echo "Downloading model from ${s3_uri} to ${dest_path}..." >&2
+    mkdir -p "${dest_path}"
+
+    if [[ "$s3_uri" == *.tar.gz ]] || [[ "$s3_uri" == *.tgz ]]; then
+        # Tarball: download and extract
+        if ! aws s3 cp "$s3_uri" /tmp/model_archive.tar.gz; then
+            echo "Error: Failed to download tarball from ${s3_uri}" >&2
+            return 1
+        fi
+        if ! tar -xzf /tmp/model_archive.tar.gz -C "$dest_path"; then
+            echo "Error: Failed to extract tarball from ${s3_uri}" >&2
+            rm -f /tmp/model_archive.tar.gz
+            return 1
+        fi
+        rm -f /tmp/model_archive.tar.gz
+    elif [[ "$s3_uri" == */ ]] || ! aws s3 ls "$s3_uri" 2>/dev/null | grep -q "^[0-9]"; then
+        # Directory prefix: sync
+        if ! aws s3 sync "$s3_uri" "$dest_path"; then
+            echo "Error: Failed to sync from ${s3_uri}" >&2
+            return 1
+        fi
+    else
+        # Single file: copy
+        if ! aws s3 cp "$s3_uri" "$dest_path/"; then
+            echo "Error: Failed to copy ${s3_uri}" >&2
+            return 1
+        fi
+    fi
+
+    local duration
+    duration=$(( $(date +%s) - start_time ))
+    echo "Download complete: ${s3_uri} → ${dest_path} (${duration}s)" >&2
+}
+<% } %>
+
+# ---------------------------------------------------------------------------
+# Model Loading Adapter — resolve model based on MODEL_SOURCE env var
+# ---------------------------------------------------------------------------
+MODEL_SOURCE="${MODEL_SOURCE:-huggingface}"
+MODEL_ARTIFACT_URI="${MODEL_ARTIFACT_URI:-}"
+LOCAL_MODEL_PATH="/opt/ml/model"
+
+<% if (modelServer === 'vllm') { %>
+_MODEL_VAR="VLLM_MODEL"
+<% } else if (modelServer === 'sglang') { %>
+_MODEL_VAR="SGLANG_MODEL_PATH"
+<% } else if (modelServer === 'tensorrt-llm') { %>
+_MODEL_VAR="TRTLLM_MODEL"
+<% } %>
+
+resolve_model() {
+    case "$MODEL_SOURCE" in
+        huggingface)
+            # Pass model name directly — server fetches from HF Hub
+            echo "${!_MODEL_VAR}"
+            return
+            ;;
+        s3|jumpstart|jumpstart-hub|registry)
+            # Check for pre-mounted artifacts first
+            if [ -d "$LOCAL_MODEL_PATH" ] && [ "$(ls -A $LOCAL_MODEL_PATH 2>/dev/null)" ]; then
+                echo "Using pre-mounted model artifacts at $LOCAL_MODEL_PATH" >&2
+                echo "$LOCAL_MODEL_PATH"
+                return
+            fi
+            # Need artifact URI for download
+            if [ -z "$MODEL_ARTIFACT_URI" ]; then
+                echo "Error: ${MODEL_SOURCE} model requires artifact URI or pre-mounted artifacts at $LOCAL_MODEL_PATH" >&2
+                exit 1
+            fi
+            # Download from S3
+            if ! download_model_from_s3 "$MODEL_ARTIFACT_URI" "$LOCAL_MODEL_PATH"; then
+                echo "Error: Failed to download model from ${MODEL_ARTIFACT_URI}" >&2
+                exit 1
+            fi
+            echo "$LOCAL_MODEL_PATH"
+            ;;
+        *)
+            # Unrecognized source — treat as huggingface
+            echo "${!_MODEL_VAR}"
+            return
+            ;;
+    esac
+}
+
+_RESOLVED_MODEL=$(resolve_model)
+export "${_MODEL_VAR}=${_RESOLVED_MODEL}"
+echo "Resolved ${_MODEL_VAR}=${_RESOLVED_MODEL} (source: ${MODEL_SOURCE})"
+unset _MODEL_VAR _RESOLVED_MODEL
+
 # Initialize server arguments
 <% if (modelServer === 'tensorrt-llm') { %>
 # port 8081 for internal TensorRT-LLM server (nginx proxies on 8080)

@@ -9,7 +9,8 @@
     },
     "catalogs": {
         "popular-transformers": "./catalogs/popular-transformers.json",
-        "popular-diffusors": "./catalogs/popular-diffusors.json"
+        "popular-diffusors": "./catalogs/popular-diffusors.json",
+        "jumpstart-public": "./catalogs/jumpstart-public.json"
     },
     "tool": {
         "name": "get_models"
