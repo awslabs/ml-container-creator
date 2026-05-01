@@ -367,7 +367,7 @@ export default class BootstrapCommandHandler {
 
         if (profiles.length === 0) {
             console.log('❌ No AWS profiles found. Run `aws configure` first.')
-            process.exit(1)
+            throw new Error('No AWS profiles found. Run `aws configure` first.')
         }
 
         const defaultProfile = profiles.includes('default') ? 'default' : profiles[0]
