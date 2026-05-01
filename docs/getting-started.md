@@ -23,8 +23,15 @@ aws sts get-caller-identity
 
 ## Installation
 
+### From npm (recommended)
+
 ```bash
-npm install -g yo
+npm install -g yo @aws/generator-ml-container-creator
+```
+
+### From source
+
+```bash
 git clone https://github.com/awslabs/ml-container-creator.git
 cd ml-container-creator
 npm install && npm link
