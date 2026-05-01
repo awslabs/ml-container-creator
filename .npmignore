@@ -1,0 +1,49 @@
+# ============================================
+# .npmignore
+# ============================================
+# npm stops using .gitignore once this file exists,
+# so everything from .gitignore is duplicated here.
+
+# --- From .gitignore ---
+.DS_Store
+.idea/
+.kiro/
+.scripts/
+.vscode/
+drafts/
+node_modules/
+test-results.json
+test-output-*
+.nyc_output/
+coverage/
+config/mcp.json
+site/
+
+# --- Development & CI ---
+.git/
+.github/
+.gitignore
+.eslintrc.cjs
+.yo-rc.json
+
+# --- Tests ---
+test/
+
+# --- Documentation (published via GitHub Pages, not npm) ---
+docs/
+mkdocs.yml
+logo.png
+
+# --- MCP servers (separate packages, not part of the generator) ---
+servers/
+
+# --- Scripts (dev tooling) ---
+scripts/
+
+# --- License/SBOM artifacts (informational, not runtime) ---
+sbom.json
+licenses.csv
+THIRD_PARTY.csv
+
+# --- Build artifacts ---
+test-output-full.log

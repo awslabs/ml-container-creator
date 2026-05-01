@@ -4,6 +4,21 @@
   "description": "Generator for SageMaker AI BYOC paradigm for predictive inference use-cases.",
   "type": "module",
   "main": "generators/app/index.js",
+  "prepublishOnly": "npm run lint:fix && npm run test:ci",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/awslabs/ml-container-creator.git"
+  },
+  "files": [
+    "generators/",
+    "servers/",
+    "config/defaults.json",
+    "config/presets/",
+    "README.md",
+    "LICENSE",
+    "LICENSE-THIRD-PARTY",
+    "NOTICE"
+  ],
   "keywords": [
     "yeoman-generator",
     "sagemaker",
