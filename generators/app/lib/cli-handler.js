@@ -61,6 +61,13 @@ export default class CliHandler {
             return true;
         }
 
+        case 'bootstrap': {
+            const { default: BootstrapCommandHandler } = await import('./bootstrap-command-handler.js');
+            const bootstrapHandler = new BootstrapCommandHandler(this.generator);
+            await bootstrapHandler.handle(args.slice(1), options);
+            return true;
+        }
+
         case 'help':
         case '--help':
         case '-h':
@@ -155,6 +162,7 @@ USAGE:
 COMMANDS:
   configure              Interactive configuration setup
   generate-empty-config  Generate empty configuration file
+  bootstrap              Set up shared AWS infrastructure (IAM role, ECR repo, S3 buckets)
   help                   Show this help message
 
 EXAMPLES:
