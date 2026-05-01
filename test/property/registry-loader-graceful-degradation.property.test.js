@@ -59,30 +59,42 @@ describe('Feature: registry-to-server-migration, Property 12: Registry_Loader gr
     });
 
     it('_loadCatalog returns null for nonexistent file paths', () => {
-        fc.assert(
-            fc.property(arbNonexistentPath, (fakePath) => {
-                const loader = new RegistryLoader();
-                const result = loader._loadCatalog(fakePath);
-                assert.strictEqual(result, null, `Should return null for nonexistent path: ${fakePath}`);
-            }),
-            PROPERTY_CONFIG
-        );
+        const origWarn = console.warn;
+        console.warn = () => {}; // suppress expected warnings
+        try {
+            fc.assert(
+                fc.property(arbNonexistentPath, (fakePath) => {
+                    const loader = new RegistryLoader();
+                    const result = loader._loadCatalog(fakePath);
+                    assert.strictEqual(result, null, `Should return null for nonexistent path: ${fakePath}`);
+                }),
+                PROPERTY_CONFIG
+            );
+        } finally {
+            console.warn = origWarn;
+        }
     });
 
     it('_loadCatalog returns null for files with malformed JSON', () => {
         mkdirSync(TEMP_DIR, { recursive: true });
 
-        fc.assert(
-            fc.property(arbMalformedJson, fc.integer({ min: 0, max: 99999 }), (content, idx) => {
-                const filePath = resolve(TEMP_DIR, `malformed-${idx}.json`);
-                writeFileSync(filePath, content, 'utf8');
+        const origWarn = console.warn;
+        console.warn = () => {}; // suppress expected warnings
+        try {
+            fc.assert(
+                fc.property(arbMalformedJson, fc.integer({ min: 0, max: 99999 }), (content, idx) => {
+                    const filePath = resolve(TEMP_DIR, `malformed-${idx}.json`);
+                    writeFileSync(filePath, content, 'utf8');
 
-                const loader = new RegistryLoader();
-                const result = loader._loadCatalog(filePath);
-                assert.strictEqual(result, null, `Should return null for malformed JSON: ${content.slice(0, 30)}`);
-            }),
-            PROPERTY_CONFIG
-        );
+                    const loader = new RegistryLoader();
+                    const result = loader._loadCatalog(filePath);
+                    assert.strictEqual(result, null, `Should return null for malformed JSON: ${content.slice(0, 30)}`);
+                }),
+                PROPERTY_CONFIG
+            );
+        } finally {
+            console.warn = origWarn;
+        }
     });
 
     it('loadFrameworkRegistry returns {} when catalog is missing', async () => {
@@ -115,36 +127,48 @@ describe('Feature: registry-to-server-migration, Property 12: Registry_Loader gr
     });
 
     it('all loader methods return {} without throwing for any random invalid path', () => {
-        fc.assert(
-            fc.asyncProperty(arbNonexistentPath, async (fakePath) => {
-                const loader = new RegistryLoader();
-                // Override all catalog paths to point to the fake path
-                const originalLoadCatalog = loader._loadCatalog.bind(loader);
-                loader._loadCatalog = () => originalLoadCatalog(fakePath);
+        const origWarn = console.warn;
+        console.warn = () => {}; // suppress expected warnings
+        try {
+            fc.assert(
+                fc.asyncProperty(arbNonexistentPath, async (fakePath) => {
+                    const loader = new RegistryLoader();
+                    // Override all catalog paths to point to the fake path
+                    const originalLoadCatalog = loader._loadCatalog.bind(loader);
+                    loader._loadCatalog = () => originalLoadCatalog(fakePath);
 
-                const fw = await loader.loadFrameworkRegistry();
-                const models = await loader.loadModelRegistry();
-                const instances = await loader.loadInstanceAcceleratorMapping();
-                const triton = await loader.loadTritonBackends();
+                    const fw = await loader.loadFrameworkRegistry();
+                    const models = await loader.loadModelRegistry();
+                    const instances = await loader.loadInstanceAcceleratorMapping();
+                    const triton = await loader.loadTritonBackends();
 
-                assert.deepStrictEqual(fw, {}, 'loadFrameworkRegistry should return {}');
-                assert.deepStrictEqual(models, {}, 'loadModelRegistry should return {}');
-                assert.deepStrictEqual(instances, {}, 'loadInstanceAcceleratorMapping should return {}');
-                assert.deepStrictEqual(triton, {}, 'loadTritonBackends should return {}');
-            }),
-            PROPERTY_CONFIG
-        );
+                    assert.deepStrictEqual(fw, {}, 'loadFrameworkRegistry should return {}');
+                    assert.deepStrictEqual(models, {}, 'loadModelRegistry should return {}');
+                    assert.deepStrictEqual(instances, {}, 'loadInstanceAcceleratorMapping should return {}');
+                    assert.deepStrictEqual(triton, {}, 'loadTritonBackends should return {}');
+                }),
+                PROPERTY_CONFIG
+            );
+        } finally {
+            console.warn = origWarn;
+        }
     });
 
     it('_loadCatalog caches null for failed loads and does not retry', () => {
         const loader = new RegistryLoader();
         const fakePath = resolve(TEMP_DIR, 'does-not-exist.json');
 
-        const result1 = loader._loadCatalog(fakePath);
-        const result2 = loader._loadCatalog(fakePath);
+        const origWarn = console.warn;
+        console.warn = () => {};
+        try {
+            const result1 = loader._loadCatalog(fakePath);
+            const result2 = loader._loadCatalog(fakePath);
 
-        assert.strictEqual(result1, null);
-        assert.strictEqual(result2, null);
+            assert.strictEqual(result1, null);
+            assert.strictEqual(result2, null);
+        } finally {
+            console.warn = origWarn;
+        }
     });
 
     it('_loadCatalog caches successful loads', () => {

@@ -8,11 +8,12 @@
  * 1. CLI Options (--framework=transformers)
  * 2. CLI Arguments (yo generator projectName)
  * 3. Environment Variables (AWS_REGION=us-east-1)
- * 4. CLI Config File (--config=prod.json)
+ * 4. CLI Config File (--config=prod.json) / Inline JSON (--config-json='...')
  * 5. Custom Config File (config/mcp.json)
  * 6. Package.json Section ("ml-container-creator": {...})
- * 7. Generator Defaults
- * 8. Prompting (fallback)
+ * 7. Bootstrap Config (~/.ml-container-creator/config.json)
+ * 8. Generator Defaults
+ * 9. Prompting (fallback)
  */
 
 import fs from 'fs';
@@ -22,6 +23,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { McpClient } from './mcp-client.js';
 import DeploymentConfigResolver from './deployment-config-resolver.js';
+import BootstrapConfig from './bootstrap-config.js';
 
 const __configMgrFilename = fileURLToPath(import.meta.url);
 const __configMgrDir = dirname(__configMgrFilename);
@@ -91,6 +93,7 @@ export default class ConfigManager {
         this.explicitConfig = {};
 
         // Apply configurations in reverse precedence order (lowest to highest)
+        await this._loadBootstrapConfig();
         await this._loadPackageJsonConfig();
         await this._loadCustomConfigFile();
         await this._loadCliConfigFile();
@@ -772,7 +775,38 @@ export default class ConfigManager {
         return defaults;
     }
 
+    /**
+     * Load from bootstrap config (~/.ml-container-creator/config.json)
+     * Reads the active profile and maps its keys to ConfigManager config keys.
+     * Sits above generator defaults but below all other configuration sources.
+     * @private
+     */
+    async _loadBootstrapConfig() {
+        try {
+            const bootstrapConfig = new BootstrapConfig();
+            const activeProfile = bootstrapConfig.getActiveProfile();
+            if (!activeProfile) {
+                return;
+            }
 
+            const profileConfig = activeProfile.config;
+            const mapped = {};
+
+            if (profileConfig.roleArn) {
+                mapped.awsRoleArn = profileConfig.roleArn;
+            }
+            if (profileConfig.awsRegion) {
+                mapped.awsRegion = profileConfig.awsRegion;
+            }
+            if (profileConfig.awsProfile) {
+                mapped.awsProfile = profileConfig.awsProfile;
+            }
+
+            this._mergeConfig(mapped);
+        } catch (error) {
+            // Ignore errors — config file may not exist or may be malformed
+        }
+    }
 
     /**
      * Load from package.json "ml-container-creator" section (filtered by matrix)
@@ -817,7 +851,18 @@ export default class ConfigManager {
     }
 
     /**
-     * Load from CLI --config file (with environment variable support)
+     * Load from CLI --config file or --config-json inline string.
+     *
+     * --config-json accepts either:
+     *   1. An inline JSON string: --config-json='{"deploymentConfig":"transformers-vllm"}'
+     *   2. A path to a JSON file: --config-json=config.json
+     *
+     * When both --config and --config-json are provided, --config-json wins
+     * (it is applied second, so its values override --config values).
+     *
+     * Also checks the ML_CONTAINER_CREATOR_CONFIG environment variable as a
+     * fallback for --config.
+     *
      * @private
      */
     async _loadCliConfigFile() {
@@ -829,48 +874,109 @@ export default class ConfigManager {
         }
         
         if (configFile) {
+            this._loadConfigFromFile(configFile);
+        }
+
+        // --config-json: inline JSON string or path to a JSON file
+        const configJson = this.generator.options['config-json'];
+        if (configJson) {
+            this._loadConfigFromJson(configJson);
+        }
+    }
+
+    /**
+     * Load configuration from a JSON file path.
+     * @param {string} configFile - Path to the JSON config file
+     * @private
+     */
+    _loadConfigFromFile(configFile) {
+        try {
+            const configPath = path.resolve(configFile);
+            if (!fs.existsSync(configPath)) {
+                throw new ConfigurationError(
+                    `Config file not found: ${configPath}`,
+                    'configFile',
+                    'cli'
+                );
+            }
+            
+            // Check if file is readable
             try {
-                const configPath = path.resolve(configFile);
+                fs.accessSync(configPath, fs.constants.R_OK);
+            } catch (accessError) {
+                throw new ConfigurationError(
+                    `Config file is not readable: ${configPath}`,
+                    'configFile',
+                    'cli'
+                );
+            }
+            
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            this._applyJsonConfig(config);
+        } catch (error) {
+            if (error instanceof ConfigurationError) {
+                throw error;
+            } else {
+                throw new ConfigurationError(
+                    `Failed to load config file ${configFile}: ${error.message}`,
+                    'configFile',
+                    'cli'
+                );
+            }
+        }
+    }
+
+    /**
+     * Load configuration from an inline JSON string or a JSON file path.
+     * Tries to parse as JSON first; if that fails and the value looks like
+     * a file path, reads and parses the file instead.
+     *
+     * @param {string} configJson - Inline JSON string or path to a JSON file
+     * @private
+     */
+    _loadConfigFromJson(configJson) {
+        let config;
+        try {
+            config = JSON.parse(configJson);
+        } catch {
+            // Not valid JSON — try as a file path
+            try {
+                const configPath = path.resolve(configJson);
                 if (!fs.existsSync(configPath)) {
                     throw new ConfigurationError(
-                        `Config file not found: ${configPath}`,
-                        'configFile',
+                        `--config-json value is not valid JSON and file not found: ${configJson}`,
+                        'configJson',
                         'cli'
                     );
                 }
-                
-                // Check if file is readable
-                try {
-                    fs.accessSync(configPath, fs.constants.R_OK);
-                } catch (accessError) {
-                    throw new ConfigurationError(
-                        `Config file is not readable: ${configPath}`,
-                        'configFile',
-                        'cli'
-                    );
-                }
-                
-                const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                // Filter config to only include parameters supported in config files
-                const filteredConfig = {};
-                Object.entries(config).forEach(([key, value]) => {
-                    if (this._isSourceSupported(key, 'configFile')) {
-                        filteredConfig[key] = this._parseValue(key, value);
-                    }
-                });
-                this._mergeConfig(filteredConfig);
+                config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
             } catch (error) {
                 if (error instanceof ConfigurationError) {
                     throw error;
-                } else {
-                    throw new ConfigurationError(
-                        `Failed to load config file ${configFile}: ${error.message}`,
-                        'configFile',
-                        'cli'
-                    );
                 }
+                throw new ConfigurationError(
+                    `Failed to parse --config-json: ${error.message}`,
+                    'configJson',
+                    'cli'
+                );
             }
         }
+        this._applyJsonConfig(config);
+    }
+
+    /**
+     * Apply a parsed JSON config object, filtering to supported parameters.
+     * @param {Object} config - Parsed JSON config object
+     * @private
+     */
+    _applyJsonConfig(config) {
+        const filteredConfig = {};
+        Object.entries(config).forEach(([key, value]) => {
+            if (this._isSourceSupported(key, 'configFile')) {
+                filteredConfig[key] = this._parseValue(key, value);
+            }
+        });
+        this._mergeConfig(filteredConfig);
     }
 
     /**

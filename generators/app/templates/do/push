@@ -48,30 +48,17 @@ if ! aws ecr get-login-password --region "${AWS_REGION}" | \
 fi
 echo "✅ ECR authentication successful"
 
-# Create ECR repository if it doesn't exist
-echo "🔍 Checking if ECR repository exists..."
+# Check ECR repository exists (must be bootstrapped first)
+echo "🔍 Checking ECR repository..."
 if ! aws ecr describe-repositories \
     --repository-names "${ECR_REPOSITORY_NAME}" \
     --region "${AWS_REGION}" &> /dev/null; then
-    
-    echo "📦 Creating ECR repository: ${ECR_REPOSITORY_NAME}"
-    if ! aws ecr create-repository \
-        --repository-name "${ECR_REPOSITORY_NAME}" \
-        --region "${AWS_REGION}" \
-        --image-scanning-configuration scanOnPush=true \
-        --encryption-configuration encryptionType=AES256; then
-        echo "❌ Failed to create ECR repository"
-        echo ""
-        echo "Possible causes:"
-        echo "  • IAM permissions missing for ecr:CreateRepository"
-        echo "  • Repository name already exists in another account"
-        echo "  • Region not supported"
-        exit 4
-    fi
-    echo "✅ ECR repository created"
-else
-    echo "✅ ECR repository exists"
+    echo "❌ ECR repository '${ECR_REPOSITORY_NAME}' not found."
+    echo ""
+    echo "Run 'yo @aws/ml-container-creator bootstrap' to create it."
+    exit 4
 fi
+echo "✅ ECR repository exists"
 
 # Tag images for ECR
 echo "🏷️  Tagging images for ECR..."
