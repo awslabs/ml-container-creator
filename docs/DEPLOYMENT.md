@@ -172,6 +172,26 @@ For documentation changes:
 5. GitHub Actions will build (but not deploy) for preview
 6. After merge, deployment happens automatically
 
+## Automated Testing with CI Integration
+
+Before promoting documentation or configuration changes to production, you can use the CI Integration Harness to validate that all deployment configurations still produce working endpoints.
+
+The CI harness runs the full lifecycle — generate, build, deploy, test, teardown — for every registered configuration. This catches regressions that might not be visible from documentation changes alone (e.g., a template change that breaks a specific deployment config).
+
+### Validating Before Merge
+
+1. Register your test configurations: `./do/register --ci`
+2. Trigger a CI run: `./do/ci trigger`
+3. Check results: `./do/ci report`
+
+If all configurations pass, you can merge with confidence that the generator produces working containers.
+
+### Continuous Validation
+
+The CI harness runs automatically every hour, re-testing any configuration that hasn't been validated in the last 24 hours. This provides ongoing assurance that the generator and its templates remain functional.
+
+See the [CI Integration Guide](ci-integration.md) for full setup and usage details.
+
 ## Resources
 
 - [MkDocs Documentation](https://www.mkdocs.org/)

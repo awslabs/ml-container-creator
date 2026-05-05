@@ -19,10 +19,16 @@
  *       "roleArn": "arn:aws:iam::111111111111:role/mlcc-sagemaker-execution-role",
  *       "ecrRepositoryName": "ml-container-creator",
  *       "asyncS3Bucket": "...",
- *       "batchS3Bucket": "..."
+ *       "batchS3Bucket": "...",
+ *       "ciInfraProvisioned": false,
+ *       "ciTableName": "mlcc-ci-table"
  *     }
  *   }
  * }
+ *
+ * Optional CI fields (added by bootstrap --ci):
+ *   - ciInfraProvisioned (boolean): Whether CI harness infrastructure has been deployed. Defaults to false.
+ *   - ciTableName (string): Name of the DynamoDB CI table. Defaults to "mlcc-ci-table".
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
@@ -109,6 +115,50 @@ export default class BootstrapConfig {
         }
 
         return config.profiles[name] || null
+    }
+
+    /**
+     * Get a specific profile's config with CI defaults applied.
+     * Ensures profiles created before CI integration still work by
+     * providing graceful defaults for missing CI fields.
+     *
+     * @param {string} name - The profile name
+     * @returns {Object|null} The profile config with CI defaults, or null if not found
+     */
+    getProfileWithDefaults(name) {
+        const profile = this.getProfile(name)
+        if (!profile) {
+            return null
+        }
+
+        return {
+            ciInfraProvisioned: false,
+            ciTableName: 'mlcc-ci-table',
+            ...profile
+        }
+    }
+
+    /**
+     * Get the active profile with CI defaults applied.
+     * Ensures profiles created before CI integration still work by
+     * providing graceful defaults for missing CI fields.
+     *
+     * @returns {{ name: string, config: Object }|null} The active profile with CI defaults, or null
+     */
+    getActiveProfileWithDefaults() {
+        const active = this.getActiveProfile()
+        if (!active) {
+            return null
+        }
+
+        return {
+            name: active.name,
+            config: {
+                ciInfraProvisioned: false,
+                ciTableName: 'mlcc-ci-table',
+                ...active.config
+            }
+        }
     }
 
     /**

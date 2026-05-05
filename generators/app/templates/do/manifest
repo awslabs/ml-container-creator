@@ -1,0 +1,12 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Asset manifest helper — records and queries deployed resources
+# Usage:
+#   ./do/manifest add --type <resourceType> --id <resourceId> --project <projectName> [--meta <json>]
+#   ./do/manifest delete --id <resourceId>
+#   ./do/manifest list [--project <project>] [--status <status>] [--type <type>]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+node "${SCRIPT_DIR}/lib/manifest-cli.js" "$@"

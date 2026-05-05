@@ -133,7 +133,16 @@ EOF
     rm -f /tmp/codebuild-trust-policy.json /tmp/codebuild-policy.json
     
     echo "✅ CodeBuild service role created successfully"
-    
+
+    # Record IAM role in manifest (non-blocking)
+    ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}"
+    ./do/manifest add \
+        --type iam-role \
+        --id "${ROLE_ARN}" \
+        --project "${PROJECT_NAME}" \
+        --meta "{\"roleName\":\"${ROLE_NAME}\",\"region\":\"${AWS_REGION}\"}" \
+        2>/dev/null || true
+
     # Wait for role to propagate
     echo "⏳ Waiting for IAM role to propagate..."
     sleep 10
@@ -197,6 +206,16 @@ EOF
             exit 1
         else
             echo "✅ Project creation verified: $VERIFY_PROJECT"
+        fi
+
+        # Record CodeBuild project in manifest (non-blocking)
+        if [ "$PROJECT_ARN" != "N/A" ] && [ -n "$PROJECT_ARN" ]; then
+            ./do/manifest add \
+                --type codebuild-project \
+                --id "${PROJECT_ARN}" \
+                --project "${PROJECT_NAME}" \
+                --meta "{\"projectName\":\"${CODEBUILD_PROJECT_NAME}\",\"region\":\"${AWS_REGION}\"}" \
+                2>/dev/null || true
         fi
     else
         echo "❌ Failed to create CodeBuild project: ${CODEBUILD_PROJECT_NAME} (exit code: $CREATE_EXIT_CODE)"
@@ -262,6 +281,14 @@ fi
 # Upload source to S3
 echo "📤 Uploading source to S3..."
 aws s3 cp "$TEMP_ZIP" "s3://$S3_BUCKET/$S3_KEY" --region "${AWS_REGION}"
+
+# Record S3 object in manifest (non-blocking)
+./do/manifest add \
+    --type s3-object \
+    --id "s3://${S3_BUCKET}/${S3_KEY}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"bucket\":\"${S3_BUCKET}\",\"key\":\"${S3_KEY}\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
 
 # Clean up local zip file
 rm -f "$TEMP_ZIP"

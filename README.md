@@ -42,7 +42,7 @@ npm install && npm link
 yo @aws/ml-container-creator bootstrap
 ```
 
-Sets up an IAM execution role, ECR repository, and optional S3 buckets. Configuration is saved to `~/.ml-container-creator/config.json`.
+Sets up an IAM execution role, ECR repository, optional S3 buckets, and optional CI Integration Harness for automated testing. Configuration is saved to `~/.ml-container-creator/config.json`.
 
 ### Generate a project
 
@@ -75,6 +75,7 @@ Full documentation is available at [awslabs.github.io/ml-container-creator](http
 - [Getting Started](https://awslabs.github.io/ml-container-creator/getting-started/) — Installation and walkthroughs
 - [Configuration](https://awslabs.github.io/ml-container-creator/configuration/) — CLI flags, env vars, config files, MCP servers
 - [Deployment Guide](https://awslabs.github.io/ml-container-creator/deployments/) — All deployment targets and lifecycle scripts
+- [CI Integration](https://awslabs.github.io/ml-container-creator/ci-integration/) — Automated lifecycle testing for all deployment configurations
 - [Examples](https://awslabs.github.io/ml-container-creator/EXAMPLES/) — Framework-specific walkthroughs
 - [Troubleshooting](https://awslabs.github.io/ml-container-creator/TROUBLESHOOTING/) — Common issues and solutions
 

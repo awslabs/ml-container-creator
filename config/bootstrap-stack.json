@@ -1,0 +1,211 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "ML Container Creator — shared bootstrap infrastructure (IAM role, ECR repository, optional S3 buckets). Re-run bootstrap to apply updates from new versions.",
+
+  "Parameters": {
+    "CreateS3Buckets": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["true", "false"],
+      "Description": "Whether to create S3 buckets for async inference and batch transform"
+    },
+    "UseExistingRoleArn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "ARN of an existing IAM role to use instead of creating one. Leave empty to create a new role."
+    }
+  },
+
+  "Conditions": {
+    "ShouldCreateS3Buckets": { "Fn::Equals": [{ "Ref": "CreateS3Buckets" }, "true"] },
+    "ShouldCreateRole": { "Fn::Equals": [{ "Ref": "UseExistingRoleArn" }, ""] }
+  },
+
+  "Resources": {
+    "SageMakerExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "ShouldCreateRole",
+      "Properties": {
+        "RoleName": "mlcc-sagemaker-execution-role",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "sagemaker.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "mlcc-execution-policy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "SageMakerEndpoints",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sagemaker:CreateEndpoint",
+                    "sagemaker:CreateEndpointConfig",
+                    "sagemaker:CreateModel",
+                    "sagemaker:CreateInferenceComponent",
+                    "sagemaker:UpdateEndpoint",
+                    "sagemaker:UpdateEndpointWeightsAndCapacities",
+                    "sagemaker:UpdateInferenceComponent",
+                    "sagemaker:DeleteEndpoint",
+                    "sagemaker:DeleteEndpointConfig",
+                    "sagemaker:DeleteModel",
+                    "sagemaker:DeleteInferenceComponent",
+                    "sagemaker:DescribeEndpoint",
+                    "sagemaker:DescribeEndpointConfig",
+                    "sagemaker:DescribeModel",
+                    "sagemaker:DescribeInferenceComponent",
+                    "sagemaker:InvokeEndpoint",
+                    "sagemaker:InvokeEndpointAsync"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "ECRPull",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecr:GetAuthorizationToken",
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:GetDownloadUrlForLayer",
+                    "ecr:BatchGetImage"
+                  ],
+                  "Resource": { "Fn::Sub": "arn:aws:ecr:*:${AWS::AccountId}:repository/ml-container-creator" }
+                },
+                {
+                  "Sid": "ECRAuth",
+                  "Effect": "Allow",
+                  "Action": "ecr:GetAuthorizationToken",
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "CloudWatchLogs",
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": "arn:aws:logs:*:*:*"
+                },
+                {
+                  "Sid": "S3ModelRead",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::ml-container-creator-*",
+                    "arn:aws:s3:::ml-container-creator-*/*"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
+          { "Key": "mlcc:created-by", "Value": "bootstrap" }
+        ]
+      }
+    },
+
+    "EcrRepository": {
+      "Type": "AWS::ECR::Repository",
+      "Properties": {
+        "RepositoryName": "ml-container-creator",
+        "ImageScanningConfiguration": { "ScanOnPush": true },
+        "EncryptionConfiguration": { "EncryptionType": "AES256" },
+        "LifecyclePolicy": {
+          "LifecyclePolicyText": "{\"rules\":[{\"rulePriority\":1,\"description\":\"Expire untagged images after 30 days\",\"selection\":{\"tagStatus\":\"untagged\",\"countType\":\"sinceImagePushed\",\"countUnit\":\"days\",\"countNumber\":30},\"action\":{\"type\":\"expire\"}}]}"
+        },
+        "Tags": [
+          { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
+          { "Key": "mlcc:created-by", "Value": "bootstrap" }
+        ]
+      }
+    },
+
+    "AsyncS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Condition": "ShouldCreateS3Buckets",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": { "Fn::Sub": "${AWS::AccountId}-${AWS::Region}-ml-container-creator-async" },
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            { "ServerSideEncryptionByDefault": { "SSEAlgorithm": "AES256" } }
+          ]
+        },
+        "Tags": [
+          { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
+          { "Key": "mlcc:created-by", "Value": "bootstrap" }
+        ]
+      }
+    },
+
+    "BatchS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Condition": "ShouldCreateS3Buckets",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": { "Fn::Sub": "${AWS::AccountId}-${AWS::Region}-ml-container-creator-batch" },
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            { "ServerSideEncryptionByDefault": { "SSEAlgorithm": "AES256" } }
+          ]
+        },
+        "Tags": [
+          { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
+          { "Key": "mlcc:created-by", "Value": "bootstrap" }
+        ]
+      }
+    }
+  },
+
+  "Outputs": {
+    "RoleArn": {
+      "Description": "SageMaker execution role ARN",
+      "Value": {
+        "Fn::If": [
+          "ShouldCreateRole",
+          { "Fn::GetAtt": ["SageMakerExecutionRole", "Arn"] },
+          { "Ref": "UseExistingRoleArn" }
+        ]
+      }
+    },
+    "EcrRepositoryName": {
+      "Description": "ECR repository name",
+      "Value": { "Ref": "EcrRepository" }
+    },
+    "EcrRepositoryUri": {
+      "Description": "ECR repository URI",
+      "Value": { "Fn::GetAtt": ["EcrRepository", "RepositoryUri"] }
+    },
+    "AsyncS3BucketName": {
+      "Condition": "ShouldCreateS3Buckets",
+      "Description": "S3 bucket for async inference output",
+      "Value": { "Ref": "AsyncS3Bucket" }
+    },
+    "BatchS3BucketName": {
+      "Condition": "ShouldCreateS3Buckets",
+      "Description": "S3 bucket for batch transform I/O",
+      "Value": { "Ref": "BatchS3Bucket" }
+    },
+    "StackVersion": {
+      "Description": "Bootstrap stack template version for forward compatibility tracking",
+      "Value": "2026-05-04"
+    }
+  }
+}

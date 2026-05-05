@@ -99,6 +99,14 @@ fi
 docker push "${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
 docker push "${ECR_REPOSITORY}:${PROJECT_NAME}-${TIMESTAMP}"
 
+# Record ECR image in manifest (non-blocking)
+./do/manifest add \
+    --type ecr-image \
+    --id "${ECR_REPOSITORY}:${PROJECT_NAME}-${TIMESTAMP}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"repositoryName\":\"${ECR_REPOSITORY_NAME}\",\"imageTag\":\"${PROJECT_NAME}-${TIMESTAMP}\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
+
 echo "✅ Push complete!"
 echo ""
 echo "📦 Pushed image URIs:"

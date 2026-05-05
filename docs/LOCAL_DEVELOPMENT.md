@@ -71,22 +71,33 @@ mkdocs gh-deploy
 docs/
 ├── index.md                          # Home page
 ├── getting-started.md                # Getting started guide
-├── configuration.md                  # Configuration guide
+├── how-it-works.md                   # How the generator works
+├── configuration.md                  # Configuration reference
+├── mcp-configuration.md              # MCP server configuration
+├── deployments.md                    # Deployment targets & inference
+├── ci-integration.md                 # CI integration harness
 ├── EXAMPLES.md                       # Usage examples
 ├── TROUBLESHOOTING.md                # Troubleshooting guide
 ├── CONTRIBUTING.md                   # Contributing guide
-├── testing.md                        # Testing guide
-├── ADDING_FEATURES.md                # Feature development guide
-├── template-system.md                # Template system docs
 ├── architecture.md                   # Architecture overview
-├── coding-standards.md               # Coding standards
-├── aws-sagemaker.md                  # AWS/SageMaker guide
-├── DEPLOYMENT.md                     # Deployment guide
-├── REGISTRY_CONTRIBUTION_GUIDE.md    # Registry contribution guide
+├── dev/
+│   ├── generator-architecture.md     # Generator internals
+│   ├── template-system.md            # EJS templates & do/ scripts
+│   ├── mcp-server-development.md     # MCP server development
+│   ├── registries-and-catalogs.md    # Catalog JSON format & data flow
+│   └── testing.md                    # Testing guide
+├── snippets/
+│   ├── ai-frameworks-table.md        # Reusable table snippets
+│   ├── architecture-diagram.md
+│   ├── framework-table.md
+│   ├── ml-frameworks-table.md
+│   └── web-server-table.md
 ├── stylesheets/
 │   └── extra.css                     # Custom styles
 └── logo.png                          # Project logo
 ```
+
+The canonical navigation structure is defined in `mkdocs.yml`. Pages not listed in the nav are excluded from the built site.
 
 ## Making Changes
 
@@ -104,10 +115,10 @@ npm run docs:serve
 
 ### 3. Check for Broken Links
 
-MkDocs will warn you about broken internal links when building:
+MkDocs will warn you about broken internal links when building. Use `--strict` to treat warnings as errors:
 
 ```bash
-npm run docs:build
+mkdocs build --strict
 ```
 
 ### 4. Test the Build
@@ -177,6 +188,43 @@ Use admonitions for notes, warnings, etc.:
 
 !!! tip
     This is a tip.
+```
+
+### Add Mermaid Diagrams
+
+Use fenced code blocks with the `mermaid` language:
+
+````markdown
+```mermaid
+graph TD
+    A[Start] --> B[End]
+```
+````
+
+### Add Tabbed Content
+
+Use tabbed blocks for alternative instructions:
+
+```markdown
+=== "macOS/Linux"
+
+    ```bash
+    source venv/bin/activate
+    ```
+
+=== "Windows"
+
+    ```bash
+    venv\Scripts\activate
+    ```
+```
+
+### Include Snippets
+
+Reusable content lives in `docs/snippets/`. Include them with:
+
+```markdown
+--8<-- "framework-table.md"
 ```
 
 ## Troubleshooting

@@ -68,6 +68,9 @@ function setupHandler({ repoExists = false, execAwsImpl } = {}) {
         };
     }
 
+    // Override _writeJsonTempFile to inline JSON so command strings contain expected text
+    handler._writeJsonTempFile = (jsonObj, _prefix) => JSON.stringify(jsonObj);
+
     // Provide a restore function to reset console.log
     const restore = () => { console.log = origLog; };
 

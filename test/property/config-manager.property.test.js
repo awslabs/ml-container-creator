@@ -268,6 +268,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     
                     const mockGen = createMockGenerator();
                     const configManager = new ConfigManager(mockGen);
+                    configManager._loadBootstrapConfig = async () => {};
                     const config = await configManager.loadConfiguration();
                     
                     // The parameter should have its default value

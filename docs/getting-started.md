@@ -56,9 +56,9 @@ yo @aws/ml-container-creator sklearn-demo \
   --deployment-config=http-flask \
   --engine=sklearn \
   --model-format=pkl \
-  --include-sample-model \
+  --include-sample \
   --deployment-target=managed-inference \
-  --instance-type=ml.m6g.large \
+  --instance-type=ml.m5.large \
   --region=us-east-1 \
   --skip-prompts
 ```
@@ -87,12 +87,15 @@ sklearn-demo/
 │   ├── config                    # Project configuration
 │   ├── build                     # Build Docker image
 │   ├── push                      # Push to ECR
+│   ├── submit                    # Submit build to CodeBuild
 │   ├── deploy                    # Deploy to SageMaker
 │   ├── test                      # Test local or deployed endpoint
 │   ├── clean                     # Tear down resources
+│   ├── register                  # Log to deployment registry
+│   ├── manifest                  # Asset manifest operations
 │   ├── run                       # Run container locally
 │   ├── logs                      # Tail CloudWatch logs
-│   └── export                    # Export config as CLI command
+│   └── export                    # Export config as JSON
 └── test/
     ├── test_local_image.sh
     ├── test_model_handler.py
@@ -100,6 +103,8 @@ sklearn-demo/
 ```
 
 ### Build, push, and deploy
+
+If you haven't already, run `yo @aws/ml-container-creator bootstrap` to set up your IAM role and ECR repository.
 
 ```bash
 ./do/build        # Build the Docker image
@@ -138,7 +143,7 @@ You can also test locally before deploying:
 
 ```bash
 ./do/run          # Start container on localhost:8080
-./do/test local   # Test against local container
+./do/test         # Test against local container (no argument = local mode)
 ```
 
 ### Bring your own model
@@ -183,12 +188,14 @@ sglang-demo/
 │   ├── config
 │   ├── build
 │   ├── push
+│   ├── submit                    # Submit build to CodeBuild
 │   ├── deploy
 │   ├── test
 │   ├── clean
+│   ├── register
+│   ├── manifest
 │   ├── logs
-│   ├── export
-│   └── submit                    # Submit build to CodeBuild
+│   └── export
 └── test/
     └── test_endpoint.sh
 ```
@@ -237,10 +244,38 @@ Tear down deployed resources to stop incurring charges:
 ./do/clean all        # All of the above
 ```
 
+## CI Integration (Optional)
+
+The bootstrap command can optionally provision a **CI Integration Harness** that automatically tests your deployment configurations end-to-end on a recurring schedule. This is useful for validating that the generator continues to produce working containers across all supported configurations.
+
+To enable CI during bootstrap:
+
+```bash
+yo @aws/ml-container-creator bootstrap
+# Answer Yes when prompted for CI Integration
+```
+
+Or add CI to an existing bootstrap:
+
+```bash
+yo @aws/ml-container-creator bootstrap update --ci
+```
+
+Once provisioned, register any generated project for automated testing:
+
+```bash
+./do/register --ci
+```
+
+The harness will regenerate, build, deploy, test, and tear down the project hourly, reporting results via `./do/ci report`.
+
+For full details, see the [CI Integration Guide](ci-integration.md).
+
 ## Next Steps
 
 - [How It Works](how-it-works.md) — Understand the generator architecture and prompt flow
 - [Configuration](configuration.md) — CLI flags, environment variables, config files, and MCP servers
 - [Deployment & Inference](deployments.md) — All deployment targets and lifecycle scripts
 - [Examples](EXAMPLES.md) — Walkthroughs for other architectures (Triton, diffusors, async, batch transform)
+- [CI Integration](ci-integration.md) — Automated lifecycle testing for all deployment configurations
 - [Troubleshooting](TROUBLESHOOTING.md) — Common issues and solutions

@@ -1,0 +1,350 @@
+version: 0.2
+
+env:
+  variables:
+    CI_TABLE_NAME: ""
+    CI_LOG_GROUP: ""
+    CONFIG_ID: ""
+    CONFIG_JSON: ""
+    BUILD_STRATEGY: "codebuild-submit"
+
+phases:
+  install:
+    commands:
+      - echo "=== MLCC CI Harness - Install Phase ==="
+      - npm install -g @aws/generator-ml-container-creator
+      # Track overall build start time for total duration calculation
+      - BUILD_START_TIME=$(date +%s)
+      # Initialize stage results tracking as flat variables.
+      # Each stage gets: _STATUS, _DURATION, _LOG_POINTER, _ERROR_SUMMARY
+      - FIRST_FAILURE=""
+      - GENERATE_STATUS="skip"
+      - GENERATE_DURATION=0
+      - GENERATE_LOG_POINTER=""
+      - GENERATE_ERROR_SUMMARY=""
+      - VALIDATE_STATUS="skip"
+      - VALIDATE_DURATION=0
+      - VALIDATE_LOG_POINTER=""
+      - VALIDATE_ERROR_SUMMARY=""
+      - BUILD_STATUS="skip"
+      - BUILD_DURATION=0
+      - BUILD_LOG_POINTER=""
+      - BUILD_ERROR_SUMMARY=""
+      - DEPLOY_TEST_STATUS="skip"
+      - DEPLOY_TEST_DURATION=0
+      - DEPLOY_TEST_LOG_POINTER=""
+      - DEPLOY_TEST_ERROR_SUMMARY=""
+      - REGISTER_STATUS="skip"
+      - REGISTER_DURATION=0
+      - REGISTER_LOG_POINTER=""
+      - REGISTER_ERROR_SUMMARY=""
+      - TEARDOWN_STATUS="skip"
+      - TEARDOWN_DURATION=0
+      - TEARDOWN_LOG_POINTER=""
+      - TEARDOWN_ERROR_SUMMARY=""
+      - UPDATE_STATUS="skip"
+      - UPDATE_DURATION=0
+      - UPDATE_LOG_POINTER=""
+      - UPDATE_ERROR_SUMMARY=""
+      # Build the log pointer prefix for this execution
+      - BUILD_TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+      - LOG_POINTER_PREFIX="${CI_LOG_GROUP}:build/${CONFIG_ID}/${BUILD_TIMESTAMP}"
+
+  pre_build:
+    commands:
+      # --- Stage: Generate ---
+      - echo "=== Stage: Generate ==="
+      - STAGE_START=$(date +%s)
+      - GENERATE_LOG_POINTER="$LOG_POINTER_PREFIX"
+      - STAGE_STDERR_FILE=$(mktemp)
+      - |
+        (
+          set -e
+          echo "$CONFIG_JSON" > /tmp/ci-config.json
+          mkdir -p /tmp/ci-project
+          cd /tmp/ci-project
+          yo @aws/ml-container-creator --config /tmp/ci-config.json --skip-prompts --force
+          chmod +x do/*
+        ) 2>"$STAGE_STDERR_FILE"; STAGE_EXIT=$?
+      - STAGE_END=$(date +%s)
+      - GENERATE_DURATION=$((STAGE_END - STAGE_START))
+      - |
+        if [ "$STAGE_EXIT" -eq 0 ]; then
+          GENERATE_STATUS="pass"
+          echo "Generate stage passed in ${GENERATE_DURATION}s"
+        else
+          GENERATE_STATUS="fail"
+          GENERATE_ERROR_SUMMARY=$(tail -c 500 "$STAGE_STDERR_FILE" | tr -d '\000' | tr '"' "'" | tr '\n' ' ')
+          FIRST_FAILURE="generate"
+          echo "Generate stage FAILED (exit code $STAGE_EXIT) in ${GENERATE_DURATION}s"
+        fi
+      - rm -f "$STAGE_STDERR_FILE"
+
+  build:
+    commands:
+      # --- Stage: Validate (placeholder) ---
+      - echo "=== Stage: Validate ==="
+      - STAGE_START=$(date +%s)
+      - VALIDATE_LOG_POINTER="$LOG_POINTER_PREFIX"
+      - STAGE_STDERR_FILE=$(mktemp)
+      - |
+        if [ -n "$FIRST_FAILURE" ]; then
+          echo "Skipping Validate stage due to prior failure in $FIRST_FAILURE"
+          VALIDATE_STATUS="skip"
+          VALIDATE_DURATION=0
+        else
+          (
+            set -e
+            cd /tmp/ci-project
+            echo "Validate stage placeholder — static checks are a backlog item (BL-001)"
+          ) 2>"$STAGE_STDERR_FILE"; STAGE_EXIT=$?
+          STAGE_END=$(date +%s)
+          VALIDATE_DURATION=$((STAGE_END - STAGE_START))
+          if [ "$STAGE_EXIT" -eq 0 ]; then
+            VALIDATE_STATUS="pass"
+            echo "Validate stage passed in ${VALIDATE_DURATION}s"
+          else
+            VALIDATE_STATUS="fail"
+            VALIDATE_ERROR_SUMMARY=$(tail -c 500 "$STAGE_STDERR_FILE" | tr -d '\000' | tr '"' "'" | tr '\n' ' ')
+            FIRST_FAILURE="validate"
+            echo "Validate stage FAILED (exit code $STAGE_EXIT) in ${VALIDATE_DURATION}s"
+          fi
+        fi
+      - rm -f "$STAGE_STDERR_FILE"
+
+      # --- Stage: Build (strategy-dependent) ---
+      - echo "=== Stage: Build ==="
+      - STAGE_START=$(date +%s)
+      - BUILD_LOG_POINTER="$LOG_POINTER_PREFIX"
+      - STAGE_STDERR_FILE=$(mktemp)
+      - |
+        if [ -n "$FIRST_FAILURE" ]; then
+          echo "Skipping Build stage due to prior failure in $FIRST_FAILURE"
+          BUILD_STATUS="skip"
+          BUILD_DURATION=0
+        else
+          (
+            set -e
+            cd /tmp/ci-project
+            if [ "$BUILD_STRATEGY" = "docker-in-docker" ]; then
+              echo "Build strategy: docker-in-docker"
+              ./do/build
+              ./do/push
+            else
+              echo "Build strategy: codebuild-submit"
+              ./do/submit
+            fi
+          ) 2>"$STAGE_STDERR_FILE"; STAGE_EXIT=$?
+          STAGE_END=$(date +%s)
+          BUILD_DURATION=$((STAGE_END - STAGE_START))
+          if [ "$STAGE_EXIT" -eq 0 ]; then
+            BUILD_STATUS="pass"
+            echo "Build stage passed in ${BUILD_DURATION}s"
+          else
+            BUILD_STATUS="fail"
+            BUILD_ERROR_SUMMARY=$(tail -c 500 "$STAGE_STDERR_FILE" | tr -d '\000' | tr '"' "'" | tr '\n' ' ')
+            FIRST_FAILURE="build"
+            echo "Build stage FAILED (exit code $STAGE_EXIT) in ${BUILD_DURATION}s"
+          fi
+        fi
+      - rm -f "$STAGE_STDERR_FILE"
+
+      # --- Stage: Deploy_Test ---
+      - echo "=== Stage: Deploy_Test ==="
+      - STAGE_START=$(date +%s)
+      - DEPLOY_TEST_LOG_POINTER="$LOG_POINTER_PREFIX"
+      - STAGE_STDERR_FILE=$(mktemp)
+      - |
+        if [ -n "$FIRST_FAILURE" ]; then
+          echo "Skipping Deploy_Test stage due to prior failure in $FIRST_FAILURE"
+          DEPLOY_TEST_STATUS="skip"
+          DEPLOY_TEST_DURATION=0
+        else
+          (
+            set -e
+            cd /tmp/ci-project
+            ./do/deploy
+            ./do/test
+          ) 2>"$STAGE_STDERR_FILE"; STAGE_EXIT=$?
+          STAGE_END=$(date +%s)
+          DEPLOY_TEST_DURATION=$((STAGE_END - STAGE_START))
+          if [ "$STAGE_EXIT" -eq 0 ]; then
+            DEPLOY_TEST_STATUS="pass"
+            echo "Deploy_Test stage passed in ${DEPLOY_TEST_DURATION}s"
+          else
+            DEPLOY_TEST_STATUS="fail"
+            DEPLOY_TEST_ERROR_SUMMARY=$(tail -c 500 "$STAGE_STDERR_FILE" | tr -d '\000' | tr '"' "'" | tr '\n' ' ')
+            FIRST_FAILURE="deploy_test"
+            echo "Deploy_Test stage FAILED (exit code $STAGE_EXIT) in ${DEPLOY_TEST_DURATION}s"
+          fi
+        fi
+      - rm -f "$STAGE_STDERR_FILE"
+
+      # --- Stage: Register (placeholder) ---
+      - echo "=== Stage: Register ==="
+      - STAGE_START=$(date +%s)
+      - REGISTER_LOG_POINTER="$LOG_POINTER_PREFIX"
+      - STAGE_STDERR_FILE=$(mktemp)
+      - |
+        if [ -n "$FIRST_FAILURE" ]; then
+          echo "Skipping Register stage due to prior failure in $FIRST_FAILURE"
+          REGISTER_STATUS="skip"
+          REGISTER_DURATION=0
+        else
+          (
+            set -e
+            cd /tmp/ci-project
+            echo "Register stage placeholder — future registration capabilities"
+          ) 2>"$STAGE_STDERR_FILE"; STAGE_EXIT=$?
+          STAGE_END=$(date +%s)
+          REGISTER_DURATION=$((STAGE_END - STAGE_START))
+          if [ "$STAGE_EXIT" -eq 0 ]; then
+            REGISTER_STATUS="pass"
+            echo "Register stage passed in ${REGISTER_DURATION}s"
+          else
+            REGISTER_STATUS="fail"
+            REGISTER_ERROR_SUMMARY=$(tail -c 500 "$STAGE_STDERR_FILE" | tr -d '\000' | tr '"' "'" | tr '\n' ' ')
+            FIRST_FAILURE="register"
+            echo "Register stage FAILED (exit code $STAGE_EXIT) in ${REGISTER_DURATION}s"
+          fi
+        fi
+      - rm -f "$STAGE_STDERR_FILE"
+
+  post_build:
+    commands:
+      # --- Stage: Teardown (always runs regardless of prior failures) ---
+      - echo "=== Stage: Teardown ==="
+      - STAGE_START=$(date +%s)
+      - TEARDOWN_LOG_POINTER="$LOG_POINTER_PREFIX"
+      - STAGE_STDERR_FILE=$(mktemp)
+      - |
+        (
+          set -e
+          cd /tmp/ci-project
+          ./do/clean all --force
+        ) 2>"$STAGE_STDERR_FILE"; TEARDOWN_EXIT=$?
+      - STAGE_END=$(date +%s)
+      - TEARDOWN_DURATION=$((STAGE_END - STAGE_START))
+      - |
+        if [ "$TEARDOWN_EXIT" -eq 0 ]; then
+          TEARDOWN_STATUS="pass"
+          echo "Teardown stage passed in ${TEARDOWN_DURATION}s"
+        else
+          TEARDOWN_STATUS="fail"
+          TEARDOWN_ERROR_SUMMARY=$(tail -c 500 "$STAGE_STDERR_FILE" | tr -d '\000' | tr '"' "'" | tr '\n' ' ')
+          echo "Teardown stage FAILED (exit code $TEARDOWN_EXIT) in ${TEARDOWN_DURATION}s"
+        fi
+      - rm -f "$STAGE_STDERR_FILE"
+
+      # --- Stage: Update (always runs — writes results to DynamoDB) ---
+      - echo "=== Stage: Update ==="
+      - STAGE_START=$(date +%s)
+      - UPDATE_LOG_POINTER="$LOG_POINTER_PREFIX"
+      - STAGE_STDERR_FILE=$(mktemp)
+      # Determine final testStatus
+      - |
+        if [ -n "$FIRST_FAILURE" ]; then
+          FINAL_TEST_STATUS="fail-${FIRST_FAILURE}"
+        else
+          FINAL_TEST_STATUS="pass"
+        fi
+      # Compute total duration as wall-clock elapsed time from build start
+      - TOTAL_DURATION=$(($(date +%s) - BUILD_START_TIME))
+      # Build the error message from the first failing stage
+      - |
+        if [ -n "$FIRST_FAILURE" ]; then
+          case "$FIRST_FAILURE" in
+            generate)    FINAL_ERROR_MESSAGE="$GENERATE_ERROR_SUMMARY" ;;
+            validate)    FINAL_ERROR_MESSAGE="$VALIDATE_ERROR_SUMMARY" ;;
+            build)       FINAL_ERROR_MESSAGE="$BUILD_ERROR_SUMMARY" ;;
+            deploy_test) FINAL_ERROR_MESSAGE="$DEPLOY_TEST_ERROR_SUMMARY" ;;
+            register)    FINAL_ERROR_MESSAGE="$REGISTER_ERROR_SUMMARY" ;;
+            *)           FINAL_ERROR_MESSAGE="Unknown failure stage" ;;
+          esac
+        else
+          FINAL_ERROR_MESSAGE=""
+        fi
+      # Escape special characters in error messages for JSON
+      - |
+        ESCAPED_GENERATE_ERROR=$(printf '%s' "$GENERATE_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        ESCAPED_VALIDATE_ERROR=$(printf '%s' "$VALIDATE_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        ESCAPED_BUILD_ERROR=$(printf '%s' "$BUILD_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        ESCAPED_DEPLOY_TEST_ERROR=$(printf '%s' "$DEPLOY_TEST_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        ESCAPED_REGISTER_ERROR=$(printf '%s' "$REGISTER_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        ESCAPED_TEARDOWN_ERROR=$(printf '%s' "$TEARDOWN_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        ESCAPED_FINAL_ERROR=$(printf '%s' "$FINAL_ERROR_MESSAGE" | sed 's/\\/\\\\/g; s/"/\\"/g')
+      # Write results to DynamoDB
+      - |
+        (
+          set -e
+          LAST_TEST_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          aws dynamodb update-item \
+            --table-name "$CI_TABLE_NAME" \
+            --key "{\"configId\":{\"S\":\"$CONFIG_ID\"}}" \
+            --update-expression "SET testStatus = :ts, lastTestTimestamp = :ltt, lastTestDuration = :ltd, errorMessage = :em, stageResults = :sr" \
+            --expression-attribute-values "{
+              \":ts\": {\"S\": \"$FINAL_TEST_STATUS\"},
+              \":ltt\": {\"S\": \"$LAST_TEST_TIMESTAMP\"},
+              \":ltd\": {\"N\": \"$TOTAL_DURATION\"},
+              \":em\": {\"S\": \"$ESCAPED_FINAL_ERROR\"},
+              \":sr\": {\"M\": {
+                \"generate\": {\"M\": {
+                  \"status\": {\"S\": \"$GENERATE_STATUS\"},
+                  \"durationSeconds\": {\"N\": \"$GENERATE_DURATION\"},
+                  \"logPointer\": {\"S\": \"$GENERATE_LOG_POINTER\"},
+                  \"errorSummary\": {\"S\": \"$ESCAPED_GENERATE_ERROR\"}
+                }},
+                \"validate\": {\"M\": {
+                  \"status\": {\"S\": \"$VALIDATE_STATUS\"},
+                  \"durationSeconds\": {\"N\": \"$VALIDATE_DURATION\"},
+                  \"logPointer\": {\"S\": \"$VALIDATE_LOG_POINTER\"},
+                  \"errorSummary\": {\"S\": \"$ESCAPED_VALIDATE_ERROR\"}
+                }},
+                \"build\": {\"M\": {
+                  \"status\": {\"S\": \"$BUILD_STATUS\"},
+                  \"durationSeconds\": {\"N\": \"$BUILD_DURATION\"},
+                  \"logPointer\": {\"S\": \"$BUILD_LOG_POINTER\"},
+                  \"errorSummary\": {\"S\": \"$ESCAPED_BUILD_ERROR\"}
+                }},
+                \"deploy_test\": {\"M\": {
+                  \"status\": {\"S\": \"$DEPLOY_TEST_STATUS\"},
+                  \"durationSeconds\": {\"N\": \"$DEPLOY_TEST_DURATION\"},
+                  \"logPointer\": {\"S\": \"$DEPLOY_TEST_LOG_POINTER\"},
+                  \"errorSummary\": {\"S\": \"$ESCAPED_DEPLOY_TEST_ERROR\"}
+                }},
+                \"register\": {\"M\": {
+                  \"status\": {\"S\": \"$REGISTER_STATUS\"},
+                  \"durationSeconds\": {\"N\": \"$REGISTER_DURATION\"},
+                  \"logPointer\": {\"S\": \"$REGISTER_LOG_POINTER\"},
+                  \"errorSummary\": {\"S\": \"$ESCAPED_REGISTER_ERROR\"}
+                }},
+                \"teardown\": {\"M\": {
+                  \"status\": {\"S\": \"$TEARDOWN_STATUS\"},
+                  \"durationSeconds\": {\"N\": \"$TEARDOWN_DURATION\"},
+                  \"logPointer\": {\"S\": \"$TEARDOWN_LOG_POINTER\"},
+                  \"errorSummary\": {\"S\": \"$ESCAPED_TEARDOWN_ERROR\"}
+                }},
+                \"update\": {\"M\": {
+                  \"status\": {\"S\": \"pass\"},
+                  \"durationSeconds\": {\"N\": \"0\"},
+                  \"logPointer\": {\"S\": \"$UPDATE_LOG_POINTER\"},
+                  \"errorSummary\": {\"S\": \"\"}
+                }}
+              }}
+            }"
+        ) 2>"$STAGE_STDERR_FILE"; UPDATE_EXIT=$?
+      - STAGE_END=$(date +%s)
+      - UPDATE_DURATION=$((STAGE_END - STAGE_START))
+      - |
+        if [ "$UPDATE_EXIT" -eq 0 ]; then
+          UPDATE_STATUS="pass"
+          echo "Update stage passed in ${UPDATE_DURATION}s"
+        else
+          UPDATE_STATUS="fail"
+          UPDATE_ERROR_SUMMARY=$(tail -c 500 "$STAGE_STDERR_FILE" | tr -d '\000' | tr '"' "'" | tr '\n' ' ')
+          echo "Update stage FAILED (exit code $UPDATE_EXIT) in ${UPDATE_DURATION}s"
+        fi
+      - rm -f "$STAGE_STDERR_FILE"
+      - echo "=== MLCC CI Harness Complete ==="
+      - echo "Final status: $FINAL_TEST_STATUS"
+      - echo "Total duration: ${TOTAL_DURATION}s"
