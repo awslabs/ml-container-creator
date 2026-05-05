@@ -1,6 +1,6 @@
 {
   "name": "@aws/generator-ml-container-creator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generator for SageMaker AI BYOC paradigm for predictive inference use-cases.",
   "type": "module",
   "main": "generators/app/index.js",
