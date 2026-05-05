@@ -1,0 +1,32 @@
+{
+  "name": "mlcc-ci-harness",
+  "version": "0.1.0",
+  "description": "CDK infrastructure for ML Container Creator CI Integration Harness",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk",
+    "synth": "cdk synth",
+    "test": "mocha --require ts-node/register test/**/*.test.ts --exit --reporter spec"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.175.1",
+    "constructs": "^10.4.2",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1041.0",
+    "@aws-sdk/client-sfn": "^3.1041.0",
+    "@aws-sdk/client-sqs": "^3.1041.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.15.0",
+    "esbuild": "^0.28.0",
+    "mocha": "^11.7.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

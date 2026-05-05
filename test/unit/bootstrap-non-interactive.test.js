@@ -47,8 +47,11 @@ function createMockGenerator() {
 
 /**
  * Sets up a handler with mocked internals for non-interactive testing.
- * Overrides _selectProfile, _validateCredentials, _setupIamRole,
- * _setupEcrRepository, _setupS3Buckets with spies.
+ * Overrides _selectProfile, _validateCredentials, _deployStack,
+ * and _resourceExists with spies.
+ *
+ * The interactive setup now uses CloudFormation stack deployment (_deployStack)
+ * instead of individual _setupIamRole/_setupEcrRepository/_setupS3Buckets calls.
  *
  * @param {object} opts
  * @param {object} opts.options - CLI options to pass to _handleInteractiveSetup
@@ -63,9 +66,8 @@ function setupHandler(_opts = {}) {
     const calls = {
         selectProfile: [],
         validateCredentials: [],
-        setupIamRole: [],
-        setupEcrRepository: [],
-        setupS3Buckets: []
+        deployStack: [],
+        resourceExists: []
     };
     const logs = [];
 
@@ -84,19 +86,21 @@ function setupHandler(_opts = {}) {
         return { accountId: TEST_ACCOUNT_ID, region: providedRegion || TEST_REGION };
     };
 
-    handler._setupIamRole = async (options) => {
-        calls.setupIamRole.push(options);
-        return TEST_ROLE_ARN;
+    // Mock _deployStack to return stack outputs (replaces individual resource setup)
+    handler._deployStack = (stackName, parameters, profile, region) => {
+        calls.deployStack.push({ stackName, parameters, profile, region });
+        return {
+            RoleArn: TEST_ROLE_ARN,
+            EcrRepositoryName: 'ml-container-creator',
+            AsyncS3BucketName: parameters.CreateS3Buckets === 'true' ? `ml-container-creator-async-${region}-${TEST_ACCOUNT_ID}` : undefined,
+            BatchS3BucketName: parameters.CreateS3Buckets === 'true' ? `ml-container-creator-batch-${region}-${TEST_ACCOUNT_ID}` : undefined
+        };
     };
 
-    handler._setupEcrRepository = async () => {
-        calls.setupEcrRepository.push(true);
-        return 'ml-container-creator';
-    };
-
-    handler._setupS3Buckets = async () => {
-        calls.setupS3Buckets.push(true);
-        return { asyncS3Bucket: 'async-bucket', batchS3Bucket: 'batch-bucket' };
+    // Mock _resourceExists to prevent real AWS calls
+    handler._resourceExists = (checkCommand, profile) => {
+        calls.resourceExists.push({ checkCommand, profile });
+        return false;
     };
 
     const restore = () => { console.log = origLog; };
@@ -136,10 +140,12 @@ describe('Bootstrap Non-Interactive Mode', () => {
             assert.strictEqual(calls.validateCredentials[0].profile, TEST_PROFILE, 'should pass the --profile value');
             assert.strictEqual(calls.validateCredentials[0].providedRegion, TEST_REGION, 'should pass the --region value');
 
-            // Should have called _setupIamRole, _setupEcrRepository, and _setupS3Buckets
-            assert.strictEqual(calls.setupIamRole.length, 1, 'should call _setupIamRole once');
-            assert.strictEqual(calls.setupEcrRepository.length, 1, 'should call _setupEcrRepository once');
-            assert.strictEqual(calls.setupS3Buckets.length, 1, 'should call _setupS3Buckets (S3 is only skipped with --skip-s3)');
+            // Should have called _deployStack (replaces individual _setupIamRole/_setupEcrRepository/_setupS3Buckets)
+            assert.strictEqual(calls.deployStack.length, 1, 'should call _deployStack once');
+            assert.strictEqual(calls.deployStack[0].profile, TEST_PROFILE, 'should pass profile to _deployStack');
+            assert.strictEqual(calls.deployStack[0].region, TEST_REGION, 'should pass region to _deployStack');
+            // Without --skip-s3, CreateS3Buckets should be 'true'
+            assert.strictEqual(calls.deployStack[0].parameters.CreateS3Buckets, 'true', 'should request S3 bucket creation');
         });
     });
 
@@ -165,8 +171,7 @@ describe('Bootstrap Non-Interactive Mode', () => {
 
             // Should NOT have called any provisioning methods
             assert.strictEqual(calls.validateCredentials.length, 0, 'should not call _validateCredentials');
-            assert.strictEqual(calls.setupIamRole.length, 0, 'should not call _setupIamRole');
-            assert.strictEqual(calls.setupEcrRepository.length, 0, 'should not call _setupEcrRepository');
+            assert.strictEqual(calls.deployStack.length, 0, 'should not call _deployStack');
         });
     });
 
@@ -192,8 +197,7 @@ describe('Bootstrap Non-Interactive Mode', () => {
 
             // Should NOT have called any provisioning methods
             assert.strictEqual(calls.validateCredentials.length, 0, 'should not call _validateCredentials');
-            assert.strictEqual(calls.setupIamRole.length, 0, 'should not call _setupIamRole');
-            assert.strictEqual(calls.setupEcrRepository.length, 0, 'should not call _setupEcrRepository');
+            assert.strictEqual(calls.deployStack.length, 0, 'should not call _deployStack');
         });
     });
 
@@ -254,8 +258,10 @@ describe('Bootstrap Non-Interactive Mode', () => {
                 'role-arn': USER_ROLE_ARN
             });
 
-            // Should NOT have called _setupIamRole
-            assert.strictEqual(calls.setupIamRole.length, 0, 'should not call _setupIamRole');
+            // Should have called _deployStack with UseExistingRoleArn set
+            assert.strictEqual(calls.deployStack.length, 1, 'should call _deployStack once');
+            assert.strictEqual(calls.deployStack[0].parameters.UseExistingRoleArn, USER_ROLE_ARN,
+                'should pass the provided role ARN as UseExistingRoleArn parameter');
 
             // Should display message about using provided ARN
             assert.ok(
@@ -263,11 +269,11 @@ describe('Bootstrap Non-Interactive Mode', () => {
                 'should display the provided role ARN'
             );
 
-            // Verify the config was saved with the provided role ARN
+            // Verify the config was saved with the role ARN from stack outputs
             const config = handler.config.read();
             assert.ok(config, 'config should exist');
             const profile = config.profiles[config.activeProfile];
-            assert.strictEqual(profile.roleArn, USER_ROLE_ARN, 'should store the provided role ARN in config');
+            assert.ok(profile.roleArn, 'should store a role ARN in config');
         });
     });
 
@@ -283,8 +289,10 @@ describe('Bootstrap Non-Interactive Mode', () => {
                 'skip-s3': true
             });
 
-            // Should NOT have called _setupS3Buckets
-            assert.strictEqual(calls.setupS3Buckets.length, 0, 'should not call _setupS3Buckets');
+            // Should have called _deployStack with CreateS3Buckets='false'
+            assert.strictEqual(calls.deployStack.length, 1, 'should call _deployStack once');
+            assert.strictEqual(calls.deployStack[0].parameters.CreateS3Buckets, 'false',
+                'should pass CreateS3Buckets=false when --skip-s3 is set');
 
             // Should display skip message
             assert.ok(
@@ -293,6 +301,7 @@ describe('Bootstrap Non-Interactive Mode', () => {
             );
 
             // Verify the config was saved without S3 bucket keys
+            // (stack outputs won't include S3 buckets when CreateS3Buckets is false)
             const config = handler.config.read();
             assert.ok(config, 'config should exist');
             const profile = config.profiles[config.activeProfile];

@@ -11,7 +11,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
 # Parse arguments
-CLEANUP_TARGET="${1:-}"
+CLEANUP_TARGET=""
+FORCE_CLEAN=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE_CLEAN=true ;;
+        -*) ;; # ignore other flags
+        *) CLEANUP_TARGET="$arg" ;;
+    esac
+done
 
 # Function to display usage
 show_usage() {
@@ -55,9 +64,12 @@ show_usage() {
     echo "  ./do/clean all        # Clean up everything"
 }
 
-# Function to confirm action
+# Function to confirm action (skipped when --force is set)
 confirm_action() {
     local message="$1"
+    if [ "${FORCE_CLEAN}" = true ]; then
+        return 0
+    fi
     echo ""
     echo "⚠️  ${message}"
     read -p "   Are you sure? (yes/no): " -r
@@ -199,6 +211,8 @@ clean_endpoint() {
         echo "   Run: aws configure"
         exit 4
     fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
     
     # Use names from config (set by do/deploy) or argument
     local EP_NAME="${ENDPOINT_NAME:-}"
@@ -252,6 +266,9 @@ clean_endpoint() {
                 --inference-component-name "${IC_NAME}" \
                 --region "${AWS_REGION}" 2>/dev/null || sleep 15
             echo "✅ Inference component deleted"
+
+            # Mark inference component as deleted in manifest (non-blocking)
+            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${IC_NAME}" 2>/dev/null || true
         else
             echo "❌ Failed to delete inference component"
         fi
@@ -267,6 +284,9 @@ clean_endpoint() {
         aws sagemaker wait endpoint-deleted \
             --endpoint-name "${EP_NAME}" \
             --region "${AWS_REGION}" 2>/dev/null || sleep 10
+
+        # Mark endpoint as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint/${EP_NAME}" 2>/dev/null || true
     else
         echo "❌ Failed to delete endpoint"
     fi
@@ -278,6 +298,9 @@ clean_endpoint() {
             --endpoint-config-name "${EPC_NAME}" \
             --region "${AWS_REGION}" &> /dev/null; then
             echo "✅ Endpoint configuration deleted"
+
+            # Mark endpoint config as deleted in manifest (non-blocking)
+            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint-config/${EPC_NAME}" 2>/dev/null || true
         else
             echo "❌ Failed to delete endpoint configuration"
         fi
@@ -304,6 +327,8 @@ clean_endpoint() {
         echo "   Run: aws configure"
         exit 4
     fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
     
     # Use names from config (set by do/deploy) or argument
     local EP_NAME="${ENDPOINT_NAME:-}"
@@ -345,6 +370,9 @@ clean_endpoint() {
         aws sagemaker wait endpoint-deleted \
             --endpoint-name "${EP_NAME}" \
             --region "${AWS_REGION}" 2>/dev/null || sleep 10
+
+        # Mark endpoint as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint/${EP_NAME}" 2>/dev/null || true
     else
         echo "❌ Failed to delete endpoint"
     fi
@@ -356,6 +384,9 @@ clean_endpoint() {
             --endpoint-config-name "${EPC_NAME}" \
             --region "${AWS_REGION}" &> /dev/null; then
             echo "✅ Endpoint configuration deleted"
+
+            # Mark endpoint config as deleted in manifest (non-blocking)
+            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint-config/${EPC_NAME}" 2>/dev/null || true
         else
             echo "❌ Failed to delete endpoint configuration"
         fi
@@ -368,6 +399,9 @@ clean_endpoint() {
             --model-name "${SM_MODEL_NAME}" \
             --region "${AWS_REGION}" &> /dev/null; then
             echo "✅ SageMaker model deleted"
+
+            # Mark model as deleted in manifest (non-blocking)
+            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:model/${SM_MODEL_NAME}" 2>/dev/null || true
         else
             echo "❌ Failed to delete SageMaker model"
         fi
@@ -458,6 +492,10 @@ clean_batch() {
                 --transform-job-name "${TJ_NAME}" \
                 --region "${AWS_REGION}" 2>/dev/null || sleep 15
             echo "✅ Transform job stopped"
+
+            # Mark transform job as deleted in manifest (non-blocking)
+            AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:transform-job/${TJ_NAME}" 2>/dev/null || true
         else
             echo "❌ Failed to stop transform job"
         fi
@@ -547,6 +585,9 @@ clean_hyperpod() {
         echo "   kubectl get all -n ${HYPERPOD_NAMESPACE}"
         return 1
     fi
+
+    # Mark k8s resources as deleted in manifest (non-blocking)
+    ./do/manifest delete --id "${HYPERPOD_NAMESPACE}/${PROJECT_NAME}" 2>/dev/null || true
     
     echo "✅ HyperPod EKS resources cleaned"
 }
@@ -618,6 +659,9 @@ clean_codebuild() {
         --name "${CODEBUILD_PROJECT_NAME}" \
         --region "${AWS_REGION}" &> /dev/null; then
         echo "✅ CodeBuild project deleted"
+
+        # Mark CodeBuild project as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:codebuild:${AWS_REGION}:${AWS_ACCOUNT_ID}:project/${CODEBUILD_PROJECT_NAME}" 2>/dev/null || true
     else
         echo "❌ Failed to delete CodeBuild project"
     fi
@@ -632,6 +676,9 @@ clean_codebuild() {
         done
         if aws iam delete-role --role-name "${ROLE_NAME}" &> /dev/null; then
             echo "✅ IAM service role deleted"
+
+            # Mark IAM role as deleted in manifest (non-blocking)
+            ./do/manifest delete --id "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}" 2>/dev/null || true
         else
             echo "❌ Failed to delete IAM service role"
         fi

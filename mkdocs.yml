@@ -53,6 +53,7 @@ nav:
       - Configuration: configuration.md
       - MCP Servers: mcp-configuration.md
       - Deployment & Inference: deployments.md
+      - CI Integration: ci-integration.md
       - Examples: EXAMPLES.md
       - Troubleshooting: TROUBLESHOOTING.md
   - Developer Guide:

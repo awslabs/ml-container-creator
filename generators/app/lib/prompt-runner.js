@@ -73,7 +73,9 @@ export default class PromptRunner {
 
         // 1a. Query region MCP, then prompt for region + deployment target
         await this._queryMcpForRegion({}, explicitConfig);
-        const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, {}, explicitConfig, existingConfig);
+        const bootstrapRegion = existingConfig.awsRegion || explicitConfig.awsRegion
+        const regionPreviousAnswers = bootstrapRegion ? { _bootstrapRegion: bootstrapRegion } : {}
+        const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, regionPreviousAnswers, explicitConfig, existingConfig);
 
         // 1b. Instance type — query MCP and prompt for managed-inference, async-inference, batch-transform, and hyperpod-eks
         let instanceAnswers = {};
@@ -597,11 +599,11 @@ export default class PromptRunner {
 
         const smart = this.generator.options.smart === true;
 
-        // Region: query unless explicitly provided via CLI option or config file
-        // Note: AWS_REGION env var is treated as a default, not an explicit override,
-        // so we only skip when awsRegion was set via --region CLI flag or config file
+        // Region: skip MCP query if region was explicitly provided via CLI, config file, or bootstrap profile
         const cliRegion = this.generator.options.region;
-        const skipRegionQuery = cliRegion !== undefined && cliRegion !== null;
+        const bootstrapRegion = explicitConfig.awsRegion;
+        const skipRegionQuery = (cliRegion !== undefined && cliRegion !== null) ||
+            (bootstrapRegion !== undefined && bootstrapRegion !== null);
 
         if (!skipRegionQuery && mcpServers.includes('region-picker')) {
             const { regionSearch } = await this.generator.prompt([{

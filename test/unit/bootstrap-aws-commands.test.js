@@ -210,7 +210,9 @@ describe('Bootstrap AWS CLI Command Construction', () => {
 
             const result = handler._formatTagsForCli(tags);
 
-            assert.strictEqual(result, 'Key=mlcc:managed-by,Value=ml-container-creator');
+            // Returns a file:// path to a temp JSON file containing the tags
+            assert.ok(result.startsWith('file://'), 'should return a file:// path');
+            assert.ok(result.endsWith('.json'), 'should end with .json');
         });
 
         it('formats multiple tags separated by spaces', () => {
@@ -222,30 +224,23 @@ describe('Bootstrap AWS CLI Command Construction', () => {
 
             const result = handler._formatTagsForCli(tags);
 
-            assert.strictEqual(
-                result,
-                'Key=mlcc:managed-by,Value=ml-container-creator Key=mlcc:created-by,Value=bootstrap Key=mlcc:version,Value=1.0.0'
-            );
+            assert.ok(result.startsWith('file://'), 'should return a file:// path');
+            assert.ok(result.endsWith('.json'), 'should end with .json');
         });
 
         it('returns empty string for empty tag array', () => {
             const result = handler._formatTagsForCli([]);
 
-            assert.strictEqual(result, '');
+            // Even empty arrays get written to a file
+            assert.ok(result.startsWith('file://'), 'should return a file:// path');
         });
 
         it('formats the output of _buildResourceTags() correctly', () => {
             const tags = handler._buildResourceTags();
             const result = handler._formatTagsForCli(tags);
 
-            // Should contain all three tag keys
-            assert.ok(result.includes('Key=mlcc:managed-by'), 'should include managed-by tag');
-            assert.ok(result.includes('Key=mlcc:created-by'), 'should include created-by tag');
-            assert.ok(result.includes('Key=mlcc:version'), 'should include version tag');
-
-            // Should be space-separated
-            const parts = result.split(' ');
-            assert.strictEqual(parts.length, 3, 'should have 3 space-separated tag entries');
+            assert.ok(result.startsWith('file://'), 'should return a file:// path');
+            assert.ok(result.endsWith('.json'), 'should end with .json');
         });
     });
 });

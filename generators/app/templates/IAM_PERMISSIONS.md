@@ -1,532 +1,84 @@
-# IAM Permissions for CodeBuild Deployment
-
-This document outlines the IAM permissions required for deploying <%= projectName %> using AWS CodeBuild.
+# IAM Permissions — <%= projectName %>
 
 ## Overview
 
-The CodeBuild deployment uses a **shared ECR repository** approach where all ML container projects created by this generator use a single ECR repository named `ml-container-creator`. Each project gets its own image tags within this shared repository:
+This project uses three sets of IAM permissions:
 
-- `<project-name>-latest` - Latest build for a specific project
-- `<project-name>-YYYYMMDD-HHMMSS` - Timestamped builds for a specific project  
-- `latest` - Global latest build across all projects
+1. **SageMaker Execution Role** — created automatically by `bootstrap` via CloudFormation
+2. **CodeBuild Service Role** — created automatically by `./do/submit`
+3. **User/CI Permissions** — your AWS user or CI system needs these to run the do-scripts
 
-This approach simplifies ECR management and reduces the number of repositories needed.
+## SageMaker Execution Role
 
-The CodeBuild deployment requires two sets of permissions:
-1. **CodeBuild Service Role** - Permissions for the CodeBuild service to build and push Docker images
-2. **User/CI System Permissions** - Permissions for your user account or CI system to manage CodeBuild projects and SageMaker resources
+The bootstrap command creates an IAM role (`mlcc-sagemaker-execution-role`) with permissions for:
 
-## CodeBuild Service Role Permissions
+- **SageMaker**: Create, update, delete, and invoke endpoints, endpoint configs, models, and inference components
+- **ECR**: Pull images from the `ml-container-creator` repository
+- **CloudWatch Logs**: Write container logs
+- **S3**: Read model artifacts from `ml-container-creator-*` buckets
 
-The CodeBuild service role (`<%= codebuildProjectName %>-service-role`) needs the following permissions:
+The role is defined in the CloudFormation stack template (`config/bootstrap-stack.json`) and updated automatically when you re-run bootstrap after upgrading.
 
-### Trust Policy
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "codebuild.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-```
+If you use a custom role (`--role-arn`), ensure it has at minimum:
 
-### Service Role Policy
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "CloudWatchLogs",
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogGroup",
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ],
-      "Resource": "arn:aws:logs:<%= awsRegion %>:*:log-group:/aws/codebuild/<%= codebuildProjectName %>*"
-    },
-    {
-      "Sid": "ECRAccess",
-      "Effect": "Allow",
-      "Action": [
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage",
-        "ecr:GetAuthorizationToken",
-        "ecr:PutImage",
-        "ecr:InitiateLayerUpload",
-        "ecr:UploadLayerPart",
-        "ecr:CompleteLayerUpload"
-      ],
-      "Resource": [
-        "arn:aws:ecr:*:*:repository/ml-container-creator"
-      ]
-    },
-    {
-      "Sid": "S3Access",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:GetObjectVersion"
-      ],
-      "Resource": [
-        "arn:aws:s3:::codebuild-source-*/*"
-      ]
-    },
-    {
-      "Sid": "S3ListBucket",
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::codebuild-source-*"
-      ]
-    }
-  ]
-}
-```
+| Permission | Purpose |
+|-----------|---------|
+| `sagemaker:CreateEndpoint`, `CreateEndpointConfig`, `CreateModel`, `CreateInferenceComponent` | Deploy |
+| `sagemaker:DeleteEndpoint`, `DeleteEndpointConfig`, `DeleteModel`, `DeleteInferenceComponent` | Clean up |
+| `sagemaker:DescribeEndpoint`, `DescribeEndpointConfig`, `DescribeModel`, `DescribeInferenceComponent` | Status checks |
+| `sagemaker:InvokeEndpoint`, `InvokeEndpointAsync` | Inference |
+| `sagemaker:UpdateEndpoint`, `UpdateEndpointWeightsAndCapacities`, `UpdateInferenceComponent` | Updates |
+| `ecr:GetAuthorizationToken`, `BatchGetImage`, `GetDownloadUrlForLayer`, `BatchCheckLayerAvailability` | Pull container image |
+| `logs:CreateLogGroup`, `CreateLogStream`, `PutLogEvents` | Container logging |
+| `s3:GetObject`, `s3:ListBucket` on `ml-container-creator-*` | Model artifact access |
 
-## User/CI System Permissions
+Trust policy must allow `sagemaker.amazonaws.com` to assume the role.
 
-Your AWS user account or CI system needs the following permissions to manage the CodeBuild deployment:
+## CodeBuild Service Role
 
-### Required Permissions Policy
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "CodeBuildManagement",
-      "Effect": "Allow",
-      "Action": [
-        "codebuild:CreateProject",
-        "codebuild:BatchGetProjects",
-        "codebuild:StartBuild",
-        "codebuild:BatchGetBuilds",
-        "codebuild:StopBuild"
-      ],
-      "Resource": [
-        "arn:aws:codebuild:<%= awsRegion %>:*:project/<%= codebuildProjectName %>",
-        "arn:aws:codebuild:<%= awsRegion %>:*:build/<%= codebuildProjectName %>:*"
-      ]
-    },
-    {
-      "Sid": "ECRManagement",
-      "Effect": "Allow",
-      "Action": [
-        "ecr:CreateRepository",
-        "ecr:DescribeRepositories",
-        "ecr:DescribeImages",
-        "ecr:GetAuthorizationToken"
-      ],
-      "Resource": [
-        "arn:aws:ecr:*:*:repository/ml-container-creator"
-      ]
-    },
-    {
-      "Sid": "IAMRoleManagement",
-      "Effect": "Allow",
-      "Action": [
-        "iam:CreateRole",
-        "iam:GetRole",
-        "iam:PutRolePolicy",
-        "iam:PassRole"
-      ],
-      "Resource": [
-        "arn:aws:iam::*:role/<%= codebuildProjectName %>-service-role",
-        "arn:aws:iam::*:role/<%= projectName %>-sagemaker-role"
-      ]
-    },
-    {
-      "Sid": "SageMakerDeployment",
-      "Effect": "Allow",
-      "Action": [
-        "sagemaker:CreateModel",
-        "sagemaker:CreateEndpointConfig",
-        "sagemaker:CreateEndpoint",
-        "sagemaker:DescribeEndpoint",
-        "sagemaker:DescribeEndpointConfig",
-        "sagemaker:DescribeModel",
-        "sagemaker:DeleteEndpoint",
-        "sagemaker:DeleteEndpointConfig",
-        "sagemaker:DeleteModel",
-        "sagemaker:UpdateEndpoint"
-      ],
-      "Resource": [
-        "arn:aws:sagemaker:<%= awsRegion %>:*:model/<%= projectName %>*",
-        "arn:aws:sagemaker:<%= awsRegion %>:*:endpoint-config/<%= projectName %>*",
-        "arn:aws:sagemaker:<%= awsRegion %>:*:endpoint/<%= projectName %>*"
-      ]
-    },
-    {
-      "Sid": "CloudWatchLogs",
-      "Effect": "Allow",
-      "Action": [
-        "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams",
-        "logs:GetLogEvents"
-      ],
-      "Resource": "arn:aws:logs:<%= awsRegion %>:*:log-group:/aws/codebuild/<%= codebuildProjectName %>*"
-    },
-    {
-      "Sid": "S3SourceManagement",
-      "Effect": "Allow",
-      "Action": [
-        "s3:CreateBucket",
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:ListBucket",
-        "s3:HeadBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::codebuild-source-*",
-        "arn:aws:s3:::codebuild-source-*/*"
-      ]
-    },
-    {
-      "Sid": "STSAccess",
-      "Effect": "Allow",
-      "Action": [
-        "sts:GetCallerIdentity"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+Created automatically by `./do/submit` as `<%= codebuildProjectName %>-service-role`. Permissions:
 
-## SageMaker Execution Role Permissions
+- **CloudWatch Logs**: Write build logs to `/aws/codebuild/<%= codebuildProjectName %>*`
+- **ECR**: Push images to `ml-container-creator` repository
+- **S3**: Read source archives from `codebuild-source-*` buckets
 
-For SageMaker deployment, you'll also need a SageMaker execution role with these permissions:
+## User/CI Permissions
 
-### Trust Policy
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "sagemaker.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-```
+Your AWS user or CI system needs these permissions to run the do-scripts:
 
-### Execution Role Policy
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "ECRAccess",
-      "Effect": "Allow",
-      "Action": [
-        "ecr:GetAuthorizationToken",
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "CloudWatchLogs",
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogGroup",
-        "logs:CreateLogStream",
-        "logs:PutLogEvents",
-        "logs:DescribeLogStreams"
-      ],
-      "Resource": "arn:aws:logs:<%= awsRegion %>:*:log-group:/aws/sagemaker/*"
-    }<% if (framework === 'transformers') { %>,
-    {
-      "Sid": "S3ModelAccess",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:ListBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::your-model-bucket/*",
-        "arn:aws:s3:::your-model-bucket"
-      ]
-    }<% } %>
-  ]
-}
-```
-
-## Setup Instructions
-
-### 1. Automatic Setup (Recommended)
-The `submit_build.sh` script will automatically create the CodeBuild service role with the required permissions. You only need to ensure your user account has the permissions listed in the "User/CI System Permissions" section above.
-
-### 2. Manual Setup
-If you prefer to create the roles manually:
-
-#### Create CodeBuild Service Role
-```bash
-# Create the role
-aws iam create-role \
-  --role-name <%= codebuildProjectName %>-service-role \
-  --assume-role-policy-document file://codebuild-trust-policy.json
-
-# Attach the policy
-aws iam put-role-policy \
-  --role-name <%= codebuildProjectName %>-service-role \
-  --policy-name CodeBuildServicePolicy \
-  --policy-document file://codebuild-service-policy.json
-```
-
-#### Create SageMaker Execution Role
-```bash
-# Create the role
-aws iam create-role \
-  --role-name <%= projectName %>-sagemaker-role \
-  --assume-role-policy-document file://sagemaker-trust-policy.json
-
-# Attach the policy
-aws iam put-role-policy \
-  --role-name <%= projectName %>-sagemaker-role \
-  --policy-name SageMakerExecutionPolicy \
-  --policy-document file://sagemaker-execution-policy.json
-```
-
-## Security Best Practices
-
-### Principle of Least Privilege
-- The permissions listed above follow the principle of least privilege
-- Each role only has the minimum permissions required for its function
-- Resource ARNs are scoped to specific projects where possible
-
-### Resource Scoping
-- CodeBuild permissions are scoped to the specific project: `<%= codebuildProjectName %>`
-- SageMaker permissions are scoped to resources with the project prefix: `<%= projectName %>*`
-- CloudWatch logs are scoped to the appropriate log groups
-
-### Regular Review
-- Review and audit IAM permissions regularly
-- Remove unused roles and policies
-- Monitor CloudTrail logs for permission usage
-
-### Environment-Specific Roles
-Consider creating separate roles for different environments:
-- `<%= codebuildProjectName %>-dev-service-role`
-- `<%= codebuildProjectName %>-prod-service-role`
+| Script | Permissions Needed |
+|--------|-------------------|
+| `./do/push` | `ecr:GetAuthorizationToken`, `ecr:PutImage`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, `ecr:BatchCheckLayerAvailability` |
+| `./do/submit` | `codebuild:CreateProject`, `codebuild:StartBuild`, `codebuild:BatchGetBuilds`, `iam:CreateRole`, `iam:PutRolePolicy`, `iam:PassRole`, `s3:PutObject`, `s3:CreateBucket` |
+| `./do/deploy` | `sagemaker:CreateEndpointConfig`, `sagemaker:CreateEndpoint`, `sagemaker:CreateInferenceComponent`, `sagemaker:DescribeEndpoint`, `iam:PassRole` |
+| `./do/clean` | `sagemaker:DeleteEndpoint`, `sagemaker:DeleteEndpointConfig`, `sagemaker:DeleteInferenceComponent`, `codebuild:DeleteProject`, `iam:DeleteRole`, `iam:DeleteRolePolicy` |
+| `./do/test` | `sagemaker-runtime:InvokeEndpoint` |
+| `bootstrap` | `cloudformation:*`, `iam:CreateRole`, `iam:PutRolePolicy`, `iam:TagRole`, `ecr:CreateRepository`, `s3:CreateBucket` (and `sts:GetCallerIdentity`) |
 
 <% if (framework === 'transformers' && hfToken) { %>
 ## HuggingFace Token Security
 
-This project includes a HuggingFace authentication token baked into the Docker image. Follow these security best practices to protect your token:
+This project includes a HuggingFace token baked into the Docker image. Key practices:
 
-### ECR Access Restrictions
+- **Use read-only tokens** — never bake write tokens into containers
+- **Rotate regularly** — every 30–90 days, or immediately if compromised
+- **Restrict ECR access** — limit who can pull images containing the token
+- **Consider runtime injection** — pass `HF_TOKEN` as a SageMaker environment variable instead of baking it in (avoids token in image layers, enables rotation without rebuild)
 
-**Restrict who can pull images from your ECR repository:**
+To rotate: generate a new token on [HuggingFace](https://huggingface.co/settings/tokens), rebuild with `./do/submit`, revoke the old token.
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "RestrictECRAccess",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": [
-          "arn:aws:iam::YOUR_ACCOUNT_ID:role/<%= projectName %>-sagemaker-role",
-          "arn:aws:iam::YOUR_ACCOUNT_ID:user/trusted-user"
-        ]
-      },
-      "Action": [
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage",
-        "ecr:BatchCheckLayerAvailability"
-      ]
-    }
-  ]
-}
-```
-
-Apply this policy to your ECR repository:
-```bash
-aws ecr set-repository-policy \
-  --repository-name ml-container-creator \
-  --policy-text file://ecr-policy.json
-```
-
-### Use Private ECR Repositories
-
-Ensure your ECR repository is private (not public):
-```bash
-# Verify repository is private
-aws ecr describe-repositories \
-  --repository-names ml-container-creator \
-  --query 'repositories[0].repositoryUri'
-
-# If public, delete and recreate as private
-aws ecr delete-repository --repository-name ml-container-creator --force
-aws ecr create-repository --repository-name ml-container-creator
-```
-
-### Token Rotation Practices
-
-**Rotate your HuggingFace tokens regularly:**
-
-1. **Generate a new token** on HuggingFace:
-   - Go to https://huggingface.co/settings/tokens
-   - Create a new token with read-only access
-   - Copy the new token
-
-2. **Rebuild the container** with the new token:
-   ```bash
-   # Update token in your configuration or environment
-   export HF_TOKEN=hf_new_token_here
-   
-   # Rebuild and push
-   ./deploy/submit_build.sh
-   ```
-
-3. **Revoke the old token** on HuggingFace:
-   - Go to https://huggingface.co/settings/tokens
-   - Delete the old token
-
-4. **Update SageMaker endpoint** with new image:
-   ```bash
-   ./deploy/deploy.sh YOUR_SAGEMAKER_ROLE_ARN
-   ```
-
-**Recommended rotation schedule:**
-- Development environments: Every 90 days
-- Production environments: Every 30-60 days
-- Immediately if token is compromised
-
-### Audit Image Access
-
-**Enable CloudTrail logging for ECR operations:**
-
-```bash
-# Create CloudTrail trail if not exists
-aws cloudtrail create-trail \
-  --name ecr-audit-trail \
-  --s3-bucket-name your-cloudtrail-bucket
-
-# Enable logging for ECR events
-aws cloudtrail put-event-selectors \
-  --trail-name ecr-audit-trail \
-  --event-selectors '[{
-    "ReadWriteType": "All",
-    "IncludeManagementEvents": true,
-    "DataResources": [{
-      "Type": "AWS::ECR::Repository",
-      "Values": ["arn:aws:ecr:<%= awsRegion %>:*:repository/ml-container-creator"]
-    }]
-  }]'
-```
-
-**Monitor for suspicious access:**
-- Review CloudTrail logs regularly
-- Set up CloudWatch alarms for unusual ECR pull patterns
-- Monitor for access from unexpected IP addresses or regions
-
-### Alternative: Environment Variable Approach
-
-For enhanced security, consider using environment variables at runtime instead of baking tokens into images:
-
-**Pros:**
-- Token not visible in image layers
-- Easier token rotation (no rebuild required)
-- Better separation of secrets from code
-
-**Cons:**
-- Requires SageMaker environment variable configuration
-- More complex deployment process
-
-**Implementation:**
-1. Remove token from image build
-2. Configure SageMaker endpoint with environment variable:
-   ```bash
-   aws sagemaker create-model \
-     --model-name <%= projectName %> \
-     --primary-container '{
-       "Image": "YOUR_ECR_IMAGE_URI",
-       "Environment": {
-         "HF_TOKEN": "hf_your_token_here"
-       }
-     }' \
-     --execution-role-arn YOUR_SAGEMAKER_ROLE_ARN
-   ```
-
-### Token Scope Limitations
-
-**Use read-only tokens with minimal scope:**
-
-1. **Create a dedicated token** for this deployment:
-   - Name it clearly (e.g., "sagemaker-<%= projectName %>")
-   - Set to "Read" access only
-   - Limit to specific organizations if possible
-
-2. **Never use write tokens** in production containers
-
-3. **Document token purpose** in your HuggingFace account
-
-### Incident Response
-
-**If your token is compromised:**
-
-1. **Immediately revoke the token** on HuggingFace
-2. **Delete the compromised image** from ECR:
-   ```bash
-   aws ecr batch-delete-image \
-     --repository-name ml-container-creator \
-     --image-ids imageTag=<%= projectName %>-latest
-   ```
-3. **Generate a new token** and rebuild
-4. **Review CloudTrail logs** for unauthorized access
-5. **Update all deployments** with the new image
-
-### Compliance Considerations
-
-- **Data residency**: Ensure ECR repository is in compliant region
-- **Access logging**: Enable CloudTrail for audit requirements
-- **Encryption**: ECR images are encrypted at rest by default
-- **Network isolation**: Consider VPC endpoints for ECR access
-
+If compromised: revoke the token immediately, delete the ECR image (`aws ecr batch-delete-image`), rebuild, and review CloudTrail logs.
 <% } %>
-## Troubleshooting
 
-### Common Permission Issues
+## Security Best Practices
 
-#### "Access Denied" when creating CodeBuild project
-- Ensure your user has `codebuild:CreateProject` permission
-- Verify the IAM role ARN is correct in the CodeBuild project configuration
-
-#### "Access Denied" when pushing to ECR
-- Check that the CodeBuild service role has ECR permissions
-- Ensure the ECR repository exists and is in the correct region
-
-#### "Role cannot be assumed" error
-- Verify the trust policy allows CodeBuild to assume the role
-- Check that the role name matches exactly
-
-#### SageMaker deployment fails
-- Ensure the SageMaker execution role exists
-- Verify ECR image permissions for SageMaker
-- Check that the execution role has the correct trust policy
-
-### Getting Help
-- Check AWS CloudTrail logs for detailed permission errors
-- Use AWS IAM Policy Simulator to test permissions
-- Review AWS CodeBuild and SageMaker documentation for the latest permission requirements
+- **Least privilege**: All roles are scoped to specific resources where possible
+- **Resource scoping**: CodeBuild permissions scoped to `<%= codebuildProjectName %>`, SageMaker to `<%= projectName %>*`
+- **Audit**: Enable CloudTrail for IAM, SageMaker, ECR, and CodeBuild events
+- **Separate environments**: Consider per-environment roles (dev/prod)
 
 ## References
-- [AWS CodeBuild Service Role](https://docs.aws.amazon.com/codebuild/latest/userguide/setting-up.html#setting-up-service-role)
-- [Amazon SageMaker Execution Roles](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-roles.html)
-- [Amazon ECR Permissions](https://docs.aws.amazon.com/AmazonECR/latest/userguide/security_iam_service-with-iam.html)
+
+- [SageMaker Execution Roles](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-roles.html)
+- [CodeBuild Service Role](https://docs.aws.amazon.com/codebuild/latest/userguide/setting-up.html#setting-up-service-role)
+- [ECR Permissions](https://docs.aws.amazon.com/AmazonECR/latest/userguide/security_iam_service-with-iam.html)

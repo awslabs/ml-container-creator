@@ -78,6 +78,9 @@ function setupHandler({ roleExists = false, promptResponse = {}, execAwsImpl } =
         };
     }
 
+    // Override _writeJsonTempFile to inline JSON so command strings contain expected text
+    handler._writeJsonTempFile = (jsonObj, _prefix) => JSON.stringify(jsonObj);
+
     // Provide a restore function to reset console.log
     const restore = () => { console.log = origLog; };
 
@@ -99,15 +102,17 @@ describe('Bootstrap IAM Role Setup', () => {
                 assert.strictEqual(getRoleCalls.length, 1, 'should call iam get-role once to fetch ARN');
                 assert.ok(getRoleCalls[0].command.includes(ROLE_NAME), 'get-role command should include role name');
 
-                // Should NOT have called create-role, put-role-policy, or tag-role
+                // Should NOT have called create-role
                 const createCalls = execAwsCalls.filter(c => c.command.includes('iam create-role'));
                 assert.strictEqual(createCalls.length, 0, 'should not call iam create-role');
 
+                // Per BL-019: should ALWAYS update inline policy when reusing
                 const policyCalls = execAwsCalls.filter(c => c.command.includes('iam put-role-policy'));
-                assert.strictEqual(policyCalls.length, 0, 'should not call iam put-role-policy');
+                assert.strictEqual(policyCalls.length, 1, 'should call iam put-role-policy to update policy on reuse');
 
+                // Per BL-019: should ALWAYS update tags when reusing
                 const tagCalls = execAwsCalls.filter(c => c.command.includes('iam tag-role'));
-                assert.strictEqual(tagCalls.length, 0, 'should not call iam tag-role');
+                assert.strictEqual(tagCalls.length, 1, 'should call iam tag-role to update tags on reuse');
 
                 // Should display "reused" message
                 assert.ok(logs.some(l => l.includes('reused')), 'should display "reused" message');

@@ -678,6 +678,21 @@ export default class extends Generator {
             this.destinationPath('README.md'),
             templateVars
         );
+
+        // Copy do/lib/ Node.js modules used by do/manifest shell helper
+        // These are plain JS files (not EJS templates) that the manifest CLI invokes
+        this.fs.copy(
+            this.templatePath('../lib/manifest-cli.js'),
+            this.destinationPath('do/lib/manifest-cli.js')
+        );
+        this.fs.copy(
+            this.templatePath('../lib/asset-manager.js'),
+            this.destinationPath('do/lib/asset-manager.js')
+        );
+        this.fs.copy(
+            this.templatePath('../lib/bootstrap-config.js'),
+            this.destinationPath('do/lib/bootstrap-config.js')
+        );
     }
 
     /**
@@ -860,7 +875,9 @@ export default class extends Generator {
             'do/logs',
             'do/clean',
             'do/submit',
-            'do/register'
+            'do/register',
+            'do/ci',
+            'do/manifest'
         ];
         
         shellScripts.forEach(script => {

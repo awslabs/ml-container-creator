@@ -321,6 +321,15 @@ if [ -z "${SKIP_TO}" ]; then
 
     echo "✅ Endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
 
+    # Record endpoint config in manifest (non-blocking)
+    ENDPOINT_CONFIG_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint-config/${ENDPOINT_CONFIG_NAME}"
+    ./do/manifest add \
+        --type sagemaker-endpoint-config \
+        --id "${ENDPOINT_CONFIG_ARN}" \
+        --project "${PROJECT_NAME}" \
+        --meta "{\"endpointConfigName\":\"${ENDPOINT_CONFIG_NAME}\",\"instanceType\":\"${INSTANCE_TYPE}\",\"region\":\"${AWS_REGION}\"}" \
+        2>/dev/null || true
+
     # Step 2: Create endpoint
     echo "🚀 Creating endpoint: ${ENDPOINT_NAME}"
     if ! aws sagemaker create-endpoint \
@@ -336,6 +345,15 @@ if [ -z "${SKIP_TO}" ]; then
     fi
 
     echo "✅ Endpoint creation initiated: ${ENDPOINT_NAME}"
+
+    # Record endpoint in manifest (non-blocking)
+    ENDPOINT_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint/${ENDPOINT_NAME}"
+    ./do/manifest add \
+        --type sagemaker-endpoint \
+        --id "${ENDPOINT_ARN}" \
+        --project "${PROJECT_NAME}" \
+        --meta "{\"endpointName\":\"${ENDPOINT_NAME}\",\"instanceType\":\"${INSTANCE_TYPE}\",\"region\":\"${AWS_REGION}\"}" \
+        2>/dev/null || true
 fi
 
 # ============================================================
@@ -411,6 +429,15 @@ if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "create_ic" ] || [ "${SKIP_TO}" = "wa
     fi
 
     echo "✅ Inference component creation initiated: ${IC_NAME}"
+
+    # Record inference component in manifest (non-blocking)
+    IC_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${IC_NAME}"
+    ./do/manifest add \
+        --type sagemaker-inference-component \
+        --id "${IC_ARN}" \
+        --project "${PROJECT_NAME}" \
+        --meta "{\"inferenceComponentName\":\"${IC_NAME}\",\"endpointName\":\"${ENDPOINT_NAME}\",\"instanceType\":\"${INSTANCE_TYPE}\",\"region\":\"${AWS_REGION}\"}" \
+        2>/dev/null || true
 fi
 
 # ============================================================
@@ -420,30 +447,53 @@ echo "⏳ Waiting for inference component to reach InService status..."
 echo "   This may take 5-10 minutes..."
 echo "   If this times out, re-run ./do/deploy to resume."
 
-if ! aws sagemaker wait inference-component-in-service \
-    --inference-component-name "${IC_NAME}" \
-    --region "${AWS_REGION}"; then
+# Poll loop — replaces `aws sagemaker wait inference-component-in-service`
+# which is only available in AWS CLI v2.15+
+IC_WAIT_TIMEOUT=1800  # 30 minutes max
+IC_WAIT_START=$(date +%s)
 
-    # Check if it was a credential expiration vs actual failure
-    IC_CHECK=$(_get_ic_status "${IC_NAME}" 2>/dev/null)
-    if [ "${IC_CHECK}" = "Creating" ]; then
-        echo ""
-        echo "⚠️  Wait interrupted (credentials may have expired), but inference component is still creating."
-        echo "   Refresh your credentials and re-run ./do/deploy to resume."
-        echo ""
-        echo "   Or check status manually:"
-        echo "   aws sagemaker describe-inference-component --inference-component-name ${IC_NAME} --region ${AWS_REGION}"
-        exit 4
-    fi
+while true; do
+    IC_STATUS=$(_get_ic_status "${IC_NAME}" 2>/dev/null)
 
-    echo "❌ Inference component failed to reach InService status"
-    echo "   Check CloudWatch Logs for details:"
-    echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
-    echo ""
-    echo "   Debug:"
-    echo "   aws sagemaker describe-inference-component --inference-component-name ${IC_NAME} --region ${AWS_REGION}"
-    exit 4
-fi
+    case "${IC_STATUS}" in
+        InService)
+            break
+            ;;
+        Failed)
+            echo "❌ Inference component failed to reach InService status"
+            echo "   Check CloudWatch Logs for details:"
+            echo "   https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group//aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
+            echo ""
+            echo "   Debug:"
+            echo "   aws sagemaker describe-inference-component --inference-component-name ${IC_NAME} --region ${AWS_REGION}"
+            exit 4
+            ;;
+        Creating)
+            # Check timeout
+            IC_ELAPSED=$(( $(date +%s) - IC_WAIT_START ))
+            if [ "${IC_ELAPSED}" -ge "${IC_WAIT_TIMEOUT}" ]; then
+                echo ""
+                echo "⚠️  Inference component still creating after ${IC_WAIT_TIMEOUT}s."
+                echo "   Re-run ./do/deploy to resume waiting."
+                echo ""
+                echo "   Or check status manually:"
+                echo "   aws sagemaker describe-inference-component --inference-component-name ${IC_NAME} --region ${AWS_REGION}"
+                exit 4
+            fi
+            echo "   $(date +%H:%M:%S) Status: Creating (${IC_ELAPSED}s elapsed)..."
+            sleep 30
+            ;;
+        "")
+            echo "⚠️  Could not determine inference component status (credentials may have expired)."
+            echo "   Re-run ./do/deploy to resume."
+            exit 4
+            ;;
+        *)
+            echo "   $(date +%H:%M:%S) Status: ${IC_STATUS}..."
+            sleep 30
+            ;;
+    esac
+done
 
 echo "✅ Deployment complete!"
 echo ""
@@ -562,9 +612,28 @@ if ! aws sns get-topic-attributes --topic-arn "${ASYNC_SNS_SUCCESS_TOPIC}" --reg
 else
     echo "✅ SNS success topic exists: ${ASYNC_SNS_SUCCESS_TOPIC_NAME}"
 fi
+
+# Record SNS success topic in manifest (non-blocking)
+./do/manifest add \
+    --type sns-topic \
+    --id "${ASYNC_SNS_SUCCESS_TOPIC}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"topicName\":\"${ASYNC_SNS_SUCCESS_TOPIC_NAME}\",\"purpose\":\"async-success\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
+
 <% } else { %>
 # Custom SNS success topic ARN provided — skip topic creation
 echo "✅ Using custom SNS success topic: ${ASYNC_SNS_SUCCESS_TOPIC}"
+
+# Record SNS success topic in manifest (non-blocking)
+ASYNC_SNS_SUCCESS_TOPIC_NAME=$(echo "${ASYNC_SNS_SUCCESS_TOPIC}" | awk -F: '{print $NF}')
+./do/manifest add \
+    --type sns-topic \
+    --id "${ASYNC_SNS_SUCCESS_TOPIC}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"topicName\":\"${ASYNC_SNS_SUCCESS_TOPIC_NAME}\",\"purpose\":\"async-success\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
+
 <% } %>
 
 # Extract topic name from SNS error topic ARN
@@ -588,9 +657,28 @@ if ! aws sns get-topic-attributes --topic-arn "${ASYNC_SNS_ERROR_TOPIC}" --regio
 else
     echo "✅ SNS error topic exists: ${ASYNC_SNS_ERROR_TOPIC_NAME}"
 fi
+
+# Record SNS error topic in manifest (non-blocking)
+./do/manifest add \
+    --type sns-topic \
+    --id "${ASYNC_SNS_ERROR_TOPIC}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"topicName\":\"${ASYNC_SNS_ERROR_TOPIC_NAME}\",\"purpose\":\"async-error\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
+
 <% } else { %>
 # Custom SNS error topic ARN provided — skip topic creation
 echo "✅ Using custom SNS error topic: ${ASYNC_SNS_ERROR_TOPIC}"
+
+# Record SNS error topic in manifest (non-blocking)
+ASYNC_SNS_ERROR_TOPIC_NAME=$(echo "${ASYNC_SNS_ERROR_TOPIC}" | awk -F: '{print $NF}')
+./do/manifest add \
+    --type sns-topic \
+    --id "${ASYNC_SNS_ERROR_TOPIC}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"topicName\":\"${ASYNC_SNS_ERROR_TOPIC_NAME}\",\"purpose\":\"async-error\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
+
 <% } %>
 
 # ============================================================
@@ -696,6 +784,15 @@ if [ -z "${SKIP_TO}" ]; then
 
     echo "✅ SageMaker model created: ${MODEL_NAME_SM}"
 
+    # Record model in manifest (non-blocking)
+    MODEL_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:model/${MODEL_NAME_SM}"
+    ./do/manifest add \
+        --type sagemaker-model \
+        --id "${MODEL_ARN}" \
+        --project "${PROJECT_NAME}" \
+        --meta "{\"modelName\":\"${MODEL_NAME_SM}\",\"region\":\"${AWS_REGION}\"}" \
+        2>/dev/null || true
+
     # Build production variant JSON (classic: includes ModelName, no execution-role-arn on endpoint config)
     VARIANT_JSON="[{\"VariantName\":\"AllTraffic\",\"ModelName\":\"${MODEL_NAME_SM}\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
 
@@ -736,6 +833,15 @@ if [ -z "${SKIP_TO}" ]; then
 
     echo "✅ Async endpoint configuration created: ${ENDPOINT_CONFIG_NAME}"
 
+    # Record endpoint config in manifest (non-blocking)
+    ENDPOINT_CONFIG_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint-config/${ENDPOINT_CONFIG_NAME}"
+    ./do/manifest add \
+        --type sagemaker-endpoint-config \
+        --id "${ENDPOINT_CONFIG_ARN}" \
+        --project "${PROJECT_NAME}" \
+        --meta "{\"endpointConfigName\":\"${ENDPOINT_CONFIG_NAME}\",\"instanceType\":\"${INSTANCE_TYPE}\",\"region\":\"${AWS_REGION}\"}" \
+        2>/dev/null || true
+
     # Step 3: Create endpoint
     echo "🚀 Creating async endpoint: ${ENDPOINT_NAME}"
     if ! aws sagemaker create-endpoint \
@@ -751,6 +857,15 @@ if [ -z "${SKIP_TO}" ]; then
     fi
 
     echo "✅ Async endpoint creation initiated: ${ENDPOINT_NAME}"
+
+    # Record endpoint in manifest (non-blocking)
+    ENDPOINT_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint/${ENDPOINT_NAME}"
+    ./do/manifest add \
+        --type sagemaker-endpoint \
+        --id "${ENDPOINT_ARN}" \
+        --project "${PROJECT_NAME}" \
+        --meta "{\"endpointName\":\"${ENDPOINT_NAME}\",\"instanceType\":\"${INSTANCE_TYPE}\",\"region\":\"${AWS_REGION}\"}" \
+        2>/dev/null || true
 fi
 
 # ============================================================
@@ -925,6 +1040,21 @@ if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then
 fi
 
 echo "✅ Kubernetes manifests applied"
+
+# Record k8s deployment and service in manifest (non-blocking)
+./do/manifest add \
+    --type k8s-deployment \
+    --id "${HYPERPOD_NAMESPACE}/${PROJECT_NAME}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"namespace\":\"${HYPERPOD_NAMESPACE}\",\"deploymentName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HYPERPOD_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
+
+./do/manifest add \
+    --type k8s-service \
+    --id "${HYPERPOD_NAMESPACE}/${PROJECT_NAME}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"namespace\":\"${HYPERPOD_NAMESPACE}\",\"serviceName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HYPERPOD_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
 
 # Wait for deployment to be ready
 DEPLOY_TIMEOUT=${DEPLOY_TIMEOUT:-1200}
@@ -1247,6 +1377,15 @@ fi
 
 echo "✅ SageMaker model created: ${MODEL_NAME_SM}"
 
+# Record model in manifest (non-blocking)
+MODEL_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:model/${MODEL_NAME_SM}"
+./do/manifest add \
+    --type sagemaker-model \
+    --id "${MODEL_ARN}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"modelName\":\"${MODEL_NAME_SM}\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
+
 # Step 2: Build transform job JSON
 TRANSFORM_JOB_JSON="{
     \"TransformJobName\": \"${TRANSFORM_JOB_NAME}\",
@@ -1294,6 +1433,15 @@ if ! aws sagemaker create-transform-job \
 fi
 
 echo "✅ Transform job created: ${TRANSFORM_JOB_NAME}"
+
+# Record transform job in manifest (non-blocking)
+TRANSFORM_JOB_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:transform-job/${TRANSFORM_JOB_NAME}"
+./do/manifest add \
+    --type sagemaker-transform-job \
+    --id "${TRANSFORM_JOB_ARN}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"transformJobName\":\"${TRANSFORM_JOB_NAME}\",\"modelName\":\"${MODEL_NAME_SM}\",\"instanceType\":\"${INSTANCE_TYPE}\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
 
 # Step 4: Poll transform job status until completion or failure
 echo "⏳ Waiting for transform job to complete..."

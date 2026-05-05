@@ -660,11 +660,17 @@ const infraRegionAndTargetPrompts = [
         type: 'list',
         name: 'awsRegion',
         message: 'Target AWS region?',
-        choices: [
-            'us-east-1',
-            { name: 'Custom...', value: 'custom' }
-        ],
-        default: 'us-east-1'
+        choices: (answers) => {
+            // If a bootstrap profile set a region, include it in choices
+            const bootstrapRegion = answers._bootstrapRegion
+            const choices = ['us-east-1']
+            if (bootstrapRegion && bootstrapRegion !== 'us-east-1') {
+                choices.unshift({ name: `${bootstrapRegion} (from bootstrap profile)`, value: bootstrapRegion })
+            }
+            choices.push({ name: 'Custom...', value: 'custom' })
+            return choices
+        },
+        default: (answers) => answers._bootstrapRegion || 'us-east-1'
     },
     {
         type: 'input',

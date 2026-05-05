@@ -18,6 +18,10 @@ source "${SCRIPT_DIR}/config"
 NOTES=""
 STATUS="success"
 PROJECT_FLAG=""
+JSON_OUTPUT=false
+CI_MODE=false
+CI_TABLE_NAME="${CI_TABLE_NAME:-mlcc-ci-table}"
+CI_BUILD_STRATEGY="codebuild-submit"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -41,10 +45,35 @@ while [[ $# -gt 0 ]]; do
             PROJECT_FLAG="--project"
             shift
             ;;
+        --json)
+            JSON_OUTPUT=true
+            shift
+            ;;
+        --ci)
+            CI_MODE=true
+            JSON_OUTPUT=true
+            shift
+            ;;
+        --ci-table)
+            CI_TABLE_NAME="$2"
+            shift 2
+            ;;
+        --ci-table=*)
+            CI_TABLE_NAME="${1#*=}"
+            shift
+            ;;
+        --build-strategy)
+            CI_BUILD_STRATEGY="$2"
+            shift 2
+            ;;
+        --build-strategy=*)
+            CI_BUILD_STRATEGY="${1#*=}"
+            shift
+            ;;
         *)
             echo "⚠️  Unknown option: $1"
             echo ""
-            echo "Usage: ./do/register [--notes \"text\"] [--status success|partial|failed] [--project]"
+            echo "Usage: ./do/register [--notes \"text\"] [--status success|partial|failed] [--project] [--json] [--ci] [--ci-table <name>] [--build-strategy <strategy>]"
             exit 1
             ;;
     esac
@@ -204,6 +233,168 @@ echo "   Notes:             ${NOTES}"
 fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+
+# ============================================================
+# Compute configId (deterministic hash of canonical fields)
+# ============================================================
+
+compute_config_id() {
+    local input="${DEPLOYMENT_CONFIG}:${MODEL_NAME:-none}:${INSTANCE_TYPE}:${AWS_REGION}:${DEPLOYMENT_TARGET}"
+    # Use sha256sum (Linux) with fallback to shasum (macOS)
+    if command -v sha256sum &> /dev/null; then
+        echo -n "$input" | sha256sum | cut -c1-16
+    else
+        echo -n "$input" | shasum -a 256 | cut -c1-16
+    fi
+}
+
+# ============================================================
+# CI Table write logic (--ci flag)
+# ============================================================
+
+write_ci_record() {
+    local config_id="$1"
+
+    # Extract promoted attributes
+    local promoted_deployment_config="${DEPLOYMENT_CONFIG}"
+    local promoted_base_image="${BASE_IMAGE:-}"
+    local promoted_project_name="${PROJECT_NAME}"
+
+    # Extract baseImageVersion from BASE_IMAGE tag (e.g., "vllm/vllm-openai:v0.8.5" -> "v0.8.5")
+    local promoted_base_image_version=""
+    if [ -n "${promoted_base_image}" ]; then
+        case "${promoted_base_image}" in
+            *:*)
+                promoted_base_image_version="${promoted_base_image##*:}"
+                ;;
+        esac
+    fi
+
+    # Build the configJson object from current config variables
+    local config_json
+    config_json=$(cat <<CJEOF
+{
+  "projectName": "${PROJECT_NAME}",
+  "deploymentConfig": "${DEPLOYMENT_CONFIG}",
+  "architecture": "${ARCHITECTURE}",
+  "backend": "${BACKEND}",
+  "modelName": "${MODEL_NAME:-}",
+  "instanceType": "${INSTANCE_TYPE}",
+  "awsRegion": "${AWS_REGION}",
+  "deploymentTarget": "${DEPLOYMENT_TARGET}",
+  "buildTarget": "${BUILD_TARGET}",
+  "baseImage": "${BASE_IMAGE:-}",
+  "buildStrategy": "${CI_BUILD_STRATEGY}",
+  "parameters": ${PARAMETERS}
+}
+CJEOF
+)
+
+    # Compact the JSON (remove whitespace)
+    config_json=$(echo "$config_json" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), separators=(',',':')))" 2>/dev/null || echo "$config_json")
+
+    local created_at
+    created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    # Escape configJson for DynamoDB JSON attribute (double-escape quotes)
+    local escaped_config_json
+    escaped_config_json=$(echo "$config_json" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+    # Remove the outer quotes added by json.dumps for string
+    escaped_config_json="${escaped_config_json:1:${#escaped_config_json}-2}"
+
+    # Try put-item with condition (new record)
+    if aws dynamodb put-item \
+        --table-name "${CI_TABLE_NAME}" \
+        --item "{
+            \"configId\": {\"S\": \"${config_id}\"},
+            \"schemaVersion\": {\"N\": \"1\"},
+            \"configJson\": {\"S\": \"${escaped_config_json}\"},
+            \"testStatus\": {\"S\": \"untested\"},
+            \"lastTestTimestamp\": {\"S\": \"1970-01-01T00:00:00Z\"},
+            \"deploymentConfig\": {\"S\": \"${promoted_deployment_config}\"},
+            \"baseImage\": {\"S\": \"${promoted_base_image}\"},
+            \"baseImageVersion\": {\"S\": \"${promoted_base_image_version}\"},
+            \"buildStrategy\": {\"S\": \"${CI_BUILD_STRATEGY}\"},
+            \"projectName\": {\"S\": \"${promoted_project_name}\"},
+            \"createdAt\": {\"S\": \"${created_at}\"}
+        }" \
+        --condition-expression "attribute_not_exists(configId)" 2>/dev/null; then
+        echo "✅ New CI record created: ${config_id}"
+    else
+        # Record already exists — update it (reset testStatus, update configJson, preserve createdAt)
+        if aws dynamodb update-item \
+            --table-name "${CI_TABLE_NAME}" \
+            --key "{\"configId\": {\"S\": \"${config_id}\"}}" \
+            --update-expression "SET configJson = :cj, testStatus = :ts, deploymentConfig = :dc, baseImage = :bi, baseImageVersion = :bv, buildStrategy = :bs, projectName = :pn, schemaVersion = :sv" \
+            --expression-attribute-values "{
+                \":cj\": {\"S\": \"${escaped_config_json}\"},
+                \":ts\": {\"S\": \"untested\"},
+                \":dc\": {\"S\": \"${promoted_deployment_config}\"},
+                \":bi\": {\"S\": \"${promoted_base_image}\"},
+                \":bv\": {\"S\": \"${promoted_base_image_version}\"},
+                \":bs\": {\"S\": \"${CI_BUILD_STRATEGY}\"},
+                \":pn\": {\"S\": \"${promoted_project_name}\"},
+                \":sv\": {\"N\": \"1\"}
+            }" 2>/dev/null; then
+            echo "✅ Existing CI record updated (testStatus reset to untested): ${config_id}"
+        else
+            echo "❌ Failed to update CI record: ${config_id}"
+            return 1
+        fi
+    fi
+}
+
+# ============================================================
+# Handle --json and --ci output modes
+# ============================================================
+
+if [ "${JSON_OUTPUT}" = true ] || [ "${CI_MODE}" = true ]; then
+    # Build JSON deployment entry
+    DEPLOYMENT_JSON=$(cat <<DJEOF
+{
+  "projectName": "${PROJECT_NAME}",
+  "deploymentConfig": "${DEPLOYMENT_CONFIG}",
+  "architecture": "${ARCHITECTURE}",
+  "backend": "${BACKEND}",
+  "modelName": "${MODEL_NAME:-}",
+  "instanceType": "${INSTANCE_TYPE}",
+  "awsRegion": "${AWS_REGION}",
+  "deploymentTarget": "${DEPLOYMENT_TARGET}",
+  "buildTarget": "${BUILD_TARGET}",
+  "baseImage": "${BASE_IMAGE:-}",
+  "status": "${STATUS}",
+  "parameters": ${PARAMETERS}
+}
+DJEOF
+)
+
+    # Output JSON to stdout
+    echo "${DEPLOYMENT_JSON}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${DEPLOYMENT_JSON}"
+
+    if [ "${CI_MODE}" = true ]; then
+        echo ""
+        echo "⚠️  CI Integration is experimental and currently only tested for"
+        echo "   SageMaker Managed Inference — Real Time endpoints."
+        echo ""
+
+        # Compute configId
+        CONFIG_ID=$(compute_config_id)
+        echo ""
+        echo "🔑 configId: ${CONFIG_ID}"
+
+        # Check if CI_Table exists before writing
+        if ! aws dynamodb describe-table --table-name "${CI_TABLE_NAME}" &>/dev/null; then
+            echo ""
+            echo "⚠️  CI infrastructure not provisioned. Run 'yo @aws/ml-container-creator bootstrap' with CI enabled."
+            echo "   Skipping CI table write."
+        else
+            echo "📝 Writing to CI table (${CI_TABLE_NAME})..."
+            write_ci_record "${CONFIG_ID}"
+        fi
+    fi
+
+    exit 0
+fi
 
 # ============================================================
 # Call yo @aws/ml-container-creator registry log

@@ -205,6 +205,7 @@ describe('ConfigManager Unit Tests', () => {
             it('should use defaults when no explicit configuration provided', async () => {
                 mockGenerator = createMockGenerator();
                 configManager = new ConfigManager(mockGenerator);
+                configManager._loadBootstrapConfig = async () => {};
                 
                 const config = await configManager.loadConfiguration();
                 
@@ -445,6 +446,7 @@ describe('ConfigManager Unit Tests', () => {
         });
 
         it('should fill in missing values with defaults', async () => {
+            configManager._loadBootstrapConfig = async () => {};
             await configManager.loadConfiguration();
             
             const finalConfig = configManager.getFinalConfiguration({});
@@ -630,6 +632,7 @@ describe('ConfigManager Unit Tests', () => {
                 engine: 'sklearn'
             });
             configManager = new ConfigManager(mockGenerator);
+            configManager._loadBootstrapConfig = async () => {};
             
             await configManager.loadConfiguration();
             const explicitConfig = configManager.getExplicitConfiguration();
@@ -659,6 +662,7 @@ describe('ConfigManager Unit Tests', () => {
             
             mockGenerator = createMockGenerator();
             configManager = new ConfigManager(mockGenerator);
+            configManager._loadBootstrapConfig = async () => {};
             
             await configManager.loadConfiguration();
             const explicitConfig = configManager.getExplicitConfiguration();
