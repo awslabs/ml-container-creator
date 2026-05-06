@@ -104,6 +104,69 @@ if [ "${1:-}" = "--json" ]; then
         JSON="${JSON},\"hfToken\":\"\$HF_TOKEN\""
     fi
 
+    # Endpoint configuration (non-default values only)
+<%
+var epParts = [];
+if (endpointInitialInstanceCount != null && endpointInitialInstanceCount !== 1) {
+    epParts.push('"initialInstanceCount":' + endpointInitialInstanceCount);
+}
+if (endpointDataCapturePercent != null && endpointDataCapturePercent !== 0) {
+    epParts.push('"dataCapturePercent":' + endpointDataCapturePercent);
+}
+if (endpointVariantName != null && endpointVariantName !== 'AllTraffic') {
+    epParts.push('"variantName":"' + endpointVariantName + '"');
+}
+if (endpointVolumeSize != null) {
+    epParts.push('"volumeSize":' + endpointVolumeSize);
+}
+%>
+<% if (epParts.length > 0) { %>
+    JSON="${JSON},\"endpointConfig\":{<%- epParts.join(',') %>}"
+<% } %>
+
+    # IC configuration (non-default values only)
+<%
+var icParts = [];
+if (icCpuCount != null) {
+    icParts.push('"cpuCount":' + icCpuCount);
+}
+if (icMemorySize != null) {
+    icParts.push('"memorySize":' + icMemorySize);
+}
+if (icGpuCount != null) {
+    icParts.push('"gpuCount":' + icGpuCount);
+}
+if (icCopyCount != null && icCopyCount !== 1) {
+    icParts.push('"copyCount":' + icCopyCount);
+}
+if (icModelWeight != null && icModelWeight !== 1.0) {
+    icParts.push('"modelWeight":' + icModelWeight);
+}
+%>
+<% if (icParts.length > 0) { %>
+    JSON="${JSON},\"icConfig\":{<%- icParts.join(',') %>}"
+<% } %>
+
+    # Model environment variables
+<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+<%
+var mParts = Object.entries(modelEnvVars).map(function(entry) {
+    return '"' + entry[0] + '":"' + entry[1] + '"';
+});
+%>
+    JSON="${JSON},\"modelEnvVars\":{<%- mParts.join(',') %>}"
+<% } %>
+
+    # Server environment variables
+<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+<%
+var sParts = Object.entries(serverEnvVars).map(function(entry) {
+    return '"' + entry[0] + '":"' + entry[1] + '"';
+});
+%>
+    JSON="${JSON},\"serverEnvVars\":{<%- sParts.join(',') %>}"
+<% } %>
+
     JSON="${JSON}}"
 
     echo "${JSON}"
@@ -189,6 +252,51 @@ fi
 if [ -n "${HF_TOKEN:-}" ]; then
     CMD="${CMD} --hf-token=\$HF_TOKEN"
 fi
+
+# Endpoint configuration (non-default values only)
+<% if (endpointInitialInstanceCount != null && endpointInitialInstanceCount !== 1) { %>
+CMD="${CMD} --endpoint-initial-instance-count=<%= endpointInitialInstanceCount %>"
+<% } %>
+<% if (endpointDataCapturePercent != null && endpointDataCapturePercent !== 0) { %>
+CMD="${CMD} --endpoint-data-capture-percent=<%= endpointDataCapturePercent %>"
+<% } %>
+<% if (endpointVariantName != null && endpointVariantName !== 'AllTraffic') { %>
+CMD="${CMD} --endpoint-variant-name=<%= endpointVariantName %>"
+<% } %>
+<% if (endpointVolumeSize != null) { %>
+CMD="${CMD} --endpoint-volume-size=<%= endpointVolumeSize %>"
+<% } %>
+
+# IC configuration (non-default values only)
+<% if (icCpuCount != null) { %>
+CMD="${CMD} --ic-cpu-count=<%= icCpuCount %>"
+<% } %>
+<% if (icMemorySize != null) { %>
+CMD="${CMD} --ic-memory-size=<%= icMemorySize %>"
+<% } %>
+<% if (icGpuCount != null) { %>
+CMD="${CMD} --ic-gpu-count=<%= icGpuCount %>"
+<% } %>
+<% if (icCopyCount != null && icCopyCount !== 1) { %>
+CMD="${CMD} --ic-copy-count=<%= icCopyCount %>"
+<% } %>
+<% if (icModelWeight != null && icModelWeight !== 1.0) { %>
+CMD="${CMD} --ic-model-weight=<%= icModelWeight %>"
+<% } %>
+
+# Model environment variables
+<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+<% Object.entries(modelEnvVars).forEach(([key, value]) => { %>
+CMD="${CMD} --model-env=<%= key %>=<%= value %>"
+<% }); %>
+<% } %>
+
+# Server environment variables
+<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+<% Object.entries(serverEnvVars).forEach(([key, value]) => { %>
+CMD="${CMD} --server-env=<%= key %>=<%= value %>"
+<% }); %>
+<% } %>
 
 CMD="${CMD} --skip-prompts"
 

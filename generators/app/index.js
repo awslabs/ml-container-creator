@@ -9,6 +9,7 @@ import CliHandler from './lib/cli-handler.js';
 import ConfigurationManager from './lib/configuration-manager.js';
 import DeploymentConfigResolver from './lib/deployment-config-resolver.js';
 import RegistryLoader from './lib/registry-loader.js';
+import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
 
 /**
  * ML Container Creator Generator
@@ -249,6 +250,64 @@ export default class extends Generator {
         this.option('batch-max-payload', {
             type: Number,
             description: 'Max payload size in MB, 0-100 (default: 6)'
+        });
+
+        // Endpoint configuration options
+        this.option('endpoint-initial-instance-count', {
+            type: Number,
+            description: 'Number of instances for the endpoint (default: 1)'
+        });
+
+        this.option('endpoint-data-capture-percent', {
+            type: Number,
+            description: 'Percentage of requests to capture for data quality monitoring, 0-100 (default: 0)'
+        });
+
+        this.option('endpoint-variant-name', {
+            type: String,
+            description: 'Name of the production variant (default: AllTraffic)'
+        });
+
+        this.option('endpoint-volume-size', {
+            type: Number,
+            description: 'Size of the ML storage volume in GB'
+        });
+
+        // Inference component configuration options
+        this.option('ic-cpu-count', {
+            type: Number,
+            description: 'Number of vCPUs allocated to the inference component'
+        });
+
+        this.option('ic-memory-size', {
+            type: Number,
+            description: 'Memory allocation in MB for the inference component'
+        });
+
+        this.option('ic-gpu-count', {
+            type: Number,
+            description: 'Number of GPUs allocated to the inference component'
+        });
+
+        this.option('ic-copy-count', {
+            type: Number,
+            description: 'Number of inference component copies (default: 1)'
+        });
+
+        this.option('ic-model-weight', {
+            type: Number,
+            description: 'Traffic routing weight for the model, 0-1 (default: 1.0)'
+        });
+
+        // Environment variable options (accept multiple values)
+        this.option('model-env', {
+            type: String,
+            description: 'Model environment variable in KEY=VALUE format (can be specified multiple times)'
+        });
+
+        this.option('server-env', {
+            type: String,
+            description: 'Server environment variable in KEY=VALUE format (can be specified multiple times)'
         });
     }
 
@@ -501,11 +560,31 @@ export default class extends Generator {
         // Prepare ordered environment variables for template
         const orderedEnvVars = this._getOrderedEnvVars(this.answers.envVars || {});
 
+        // Append model env vars and prefixed server env vars to orderedEnvVars
+        // Requirements: 8.2, 8.3
+        const modelEnvVars = this.answers.modelEnvVars || {};
+        const serverEnvVars = this.answers.serverEnvVars || {};
+        const engine = this.answers.modelServer || this.answers.backend || '';
+
+        // Add model env vars
+        Object.entries(modelEnvVars).forEach(([key, value]) => {
+            orderedEnvVars.push({ key, value })
+        });
+
+        // Add server env vars with engine prefix applied
+        const prefixedServerEnvVars = resolvePrefixedEnvVars(engine, serverEnvVars);
+        Object.entries(prefixedServerEnvVars).forEach(([key, value]) => {
+            orderedEnvVars.push({ key, value })
+        });
+
         // Prepare template variables with comments and ordered env vars
         const templateVars = {
             ...this.answers,
             comments,
-            orderedEnvVars
+            orderedEnvVars,
+            // Pass prefixed server env vars for do/config template
+            // Requirements: 7.4, 4.6
+            serverEnvVars: prefixedServerEnvVars
         };
 
         // Build ignore patterns for conditional directory exclusion
