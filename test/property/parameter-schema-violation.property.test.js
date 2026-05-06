@@ -18,27 +18,27 @@
  * **Validates: Requirements 1.5, 2.6, 10.6**
  */
 
-import fc from 'fast-check'
-import { describe, it, before } from 'mocha'
-import assert from 'assert'
-import { readFileSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import ParameterSchemaValidator from '../../generators/app/lib/parameter-schema-validator.js'
+import fc from 'fast-check';
+import { describe, it, before } from 'mocha';
+import assert from 'assert';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import ParameterSchemaValidator from '../../generators/app/lib/parameter-schema-validator.js';
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-}
+};
 
 // ── Schema loading ───────────────────────────────────────────────────────────
 
-const schemaPath = resolve(__dirname, '../../config/parameter-schema.json')
-const schema = JSON.parse(readFileSync(schemaPath, 'utf8'))
+const schemaPath = resolve(__dirname, '../../config/parameter-schema.json');
+const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
 // ── Parameter definitions ────────────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ const INTEGER_PARAMS = [
         max: 100,
         apiReference: 'CreateInferenceComponent.RuntimeConfig.CopyCount'
     }
-]
+];
 
 /**
  * Number (float) parameters with their schema constraints and API references.
@@ -100,7 +100,7 @@ const NUMBER_PARAMS = [
         max: 1,
         apiReference: 'UpdateEndpointWeightsAndCapacities.DesiredWeightsAndCapacities.DesiredWeight'
     }
-]
+];
 
 /**
  * String parameters with pattern constraints.
@@ -111,7 +111,7 @@ const STRING_PARAMS = [
         pattern: '^[a-zA-Z0-9]([\\w-]{0,62}[a-zA-Z0-9])?$',
         apiReference: 'CreateEndpointConfig.ProductionVariants.VariantName'
     }
-]
+];
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -119,28 +119,28 @@ const STRING_PARAMS = [
  * Generate an integer value below the minimum bound.
  */
 function arbBelowMin(min) {
-    return fc.integer({ min: min - 1000, max: min - 1 })
+    return fc.integer({ min: min - 1000, max: min - 1 });
 }
 
 /**
  * Generate an integer value above the maximum bound.
  */
 function arbAboveMax(max) {
-    return fc.integer({ min: max + 1, max: max + 1000 })
+    return fc.integer({ min: max + 1, max: max + 1000 });
 }
 
 /**
  * Generate a number (float) value below the minimum bound.
  */
 function arbNumberBelowMin(min) {
-    return fc.double({ min: min - 1000, max: min - 0.001, noNaN: true, noDefaultInfinity: true })
+    return fc.double({ min: min - 1000, max: min - 0.001, noNaN: true, noDefaultInfinity: true });
 }
 
 /**
  * Generate a number (float) value above the maximum bound.
  */
 function arbNumberAboveMax(max) {
-    return fc.double({ min: max + 0.001, max: max + 1000, noNaN: true, noDefaultInfinity: true })
+    return fc.double({ min: max + 0.001, max: max + 1000, noNaN: true, noDefaultInfinity: true });
 }
 
 /**
@@ -164,17 +164,17 @@ const arbInvalidVariantName = fc.oneof(
     ).map(([body, suffix]) => body + suffix),
     // Too long (exceeds 64 characters)
     fc.stringMatching(/^[a-c1-3]{65,80}$/)
-)
+);
 
 // ── Property tests ───────────────────────────────────────────────────────────
 
 describe('Parameter Schema Violation Property-Based Tests', () => {
 
-    let validator
+    let validator;
 
     before(() => {
-        validator = new ParameterSchemaValidator(schema)
-    })
+        validator = new ParameterSchemaValidator(schema);
+    });
 
     // Feature: cli-config-parameters, Property 2: Schema violation produces constraint-referencing error
     describe('Property 2: Schema violation produces constraint-referencing error', () => {
@@ -186,182 +186,182 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
         describe('Integer parameters - values below minimum', () => {
             for (const param of INTEGER_PARAMS) {
                 it(`${param.name}: value below min (${param.min}) produces error referencing parameter name, constraint, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbBelowMin(param.min),
                         (value) => {
-                            const result = validator.validate(param.name, value)
+                            const result = validator.validate(param.name, value);
                             assert.strictEqual(result.valid, false,
-                                `${param.name} with value ${value} (below min ${param.min}) should be invalid`)
-                            assert.ok(result.error, 'Error message should be present')
+                                `${param.name} with value ${value} (below min ${param.min}) should be invalid`);
+                            assert.ok(result.error, 'Error message should be present');
                             assert.ok(result.error.includes(param.name),
-                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`)
+                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(String(param.min)),
-                                `Error should contain min constraint "${param.min}" but got: "${result.error}"`)
+                                `Error should contain min constraint "${param.min}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(param.apiReference),
-                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`)
-                            return true
+                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
+        });
 
         describe('Integer parameters - values above maximum', () => {
             for (const param of INTEGER_PARAMS) {
                 it(`${param.name}: value above max (${param.max}) produces error referencing parameter name, constraint, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbAboveMax(param.max),
                         (value) => {
-                            const result = validator.validate(param.name, value)
+                            const result = validator.validate(param.name, value);
                             assert.strictEqual(result.valid, false,
-                                `${param.name} with value ${value} (above max ${param.max}) should be invalid`)
-                            assert.ok(result.error, 'Error message should be present')
+                                `${param.name} with value ${value} (above max ${param.max}) should be invalid`);
+                            assert.ok(result.error, 'Error message should be present');
                             assert.ok(result.error.includes(param.name),
-                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`)
+                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(String(param.max)),
-                                `Error should contain max constraint "${param.max}" but got: "${result.error}"`)
+                                `Error should contain max constraint "${param.max}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(param.apiReference),
-                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`)
-                            return true
+                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
+        });
 
         describe('Number parameters - values below minimum', () => {
             for (const param of NUMBER_PARAMS) {
                 it(`${param.name}: value below min (${param.min}) produces error referencing parameter name, constraint, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbNumberBelowMin(param.min),
                         (value) => {
-                            const result = validator.validate(param.name, value)
+                            const result = validator.validate(param.name, value);
                             assert.strictEqual(result.valid, false,
-                                `${param.name} with value ${value} (below min ${param.min}) should be invalid`)
-                            assert.ok(result.error, 'Error message should be present')
+                                `${param.name} with value ${value} (below min ${param.min}) should be invalid`);
+                            assert.ok(result.error, 'Error message should be present');
                             assert.ok(result.error.includes(param.name),
-                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`)
+                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(String(param.min)),
-                                `Error should contain min constraint "${param.min}" but got: "${result.error}"`)
+                                `Error should contain min constraint "${param.min}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(param.apiReference),
-                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`)
-                            return true
+                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
+        });
 
         describe('Number parameters - values above maximum', () => {
             for (const param of NUMBER_PARAMS) {
                 it(`${param.name}: value above max (${param.max}) produces error referencing parameter name, constraint, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbNumberAboveMax(param.max),
                         (value) => {
-                            const result = validator.validate(param.name, value)
+                            const result = validator.validate(param.name, value);
                             assert.strictEqual(result.valid, false,
-                                `${param.name} with value ${value} (above max ${param.max}) should be invalid`)
-                            assert.ok(result.error, 'Error message should be present')
+                                `${param.name} with value ${value} (above max ${param.max}) should be invalid`);
+                            assert.ok(result.error, 'Error message should be present');
                             assert.ok(result.error.includes(param.name),
-                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`)
+                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(String(param.max)),
-                                `Error should contain max constraint "${param.max}" but got: "${result.error}"`)
+                                `Error should contain max constraint "${param.max}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(param.apiReference),
-                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`)
-                            return true
+                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
+        });
 
         describe('String parameters - pattern mismatches', () => {
             for (const param of STRING_PARAMS) {
                 it(`${param.name}: invalid pattern produces error referencing parameter name, pattern, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbInvalidVariantName,
                         (value) => {
                             // Double-check the value actually violates the pattern
-                            const regex = new RegExp(param.pattern)
+                            const regex = new RegExp(param.pattern);
                             if (regex.test(value)) {
                                 // Skip values that accidentally match
-                                return true
+                                return true;
                             }
 
-                            const result = validator.validate(param.name, value)
+                            const result = validator.validate(param.name, value);
                             assert.strictEqual(result.valid, false,
-                                `${param.name} with value "${value}" should be invalid (pattern mismatch)`)
-                            assert.ok(result.error, 'Error message should be present')
+                                `${param.name} with value "${value}" should be invalid (pattern mismatch)`);
+                            assert.ok(result.error, 'Error message should be present');
                             assert.ok(result.error.includes(param.name),
-                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`)
+                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`);
                             assert.ok(result.error.includes('pattern'),
-                                `Error should contain constraint type "pattern" but got: "${result.error}"`)
+                                `Error should contain constraint type "pattern" but got: "${result.error}"`);
                             assert.ok(result.error.includes(param.apiReference),
-                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`)
-                            return true
+                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
+        });
 
         describe('Integer parameters - wrong type (non-integer number)', () => {
             for (const param of INTEGER_PARAMS) {
                 it(`${param.name}: non-integer number produces error referencing parameter name and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         fc.double({ min: param.min, max: param.max, noNaN: true, noDefaultInfinity: true })
                             .filter(v => !Number.isInteger(v)),
                         (value) => {
-                            const result = validator.validate(param.name, value)
+                            const result = validator.validate(param.name, value);
                             assert.strictEqual(result.valid, false,
-                                `${param.name} with non-integer value ${value} should be invalid`)
-                            assert.ok(result.error, 'Error message should be present')
+                                `${param.name} with non-integer value ${value} should be invalid`);
+                            assert.ok(result.error, 'Error message should be present');
                             assert.ok(result.error.includes(param.name),
-                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`)
+                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(param.apiReference),
-                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`)
-                            return true
+                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
+        });
 
         describe('Numeric parameters - wrong type (string value)', () => {
-            const allNumericParams = [...INTEGER_PARAMS, ...NUMBER_PARAMS]
+            const allNumericParams = [...INTEGER_PARAMS, ...NUMBER_PARAMS];
 
             for (const param of allNumericParams) {
                 it(`${param.name}: string value produces error referencing parameter name and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         fc.string({ minLength: 1, maxLength: 20 }),
                         (value) => {
-                            const result = validator.validate(param.name, value)
+                            const result = validator.validate(param.name, value);
                             assert.strictEqual(result.valid, false,
-                                `${param.name} with string value "${value}" should be invalid`)
-                            assert.ok(result.error, 'Error message should be present')
+                                `${param.name} with string value "${value}" should be invalid`);
+                            assert.ok(result.error, 'Error message should be present');
                             assert.ok(result.error.includes(param.name),
-                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`)
+                                `Error should contain parameter name "${param.name}" but got: "${result.error}"`);
                             assert.ok(result.error.includes(param.apiReference),
-                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`)
-                            return true
+                                `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
-    })
-})
+        });
+    });
+});

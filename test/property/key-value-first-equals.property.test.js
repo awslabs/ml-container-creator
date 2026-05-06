@@ -16,16 +16,16 @@
  * **Validates: Requirements 3.4, 4.4**
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import { parseKeyValue } from '../../generators/app/lib/key-value-parser.js'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import { parseKeyValue } from '../../generators/app/lib/key-value-parser.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-}
+};
 
 // ── Property tests ───────────────────────────────────────────────────────────
 
@@ -39,29 +39,29 @@ describe('KEY=VALUE First-Equals Splitting Property-Based Tests', () => {
          */
 
         it('splits on the first equals sign: key is substring before first =, value is everything after', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(fc.string(), fc.string()),
                 ([keyPart, valuePart]) => {
-                    const input = `${keyPart}=${valuePart}`
-                    const result = parseKeyValue(input)
+                    const input = `${keyPart}=${valuePart}`;
+                    const result = parseKeyValue(input);
 
-                    const expectedKey = input.substring(0, input.indexOf('='))
-                    const expectedValue = input.substring(input.indexOf('=') + 1)
+                    const expectedKey = input.substring(0, input.indexOf('='));
+                    const expectedValue = input.substring(input.indexOf('=') + 1);
 
                     assert.strictEqual(result.key, expectedKey,
-                        `Key should be substring before first "=". Input: "${input}", got key: "${result.key}", expected: "${expectedKey}"`)
+                        `Key should be substring before first "=". Input: "${input}", got key: "${result.key}", expected: "${expectedKey}"`);
                     assert.strictEqual(result.value, expectedValue,
-                        `Value should be everything after first "=". Input: "${input}", got value: "${result.value}", expected: "${expectedValue}"`)
+                        `Value should be everything after first "=". Input: "${input}", got value: "${result.value}", expected: "${expectedValue}"`);
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('preserves additional equals signs in the value portion', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -71,20 +71,20 @@ describe('KEY=VALUE First-Equals Splitting Property-Based Tests', () => {
                 ),
                 ([keyPart, valuePart1, valuePart2]) => {
                     // Create input with multiple = signs in value
-                    const input = `${keyPart}=${valuePart1}=${valuePart2}`
-                    const result = parseKeyValue(input)
+                    const input = `${keyPart}=${valuePart1}=${valuePart2}`;
+                    const result = parseKeyValue(input);
 
-                    const expectedKey = input.substring(0, input.indexOf('='))
-                    const expectedValue = input.substring(input.indexOf('=') + 1)
+                    const expectedKey = input.substring(0, input.indexOf('='));
+                    const expectedValue = input.substring(input.indexOf('=') + 1);
 
                     assert.strictEqual(result.key, expectedKey,
-                        `Key should be substring before first "=". Input: "${input}"`)
+                        `Key should be substring before first "=". Input: "${input}"`);
                     assert.strictEqual(result.value, expectedValue,
-                        `Value should preserve all "=" after the first. Input: "${input}"`)
+                        `Value should preserve all "=" after the first. Input: "${input}"`);
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
-    })
-})
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+});

@@ -568,13 +568,13 @@ export default class extends Generator {
 
         // Add model env vars
         Object.entries(modelEnvVars).forEach(([key, value]) => {
-            orderedEnvVars.push({ key, value })
+            orderedEnvVars.push({ key, value });
         });
 
         // Add server env vars with engine prefix applied
         const prefixedServerEnvVars = resolvePrefixedEnvVars(engine, serverEnvVars);
         Object.entries(prefixedServerEnvVars).forEach(([key, value]) => {
-            orderedEnvVars.push({ key, value })
+            orderedEnvVars.push({ key, value });
         });
 
         // Prepare template variables with comments and ordered env vars

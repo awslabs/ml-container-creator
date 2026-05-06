@@ -16,67 +16,45 @@
  * **Validates: Requirements 8.5**
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import ConfigManager from '../../generators/app/lib/config-manager.js'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import ConfigManager from '../../generators/app/lib/config-manager.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-}
+};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
 /**
  * Generate a valid env var key.
  */
-const arbEnvKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{0,15}$/)
+const arbEnvKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{0,15}$/);
 
 /**
  * Generate a valid env var value.
  */
-const arbEnvValue = fc.string({ minLength: 1, maxLength: 30 })
+const arbEnvValue = fc.string({ minLength: 1, maxLength: 30 });
 
 /**
  * Generate a valid endpoint initial instance count (within schema bounds).
  */
-const arbInstanceCount = fc.integer({ min: 1, max: 100 })
+const arbInstanceCount = fc.integer({ min: 1, max: 100 });
 
 /**
  * Generate a valid data capture percent (within schema bounds).
  */
-const arbDataCapturePercent = fc.integer({ min: 0, max: 100 })
+const arbDataCapturePercent = fc.integer({ min: 0, max: 100 });
 
 /**
  * Generate a valid IC copy count (within schema bounds).
  */
-const arbCopyCount = fc.integer({ min: 0, max: 100 })
+const arbCopyCount = fc.integer({ min: 0, max: 100 });
 
-/**
- * Generate a source scenario: parameters from CLI, config-file, or both.
- */
-const arbSourceScenario = fc.record({
-    cliEndpointInstanceCount: fc.option(arbInstanceCount, { nil: undefined }),
-    configFileEndpointInstanceCount: fc.option(arbInstanceCount, { nil: undefined }),
-    cliDataCapturePercent: fc.option(arbDataCapturePercent, { nil: undefined }),
-    configFileDataCapturePercent: fc.option(arbDataCapturePercent, { nil: undefined }),
-    cliCopyCount: fc.option(arbCopyCount, { nil: undefined }),
-    configFileCopyCount: fc.option(arbCopyCount, { nil: undefined }),
-    cliModelEnvVars: fc.uniqueArray(
-        fc.tuple(arbEnvKey, arbEnvValue),
-        { minLength: 0, maxLength: 3, selector: ([k]) => k }
-    ),
-    configFileModelEnvVars: fc.uniqueArray(
-        fc.tuple(arbEnvKey, arbEnvValue),
-        { minLength: 0, maxLength: 3, selector: ([k]) => k }
-    ),
-    registryModelEnvVars: fc.uniqueArray(
-        fc.tuple(arbEnvKey, arbEnvValue),
-        { minLength: 0, maxLength: 3, selector: ([k]) => k }
-    )
-})
+
 
 // ── Helper to create a mock generator ────────────────────────────────────────
 
@@ -85,7 +63,7 @@ function createMockGenerator(cliOptions = {}) {
         options: { ...cliOptions },
         args: [],
         destinationPath: (p) => p || '.'
-    }
+    };
 }
 
 // ── Property tests ───────────────────────────────────────────────────────────
@@ -100,7 +78,7 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
          */
 
         it('manifest records correct source for CLI parameters', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbInstanceCount,
@@ -109,42 +87,42 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
                     const mockGenerator = createMockGenerator({
                         'endpoint-initial-instance-count': instanceCount,
                         'endpoint-data-capture-percent': dataCapturePercent
-                    })
+                    });
 
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
-                    const { manifest } = configManager.getFullConfiguration()
+                    const { manifest } = configManager.getFullConfiguration();
 
                     // Find manifest entries for CLI-provided parameters
                     const instanceCountEntry = manifest.find(
                         e => e.param === 'endpointInitialInstanceCount'
-                    )
+                    );
                     const dataCaptureEntry = manifest.find(
                         e => e.param === 'endpointDataCapturePercent'
-                    )
+                    );
 
                     assert.ok(instanceCountEntry,
-                        'manifest should contain entry for endpointInitialInstanceCount')
+                        'manifest should contain entry for endpointInitialInstanceCount');
                     assert.strictEqual(instanceCountEntry.source, 'cli',
-                        'source should be "cli" for CLI-provided parameter')
+                        'source should be "cli" for CLI-provided parameter');
                     assert.strictEqual(instanceCountEntry.value, instanceCount,
-                        'value should match CLI-provided value')
+                        'value should match CLI-provided value');
 
                     assert.ok(dataCaptureEntry,
-                        'manifest should contain entry for endpointDataCapturePercent')
+                        'manifest should contain entry for endpointDataCapturePercent');
                     assert.strictEqual(dataCaptureEntry.source, 'cli',
-                        'source should be "cli" for CLI-provided parameter')
+                        'source should be "cli" for CLI-provided parameter');
                     assert.strictEqual(dataCaptureEntry.value, dataCapturePercent,
-                        'value should match CLI-provided value')
+                        'value should match CLI-provided value');
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('manifest records correct source for config-file parameters', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbInstanceCount,
@@ -154,120 +132,120 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
                         // Provide config-json inline to simulate config file
                         'config-json': JSON.stringify({
                             endpointConfig: { initialInstanceCount: instanceCount },
-                            icConfig: { copyCount: copyCount }
+                            icConfig: { copyCount }
                         })
-                    })
+                    });
 
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
-                    const { manifest } = configManager.getFullConfiguration()
+                    const { manifest } = configManager.getFullConfiguration();
 
                     const instanceCountEntry = manifest.find(
                         e => e.param === 'endpointInitialInstanceCount'
-                    )
+                    );
                     const copyCountEntry = manifest.find(
                         e => e.param === 'icCopyCount'
-                    )
+                    );
 
                     assert.ok(instanceCountEntry,
-                        'manifest should contain entry for endpointInitialInstanceCount')
+                        'manifest should contain entry for endpointInitialInstanceCount');
                     assert.strictEqual(instanceCountEntry.source, 'config-file',
-                        'source should be "config-file" for config-file-provided parameter')
+                        'source should be "config-file" for config-file-provided parameter');
                     assert.strictEqual(instanceCountEntry.value, instanceCount,
-                        'value should match config-file-provided value')
+                        'value should match config-file-provided value');
 
                     assert.ok(copyCountEntry,
-                        'manifest should contain entry for icCopyCount')
+                        'manifest should contain entry for icCopyCount');
                     assert.strictEqual(copyCountEntry.source, 'config-file',
-                        'source should be "config-file" for config-file-provided parameter')
+                        'source should be "config-file" for config-file-provided parameter');
                     assert.strictEqual(copyCountEntry.value, copyCount,
-                        'value should match config-file-provided value')
+                        'value should match config-file-provided value');
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('CLI source overrides config-file source in manifest', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbInstanceCount,
                 arbInstanceCount,
                 async (cliValue, configFileValue) => {
                     // Ensure CLI and config-file values are different
-                    fc.pre(cliValue !== configFileValue)
+                    fc.pre(cliValue !== configFileValue);
 
                     const mockGenerator = createMockGenerator({
                         'endpoint-initial-instance-count': cliValue,
                         'config-json': JSON.stringify({
                             endpointConfig: { initialInstanceCount: configFileValue }
                         })
-                    })
+                    });
 
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
-                    const { manifest } = configManager.getFullConfiguration()
+                    const { manifest } = configManager.getFullConfiguration();
 
                     const entry = manifest.find(
                         e => e.param === 'endpointInitialInstanceCount'
-                    )
+                    );
 
                     assert.ok(entry,
-                        'manifest should contain entry for endpointInitialInstanceCount')
+                        'manifest should contain entry for endpointInitialInstanceCount');
                     assert.strictEqual(entry.source, 'cli',
-                        'source should be "cli" since CLI has higher precedence than config-file')
+                        'source should be "cli" since CLI has higher precedence than config-file');
                     assert.strictEqual(entry.value, cliValue,
-                        'value should be CLI value since CLI has higher precedence')
+                        'value should be CLI value since CLI has higher precedence');
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('manifest records "default" source for parameters with only defaults', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.constant(true),
                 async () => {
-                    const mockGenerator = createMockGenerator({})
+                    const mockGenerator = createMockGenerator({});
 
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
-                    const { manifest } = configManager.getFullConfiguration()
+                    const { manifest } = configManager.getFullConfiguration();
 
                     // Parameters with defaults should have 'default' source
                     const buildTargetEntry = manifest.find(
                         e => e.param === 'buildTarget'
-                    )
+                    );
                     assert.ok(buildTargetEntry,
-                        'manifest should contain entry for buildTarget (has default)')
+                        'manifest should contain entry for buildTarget (has default)');
                     assert.strictEqual(buildTargetEntry.source, 'default',
-                        'source should be "default" for parameter with only default value')
+                        'source should be "default" for parameter with only default value');
                     assert.strictEqual(buildTargetEntry.value, 'codebuild',
-                        'value should be the default value')
+                        'value should be the default value');
 
                     const regionEntry = manifest.find(
                         e => e.param === 'awsRegion'
-                    )
+                    );
                     assert.ok(regionEntry,
-                        'manifest should contain entry for awsRegion (has default)')
+                        'manifest should contain entry for awsRegion (has default)');
                     assert.strictEqual(regionEntry.source, 'default',
-                        'source should be "default" for parameter with only default value')
+                        'source should be "default" for parameter with only default value');
                     assert.strictEqual(regionEntry.value, 'us-east-1',
-                        'value should be the default value')
+                        'value should be the default value');
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('manifest records correct source for registry env vars', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.uniqueArray(
@@ -275,40 +253,40 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
                     { minLength: 1, maxLength: 5, selector: ([k]) => k }
                 ),
                 async (registryPairs) => {
-                    const mockGenerator = createMockGenerator({})
+                    const mockGenerator = createMockGenerator({});
 
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
                     // Merge registry env vars
-                    const registryModelEnvVars = {}
+                    const registryModelEnvVars = {};
                     for (const [key, value] of registryPairs) {
-                        registryModelEnvVars[key] = value
+                        registryModelEnvVars[key] = value;
                     }
-                    configManager.mergeRegistryEnvVars(registryModelEnvVars, {})
+                    configManager.mergeRegistryEnvVars(registryModelEnvVars, {});
 
-                    const { manifest } = configManager.getFullConfiguration()
+                    const { manifest } = configManager.getFullConfiguration();
 
                     // Each registry env var should have 'registry' source
                     for (const [key, value] of registryPairs) {
                         const entry = manifest.find(
                             e => e.param === `modelEnvVars.${key}`
-                        )
+                        );
                         assert.ok(entry,
-                            `manifest should contain entry for modelEnvVars.${key}`)
+                            `manifest should contain entry for modelEnvVars.${key}`);
                         assert.strictEqual(entry.source, 'registry',
-                            `source should be "registry" for registry-provided env var ${key}`)
+                            `source should be "registry" for registry-provided env var ${key}`);
                         assert.strictEqual(entry.value, value,
-                            `value should match registry-provided value for ${key}`)
+                            `value should match registry-provided value for ${key}`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('CLI env vars override registry env vars in manifest', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.uniqueArray(
@@ -319,40 +297,40 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
                     // Build CLI model-env flags
                     const modelEnvFlags = overlappingPairs.map(
                         ([key, cliValue]) => `${key}=${cliValue}`
-                    )
+                    );
 
                     const mockGenerator = createMockGenerator({
                         'model-env': modelEnvFlags
-                    })
+                    });
 
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
                     // Merge registry env vars with different values
-                    const registryModelEnvVars = {}
+                    const registryModelEnvVars = {};
                     for (const [key, , registryValue] of overlappingPairs) {
-                        registryModelEnvVars[key] = registryValue
+                        registryModelEnvVars[key] = registryValue;
                     }
-                    configManager.mergeRegistryEnvVars(registryModelEnvVars, {})
+                    configManager.mergeRegistryEnvVars(registryModelEnvVars, {});
 
-                    const { manifest } = configManager.getFullConfiguration()
+                    const { manifest } = configManager.getFullConfiguration();
 
                     // CLI should win — manifest should show 'cli' source
                     for (const [key, cliValue] of overlappingPairs) {
                         const entry = manifest.find(
                             e => e.param === `modelEnvVars.${key}`
-                        )
+                        );
                         assert.ok(entry,
-                            `manifest should contain entry for modelEnvVars.${key}`)
+                            `manifest should contain entry for modelEnvVars.${key}`);
                         assert.strictEqual(entry.source, 'cli',
-                            `source should be "cli" for CLI-provided env var ${key}`)
+                            `source should be "cli" for CLI-provided env var ${key}`);
                         assert.strictEqual(entry.value, cliValue,
-                            `value should be CLI value for ${key}`)
+                            `value should be CLI value for ${key}`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
-    })
-})
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+});

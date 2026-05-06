@@ -17,23 +17,23 @@
  * **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6**
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import ejs from 'ejs'
-import { readFileSync } from 'fs'
-import { resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import ejs from 'ejs';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false }
+const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
 // ── Load the actual do/export template ───────────────────────────────────────
 
-const EXPORT_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/do/export')
-const EXPORT_TEMPLATE = readFileSync(EXPORT_TEMPLATE_PATH, 'utf8')
+const EXPORT_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/do/export');
+const EXPORT_TEMPLATE = readFileSync(EXPORT_TEMPLATE_PATH, 'utf8');
 
 // ── Arbitrary generators ─────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ const arbEndpointConfig = fc.record({
     endpointDataCapturePercent: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 100 })),
     endpointVariantName: fc.oneof(fc.constant(null), fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9]{1,10}$/)),
     endpointVolumeSize: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 16384 }))
-})
+});
 
 const arbIcConfig = fc.record({
     icCpuCount: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 768 })),
@@ -50,13 +50,13 @@ const arbIcConfig = fc.record({
     icGpuCount: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 8 })),
     icCopyCount: fc.oneof(fc.constant(null), fc.integer({ min: 2, max: 100 })),
     icModelWeight: fc.oneof(fc.constant(null), fc.double({ min: 0.01, max: 0.99, noNaN: true }))
-})
+});
 
-const arbEnvVarKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{1,15}$/)
-const arbEnvVarValue = fc.stringMatching(/^[a-zA-Z0-9._/-]{1,20}$/)
+const arbEnvVarKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{1,15}$/);
+const arbEnvVarValue = fc.stringMatching(/^[a-zA-Z0-9._/-]{1,20}$/);
 
-const arbModelEnvVars = fc.dictionary(arbEnvVarKey, arbEnvVarValue, { minKeys: 1, maxKeys: 3 })
-const arbServerEnvVars = fc.dictionary(arbEnvVarKey, arbEnvVarValue, { minKeys: 1, maxKeys: 3 })
+const arbModelEnvVars = fc.dictionary(arbEnvVarKey, arbEnvVarValue, { minKeys: 1, maxKeys: 3 });
+const arbServerEnvVars = fc.dictionary(arbEnvVarKey, arbEnvVarValue, { minKeys: 1, maxKeys: 3 });
 
 /**
  * Generate a full configuration with all four parameter families populated.
@@ -87,32 +87,12 @@ const arbFullConfig = fc.tuple(
     ...ic,
     modelEnvVars,
     serverEnvVars
-}))
+}));
 
 // ── Helper functions ─────────────────────────────────────────────────────────
 
 function renderExportTemplate(config) {
-    return ejs.render(EXPORT_TEMPLATE, config)
-}
-
-function extractJsonSection(rendered) {
-    // The JSON section is between the --json check and the exit 0
-    // We look for the JSON="${JSON}}" line followed by echo "${JSON}"
-    // Actually, we need to extract the shell script that builds JSON
-    // and evaluate what it would produce. Since we can't run bash,
-    // we'll parse the rendered template to find the JSON building lines.
-
-    // Alternative approach: render the template and look for the JSON
-    // construction pattern. Since the template uses EJS to conditionally
-    // include JSON fields, the rendered output will have the actual
-    // shell commands that build the JSON string.
-    return rendered
-}
-
-function extractCliSection(rendered) {
-    // The CLI section starts after the "fi" that closes the JSON block
-    // and contains CMD= lines
-    return rendered
+    return ejs.render(EXPORT_TEMPLATE, config);
 }
 
 /**
@@ -124,46 +104,46 @@ function extractCliSection(rendered) {
  * the inner JSON content rendered by EJS <%- %>.
  */
 function extractJsonFields(rendered) {
-    const fields = {}
+    const fields = {};
 
     // Look for endpointConfig object - pattern: \"endpointConfig\":{...}
-    const epMatch = rendered.match(/\\?"endpointConfig\\?":\{([^}]*)\}/)
+    const epMatch = rendered.match(/\\?"endpointConfig\\?":\{([^}]*)\}/);
     if (epMatch) {
-        fields.endpointConfig = epMatch[1]
+        fields.endpointConfig = epMatch[1];
     }
 
     // Look for icConfig object
-    const icMatch = rendered.match(/\\?"icConfig\\?":\{([^}]*)\}/)
+    const icMatch = rendered.match(/\\?"icConfig\\?":\{([^}]*)\}/);
     if (icMatch) {
-        fields.icConfig = icMatch[1]
+        fields.icConfig = icMatch[1];
     }
 
     // Look for modelEnvVars object
-    const mMatch = rendered.match(/\\?"modelEnvVars\\?":\{([^}]*)\}/)
+    const mMatch = rendered.match(/\\?"modelEnvVars\\?":\{([^}]*)\}/);
     if (mMatch) {
-        fields.modelEnvVars = mMatch[1]
+        fields.modelEnvVars = mMatch[1];
     }
 
     // Look for serverEnvVars object
-    const sMatch = rendered.match(/\\?"serverEnvVars\\?":\{([^}]*)\}/)
+    const sMatch = rendered.match(/\\?"serverEnvVars\\?":\{([^}]*)\}/);
     if (sMatch) {
-        fields.serverEnvVars = sMatch[1]
+        fields.serverEnvVars = sMatch[1];
     }
 
-    return fields
+    return fields;
 }
 
 /**
  * Extract CLI flags from the rendered CLI section.
  */
 function extractCliFlags(rendered) {
-    const flags = []
-    const flagPattern = /CMD="\$\{CMD\} (--[^"]+)"/g
-    let match
+    const flags = [];
+    const flagPattern = /CMD="\$\{CMD\} (--[^"]+)"/g;
+    let match;
     while ((match = flagPattern.exec(rendered)) !== null) {
-        flags.push(match[1])
+        flags.push(match[1]);
     }
-    return flags
+    return flags;
 }
 
 // ── Property tests ───────────────────────────────────────────────────────────
@@ -173,277 +153,277 @@ describe('Feature: cli-config-parameters, Property 8: Export round-trip complete
     describe('JSON output contains all parameter families with matching values', () => {
 
         it('endpointConfig is present in JSON output when non-default endpoint params exist', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig.filter(c =>
-                    (c.endpointInitialInstanceCount != null && c.endpointInitialInstanceCount !== 1) ||
-                    (c.endpointDataCapturePercent != null && c.endpointDataCapturePercent !== 0) ||
-                    (c.endpointVariantName != null && c.endpointVariantName !== 'AllTraffic') ||
-                    (c.endpointVolumeSize != null)
+                    (c.endpointInitialInstanceCount !== null && c.endpointInitialInstanceCount !== 1) ||
+                    (c.endpointDataCapturePercent !== null && c.endpointDataCapturePercent !== 0) ||
+                    (c.endpointVariantName !== null && c.endpointVariantName !== 'AllTraffic') ||
+                    (c.endpointVolumeSize !== null)
                 ),
                 (config) => {
-                    const rendered = renderExportTemplate(config)
-                    const fields = extractJsonFields(rendered)
+                    const rendered = renderExportTemplate(config);
+                    const fields = extractJsonFields(rendered);
 
                     assert.ok(fields.endpointConfig !== undefined,
-                        'JSON output must contain endpointConfig when non-default endpoint params exist')
+                        'JSON output must contain endpointConfig when non-default endpoint params exist');
 
                     // Verify individual values
-                    if (config.endpointInitialInstanceCount != null && config.endpointInitialInstanceCount !== 1) {
+                    if (config.endpointInitialInstanceCount !== null && config.endpointInitialInstanceCount !== 1) {
                         assert.ok(fields.endpointConfig.includes(`"initialInstanceCount":${config.endpointInitialInstanceCount}`),
-                            `endpointConfig must include initialInstanceCount=${config.endpointInitialInstanceCount}`)
+                            `endpointConfig must include initialInstanceCount=${config.endpointInitialInstanceCount}`);
                     }
-                    if (config.endpointDataCapturePercent != null && config.endpointDataCapturePercent !== 0) {
+                    if (config.endpointDataCapturePercent !== null && config.endpointDataCapturePercent !== 0) {
                         assert.ok(fields.endpointConfig.includes(`"dataCapturePercent":${config.endpointDataCapturePercent}`),
-                            `endpointConfig must include dataCapturePercent=${config.endpointDataCapturePercent}`)
+                            `endpointConfig must include dataCapturePercent=${config.endpointDataCapturePercent}`);
                     }
-                    if (config.endpointVariantName != null && config.endpointVariantName !== 'AllTraffic') {
+                    if (config.endpointVariantName !== null && config.endpointVariantName !== 'AllTraffic') {
                         assert.ok(fields.endpointConfig.includes(`"variantName":"${config.endpointVariantName}"`),
-                            `endpointConfig must include variantName=${config.endpointVariantName}`)
+                            `endpointConfig must include variantName=${config.endpointVariantName}`);
                     }
-                    if (config.endpointVolumeSize != null) {
+                    if (config.endpointVolumeSize !== null) {
                         assert.ok(fields.endpointConfig.includes(`"volumeSize":${config.endpointVolumeSize}`),
-                            `endpointConfig must include volumeSize=${config.endpointVolumeSize}`)
+                            `endpointConfig must include volumeSize=${config.endpointVolumeSize}`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('icConfig is present in JSON output when non-default iC params exist', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig.filter(c =>
-                    (c.icCpuCount != null) ||
-                    (c.icMemorySize != null) ||
-                    (c.icGpuCount != null) ||
-                    (c.icCopyCount != null && c.icCopyCount !== 1) ||
-                    (c.icModelWeight != null && c.icModelWeight !== 1.0)
+                    (c.icCpuCount !== null) ||
+                    (c.icMemorySize !== null) ||
+                    (c.icGpuCount !== null) ||
+                    (c.icCopyCount !== null && c.icCopyCount !== 1) ||
+                    (c.icModelWeight !== null && c.icModelWeight !== 1.0)
                 ),
                 (config) => {
-                    const rendered = renderExportTemplate(config)
-                    const fields = extractJsonFields(rendered)
+                    const rendered = renderExportTemplate(config);
+                    const fields = extractJsonFields(rendered);
 
                     assert.ok(fields.icConfig !== undefined,
-                        'JSON output must contain icConfig when non-default iC params exist')
+                        'JSON output must contain icConfig when non-default iC params exist');
 
                     // Verify individual values
-                    if (config.icCpuCount != null) {
+                    if (config.icCpuCount !== null) {
                         assert.ok(fields.icConfig.includes(`"cpuCount":${config.icCpuCount}`),
-                            `icConfig must include cpuCount=${config.icCpuCount}`)
+                            `icConfig must include cpuCount=${config.icCpuCount}`);
                     }
-                    if (config.icMemorySize != null) {
+                    if (config.icMemorySize !== null) {
                         assert.ok(fields.icConfig.includes(`"memorySize":${config.icMemorySize}`),
-                            `icConfig must include memorySize=${config.icMemorySize}`)
+                            `icConfig must include memorySize=${config.icMemorySize}`);
                     }
-                    if (config.icGpuCount != null) {
+                    if (config.icGpuCount !== null) {
                         assert.ok(fields.icConfig.includes(`"gpuCount":${config.icGpuCount}`),
-                            `icConfig must include gpuCount=${config.icGpuCount}`)
+                            `icConfig must include gpuCount=${config.icGpuCount}`);
                     }
-                    if (config.icCopyCount != null && config.icCopyCount !== 1) {
+                    if (config.icCopyCount !== null && config.icCopyCount !== 1) {
                         assert.ok(fields.icConfig.includes(`"copyCount":${config.icCopyCount}`),
-                            `icConfig must include copyCount=${config.icCopyCount}`)
+                            `icConfig must include copyCount=${config.icCopyCount}`);
                     }
-                    if (config.icModelWeight != null && config.icModelWeight !== 1.0) {
+                    if (config.icModelWeight !== null && config.icModelWeight !== 1.0) {
                         assert.ok(fields.icConfig.includes('"modelWeight":'),
-                            'icConfig must include modelWeight')
+                            'icConfig must include modelWeight');
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('modelEnvVars is present in JSON output when model env vars exist', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig.filter(c => Object.keys(c.modelEnvVars).length > 0),
                 (config) => {
-                    const rendered = renderExportTemplate(config)
-                    const fields = extractJsonFields(rendered)
+                    const rendered = renderExportTemplate(config);
+                    const fields = extractJsonFields(rendered);
 
                     assert.ok(fields.modelEnvVars !== undefined,
-                        'JSON output must contain modelEnvVars when model env vars exist')
+                        'JSON output must contain modelEnvVars when model env vars exist');
 
                     // Verify each key-value pair is present
                     for (const [key, value] of Object.entries(config.modelEnvVars)) {
                         assert.ok(fields.modelEnvVars.includes(`"${key}":"${value}"`),
-                            `modelEnvVars must include ${key}=${value}`)
+                            `modelEnvVars must include ${key}=${value}`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('serverEnvVars is present in JSON output when server env vars exist', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig.filter(c => Object.keys(c.serverEnvVars).length > 0),
                 (config) => {
-                    const rendered = renderExportTemplate(config)
-                    const fields = extractJsonFields(rendered)
+                    const rendered = renderExportTemplate(config);
+                    const fields = extractJsonFields(rendered);
 
                     assert.ok(fields.serverEnvVars !== undefined,
-                        'JSON output must contain serverEnvVars when server env vars exist')
+                        'JSON output must contain serverEnvVars when server env vars exist');
 
                     // Verify each key-value pair is present
                     for (const [key, value] of Object.entries(config.serverEnvVars)) {
                         assert.ok(fields.serverEnvVars.includes(`"${key}":"${value}"`),
-                            `serverEnvVars must include ${key}=${value}`)
+                            `serverEnvVars must include ${key}=${value}`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('JSON output uses camelCase keys consistent with ConfigManager conventions', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig.filter(c =>
-                    (c.endpointInitialInstanceCount != null && c.endpointInitialInstanceCount !== 1) &&
-                    (c.icCpuCount != null) &&
+                    (c.endpointInitialInstanceCount !== null && c.endpointInitialInstanceCount !== 1) &&
+                    (c.icCpuCount !== null) &&
                     Object.keys(c.modelEnvVars).length > 0 &&
                     Object.keys(c.serverEnvVars).length > 0
                 ),
                 (config) => {
-                    const rendered = renderExportTemplate(config)
+                    const rendered = renderExportTemplate(config);
 
                     // Verify camelCase keys are used (may be escaped or unescaped)
                     assert.ok(rendered.includes('endpointConfig'),
-                        'Must use camelCase key "endpointConfig"')
+                        'Must use camelCase key "endpointConfig"');
                     assert.ok(rendered.includes('icConfig'),
-                        'Must use camelCase key "icConfig"')
+                        'Must use camelCase key "icConfig"');
                     assert.ok(rendered.includes('modelEnvVars'),
-                        'Must use camelCase key "modelEnvVars"')
+                        'Must use camelCase key "modelEnvVars"');
                     assert.ok(rendered.includes('serverEnvVars'),
-                        'Must use camelCase key "serverEnvVars"')
+                        'Must use camelCase key "serverEnvVars"');
                     assert.ok(rendered.includes('initialInstanceCount'),
-                        'Must use camelCase key "initialInstanceCount"')
+                        'Must use camelCase key "initialInstanceCount"');
                     assert.ok(rendered.includes('cpuCount'),
-                        'Must use camelCase key "cpuCount"')
+                        'Must use camelCase key "cpuCount"');
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
-    })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+    });
 
     describe('CLI output includes a flag for each non-default parameter', () => {
 
         it('endpoint flags are included for non-default endpoint params', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig,
                 (config) => {
-                    const rendered = renderExportTemplate(config)
-                    const flags = extractCliFlags(rendered)
+                    const rendered = renderExportTemplate(config);
+                    const flags = extractCliFlags(rendered);
 
-                    if (config.endpointInitialInstanceCount != null && config.endpointInitialInstanceCount !== 1) {
+                    if (config.endpointInitialInstanceCount !== null && config.endpointInitialInstanceCount !== 1) {
                         assert.ok(flags.some(f => f === `--endpoint-initial-instance-count=${config.endpointInitialInstanceCount}`),
-                            `CLI must include --endpoint-initial-instance-count=${config.endpointInitialInstanceCount}`)
+                            `CLI must include --endpoint-initial-instance-count=${config.endpointInitialInstanceCount}`);
                     }
-                    if (config.endpointDataCapturePercent != null && config.endpointDataCapturePercent !== 0) {
+                    if (config.endpointDataCapturePercent !== null && config.endpointDataCapturePercent !== 0) {
                         assert.ok(flags.some(f => f === `--endpoint-data-capture-percent=${config.endpointDataCapturePercent}`),
-                            `CLI must include --endpoint-data-capture-percent=${config.endpointDataCapturePercent}`)
+                            `CLI must include --endpoint-data-capture-percent=${config.endpointDataCapturePercent}`);
                     }
-                    if (config.endpointVariantName != null && config.endpointVariantName !== 'AllTraffic') {
+                    if (config.endpointVariantName !== null && config.endpointVariantName !== 'AllTraffic') {
                         assert.ok(flags.some(f => f === `--endpoint-variant-name=${config.endpointVariantName}`),
-                            `CLI must include --endpoint-variant-name=${config.endpointVariantName}`)
+                            `CLI must include --endpoint-variant-name=${config.endpointVariantName}`);
                     }
-                    if (config.endpointVolumeSize != null) {
+                    if (config.endpointVolumeSize !== null) {
                         assert.ok(flags.some(f => f === `--endpoint-volume-size=${config.endpointVolumeSize}`),
-                            `CLI must include --endpoint-volume-size=${config.endpointVolumeSize}`)
+                            `CLI must include --endpoint-volume-size=${config.endpointVolumeSize}`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('iC flags are included for non-default iC params', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig,
                 (config) => {
-                    const rendered = renderExportTemplate(config)
-                    const flags = extractCliFlags(rendered)
+                    const rendered = renderExportTemplate(config);
+                    const flags = extractCliFlags(rendered);
 
-                    if (config.icCpuCount != null) {
+                    if (config.icCpuCount !== null) {
                         assert.ok(flags.some(f => f === `--ic-cpu-count=${config.icCpuCount}`),
-                            `CLI must include --ic-cpu-count=${config.icCpuCount}`)
+                            `CLI must include --ic-cpu-count=${config.icCpuCount}`);
                     }
-                    if (config.icMemorySize != null) {
+                    if (config.icMemorySize !== null) {
                         assert.ok(flags.some(f => f === `--ic-memory-size=${config.icMemorySize}`),
-                            `CLI must include --ic-memory-size=${config.icMemorySize}`)
+                            `CLI must include --ic-memory-size=${config.icMemorySize}`);
                     }
-                    if (config.icGpuCount != null) {
+                    if (config.icGpuCount !== null) {
                         assert.ok(flags.some(f => f === `--ic-gpu-count=${config.icGpuCount}`),
-                            `CLI must include --ic-gpu-count=${config.icGpuCount}`)
+                            `CLI must include --ic-gpu-count=${config.icGpuCount}`);
                     }
-                    if (config.icCopyCount != null && config.icCopyCount !== 1) {
+                    if (config.icCopyCount !== null && config.icCopyCount !== 1) {
                         assert.ok(flags.some(f => f === `--ic-copy-count=${config.icCopyCount}`),
-                            `CLI must include --ic-copy-count=${config.icCopyCount}`)
+                            `CLI must include --ic-copy-count=${config.icCopyCount}`);
                     }
-                    if (config.icModelWeight != null && config.icModelWeight !== 1.0) {
+                    if (config.icModelWeight !== null && config.icModelWeight !== 1.0) {
                         assert.ok(flags.some(f => f.startsWith('--ic-model-weight=')),
-                            'CLI must include --ic-model-weight flag')
+                            'CLI must include --ic-model-weight flag');
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('model-env flags are included for each model env var', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig.filter(c => Object.keys(c.modelEnvVars).length > 0),
                 (config) => {
-                    const rendered = renderExportTemplate(config)
-                    const flags = extractCliFlags(rendered)
+                    const rendered = renderExportTemplate(config);
+                    const flags = extractCliFlags(rendered);
 
                     for (const [key, value] of Object.entries(config.modelEnvVars)) {
                         assert.ok(flags.some(f => f === `--model-env=${key}=${value}`),
-                            `CLI must include --model-env=${key}=${value}`)
+                            `CLI must include --model-env=${key}=${value}`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('server-env flags are included for each server env var', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbFullConfig.filter(c => Object.keys(c.serverEnvVars).length > 0),
                 (config) => {
-                    const rendered = renderExportTemplate(config)
-                    const flags = extractCliFlags(rendered)
+                    const rendered = renderExportTemplate(config);
+                    const flags = extractCliFlags(rendered);
 
                     for (const [key, value] of Object.entries(config.serverEnvVars)) {
                         assert.ok(flags.some(f => f === `--server-env=${key}=${value}`),
-                            `CLI must include --server-env=${key}=${value}`)
+                            `CLI must include --server-env=${key}=${value}`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('default-valued params are NOT included in CLI output', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             // Test with all defaults
             const defaultConfig = {
@@ -472,19 +452,19 @@ describe('Feature: cli-config-parameters, Property 8: Export round-trip complete
                 icModelWeight: 1.0,
                 modelEnvVars: {},
                 serverEnvVars: {}
-            }
+            };
 
-            const rendered = renderExportTemplate(defaultConfig)
-            const flags = extractCliFlags(rendered)
+            const rendered = renderExportTemplate(defaultConfig);
+            const flags = extractCliFlags(rendered);
 
             assert.ok(!flags.some(f => f.startsWith('--endpoint-')),
-                'No --endpoint-* flags should appear for default values')
+                'No --endpoint-* flags should appear for default values');
             assert.ok(!flags.some(f => f.startsWith('--ic-')),
-                'No --ic-* flags should appear for default values')
+                'No --ic-* flags should appear for default values');
             assert.ok(!flags.some(f => f.startsWith('--model-env')),
-                'No --model-env flags should appear when modelEnvVars is empty')
+                'No --model-env flags should appear when modelEnvVars is empty');
             assert.ok(!flags.some(f => f.startsWith('--server-env')),
-                'No --server-env flags should appear when serverEnvVars is empty')
-        })
-    })
-})
+                'No --server-env flags should appear when serverEnvVars is empty');
+        });
+    });
+});

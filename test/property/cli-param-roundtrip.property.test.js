@@ -16,16 +16,16 @@
  * **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5**
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import ConfigManager from '../../generators/app/lib/config-manager.js'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import ConfigManager from '../../generators/app/lib/config-manager.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-}
+};
 
 // ── Parameter definitions with generators ────────────────────────────────────
 
@@ -50,7 +50,7 @@ const ENDPOINT_PARAMS = [
         cliOption: 'endpoint-volume-size',
         generator: () => fc.integer({ min: 1, max: 16384 })
     }
-]
+];
 
 const IC_PARAMS = [
     {
@@ -80,7 +80,7 @@ const IC_PARAMS = [
         generator: () => fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true })
             .map(v => Math.round(v * 1000) / 1000)
     }
-]
+];
 
 // ── Helper to create a mock generator ────────────────────────────────────────
 
@@ -89,7 +89,7 @@ function createMockGenerator(cliOptions = {}) {
         options: { ...cliOptions },
         args: [],
         destinationPath: (p) => p || '.'
-    }
+    };
 }
 
 // ── Property tests ───────────────────────────────────────────────────────────
@@ -106,53 +106,53 @@ describe('Infrastructure Parameter CLI Round-Trip Property-Based Tests', () => {
         describe('Endpoint parameters round-trip via CLI', () => {
             for (const param of ENDPOINT_PARAMS) {
                 it(`${param.name}: valid value passed via --${param.cliOption} appears in final config`, async function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     await fc.assert(fc.asyncProperty(
                         param.generator(),
                         async (value) => {
                             const mockGenerator = createMockGenerator({
                                 [param.cliOption]: value
-                            })
+                            });
 
-                            const configManager = new ConfigManager(mockGenerator)
-                            await configManager.loadConfiguration()
+                            const configManager = new ConfigManager(mockGenerator);
+                            await configManager.loadConfiguration();
 
                             assert.strictEqual(configManager.config[param.name], value,
                                 `Config key "${param.name}" should equal CLI value ${JSON.stringify(value)}, ` +
-                                `got ${JSON.stringify(configManager.config[param.name])}`)
+                                `got ${JSON.stringify(configManager.config[param.name])}`);
 
-                            return true
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
+        });
 
         describe('IC parameters round-trip via CLI', () => {
             for (const param of IC_PARAMS) {
                 it(`${param.name}: valid value passed via --${param.cliOption} appears in final config`, async function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout)
+                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
                     await fc.assert(fc.asyncProperty(
                         param.generator(),
                         async (value) => {
                             const mockGenerator = createMockGenerator({
                                 [param.cliOption]: value
-                            })
+                            });
 
-                            const configManager = new ConfigManager(mockGenerator)
-                            await configManager.loadConfiguration()
+                            const configManager = new ConfigManager(mockGenerator);
+                            await configManager.loadConfiguration();
 
                             assert.strictEqual(configManager.config[param.name], value,
                                 `Config key "${param.name}" should equal CLI value ${JSON.stringify(value)}, ` +
-                                `got ${JSON.stringify(configManager.config[param.name])}`)
+                                `got ${JSON.stringify(configManager.config[param.name])}`);
 
-                            return true
+                            return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-                })
+                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                });
             }
-        })
-    })
-})
+        });
+    });
+});

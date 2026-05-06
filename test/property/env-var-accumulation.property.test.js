@@ -16,16 +16,16 @@
  * **Validates: Requirements 3.2, 4.2**
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import ConfigManager from '../../generators/app/lib/config-manager.js'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import ConfigManager from '../../generators/app/lib/config-manager.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-}
+};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -33,12 +33,12 @@ const FAST_PROPERTY_CONFIG = {
  * Generate a valid env var key (uppercase letters, digits, underscores,
  * starting with a letter or underscore).
  */
-const arbEnvKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{0,20}$/)
+const arbEnvKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{0,20}$/);
 
 /**
  * Generate a valid env var value (arbitrary non-empty string).
  */
-const arbEnvValue = fc.string({ minLength: 1, maxLength: 50 })
+const arbEnvValue = fc.string({ minLength: 1, maxLength: 50 });
 
 /**
  * Generate a list of unique KEY=VALUE pairs.
@@ -47,7 +47,7 @@ const arbEnvValue = fc.string({ minLength: 1, maxLength: 50 })
 const arbUniqueKeyValuePairs = fc.uniqueArray(
     fc.tuple(arbEnvKey, arbEnvValue),
     { minLength: 1, maxLength: 20, selector: ([key]) => key }
-)
+);
 
 // ── Helper to create a mock generator ────────────────────────────────────────
 
@@ -56,7 +56,7 @@ function createMockGenerator(cliOptions = {}) {
         options: { ...cliOptions },
         args: [],
         destinationPath: (p) => p || '.'
-    }
+    };
 }
 
 // ── Property tests ───────────────────────────────────────────────────────────
@@ -71,67 +71,67 @@ describe('ENV Var Accumulation Property-Based Tests', () => {
          */
 
         it('--model-env: all unique KEY=VALUE pairs are preserved in modelEnvVars collection', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbUniqueKeyValuePairs,
                 async (pairs) => {
-                    const modelEnvFlags = pairs.map(([key, value]) => `${key}=${value}`)
+                    const modelEnvFlags = pairs.map(([key, value]) => `${key}=${value}`);
 
                     const mockGenerator = createMockGenerator({
                         'model-env': modelEnvFlags
-                    })
+                    });
 
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
-                    const modelEnvVars = configManager.config.modelEnvVars
+                    const modelEnvVars = configManager.config.modelEnvVars;
 
                     // Collection size equals number of unique keys
                     assert.strictEqual(Object.keys(modelEnvVars).length, pairs.length,
-                        `modelEnvVars should have ${pairs.length} entries, got ${Object.keys(modelEnvVars).length}`)
+                        `modelEnvVars should have ${pairs.length} entries, got ${Object.keys(modelEnvVars).length}`);
 
                     // Every pair is present with correct value
                     for (const [key, value] of pairs) {
                         assert.strictEqual(modelEnvVars[key], value,
-                            `modelEnvVars["${key}"] should be "${value}", got "${modelEnvVars[key]}"`)
+                            `modelEnvVars["${key}"] should be "${value}", got "${modelEnvVars[key]}"`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('--server-env: all unique KEY=VALUE pairs are preserved in serverEnvVars collection', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbUniqueKeyValuePairs,
                 async (pairs) => {
-                    const serverEnvFlags = pairs.map(([key, value]) => `${key}=${value}`)
+                    const serverEnvFlags = pairs.map(([key, value]) => `${key}=${value}`);
 
                     const mockGenerator = createMockGenerator({
                         'server-env': serverEnvFlags
-                    })
+                    });
 
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
-                    const serverEnvVars = configManager.config.serverEnvVars
+                    const serverEnvVars = configManager.config.serverEnvVars;
 
                     // Collection size equals number of unique keys
                     assert.strictEqual(Object.keys(serverEnvVars).length, pairs.length,
-                        `serverEnvVars should have ${pairs.length} entries, got ${Object.keys(serverEnvVars).length}`)
+                        `serverEnvVars should have ${pairs.length} entries, got ${Object.keys(serverEnvVars).length}`);
 
                     // Every pair is present with correct value
                     for (const [key, value] of pairs) {
                         assert.strictEqual(serverEnvVars[key], value,
-                            `serverEnvVars["${key}"] should be "${value}", got "${serverEnvVars[key]}"`)
+                            `serverEnvVars["${key}"] should be "${value}", got "${serverEnvVars[key]}"`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
-    })
-})
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+});

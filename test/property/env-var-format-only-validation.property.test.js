@@ -16,16 +16,16 @@
  * **Validates: Requirements 10.7**
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import ConfigManager from '../../generators/app/lib/config-manager.js'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import ConfigManager from '../../generators/app/lib/config-manager.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-}
+};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ const FAST_PROPERTY_CONFIG = {
 const arbValidFormatEnvVar = fc.tuple(
     fc.string({ minLength: 1, maxLength: 30 }).filter(s => !s.includes('=')),
     fc.string({ minLength: 0, maxLength: 100 })
-).map(([key, value]) => `${key}=${value}`)
+).map(([key, value]) => `${key}=${value}`);
 
 /**
  * Generate values with special characters, unicode, whitespace, etc.
@@ -44,7 +44,7 @@ const arbValidFormatEnvVar = fc.tuple(
  */
 const arbExoticValue = fc.oneof(
     fc.string({ minLength: 0, maxLength: 100 }),
-    fc.stringMatching(/^[\x00-\x7F]{0,50}$/),
+    fc.stringMatching(/^[\u0020-\u007E]{0,50}$/), // eslint-disable-line no-control-regex -- printable ASCII range
     fc.constant(''),
     fc.constant('   '),
     fc.constant('value=with=equals'),
@@ -54,12 +54,12 @@ const arbExoticValue = fc.oneof(
     fc.constant('0'),
     fc.constant('-1'),
     fc.constant('99999999999999999')
-)
+);
 
 const arbKeyWithExoticValue = fc.tuple(
     fc.stringMatching(/^[A-Z][A-Z0-9_]{0,15}$/),
     arbExoticValue
-).map(([key, value]) => `${key}=${value}`)
+).map(([key, value]) => `${key}=${value}`);
 
 // ── Helper to create a mock generator ────────────────────────────────────────
 
@@ -68,7 +68,7 @@ function createMockGenerator(cliOptions = {}) {
         options: { ...cliOptions },
         args: [],
         destinationPath: (p) => p || '.'
-    }
+    };
 }
 
 // ── Property tests ───────────────────────────────────────────────────────────
@@ -83,78 +83,78 @@ describe('Format-Only Validation for Env Vars Property-Based Tests', () => {
          */
 
         it('--model-env with valid KEY=VALUE format does not raise value-level validation errors', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbKeyWithExoticValue,
                 async (envEntry) => {
                     const mockGenerator = createMockGenerator({
                         'model-env': [envEntry]
-                    })
+                    });
 
                     // Should not throw any error during configuration loading
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
                     // The entry should be stored without value-level validation
-                    const key = envEntry.substring(0, envEntry.indexOf('='))
-                    const value = envEntry.substring(envEntry.indexOf('=') + 1)
+                    const key = envEntry.substring(0, envEntry.indexOf('='));
+                    const value = envEntry.substring(envEntry.indexOf('=') + 1);
 
                     assert.strictEqual(configManager.config.modelEnvVars[key], value,
-                        `modelEnvVars["${key}"] should be "${value}" without validation error`)
+                        `modelEnvVars["${key}"] should be "${value}" without validation error`);
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('--server-env with valid KEY=VALUE format does not raise value-level validation errors', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbKeyWithExoticValue,
                 async (envEntry) => {
                     const mockGenerator = createMockGenerator({
                         'server-env': [envEntry]
-                    })
+                    });
 
                     // Should not throw any error during configuration loading
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
                     // The entry should be stored without value-level validation
-                    const key = envEntry.substring(0, envEntry.indexOf('='))
-                    const value = envEntry.substring(envEntry.indexOf('=') + 1)
+                    const key = envEntry.substring(0, envEntry.indexOf('='));
+                    const value = envEntry.substring(envEntry.indexOf('=') + 1);
 
                     assert.strictEqual(configManager.config.serverEnvVars[key], value,
-                        `serverEnvVars["${key}"] should be "${value}" without validation error`)
+                        `serverEnvVars["${key}"] should be "${value}" without validation error`);
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
 
         it('--model-env with arbitrary value content (special chars, unicode) is accepted', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbValidFormatEnvVar,
                 async (envEntry) => {
                     const mockGenerator = createMockGenerator({
                         'model-env': [envEntry]
-                    })
+                    });
 
                     // Should not throw — format is valid (contains =)
-                    const configManager = new ConfigManager(mockGenerator)
-                    await configManager.loadConfiguration()
+                    const configManager = new ConfigManager(mockGenerator);
+                    await configManager.loadConfiguration();
 
-                    const key = envEntry.substring(0, envEntry.indexOf('='))
+                    const key = envEntry.substring(0, envEntry.indexOf('='));
                     assert.ok(key in configManager.config.modelEnvVars,
-                        `Key "${key}" should be present in modelEnvVars`)
+                        `Key "${key}" should be present in modelEnvVars`);
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
-    })
-})
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+});

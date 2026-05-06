@@ -15,17 +15,17 @@
  * **Validates: Requirements 3.5, 4.5**
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import { parseKeyValue } from '../../generators/app/lib/key-value-parser.js'
-import { ValidationError } from '../../generators/app/lib/config-manager.js'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import { parseKeyValue } from '../../generators/app/lib/key-value-parser.js';
+import { ValidationError } from '../../generators/app/lib/config-manager.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
     timeout: 30000,
     verbose: false
-}
+};
 
 // ── Property tests ───────────────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ describe('Missing-Equals Format Rejection Property-Based Tests', () => {
          */
 
         it('throws ValidationError for any string without an equals sign', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout)
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.string().filter(s => !s.includes('=')),
@@ -48,18 +48,18 @@ describe('Missing-Equals Format Rejection Property-Based Tests', () => {
                         () => parseKeyValue(input),
                         (err) => {
                             assert.ok(err instanceof ValidationError,
-                                `Expected ValidationError but got ${err.constructor.name}`)
+                                `Expected ValidationError but got ${err.constructor.name}`);
                             assert.ok(err.message.includes('expected KEY=VALUE'),
-                                `Error message should include "expected KEY=VALUE" but got: "${err.message}"`)
+                                `Error message should include "expected KEY=VALUE" but got: "${err.message}"`);
                             assert.ok(err.message.includes(input),
-                                `Error message should include the input "${input}" but got: "${err.message}"`)
-                            return true
+                                `Error message should include the input "${input}" but got: "${err.message}"`);
+                            return true;
                         }
-                    )
+                    );
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose })
-        })
-    })
-})
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+});

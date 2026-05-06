@@ -16,18 +16,16 @@
  * **Validates: Requirements 6.5**
  */
 
-import fc from 'fast-check'
-import { describe, it } from 'mocha'
-import assert from 'assert'
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
 import {
     isSensitiveKey,
     redactSensitiveValues,
-    REDACTION_MARKER,
-    SENSITIVE_EXACT_KEYS,
-    SENSITIVE_SUBSTRINGS
-} from '../../generators/app/lib/sensitive-redactor.js'
+    REDACTION_MARKER
+} from '../../generators/app/lib/sensitive-redactor.js';
 
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false }
+const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
 // ── Arbitrary generators ─────────────────────────────────────────────────────
 
@@ -42,19 +40,19 @@ const arbSensitiveKey = fc.oneof(
     fc.stringMatching(/^[A-Z][A-Z0-9_]{0,8}TOKEN[A-Z0-9_]{0,5}$/),
     fc.stringMatching(/^[A-Z][A-Z0-9_]{0,5}_SECRET_[A-Z0-9_]{0,5}$/),
     fc.stringMatching(/^[A-Z][A-Z0-9_]{0,5}_TOKEN_[A-Z0-9_]{0,5}$/)
-)
+);
 
 /**
  * Generate a key that is guaranteed to be non-sensitive.
  */
 const arbNonSensitiveKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{2,12}$/).filter(key => {
-    return !isSensitiveKey(key)
-})
+    return !isSensitiveKey(key);
+});
 
 /**
  * Generate an arbitrary value (could be a real secret or normal value).
  */
-const arbValue = fc.stringMatching(/^[a-zA-Z0-9._\-/]{1,30}$/)
+const arbValue = fc.stringMatching(/^[a-zA-Z0-9._\-/]{1,30}$/);
 
 /**
  * Generate a parameters object with at least one sensitive key.
@@ -63,11 +61,11 @@ const arbParamsWithSensitiveKeys = fc.tuple(
     fc.array(fc.tuple(arbSensitiveKey, arbValue), { minLength: 1, maxLength: 4 }),
     fc.array(fc.tuple(arbNonSensitiveKey, arbValue), { minLength: 0, maxLength: 3 })
 ).map(([sensitiveEntries, normalEntries]) => {
-    const params = {}
-    sensitiveEntries.forEach(([key, value]) => { params[key] = value })
-    normalEntries.forEach(([key, value]) => { params[key] = value })
-    return params
-})
+    const params = {};
+    sensitiveEntries.forEach(([key, value]) => { params[key] = value; });
+    normalEntries.forEach(([key, value]) => { params[key] = value; });
+    return params;
+});
 
 /**
  * Generate a parameters object with only non-sensitive keys.
@@ -76,10 +74,10 @@ const arbParamsWithNoSensitiveKeys = fc.array(
     fc.tuple(arbNonSensitiveKey, arbValue),
     { minLength: 1, maxLength: 5 }
 ).map(entries => {
-    const params = {}
-    entries.forEach(([key, value]) => { params[key] = value })
-    return params
-})
+    const params = {};
+    entries.forEach(([key, value]) => { params[key] = value; });
+    return params;
+});
 
 // ── Property tests ───────────────────────────────────────────────────────────
 
@@ -88,62 +86,62 @@ describe('Feature: cli-config-parameters, Property 11: Sensitive value redaction
     describe('sensitive keys are redacted in output', () => {
 
         it('for any parameters with sensitive keys, redacted output replaces values with marker', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbParamsWithSensitiveKeys,
                 (params) => {
-                    const redacted = redactSensitiveValues(params)
+                    const redacted = redactSensitiveValues(params);
 
                     for (const [key, value] of Object.entries(params)) {
                         if (isSensitiveKey(key)) {
                             assert.strictEqual(redacted[key], REDACTION_MARKER,
-                                `Sensitive key "${key}" should be redacted but got "${redacted[key]}"`)
+                                `Sensitive key "${key}" should be redacted but got "${redacted[key]}"`);
                         } else {
                             assert.strictEqual(redacted[key], value,
-                                `Non-sensitive key "${key}" should preserve value "${value}" but got "${redacted[key]}"`)
+                                `Non-sensitive key "${key}" should preserve value "${value}" but got "${redacted[key]}"`);
                         }
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('for any parameters with no sensitive keys, no values are redacted', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbParamsWithNoSensitiveKeys,
                 (params) => {
-                    const redacted = redactSensitiveValues(params)
+                    const redacted = redactSensitiveValues(params);
 
                     for (const [key, value] of Object.entries(params)) {
                         assert.strictEqual(redacted[key], value,
-                            `Non-sensitive key "${key}" should preserve value "${value}" but got "${redacted[key]}"`)
+                            `Non-sensitive key "${key}" should preserve value "${value}" but got "${redacted[key]}"`);
                     }
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
 
         it('redaction preserves all keys (no keys are dropped)', function () {
-            this.timeout(PROPERTY_CONFIG.timeout)
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbParamsWithSensitiveKeys,
                 (params) => {
-                    const redacted = redactSensitiveValues(params)
-                    const originalKeys = Object.keys(params).sort()
-                    const redactedKeys = Object.keys(redacted).sort()
+                    const redacted = redactSensitiveValues(params);
+                    const originalKeys = Object.keys(params).sort();
+                    const redactedKeys = Object.keys(redacted).sort();
 
                     assert.deepStrictEqual(redactedKeys, originalKeys,
-                        'Redaction should preserve all keys')
+                        'Redaction should preserve all keys');
 
-                    return true
+                    return true;
                 }
-            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose })
-        })
-    })
-})
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        });
+    });
+});
