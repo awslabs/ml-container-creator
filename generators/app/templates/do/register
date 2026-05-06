@@ -127,6 +127,22 @@ get_engine_prefix() {
 
 PARAMETERS="{}"
 
+<%
+// Build a helper to determine sensitive keys for redaction
+const sensitivePatterns = ['HF_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN'];
+const sensitiveSubstrings = ['SECRET', 'TOKEN'];
+
+function isSensitiveKey(key) {
+    if (sensitivePatterns.includes(key)) return true;
+    const upper = key.toUpperCase();
+    return sensitiveSubstrings.some(sub => upper.includes(sub));
+}
+
+function redactValue(key, value) {
+    return isSensitiveKey(key) ? '***REDACTED***' : value;
+}
+%>
+
 case "${ARCHITECTURE}" in
     transformers|diffusors)
         # Extract env vars matching engine prefix + HF_TOKEN + HF_MODEL_ID
@@ -143,6 +159,18 @@ for key, value in os.environ.items():
         result[key] = '***REDACTED***'
     elif key == 'HF_MODEL_ID':
         result[key] = value
+<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+# Include model env vars
+<% Object.entries(modelEnvVars).forEach(([key, value]) => { %>
+result['<%= key %>'] = '<%= redactValue(key, value) %>'
+<% }); %>
+<% } %>
+<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+# Include server env vars (with engine prefix applied at generation time)
+<% Object.entries(serverEnvVars).forEach(([key, value]) => { %>
+result['<%= key %>'] = '<%= redactValue(key, value) %>'
+<% }); %>
+<% } %>
 print(json.dumps(result))
 " 2>/dev/null || echo "{}")
         ;;
@@ -157,10 +185,24 @@ exclude = {
     'PYTHON_GET_PIP_URL', 'PYTHON_GET_PIP_SHA256'
 }
 redact = {'HF_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN'}
+sensitive_substrings = ['SECRET', 'TOKEN']
 result = {}
 for key, value in os.environ.items():
     if key not in exclude:
-        result[key] = '***REDACTED***' if key in redact else value
+        is_sensitive = key in redact or any(sub in key.upper() for sub in sensitive_substrings)
+        result[key] = '***REDACTED***' if is_sensitive else value
+<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+# Include model env vars
+<% Object.entries(modelEnvVars).forEach(([key, value]) => { %>
+result['<%= key %>'] = '<%= redactValue(key, value) %>'
+<% }); %>
+<% } %>
+<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+# Include server env vars
+<% Object.entries(serverEnvVars).forEach(([key, value]) => { %>
+result['<%= key %>'] = '<%= redactValue(key, value) %>'
+<% }); %>
+<% } %>
 print(json.dumps(result))
 " 2>/dev/null || echo "{}")
         ;;
@@ -191,6 +233,18 @@ if config_pbtxt.strip():
 triton_repo = '${TRITON_REPO_VAR}'
 if triton_repo:
     result['TRITON_MODEL_REPOSITORY'] = triton_repo
+<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+# Include model env vars
+<% Object.entries(modelEnvVars).forEach(([key, value]) => { %>
+result['<%= key %>'] = '<%= redactValue(key, value) %>'
+<% }); %>
+<% } %>
+<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+# Include server env vars
+<% Object.entries(serverEnvVars).forEach(([key, value]) => { %>
+result['<%= key %>'] = '<%= redactValue(key, value) %>'
+<% }); %>
+<% } %>
 print(json.dumps(result))
 " 2>/dev/null || echo "{}")
         ;;
@@ -285,6 +339,41 @@ write_ci_record() {
   "buildTarget": "${BUILD_TARGET}",
   "baseImage": "${BASE_IMAGE:-}",
   "buildStrategy": "${CI_BUILD_STRATEGY}",
+<% if (endpointInitialInstanceCount != null || endpointDataCapturePercent != null || endpointVariantName != null || endpointVolumeSize != null) { %>
+  "endpointConfig": {
+<% if (endpointInitialInstanceCount != null) { %>
+    "initialInstanceCount": ${ENDPOINT_INITIAL_INSTANCE_COUNT}<%= (endpointDataCapturePercent != null || endpointVariantName != null || endpointVolumeSize != null) ? ',' : '' %>
+<% } %>
+<% if (endpointDataCapturePercent != null) { %>
+    "dataCapturePercent": ${ENDPOINT_DATA_CAPTURE_PERCENT}<%= (endpointVariantName != null || endpointVolumeSize != null) ? ',' : '' %>
+<% } %>
+<% if (endpointVariantName != null) { %>
+    "variantName": "${ENDPOINT_VARIANT_NAME}"<%= (endpointVolumeSize != null) ? ',' : '' %>
+<% } %>
+<% if (endpointVolumeSize != null) { %>
+    "volumeSize": ${ENDPOINT_VOLUME_SIZE}
+<% } %>
+  },
+<% } %>
+<% if (icCpuCount != null || icMemorySize != null || icGpuCount != null || icCopyCount != null || icModelWeight != null) { %>
+  "icConfig": {
+<% if (icCpuCount != null) { %>
+    "cpuCount": ${IC_CPU_COUNT}<%= (icMemorySize != null || icGpuCount != null || icCopyCount != null || icModelWeight != null) ? ',' : '' %>
+<% } %>
+<% if (icMemorySize != null) { %>
+    "memorySize": ${IC_MEMORY_SIZE}<%= (icGpuCount != null || icCopyCount != null || icModelWeight != null) ? ',' : '' %>
+<% } %>
+<% if (icGpuCount != null) { %>
+    "gpuCount": ${IC_GPU_COUNT}<%= (icCopyCount != null || icModelWeight != null) ? ',' : '' %>
+<% } %>
+<% if (icCopyCount != null) { %>
+    "copyCount": ${IC_COPY_COUNT}<%= (icModelWeight != null) ? ',' : '' %>
+<% } %>
+<% if (icModelWeight != null) { %>
+    "modelWeight": ${IC_MODEL_WEIGHT}
+<% } %>
+  },
+<% } %>
   "parameters": ${PARAMETERS}
 }
 CJEOF
@@ -363,6 +452,41 @@ if [ "${JSON_OUTPUT}" = true ] || [ "${CI_MODE}" = true ]; then
   "buildTarget": "${BUILD_TARGET}",
   "baseImage": "${BASE_IMAGE:-}",
   "status": "${STATUS}",
+<% if (endpointInitialInstanceCount != null || endpointDataCapturePercent != null || endpointVariantName != null || endpointVolumeSize != null) { %>
+  "endpointConfig": {
+<% if (endpointInitialInstanceCount != null) { %>
+    "initialInstanceCount": ${ENDPOINT_INITIAL_INSTANCE_COUNT}<%= (endpointDataCapturePercent != null || endpointVariantName != null || endpointVolumeSize != null) ? ',' : '' %>
+<% } %>
+<% if (endpointDataCapturePercent != null) { %>
+    "dataCapturePercent": ${ENDPOINT_DATA_CAPTURE_PERCENT}<%= (endpointVariantName != null || endpointVolumeSize != null) ? ',' : '' %>
+<% } %>
+<% if (endpointVariantName != null) { %>
+    "variantName": "${ENDPOINT_VARIANT_NAME}"<%= (endpointVolumeSize != null) ? ',' : '' %>
+<% } %>
+<% if (endpointVolumeSize != null) { %>
+    "volumeSize": ${ENDPOINT_VOLUME_SIZE}
+<% } %>
+  },
+<% } %>
+<% if (icCpuCount != null || icMemorySize != null || icGpuCount != null || icCopyCount != null || icModelWeight != null) { %>
+  "icConfig": {
+<% if (icCpuCount != null) { %>
+    "cpuCount": ${IC_CPU_COUNT}<%= (icMemorySize != null || icGpuCount != null || icCopyCount != null || icModelWeight != null) ? ',' : '' %>
+<% } %>
+<% if (icMemorySize != null) { %>
+    "memorySize": ${IC_MEMORY_SIZE}<%= (icGpuCount != null || icCopyCount != null || icModelWeight != null) ? ',' : '' %>
+<% } %>
+<% if (icGpuCount != null) { %>
+    "gpuCount": ${IC_GPU_COUNT}<%= (icCopyCount != null || icModelWeight != null) ? ',' : '' %>
+<% } %>
+<% if (icCopyCount != null) { %>
+    "copyCount": ${IC_COPY_COUNT}<%= (icModelWeight != null) ? ',' : '' %>
+<% } %>
+<% if (icModelWeight != null) { %>
+    "modelWeight": ${IC_MODEL_WEIGHT}
+<% } %>
+  },
+<% } %>
   "parameters": ${PARAMETERS}
 }
 DJEOF

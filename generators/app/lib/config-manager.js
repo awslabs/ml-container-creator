@@ -24,6 +24,8 @@ import { fileURLToPath } from 'node:url';
 import { McpClient } from './mcp-client.js';
 import DeploymentConfigResolver from './deployment-config-resolver.js';
 import BootstrapConfig from './bootstrap-config.js';
+import { parseKeyValue } from './key-value-parser.js';
+import ParameterSchemaValidator from './parameter-schema-validator.js';
 
 const __configMgrFilename = fileURLToPath(import.meta.url);
 const __configMgrDir = dirname(__configMgrFilename);
@@ -77,8 +79,10 @@ export default class ConfigManager {
         this.skipPrompts = false;
         this.deploymentConfigResolver = new DeploymentConfigResolver();
         this.parameterMatrix = this._getParameterMatrix();
+        this.schemaValidator = new ParameterSchemaValidator();
         this.mcpSources = {};
         this.mcpChoices = {};
+        this._sourceManifest = [];
     }
 
     /**
@@ -142,6 +146,15 @@ export default class ConfigManager {
                 finalConfig[key] = this.config[key];
             }
         });
+
+        // Ensure env var collections are properly merged (CLI over config file over registry)
+        // this.config already has the fully merged result from all sources
+        if (this.config.modelEnvVars && typeof this.config.modelEnvVars === 'object') {
+            finalConfig.modelEnvVars = { ...this.config.modelEnvVars }
+        }
+        if (this.config.serverEnvVars && typeof this.config.serverEnvVars === 'object') {
+            finalConfig.serverEnvVars = { ...this.config.serverEnvVars }
+        }
 
         // Ensure all parameters from the matrix are included in final config
         // This is important for optional parameters that might be null
@@ -293,6 +306,108 @@ export default class ConfigManager {
      */
     getMcpSources() {
         return this.mcpSources || {};
+    }
+
+    /**
+     * Returns the complete configuration object with all parameter families
+     * separated into named collections for validation layer consumption.
+     * @returns {{
+     *   core: Object,
+     *   endpointConfig: Object,
+     *   icConfig: Object,
+     *   modelEnvVars: Object,
+     *   serverEnvVars: Object,
+     *   manifest: Array<{param: string, value: *, source: string}>
+     * }}
+     */
+    getFullConfiguration() {
+        const endpointParams = [
+            'endpointInitialInstanceCount',
+            'endpointDataCapturePercent',
+            'endpointVariantName',
+            'endpointVolumeSize'
+        ]
+        const icParams = [
+            'icCpuCount',
+            'icMemorySize',
+            'icGpuCount',
+            'icCopyCount',
+            'icModelWeight'
+        ]
+
+        const endpointConfig = {}
+        for (const param of endpointParams) {
+            const shortKey = param.replace('endpoint', '')
+            const key = shortKey.charAt(0).toLowerCase() + shortKey.slice(1)
+            if (this.config[param] !== undefined && this.config[param] !== null) {
+                endpointConfig[key] = this.config[param]
+            }
+        }
+
+        const icConfig = {}
+        for (const param of icParams) {
+            const shortKey = param.replace('ic', '')
+            const key = shortKey.charAt(0).toLowerCase() + shortKey.slice(1)
+            if (this.config[param] !== undefined && this.config[param] !== null) {
+                icConfig[key] = this.config[param]
+            }
+        }
+
+        // Core parameters: everything that is NOT endpoint, iC, or env var collections
+        const excludedFromCore = new Set([
+            ...endpointParams,
+            ...icParams,
+            'modelEnvVars',
+            'serverEnvVars'
+        ])
+        const core = {}
+        for (const [key, value] of Object.entries(this.config)) {
+            if (!excludedFromCore.has(key) && key !== '_sourceManifest') {
+                core[key] = value
+            }
+        }
+
+        return {
+            core,
+            endpointConfig,
+            icConfig,
+            modelEnvVars: { ...(this.config.modelEnvVars || {}) },
+            serverEnvVars: { ...(this.config.serverEnvVars || {}) },
+            manifest: [...this._sourceManifest]
+        }
+    }
+
+    /**
+     * Merge registry-provided environment variables with CLI-provided values.
+     * CLI values take precedence over registry values for the same key.
+     * Requirements: 3.3, 4.3
+     * @param {Object} registryModelEnvVars - Model env vars from registry
+     * @param {Object} registryServerEnvVars - Server env vars from registry
+     */
+    mergeRegistryEnvVars(registryModelEnvVars = {}, registryServerEnvVars = {}) {
+        // Initialize collections if needed
+        if (!this.config.modelEnvVars || typeof this.config.modelEnvVars !== 'object') {
+            this.config.modelEnvVars = {}
+        }
+        if (!this.config.serverEnvVars || typeof this.config.serverEnvVars !== 'object') {
+            this.config.serverEnvVars = {}
+        }
+
+        // Merge registry model env vars (CLI takes precedence)
+        Object.entries(registryModelEnvVars).forEach(([key, value]) => {
+            if (!(key in this.config.modelEnvVars)) {
+                this.config.modelEnvVars[key] = value
+                this._recordSource(`modelEnvVars.${key}`, value, 'registry')
+            }
+        })
+
+        // Merge registry server env vars (CLI takes precedence)
+        Object.entries(registryServerEnvVars).forEach(([key, value]) => {
+            if (!(key in this.config.serverEnvVars)) {
+                this.config.serverEnvVars[key] = value
+                this._recordSource(`serverEnvVars.${key}`, value, 'registry')
+            }
+        })
     }
 
     /**
@@ -708,6 +823,114 @@ export default class ConfigManager {
                 required: false,
                 default: 6,
                 valueSpace: 'bounded'
+            },
+            endpointInitialInstanceCount: {
+                cliOption: 'endpoint-initial-instance-count',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: 1,
+                valueSpace: 'bounded',
+                schemaValidated: true
+            },
+            endpointDataCapturePercent: {
+                cliOption: 'endpoint-data-capture-percent',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: 0,
+                valueSpace: 'bounded',
+                schemaValidated: true
+            },
+            endpointVariantName: {
+                cliOption: 'endpoint-variant-name',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: 'AllTraffic',
+                valueSpace: 'bounded',
+                schemaValidated: true
+            },
+            endpointVolumeSize: {
+                cliOption: 'endpoint-volume-size',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: null,
+                valueSpace: 'bounded',
+                schemaValidated: true
+            },
+            icCpuCount: {
+                cliOption: 'ic-cpu-count',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: null,
+                valueSpace: 'bounded',
+                schemaValidated: true
+            },
+            icMemorySize: {
+                cliOption: 'ic-memory-size',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: null,
+                valueSpace: 'bounded',
+                schemaValidated: true
+            },
+            icGpuCount: {
+                cliOption: 'ic-gpu-count',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: null,
+                valueSpace: 'bounded',
+                schemaValidated: true
+            },
+            icCopyCount: {
+                cliOption: 'ic-copy-count',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: 1,
+                valueSpace: 'bounded',
+                schemaValidated: true
+            },
+            icModelWeight: {
+                cliOption: 'ic-model-weight',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: 1.0,
+                valueSpace: 'bounded',
+                schemaValidated: true
             }
         };
     }
@@ -763,6 +986,7 @@ export default class ConfigManager {
         Object.entries(this.parameterMatrix).forEach(([param, config]) => {
             if (config.default !== null) {
                 defaults[param] = config.default;
+                this._recordSource(param, config.default, 'default')
             } else {
                 defaults[param] = null;
             }
@@ -771,6 +995,10 @@ export default class ConfigManager {
         // Add legacy parameters that aren't in the matrix but are still used internally
         defaults.testTypes = null;
         defaults.includeTesting = true;
+
+        // Collection parameters for env vars (not in matrix, handled separately)
+        defaults.modelEnvVars = {};
+        defaults.serverEnvVars = {};
 
         return defaults;
     }
@@ -966,14 +1194,85 @@ export default class ConfigManager {
 
     /**
      * Apply a parsed JSON config object, filtering to supported parameters.
+     * Handles nested objects for endpoint, iC, and env var configuration.
      * @param {Object} config - Parsed JSON config object
      * @private
      */
     _applyJsonConfig(config) {
         const filteredConfig = {};
         Object.entries(config).forEach(([key, value]) => {
+            // Handle nested endpointConfig object
+            if (key === 'endpointConfig' && typeof value === 'object' && value !== null) {
+                const endpointMapping = {
+                    initialInstanceCount: 'endpointInitialInstanceCount',
+                    dataCapturePercent: 'endpointDataCapturePercent',
+                    variantName: 'endpointVariantName',
+                    volumeSize: 'endpointVolumeSize'
+                }
+                Object.entries(value).forEach(([nestedKey, nestedValue]) => {
+                    const flatKey = endpointMapping[nestedKey]
+                    if (flatKey && this._isSourceSupported(flatKey, 'configFile')) {
+                        filteredConfig[flatKey] = nestedValue
+                        this._recordSource(flatKey, nestedValue, 'config-file')
+                    }
+                })
+                return
+            }
+
+            // Handle nested icConfig object
+            if (key === 'icConfig' && typeof value === 'object' && value !== null) {
+                const icMapping = {
+                    cpuCount: 'icCpuCount',
+                    memorySize: 'icMemorySize',
+                    gpuCount: 'icGpuCount',
+                    copyCount: 'icCopyCount',
+                    modelWeight: 'icModelWeight'
+                }
+                Object.entries(value).forEach(([nestedKey, nestedValue]) => {
+                    const flatKey = icMapping[nestedKey]
+                    if (flatKey && this._isSourceSupported(flatKey, 'configFile')) {
+                        filteredConfig[flatKey] = nestedValue
+                        this._recordSource(flatKey, nestedValue, 'config-file')
+                    }
+                })
+                return
+            }
+
+            // Handle modelEnvVars object (merge with CLI, CLI takes precedence)
+            if (key === 'modelEnvVars' && typeof value === 'object' && value !== null) {
+                if (!this.config.modelEnvVars) {
+                    this.config.modelEnvVars = {}
+                }
+                // Only set keys not already provided by CLI (CLI has higher precedence)
+                const cliModelEnvVars = (this.explicitConfig && this.explicitConfig.modelEnvVars) || {}
+                Object.entries(value).forEach(([envKey, envValue]) => {
+                    if (!(envKey in cliModelEnvVars)) {
+                        this.config.modelEnvVars[envKey] = envValue
+                        this._recordSource(`modelEnvVars.${envKey}`, envValue, 'config-file')
+                    }
+                })
+                return
+            }
+
+            // Handle serverEnvVars object (merge with CLI, CLI takes precedence)
+            if (key === 'serverEnvVars' && typeof value === 'object' && value !== null) {
+                if (!this.config.serverEnvVars) {
+                    this.config.serverEnvVars = {}
+                }
+                // Only set keys not already provided by CLI (CLI has higher precedence)
+                const cliServerEnvVars = (this.explicitConfig && this.explicitConfig.serverEnvVars) || {}
+                Object.entries(value).forEach(([envKey, envValue]) => {
+                    if (!(envKey in cliServerEnvVars)) {
+                        this.config.serverEnvVars[envKey] = envValue
+                        this._recordSource(`serverEnvVars.${envKey}`, envValue, 'config-file')
+                    }
+                })
+                return
+            }
+
             if (this._isSourceSupported(key, 'configFile')) {
                 filteredConfig[key] = this._parseValue(key, value);
+                this._recordSource(key, this._parseValue(key, value), 'config-file')
             }
         });
         this._mergeConfig(filteredConfig);
@@ -996,6 +1295,7 @@ export default class ConfigManager {
             const value = process.env[envVar];
             if (value !== undefined && value !== '' && this._isSourceSupported(configKey, 'envVar')) {
                 this.config[configKey] = this._parseValue(configKey, value);
+                this._recordSource(configKey, this._parseValue(configKey, value), 'env-var')
                 // Track as explicit configuration — unless the env var is ambient
                 // (e.g. AWS_REGION is commonly set in shells as a default, not an override)
                 if (!ambient) {
@@ -1037,6 +1337,7 @@ export default class ConfigManager {
         Object.entries(this.parameterMatrix).forEach(([param, config]) => {
             if (config.cliOption && options[config.cliOption] !== undefined) {
                 this.config[param] = this._parseValue(param, options[config.cliOption]);
+                this._recordSource(param, this._parseValue(param, options[config.cliOption]), 'cli')
                 // Track as explicit configuration
                 if (!this.explicitConfig) {
                     this.explicitConfig = {};
@@ -1044,6 +1345,52 @@ export default class ConfigManager {
                 this.explicitConfig[param] = this._parseValue(param, options[config.cliOption]);
             }
         });
+
+        // Parse --model-env KEY=VALUE pairs
+        this._parseEnvVarOptions('model-env', 'modelEnvVars');
+
+        // Parse --server-env KEY=VALUE pairs
+        this._parseEnvVarOptions('server-env', 'serverEnvVars');
+    }
+
+    /**
+     * Parse --model-env or --server-env CLI options into env var collections.
+     * Supports both array (multiple flags) and single string values.
+     * Performs eager format validation at parse time.
+     * @param {string} optionName - CLI option name (e.g., 'model-env')
+     * @param {string} configKey - Config key to store results (e.g., 'modelEnvVars')
+     * @private
+     */
+    _parseEnvVarOptions(optionName, configKey) {
+        const rawValue = this.generator.options[optionName];
+        if (rawValue === undefined || rawValue === null) {
+            return;
+        }
+
+        // Normalize to array (Yeoman may pass a single string or an array)
+        const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+
+        // Initialize collection if not already present
+        if (!this.config[configKey] || typeof this.config[configKey] !== 'object') {
+            this.config[configKey] = {};
+        }
+
+        for (const entry of values) {
+            if (typeof entry !== 'string' || entry.trim() === '') {
+                continue;
+            }
+            const { key, value } = parseKeyValue(entry);
+            this.config[configKey][key] = value;
+            this._recordSource(`${configKey}.${key}`, value, 'cli')
+        }
+
+        // Track as explicit configuration
+        if (Object.keys(this.config[configKey]).length > 0) {
+            if (!this.explicitConfig) {
+                this.explicitConfig = {};
+            }
+            this.explicitConfig[configKey] = { ...this.config[configKey] };
+        }
     }
 
     /**
@@ -1161,6 +1508,23 @@ export default class ConfigManager {
                 this.explicitConfig[key] = newConfig[key];
             }
         });
+    }
+
+    /**
+     * Records a source manifest entry for a parameter.
+     * If the parameter already has an entry, it is replaced (higher-precedence wins).
+     * @param {string} param - Parameter name
+     * @param {*} value - Parameter value
+     * @param {string} source - Source identifier (cli, config-file, registry, env-var, default)
+     * @private
+     */
+    _recordSource(param, value, source) {
+        const existingIndex = this._sourceManifest.findIndex(entry => entry.param === param)
+        if (existingIndex >= 0) {
+            this._sourceManifest[existingIndex] = { param, value, source }
+        } else {
+            this._sourceManifest.push({ param, value, source })
+        }
     }
 
     /**
@@ -1320,6 +1684,16 @@ export default class ConfigManager {
                 }
             }
         }
+
+        // Validate schema-validated parameters (endpoint, iC)
+        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
+            if (config.schemaValidated && this.config[param] !== null && this.config[param] !== undefined) {
+                const result = this.schemaValidator.validate(param, this.config[param], this.config.deploymentTarget)
+                if (!result.valid) {
+                    errors.push(result.error)
+                }
+            }
+        })
 
         return errors;
     }

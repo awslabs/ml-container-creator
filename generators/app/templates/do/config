@@ -105,6 +105,49 @@ export BATCH_MAX_PAYLOAD_IN_MB="<%= batchMaxPayloadInMB %>"
 <% } %>
 <% } %>
 
+<% if (typeof endpointInitialInstanceCount !== 'undefined' && endpointInitialInstanceCount != null) { %>
+export ENDPOINT_INITIAL_INSTANCE_COUNT="<%= endpointInitialInstanceCount %>"
+<% } %>
+<% if (typeof endpointDataCapturePercent !== 'undefined' && endpointDataCapturePercent != null) { %>
+export ENDPOINT_DATA_CAPTURE_PERCENT="<%= endpointDataCapturePercent %>"
+<% } %>
+<% if (typeof endpointVariantName !== 'undefined' && endpointVariantName != null) { %>
+export ENDPOINT_VARIANT_NAME="<%= endpointVariantName %>"
+<% } %>
+<% if (typeof endpointVolumeSize !== 'undefined' && endpointVolumeSize != null) { %>
+export ENDPOINT_VOLUME_SIZE="<%= endpointVolumeSize %>"
+<% } %>
+
+<% if (typeof icCpuCount !== 'undefined' && icCpuCount != null) { %>
+export IC_CPU_COUNT="<%= icCpuCount %>"
+<% } %>
+<% if (typeof icMemorySize !== 'undefined' && icMemorySize != null) { %>
+export IC_MEMORY_SIZE="<%= icMemorySize %>"
+<% } %>
+<% if (typeof icGpuCount !== 'undefined' && icGpuCount != null) { %>
+export IC_GPU_COUNT="<%= icGpuCount %>"
+<% } %>
+<% if (typeof icCopyCount !== 'undefined' && icCopyCount != null) { %>
+export IC_COPY_COUNT="<%= icCopyCount %>"
+<% } %>
+<% if (typeof icModelWeight !== 'undefined' && icModelWeight != null) { %>
+export IC_MODEL_WEIGHT="<%= icModelWeight %>"
+<% } %>
+
+<% if (typeof modelEnvVars !== 'undefined' && modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+# Model environment variables
+<% Object.entries(modelEnvVars).forEach(([key, value]) => { %>
+export <%= key %>=${<%= key %>:-<%= value %>}
+<% }); %>
+<% } %>
+
+<% if (typeof serverEnvVars !== 'undefined' && serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+# Server environment variables
+<% Object.entries(serverEnvVars).forEach(([key, value]) => { %>
+export <%= key %>=${<%= key %>:-<%= value %>}
+<% }); %>
+<% } %>
+
 # Framework-specific configuration
 <% if (framework === 'transformers') { %>
 export MODEL_NAME="<%= modelName %>"
@@ -158,6 +201,45 @@ echo "   Build target: ${BUILD_TARGET}"
 echo "   Deployment target: ${DEPLOYMENT_TARGET}"
 <% if (orderedEnvVars && orderedEnvVars.length > 0) { %>
 echo "   Runtime env vars: <%= orderedEnvVars.length %>"
+<% } %>
+<% if ((typeof endpointInitialInstanceCount !== 'undefined' && endpointInitialInstanceCount != null) || (typeof endpointDataCapturePercent !== 'undefined' && endpointDataCapturePercent != null) || (typeof endpointVariantName !== 'undefined' && endpointVariantName != null) || (typeof endpointVolumeSize !== 'undefined' && endpointVolumeSize != null)) { %>
+echo "   Endpoint config:"
+<% if (typeof endpointInitialInstanceCount !== 'undefined' && endpointInitialInstanceCount != null) { %>
+echo "     Initial instance count: ${ENDPOINT_INITIAL_INSTANCE_COUNT}"
+<% } %>
+<% if (typeof endpointDataCapturePercent !== 'undefined' && endpointDataCapturePercent != null) { %>
+echo "     Data capture percent: ${ENDPOINT_DATA_CAPTURE_PERCENT}"
+<% } %>
+<% if (typeof endpointVariantName !== 'undefined' && endpointVariantName != null) { %>
+echo "     Variant name: ${ENDPOINT_VARIANT_NAME}"
+<% } %>
+<% if (typeof endpointVolumeSize !== 'undefined' && endpointVolumeSize != null) { %>
+echo "     Volume size: ${ENDPOINT_VOLUME_SIZE} GB"
+<% } %>
+<% } %>
+<% if ((typeof icCpuCount !== 'undefined' && icCpuCount != null) || (typeof icMemorySize !== 'undefined' && icMemorySize != null) || (typeof icGpuCount !== 'undefined' && icGpuCount != null) || (typeof icCopyCount !== 'undefined' && icCopyCount != null) || (typeof icModelWeight !== 'undefined' && icModelWeight != null)) { %>
+echo "   IC config:"
+<% if (typeof icCpuCount !== 'undefined' && icCpuCount != null) { %>
+echo "     CPU count: ${IC_CPU_COUNT}"
+<% } %>
+<% if (typeof icMemorySize !== 'undefined' && icMemorySize != null) { %>
+echo "     Memory size: ${IC_MEMORY_SIZE} MB"
+<% } %>
+<% if (typeof icGpuCount !== 'undefined' && icGpuCount != null) { %>
+echo "     GPU count: ${IC_GPU_COUNT}"
+<% } %>
+<% if (typeof icCopyCount !== 'undefined' && icCopyCount != null) { %>
+echo "     Copy count: ${IC_COPY_COUNT}"
+<% } %>
+<% if (typeof icModelWeight !== 'undefined' && icModelWeight != null) { %>
+echo "     Model weight: ${IC_MODEL_WEIGHT}"
+<% } %>
+<% } %>
+<% if (typeof modelEnvVars !== 'undefined' && modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+echo "   Model env vars: <%= Object.keys(modelEnvVars).length %>"
+<% } %>
+<% if (typeof serverEnvVars !== 'undefined' && serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+echo "   Server env vars: <%= Object.keys(serverEnvVars).length %>"
 <% } %>
 <% if (deploymentTarget === 'managed-inference') { %>
 echo "   Instance: ${INSTANCE_TYPE}"
