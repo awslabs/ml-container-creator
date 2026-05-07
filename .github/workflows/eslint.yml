@@ -42,7 +42,7 @@ jobs:
         env:
           SARIF_ESLINT_IGNORE_SUPPRESSED: "true"
         run: |
-          npx eslint generators/**/*.js test/**/*.js \
+          npx eslint src/**/*.js bin/**/*.js test/**/*.js \
             --config .eslintrc.cjs \
             --format @microsoft/eslint-formatter-sarif \
             --output-file eslint-results.sarif
