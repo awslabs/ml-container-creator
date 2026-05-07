@@ -21,8 +21,8 @@ import {
     modelFormatPrompts,
     hfTokenPrompts,
     ngcApiKeyPrompts
-} from '../../generators/app/lib/prompts.js';
-import PromptRunner from '../../generators/app/lib/prompt-runner.js';
+} from '../../src/lib/prompts.js';
+import PromptRunner from '../../src/lib/prompt-runner.js';
 
 describe('Triton Prompt Flow', () => {
 
@@ -108,9 +108,14 @@ describe('Triton Prompt Flow', () => {
                 baseConfig: {},
                 prompt: async () => ({})
             };
-            runner = new PromptRunner(mockGenerator);
+            runner = new PromptRunner({
+                configManager: mockGenerator.configManager,
+                options: mockGenerator.options,
+                registryConfigManager: mockGenerator.registryConfigManager,
+                baseConfig: mockGenerator.baseConfig
+            });
             // Load catalog data that _getTritonAutoModelFormat depends on
-            const { default: RegistryLoader } = await import('../../generators/app/lib/registry-loader.js');
+            const { default: RegistryLoader } = await import('../../src/lib/registry-loader.js');
             const registryLoader = new RegistryLoader();
             runner._tritonBackends = await registryLoader.loadTritonBackends();
         });

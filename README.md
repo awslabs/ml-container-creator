@@ -1,6 +1,6 @@
 # ML Container Creator
 
-A Yeoman generator that creates SageMaker-compatible Docker containers for deploying ML models using the Bring Your Own Container (BYOC) paradigm.
+A CLI tool that creates SageMaker-compatible Docker containers for deploying ML models using the Bring Your Own Container (BYOC) paradigm.
 
 > **Note:** This is a pre-release (`0.x`). APIs may change between minor versions. Weekly releases are planned until v1.
 
@@ -25,7 +25,13 @@ A Yeoman generator that creates SageMaker-compatible Docker containers for deplo
 ### Install from npm
 
 ```bash
-npm install -g yo @aws/generator-ml-container-creator
+npm install -g @aws/ml-container-creator
+```
+
+### Or use without installing (npx)
+
+```bash
+npx @aws/ml-container-creator --help
 ```
 
 ### Or install from source
@@ -39,7 +45,7 @@ npm install && npm link
 ### Bootstrap AWS infrastructure (one-time)
 
 ```bash
-yo @aws/ml-container-creator bootstrap
+ml-container-creator bootstrap
 ```
 
 Sets up an IAM execution role, ECR repository, optional S3 buckets, and optional CI Integration Harness for automated testing. Configuration is saved to `~/.ml-container-creator/config.json`.
@@ -48,10 +54,10 @@ Sets up an IAM execution role, ECR repository, optional S3 buckets, and optional
 
 ```bash
 # Interactive
-yo @aws/ml-container-creator
+ml-container-creator
 
 # Non-interactive
-yo @aws/ml-container-creator my-model \
+ml-container-creator my-model \
   --deployment-config=transformers-vllm \
   --model-name=openai/gpt-oss-20b \
   --instance-type=ml.g6.12xlarge \
@@ -83,7 +89,7 @@ Full documentation is available at [awslabs.github.io/ml-container-creator](http
 
 | Tool | Version | Purpose |
 |---|---|---|
-| [Node.js](https://nodejs.org/) | 24+ | Runs the Yeoman generator |
+| [Node.js](https://nodejs.org/) | 24+ | Runs the CLI |
 | [Docker](https://docs.docker.com/get-docker/) | 20+ | Container builds |
 | [AWS CLI](https://aws.amazon.com/cli/) | 2+ | AWS resource management |
 

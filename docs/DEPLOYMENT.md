@@ -83,9 +83,9 @@ Some documentation files are synced from other locations:
 ```
 
 This syncs:
-- `generators/app/templates/README.md` → `docs/template-system.md`
+- `templates/README.md` → `docs/template-system.md`
 
-**Note**: `generators/app/templates/README.md` is documentation about the template system itself and is excluded from being copied to generated projects.
+**Note**: `templates/README.md` is documentation about the template system itself and is excluded from being copied to generated projects.
 
 ## Monitoring Deployments
 

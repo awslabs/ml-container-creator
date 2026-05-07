@@ -15,8 +15,8 @@ import assert from 'assert';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import AssetManager from '../../generators/app/lib/asset-manager.js';
-import BootstrapConfig from '../../generators/app/lib/bootstrap-config.js';
+import AssetManager from '../../src/lib/asset-manager.js';
+import BootstrapConfig from '../../src/lib/bootstrap-config.js';
 
 // We test the exported main function by monkey-patching BootstrapConfig
 // and capturing console output.
@@ -63,7 +63,7 @@ describe('manifest-cli', () => {
     let main;
 
     before(async () => {
-        const mod = await import('../../generators/app/lib/manifest-cli.js');
+        const mod = await import('../../src/lib/manifest-cli.js');
         main = mod.main;
     });
 

@@ -11,7 +11,7 @@
     },
     "MlccCiHarnessStack": {
       "type": "aws:cloudformation:stack",
-      "environment": "aws://123456789012/us-east-1",
+      "environment": "aws://633146206289/us-west-2",
       "properties": {
         "templateFile": "MlccCiHarnessStack.template.json",
         "terminationProtection": false,
@@ -21,16 +21,16 @@
           "mlcc:version": "0.1.0"
         },
         "validateOnSynth": false,
-        "assumeRoleArn": "arn:${AWS::Partition}:iam::123456789012:role/cdk-hnb659fds-deploy-role-123456789012-us-east-1",
-        "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::123456789012:role/cdk-hnb659fds-cfn-exec-role-123456789012-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-123456789012-us-east-1/87dba6d5c31baf877940be8b2b3b7d8dc496186775655565411f694c9502d06c.json",
+        "assumeRoleArn": "arn:${AWS::Partition}:iam::633146206289:role/cdk-hnb659fds-deploy-role-633146206289-us-west-2",
+        "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::633146206289:role/cdk-hnb659fds-cfn-exec-role-633146206289-us-west-2",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-633146206289-us-west-2/e1865e323ea14a5a38b737697741d8daaaf8467656516327d873550ca00f1824.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
           "MlccCiHarnessStack.assets"
         ],
         "lookupRole": {
-          "arn": "arn:${AWS::Partition}:iam::123456789012:role/cdk-hnb659fds-lookup-role-123456789012-us-east-1",
+          "arn": "arn:${AWS::Partition}:iam::633146206289:role/cdk-hnb659fds-lookup-role-633146206289-us-west-2",
           "requiresBootstrapStackVersion": 8,
           "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version"
         }

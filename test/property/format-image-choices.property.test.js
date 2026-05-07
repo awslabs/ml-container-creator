@@ -15,7 +15,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { formatImageChoices } from '../../generators/app/lib/prompts.js';
+import { formatImageChoices } from '../../src/lib/prompts.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

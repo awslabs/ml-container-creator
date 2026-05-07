@@ -14,10 +14,10 @@
 
 import { setupTestHooks } from './test-utils.js';
 import assert from 'assert';
-import CudaValidator from '../../generators/app/lib/cuda-validator.js';
-import NeuronValidator from '../../generators/app/lib/neuron-validator.js';
-import CpuValidator from '../../generators/app/lib/cpu-validator.js';
-import RocmValidator from '../../generators/app/lib/rocm-validator.js';
+import CudaValidator from '../../src/lib/cuda-validator.js';
+import NeuronValidator from '../../src/lib/neuron-validator.js';
+import CpuValidator from '../../src/lib/cpu-validator.js';
+import RocmValidator from '../../src/lib/rocm-validator.js';
 
 describe('Accelerator Validators', () => {
     let validators;

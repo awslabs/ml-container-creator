@@ -23,7 +23,7 @@ import {
     isSensitiveKey,
     redactSensitiveValues,
     REDACTION_MARKER
-} from '../../generators/app/lib/sensitive-redactor.js';
+} from '../../src/lib/sensitive-redactor.js';
 
 const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 

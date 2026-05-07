@@ -41,20 +41,27 @@ var x = 5;
 const message = '⚠️  ' + framework + ' not implemented yet.';
 ```
 
-### Yeoman Generator Patterns
+### CLI Patterns
+
+#### Commander Options
+Define CLI options with clear descriptions and type coercion:
+```javascript
+program
+    .option('--deployment-config <config>', 'Deployment configuration')
+    .option('--instance-type <type>', 'Instance type (cpu-optimized, gpu-enabled)')
+    .option('--model-env <KEY=VALUE>', 'Model env var (repeatable)', collect, [])
+    .action(run)
+```
 
 #### Prompt Organization
 Group related prompts into phases with clear console output:
 ```javascript
-console.log('\n📋 Project Configuration');
-const projectAnswers = await this.prompt([...]);
-
-console.log('\n🔧 Core Configuration');
-const coreAnswers = await this.prompt([...]);
+console.log('\n📋 Project Configuration')
+const projectAnswers = await promptRunner.run()
 ```
 
 #### Conditional Prompts
-Use `when` function for conditional prompts:
+Use `when` function for conditional prompts with `@inquirer/prompts`:
 ```javascript
 {
     type: 'list',
@@ -70,15 +77,10 @@ Use `when` function for conditional prompts:
 }
 ```
 
-#### Answer Merging
-Combine phase answers using spread operator:
+#### Configuration Merging
+Merge phase answers via ConfigManager:
 ```javascript
-this.answers = {
-    ...projectAnswers,
-    ...coreAnswers,
-    ...moduleAnswers,
-    buildTimestamp
-};
+const answers = configManager.getFinalConfiguration(promptAnswers)
 ```
 
 ## Template Best Practices
@@ -136,14 +138,14 @@ print(f"Loading model from {model_path}")
 
 ### Generator Errors
 ```javascript
-// Use env.error for validation failures
-if (!this.SUPPORTED_OPTIONS.frameworks.includes(framework)) {
-    this.env.error(`⚠️  ${framework} not implemented yet.`);
+// Throw errors for validation failures
+if (!SUPPORTED_OPTIONS.frameworks.includes(framework)) {
+    throw new Error(`⚠️  ${framework} not implemented yet.`)
 }
 
 // Provide helpful error messages
 if (!modelPath) {
-    this.env.error('Model path is required. Please provide a valid path.');
+    throw new Error('Model path is required. Please provide a valid path.')
 }
 ```
 
@@ -162,19 +164,26 @@ except Exception as e:
 
 ### Generator Tests
 ```javascript
-const helpers = require('yeoman-test');
-const assert = require('yeoman-assert');
+import { describe, it } from 'mocha'
+import assert from 'assert'
+import fs from 'fs'
+import path from 'path'
+import { writeProject } from '../src/app.js'
 
-describe('@aws/generator-ml-container-creator:app', () => {
+describe('@aws/ml-container-creator', () => {
     it('creates expected files', async () => {
-        await helpers.run(path.join(__dirname, '../generators/app'))
-            .withPrompts({
-                projectName: 'test-project',
-                framework: 'sklearn',
-                modelFormat: 'pkl'
-            });
-        
-        assert.file(['Dockerfile', 'requirements.txt']);
+        const destDir = path.join(os.tmpdir(), 'test-project')
+        await writeProject(templateDir, destDir, {
+            projectName: 'test-project',
+            framework: 'sklearn',
+            modelFormat: 'pkl',
+            deploymentConfig: 'sklearn-flask',
+            architecture: 'http',
+            backend: 'flask'
+        })
+
+        assert.ok(fs.existsSync(path.join(destDir, 'Dockerfile')))
+        assert.ok(fs.existsSync(path.join(destDir, 'do/config')))
     });
 });
 ```
@@ -272,17 +281,13 @@ if (!projectName.match(/^[a-z0-9-]+$/)) {
 ### File Operations
 ```javascript
 // ✅ Good - Single copyTpl call with ignore patterns
-this.fs.copyTpl(
-    this.templatePath('**/*'),
-    this.destinationPath(),
-    this.answers,
-    {},
-    { globOptions: { ignore: ignorePatterns } }
-);
+import { copyTpl } from '../src/copy-tpl.js'
 
-// ❌ Avoid - Multiple copyTpl calls
-this.fs.copyTpl(this.templatePath('Dockerfile'), ...);
-this.fs.copyTpl(this.templatePath('code/**'), ...);
+copyTpl(templateDir, destDir, templateVars, ignorePatterns)
+
+// ❌ Avoid - Multiple individual file copies
+fs.copyFileSync(path.join(templateDir, 'Dockerfile'), ...)
+fs.copyFileSync(path.join(templateDir, 'code/serve'), ...)
 ```
 
 ## Maintenance Guidelines

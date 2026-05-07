@@ -23,7 +23,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SERVE_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/code/serve');
+const SERVE_TEMPLATE_PATH = resolve(__dirname, '../../templates/code/serve');
 const SERVE_TEMPLATE = readFileSync(SERVE_TEMPLATE_PATH, 'utf-8');
 
 // ── Helper: render serve template with defaults ──────────────────────────────

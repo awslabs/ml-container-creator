@@ -27,7 +27,7 @@ import assert from 'node:assert';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import AssetManager, { VALID_RESOURCE_TYPES, VALID_STATUSES } from '../../generators/app/lib/asset-manager.js';
+import AssetManager, { VALID_RESOURCE_TYPES, VALID_STATUSES } from '../../src/lib/asset-manager.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

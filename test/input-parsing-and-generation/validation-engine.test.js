@@ -12,8 +12,8 @@
 
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import ValidationEngine from '../../generators/app/lib/validation-engine.js';
-import AcceleratorValidator from '../../generators/app/lib/accelerator-validator.js';
+import ValidationEngine from '../../src/lib/validation-engine.js';
+import AcceleratorValidator from '../../src/lib/accelerator-validator.js';
 
 describe('ValidationEngine', () => {
     let validationEngine;

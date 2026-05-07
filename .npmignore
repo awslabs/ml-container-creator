@@ -24,7 +24,6 @@ site/
 .github/
 .gitignore
 .eslintrc.cjs
-.yo-rc.json
 
 # --- Tests ---
 test/
@@ -34,8 +33,9 @@ docs/
 mkdocs.yml
 logo.png
 
-# --- MCP servers (separate packages, not part of the generator) ---
-servers/
+# --- MCP servers (node_modules not published, only catalog/index files via "files" whitelist) ---
+servers/*/node_modules/
+servers/*/test/
 
 # --- Scripts (dev tooling) ---
 scripts/
@@ -47,3 +47,7 @@ THIRD_PARTY.csv
 
 # --- Build artifacts ---
 test-output-full.log
+
+# --- Generator legacy (removed) ---
+generators/
+.yo-rc.json

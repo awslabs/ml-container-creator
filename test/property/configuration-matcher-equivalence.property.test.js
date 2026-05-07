@@ -22,8 +22,8 @@ import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
 import { fileURLToPath } from 'node:url';
-import ConfigurationMatcher from '../../generators/app/lib/configuration-matcher.js';
-import RegistryLoader from '../../generators/app/lib/registry-loader.js';
+import ConfigurationMatcher from '../../src/lib/configuration-matcher.js';
+import RegistryLoader from '../../src/lib/registry-loader.js';
 
 const __filename = fileURLToPath(import.meta.url); // eslint-disable-line no-unused-vars
 

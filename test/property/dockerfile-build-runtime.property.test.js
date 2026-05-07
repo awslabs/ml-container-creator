@@ -35,7 +35,7 @@ const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
 // ── Load the actual Dockerfile template ──────────────────────────────────────
 
-const DOCKERFILE_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/Dockerfile');
+const DOCKERFILE_TEMPLATE_PATH = resolve(__dirname, '../../templates/Dockerfile');
 const DOCKERFILE_TEMPLATE = readFileSync(DOCKERFILE_TEMPLATE_PATH, 'utf-8');
 
 // ── Constants ────────────────────────────────────────────────────────────────

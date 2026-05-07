@@ -529,19 +529,19 @@ export class MlccCiHarnessStack extends cdk.Stack {
                         CONFIG_ID: '',
                         CONFIG_JSON: '',
                         BUILD_STRATEGY: 'codebuild-submit',
-                        YEOMAN_ALLOW_ROOT: '1',
                         ROLE_ARN: `arn:aws:iam::${this.account}:role/mlcc-sagemaker-execution-role`,
                     },
                 },
                 phases: {
                     install: {
+                        'runtime-versions': {
+                            nodejs: 22,
+                        },
                         commands: [
                             'echo "=== MLCC CI Harness - Install Phase ==="',
                             // Install AWS CLI v2 (CodeBuild standard image has v1 which lacks newer SageMaker waiters)
                             'curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install --update && rm -rf /tmp/aws /tmp/awscliv2.zip',
-                            'npm install -g --unsafe-perm yo @aws/generator-ml-container-creator',
-                            // Create a non-root user for Yeoman (it refuses to run as root)
-                            'useradd -m -s /bin/bash builder 2>/dev/null || true',
+                            'npm install -g @aws/ml-container-creator',
                             'BUILD_START_TIME=$(date +%s)',
                             'FIRST_FAILURE=""',
                             'GENERATE_STATUS="skip"',
@@ -557,15 +557,14 @@ export class MlccCiHarnessStack extends cdk.Stack {
                         commands: [
                             'echo "=== Stage: Generate ==="',
                             'echo "$CONFIG_JSON" > /tmp/ci-config.json && chmod 644 /tmp/ci-config.json',
-                            'export CI_PROJECT_DIR="/home/builder/ci-project"',
+                            'export CI_PROJECT_DIR="/tmp/ci-project"',
                             'rm -rf "$CI_PROJECT_DIR"',
-                            // Run yo as the builder user to avoid Yeoman's root check
-                            'runuser -u builder -- yo @aws/ml-container-creator --config /tmp/ci-config.json --skip-prompts --force --no-insight --no-update-notifier --project-dir "$CI_PROJECT_DIR" && chmod +x "$CI_PROJECT_DIR"/do/* && GENERATE_STATUS="pass" || { GENERATE_STATUS="fail"; FIRST_FAILURE="generate"; }',
+                            'ml-container-creator --config /tmp/ci-config.json --skip-prompts --project-dir "$CI_PROJECT_DIR" && chmod +x "$CI_PROJECT_DIR"/do/* && GENERATE_STATUS="pass" || { GENERATE_STATUS="fail"; FIRST_FAILURE="generate"; }',
                         ],
                     },
                     build: {
                         commands: [
-                            'export CI_PROJECT_DIR="/home/builder/ci-project"',
+                            'export CI_PROJECT_DIR="/tmp/ci-project"',
                             'echo "=== Stage: Build ==="',
                             'if [ -z "$FIRST_FAILURE" ]; then cd "$CI_PROJECT_DIR" && if [ "$BUILD_STRATEGY" = "docker-in-docker" ]; then ./do/build && ./do/push; else ./do/submit; fi && BUILD_STATUS_VAR="pass" || { BUILD_STATUS_VAR="fail"; FIRST_FAILURE="build"; }; fi',
                             'echo "=== Stage: Deploy_Test ==="',
@@ -574,7 +573,7 @@ export class MlccCiHarnessStack extends cdk.Stack {
                     },
                     post_build: {
                         commands: [
-                            'export CI_PROJECT_DIR="/home/builder/ci-project"',
+                            'export CI_PROJECT_DIR="/tmp/ci-project"',
                             'echo "=== Stage: Teardown ==="',
                             'cd "$CI_PROJECT_DIR" && yes yes | ./do/clean all && TEARDOWN_STATUS="pass" || TEARDOWN_STATUS="fail"',
                             'echo "=== Stage: Update ==="',

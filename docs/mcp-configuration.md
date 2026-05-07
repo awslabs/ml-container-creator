@@ -12,7 +12,7 @@ sequenceDiagram
     participant Generator as ML Container Creator
     participant MCP as MCP Server (child process)
 
-    User->>Generator: yo @aws/ml-container-creator
+    User->>Generator: ml-container-creator
     Generator->>Generator: Load config files
     Generator->>MCP: Spawn process, handshake
     Generator->>MCP: Call get_ml_config tool
@@ -46,7 +46,7 @@ MCP servers can return values for any parameter, but the generator silently disc
 ### Initialize All Bundled Servers
 
 ```bash
-yo @aws/ml-container-creator mcp init
+ml-container-creator mcp init
 ```
 
 Creates `config/mcp.json` with every bundled server pre-configured. Existing servers are preserved.
@@ -54,13 +54,13 @@ Creates `config/mcp.json` with every bundled server pre-configured. Existing ser
 ### Add a Server
 
 ```bash
-yo @aws/ml-container-creator mcp add team-config -- node path/to/server.js
+ml-container-creator mcp add team-config -- node path/to/server.js
 ```
 
 With environment variables and options:
 
 ```bash
-yo @aws/ml-container-creator mcp add team-config -- npx -y @corp/mcp-config \
+ml-container-creator mcp add team-config -- npx -y @corp/mcp-config \
   -e TEAM_ID=ml-platform \
   --tool-name get_approved_config \
   --limit 5
@@ -73,7 +73,7 @@ The `mcp add` command registers a server in your config file. The server is spaw
 The generator ships with first-party MCP servers in the `servers/` directory:
 
 ```bash
-yo @aws/ml-container-creator mcp add instance-recommender --bundled
+ml-container-creator mcp add instance-recommender --bundled
 ```
 
 Dependencies are installed automatically on first use.
@@ -81,10 +81,10 @@ Dependencies are installed automatically on first use.
 ### List, Inspect, Remove
 
 ```bash
-yo @aws/ml-container-creator mcp list              # List configured servers
-yo @aws/ml-container-creator mcp list --bundled     # List available bundled servers
-yo @aws/ml-container-creator mcp get team-config    # Inspect a server
-yo @aws/ml-container-creator mcp remove team-config # Remove a server
+ml-container-creator mcp list              # List configured servers
+ml-container-creator mcp list --bundled     # List available bundled servers
+ml-container-creator mcp get team-config    # Inspect a server
+ml-container-creator mcp remove team-config # Remove a server
 ```
 
 ## Config File Format
@@ -124,7 +124,7 @@ When multiple servers are configured, they are queried in order. Later servers t
 Recommends SageMaker instance types based on the current framework. Traditional ML frameworks get CPU instance suggestions; transformer frameworks get GPU instances.
 
 ```bash
-yo @aws/ml-container-creator mcp add instance-recommender --bundled
+ml-container-creator mcp add instance-recommender --bundled
 ```
 
 ### region-picker
@@ -132,7 +132,7 @@ yo @aws/ml-container-creator mcp add instance-recommender --bundled
 Suggests AWS regions based on a search term. Set `REGION_SEARCH` to filter by region code or location name (e.g., "europe", "tokyo", "us-west"). Without a search term, returns popular SageMaker regions.
 
 ```bash
-yo @aws/ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
+ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
 ```
 
 ## Smart Mode (Amazon Bedrock)
@@ -140,7 +140,7 @@ yo @aws/ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=eu
 Both bundled servers support an optional smart mode that queries Amazon Bedrock for context-aware recommendations instead of returning static lists. Set `BEDROCK_SMART=true` in the server's environment to enable it. If the Bedrock call fails, the server falls back to static recommendations.
 
 ```bash
-yo @aws/ml-container-creator mcp add instance-recommender --bundled \
+ml-container-creator mcp add instance-recommender --bundled \
   -e BEDROCK_SMART=true
 ```
 
@@ -258,7 +258,7 @@ await server.connect(transport)
 Register it:
 
 ```bash
-yo @aws/ml-container-creator mcp add my-server -- node path/to/my-server.js
+ml-container-creator mcp add my-server -- node path/to/my-server.js
 ```
 
 See `servers/README.md` for the full directory structure and license requirements for bundled servers.

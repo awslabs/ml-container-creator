@@ -18,7 +18,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

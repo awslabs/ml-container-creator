@@ -18,7 +18,7 @@ This section recreates a `transformers-djl` project similar to the reference con
 ### Run the Generator
 
 ```bash
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 ### Prompt Selections
@@ -282,7 +282,7 @@ If your use case requires GPU, consider using a Triton configuration instead.
 ### Regenerate with Triton
 
 ```bash
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 Select a Triton deployment configuration:

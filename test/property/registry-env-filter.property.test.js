@@ -13,7 +13,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import { filterTransformerEnvVars, filterHttpEnvVars } from '../../generators/app/lib/deployment-registry.js';
+import { filterTransformerEnvVars, filterHttpEnvVars } from '../../src/lib/deployment-registry.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

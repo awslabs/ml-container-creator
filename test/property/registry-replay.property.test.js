@@ -13,7 +13,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import { reconstructReplayFlags } from '../../generators/app/lib/deployment-registry.js';
+import { reconstructReplayFlags } from '../../src/lib/deployment-registry.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

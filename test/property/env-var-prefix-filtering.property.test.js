@@ -36,7 +36,7 @@ const SECRET_VARS = new Set([
 ]);
 
 // ── Filtering functions under test ───────────────────────────────────────────
-// Extracted from the Python logic in generators/app/templates/do/register
+// Extracted from the Python logic in templates/do/register
 
 /**
  * Filter env vars for transformers/diffusors architectures.

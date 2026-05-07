@@ -12,7 +12,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { extractBaseImageVersion, buildCiRecord, computeConfigId } from '../../generators/app/lib/ci-register-helpers.js';
+import { extractBaseImageVersion, buildCiRecord, computeConfigId } from '../../src/lib/ci-register-helpers.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

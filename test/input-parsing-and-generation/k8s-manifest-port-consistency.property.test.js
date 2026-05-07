@@ -26,7 +26,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load Kubernetes manifest templates
-const templatesDir = path.join(__dirname, '../../generators/app/templates/hyperpod');
+const templatesDir = path.join(__dirname, '../../templates/hyperpod');
 
 const deploymentTemplate = readFileSync(path.join(templatesDir, 'deployment.yaml'), 'utf8');
 const serviceTemplate = readFileSync(path.join(templatesDir, 'service.yaml'), 'utf8');

@@ -17,7 +17,7 @@ import {
     computeCoverageReport,
     detectRegressions,
     KNOWN_DEPLOYMENT_CONFIGS
-} from '../../generators/app/lib/ci-report-helpers.js';
+} from '../../src/lib/ci-report-helpers.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

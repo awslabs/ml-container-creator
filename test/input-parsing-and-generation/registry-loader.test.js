@@ -17,7 +17,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import RegistryLoader from '../../generators/app/lib/registry-loader.js';
+import RegistryLoader from '../../src/lib/registry-loader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

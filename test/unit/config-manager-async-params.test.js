@@ -14,7 +14,7 @@
 
 import { describe, it, afterEach } from 'mocha';
 import { strict as assert } from 'node:assert';
-import ConfigManager from '../../generators/app/lib/config-manager.js';
+import ConfigManager from '../../src/lib/config-manager.js';
 import {
     createMockGenerator,
     createMockGeneratorWithOptions,

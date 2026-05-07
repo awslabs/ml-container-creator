@@ -26,8 +26,8 @@ import { describe, it, afterEach } from 'mocha';
 import assert from 'assert';
 import os from 'os';
 import path from 'path';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
-import BootstrapConfig from '../../generators/app/lib/bootstrap-config.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
+import BootstrapConfig from '../../src/lib/bootstrap-config.js';
 
 const TEST_PROFILE = 'my-aws-profile';
 const TEST_REGION = 'us-west-2';
@@ -71,9 +71,13 @@ function createMockGenerator() {
  */
 function setupHandler(opts = {}) {
     const { ciStackExists = false } = opts;
-    const { generator, promptCalls } = createMockGenerator();
+    const { promptCalls } = createMockGenerator();
     const configPath = createTempConfigPath();
-    const handler = new BootstrapCommandHandler(generator);
+    const mockPromptFn = async (questions) => {
+        promptCalls.push(questions);
+        return {};
+    };
+    const handler = new BootstrapCommandHandler({ promptFn: mockPromptFn });
     handler.config = new BootstrapConfig(configPath);
 
     const calls = {

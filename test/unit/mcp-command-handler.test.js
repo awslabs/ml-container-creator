@@ -12,7 +12,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import McpCommandHandler from '../../generators/app/lib/mcp-command-handler.js';
+import McpCommandHandler from '../../src/lib/mcp-command-handler.js';
 
 const CONFIG_FILENAME = 'config/mcp.json';
 

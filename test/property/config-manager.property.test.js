@@ -5,7 +5,7 @@
  * ConfigManager Property-Based Tests (Refactored)
  * 
  * Fast property-based tests that test ConfigManager directly without running
- * the full Yeoman generator. This approach is 500x faster and more reliable.
+ * the full generator. This approach is 500x faster and more reliable.
  * 
  * Feature: parameter-matrix-alignment
  */
@@ -13,7 +13,7 @@
 import fc from 'fast-check';
 import { describe, it, before, after, afterEach } from 'mocha';
 import assert from 'assert';
-import ConfigManager from '../../generators/app/lib/config-manager.js';
+import ConfigManager from '../../src/lib/config-manager.js';
 import {
     createMockGenerator,
     createMockGeneratorWithOptions,

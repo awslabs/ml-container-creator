@@ -18,7 +18,7 @@ import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import AssetManager from '../../generators/app/lib/asset-manager.js';
+import AssetManager from '../../src/lib/asset-manager.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

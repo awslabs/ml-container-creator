@@ -18,7 +18,7 @@
 
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import HuggingFaceClient from '../../generators/app/lib/huggingface-client.js';
+import HuggingFaceClient from '../../src/lib/huggingface-client.js';
 
 describe('HuggingFace API Client', () => {
     before(() => {

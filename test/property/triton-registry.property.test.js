@@ -16,7 +16,7 @@
 import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import RegistryLoader from '../../generators/app/lib/registry-loader.js';
+import RegistryLoader from '../../src/lib/registry-loader.js';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';

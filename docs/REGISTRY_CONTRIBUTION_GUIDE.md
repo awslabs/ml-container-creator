@@ -25,9 +25,9 @@ The registry system consists of three main registries:
 
 The Framework Registry stores framework-specific configurations indexed by framework name and version.
 
-**Location:** `generators/app/config/registries/frameworks.js`
+**Location:** `servers/base-image-picker/catalogs/model-servers.json`
 
-**Schema:** `generators/app/config/schemas/framework-registry-schema.js`
+**Schema:** `servers/lib/schemas/model-servers-schema.json`
 
 ### Structure
 
@@ -243,9 +243,9 @@ The Framework Registry stores framework-specific configurations indexed by frame
 
 The Model Registry stores model-specific overrides and optimizations.
 
-**Location:** `generators/app/config/registries/models.js`
+**Location:** `servers/model-picker/catalogs/popular-transformers.json`
 
-**Schema:** `generators/app/config/schemas/model-registry-schema.js`
+**Schema:** `servers/lib/schemas/model-registry-schema.json`
 
 ### Structure
 
@@ -334,9 +334,9 @@ Exact matches take precedence over pattern matches.
 
 The Instance Accelerator Mapping stores hardware specifications for AWS instance types.
 
-**Location:** `generators/app/config/registries/instance-accelerator-mapping.js`
+**Location:** `servers/instance-recommender/catalogs/instances.json`
 
-**Schema:** `generators/app/config/schemas/instance-accelerator-mapping-schema.js`
+**Schema:** `servers/lib/schemas/instance-accelerator-mapping-schema.json`
 
 ### Structure
 
@@ -444,7 +444,7 @@ Before contributing, test your configuration:
 
 ```bash
 # Generate project with your configuration
-yo @aws/ml-container-creator test-project \
+ml-container-creator test-project \
   --framework=your-framework \
   --version=your-version \
   --skip-prompts
@@ -520,7 +520,7 @@ Test your configuration manually:
 npm link
 
 # 2. Generate project with your configuration
-yo @aws/ml-container-creator test-project \
+ml-container-creator test-project \
   --framework=your-framework \
   --version=your-version \
   --skip-prompts
@@ -564,7 +564,7 @@ When submitting test results, include:
 ### Example 1: Adding a New Framework Version
 
 ```javascript
-// generators/app/config/registries/frameworks.js
+// servers/base-image-picker/catalogs/model-servers.json
 {
   "sglang": {
     "0.3.0": {
@@ -594,7 +594,7 @@ When submitting test results, include:
 
 {% raw %}
 ```javascript
-// generators/app/config/registries/models.js
+// servers/model-picker/catalogs/popular-transformers.json
 {
   "mistralai/Mixtral-8x7B-*": {
     "family": "mixtral",
@@ -625,7 +625,7 @@ When submitting test results, include:
 ### Example 3: Adding New Instance Types
 
 ```javascript
-// generators/app/config/registries/instance-accelerator-mapping.js
+// servers/instance-recommender/catalogs/instances.json
 {
   "ml.inf2.xlarge": {
     "family": "inf2",

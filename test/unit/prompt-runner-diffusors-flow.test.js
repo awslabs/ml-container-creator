@@ -15,7 +15,7 @@
 
 import { describe, it } from 'mocha';
 import { strict as assert } from 'node:assert';
-import PromptRunner from '../../generators/app/lib/prompt-runner.js';
+import PromptRunner from '../../src/lib/prompt-runner.js';
 
 /**
  * Creates a mock generator with configurable options
@@ -24,25 +24,27 @@ function createMockGenerator(opts = {}) {
     const promptResponses = opts.promptResponses || {};
     const promptCalls = [];
 
+    const promptFn = async (prompts) => {
+        const answers = {};
+        for (const p of prompts) {
+            promptCalls.push(p.name);
+            if (promptResponses[p.name] !== undefined) {
+                answers[p.name] = promptResponses[p.name];
+            } else if (p.default !== undefined) {
+                answers[p.name] = typeof p.default === 'function' ? p.default({}) : p.default;
+            } else {
+                answers[p.name] = '';
+            }
+        }
+        return answers;
+    };
+
     return {
         options: opts.cliOptions || {},
         configManager: opts.configManager || null,
         registryConfigManager: null,
         baseConfig: {},
-        prompt: async (prompts) => {
-            const answers = {};
-            for (const p of prompts) {
-                promptCalls.push(p.name);
-                if (promptResponses[p.name] !== undefined) {
-                    answers[p.name] = promptResponses[p.name];
-                } else if (p.default !== undefined) {
-                    answers[p.name] = typeof p.default === 'function' ? p.default({}) : p.default;
-                } else {
-                    answers[p.name] = '';
-                }
-            }
-            return answers;
-        },
+        promptFn,
         _promptCalls: () => promptCalls
     };
 }
@@ -178,7 +180,13 @@ describe('PromptRunner - Diffusors Flow', () => {
                 return origQuery(...args);
             };
             const gen = createMockGenerator({ configManager: cm });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'diffusors', modelServer: 'vllm-omni', architecture: 'diffusors' },
@@ -214,7 +222,13 @@ describe('PromptRunner - Diffusors Flow', () => {
                 configManager: cm,
                 promptResponses: { baseImageSearch: '' }
             });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'sklearn', modelServer: 'flask', architecture: 'http' },

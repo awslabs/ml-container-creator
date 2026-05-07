@@ -10,8 +10,8 @@
 
 import { describe, it, beforeEach } from 'mocha';
 import assert from 'assert';
-import { McpClient, DEFAULT_TOOL_NAME, DEFAULT_LIMIT, DEFAULT_TIMEOUT } from '../../generators/app/lib/mcp-client.js';
-import ConfigManager from '../../generators/app/lib/config-manager.js';
+import { McpClient, DEFAULT_TOOL_NAME, DEFAULT_LIMIT, DEFAULT_TIMEOUT } from '../../src/lib/mcp-client.js';
+import ConfigManager from '../../src/lib/config-manager.js';
 import { createMockGenerator } from '../helpers/mock-generator.js';
 
 describe('McpClient Unit Tests', () => {

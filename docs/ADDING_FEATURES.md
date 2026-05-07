@@ -111,28 +111,37 @@ FROM pytorch/pytorch:2.0.0-cpu
 Create test file `test/pytorch-generator.js`:
 
 ```javascript
-const helpers = require('yeoman-test');
-const assert = require('yeoman-assert');
-const path = require('path');
+import { describe, it } from 'mocha'
+import assert from 'assert'
+import fs from 'fs'
+import path from 'path'
+import os from 'os'
+import { writeProject } from '../src/app.js'
 
-describe('@aws/generator-ml-container-creator:pytorch', () => {
+const TEMPLATE_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), '../templates')
+
+describe('@aws/ml-container-creator:pytorch', () => {
     it('creates pytorch project with pt format', async () => {
-        await helpers.run(path.join(__dirname, '../generators/app'))
-            .withPrompts({
-                projectName: 'pytorch-test',
-                framework: 'pytorch',
-                modelFormat: 'pt',
-                modelServer: 'flask'
-            });
-        
-        assert.file([
-            'Dockerfile',
-            'code/model_handler.py',
-            'requirements.txt'
-        ]);
-        
-        assert.fileContent('requirements.txt', 'torch==');
-        assert.fileContent('code/model_handler.py', 'import torch');
+        const destDir = path.join(os.tmpdir(), 'pytorch-test-' + Date.now())
+        await writeProject(TEMPLATE_DIR, destDir, {
+            projectName: 'pytorch-test',
+            framework: 'pytorch',
+            modelFormat: 'pt',
+            modelServer: 'flask',
+            deploymentConfig: 'pytorch-flask',
+            architecture: 'http',
+            backend: 'flask'
+        })
+
+        assert.ok(fs.existsSync(path.join(destDir, 'Dockerfile')))
+        assert.ok(fs.existsSync(path.join(destDir, 'code/model_handler.py')))
+        assert.ok(fs.existsSync(path.join(destDir, 'do/config')))
+
+        const requirements = fs.readFileSync(path.join(destDir, 'requirements.txt'), 'utf8')
+        assert.ok(requirements.includes('torch=='))
+
+        const handler = fs.readFileSync(path.join(destDir, 'code/model_handler.py'), 'utf8')
+        assert.ok(handler.includes('import torch'))
     });
 });
 ```
@@ -160,7 +169,7 @@ scripted_model.save('model.torchscript')
 ### Step 2: Generate Project
 
 \`\`\`bash
-yo @aws/ml-container-creator
+ml-container-creator
 # Select pytorch, pt format, flask server
 \`\`\`
 ```
@@ -515,11 +524,11 @@ npm test -- --coverage
 ### Manual Testing
 
 ```bash
-# Link generator
+# Link CLI globally
 npm link
 
 # Test generation
-yo @aws/ml-container-creator
+ml-container-creator
 
 # Test all combinations
 # - New framework + flask
@@ -532,7 +541,7 @@ yo @aws/ml-container-creator
 
 ```bash
 # Generate project
-yo @aws/ml-container-creator
+ml-container-creator
 
 # Build container
 cd generated-project
@@ -616,7 +625,7 @@ Then create a Pull Request on GitHub with:
 ### Code Organization
 
 - Keep generator logic in `generators/app/index.js`
-- Keep templates in `generators/app/templates/`
+- Keep templates in `templates/`
 - Keep tests in `test/`
 - Keep documentation in `docs/`
 
@@ -659,7 +668,6 @@ Then create a Pull Request on GitHub with:
 
 ## Resources
 
-- [Yeoman Generator Documentation](https://yeoman.io/authoring/)
 - [EJS Documentation](https://ejs.co/)
 - [Mocha Testing Framework](https://mochajs.org/)
 - [SageMaker BYOC Guide](https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms.html)

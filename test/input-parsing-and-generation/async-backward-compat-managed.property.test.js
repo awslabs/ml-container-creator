@@ -26,7 +26,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load all do-framework templates
-const templatesDir = path.join(__dirname, '../../generators/app/templates/do');
+const templatesDir = path.join(__dirname, '../../templates/do');
 
 const configTemplate = readFileSync(path.join(templatesDir, 'config'), 'utf8');
 const deployTemplate = readFileSync(path.join(templatesDir, 'deploy'), 'utf8');

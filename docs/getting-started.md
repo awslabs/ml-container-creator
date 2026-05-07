@@ -6,7 +6,7 @@ This guide covers installation and two end-to-end walkthroughs: deploying a pred
 
 | Tool | Version | Purpose |
 |---|---|---|
-| [Node.js](https://nodejs.org/) | 24.11.1+ | Runs the Yeoman generator |
+| [Node.js](https://nodejs.org/) | 24.11.1+ | Runs the CLI |
 | [Python](https://www.python.org/) | 3.8+ | Model serving code |
 | [Docker](https://docs.docker.com/get-docker/) | 20+ | Local container builds |
 | [AWS CLI](https://aws.amazon.com/cli/) | 2+ | AWS resource management |
@@ -26,7 +26,13 @@ aws sts get-caller-identity
 ### From npm (recommended)
 
 ```bash
-npm install -g yo @aws/generator-ml-container-creator
+npm install -g @aws/ml-container-creator
+```
+
+### Zero-install with npx
+
+```bash
+npx @aws/ml-container-creator
 ```
 
 ### From source
@@ -37,11 +43,10 @@ cd ml-container-creator
 npm install && npm link
 ```
 
-Verify the generator is registered:
+Verify the CLI is available:
 
 ```bash
-yo --generators
-# Should list @aws/ml-container-creator
+ml-container-creator --version
 ```
 
 ## Example 1: Predictive Model (sklearn + Flask)
@@ -52,7 +57,7 @@ This walkthrough generates a project that serves a scikit-learn model behind Fla
 
 ```bash
 mkdir sklearn-demo && cd sklearn-demo
-yo @aws/ml-container-creator sklearn-demo \
+ml-container-creator sklearn-demo \
   --deployment-config=http-flask \
   --engine=sklearn \
   --model-format=pkl \
@@ -104,7 +109,7 @@ sklearn-demo/
 
 ### Build, push, and deploy
 
-If you haven't already, run `yo @aws/ml-container-creator bootstrap` to set up your IAM role and ECR repository.
+If you haven't already, run `ml-container-creator bootstrap` to set up your IAM role and ECR repository.
 
 ```bash
 ./do/build        # Build the Docker image
@@ -164,7 +169,7 @@ This walkthrough deploys an LLM to a SageMaker endpoint using SGLang. LLM contai
 
 ```bash
 mkdir sglang-demo && cd sglang-demo
-yo @aws/ml-container-creator sglang-demo \
+ml-container-creator sglang-demo \
   --deployment-config=transformers-sglang \
   --model-name=openai/gpt-oss-20b \
   --deployment-target=managed-inference \
@@ -251,14 +256,14 @@ The bootstrap command can optionally provision a **CI Integration Harness** that
 To enable CI during bootstrap:
 
 ```bash
-yo @aws/ml-container-creator bootstrap
+ml-container-creator bootstrap
 # Answer Yes when prompted for CI Integration
 ```
 
 Or add CI to an existing bootstrap:
 
 ```bash
-yo @aws/ml-container-creator bootstrap update --ci
+ml-container-creator bootstrap update --ci
 ```
 
 Once provisioned, register any generated project for automated testing:

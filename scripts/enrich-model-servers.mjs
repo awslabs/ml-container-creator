@@ -15,7 +15,8 @@ import { execSync } from 'child_process'
 const catalogJson = execSync('git show 235b7c3:servers/base-image-picker/catalogs/model-servers.json', { encoding: 'utf8' })
 const catalog = JSON.parse(catalogJson)
 
-// Import frameworks registry
+// Import frameworks registry (legacy path - this script was a one-time migration utility)
+// The frameworks registry no longer exists as a standalone file; data lives in server catalogs.
 const frameworksModule = await import('../generators/app/config/registries/frameworks.js')
 const frameworks = frameworksModule.default
 

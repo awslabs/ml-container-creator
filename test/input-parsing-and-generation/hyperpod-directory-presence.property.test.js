@@ -231,8 +231,7 @@ describe('Property 9: Conditional HyperPod Directory Presence', () => {
             'do/clean',
             'do/logs',
             'do/test',
-            'code/serve',
-            'deploy/build_and_push.sh'
+            'code/serve'
         ];
 
         fc.assert(fc.property(

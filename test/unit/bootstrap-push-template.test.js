@@ -22,7 +22,7 @@ import path from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const templatePath = path.resolve(__dirname, '../../generators/app/templates/do/push');
+const templatePath = path.resolve(__dirname, '../../templates/do/push');
 const templateContent = readFileSync(templatePath, 'utf-8');
 
 describe('do/push template — bootstrap changes', () => {
@@ -61,7 +61,7 @@ describe('do/push template — bootstrap changes', () => {
     describe('Requirement 13.2: bootstrap suggestion message', () => {
         it('should contain the bootstrap suggestion message', () => {
             assert.ok(
-                templateContent.includes('Run \'yo @aws/ml-container-creator bootstrap\' to create it.'),
+                templateContent.includes('Run \'ml-container-creator bootstrap\' to create it.'),
                 'Template should tell the user to run bootstrap when the ECR repository is not found'
             );
         });
@@ -78,7 +78,7 @@ describe('do/push template — bootstrap changes', () => {
         it('should exit with code 4 when the repository is not found', () => {
             // Find the describe-repositories block and verify exit 4 follows
             const describeIndex = templateContent.indexOf('describe-repositories');
-            const bootstrapMsgIndex = templateContent.indexOf('Run \'yo @aws/ml-container-creator bootstrap\' to create it.');
+            const bootstrapMsgIndex = templateContent.indexOf('Run \'ml-container-creator bootstrap\' to create it.');
             const exitAfterMsg = templateContent.indexOf('exit 4', bootstrapMsgIndex);
 
             assert.ok(describeIndex !== -1, 'describe-repositories should be present');

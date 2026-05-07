@@ -21,11 +21,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load all five do/ templates
-const configTemplate = readFileSync(path.join(__dirname, '../../generators/app/templates/do/config'), 'utf8');
-const deployTemplate = readFileSync(path.join(__dirname, '../../generators/app/templates/do/deploy'), 'utf8');
-const testTemplate = readFileSync(path.join(__dirname, '../../generators/app/templates/do/test'), 'utf8');
-const cleanTemplate = readFileSync(path.join(__dirname, '../../generators/app/templates/do/clean'), 'utf8');
-const logsTemplate = readFileSync(path.join(__dirname, '../../generators/app/templates/do/logs'), 'utf8');
+const configTemplate = readFileSync(path.join(__dirname, '../../templates/do/config'), 'utf8');
+const deployTemplate = readFileSync(path.join(__dirname, '../../templates/do/deploy'), 'utf8');
+const testTemplate = readFileSync(path.join(__dirname, '../../templates/do/test'), 'utf8');
+const cleanTemplate = readFileSync(path.join(__dirname, '../../templates/do/clean'), 'utf8');
+const logsTemplate = readFileSync(path.join(__dirname, '../../templates/do/logs'), 'utf8');
 
 /** Base template variables for async-inference rendering */
 function baseVars(overrides = {}) {

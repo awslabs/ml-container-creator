@@ -13,12 +13,13 @@
 
 import { describe, it, beforeEach } from 'mocha';
 import assert from 'assert';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 
 /**
  * Creates a minimal mock generator.
  * @returns {object} Mock generator
  */
+// eslint-disable-next-line no-unused-vars
 function createMockGenerator() {
     return {
         prompt: async () => ({})
@@ -29,7 +30,7 @@ describe('Bootstrap AWS CLI Command Construction', () => {
     let handler;
 
     beforeEach(() => {
-        handler = new BootstrapCommandHandler(createMockGenerator());
+        handler = new BootstrapCommandHandler();
     });
 
     describe('_execAws()', () => {

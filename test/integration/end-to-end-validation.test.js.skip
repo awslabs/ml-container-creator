@@ -1,11 +1,37 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
-import assert from 'yeoman-assert';
+import assert from 'node:assert';
 import helpers from 'yeoman-test';
 import { readFileSync, statSync } from 'fs';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Assert that files exist relative to process.cwd()
+ */
+function assertFile(files) {
+    const fileList = Array.isArray(files) ? files : [files]
+    for (const file of fileList) {
+        const fullPath = path.resolve(process.cwd(), file)
+        assert.ok(fs.existsSync(fullPath), `Expected file to exist: ${file}`)
+    }
+}
+
+/**
+ * Assert that a file contains the specified content
+ */
+function assertFileContent(file, content) {
+    const fullPath = path.resolve(process.cwd(), file)
+    assert.ok(fs.existsSync(fullPath), `Expected file to exist: ${file}`)
+    const fileContent = fs.readFileSync(fullPath, 'utf8')
+    if (content instanceof RegExp) {
+        assert.ok(content.test(fileContent), `Expected file ${file} to match ${content}`)
+    } else {
+        assert.ok(fileContent.includes(content), `Expected file ${file} to contain: "${content}"`)
+    }
+}
 
 describe('End-to-End Validation: All Deployment Configurations', function() {
     // Increase timeout for multiple project generations
@@ -63,7 +89,7 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
             });
 
             it('should generate all core files', () => {
-                assert.file([
+                assertFile([
                     'Dockerfile',
                     'requirements.txt',
                     'README.md',
@@ -72,7 +98,7 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
             });
 
             it('should generate all do scripts', () => {
-                assert.file([
+                assertFile([
                     'do/config',
                     'do/build',
                     'do/push',
@@ -85,7 +111,7 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
             });
 
             it('should generate legacy wrapper scripts', () => {
-                assert.file([
+                assertFile([
                     'deploy/build_and_push.sh',
                     'deploy/deploy.sh'
                 ]);
@@ -105,13 +131,13 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
                 const configPath = path.join(runResult.cwd, 'do/config');
 
                 // Check required variables
-                assert.fileContent(configPath, /export PROJECT_NAME="test-e2e-project"/);
-                assert.fileContent(configPath, new RegExp(`export DEPLOYMENT_CONFIG="${deploymentConfig}"`));
-                assert.fileContent(configPath, new RegExp(`export FRAMEWORK="${framework}"`));
-                assert.fileContent(configPath, new RegExp(`export MODEL_SERVER="${modelServer}"`));
-                assert.fileContent(configPath, /export AWS_REGION="us-east-1"/);
-                assert.fileContent(configPath, /export ECR_REPOSITORY_NAME/);
-                assert.fileContent(configPath, /export INSTANCE_TYPE="ml\.m5\.xlarge"/);
+                assertFileContent(configPath, /export PROJECT_NAME="test-e2e-project"/);
+                assertFileContent(configPath, new RegExp(`export DEPLOYMENT_CONFIG="${deploymentConfig}"`));
+                assertFileContent(configPath, new RegExp(`export FRAMEWORK="${framework}"`));
+                assertFileContent(configPath, new RegExp(`export MODEL_SERVER="${modelServer}"`));
+                assertFileContent(configPath, /export AWS_REGION="us-east-1"/);
+                assertFileContent(configPath, /export ECR_REPOSITORY_NAME/);
+                assertFileContent(configPath, /export INSTANCE_TYPE="ml\.m5\.xlarge"/);
             });
 
             it('should have all do scripts source config', () => {
@@ -128,7 +154,7 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
                 const scripts = ['build', 'push', 'deploy', 'run', 'test', 'clean'];
                 scripts.forEach(script => {
                     const scriptPath = path.join(runResult.cwd, 'do', script);
-                    assert.fileContent(scriptPath, /set -e/);
+                    assertFileContent(scriptPath, /set -e/);
                 });
             });
 
@@ -188,10 +214,10 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
 
             it('should generate all necessary template files', () => {
                 // Core files
-                assert.file(['Dockerfile', 'requirements.txt']);
+                assertFile(['Dockerfile', 'requirements.txt']);
                 
                 // Code files (all should be present regardless of config)
-                assert.file([
+                assertFile([
                     'code/model_handler.py',
                     'code/serve.py',
                     'code/serve'
@@ -219,7 +245,7 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
         });
 
         it('should generate do/submit script for CodeBuild', () => {
-            assert.file('do/submit');
+            assertFile('do/submit');
         });
 
         it('should make do/submit executable', () => {
@@ -230,12 +256,12 @@ describe('End-to-End Validation: All Deployment Configurations', function() {
         });
 
         it('should generate legacy submit_build.sh wrapper', () => {
-            assert.file('deploy/submit_build.sh');
+            assertFile('deploy/submit_build.sh');
         });
 
         it('should have do/config contain CodeBuild variables', () => {
-            assert.fileContent('do/config', /export CODEBUILD_COMPUTE_TYPE/);
-            assert.fileContent('do/config', /export CODEBUILD_PROJECT_NAME/);
+            assertFileContent('do/config', /export CODEBUILD_COMPUTE_TYPE/);
+            assertFileContent('do/config', /export CODEBUILD_PROJECT_NAME/);
         });
     });
 });

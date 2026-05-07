@@ -1,19 +1,24 @@
 {
-  "name": "@aws/generator-ml-container-creator",
-  "version": "0.1.2",
+  "name": "@aws/ml-container-creator",
+  "version": "0.2.1",
   "description": "Generator for SageMaker AI BYOC paradigm for predictive inference use-cases.",
   "type": "module",
-  "main": "generators/app/index.js",
+  "main": "src/app.js",
+  "bin": {
+    "ml-container-creator": "./bin/cli.js"
+  },
   "publishConfig": {
     "access": "public"
   },
   "prepublishOnly": "npm run lint:fix && npm run test:ci",
   "repository": {
     "type": "git",
-    "url": "https://github.com/awslabs/ml-container-creator.git"
+    "url": "git+https://github.com/awslabs/ml-container-creator.git"
   },
   "files": [
-    "generators/",
+    "bin/",
+    "src/",
+    "templates/",
     "servers/base-image-picker/catalogs/",
     "servers/base-image-picker/index.js",
     "servers/base-image-picker/manifest.json",
@@ -40,14 +45,25 @@
     "servers/lib/package.json",
     "servers/README.md",
     "config/defaults.json",
+    "config/bootstrap-stack.json",
+    "config/parameter-schema.json",
     "config/presets/",
+    "infra/ci-harness/bin/",
+    "infra/ci-harness/lambda/",
+    "infra/ci-harness/lib/",
+    "infra/ci-harness/buildspec.yml",
+    "infra/ci-harness/cdk.json",
+    "infra/ci-harness/package.json",
+    "infra/ci-harness/package-lock.json",
+    "infra/ci-harness/tsconfig.json",
     "README.md",
     "LICENSE",
     "LICENSE-THIRD-PARTY",
     "NOTICE"
   ],
   "keywords": [
-    "yeoman-generator",
+    "cli",
+    "standalone",
     "sagemaker",
     "byoc",
     "aws",
@@ -69,10 +85,10 @@
     "test:perf": "VALIDATE_ENV_VARS=false mocha test/**/*.test.js --reporter json > test-results.json && node scripts/analyze-test-performance.js",
     "security-audit": "npm audit --audit-level=high",
     "security-fix": "npm audit fix",
-    "lint": "eslint generators/**/*.js test/**/*.js",
-    "lint:fix": "eslint generators/**/*.js test/**/*.js --fix",
-    "start": "yo @aws/ml-container-creator",
-    "dev": "npm link && yo @aws/ml-container-creator",
+    "lint": "eslint src/**/*.js bin/**/*.js test/**/*.js",
+    "lint:fix": "eslint src/**/*.js bin/**/*.js test/**/*.js --fix",
+    "start": "ml-container-creator",
+    "dev": "npm link && ml-container-creator",
     "clean": "rm -rf test-output-*",
     "validate": "npm run lint && npm run test:all",
     "validate:namespaces": "node scripts/validate-namespaces.js",
@@ -82,75 +98,41 @@
     "_sbom": "npm sbom --sbom-format spdx > sbom.json && for dir in servers/*/; do [ -f \"$dir/package.json\" ] && (cd \"$dir\" && npm sbom --sbom-format spdx > sbom.json); done",
     "_licenses:review": "license-checker --production --exclude MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD && for dir in servers/*/; do [ -f \"$dir/package.json\" ] && echo \"\\nChecking $dir\" && (cd \"$dir\" && npx license-checker --production --exclude MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD); done",
     "_licenses:csv": "license-checker --csv --out ./licenses.csv && for dir in servers/*/; do [ -f \"$dir/package.json\" ] && (cd \"$dir\" && npx license-checker --csv --out licenses.csv); done && cat servers/*/licenses.csv >> licenses.csv",
-    "_licenses:attribution": "generate-attribution && mv oss-attribution/attribution.txt LICENSE-THIRD-PARTY && rm -rf oss-attribution && for dir in servers/*/; do [ -f \"$dir/package.json\" ] && (cd \"$dir\" && npx generate-attribution && cat oss-attribution/attribution.txt >> ../../LICENSE-THIRD-PARTY && rm -rf oss-attribution); done"
+    "_licenses:attribution": "generate-attribution && mv oss-attribution/attribution.txt LICENSE-THIRD-PARTY && rm -rf oss-attribution && for dir in servers/*/; do [ -f \"$dir/package.json\" ] && (cd \"$dir\" && generate-attribution && cat oss-attribution/attribution.txt >> ../../LICENSE-THIRD-PARTY && rm -rf oss-attribution); done"
   },
   "dependencies": {
-    "@microsoft/eslint-formatter-sarif": "^3.1.0",
+    "@inquirer/prompts": "^8.4.2",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "ajv": "^8.12.0",
+    "chalk": "^5.6.2",
     "cli-table3": "^0.6.5",
-    "license-report": "^6.8.0",
-    "lodash": "^4.17.21",
+    "commander": "13.1.0",
+    "ejs": "^3.1.10",
     "minimatch": "^10.2.4",
-    "sbom": "^0.0.0",
-    "yeoman-generator": "^7.5.1",
-    "yosay": "^3.0.0"
+    "tinyglobby": "^0.2.16"
   },
   "devDependencies": {
+    "@microsoft/eslint-formatter-sarif": "^3.1.0",
     "eslint": "^8.57.0",
     "fast-check": "^4.5.2",
+    "license-report": "^6.8.0",
     "mocha": "^10.2.0",
     "npm-force-resolutions": "^0.0.10",
     "nyc": "^15.1.0",
-    "yeoman-assert": "^3.1.1",
-    "yeoman-environment": "^5.1.3",
-    "yeoman-test": "^10.1.1"
+    "sbom": "^0.0.0"
   },
   "engines": {
     "node": ">=24.11.1",
     "npm": ">=11.6.2"
   },
   "overrides": {
-    "yosay": {
-      "lodash": "^4.17.21",
-      "trim-newlines": "^5.0.0"
-    },
-    "yeoman-generator": {
-      "lodash": "^4.17.21",
-      "semver-regex": "^4.0.5",
-      "semver": "^7.5.4"
-    },
-    "yeoman-doctor": {
-      "semver-regex": "^3.1.3"
-    },
-    "yo": {
-      "qs": "^6.14.1",
-      "request": "2.88.2"
-    },
-    "insight": {
-      "request": "2.88.2"
-    },
     "cross-spawn": "^7.0.3",
     "diff": "^5.2.2",
-    "dot-prop": "^8.0.2",
-    "form-data": "^2.5.4",
-    "lodash": "^4.17.21",
     "semver": "^7.5.4",
-    "semver-regex": "^3.1.3",
-    "trim-newlines": "^5.0.0",
     "got": "^11.8.5",
-    "tough-cookie": "^4.1.3",
-    "tmp": "^0.2.3",
     "qs": "^6.14.1",
-    "request": "2.88.2",
-    "tar": "^7.5.3"
-  },
-  "resolutions": {
-    "semver-regex": "4.0.5"
+    "serialize-javascript": "^7.0.5"
   },
   "author": "Dan Ferguson",
-  "license": "Apache-2.0",
-  "peerDependencies": {
-    "yo": "^1.4.2"
-  }
+  "license": "Apache-2.0"
 }

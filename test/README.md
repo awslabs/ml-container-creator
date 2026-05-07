@@ -24,7 +24,6 @@ Automated testing of universal correctness properties using [fast-check](https:/
 - **CLI Option Consistency** - CLI options accepted and mapped correctly
 - **Package.json Filtering** - Only supported parameters loaded from package.json
 - **Default Value Application** - Correct defaults applied when values missing
-- **Configuration Isolation** - .yo-rc.json files completely ignored
 - **Non-Promptable Handling** - Non-interactive parameters handled correctly
 - **Required Parameter Validation** - Missing required parameters produce errors
 - **Config File Resolution** - Environment variable config paths work correctly
@@ -473,7 +472,7 @@ npm run validate
 
 # Test generator functionality manually
 npm link
-yo @aws/ml-container-creator test-project --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts
+ml-container-creator test-project --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts
 
 # Verify generated project works
 cd test-project

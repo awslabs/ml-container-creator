@@ -74,12 +74,12 @@ Each configuration is expressed as an `architecture-backend` string (e.g., `tran
 
 ## Generator Lifecycle
 
-The generator runs through four Yeoman phases:
+The CLI runs through four generation phases:
 
-1. **`initializing()`** — Loads configuration from CLI, environment, config files, and MCP servers. Checks for subcommands (bootstrap, registry, mcp).
-2. **`prompting()`** — Collects user input in four phases: Infrastructure, Core ML, Modules, Project. Queries MCP servers for instance types, regions, base images, and models.
-3. **`writing()`** — Validates the configuration, processes EJS templates, and generates the project with do-framework scripts.
-4. **`end()`** — Runs sample model training if requested, sets executable permissions.
+1. **Initializing** — Loads configuration from CLI, environment, config files, and MCP servers. Checks for subcommands (bootstrap, registry, mcp).
+2. **Prompting** — Collects user input in four phases: Infrastructure, Core ML, Modules, Project. Queries MCP servers for instance types, regions, base images, and models.
+3. **Writing** — Validates the configuration, processes EJS templates, and generates the project with do-framework scripts.
+4. **Post-generate** — Runs sample model training if requested, sets executable permissions.
 
 ## Generated Project Structure
 

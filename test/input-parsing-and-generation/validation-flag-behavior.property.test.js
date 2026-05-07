@@ -13,7 +13,7 @@
 import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import ValidationEngine from '../../generators/app/lib/validation-engine.js';
+import ValidationEngine from '../../src/lib/validation-engine.js';
 
 describe('Validation Flag Behavior - Property-Based Tests', () => {
     let validationEngine;

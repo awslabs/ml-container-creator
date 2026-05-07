@@ -31,7 +31,7 @@ const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
 // ── Load the actual serve template ───────────────────────────────────────────
 
-const SERVE_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/code/serve');
+const SERVE_TEMPLATE_PATH = resolve(__dirname, '../../templates/code/serve');
 const SERVE_TEMPLATE = readFileSync(SERVE_TEMPLATE_PATH, 'utf-8');
 
 // ── Constants ────────────────────────────────────────────────────────────────

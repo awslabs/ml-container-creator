@@ -22,7 +22,7 @@
 import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import DeploymentConfigResolver from '../../generators/app/lib/deployment-config-resolver.js';
+import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
@@ -46,7 +46,7 @@ const NON_DIFFUSORS_ARCHITECTURES = ['http', 'transformers', 'triton'];
  * The writing phase always pushes triton and diffusors glob patterns
  * to ignorePatterns regardless of architecture. This function replicates
  * that logic so we can verify the property without running the full
- * Yeoman generator.
+ * generator.
  *
  * @param {string} architecture - The resolved architecture
  * @returns {string[]} The ignorePatterns array

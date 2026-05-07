@@ -5,7 +5,7 @@
  * MCP Config Source Property-Based Tests
  *
  * Property-based tests for the MCP configuration source feature.
- * Tests ConfigManager directly without running the full Yeoman generator.
+ * Tests ConfigManager directly without running the full generator.
  *
  * Feature: mcp-config-source
  */
@@ -16,9 +16,9 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import ConfigManager from '../../generators/app/lib/config-manager.js';
-import { McpClient, DEFAULT_TOOL_NAME, DEFAULT_LIMIT } from '../../generators/app/lib/mcp-client.js';
-import PromptRunner from '../../generators/app/lib/prompt-runner.js';
+import ConfigManager from '../../src/lib/config-manager.js';
+import { McpClient, DEFAULT_TOOL_NAME, DEFAULT_LIMIT } from '../../src/lib/mcp-client.js';
+import PromptRunner from '../../src/lib/prompt-runner.js';
 import { createMockGenerator } from '../helpers/mock-generator.js';
 
 const FAST_PROPERTY_CONFIG = {
@@ -687,7 +687,7 @@ describe('MCP Config Source Property-Based Tests', () => {
 // MCP CLI Command Property Tests (Properties 12–15)
 // ============================================================================
 
-import McpCommandHandler from '../../generators/app/lib/mcp-command-handler.js';
+import McpCommandHandler from '../../src/lib/mcp-command-handler.js';
 
 /**
  * Helper: create a mock generator that points at a temp directory
@@ -697,15 +697,12 @@ function createCliMockGenerator(tmpDir) {
     return {
         options: {},
         args: [],
-        destinationRoot: () => tmpDir,
+        destDir: tmpDir,
         destinationPath: (filepath) => {
             if (!filepath) return tmpDir;
             return path.join(tmpDir, filepath);
         },
-        prompt: async () => ({ overwrite: true }),
-        env: { error: (msg) => { throw new Error(msg); } },
-        config: { getAll: () => ({}), save: () => {} },
-        fs: { exists: () => false, read: () => '', write: () => {}, copyTpl: () => {} }
+        prompt: async () => ({ overwrite: true })
     };
 }
 
@@ -970,18 +967,15 @@ describe('MCP CLI Command Property-Based Tests', () => {
         function createPromptCapturingGenerator(mcpChoices) {
             let capturedPrompts = [];
             const matrix = new ConfigManager(createMockGenerator())._getParameterMatrix();
+            const promptFn = async (prompts) => {
+                capturedPrompts = prompts;
+                return {};
+            };
             const mockGen = {
                 options: {},
                 args: [],
-                destinationRoot: () => process.cwd(),
-                destinationPath: (fp) => fp ? path.join(process.cwd(), fp) : process.cwd(),
-                env: { error: (msg) => { throw new Error(msg); } },
-                config: { getAll: () => ({}), save: () => {} },
-                fs: { exists: () => false, read: () => '', write: () => {}, copyTpl: () => {} },
-                prompt: async (prompts) => {
-                    capturedPrompts = prompts;
-                    return {};
-                },
+                destDir: process.cwd(),
+                promptFn,
                 configManager: {
                     mcpChoices: mcpChoices || {},
                     parameterMatrix: matrix,
@@ -1003,7 +997,13 @@ describe('MCP CLI Command Property-Based Tests', () => {
                         instanceType: mcpInstanceChoices
                     });
 
-                    const runner = new PromptRunner(mockGen);
+                    const runner = new PromptRunner({
+                        configManager: mockGen.configManager,
+                        options: mockGen.options,
+                        registryConfigManager: mockGen.registryConfigManager,
+                        baseConfig: mockGen.baseConfig,
+                        promptFn: mockGen.promptFn
+                    });
 
                     // Build a simple prompt with choices (mimicking instanceType prompt)
                     const testPrompt = {
@@ -1068,7 +1068,13 @@ describe('MCP CLI Command Property-Based Tests', () => {
                         mockGen.configManager.mcpChoices = mcpChoicesState;
                     }
 
-                    const runner = new PromptRunner(mockGen);
+                    const runner = new PromptRunner({
+                        configManager: mockGen.configManager,
+                        options: mockGen.options,
+                        registryConfigManager: mockGen.registryConfigManager,
+                        baseConfig: mockGen.baseConfig,
+                        promptFn: mockGen.promptFn
+                    });
 
                     const expectedChoices = [...originalChoices, { name: 'Custom...', value: 'custom' }];
                     const testPrompt = {
@@ -1108,22 +1114,25 @@ describe('MCP CLI Command Property-Based Tests', () => {
                 (originalChoices) => {
                     // Simulate no configManager at all (MCP errored / not configured)
                     let capturedPrompts = [];
+                    const promptFn = async (prompts) => {
+                        capturedPrompts = prompts;
+                        return {};
+                    };
                     const mockGen = {
                         options: {},
                         args: [],
-                        destinationRoot: () => process.cwd(),
-                        destinationPath: (fp) => fp ? path.join(process.cwd(), fp) : process.cwd(),
-                        env: { error: (msg) => { throw new Error(msg); } },
-                        config: { getAll: () => ({}), save: () => {} },
-                        fs: { exists: () => false, read: () => '', write: () => {}, copyTpl: () => {} },
-                        prompt: async (prompts) => {
-                            capturedPrompts = prompts;
-                            return {};
-                        },
+                        destDir: process.cwd(),
+                        promptFn,
                         configManager: null
                     };
 
-                    const runner = new PromptRunner(mockGen);
+                    const runner = new PromptRunner({
+                        configManager: mockGen.configManager,
+                        options: mockGen.options,
+                        registryConfigManager: mockGen.registryConfigManager,
+                        baseConfig: mockGen.baseConfig,
+                        promptFn: mockGen.promptFn
+                    });
 
                     const expectedChoices = [...originalChoices, { name: 'Custom...', value: 'custom' }];
                     const testPrompt = {

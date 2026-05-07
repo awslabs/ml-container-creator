@@ -11,7 +11,7 @@
 
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import CommentGenerator from '../../generators/app/lib/comment-generator.js';
+import CommentGenerator from '../../src/lib/comment-generator.js';
 
 describe('CommentGenerator', () => {
     let commentGenerator;

@@ -5,7 +5,7 @@ The ML Container Creator follows a structured flow to collect configuration and 
 ### Interactive Mode
 
 ```bash
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 **Step 1: Project Configuration**
@@ -82,7 +82,7 @@ yo @aws/ml-container-creator
 For automation or CI/CD pipelines, skip prompts entirely:
 
 ```bash
-yo @aws/ml-container-creator \
+ml-container-creator \
   --skip-prompts \
   --project-name="my-sklearn-model" \
   --framework="sklearn" \
@@ -120,7 +120,7 @@ The generator merges configuration from multiple sources in this precedence orde
 
 3. **Config File** (`--config` flag)
    ```bash
-   yo @aws/ml-container-creator --config=production.json
+   ml-container-creator --config=production.json
    ```
 
 4. **Default Config File** (`config/mcp.json`)
@@ -148,7 +148,7 @@ The generator merges configuration from multiple sources in this precedence orde
 For generative AI models, the flow differs slightly:
 
 ```bash
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 ```

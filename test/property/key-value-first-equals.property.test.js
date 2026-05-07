@@ -19,7 +19,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { parseKeyValue } from '../../generators/app/lib/key-value-parser.js';
+import { parseKeyValue } from '../../src/lib/key-value-parser.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

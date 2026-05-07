@@ -119,7 +119,7 @@ orange_bar(s, 7.2)
 
 text_box(s, 1, 1.5, 11, 1.2, 'ML Container Creator', size=44, color=WHITE, bold=True, align=PP_ALIGN.CENTER)
 text_box(s, 1, 2.8, 11, 0.8, 'Deploy ML models to Amazon SageMaker — in minutes, not days', size=24, color=ORANGE, align=PP_ALIGN.CENTER)
-text_box(s, 1, 4.2, 11, 0.5, 'npx @aws/generator-ml-container-creator', size=18, color=RGBColor(0xAA,0xAA,0xAA), align=PP_ALIGN.CENTER)
+text_box(s, 1, 4.2, 11, 0.5, 'npx @aws/ml-container-creator', size=18, color=RGBColor(0xAA,0xAA,0xAA), align=PP_ALIGN.CENTER)
 text_box(s, 1, 5.2, 11, 0.5, 'Open Source  ·  Apache 2.0  ·  github.com/awslabs/ml-container-creator', size=14, color=RGBColor(0x88,0x88,0x88), align=PP_ALIGN.CENTER)
 
 speaker_notes(s, 'Introduce yourself and the tool in one sentence: "ML Container Creator is an open-source code generator that takes your ML model and produces a complete, deployable SageMaker container project in under a minute." Mention it\'s an AWS Labs project — community-driven, Apache 2.0 licensed, not a managed service.')
@@ -251,7 +251,7 @@ add_bullet_frame(s, 0.8, 1.8, 5.5, 2.5, [
 # Right column: example
 text_box(s, 7, 1.8, 5.5, 0.4, 'Fully automated:', size=14, color=DARK, bold=True)
 add_bullet_frame(s, 7, 2.3, 5.5, 2.0, [
-    'yo @aws/ml-container-creator \\',
+    'ml-container-creator \\',
     '  --skip-prompts \\',
     '  --deployment-config=transformers-vllm \\',
     '  --model-name=meta-llama/Llama-2-7b-chat-hf \\',
@@ -377,7 +377,7 @@ add_bullet_frame(s, 2.5, 2.2, 8, 2.5, [
     '',
     'git clone https://github.com/awslabs/ml-container-creator.git',
     'cd ml-container-creator && npm install && npm link',
-    'yo @aws/ml-container-creator',
+    'ml-container-creator',
 ], size=16, color=RGBColor(0xCC,0xCC,0xCC))
 
 text_box(s, 1, 5.0, 11, 0.8, 'Thank You — Questions?', size=32, color=ORANGE, bold=True, align=PP_ALIGN.CENTER)

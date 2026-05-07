@@ -16,7 +16,7 @@
 
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 
 const REPO_NAME = 'ml-container-creator';
 
@@ -25,6 +25,7 @@ const REPO_NAME = 'ml-container-creator';
  * @param {object} promptResponse - The response to return from prompt()
  * @returns {object} Mock generator
  */
+// eslint-disable-next-line no-unused-vars
 function createMockGenerator(promptResponse = {}) {
     return {
         prompt: async () => promptResponse
@@ -41,7 +42,7 @@ function createMockGenerator(promptResponse = {}) {
  * @returns {{ handler, execAwsCalls, logs, restore }}
  */
 function setupHandler({ repoExists = false, execAwsImpl } = {}) {
-    const handler = new BootstrapCommandHandler(createMockGenerator());
+    const handler = new BootstrapCommandHandler();
     handler._currentProfile = 'test-profile';
     handler._currentRegion = 'us-east-1';
 

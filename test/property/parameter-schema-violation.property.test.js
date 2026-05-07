@@ -24,7 +24,7 @@ import assert from 'assert';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ParameterSchemaValidator from '../../generators/app/lib/parameter-schema-validator.js';
+import ParameterSchemaValidator from '../../src/lib/parameter-schema-validator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

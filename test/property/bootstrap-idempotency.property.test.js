@@ -16,7 +16,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
@@ -50,10 +50,7 @@ async function captureConsoleLog(fn) {
  * @returns {BootstrapCommandHandler} Handler instance with mocked dependencies
  */
 function createMockHandler() {
-    const mockGenerator = {
-        prompt: async () => ({})
-    };
-    const handler = new BootstrapCommandHandler(mockGenerator);
+    const handler = new BootstrapCommandHandler({ promptFn: async () => ({}) });
     handler._currentProfile = 'test-profile';
     handler._currentRegion = 'us-east-1';
     handler._currentAccountId = '123456789012';

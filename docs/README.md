@@ -52,7 +52,7 @@ The built site will be in the `site/` directory.
 
 Some documentation files are synced from source files:
 
-- `template-system.md` ← `generators/app/templates/README.md`
+- `template-system.md` ← `templates/README.md`
 
 To sync these files:
 
@@ -60,7 +60,7 @@ To sync these files:
 ./scripts/docs.sh sync
 ```
 
-**Note**: `generators/app/templates/README.md` documents the template system and is excluded from being copied to generated projects (see `generators/app/index.js`).
+**Note**: `templates/README.md` documents the template system and is excluded from being copied to generated projects (see `generators/app/index.js`).
 
 ### Deploying
 

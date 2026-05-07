@@ -27,7 +27,7 @@ const FAST_PROPERTY_CONFIG = {
 
 /**
  * Applies the custom base image transformation to a combined answers object.
- * This mirrors the logic in generators/app/lib/prompt-runner.js that runs
+ * This mirrors the logic in src/lib/prompt-runner.js that runs
  * after all prompts are collected.
  *
  * If `customBaseImage` is set, it becomes the `baseImage`, the source marker

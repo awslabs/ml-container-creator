@@ -68,7 +68,7 @@ All generated projects include these `do/` scripts:
 | `./do/deploy` | Deploy to the configured deployment target |
 | `./do/logs` | Tail logs (CloudWatch for managed-inference, kubectl for HyperPod) |
 | `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
-| `./do/export` | Export current configuration as a reproducible `yo` CLI command |
+| `./do/export` | Export current configuration as a reproducible CLI command |
 | `./do/register` | Capture deployment to the deployment registry |
 | `./do/submit` | Submit build to AWS CodeBuild (CodeBuild build target only) |
 

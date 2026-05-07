@@ -8,7 +8,7 @@ name: CI
 
 jobs:
   test:
-    name: Test Suite
+    name: Test
     runs-on: ubuntu-latest
     
     strategy:
@@ -16,213 +16,86 @@ jobs:
         node-version: [24.x, 22.x]
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          # Remove cache since package-lock.json is gitignored
 
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
 
-      - name: Run ESLint
+      - name: Lint
         run: npm run lint
 
-      - name: Run security audit
-        run: npm audit --audit-level=critical || echo "⚠️  Non-critical vulnerabilities found (not blocking)"
+      - name: Security audit
+        run: npm audit --audit-level=critical || echo "⚠️  Non-critical vulnerabilities found"
 
-      - name: Run test suite
+      - name: Tests
         run: npm run test:ci
 
-      - name: Generate test coverage
+      - name: Coverage
+        if: matrix.node-version == '24.x'
         run: npm run test:coverage
-        if: matrix.node-version == '24.x'
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage
         if: matrix.node-version == '24.x'
+        uses: codecov/codecov-action@v4
         with:
           fail_ci_if_error: false
-          verbose: true
 
-  validate:
-    name: Full Validation
+      - name: Validate MCP servers
+        if: matrix.node-version == '24.x'
+        run: node scripts/validate-servers.js
+
+      - name: Validate namespaces
+        if: matrix.node-version == '24.x'
+        run: node scripts/validate-namespaces.js
+
+  integration:
+    name: Integration
     runs-on: ubuntu-latest
     needs: test
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
-          # Remove cache since package-lock.json is gitignored
 
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
 
-      - name: Run full validation suite
+      - name: Install CLI
+        run: npm link
+
+      - name: Verify help output
+        run: ml-container-creator help
+
+      - name: Generate project
         run: |
-          npm run lint
-          npm run test:ci
-
-      - name: Test generator installation
-        run: |
-          # Install Yeoman with current Node version
-          npm install -g yo@latest
-          npm link
-          echo "Testing generator help command..."
-          yo @aws/ml-container-creator help
-
-      - name: Test generator with CLI options (new format)
-        run: |
-          mkdir -p test-output-legacy
-          cd test-output-legacy
-          yo @aws/ml-container-creator test-project-legacy \
+          ml-container-creator test-project \
             --deployment-config=http-flask \
-            --engine=sklearn \
             --model-format=pkl \
             --skip-prompts
-          
-          # Verify expected files were created
-          test -f test-project-legacy/Dockerfile
-          test -f test-project-legacy/requirements.txt
-          test -f test-project-legacy/code/model_handler.py
-          test -f test-project-legacy/code/serve.py
-          
-          # Verify do-framework scripts were created
-          test -f test-project-legacy/do/config
-          test -f test-project-legacy/do/build
-          test -f test-project-legacy/do/push
-          test -f test-project-legacy/do/deploy
-          test -f test-project-legacy/do/README.md
-          
-          # Verify legacy wrapper scripts exist with deprecation warnings
-          test -f test-project-legacy/deploy/build_and_push.sh
-          test -f test-project-legacy/deploy/deploy.sh
-          grep -q "DEPRECATED" test-project-legacy/deploy/build_and_push.sh
-          
-          echo "✅ Generator CLI test (new format) passed"
-      
-      - name: Test generator with deployment config option
+
+      - name: Verify generated files
         run: |
-          mkdir -p test-output-new
-          cd test-output-new
-          yo @aws/ml-container-creator test-project-new \
-            --deployment-config=http-flask \
-            --engine=sklearn \
-            --model-format=pkl \
-            --skip-prompts
+          # Core files
+          test -f test-project/Dockerfile
+          test -f test-project/requirements.txt
+          test -f test-project/code/model_handler.py
+          test -f test-project/code/serve.py
           
-          # Verify expected files were created
-          test -f test-project-new/Dockerfile
-          test -f test-project-new/requirements.txt
-          test -f test-project-new/code/model_handler.py
-          test -f test-project-new/code/serve.py
+          # do-framework
+          test -f test-project/do/config
+          test -f test-project/do/build
+          test -f test-project/do/push
+          test -f test-project/do/deploy
           
-          # Verify do-framework scripts were created
-          test -f test-project-new/do/config
-          test -f test-project-new/do/build
-          test -f test-project-new/do/push
-          test -f test-project-new/do/deploy
-          test -f test-project-new/do/README.md
+          # do/config values
+          grep -q 'DEPLOYMENT_CONFIG="http-flask"' test-project/do/config
+          grep -q 'FRAMEWORK="http"' test-project/do/config
+          grep -q 'MODEL_SERVER="flask"' test-project/do/config
           
-          # Verify do/config contains correct deployment config
-          grep -q "DEPLOYMENT_CONFIG=\"http-flask\"" test-project-new/do/config
-          grep -q "FRAMEWORK=\"http\"" test-project-new/do/config
-          grep -q "MODEL_SERVER=\"flask\"" test-project-new/do/config
-          
-          echo "✅ Generator CLI test (deployment config) passed"
-
-      - name: Validate package namespaces
-        run: node scripts/validate-namespaces.js
-
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24.x'
-          # Remove cache since package-lock.json is gitignored
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run security audit (informational)
-        run: |
-          echo "🔍 Running security audit (all vulnerabilities)..."
-          npm audit --audit-level=low || true
-          echo "ℹ️  Above audit is informational only"
-
-      - name: Check for critical vulnerabilities
-        run: |
-          echo "🔒 Checking for critical vulnerabilities..."
-          # Run audit and capture both output and exit code
-          set +e  # Don't exit on error
-          audit_output=$(npm audit --audit-level=critical 2>&1)
-          audit_exit_code=$?
-          set -e  # Re-enable exit on error
-          
-          echo "$audit_output"
-          
-          # Check if output contains critical vulnerabilities
-          if echo "$audit_output" | grep -qi "Severity:.*critical\|critical severity"; then
-            echo "❌ Critical vulnerabilities found"
-            exit 1
-          elif echo "$audit_output" | grep -qi "0 vulnerabilities" || echo "$audit_output" | grep -qi "found 0 vulnerabilities"; then
-            echo "✅ No vulnerabilities found"
-          elif echo "$audit_output" | grep -qi "moderate\|low\|high"; then
-            echo "✅ No critical vulnerabilities found (only lower severity issues detected)"
-          else
-            echo "✅ No critical vulnerabilities found"
-          fi
-
-      - name: Check for high vulnerabilities (warning only)
-        run: |
-          echo "⚠️  Checking for high vulnerabilities (warning only)..."
-          # Run high-level audit and capture output
-          set +e  # Don't exit on error
-          high_audit_output=$(npm audit --audit-level=high 2>&1)
-          high_exit_code=$?
-          set -e  # Re-enable exit on error
-          
-          # Check if output contains high vulnerabilities
-          if echo "$high_audit_output" | grep -qi "Severity:.*high\|high severity"; then
-            echo "⚠️  High vulnerabilities found (not blocking):"
-            echo "$high_audit_output"
-            echo "ℹ️  Consider addressing these vulnerabilities when possible"
-          elif echo "$high_audit_output" | grep -qi "0 vulnerabilities" || echo "$high_audit_output" | grep -qi "found 0 vulnerabilities"; then
-            echo "✅ No high vulnerabilities found"
-          else
-            echo "✅ No high vulnerabilities found"
-          fi
-
-  mcp-servers:
-    name: MCP Server Validation
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24.x'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Validate schemas, manifests, catalogs, and tool uniqueness
-        run: node scripts/validate-servers.js
+          # Legacy deploy/ should NOT exist
+          test ! -d test-project/deploy

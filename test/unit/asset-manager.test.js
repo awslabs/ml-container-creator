@@ -16,7 +16,7 @@ import assert from 'assert';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import AssetManager, { SCHEMA_VERSION, VALID_RESOURCE_TYPES, VALID_STATUSES } from '../../generators/app/lib/asset-manager.js';
+import AssetManager, { SCHEMA_VERSION, VALID_RESOURCE_TYPES, VALID_STATUSES } from '../../src/lib/asset-manager.js';
 
 /**
  * Create a valid Asset_Record for testing.

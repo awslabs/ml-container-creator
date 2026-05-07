@@ -13,12 +13,13 @@
 
 import { describe, it, beforeEach } from 'mocha';
 import assert from 'assert';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 
 /**
  * Creates a minimal mock generator with a prompt method.
  * @returns {object} Mock generator
  */
+// eslint-disable-next-line no-unused-vars
 function createMockGenerator() {
     return {
         prompt: async () => ({})
@@ -30,7 +31,7 @@ describe('Bootstrap Subcommand Routing', () => {
     let calls;
 
     beforeEach(() => {
-        handler = new BootstrapCommandHandler(createMockGenerator());
+        handler = new BootstrapCommandHandler();
         calls = {
             interactiveSetup: [],
             status: [],

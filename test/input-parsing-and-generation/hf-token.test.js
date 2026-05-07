@@ -8,9 +8,8 @@
  * 
  * Feature: huggingface-token-authentication
  * 
- * NOTE: File generation tests are skipped due to Yeoman test framework issues.
- * See: .kiro/issues/yeoman-test-file-queue-hanging.md
- * The generator works correctly in manual testing.
+ * NOTE: File generation tests are not included here.
+ * This file focuses on token validation logic only.
  * 
  * Consolidates:
  * - hf-token-validation.test.js

@@ -22,7 +22,7 @@ import ejs from 'ejs';
 
 const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
-// ── EJS template snippets (from generators/app/templates/do/config) ──────────
+// ── EJS template snippets (from templates/do/config) ──────────
 
 const ENDPOINT_IC_TEMPLATE = [
     '<% if (endpointInitialInstanceCount != null) { %>',

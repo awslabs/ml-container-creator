@@ -36,7 +36,7 @@ const FAST_PROPERTY_CONFIG = {
  */
 const DOCKERFILE_TEMPLATE_PATH = path.resolve(
     __dirname,
-    '../../generators/app/templates/diffusors/Dockerfile'
+    '../../templates/diffusors/Dockerfile'
 );
 
 /**

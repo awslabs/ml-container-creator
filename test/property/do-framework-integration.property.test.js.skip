@@ -191,7 +191,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 9.2, 9.6, 16.5**');
 
             // Read the config template file
-            const configTemplatePath = path.join(__dirname, '../../generators/app/templates/do/config');
+            const configTemplatePath = path.join(__dirname, '../../templates/do/config');
             const configTemplate = readFileSync(configTemplatePath, 'utf8');
 
             // Check for required variable exports
@@ -366,7 +366,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.4**');
 
             // Read the do/build template file
-            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScriptPath = path.join(__dirname, '../../templates/do/build');
             const buildScript = readFileSync(buildScriptPath, 'utf8');
 
             // Check that the script sources the config file
@@ -394,7 +394,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 3.6, 13.5**');
 
             // Read the do/build template file
-            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScriptPath = path.join(__dirname, '../../templates/do/build');
             const buildScript = readFileSync(buildScriptPath, 'utf8');
 
             // Check for set -e
@@ -443,7 +443,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 17.2, 17.6, 17.7, 17.8, 17.10**');
 
             // Read the do/build template file
-            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScriptPath = path.join(__dirname, '../../templates/do/build');
             const buildScript = readFileSync(buildScriptPath, 'utf8');
 
             // Check for case statement on DEPLOYMENT_CONFIG
@@ -493,7 +493,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 14.1, 14.2, 14.3**');
 
             // Read the do/build template file
-            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScriptPath = path.join(__dirname, '../../templates/do/build');
             const buildScript = readFileSync(buildScriptPath, 'utf8');
 
             // Check for emoji prefixes
@@ -548,7 +548,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.1**');
 
             // Read the do/build template file
-            const buildScriptPath = path.join(__dirname, '../../generators/app/templates/do/build');
+            const buildScriptPath = path.join(__dirname, '../../templates/do/build');
             const buildScript = readFileSync(buildScriptPath, 'utf8');
 
             // Check for Docker validation
@@ -592,7 +592,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 4.1**');
 
             // Read the do/push template file
-            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScriptPath = path.join(__dirname, '../../templates/do/push');
             const pushScript = readFileSync(pushScriptPath, 'utf8');
 
             // Check that the script sources the config file
@@ -620,7 +620,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/push template file
-            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScriptPath = path.join(__dirname, '../../templates/do/push');
             const pushScript = readFileSync(pushScriptPath, 'utf8');
 
             // Check for set -e
@@ -669,7 +669,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 14.1**');
 
             // Read the do/push template file
-            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScriptPath = path.join(__dirname, '../../templates/do/push');
             const pushScript = readFileSync(pushScriptPath, 'utf8');
 
             // Check for emoji prefixes
@@ -732,7 +732,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.2**');
 
             // Read the do/push template file
-            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScriptPath = path.join(__dirname, '../../templates/do/push');
             const pushScript = readFileSync(pushScriptPath, 'utf8');
 
             // Check for AWS credentials validation
@@ -780,7 +780,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 4.2**');
 
             // Read the do/push template file
-            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScriptPath = path.join(__dirname, '../../templates/do/push');
             const pushScript = readFileSync(pushScriptPath, 'utf8');
 
             // Check for ECR authentication
@@ -822,7 +822,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 4.3**');
 
             // Read the do/push template file
-            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScriptPath = path.join(__dirname, '../../templates/do/push');
             const pushScript = readFileSync(pushScriptPath, 'utf8');
 
             // Check for repository existence check
@@ -888,7 +888,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 4.4, 4.5**');
 
             // Read the do/push template file
-            const pushScriptPath = path.join(__dirname, '../../generators/app/templates/do/push');
+            const pushScriptPath = path.join(__dirname, '../../templates/do/push');
             const pushScript = readFileSync(pushScriptPath, 'utf8');
 
             // Check for image tagging
@@ -955,7 +955,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 5.1**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check that the script sources the config file
@@ -983,7 +983,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for set -e
@@ -1032,7 +1032,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 17.8**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for case statement on DEPLOY_TARGET
@@ -1088,7 +1088,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 14.1**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for emoji prefixes
@@ -1164,7 +1164,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.2**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for AWS credentials validation
@@ -1212,7 +1212,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 5.7**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for ROLE_ARN validation
@@ -1254,7 +1254,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 5.2**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for model creation
@@ -1308,7 +1308,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 5.3**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for endpoint config creation
@@ -1356,7 +1356,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 5.4, 5.5**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for endpoint creation
@@ -1422,7 +1422,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 5.6**');
 
             // Read the do/deploy template file
-            const deployScriptPath = path.join(__dirname, '../../generators/app/templates/do/deploy');
+            const deployScriptPath = path.join(__dirname, '../../templates/do/deploy');
             const deployScript = readFileSync(deployScriptPath, 'utf8');
 
             // Check for endpoint details section
@@ -1502,7 +1502,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 6.1**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check that the script sources the config file
@@ -1530,7 +1530,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for set -e
@@ -1579,7 +1579,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 17.6**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for case statement on DEPLOYMENT_CONFIG
@@ -1633,7 +1633,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 6.3**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for port 8080 exposure
@@ -1657,7 +1657,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 6.4**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for MODEL_DIR check
@@ -1699,7 +1699,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 6.7**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for --rm flag in docker run command
@@ -1723,7 +1723,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 6.6**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for -it flag for interactive terminal
@@ -1755,7 +1755,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 14.1**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for emoji prefixes
@@ -1819,7 +1819,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.1**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for Docker validation
@@ -1855,7 +1855,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 6.2**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for image existence validation
@@ -1891,7 +1891,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 6.5**');
 
             // Read the do/run template file
-            const runScriptPath = path.join(__dirname, '../../generators/app/templates/do/run');
+            const runScriptPath = path.join(__dirname, '../../templates/do/run');
             const runScript = readFileSync(runScriptPath, 'utf8');
 
             // Check for nvidia-docker validation
@@ -1924,7 +1924,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.1**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check that the script sources the config file
@@ -1952,7 +1952,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for set -e
@@ -2001,7 +2001,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 14.1**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for emoji prefixes
@@ -2060,7 +2060,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.2, 7.3**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for argument parsing
@@ -2096,7 +2096,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.2**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for local URL
@@ -2120,7 +2120,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.4**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for /ping endpoint test
@@ -2156,7 +2156,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.5**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for /invocations endpoint test
@@ -2192,7 +2192,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.5**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for case statement on FRAMEWORK
@@ -2238,7 +2238,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.3**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for SageMaker endpoint status check
@@ -2278,7 +2278,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.6**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for success messages
@@ -2314,7 +2314,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 7.7**');
 
             // Read the do/test template file
-            const testScriptPath = path.join(__dirname, '../../generators/app/templates/do/test');
+            const testScriptPath = path.join(__dirname, '../../templates/do/test');
             const testScript = readFileSync(testScriptPath, 'utf8');
 
             // Check for error messages
@@ -2363,7 +2363,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 8.1**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check that the script sources the config file
@@ -2391,7 +2391,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for set -e
@@ -2440,7 +2440,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 15.5**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for confirm_action function
@@ -2501,7 +2501,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 15.4**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for local image existence check
@@ -2585,7 +2585,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 8.2, 8.3, 8.4, 8.5**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for argument parsing
@@ -2666,7 +2666,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 8.1**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for show_usage function
@@ -2737,7 +2737,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 8.7**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for success messages after cleanup
@@ -2796,7 +2796,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 8.2**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for clean_local function
@@ -2838,7 +2838,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 8.3**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for clean_ecr function
@@ -2886,7 +2886,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 8.4**');
 
             // Read the do/clean template file
-            const cleanScriptPath = path.join(__dirname, '../../generators/app/templates/do/clean');
+            const cleanScriptPath = path.join(__dirname, '../../templates/do/clean');
             const cleanScript = readFileSync(cleanScriptPath, 'utf8');
 
             // Check for clean_endpoint function
@@ -2955,7 +2955,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 2.5, 10.6**');
 
             // Read the deploy/build_and_push.sh template file
-            const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/build_and_push.sh');
+            const wrapperPath = path.join(__dirname, '../../templates/deploy/build_and_push.sh');
             const wrapperScript = readFileSync(wrapperPath, 'utf8');
 
             // Check for deprecation warning header comment
@@ -3015,7 +3015,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 2.5, 10.6**');
 
             // Read the deploy/deploy.sh template file
-            const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/deploy.sh');
+            const wrapperPath = path.join(__dirname, '../../templates/deploy/deploy.sh');
             const wrapperScript = readFileSync(wrapperPath, 'utf8');
 
             // Check for deprecation warning header comment
@@ -3069,7 +3069,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 2.5, 10.6**');
 
             // Read the deploy/submit_build.sh template file
-            const wrapperPath = path.join(__dirname, '../../generators/app/templates/deploy/submit_build.sh');
+            const wrapperPath = path.join(__dirname, '../../templates/deploy/submit_build.sh');
             const wrapperScript = readFileSync(wrapperPath, 'utf8');
 
             // Check for EJS conditional
@@ -3131,7 +3131,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 11.1**');
 
             // Read the do/submit template file
-            const submitScriptPath = path.join(__dirname, '../../generators/app/templates/do/submit');
+            const submitScriptPath = path.join(__dirname, '../../templates/do/submit');
             const submitScript = readFileSync(submitScriptPath, 'utf8');
 
             // Check that the script sources the config file
@@ -3159,7 +3159,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 13.5**');
 
             // Read the do/submit template file
-            const submitScriptPath = path.join(__dirname, '../../generators/app/templates/do/submit');
+            const submitScriptPath = path.join(__dirname, '../../templates/do/submit');
             const submitScript = readFileSync(submitScriptPath, 'utf8');
 
             // Check for set -e
@@ -3208,7 +3208,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 2.4, 16.7**');
 
             // Read the PROJECT_README.md template file
-            const readmePath = path.join(__dirname, '../../generators/app/templates/PROJECT_README.md');
+            const readmePath = path.join(__dirname, '../../templates/PROJECT_README.md');
             const readmeContent = readFileSync(readmePath, 'utf8');
 
             // Check that it uses do-framework commands
@@ -3252,7 +3252,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 2.4, 10.4, 10.5**');
 
             // Read the MIGRATION.md template file
-            const migrationPath = path.join(__dirname, '../../generators/app/templates/MIGRATION.md');
+            const migrationPath = path.join(__dirname, '../../templates/MIGRATION.md');
             const migrationContent = readFileSync(migrationPath, 'utf8');
 
             // Check that it uses do-framework commands in "New Workflow" sections
@@ -3300,7 +3300,7 @@ describe('do-framework Integration Property Tests', () => {
             // console.log('  **Validates: Requirements 1.5, 10.1, 10.2**');
 
             // Read the do/README.md template file
-            const doReadmePath = path.join(__dirname, '../../generators/app/templates/do/README.md');
+            const doReadmePath = path.join(__dirname, '../../templates/do/README.md');
             const doReadmeContent = readFileSync(doReadmePath, 'utf8');
 
             // Check that it documents all do-framework commands

@@ -4,7 +4,7 @@
   <img src="logo.png" alt="ML Container Creator" width="200"/>
 </div>
 
-ML Container Creator (MCC) is a [Yeoman](https://yeoman.io/) generator that produces bring-your-own-container (BYOC) projects for deploying ML models on [Amazon SageMaker](https://aws.amazon.com/sagemaker/ai/). You select a model, a serving framework, and a deployment target — MCC generates the Dockerfile, serving code, deployment scripts, and tests.
+ML Container Creator (MCC) is a CLI tool that produces bring-your-own-container (BYOC) projects for deploying ML models on [Amazon SageMaker](https://aws.amazon.com/sagemaker/ai/). You select a model, a serving framework, and a deployment target — MCC generates the Dockerfile, serving code, deployment scripts, and tests.
 
 ## What It Supports
 
@@ -29,12 +29,9 @@ ML Container Creator (MCC) is a [Yeoman](https://yeoman.io/) generator that prod
 ## Quick Start
 
 ```bash
-npm install -g yo
-git clone https://github.com/awslabs/ml-container-creator.git
-cd ml-container-creator
-npm install && npm link
+npm install -g @aws/ml-container-creator
 
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 See [Getting Started](getting-started.md) for prerequisites, installation details, and a full walkthrough.

@@ -10,7 +10,13 @@ cd ml-container-creator
 npm install
 npm link
 npm test
-yo @aws/ml-container-creator
+ml-container-creator
+```
+
+Or run without installing globally:
+
+```bash
+npx @aws/ml-container-creator
 ```
 
 Requires Node.js 24.11.1+ and npm 11.6.2+.
@@ -20,7 +26,7 @@ Requires Node.js 24.11.1+ and npm 11.6.2+.
 ```
 ml-container-creator/
 ├── generators/app/
-│   ├── index.js                    # Yeoman generator entry point
+│   ├── index.js                    # CLI tool entry point
 │   ├── lib/                        # 28 modules (see Generator Architecture)
 │   │   ├── config-manager.js       # 8-level configuration precedence
 │   │   ├── prompt-runner.js        # Phased prompt orchestration
@@ -97,7 +103,7 @@ ml-container-creator/
 1. Create a feature branch from `main`.
 2. Make changes. Follow existing code style (ES modules, `const` by default, single quotes, no semicolons in `lib/` modules).
 3. Run `npm run validate` -- this runs ESLint, npm audit, unit tests, and property tests.
-4. Verify generated projects build: `yo @aws/ml-container-creator --skip-prompts --deployment-config=<your-config> ...` then `./do/build`.
+4. Verify generated projects build: `ml-container-creator --skip-prompts --deployment-config=<your-config> ...` then `./do/build`.
 5. If you edited catalogs, run `node scripts/validate-catalogs.js`.
 6. If you edited docs, run `mkdocs build --strict`.
 7. Commit with a conventional commit message: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`.

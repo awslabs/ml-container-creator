@@ -14,7 +14,7 @@ module.exports = {
     rules: {
     // Code Quality
         'no-unused-vars': ['error', { 'argsIgnorePattern': '^_' }],
-        'no-console': 'off', // Yeoman generators use console
+        'no-console': 'off', // CLI tools use console
         'prefer-const': 'error',
         'no-var': 'error',
 
@@ -39,7 +39,7 @@ module.exports = {
     },
     ignorePatterns: [
         'node_modules/',
-        'generators/app/templates/**',
+        'templates/**',
         'test/fixtures/**',
         'site/**',
         'drafts/**',

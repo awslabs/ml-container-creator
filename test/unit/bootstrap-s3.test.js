@@ -18,7 +18,7 @@
 
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 
 const REGION = 'us-east-1';
 const ACCOUNT_ID = '123456789012';
@@ -30,6 +30,7 @@ const BATCH_BUCKET = `ml-container-creator-batch-${REGION}-${ACCOUNT_ID}`;
  * @param {object} promptResponse - The response to return from prompt()
  * @returns {object} Mock generator
  */
+// eslint-disable-next-line no-unused-vars
 function createMockGenerator(promptResponse = {}) {
     return {
         prompt: async () => promptResponse
@@ -55,7 +56,7 @@ function setupHandler({
     region = REGION,
     accountId = ACCOUNT_ID
 } = {}) {
-    const handler = new BootstrapCommandHandler(createMockGenerator({ useS3 }));
+    const handler = new BootstrapCommandHandler({ promptFn: async () => ({ useS3 }) });
     handler._currentProfile = 'test-profile';
     handler._currentRegion = region;
     handler._currentAccountId = accountId;

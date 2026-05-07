@@ -4,7 +4,7 @@
 
 #!/usr/bin/env python3
 """
-Local testing script for triton models
+Local testing script for transformers models
 
 This script allows you to test your model locally before containerizing.
 Unlike serve.py (which runs a production HTTP server), this is a CLI tool
@@ -31,7 +31,7 @@ from model_handler import ModelHandler
 
 def usage():
     """Print usage examples and exit"""
-    print("\nTRITON Model Handler Test Tool")
+    print("\nTRANSFORMERS Model Handler Test Tool")
     print("=" * 40)
     print("\nUsage examples:")
     print("  # Basic test with array input:")
@@ -47,7 +47,7 @@ def usage():
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Local CLI tool for testing triton model inference',
+        description='Local CLI tool for testing transformers model inference',
         epilog='Use --usage for detailed examples'
     )
     parser.add_argument('--model-path', type=str, default='sample_model',

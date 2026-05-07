@@ -26,7 +26,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DOCKERFILE_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/Dockerfile');
+const DOCKERFILE_TEMPLATE_PATH = resolve(__dirname, '../../templates/Dockerfile');
 const DOCKERFILE_TEMPLATE = readFileSync(DOCKERFILE_TEMPLATE_PATH, 'utf-8');
 
 // ── Helper: render Dockerfile template with defaults ─────────────────────────

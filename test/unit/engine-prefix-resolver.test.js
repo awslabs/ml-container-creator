@@ -14,7 +14,7 @@ import {
     ENGINE_PREFIX_MAP,
     resolvePrefix,
     resolvePrefixedEnvVars
-} from '../../generators/app/lib/engine-prefix-resolver.js';
+} from '../../src/lib/engine-prefix-resolver.js';
 
 describe('Engine Prefix Resolver', () => {
 

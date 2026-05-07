@@ -18,8 +18,8 @@
 
 import { setupTestHooks } from './test-utils.js';
 import assert from 'assert';
-import ConfigurationManager from '../../generators/app/lib/configuration-manager.js';
-import ConfigurationMatcher from '../../generators/app/lib/configuration-matcher.js';
+import ConfigurationManager from '../../src/lib/configuration-manager.js';
+import ConfigurationMatcher from '../../src/lib/configuration-matcher.js';
 
 describe('Configuration System', () => {
     setupTestHooks('Configuration System');
@@ -65,7 +65,7 @@ describe('Configuration System', () => {
             configManager.modelRegistry = {};
             configManager.instanceMapping = {};
             
-            const ConfigMatcher = (await import('../../generators/app/lib/configuration-matcher.js')).default;
+            const ConfigMatcher = (await import('../../src/lib/configuration-matcher.js')).default;
             configManager.configMatcher = new ConfigMatcher(
                 configManager.frameworkRegistry,
                 configManager.modelRegistry
@@ -271,7 +271,7 @@ describe('Configuration System', () => {
                 }
             };
             
-            const ConfigMatcher = (await import('../../generators/app/lib/configuration-matcher.js')).default;
+            const ConfigMatcher = (await import('../../src/lib/configuration-matcher.js')).default;
             configManager.configMatcher = new ConfigMatcher(
                 configManager.frameworkRegistry,
                 {}

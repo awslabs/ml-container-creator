@@ -391,7 +391,7 @@ test_your_new_feature() {
     mkdir -p "your-feature-test-$test_name"
     cd "your-feature-test-$test_name"
     
-    if yo @aws/ml-container-creator \
+    if ml-container-creator \
         --framework=sklearn \
         --your-new-option="$your_param" \
         --skip-prompts > "../your-feature-$test_name.log" 2>&1; then
@@ -493,8 +493,8 @@ cd "test-$framework-$server"
 cd ..
 
 # ❌ Avoid: Tests interfering with each other
-yo @aws/ml-container-creator --framework=sklearn  # Files created in current dir
-yo @aws/ml-container-creator --framework=xgboost  # Overwrites previous files
+ml-container-creator --framework=sklearn  # Files created in current dir
+ml-container-creator --framework=xgboost  # Overwrites previous files
 ```
 
 #### 2. Comprehensive Validation
@@ -527,7 +527,7 @@ test_your_feature() {
     mkdir -p "$test_dir"
     cd "$test_dir"
     
-    if yo @aws/ml-container-creator --your-option --skip-prompts > ../test.log 2>&1; then
+    if ml-container-creator --your-option --skip-prompts > ../test.log 2>&1; then
         # Validate success case
         validate_files ["expected-file.txt"] "your feature test"
         cd ..
@@ -548,7 +548,7 @@ test_your_feature() {
 test_your_feature() {
     mkdir -p "test-dir"
     cd "test-dir"
-    yo @aws/ml-container-creator --your-option --skip-prompts
+    ml-container-creator --your-option --skip-prompts
     # If this fails, we're stuck in test-dir
     validate_files ["expected-file.txt"] "test"
 }
@@ -558,7 +558,7 @@ test_your_feature() {
 ```bash
 # ✅ Good: Clear, informative output
 print_substep "Testing sklearn + Flask + pkl format"
-verbose_log "Running: yo @aws/ml-container-creator --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts"
+verbose_log "Running: ml-container-creator --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts"
 if validate_files ["Dockerfile", "requirements.txt"] "sklearn Flask generation"; then
     print_success "sklearn + Flask test passed"
 else
@@ -566,7 +566,7 @@ else
 fi
 
 # ❌ Avoid: Unclear or missing output
-yo @aws/ml-container-creator --framework=sklearn --model-server=flask --skip-prompts > /dev/null
+ml-container-creator --framework=sklearn --model-server=flask --skip-prompts > /dev/null
 if [[ -f "Dockerfile" ]]; then
     echo "OK"
 fi
@@ -681,9 +681,9 @@ The FCD is generated from live codebase data, not hardcoded content. Here's what
 | File/Path | What It Feeds |
 |-----------|--------------|
 | `.kiro/specs/*/requirements.md` | Roadmap items (Shipped / Designed / Planned) |
-| `generators/app/templates/` | Generated project structure tree |
-| `generators/app/templates/do/` | Available lifecycle scripts |
-| `generators/app/templates/hyperpod/` | HyperPod manifest list |
+| `templates/` | Generated project structure tree |
+| `templates/do/` | Available lifecycle scripts |
+| `templates/hyperpod/` | HyperPod manifest list |
 
 #### Tier 3: Narrative & Positioning (prose → speaker notes & framing)
 

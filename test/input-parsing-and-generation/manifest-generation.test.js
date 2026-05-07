@@ -20,8 +20,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const templatesDir = path.join(__dirname, '../../generators/app/templates');
-const libDir = path.join(__dirname, '../../generators/app/lib');
+const templatesDir = path.join(__dirname, '../../templates');
+const libDir = path.join(__dirname, '../../src/lib');
 
 // Load templates used by the tests
 const deployTemplate = readFileSync(path.join(templatesDir, 'do/deploy'), 'utf8');
@@ -102,7 +102,7 @@ describe('Manifest Generation Integration Tests', function () {
             const cliPath = path.join(libDir, 'manifest-cli.js');
             assert.ok(
                 existsSync(cliPath),
-                'generators/app/lib/manifest-cli.js should exist'
+                'src/lib/manifest-cli.js should exist'
             );
         });
 
@@ -110,7 +110,7 @@ describe('Manifest Generation Integration Tests', function () {
             const amPath = path.join(libDir, 'asset-manager.js');
             assert.ok(
                 existsSync(amPath),
-                'generators/app/lib/asset-manager.js should exist'
+                'src/lib/asset-manager.js should exist'
             );
         });
 
@@ -118,7 +118,7 @@ describe('Manifest Generation Integration Tests', function () {
             const bcPath = path.join(libDir, 'bootstrap-config.js');
             assert.ok(
                 existsSync(bcPath),
-                'generators/app/lib/bootstrap-config.js should exist'
+                'src/lib/bootstrap-config.js should exist'
             );
         });
     });
@@ -129,40 +129,40 @@ describe('Manifest Generation Integration Tests', function () {
     describe('Generator wiring', () => {
         it('should copy manifest-cli.js to do/lib/', () => {
             const indexContent = readFileSync(
-                path.join(__dirname, '../../generators/app/index.js'),
+                path.join(__dirname, '../../src/app.js'),
                 'utf8'
             );
             assert.ok(
-                indexContent.includes('do/lib/manifest-cli.js'),
+                indexContent.includes('manifest-cli.js'),
                 'Generator should copy manifest-cli.js to do/lib/'
             );
         });
 
         it('should copy asset-manager.js to do/lib/', () => {
             const indexContent = readFileSync(
-                path.join(__dirname, '../../generators/app/index.js'),
+                path.join(__dirname, '../../src/app.js'),
                 'utf8'
             );
             assert.ok(
-                indexContent.includes('do/lib/asset-manager.js'),
+                indexContent.includes('asset-manager.js'),
                 'Generator should copy asset-manager.js to do/lib/'
             );
         });
 
         it('should copy bootstrap-config.js to do/lib/', () => {
             const indexContent = readFileSync(
-                path.join(__dirname, '../../generators/app/index.js'),
+                path.join(__dirname, '../../src/app.js'),
                 'utf8'
             );
             assert.ok(
-                indexContent.includes('do/lib/bootstrap-config.js'),
+                indexContent.includes('bootstrap-config.js'),
                 'Generator should copy bootstrap-config.js to do/lib/'
             );
         });
 
         it('should include do/manifest in executable permissions list', () => {
             const indexContent = readFileSync(
-                path.join(__dirname, '../../generators/app/index.js'),
+                path.join(__dirname, '../../src/app.js'),
                 'utf8'
             );
             assert.ok(

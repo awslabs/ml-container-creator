@@ -26,7 +26,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load container build templates from do/ directory
-const templatesDir = path.join(__dirname, '../../generators/app/templates/do');
+const templatesDir = path.join(__dirname, '../../templates/do');
 
 const buildTemplate = readFileSync(path.join(templatesDir, 'build'), 'utf8');
 const pushTemplate = readFileSync(path.join(templatesDir, 'push'), 'utf8');

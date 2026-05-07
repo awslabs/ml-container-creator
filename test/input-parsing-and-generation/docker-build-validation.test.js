@@ -12,21 +12,17 @@
  * 
  * Requirements: 10.11, 10.12, 10.13
  * 
- * Note: These tests use the old framework/modelServer prompt format for backward
- * compatibility testing. The generator supports both the new deploymentConfig format
- * and the legacy separate framework/modelServer format.
+ * Note: These tests use the new CLI-based runner with deployment-config flags.
+ * The generator supports both the new deploymentConfig format and the legacy
+ * separate framework/modelServer format.
  */
 
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import fs from 'fs';
-import helpers from 'yeoman-test';
+import { runGenerator } from '../helpers/run-generator.js';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Check if Docker build tests are enabled
 const DOCKER_BUILD_TESTS_ENABLED = process.env.DOCKER_BUILD_TESTS === 'true';
@@ -124,32 +120,29 @@ describe('Docker Build Validation (Optional)', () => {
 
     describe('sklearn Docker Build', () => {
         
-        (DOCKER_BUILD_TESTS_ENABLED ? it : it.skip)('should build Docker image for sklearn project', async function() {
+        (DOCKER_BUILD_TESTS_ENABLED ? it : it.skip)('should build Docker image for sklearn project', function() {
             this.timeout(300000); // 5 minutes for Docker build
             
             console.log('\n  🧪 Testing Docker build for sklearn project...');
             console.log('  📝 Validates: Requirements 10.11, 10.12, 10.13');
             
             const imageName = 'test-sklearn-build';
-            let projectDir;
+            let result;
             
             try {
                 // Generate project
-                const result = await helpers.run(path.join(__dirname, '../../generators/app'))
-                    .withPrompts({
-                        framework: 'sklearn',
-                        modelFormat: 'pkl',
-                        modelServer: 'flask',
-                        includeSampleModel: false,
-                        includeTesting: false,
-                        buildTarget: 'codebuild',
-                        instanceType: 'ml.m5.large',
-                        awsRegion: 'us-east-1',
-                        projectName: 'test-sklearn-docker',
-                        destinationDir: 'test-sklearn-docker'
-                    });
+                result = runGenerator({
+                    'deployment-config': 'http-flask',
+                    'model-format': 'pkl',
+                    'include-sample': false,
+                    'include-testing': false,
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.m5.large',
+                    'region': 'us-east-1',
+                    'project-name': 'test-sklearn-docker'
+                });
                 
-                projectDir = result.cwd;
+                const projectDir = result.dir;
                 
                 // Build Docker image
                 const buildResult = buildDockerImage(projectDir, imageName);
@@ -164,40 +157,38 @@ describe('Docker Build Validation (Optional)', () => {
             } finally {
                 // Cleanup
                 cleanupDockerImage(imageName);
+                if (result) {
+                    result.cleanup();
+                }
             }
         });
     });
 
     describe('transformers Docker Build', () => {
         
-        (DOCKER_BUILD_TESTS_ENABLED ? it : it.skip)('should build Docker image for transformers project with vLLM', async function() {
+        (DOCKER_BUILD_TESTS_ENABLED ? it : it.skip)('should build Docker image for transformers project with vLLM', function() {
             this.timeout(300000); // 5 minutes for Docker build
             
             console.log('\n  🧪 Testing Docker build for transformers/vLLM project...');
             console.log('  📝 Validates: Requirements 10.11, 10.12, 10.13');
             
             const imageName = 'test-vllm-build';
-            let projectDir;
+            let result;
             
             try {
                 // Generate project
-                const result = await helpers.run(path.join(__dirname, '../../generators/app'))
-                    .withPrompts({
-                        framework: 'transformers',
-                        frameworkVersion: '0.3.0',
-                        modelName: 'openai/gpt-oss-20b',
-                        modelServer: 'vllm',
-                        includeSampleModel: false,
-                        includeTesting: false,
-                        buildTarget: 'codebuild',
-                        instanceType: 'ml.g5.xlarge',
-                        awsRegion: 'us-east-1',
-                        awsRoleArn: '',
-                        projectName: 'test-vllm-docker',
-                        destinationDir: 'test-vllm-docker'
-                    });
+                result = runGenerator({
+                    'deployment-config': 'transformers-vllm',
+                    'model-name': 'openai/gpt-oss-20b',
+                    'include-sample': false,
+                    'include-testing': false,
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.g5.xlarge',
+                    'region': 'us-east-1',
+                    'project-name': 'test-vllm-docker'
+                });
                 
-                projectDir = result.cwd;
+                const projectDir = result.dir;
                 
                 // Build Docker image
                 const buildResult = buildDockerImage(projectDir, imageName);
@@ -212,38 +203,38 @@ describe('Docker Build Validation (Optional)', () => {
             } finally {
                 // Cleanup
                 cleanupDockerImage(imageName);
+                if (result) {
+                    result.cleanup();
+                }
             }
         });
     });
 
     describe('Build Log Format', () => {
         
-        (DOCKER_BUILD_TESTS_ENABLED ? it : it.skip)('should create build log with required fields', async function() {
+        (DOCKER_BUILD_TESTS_ENABLED ? it : it.skip)('should create build log with required fields', function() {
             this.timeout(300000); // 5 minutes for Docker build
             
             console.log('\n  🧪 Testing build log format...');
             console.log('  📝 Validates: Requirements 10.12');
             
             const imageName = 'test-log-format';
-            let projectDir;
+            let result;
             
             try {
                 // Generate project
-                const result = await helpers.run(path.join(__dirname, '../../generators/app'))
-                    .withPrompts({
-                        framework: 'xgboost',
-                        modelFormat: 'json',
-                        modelServer: 'flask',
-                        includeSampleModel: false,
-                        includeTesting: false,
-                        buildTarget: 'codebuild',
-                        instanceType: 'ml.m5.large',
-                        awsRegion: 'us-east-1',
-                        projectName: 'test-log-format-docker',
-                        destinationDir: 'test-log-format-docker'
-                    });
+                result = runGenerator({
+                    'deployment-config': 'http-flask',
+                    'model-format': 'json',
+                    'include-sample': false,
+                    'include-testing': false,
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.m5.large',
+                    'region': 'us-east-1',
+                    'project-name': 'test-log-format-docker'
+                });
                 
-                projectDir = result.cwd;
+                const projectDir = result.dir;
                 
                 // Build Docker image
                 buildDockerImage(projectDir, imageName);
@@ -269,38 +260,38 @@ describe('Docker Build Validation (Optional)', () => {
             } finally {
                 // Cleanup
                 cleanupDockerImage(imageName);
+                if (result) {
+                    result.cleanup();
+                }
             }
         });
     });
 
     describe('Build Failure Handling', () => {
         
-        (DOCKER_BUILD_TESTS_ENABLED ? it : it.skip)('should handle and log build failures gracefully', async function() {
+        (DOCKER_BUILD_TESTS_ENABLED ? it : it.skip)('should handle and log build failures gracefully', function() {
             this.timeout(300000); // 5 minutes for Docker build
             
             console.log('\n  🧪 Testing build failure handling...');
             console.log('  📝 Validates: Requirements 10.12');
             
             const imageName = 'test-build-failure';
-            let projectDir;
+            let result;
             
             try {
                 // Generate project
-                const result = await helpers.run(path.join(__dirname, '../../generators/app'))
-                    .withPrompts({
-                        framework: 'sklearn',
-                        modelFormat: 'pkl',
-                        modelServer: 'flask',
-                        includeSampleModel: false,
-                        includeTesting: false,
-                        buildTarget: 'codebuild',
-                        instanceType: 'ml.m5.large',
-                        awsRegion: 'us-east-1',
-                        projectName: 'test-failure-docker',
-                        destinationDir: 'test-failure-docker'
-                    });
+                result = runGenerator({
+                    'deployment-config': 'http-flask',
+                    'model-format': 'pkl',
+                    'include-sample': false,
+                    'include-testing': false,
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.m5.large',
+                    'region': 'us-east-1',
+                    'project-name': 'test-failure-docker'
+                });
                 
-                projectDir = result.cwd;
+                const projectDir = result.dir;
                 
                 // Corrupt Dockerfile to cause build failure
                 const dockerfilePath = path.join(projectDir, 'Dockerfile');
@@ -324,6 +315,9 @@ describe('Docker Build Validation (Optional)', () => {
             } finally {
                 // Cleanup (image won't exist, but try anyway)
                 cleanupDockerImage(imageName);
+                if (result) {
+                    result.cleanup();
+                }
             }
         });
     });

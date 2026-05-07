@@ -16,8 +16,8 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import McpCommandHandler from '../../generators/app/lib/mcp-command-handler.js';
-import { McpClient } from '../../generators/app/lib/mcp-client.js';
+import McpCommandHandler from '../../src/lib/mcp-command-handler.js';
+import { McpClient } from '../../src/lib/mcp-client.js';
 
 const CONFIG_FILENAME = 'config/mcp.json';
 

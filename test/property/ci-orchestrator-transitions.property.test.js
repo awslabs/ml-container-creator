@@ -12,7 +12,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { computeTestStatus, STAGE_ORDER, ALWAYS_RUN_STAGES } from '../../generators/app/lib/ci-stage-helpers.js';
+import { computeTestStatus, STAGE_ORDER, ALWAYS_RUN_STAGES } from '../../src/lib/ci-stage-helpers.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
