@@ -20,8 +20,8 @@ import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import os from 'node:os';
 import path from 'node:path';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
-import BootstrapConfig from '../../generators/app/lib/bootstrap-config.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
+import BootstrapConfig from '../../src/lib/bootstrap-config.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
@@ -60,10 +60,7 @@ async function captureConsoleLog(fn) {
  * @returns {BootstrapCommandHandler} Handler instance with mocked dependencies
  */
 function createMockHandler(configPath, { stackFails = false, ciFails = false } = {}) {
-    const mockGenerator = {
-        prompt: async () => ({ profileName: 'default' })
-    };
-    const handler = new BootstrapCommandHandler(mockGenerator);
+    const handler = new BootstrapCommandHandler({ promptFn: async () => ({ profileName: 'default' }) });
     handler.config = new BootstrapConfig(configPath);
 
     // Mock _selectProfile

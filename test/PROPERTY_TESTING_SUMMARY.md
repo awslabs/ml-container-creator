@@ -77,11 +77,6 @@ All 10 correctness properties from the design document were successfully impleme
 - **Tests**: Correct default values are applied when parameters missing
 - **Status**: PASSING (50 iterations)
 
-### ✅ Property 6: .yo-rc.json Isolation
-- **Validates**: Requirements 7.1, 7.2, 7.3, 7.4, 7.5
-- **Tests**: .yo-rc.json files are completely ignored
-- **Status**: PASSING (30 iterations)
-
 ### ✅ Property 7: Non-Promptable Parameter Handling
 - **Validates**: Requirements 8.1, 8.2, 8.3, 8.4, 8.5
 - **Tests**: Non-promptable parameters handled without user interaction

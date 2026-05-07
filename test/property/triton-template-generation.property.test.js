@@ -13,7 +13,7 @@
 import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import DeploymentConfigResolver from '../../generators/app/lib/deployment-config-resolver.js';
+import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.js';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';

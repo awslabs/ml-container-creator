@@ -17,7 +17,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import { minimatch } from 'minimatch';
-import DeploymentRegistry from '../../generators/app/lib/deployment-registry.js';
+import DeploymentRegistry from '../../src/lib/deployment-registry.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

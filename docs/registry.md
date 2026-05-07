@@ -10,7 +10,7 @@ The registry system consists of three components:
 2. **Model Registry** - Model-specific configurations, chat templates, and known compatibility issues
 3. **Instance Accelerator Mapping** - Maps AWS instance types to accelerator capabilities
 
-These registries are automatically loaded when you run the generator and provide intelligent defaults based on your selections.
+These registries are automatically loaded when you run the CLI tool and provide intelligent defaults based on your selections.
 
 ## Framework Registry
 
@@ -76,7 +76,7 @@ Profiles provide pre-configured optimization settings for common use cases:
 **Example Usage:**
 
 ```bash
-yo @aws/ml-container-creator \
+ml-container-creator \
   --framework=transformers \
   --model-server=vllm \
   --framework-version=0.4.0 \
@@ -169,7 +169,7 @@ This mapping helps validate that your selected instance type is compatible with 
 
 ### 1. Automatic Loading
 
-When you run the generator, registries are loaded automatically:
+When you run the CLI tool, registries are loaded automatically:
 
 ```
 📚 Registry System Initialized
@@ -180,10 +180,10 @@ When you run the generator, registries are loaded automatically:
 
 ### 2. Configuration Matching
 
-The generator matches your selections against registry entries:
+The CLI tool matches your selections against registry entries:
 
 ```bash
-yo @aws/ml-container-creator \
+ml-container-creator \
   --framework=transformers \
   --model-server=vllm \
   --model-name="meta-llama/Llama-2-7b-chat-hf"
@@ -224,7 +224,7 @@ The registry system validates environment variables against framework requiremen
 ### View Available Frameworks
 
 ```bash
-yo @aws/ml-container-creator --help
+ml-container-creator --help
 ```
 
 Look for the "REGISTRY SYSTEM" section showing available frameworks and versions.
@@ -266,7 +266,7 @@ Or via CLI:
 If you don't have internet access or want to skip HuggingFace API lookups:
 
 ```bash
-yo @aws/ml-container-creator --offline
+ml-container-creator --offline
 ```
 
 This disables:
@@ -274,11 +274,11 @@ This disables:
 - Model existence validation
 - Chat template fetching from HF
 
-The generator will use registry data only.
+The CLI tool will use registry data only.
 
 ## Configuration Sources
 
-The generator shows which sources contributed to your configuration:
+The CLI tool shows which sources contributed to your configuration:
 
 ```
 Configuration Sources:
@@ -294,14 +294,14 @@ This helps you understand where each setting came from.
 
 ### Environment Variable Validation
 
-By default, the generator validates environment variables:
+By default, the CLI tool validates environment variables:
 
 ```bash
 # Enable validation (default)
-yo @aws/ml-container-creator --validate-env-vars=true
+ml-container-creator --validate-env-vars=true
 
 # Disable validation
-yo @aws/ml-container-creator --validate-env-vars=false
+ml-container-creator --validate-env-vars=false
 ```
 
 **What gets validated:**
@@ -315,7 +315,7 @@ yo @aws/ml-container-creator --validate-env-vars=false
 For advanced validation, enable Docker introspection:
 
 ```bash
-yo @aws/ml-container-creator \
+ml-container-creator \
   --validate-env-vars=true \
   --validate-with-docker=true
 ```
@@ -337,17 +337,17 @@ The registry is community-driven. You can contribute:
 Try a new framework version and report results:
 
 ```bash
-yo @aws/ml-container-creator \
+ml-container-creator \
   --framework=transformers \
   --model-server=vllm \
   --framework-version=0.5.0
 ```
 
-If it works, submit a PR adding it to `generators/app/config/registries/frameworks.js`.
+If it works, submit a PR adding it to `servers/base-image-picker/catalogs/model-servers.json`.
 
 ### 2. Add Model Configurations
 
-Found optimal settings for a model? Add them to `generators/app/config/registries/models.js`:
+Found optimal settings for a model? Add them to `servers/model-picker/catalogs/popular-transformers.json`:
 
 ```javascript
 "your-org/your-model": {
@@ -386,8 +386,8 @@ See [Registry Contribution Guide](REGISTRY_CONTRIBUTION_GUIDE.md) for detailed i
 - Missing dependencies
 
 **Solution:**
-- Check `generators/app/config/registries/` files
-- Reinstall generator
+- Check `servers/*/catalogs/` files
+- Reinstall CLI tool
 - Report issue if problem persists
 
 ### Validation Errors
@@ -434,12 +434,12 @@ For enterprise deployments, you can maintain a custom registry:
 
 ```bash
 export REGISTRY_PATH=/path/to/custom/registries
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 ### Registry Versioning
 
-Registries are versioned with the generator.
+Registries are versioned with the CLI tool.
 
 ### Programmatic Access
 
@@ -459,7 +459,7 @@ console.log(frameworks.vllm['0.4.0']);
 2. **Enable validation** - Keep `--validate-env-vars=true` to catch issues early
 3. **Check compatibility** - Verify framework version supports your model
 4. **Use profiles** - Leverage pre-configured profiles for common use cases
-5. **Stay updated** - Update generator regularly for new registry entries
+5. **Stay updated** - Update the CLI tool regularly for new registry entries
 6. **Contribute back** - Share your successful configurations with the community
 
 ## See Also

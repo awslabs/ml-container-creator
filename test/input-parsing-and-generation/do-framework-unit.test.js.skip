@@ -13,7 +13,7 @@
  */
 
 import { setupTestHooks } from './test-utils.js';
-import assert from 'yeoman-assert';
+import assert from 'node:assert';
 import helpers from 'yeoman-test';
 import path from 'path';
 import fs from 'fs';
@@ -21,6 +21,31 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Assert that files exist relative to process.cwd()
+ */
+function assertFile(files) {
+    const fileList = Array.isArray(files) ? files : [files]
+    for (const file of fileList) {
+        const fullPath = path.resolve(process.cwd(), file)
+        assert.ok(fs.existsSync(fullPath), `Expected file to exist: ${file}`)
+    }
+}
+
+/**
+ * Assert that a file contains the specified content
+ */
+function assertFileContent(file, content) {
+    const fullPath = path.resolve(process.cwd(), file)
+    assert.ok(fs.existsSync(fullPath), `Expected file to exist: ${file}`)
+    const fileContent = fs.readFileSync(fullPath, 'utf8')
+    if (content instanceof RegExp) {
+        assert.ok(content.test(fileContent), `Expected file ${file} to match ${content}`)
+    } else {
+        assert.ok(fileContent.includes(content), `Expected file ${file} to contain: "${content}"`)
+    }
+}
 
 describe('DO Framework Integration - Unit Tests', function() {
     // Set timeout for all tests in this suite to 30 seconds
@@ -34,7 +59,7 @@ describe('DO Framework Integration - Unit Tests', function() {
 
         before(async () => {
             // Import PromptRunner
-            const module = await import('../../generators/app/lib/prompt-runner.js');
+            const module = await import('../../src/lib/prompt-runner.js');
             PromptRunner = module.default;
         });
 
@@ -225,7 +250,7 @@ describe('DO Framework Integration - Unit Tests', function() {
             ];
 
             expectedDoScripts.forEach(script => {
-                assert.file(script);
+                assertFile(script);
             });
         });
 
@@ -246,7 +271,7 @@ describe('DO Framework Integration - Unit Tests', function() {
                     awsRoleArn: ''
                 });
 
-            assert.file('do/submit');
+            assertFile('do/submit');
         });
 
         it('should generate do/config with correct variables', async () => {
@@ -265,16 +290,16 @@ describe('DO Framework Integration - Unit Tests', function() {
                     awsRoleArn: ''
                 });
 
-            assert.file('do/config');
+            assertFile('do/config');
 
             // Verify required variables are present
-            assert.fileContent('do/config', /export PROJECT_NAME="test-config"/);
-            assert.fileContent('do/config', /export DEPLOYMENT_CONFIG="xgboost-fastapi"/);
-            assert.fileContent('do/config', /export FRAMEWORK="xgboost"/);
-            assert.fileContent('do/config', /export MODEL_SERVER="fastapi"/);
-            assert.fileContent('do/config', /export AWS_REGION="us-west-2"/);
-            assert.fileContent('do/config', /export INSTANCE_TYPE="ml\.m5\.2xlarge"/);
-            assert.fileContent('do/config', /export ECR_REPOSITORY_NAME=/);
+            assertFileContent('do/config', /export PROJECT_NAME="test-config"/);
+            assertFileContent('do/config', /export DEPLOYMENT_CONFIG="xgboost-fastapi"/);
+            assertFileContent('do/config', /export FRAMEWORK="xgboost"/);
+            assertFileContent('do/config', /export MODEL_SERVER="fastapi"/);
+            assertFileContent('do/config', /export AWS_REGION="us-west-2"/);
+            assertFileContent('do/config', /export INSTANCE_TYPE="ml\.m5\.2xlarge"/);
+            assertFileContent('do/config', /export ECR_REPOSITORY_NAME=/);
         });
 
         it('should generate legacy wrapper scripts', async () => {
@@ -294,8 +319,8 @@ describe('DO Framework Integration - Unit Tests', function() {
                 });
 
             // Verify legacy wrapper scripts exist
-            assert.file('deploy/build_and_push.sh');
-            assert.file('deploy/deploy.sh');
+            assertFile('deploy/build_and_push.sh');
+            assertFile('deploy/deploy.sh');
         });
 
         it('should NOT use ignorePatterns for file generation', async () => {
@@ -319,11 +344,11 @@ describe('DO Framework Integration - Unit Tests', function() {
             // All template files should be generated regardless of framework
             // Previously, transformers would exclude model_handler.py and serve.py
             // Now they should be present (even if not used by transformers)
-            assert.file('code/model_handler.py');
-            assert.file('code/serve.py');
-            assert.file('code/serve'); // Transformer-specific serve script
-            assert.file('Dockerfile');
-            assert.file('requirements.txt');
+            assertFile('code/model_handler.py');
+            assertFile('code/serve.py');
+            assertFile('code/serve'); // Transformer-specific serve script
+            assertFile('Dockerfile');
+            assertFile('requirements.txt');
         });
     });
 
@@ -352,7 +377,7 @@ describe('DO Framework Integration - Unit Tests', function() {
             const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean'];
 
             scripts.forEach(script => {
-                assert.file(script);
+                assertFile(script);
                 const scriptPath = path.join(runResult.cwd, script);
                 const content = fs.readFileSync(scriptPath, 'utf8');
                 assert.ok(
@@ -366,7 +391,7 @@ describe('DO Framework Integration - Unit Tests', function() {
             const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean'];
 
             scripts.forEach(script => {
-                assert.file(script);
+                assertFile(script);
                 const scriptPath = path.join(runResult.cwd, script);
                 const content = fs.readFileSync(scriptPath, 'utf8');
                 assert.ok(
@@ -380,7 +405,7 @@ describe('DO Framework Integration - Unit Tests', function() {
             const scriptsWithBranching = ['do/build', 'do/deploy', 'do/run'];
 
             scriptsWithBranching.forEach(script => {
-                assert.file(script);
+                assertFile(script);
                 const scriptPath = path.join(runResult.cwd, script);
                 const content = fs.readFileSync(scriptPath, 'utf8');
                 
@@ -408,7 +433,7 @@ describe('DO Framework Integration - Unit Tests', function() {
             const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean'];
 
             scripts.forEach(script => {
-                assert.file(script);
+                assertFile(script);
                 const scriptPath = path.join(runResult.cwd, script);
                 const content = fs.readFileSync(scriptPath, 'utf8');
                 
@@ -426,7 +451,7 @@ describe('DO Framework Integration - Unit Tests', function() {
             const wrappers = ['deploy/build_and_push.sh', 'deploy/deploy.sh'];
 
             wrappers.forEach(wrapper => {
-                assert.file(wrapper);
+                assertFile(wrapper);
                 const wrapperPath = path.join(runResult.cwd, wrapper);
                 const content = fs.readFileSync(wrapperPath, 'utf8');
                 
@@ -446,7 +471,7 @@ describe('DO Framework Integration - Unit Tests', function() {
             const awsScripts = ['do/push', 'do/deploy'];
 
             awsScripts.forEach(script => {
-                assert.file(script);
+                assertFile(script);
                 const scriptPath = path.join(runResult.cwd, script);
                 const content = fs.readFileSync(scriptPath, 'utf8');
                 
@@ -463,7 +488,7 @@ describe('DO Framework Integration - Unit Tests', function() {
         });
 
         it('should validate Docker prerequisite in do/build', () => {
-            assert.file('do/build');
+            assertFile('do/build');
             const buildPath = path.join(runResult.cwd, 'do/build');
             const content = fs.readFileSync(buildPath, 'utf8');
             
@@ -478,7 +503,7 @@ describe('DO Framework Integration - Unit Tests', function() {
         });
 
         it('should contain confirmation prompts in do/clean', () => {
-            assert.file('do/clean');
+            assertFile('do/clean');
             const cleanPath = path.join(runResult.cwd, 'do/clean');
             const content = fs.readFileSync(cleanPath, 'utf8');
             
@@ -517,7 +542,7 @@ describe('DO Framework Integration - Unit Tests', function() {
         });
 
         it('should include CodeBuild-specific variables in do/config for CodeBuild deployment', () => {
-            assert.file('do/config');
+            assertFile('do/config');
             const configPath = path.join(runResult.cwd, 'do/config');
             const content = fs.readFileSync(configPath, 'utf8');
             
@@ -533,7 +558,7 @@ describe('DO Framework Integration - Unit Tests', function() {
         });
 
         it('should include framework-specific variables for transformers', () => {
-            assert.file('do/config');
+            assertFile('do/config');
             const configPath = path.join(runResult.cwd, 'do/config');
             const content = fs.readFileSync(configPath, 'utf8');
             
@@ -565,7 +590,7 @@ describe('DO Framework Integration - Unit Tests', function() {
                     awsRoleArn: ''
                 });
 
-            assert.file('do/config');
+            assertFile('do/config');
             const configPath = path.join(tensorrtResult.cwd, 'do/config');
             const content = fs.readFileSync(configPath, 'utf8');
             

@@ -75,7 +75,7 @@ CI infrastructure is provisioned via the bootstrap command. You can enable it du
 **During initial bootstrap:**
 
 ```bash
-yo @aws/ml-container-creator bootstrap
+ml-container-creator bootstrap
 ```
 
 When prompted, answer **Yes** to the CI Integration question. The bootstrap process will:
@@ -87,7 +87,7 @@ When prompted, answer **Yes** to the CI Integration question. The bootstrap proc
 **Adding CI to an existing bootstrap:**
 
 ```bash
-yo @aws/ml-container-creator bootstrap update --ci
+ml-container-creator bootstrap update --ci
 ```
 
 This deploys the CI stack without affecting your existing IAM roles, ECR repositories, or S3 buckets.
@@ -263,10 +263,8 @@ Each CI run executes these stages sequentially within a CodeBuild build:
 Regenerates the project from the stored `configJson`:
 
 ```bash
-yo @aws/ml-container-creator --config /tmp/ci-config.json --skip-prompts --force
+ml-container-creator --config /tmp/ci-config.json --skip-prompts --force
 ```
-
-The generator runs as a non-root user (`builder`) because Yeoman refuses to run as root.
 
 ### 2. Validate (placeholder)
 
@@ -324,16 +322,6 @@ Each stage captures:
 
 ### Common Issues
 
-#### Yeoman Root Permissions Error
-
-```
-Error: Running Yeoman as root is not supported
-```
-
-**Cause**: CodeBuild runs as root by default, but Yeoman refuses root execution.
-
-**Resolution**: The CI buildspec creates a `builder` user and runs `yo` via `runuser -u builder`. If you see this error, ensure the buildspec includes the user creation step.
-
 #### Missing ROLE_ARN
 
 ```
@@ -358,12 +346,12 @@ AccessDeniedException: User is not authorized to perform codebuild:CreateProject
 
 ```
 ❌ CI infrastructure not provisioned.
-   Run 'yo @aws/ml-container-creator bootstrap' with CI enabled.
+   Run 'ml-container-creator bootstrap' with CI enabled.
 ```
 
 **Cause**: The `do/ci` commands check for the DynamoDB table before executing. If the table doesn't exist, CI hasn't been set up.
 
-**Resolution**: Run `yo @aws/ml-container-creator bootstrap update --ci` to deploy the CI stack.
+**Resolution**: Run `ml-container-creator bootstrap update --ci` to deploy the CI stack.
 
 #### Build Timeout (90 minutes)
 

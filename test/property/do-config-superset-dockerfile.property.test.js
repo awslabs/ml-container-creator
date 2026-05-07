@@ -18,7 +18,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { resolvePrefixedEnvVars } from '../../generators/app/lib/engine-prefix-resolver.js';
+import { resolvePrefixedEnvVars } from '../../src/lib/engine-prefix-resolver.js';
 
 const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 

@@ -29,7 +29,7 @@ const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
 // ── Load the actual serving.properties template ──────────────────────────────
 
-const SERVING_PROPS_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/code/serving.properties');
+const SERVING_PROPS_TEMPLATE_PATH = resolve(__dirname, '../../templates/code/serving.properties');
 const SERVING_PROPS_TEMPLATE = readFileSync(SERVING_PROPS_TEMPLATE_PATH, 'utf-8');
 
 // ── Constants ────────────────────────────────────────────────────────────────

@@ -6,7 +6,6 @@ Common issues and solutions when using ML Container Creator.
 
 | Issue | Quick Fix |
 |-------|-----------|
-| `yo: command not found` | `npm install -g yo` |
 | `generator not found` | `npm link` in project directory |
 | `SyntaxError: Unexpected token` | Update Node.js to latest: `nvm install node` |
 | Container won't start | Check logs: `docker logs <container-id>` |
@@ -21,21 +20,18 @@ Common issues and solutions when using ML Container Creator.
 
 **Problem:**
 ```bash
-$ yo @aws/ml-container-creator
+$ ml-container-creator
 Error: ml-container-creator generator not found
 ```
 
 **Solution:**
 ```bash
-# Install Yeoman if not installed
-npm install -g yo
-
 # Link the generator
 cd ml-container-creator
 npm link
 
 # Verify installation
-yo --generators
+ml-container-creator --help
 ```
 
 ### Node.js Version Issues
@@ -467,7 +463,7 @@ Error: Failed to download model from HuggingFace Hub
    
    Rebuild with token:
    ```bash
-   yo @aws/ml-container-creator my-llm-project \
+   ml-container-creator my-llm-project \
      --deployment-config=transformers-vllm \
      --model-name=meta-llama/Llama-2-7b-hf \
      --hf-token=hf_your_token_here \
@@ -497,7 +493,7 @@ Concerned about token security in Docker image
 1. **Use environment variable reference** (recommended for CI/CD):
    ```bash
    # During generation, use $HF_TOKEN reference
-   yo @aws/ml-container-creator --hf-token='$HF_TOKEN' --skip-prompts
+   ml-container-creator --hf-token='$HF_TOKEN' --skip-prompts
    
    # Set environment variable before building
    export HF_TOKEN=hf_your_token_here
@@ -557,7 +553,7 @@ Error: Rate limit exceeded
 1. **Use authentication**:
    Authenticated requests have higher rate limits:
    ```bash
-   yo @aws/ml-container-creator --hf-token=hf_your_token_here --skip-prompts
+   ml-container-creator --hf-token=hf_your_token_here --skip-prompts
    ```
 
 2. **Wait and retry**:

@@ -16,7 +16,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import DeploymentConfigResolver from '../../generators/app/lib/deployment-config-resolver.js';
+import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

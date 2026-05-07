@@ -21,8 +21,8 @@ import assert from 'node:assert';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
-import BootstrapConfig from '../../generators/app/lib/bootstrap-config.js';
-import ConfigManager from '../../generators/app/lib/config-manager.js';
+import BootstrapConfig from '../../src/lib/bootstrap-config.js';
+import ConfigManager from '../../src/lib/config-manager.js';
 import { createMockGenerator, createMockGeneratorWithOptions, cleanupEnvVars } from '../helpers/mock-generator.js';
 
 const FAST_PROPERTY_CONFIG = {

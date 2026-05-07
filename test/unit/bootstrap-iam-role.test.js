@@ -17,7 +17,7 @@
 
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 
 const ROLE_NAME = 'mlcc-sagemaker-execution-role';
 const EXISTING_ROLE_ARN = 'arn:aws:iam::123456789012:role/mlcc-sagemaker-execution-role';
@@ -28,6 +28,7 @@ const USER_PROVIDED_ARN = 'arn:aws:iam::123456789012:role/my-custom-role';
  * @param {object} promptResponse - The response to return from prompt()
  * @returns {object} Mock generator
  */
+// eslint-disable-next-line no-unused-vars
 function createMockGenerator(promptResponse = {}) {
     return {
         prompt: async () => promptResponse
@@ -45,7 +46,7 @@ function createMockGenerator(promptResponse = {}) {
  * @returns {{ handler, execAwsCalls, logs }}
  */
 function setupHandler({ roleExists = false, promptResponse = {}, execAwsImpl } = {}) {
-    const handler = new BootstrapCommandHandler(createMockGenerator(promptResponse));
+    const handler = new BootstrapCommandHandler({ promptFn: async () => promptResponse });
     handler._currentProfile = 'test-profile';
 
     const execAwsCalls = [];

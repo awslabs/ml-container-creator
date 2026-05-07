@@ -16,7 +16,7 @@
 
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import PromptRunner from '../../generators/app/lib/prompt-runner.js';
+import PromptRunner from '../../src/lib/prompt-runner.js';
 
 /**
  * Creates a mock generator with configurable options
@@ -26,27 +26,29 @@ function createMockGenerator(opts = {}) {
     let promptCallCount = 0;
     const promptCalls = [];
 
+    const promptFn = async (prompts) => {
+        promptCallCount++;
+        const answers = {};
+        for (const p of prompts) {
+            const name = p.name;
+            promptCalls.push(name);
+            if (promptResponses[name] !== undefined) {
+                answers[name] = promptResponses[name];
+            } else if (p.default !== undefined) {
+                answers[name] = typeof p.default === 'function' ? p.default({}) : p.default;
+            } else {
+                answers[name] = '';
+            }
+        }
+        return answers;
+    };
+
     return {
         options: opts.cliOptions || {},
         configManager: opts.configManager || null,
         registryConfigManager: null,
         baseConfig: {},
-        prompt: async (prompts) => {
-            promptCallCount++;
-            const answers = {};
-            for (const p of prompts) {
-                const name = p.name;
-                promptCalls.push(name);
-                if (promptResponses[name] !== undefined) {
-                    answers[name] = promptResponses[name];
-                } else if (p.default !== undefined) {
-                    answers[name] = typeof p.default === 'function' ? p.default({}) : p.default;
-                } else {
-                    answers[name] = '';
-                }
-            }
-            return answers;
-        },
+        promptFn,
         _promptCallCount: () => promptCallCount,
         _promptCalls: () => promptCalls
     };
@@ -89,7 +91,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 cliOptions: { 'base-image': 'custom/image:latest' },
                 configManager: cm
             });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'sklearn', modelServer: 'flask' },
@@ -106,7 +114,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
     describe('MCP server not configured', () => {
         it('should skip when configManager is null', async () => {
             const gen = createMockGenerator({ configManager: null });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'sklearn', modelServer: 'flask' },
@@ -119,7 +133,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
         it('should skip when base-image-picker is not in MCP servers', async () => {
             const cm = createMockConfigManager({ mcpServers: ['region-picker'] });
             const gen = createMockGenerator({ configManager: cm });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'sklearn', modelServer: 'flask' },
@@ -153,7 +173,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 configManager: cm,
                 promptResponses: { baseImageSearch: '3.11' }
             });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'sklearn', modelServer: 'flask' },
@@ -187,7 +213,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 }
             });
             const gen = createMockGenerator({ configManager: cm });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'transformers', modelServer: 'vllm' },
@@ -230,7 +262,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 }
             });
             const gen = createMockGenerator({ configManager: cm });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'transformers', modelServer: 'vllm' },
@@ -251,7 +289,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 queryResult: null
             });
             const gen = createMockGenerator({ configManager: cm });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'transformers', modelServer: 'vllm' },
@@ -272,7 +316,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 }
             });
             const gen = createMockGenerator({ configManager: cm });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'transformers', modelServer: 'unknown-server' },
@@ -292,7 +342,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 }
             });
             const gen = createMockGenerator({ configManager: cm });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'sklearn', modelServer: 'flask' },
@@ -315,7 +371,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 }
             });
             const gen = createMockGenerator({ configManager: cm });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'transformers', modelServer: 'vllm' },
@@ -341,7 +403,13 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
                 configManager: cm,
                 promptResponses: { baseImageSearch: '' }
             });
-            const runner = new PromptRunner(gen);
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
 
             await runner._queryMcpForBaseImage(
                 { framework: 'sklearn', modelServer: 'flask' },

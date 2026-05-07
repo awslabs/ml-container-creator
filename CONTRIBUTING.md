@@ -139,32 +139,23 @@ When adding new functionality, include appropriate tests. **See [`test/README.md
 **Unit Test Example:**
 ```javascript
 import { 
-    getGeneratorPath, 
+    runGenerator,
     validateFiles, 
     setupTestHooks 
 } from './test-utils.js';
 
 describe('Your Feature Category', () => {
-    let helpers;
-
-    before(async () => {
-        console.log('\n🚀 Starting Your Feature Tests');
-        helpers = await import('yeoman-test');
-        console.log('✅ Test environment ready\n');
-    });
-
     setupTestHooks('Your Feature Category');
 
     it('should handle your specific functionality', async () => {
         console.log(`\n  🧪 Test #1: Testing your functionality...`);
         console.log(`  📍 Test Suite: Your Feature Category`);
         
-        await helpers.default.run(getGeneratorPath())
-            .withOptions({ 
-                framework: 'sklearn',
-                yourNewOption: 'test-value',
-                skipPrompts: true
-            });
+        const result = await runGenerator({
+            framework: 'sklearn',
+            yourNewOption: 'test-value',
+            skipPrompts: true
+        });
 
         validateFiles(['expected-file.txt'], 'your feature test');
         console.log(`    ✅ Your functionality working correctly`);
@@ -183,7 +174,7 @@ test_your_new_feature() {
     mkdir -p "your-feature-test"
     cd "your-feature-test"
     
-    if yo @aws/ml-container-creator --your-new-option --skip-prompts > ../test.log 2>&1; then
+    if ml-container-creator --your-new-option --skip-prompts > ../test.log 2>&1; then
         validate_files ["expected-file.txt"] "your feature test"
         cd ..
         record_test_result "Your Feature" "PASS"
@@ -201,8 +192,11 @@ Always include both positive and negative test cases:
 ```javascript
 // Test successful case
 it('should generate files for valid configuration', async () => {
-    await helpers.default.run(getGeneratorPath())
-        .withOptions({ framework: 'sklearn', modelFormat: 'pkl' });
+    await runGenerator({
+        framework: 'sklearn',
+        modelFormat: 'pkl',
+        skipPrompts: true
+    });
     
     validateFiles(['Dockerfile', 'requirements.txt'], 'sklearn generation');
 });
@@ -210,8 +204,10 @@ it('should generate files for valid configuration', async () => {
 // Test error case
 it('should show error for invalid configuration', async () => {
     try {
-        await helpers.default.run(getGeneratorPath())
-            .withOptions({ framework: 'invalid' });
+        await runGenerator({
+            framework: 'invalid',
+            skipPrompts: true
+        });
         assert.fail('Should have thrown an error');
     } catch (error) {
         assert(error.message.includes('not implemented'));

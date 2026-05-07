@@ -22,7 +22,7 @@ import {
     buildCiRecord,
     applyRecordDefaults,
     extractBaseImageVersion
-} from '../../generators/app/lib/ci-register-helpers.js';
+} from '../../src/lib/ci-register-helpers.js';
 
 describe('CI Register Flags — configId Hashing', () => {
 
@@ -414,7 +414,7 @@ describe('CI Register Flags — CI Infrastructure Not Provisioned', () => {
         // The do/register template checks CI_Table existence via
         // `aws dynamodb describe-table` and shows this message when missing.
         // We verify the expected message string is correct per Requirement 9.3.
-        const expectedMessage = 'CI infrastructure not provisioned. Run \'yo @aws/ml-container-creator bootstrap\' with CI enabled.';
+        const expectedMessage = 'CI infrastructure not provisioned. Run \'ml-container-creator bootstrap\' with CI enabled.';
 
         // This is the message pattern from the bash template
         assert.ok(expectedMessage.includes('CI infrastructure not provisioned'));

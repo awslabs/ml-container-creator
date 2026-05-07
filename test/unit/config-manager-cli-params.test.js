@@ -13,7 +13,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import assert from 'assert';
-import ConfigManager from '../../generators/app/lib/config-manager.js';
+import ConfigManager from '../../src/lib/config-manager.js';
 import {
     createMockGenerator,
     createMockGeneratorWithOptions,

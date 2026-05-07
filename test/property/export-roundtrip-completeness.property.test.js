@@ -32,7 +32,7 @@ const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
 // ── Load the actual do/export template ───────────────────────────────────────
 
-const EXPORT_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/do/export');
+const EXPORT_TEMPLATE_PATH = resolve(__dirname, '../../templates/do/export');
 const EXPORT_TEMPLATE = readFileSync(EXPORT_TEMPLATE_PATH, 'utf8');
 
 // ── Arbitrary generators ─────────────────────────────────────────────────────

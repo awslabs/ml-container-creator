@@ -197,7 +197,7 @@ Document the new template and when it's included/excluded.
 npm link
 
 # Run generator
-yo @aws/ml-container-creator
+ml-container-creator
 
 # Test different configurations
 # - sklearn + flask
@@ -229,7 +229,6 @@ See `test/` directory for generator tests that verify template generation.
 
 ## Related Documentation
 
-- [Yeoman Generator API](https://yeoman.io/authoring/)
 - [EJS Documentation](https://ejs.co/)
 - [Project Architecture](architecture.md)
 - [Coding Standards](coding-standards.md)

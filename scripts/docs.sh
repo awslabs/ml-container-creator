@@ -23,7 +23,7 @@ case "${1:-help}" in
     
     "sync")
         echo "🔄 Syncing template documentation to docs..."
-        cp generators/app/templates/README.md docs/template-system.md
+        cp templates/README.md docs/template-system.md
         echo "✅ Files synced!"
         ;;
     

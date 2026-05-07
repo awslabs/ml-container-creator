@@ -21,7 +21,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SERVING_PROPS_TEMPLATE_PATH = resolve(__dirname, '../../generators/app/templates/code/serving.properties');
+const SERVING_PROPS_TEMPLATE_PATH = resolve(__dirname, '../../templates/code/serving.properties');
 const SERVING_PROPS_TEMPLATE = readFileSync(SERVING_PROPS_TEMPLATE_PATH, 'utf-8');
 
 // ── Helper: render serving.properties template with defaults ─────────────────

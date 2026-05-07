@@ -14,7 +14,7 @@
 
 import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
-import HuggingFaceClient from '../../generators/app/lib/huggingface-client.js';
+import HuggingFaceClient from '../../src/lib/huggingface-client.js';
 
 describe('HuggingFace API Integration Property Tests', () => {
     before(async () => {

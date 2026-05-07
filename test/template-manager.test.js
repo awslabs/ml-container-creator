@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import assert from 'assert';
-import TemplateManager from '../generators/app/lib/template-manager.js';
+import TemplateManager from '../src/lib/template-manager.js';
 
 describe('TemplateManager', () => {
     // Note: getIgnorePatterns() method has been removed as part of do-framework integration.
@@ -24,11 +24,11 @@ describe('TemplateManager', () => {
                 awsRoleArn: '',
                 includeTesting: true,
                 testTypes: ['local-model-cli']
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.doesNotThrow(() => manager.validate())
-        })
+            const manager = new TemplateManager(answers);
+            assert.doesNotThrow(() => manager.validate());
+        });
 
         it('should pass validation for transformers deployment configurations', () => {
             const answers = {
@@ -40,11 +40,11 @@ describe('TemplateManager', () => {
                 awsRoleArn: '',
                 includeTesting: true,
                 testTypes: ['local-model-cli']
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.doesNotThrow(() => manager.validate())
-        })
+            const manager = new TemplateManager(answers);
+            assert.doesNotThrow(() => manager.validate());
+        });
 
         it('should pass validation for triton deployment configurations', () => {
             const answers = {
@@ -56,11 +56,11 @@ describe('TemplateManager', () => {
                 awsRoleArn: '',
                 includeTesting: true,
                 testTypes: ['local-model-cli']
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.doesNotThrow(() => manager.validate())
-        })
+            const manager = new TemplateManager(answers);
+            assert.doesNotThrow(() => manager.validate());
+        });
 
         it('should throw error for unsupported deployment configuration', () => {
             const answers = {
@@ -69,11 +69,11 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.throws(() => manager.validate(), /pytorch-torchserve not implemented yet/)
-        })
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /pytorch-torchserve not implemented yet/);
+        });
 
         it('should reject old-format deployment configs', () => {
             const answers = {
@@ -82,11 +82,11 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.throws(() => manager.validate(), /sklearn-flask not implemented yet/)
-        })
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /sklearn-flask not implemented yet/);
+        });
 
         it('should support fallback validation with separate architecture and backend', () => {
             const answers = {
@@ -98,11 +98,11 @@ describe('TemplateManager', () => {
                 awsRoleArn: '',
                 includeTesting: true,
                 testTypes: ['local-model-cli']
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.doesNotThrow(() => manager.validate())
-        })
+            const manager = new TemplateManager(answers);
+            assert.doesNotThrow(() => manager.validate());
+        });
 
         it('should throw error for unsupported architecture in fallback mode', () => {
             const answers = {
@@ -112,11 +112,11 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.throws(() => manager.validate(), /custom not implemented yet/)
-        })
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /custom not implemented yet/);
+        });
 
         it('should throw error for unsupported backend in fallback mode', () => {
             const answers = {
@@ -126,11 +126,11 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.throws(() => manager.validate(), /torchserve not implemented yet/)
-        })
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /torchserve not implemented yet/);
+        });
 
         it('should throw error for tensorrt-llm with non-transformers architecture', () => {
             const answers = {
@@ -140,11 +140,11 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.throws(() => manager.validate(), /TensorRT-LLM is only supported with the transformers architecture/)
-        })
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /TensorRT-LLM is only supported with the transformers architecture/);
+        });
 
         it('should reject triton-vllm with CPU-only instance type', () => {
             const answers = {
@@ -154,11 +154,11 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.m5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.throws(() => manager.validate(), /triton-vllm requires a GPU instance type/)
-        })
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /triton-vllm requires a GPU instance type/);
+        });
 
         it('should reject triton-tensorrtllm with CPU-only instance type', () => {
             const answers = {
@@ -168,11 +168,11 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.c5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.throws(() => manager.validate(), /triton-tensorrtllm requires a GPU instance type/)
-        })
+            const manager = new TemplateManager(answers);
+            assert.throws(() => manager.validate(), /triton-tensorrtllm requires a GPU instance type/);
+        });
 
         it('should accept triton-vllm with GPU instance type', () => {
             const answers = {
@@ -182,10 +182,10 @@ describe('TemplateManager', () => {
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
-            }
+            };
             
-            const manager = new TemplateManager(answers)
-            assert.doesNotThrow(() => manager.validate())
-        })
-    })
+            const manager = new TemplateManager(answers);
+            assert.doesNotThrow(() => manager.validate());
+        });
+    });
 });

@@ -1,0 +1,681 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# ============================================================
+# CI Integration Harness — local entry point
+# Subcommands: report, status, trigger, dashboard
+# ============================================================
+
+CI_TABLE_NAME="${CI_TABLE_NAME:-mlcc-ci-table}"
+CI_LOG_GROUP="${CI_LOG_GROUP:-ml-container-creator-ci}"
+
+# 15 known deployment configurations from the catalog
+KNOWN_CONFIGS=(
+    "transformers-vllm"
+    "transformers-sglang"
+    "transformers-lmi"
+    "transformers-djl"
+    "transformers-tensorrt-llm"
+    "http-flask"
+    "http-fastapi"
+    "http-nginx"
+    "triton-fil"
+    "triton-python"
+    "triton-onnx"
+    "triton-tensorrt"
+    "diffusors-vllm"
+    "diffusors-sglang"
+    "diffusors-comfyui"
+)
+
+# ============================================================
+# Prerequisite check: CI infrastructure must be provisioned
+# ============================================================
+
+check_ci_infrastructure() {
+    if ! aws dynamodb describe-table --table-name "${CI_TABLE_NAME}" --region "${AWS_REGION}" &>/dev/null; then
+        echo "❌ CI infrastructure not provisioned."
+        echo "   Run 'ml-container-creator bootstrap' with CI enabled."
+        exit 1
+    fi
+}
+
+# ============================================================
+# ci_usage — display help when no subcommand is given
+# ============================================================
+
+ci_usage() {
+    echo "Usage: ./do/ci <subcommand> [options]"
+    echo ""
+    echo "Subcommands:"
+    echo "  report      Show coverage report across all deployment configurations"
+    echo "  status      Show current CI system status summary"
+    echo "  trigger     Manually invoke the CI scanner to queue stale records"
+    echo "  dashboard   Start a local web dashboard for CI results"
+    echo ""
+    echo "Options:"
+    echo "  report --json          Output report in machine-parseable JSON"
+    echo "  dashboard --port <N>   Start dashboard on a custom port (default: 3939)"
+    echo ""
+    echo "Examples:"
+    echo "  ./do/ci report"
+    echo "  ./do/ci report --json"
+    echo "  ./do/ci status"
+    echo "  ./do/ci trigger"
+    echo "  ./do/ci dashboard"
+    echo "  ./do/ci dashboard --port 8080"
+}
+
+
+# ============================================================
+# ci_report — coverage report across deployment configurations
+# ============================================================
+
+ci_report() {
+    local json_output=false
+
+    # Parse report-specific flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json)
+                json_output=true
+                shift
+                ;;
+            *)
+                echo "⚠️  Unknown option for report: $1"
+                echo "Usage: ./do/ci report [--json]"
+                exit 1
+                ;;
+        esac
+    done
+
+    echo "📊 CI Coverage Report"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Scan all records from CI_Table
+    local scan_result
+    scan_result=$(aws dynamodb scan \
+        --table-name "${CI_TABLE_NAME}" \
+        --region "${AWS_REGION}" \
+        --output json 2>/dev/null) || {
+        echo "❌ Failed to scan CI table: ${CI_TABLE_NAME}"
+        exit 1
+    }
+
+    local item_count
+    item_count=$(echo "${scan_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('Count', 0))" 2>/dev/null || echo "0")
+
+    if [ "${item_count}" -eq 0 ]; then
+        echo "No test configurations registered. Use './do/register --ci' to add configurations."
+        return 0
+    fi
+
+    # Process records with python3 for grouping, regression detection, and summary
+    local json_flag="False"
+    if [ "${json_output}" = true ]; then
+        json_flag="True"
+    fi
+
+    echo "${scan_result}" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+items = data.get('Items', [])
+json_output = ${json_flag}
+
+known_configs = [
+    'transformers-vllm', 'transformers-sglang', 'transformers-lmi',
+    'transformers-djl', 'transformers-tensorrt-llm',
+    'http-flask', 'http-fastapi', 'http-nginx',
+    'triton-fil', 'triton-python', 'triton-onnx', 'triton-tensorrt',
+    'diffusors-vllm', 'diffusors-sglang', 'diffusors-comfyui'
+]
+
+# Group records by deploymentConfig
+groups = {}
+for item in items:
+    dc = item.get('deploymentConfig', {}).get('S', 'unknown')
+    if dc not in groups:
+        groups[dc] = []
+    groups[dc].append(item)
+
+# Compute per-config status (latest record wins based on lastTestTimestamp)
+config_status = {}
+for dc, records in groups.items():
+    # Sort by lastTestTimestamp descending to get latest
+    sorted_records = sorted(records, key=lambda r: r.get('lastTestTimestamp', {}).get('S', ''), reverse=True)
+    latest = sorted_records[0]
+    status = latest.get('testStatus', {}).get('S', 'untested')
+    project = latest.get('projectName', {}).get('S', '')
+    last_ts = latest.get('lastTestTimestamp', {}).get('S', '')
+    duration = latest.get('lastTestDuration', {}).get('N', '0')
+    config_status[dc] = {
+        'status': status,
+        'project': project,
+        'lastTest': last_ts,
+        'duration': int(duration) if duration else 0,
+        'recordCount': len(records)
+    }
+
+# Detect regressions: configs that have a previous 'pass' but latest is 'fail-*'
+regressions = []
+for dc, records in groups.items():
+    sorted_records = sorted(records, key=lambda r: r.get('lastTestTimestamp', {}).get('S', ''))
+    latest_status = config_status[dc]['status']
+    if latest_status.startswith('fail-'):
+        # Check if any previous record had 'pass'
+        for r in sorted_records[:-1]:
+            if r.get('testStatus', {}).get('S', '') == 'pass':
+                regressions.append(dc)
+                break
+
+# Compute summary
+total = len(known_configs)
+tested_configs = set(groups.keys()) & set(known_configs)
+tested = len(tested_configs)
+untested = total - tested
+passing = sum(1 for dc in tested_configs if config_status.get(dc, {}).get('status') == 'pass')
+failing = sum(1 for dc in tested_configs if config_status.get(dc, {}).get('status', '').startswith('fail-'))
+coverage_pct = (tested / total * 100) if total > 0 else 0
+
+if json_output:
+    report = {
+        'summary': {
+            'total': total,
+            'tested': tested,
+            'passing': passing,
+            'failing': failing,
+            'untested': untested,
+            'coveragePercent': round(coverage_pct, 1)
+        },
+        'configurations': {},
+        'regressions': regressions,
+        'untestedConfigs': [c for c in known_configs if c not in groups]
+    }
+    for dc in known_configs:
+        if dc in config_status:
+            report['configurations'][dc] = config_status[dc]
+        else:
+            report['configurations'][dc] = {'status': 'untested', 'project': '', 'lastTest': '', 'duration': 0, 'recordCount': 0}
+    # Include non-catalog configs
+    for dc in config_status:
+        if dc not in known_configs:
+            report['configurations'][dc] = config_status[dc]
+    print(json.dumps(report, indent=2))
+else:
+    # Human-readable table
+    print(f'  {\"Config\":<30} {\"Status\":<16} {\"Project\":<20} {\"Last Test\":<22} {\"Duration\":>10}')
+    print('  ' + '-' * 100)
+    for dc in known_configs:
+        if dc in config_status:
+            cs = config_status[dc]
+            status_str = cs['status']
+            if dc in regressions:
+                status_str += ' ⚠️ REGRESSION'
+            dur = f\"{cs['duration']}s\" if cs['duration'] > 0 else '-'
+            last = cs['lastTest'] if cs['lastTest'] and cs['lastTest'] != '1970-01-01T00:00:00Z' else '-'
+            print(f'  {dc:<30} {status_str:<16} {cs[\"project\"]:<20} {last:<22} {dur:>10}')
+        else:
+            print(f'  {dc:<30} {\"untested\":<16} {\"-\":<20} {\"-\":<22} {\"-\":>10}')
+
+    # Show non-catalog configs if any
+    extra = [dc for dc in config_status if dc not in known_configs]
+    if extra:
+        print()
+        print('  Non-catalog configurations:')
+        print('  ' + '-' * 100)
+        for dc in extra:
+            cs = config_status[dc]
+            dur = f\"{cs['duration']}s\" if cs['duration'] > 0 else '-'
+            last = cs['lastTest'] if cs['lastTest'] and cs['lastTest'] != '1970-01-01T00:00:00Z' else '-'
+            print(f'  {dc:<30} {cs[\"status\"]:<16} {cs[\"project\"]:<20} {last:<22} {dur:>10}')
+
+    print()
+    if regressions:
+        print('  ⚠️  Regressions detected:')
+        for r in regressions:
+            print(f'     • {r}')
+        print()
+
+    print(f'  Summary: {total} total | {tested} tested | {passing} passing | {failing} failing | {untested} untested | {coverage_pct:.1f}% coverage')
+    print()
+"
+}
+
+
+# ============================================================
+# ci_status — current CI system status summary
+# ============================================================
+
+ci_status() {
+    echo "📋 CI System Status"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Scan all records from CI_Table
+    local scan_result
+    scan_result=$(aws dynamodb scan \
+        --table-name "${CI_TABLE_NAME}" \
+        --region "${AWS_REGION}" \
+        --output json 2>/dev/null) || {
+        echo "❌ Failed to scan CI table: ${CI_TABLE_NAME}"
+        exit 1
+    }
+
+    local item_count
+    item_count=$(echo "${scan_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('Count', 0))" 2>/dev/null || echo "0")
+
+    if [ "${item_count}" -eq 0 ]; then
+        echo "CI table is empty. Register test configurations with './do/register --ci'."
+        return 0
+    fi
+
+    # Process records with python3 for status counts
+    echo "${scan_result}" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+items = data.get('Items', [])
+
+total = len(items)
+running = 0
+passing = 0
+failing = 0
+untested = 0
+last_completed = ''
+
+for item in items:
+    status = item.get('testStatus', {}).get('S', 'untested')
+    ts = item.get('lastTestTimestamp', {}).get('S', '')
+
+    if status == 'running':
+        running += 1
+    elif status == 'pass':
+        passing += 1
+    elif status.startswith('fail-'):
+        failing += 1
+    elif status == 'untested':
+        untested += 1
+
+    # Track last completed test (exclude running and untested, exclude epoch)
+    if status not in ('running', 'untested') and ts and ts != '1970-01-01T00:00:00Z':
+        if not last_completed or ts > last_completed:
+            last_completed = ts
+
+print(f'  Total records:     {total}')
+print(f'  Running:           {running}')
+print(f'  Passing:           {passing}')
+print(f'  Failing:           {failing}')
+print(f'  Untested:          {untested}')
+print(f'  Last completed:    {last_completed if last_completed else \"N/A\"}')
+print()
+"
+}
+
+
+# ============================================================
+# ci_trigger — manually invoke the Scanner Lambda
+# ============================================================
+
+ci_trigger() {
+    echo "🚀 Triggering CI Scanner Lambda"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    local response_file
+    response_file=$(mktemp /tmp/ci-trigger-XXXXXX.json)
+
+    if aws lambda invoke \
+        --function-name "mlcc-ci-scanner" \
+        --region "${AWS_REGION}" \
+        --log-type Tail \
+        "${response_file}" &>/dev/null; then
+
+        echo "✅ Scanner Lambda invoked successfully"
+        echo ""
+
+        # Display response payload
+        if [ -s "${response_file}" ]; then
+            echo "   Response:"
+            python3 -c "
+import sys, json
+try:
+    with open('${response_file}') as f:
+        data = json.load(f)
+    print(json.dumps(data, indent=2))
+except:
+    with open('${response_file}') as f:
+        print(f.read())
+" 2>/dev/null || cat "${response_file}"
+        fi
+    else
+        echo "❌ Failed to invoke Scanner Lambda"
+        echo "   Check that:"
+        echo "   • CI infrastructure is provisioned"
+        echo "   • Your IAM credentials have lambda:InvokeFunction permission"
+        echo "   • The function 'mlcc-ci-scanner' exists in region: ${AWS_REGION}"
+    fi
+
+    rm -f "${response_file}"
+}
+
+
+# ============================================================
+# ci_dashboard — local web dashboard for CI results
+# ============================================================
+
+ci_dashboard() {
+    local port=3939
+
+    # Parse dashboard-specific flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --port)
+                port="$2"
+                shift 2
+                ;;
+            --port=*)
+                port="${1#*=}"
+                shift
+                ;;
+            *)
+                echo "⚠️  Unknown option for dashboard: $1"
+                echo "Usage: ./do/ci dashboard [--port <N>]"
+                exit 1
+                ;;
+        esac
+    done
+
+    echo "🖥️  Starting CI Dashboard"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "   Table:  ${CI_TABLE_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    echo "   Port:   ${port}"
+    echo ""
+    echo "   Open http://localhost:${port} in your browser"
+    echo "   Press Ctrl+C to stop"
+    echo ""
+
+    # Export environment variables for the Node.js server
+    export DASHBOARD_PORT="${port}"
+    export CI_TABLE_NAME="${CI_TABLE_NAME}"
+    export AWS_REGION="${AWS_REGION}"
+    export CI_LOG_GROUP="${CI_LOG_GROUP}"
+
+    # Write the server script directly to a temp file (avoids heredoc-in-subshell bash parsing issues)
+    local tmp_script
+    tmp_script=$(mktemp /tmp/mlcc-ci-dashboard-XXXXXX.js)
+    trap "rm -f '${tmp_script}'" EXIT
+
+    cat > "${tmp_script}" <<'DASHBOARD_EOF'
+const http = require('http');
+const { execSync } = require('child_process');
+
+const PORT = parseInt(process.env.DASHBOARD_PORT || '3939', 10);
+const CI_TABLE_NAME = process.env.CI_TABLE_NAME || 'mlcc-ci-table';
+const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+const CI_LOG_GROUP = process.env.CI_LOG_GROUP || 'ml-container-creator-ci';
+
+function fetchCIData() {
+    try {
+        const raw = execSync(
+            `aws dynamodb scan --table-name "${CI_TABLE_NAME}" --region "${AWS_REGION}" --output json`,
+            { encoding: 'utf-8', timeout: 30000 }
+        );
+        const data = JSON.parse(raw);
+        const items = (data.Items || []).map(item => ({
+            configId: (item.configId || {}).S || '',
+            configJson: (item.configJson || {}).S || '{}',
+            projectName: (item.projectName || {}).S || '',
+            deploymentConfig: (item.deploymentConfig || {}).S || '',
+            testStatus: (item.testStatus || {}).S || 'untested',
+            lastTestTimestamp: (item.lastTestTimestamp || {}).S || '',
+            lastTestDuration: parseInt((item.lastTestDuration || {}).N || '0', 10),
+            stageResults: item.stageResults ? parseStageResults(item.stageResults) : {},
+            baseImage: (item.baseImage || {}).S || '',
+            errorMessage: (item.errorMessage || {}).S || ''
+        }));
+        return items;
+    } catch (e) {
+        return [];
+    }
+}
+
+function parseStageResults(attr) {
+    if (!attr || !attr.M) return {};
+    const result = {};
+    for (const [stage, val] of Object.entries(attr.M)) {
+        if (val.M) {
+            result[stage] = {
+                status: (val.M.status || {}).S || '',
+                durationSeconds: parseInt((val.M.durationSeconds || {}).N || '0', 10),
+                logPointer: (val.M.logPointer || {}).S || ''
+            };
+        }
+    }
+    return result;
+}
+
+function statusColor(status) {
+    if (status === 'pass') return '#22c55e';
+    if (status && status.startsWith('fail')) return '#ef4444';
+    if (status === 'running') return '#eab308';
+    return '#9ca3af';
+}
+
+function statusBadge(status) {
+    const color = statusColor(status);
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:${color};color:#fff;font-size:12px;font-weight:600;">${status}</span>`;
+}
+
+function formatDuration(seconds) {
+    if (!seconds || seconds === 0) return '-';
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+}
+
+function logLink(logPointer) {
+    if (!logPointer) return '-';
+    const parts = logPointer.split(':');
+    const group = parts[0] || CI_LOG_GROUP;
+    const stream = parts.slice(1).join(':') || logPointer;
+    const encodedGroup = encodeURIComponent(encodeURIComponent(group));
+    const encodedStream = encodeURIComponent(encodeURIComponent(stream));
+    const url = `https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group/${encodedGroup}/log-events/${encodedStream}`;
+    return `<a href="${url}" target="_blank" style="color:#3b82f6;text-decoration:none;">logs</a>`;
+}
+
+function renderStages(stageResults) {
+    const stageOrder = ['generate', 'validate', 'build', 'deploy_test', 'register', 'teardown', 'update'];
+    if (!stageResults || Object.keys(stageResults).length === 0) return '<span style="color:#9ca3af;">-</span>';
+    return stageOrder.map(stage => {
+        const sr = stageResults[stage];
+        if (!sr) return `<span style="color:#9ca3af;" title="${stage}: N/A">⬜</span>`;
+        const color = statusColor(sr.status);
+        const dur = formatDuration(sr.durationSeconds);
+        const link = sr.logPointer ? ` (${logLink(sr.logPointer)})` : '';
+        return `<span style="color:${color};" title="${stage}: ${sr.status} ${dur}${sr.logPointer ? ' — click for logs' : ''}">${sr.status === 'pass' ? '✅' : sr.status === 'fail' ? '❌' : sr.status === 'skip' ? '⏭️' : '⬜'}</span>`;
+    }).join(' ');
+}
+
+function buildHTML(items) {
+    const sorted = items.sort((a, b) => a.deploymentConfig.localeCompare(b.deploymentConfig));
+    const rows = sorted.map(item => {
+        const lastTest = item.lastTestTimestamp && item.lastTestTimestamp !== '1970-01-01T00:00:00Z'
+            ? item.lastTestTimestamp.replace('T', ' ').replace('Z', '')
+            : '-';
+        const escapedConfig = (item.configJson || '{}').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `<tr class="clickable-row" data-config="${escapedConfig}" data-project="${item.projectName || '-'}" data-id="${item.configId || ''}">
+            <td>${item.projectName || '-'}</td>
+            <td><code>${item.deploymentConfig || '-'}</code></td>
+            <td>${statusBadge(item.testStatus)}</td>
+            <td>${lastTest}</td>
+            <td>${formatDuration(item.lastTestDuration)}</td>
+            <td>${renderStages(item.stageResults)}</td>
+        </tr>`;
+    }).join('\n');
+
+    const total = items.length;
+    const passing = items.filter(i => i.testStatus === 'pass').length;
+    const failing = items.filter(i => i.testStatus && i.testStatus.startsWith('fail')).length;
+    const running = items.filter(i => i.testStatus === 'running').length;
+    const untested = items.filter(i => i.testStatus === 'untested').length;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLCC CI Dashboard</title>
+    <meta http-equiv="refresh" content="60">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 20px; }
+        h1 { font-size: 24px; margin-bottom: 8px; }
+        .subtitle { color: #94a3b8; margin-bottom: 20px; font-size: 14px; }
+        .summary { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+        .stat { background: #1e293b; padding: 12px 20px; border-radius: 8px; text-align: center; min-width: 100px; }
+        .stat .value { font-size: 28px; font-weight: 700; }
+        .stat .label { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; }
+        th { background: #334155; padding: 10px 12px; text-align: left; font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 10px 12px; border-top: 1px solid #334155; font-size: 14px; }
+        tr:hover td { background: #263348; }
+        tr.clickable-row { cursor: pointer; }
+        code { background: #334155; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        a { color: #3b82f6; }
+        .footer { margin-top: 20px; color: #64748b; font-size: 12px; text-align: center; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay.active { display: flex; }
+        .modal { background: #1e293b; border-radius: 12px; padding: 24px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto; position: relative; border: 1px solid #334155; }
+        .modal h2 { font-size: 18px; margin-bottom: 4px; }
+        .modal .modal-subtitle { color: #94a3b8; font-size: 13px; margin-bottom: 16px; }
+        .modal pre { background: #0f172a; padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; color: #a5f3fc; }
+        .modal-close { position: absolute; top: 12px; right: 16px; background: none; border: none; color: #94a3b8; font-size: 24px; cursor: pointer; }
+        .modal-close:hover { color: #e2e8f0; }
+    </style>
+</head>
+<body>
+    <h1>🔬 MLCC CI Dashboard</h1>
+    <p class="subtitle">Table: ${CI_TABLE_NAME} | Region: ${AWS_REGION} | Auto-refresh: 60s</p>
+    <div class="summary">
+        <div class="stat"><div class="value">${total}</div><div class="label">Total</div></div>
+        <div class="stat"><div class="value" style="color:#22c55e;">${passing}</div><div class="label">Passing</div></div>
+        <div class="stat"><div class="value" style="color:#ef4444;">${failing}</div><div class="label">Failing</div></div>
+        <div class="stat"><div class="value" style="color:#eab308;">${running}</div><div class="label">Running</div></div>
+        <div class="stat"><div class="value" style="color:#9ca3af;">${untested}</div><div class="label">Untested</div></div>
+    </div>
+    <table>
+        <thead>
+            <tr><th>Project</th><th>Config</th><th>Status</th><th>Last Test</th><th>Duration</th><th>Stages</th></tr>
+        </thead>
+        <tbody>
+            ${rows || '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:40px;">No records found</td></tr>'}
+        </tbody>
+    </table>
+    <div class="footer">Generated at ${new Date().toISOString()} | Refresh page or wait for auto-refresh</div>
+    <div class="modal-overlay" id="configModal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <h2 id="modalTitle">Configuration</h2>
+            <p class="modal-subtitle" id="modalSubtitle"></p>
+            <pre id="modalContent"></pre>
+        </div>
+    </div>
+    <script>
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const config = row.getAttribute('data-config');
+                const project = row.getAttribute('data-project');
+                const configId = row.getAttribute('data-id');
+                let formatted;
+                try { formatted = JSON.stringify(JSON.parse(config), null, 2); }
+                catch { formatted = config; }
+                document.getElementById('modalTitle').textContent = project || 'Configuration';
+                document.getElementById('modalSubtitle').textContent = 'configId: ' + (configId || 'unknown');
+                document.getElementById('modalContent').textContent = formatted;
+                document.getElementById('configModal').classList.add('active');
+            });
+        });
+        function closeModal() { document.getElementById('configModal').classList.remove('active'); }
+        document.getElementById('configModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeModal();
+        });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+    </script>
+</body>
+</html>`;
+}
+
+const server = http.createServer((req, res) => {
+    if (req.url === '/' || req.url === '/index.html') {
+        const items = fetchCIData();
+        const html = buildHTML(items);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+    } else if (req.url === '/api/data') {
+        const items = fetchCIData();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(items, null, 2));
+    } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+    }
+});
+
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} in use, try --port <N>`);
+        process.exit(1);
+    }
+    console.error('Server error:', err.message);
+    process.exit(1);
+});
+
+server.listen(PORT, () => {
+    console.log(`CI Dashboard running at http://localhost:${PORT}`);
+});
+DASHBOARD_EOF
+
+    node "${tmp_script}"
+}
+
+
+# ============================================================
+# Subcommand routing
+# ============================================================
+
+# Check CI infrastructure before any subcommand
+check_ci_infrastructure
+
+case "${1:-}" in
+    report)
+        shift
+        ci_report "$@"
+        ;;
+    status)
+        ci_status
+        ;;
+    trigger)
+        ci_trigger
+        ;;
+    dashboard)
+        shift
+        ci_dashboard "$@"
+        ;;
+    *)
+        ci_usage
+        ;;
+esac

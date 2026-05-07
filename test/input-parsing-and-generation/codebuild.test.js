@@ -19,7 +19,7 @@
  */
 
 import { setupTestHooks } from './test-utils.js';
-import ConfigManager, { ValidationError } from '../../generators/app/lib/config-manager.js';
+import ConfigManager, { ValidationError } from '../../src/lib/config-manager.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';

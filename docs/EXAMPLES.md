@@ -7,7 +7,7 @@ Concise walkthroughs for each deployment configuration. Every example follows th
 Deploy a scikit-learn model with Flask serving on a CPU instance.
 
 ```bash
-yo @aws/ml-container-creator sklearn-flask-demo \
+ml-container-creator sklearn-flask-demo \
   --deployment-config=http-flask \
   --engine=sklearn \
   --model-format=pkl \
@@ -39,7 +39,7 @@ Build, push, deploy:
 Deploy an XGBoost model with FastAPI serving.
 
 ```bash
-yo @aws/ml-container-creator xgboost-fastapi-demo \
+ml-container-creator xgboost-fastapi-demo \
   --deployment-config=http-fastapi \
   --engine=xgboost \
   --model-format=json \
@@ -60,7 +60,7 @@ yo @aws/ml-container-creator xgboost-fastapi-demo \
 Deploy a TensorFlow SavedModel with Flask serving.
 
 ```bash
-yo @aws/ml-container-creator tf-flask-demo \
+ml-container-creator tf-flask-demo \
   --deployment-config=http-flask \
   --engine=tensorflow \
   --model-format=SavedModel \
@@ -81,7 +81,7 @@ yo @aws/ml-container-creator tf-flask-demo \
 Deploy an LLM with vLLM. GPU instance required.
 
 ```bash
-yo @aws/ml-container-creator vllm-demo \
+ml-container-creator vllm-demo \
   --deployment-config=transformers-vllm \
   --model-name=openai/gpt-oss-20b \
   --deployment-target=managed-inference \
@@ -106,7 +106,7 @@ For gated models (e.g., Llama), add `--hf-token='$HF_TOKEN'` and export the toke
 Deploy an LLM with SGLang. Same workflow as vLLM with a different deployment config.
 
 ```bash
-yo @aws/ml-container-creator sglang-demo \
+ml-container-creator sglang-demo \
   --deployment-config=transformers-sglang \
   --model-name=openai/gpt-oss-20b \
   --deployment-target=managed-inference \
@@ -125,7 +125,7 @@ yo @aws/ml-container-creator sglang-demo \
 Deploy an LLM with NVIDIA TensorRT-LLM. Requires NGC authentication for the base image and A10G or newer GPUs (ml.g5 instances, not ml.g6).
 
 ```bash
-yo @aws/ml-container-creator trtllm-demo \
+ml-container-creator trtllm-demo \
   --deployment-config=transformers-tensorrt-llm \
   --model-name=meta-llama/Llama-3.2-3B-Instruct \
   --deployment-target=managed-inference \
@@ -156,7 +156,7 @@ The generated container runs TensorRT-LLM on port 8081 behind an Nginx reverse p
 Deploy an LLM with AWS Large Model Inference (DJL-based). Uses `serving.properties` for configuration instead of environment variables.
 
 ```bash
-yo @aws/ml-container-creator lmi-demo \
+ml-container-creator lmi-demo \
   --deployment-config=transformers-lmi \
   --model-name=openai/gpt-oss-20b \
   --deployment-target=managed-inference \
@@ -175,7 +175,7 @@ yo @aws/ml-container-creator lmi-demo \
 Deploy an LLM with Deep Java Library serving.
 
 ```bash
-yo @aws/ml-container-creator djl-demo \
+ml-container-creator djl-demo \
   --deployment-config=transformers-djl \
   --model-name=openai/gpt-oss-20b \
   --deployment-target=managed-inference \
@@ -194,7 +194,7 @@ yo @aws/ml-container-creator djl-demo \
 Deploy XGBoost or LightGBM models on NVIDIA Triton Inference Server using the Forest Inference Library backend.
 
 ```bash
-yo @aws/ml-container-creator triton-fil-demo \
+ml-container-creator triton-fil-demo \
   --deployment-config=triton-fil \
   --model-format=json \
   --deployment-target=managed-inference \
@@ -215,7 +215,7 @@ The generator creates a Triton model repository layout with `config.pbtxt`. Plac
 Deploy ONNX models on Triton.
 
 ```bash
-yo @aws/ml-container-creator triton-onnx-demo \
+ml-container-creator triton-onnx-demo \
   --deployment-config=triton-onnxruntime \
   --deployment-target=managed-inference \
   --instance-type=ml.g5.xlarge \
@@ -233,7 +233,7 @@ yo @aws/ml-container-creator triton-onnx-demo \
 Deploy custom Python models on Triton. The Python backend gives full control over preprocessing, inference, and postprocessing logic.
 
 ```bash
-yo @aws/ml-container-creator triton-python-demo \
+ml-container-creator triton-python-demo \
   --deployment-config=triton-python \
   --deployment-target=managed-inference \
   --instance-type=ml.g5.xlarge \
@@ -261,7 +261,7 @@ Any of the examples above can use CodeBuild for the image build instead of build
 Any of the examples above can target HyperPod EKS instead of managed inference. Set `--deployment-target=hyperpod-eks` and provide your cluster details:
 
 ```bash
-yo @aws/ml-container-creator hyperpod-demo \
+ml-container-creator hyperpod-demo \
   --deployment-config=transformers-vllm \
   --model-name=openai/gpt-oss-20b \
   --deployment-target=hyperpod-eks \

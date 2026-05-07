@@ -17,3 +17,6 @@ config/mcp.json
 
 # MkDocs build output
 site/
+
+# npm pack artifacts
+*.tgz

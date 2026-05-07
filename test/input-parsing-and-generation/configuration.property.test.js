@@ -17,7 +17,7 @@
 import fc from 'fast-check';
 import { setupTestHooks } from './test-utils.js';
 import assert from 'assert';
-import ConfigurationMatcher from '../../generators/app/lib/configuration-matcher.js';
+import ConfigurationMatcher from '../../src/lib/configuration-matcher.js';
 
 describe('Configuration System Properties', () => {
     setupTestHooks('Configuration System Properties');

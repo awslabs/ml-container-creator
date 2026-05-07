@@ -7,7 +7,6 @@ Common issues and solutions when using ML Container Creator.
 | Issue | Fix |
 |-------|-----|
 | `SyntaxError: Unexpected token 'export'` | `nvm use node` (requires Node.js 24.11.1+) |
-| `yo: command not found` | `npm install -g yo@latest` |
 | Generator not found | `npm link` in the project directory |
 | Docker build fails: package not found | Pin versions in `requirements.txt` |
 | Container exits immediately | `docker logs <id>` to check for errors |
@@ -29,7 +28,7 @@ Error: @aws/ml-container-creator generator not found
 ```bash
 cd ml-container-creator
 npm link
-yo --generators   # Should list @aws/ml-container-creator
+ml-container-creator --help   # Should show available commands
 ```
 
 ### Node.js Version Error
@@ -47,12 +46,11 @@ nvm use node
 node --version    # Must be 24.11.1+
 ```
 
-### Yeoman Not Found in CI
+### CLI Not Found in CI
 
 ```bash
-npm install -g yo@latest
-npm link
-yo @aws/ml-container-creator --help
+npm install -g @aws/ml-container-creator
+ml-container-creator --help
 ```
 
 ## Docker Build Issues
@@ -237,7 +235,7 @@ Warning: HuggingFace API timeout, checking local registry
 This is expected behavior -- the generator falls back to local registry data. To skip HuggingFace API calls entirely:
 
 ```bash
-yo @aws/ml-container-creator --offline
+ml-container-creator --offline
 ```
 
 ### Access Denied or Repository Not Found
@@ -264,7 +262,7 @@ Use `--offline` to skip API calls, or set `HF_TOKEN` for higher rate limits:
 
 ```bash
 export HF_TOKEN=hf_your_token_here
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 ## Getting Help
@@ -277,7 +275,7 @@ docker logs <container-id>
 aws logs tail /aws/sagemaker/Endpoints/<endpoint-name> --follow
 
 # Generator debug output
-DEBUG=* yo @aws/ml-container-creator
+DEBUG=* ml-container-creator
 ```
 
 - [GitHub Issues](https://github.com/awslabs/ml-container-creator/issues) -- report bugs

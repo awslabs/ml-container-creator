@@ -22,13 +22,13 @@ import ejs from 'ejs';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import TemplateManager from '../../generators/app/lib/template-manager.js';
+import TemplateManager from '../../src/lib/template-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load all do-framework templates
-const templatesDir = path.join(__dirname, '../../generators/app/templates/do');
+const templatesDir = path.join(__dirname, '../../templates/do');
 
 const configTemplate = readFileSync(path.join(templatesDir, 'config'), 'utf8');
 const deployTemplate = readFileSync(path.join(templatesDir, 'deploy'), 'utf8');

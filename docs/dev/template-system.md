@@ -1,6 +1,6 @@
 # Template System
 
-Templates live in `generators/app/templates/` and use [EJS](https://ejs.co/) syntax. All template variables come from `this.answers` in the generator.
+Templates live in `templates/` and use [EJS](https://ejs.co/) syntax. All template variables come from `this.answers` in the generator.
 
 ## EJS in Templates
 

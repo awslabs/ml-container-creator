@@ -9,13 +9,13 @@ Configuration sources are applied in strict precedence order (highest to lowest)
 | Priority | Source | Description | Example |
 |----------|--------|-------------|---------|
 | 1 | CLI Options | Command-line flags | `--deployment-config=http-flask` |
-| 2 | CLI Arguments | Positional arguments | `yo @aws/ml-container-creator my-project` |
+| 2 | CLI Arguments | Positional arguments | `ml-container-creator my-project` |
 | 3 | Environment Variables | Shell environment | `export AWS_REGION=us-east-1` |
 | 4 | CLI Config File | `--config` specified file | `--config=production.json` |
 | 5 | Custom Config File | `config/mcp.json` | Auto-discovered in current directory |
 | 6 | Package.json Section | `"ml-container-creator": {...}` | Project-specific defaults |
 | 7 | Generator Defaults | Built-in defaults | `awsRegion: "us-east-1"` |
-| 8 | Interactive Prompts | User input (fallback) | Yeoman prompts |
+| 8 | Interactive Prompts | User input (fallback) | CLI prompts |
 
 Higher precedence sources override lower ones.
 
@@ -94,7 +94,7 @@ For traditional ML configs (`http-flask`, `http-fastapi`), also specify `--engin
 The default. Run the generator and answer the prompts:
 
 ```bash
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 ### CLI Options
@@ -102,7 +102,7 @@ yo @aws/ml-container-creator
 Use command-line flags for non-interactive generation:
 
 ```bash
-yo @aws/ml-container-creator my-project \
+ml-container-creator my-project \
   --deployment-config=http-flask \
   --engine=sklearn \
   --model-format=pkl \
@@ -123,7 +123,7 @@ export ML_INSTANCE_TYPE="ml.g5.2xlarge"
 export AWS_REGION="us-west-2"
 export AWS_ROLE="arn:aws:iam::123456789012:role/SageMakerRole"
 
-yo @aws/ml-container-creator --deployment-config=transformers-vllm --skip-prompts
+ml-container-creator --deployment-config=transformers-vllm --skip-prompts
 ```
 
 Only four environment variables are supported: `ML_INSTANCE_TYPE`, `AWS_REGION`, `AWS_ROLE`, and `ML_CONTAINER_CREATOR_CONFIG`. Core parameters must come from CLI options or config files.
@@ -135,7 +135,7 @@ Three file-based sources are supported, in descending precedence:
 **CLI config file** (`--config` flag or `ML_CONTAINER_CREATOR_CONFIG` env var):
 
 ```bash
-yo @aws/ml-container-creator --config=production.json --skip-prompts
+ml-container-creator --config=production.json --skip-prompts
 ```
 
 **Custom config file** (`config/mcp.json`, auto-discovered):
@@ -175,9 +175,9 @@ Beyond project generation, MCC provides configuration management commands:
 
 | Command | Description |
 |---------|-------------|
-| `yo @aws/ml-container-creator configure` | Interactive configuration file setup |
-| `yo @aws/ml-container-creator generate-empty-config` | Create an empty config file template |
-| `yo @aws/ml-container-creator help` | Show all options and examples |
+| `ml-container-creator configure` | Interactive configuration file setup |
+| `ml-container-creator generate-empty-config` | Create an empty config file template |
+| `ml-container-creator help` | Show all options and examples |
 
 ## HuggingFace Authentication
 
@@ -194,7 +194,7 @@ Authentication is required for:
 **CLI option:**
 
 ```bash
-yo @aws/ml-container-creator my-llm-project \
+ml-container-creator my-llm-project \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-2-7b-hf \
   --hf-token='$HF_TOKEN' \
@@ -236,19 +236,19 @@ The generator validates configuration and provides error messages:
 
 ```bash
 # Invalid deployment config
-yo @aws/ml-container-creator --deployment-config=invalid --skip-prompts
+ml-container-creator --deployment-config=invalid --skip-prompts
 # Error: invalid not implemented yet.
 
 # Incompatible model format
-yo @aws/ml-container-creator --deployment-config=http-flask --engine=sklearn --model-format=json --skip-prompts
+ml-container-creator --deployment-config=http-flask --engine=sklearn --model-format=json --skip-prompts
 # Error: Unsupported model format 'json' for engine 'sklearn'
 
 # Invalid ARN
-yo @aws/ml-container-creator --role-arn=invalid-arn --skip-prompts
+ml-container-creator --role-arn=invalid-arn --skip-prompts
 # Error: Invalid AWS Role ARN format
 
 # Missing required parameter
-yo @aws/ml-container-creator --skip-prompts
+ml-container-creator --skip-prompts
 # Error: Required parameter 'deploymentConfig' is missing
 ```
 

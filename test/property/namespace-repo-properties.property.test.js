@@ -362,7 +362,7 @@ describe('Repository-Level Namespace Property Tests', () => {
             fc.assert(fc.property(
                 arbServerDirName,
                 fc.constantFrom(
-                    '@aws/generator-ml-container-creator',
+                    '@aws/ml-container-creator',
                     '@amzn/ml-container-creator-test-server',
                     '@amzn/ml-container-creator-lib',
                     'some-random-package'
@@ -408,7 +408,7 @@ describe('Repository-Level Namespace Property Tests', () => {
             fc.assert(fc.property(
                 arbServerDirName,
                 fc.constantFrom(
-                    '@aws/generator-ml-container-creator',
+                    '@aws/ml-container-creator',
                     '@amzn/ml-container-creator-test-server',
                     '@amzn/ml-container-creator-lib'
                 ),

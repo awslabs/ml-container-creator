@@ -18,7 +18,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 describe('DO Framework - Simplified Tests', () => {
-    const templatesDir = path.join(__dirname, '../../generators/app/templates');
+    const templatesDir = path.join(__dirname, '../../templates');
     
     describe('Template Files Exist', () => {
         it('should have all do script templates', () => {
@@ -43,7 +43,7 @@ describe('DO Framework - Simplified Tests', () => {
             });
         });
         
-        it('should have legacy wrapper scripts', () => {
+        it('should not have legacy deploy/ scripts', () => {
             const legacyScripts = [
                 'deploy/build_and_push.sh',
                 'deploy/deploy.sh',
@@ -53,8 +53,8 @@ describe('DO Framework - Simplified Tests', () => {
             legacyScripts.forEach(script => {
                 const scriptPath = path.join(templatesDir, script);
                 assert.ok(
-                    existsSync(scriptPath),
-                    `Legacy script ${script} should exist`
+                    !existsSync(scriptPath),
+                    `Legacy script ${script} should not exist`
                 );
             });
         });
@@ -96,18 +96,6 @@ describe('DO Framework - Simplified Tests', () => {
                 );
             });
         });
-        
-        it('should have DEPRECATED warning in legacy scripts', () => {
-            const legacyScripts = ['deploy/build_and_push.sh', 'deploy/deploy.sh'];
-            
-            legacyScripts.forEach(script => {
-                const content = readFileSync(path.join(templatesDir, script), 'utf8');
-                assert.ok(
-                    content.includes('DEPRECATED') || content.includes('deprecated'),
-                    `${script} should have deprecation warning`
-                );
-            });
-        });
     });
     
     describe('Config Template', () => {
@@ -144,7 +132,7 @@ describe('DO Framework - Simplified Tests', () => {
     
     describe('Generator Integration', () => {
         it('should have _setExecutablePermissions method', () => {
-            const generatorPath = path.join(__dirname, '../../generators/app/index.js');
+            const generatorPath = path.join(__dirname, '../../src/app.js');
             const content = readFileSync(generatorPath, 'utf8');
             
             assert.ok(

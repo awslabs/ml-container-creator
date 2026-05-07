@@ -18,9 +18,9 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { McpClient } from '../../generators/app/lib/mcp-client.js';
-import ConfigManager from '../../generators/app/lib/config-manager.js';
-import McpCommandHandler from '../../generators/app/lib/mcp-command-handler.js';
+import { McpClient } from '../../src/lib/mcp-client.js';
+import ConfigManager from '../../src/lib/config-manager.js';
+import McpCommandHandler from '../../src/lib/mcp-command-handler.js';
 import { createMockGenerator } from '../helpers/mock-generator.js';
 
 const __filename = fileURLToPath(import.meta.url);

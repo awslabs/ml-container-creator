@@ -19,7 +19,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { fileURLToPath } from 'node:url';
-import RegistryLoader from '../../generators/app/lib/registry-loader.js';
+import RegistryLoader from '../../src/lib/registry-loader.js';
 
 const __filename = fileURLToPath(import.meta.url); // eslint-disable-line no-unused-vars
 

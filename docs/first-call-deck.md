@@ -12,7 +12,7 @@
 
 Open-source CLI tool for deploying ML models to Amazon SageMaker
 
-- `npx @aws/generator-ml-container-creator`
+- `npx @aws/ml-container-creator`
 - GitHub: [awslabs/ml-container-creator](https://github.com/awslabs/ml-container-creator)
 - License: Apache 2.0
 
@@ -51,7 +51,7 @@ Every deployment requires:
 **One CLI command → complete, buildable project**
 
 ```
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 Generates:
@@ -135,10 +135,10 @@ Generates:
 
 ```bash
 # Install
-npm install -g yo @aws/generator-ml-container-creator
+npm install -g @aws/ml-container-creator
 
 # Generate
-yo @aws/ml-container-creator
+ml-container-creator
 ```
 
 **Demo flow:**
@@ -213,7 +213,7 @@ CLI Options (highest)
 
 **Fully automated generation:**
 ```bash
-yo @aws/ml-container-creator \
+ml-container-creator \
   --skip-prompts \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-2-7b-chat-hf \
@@ -361,19 +361,19 @@ my-model/
 ./do/register
 
 # List all captured deployments
-yo @aws/ml-container-creator --registry list
+ml-container-creator --registry list
 
 # Replay a known-good deployment
-yo @aws/ml-container-creator --registry replay abc12345
+ml-container-creator --registry replay abc12345
 
 # Export for team sharing (sensitive fields auto-stripped)
-yo @aws/ml-container-creator --registry export --file team-configs.json
+ml-container-creator --registry export --file team-configs.json
 
 # Import a teammate's configs
-yo @aws/ml-container-creator --registry import --file team-configs.json
+ml-container-creator --registry import --file team-configs.json
 
 # Search: "what has worked for vLLM?"
-yo @aws/ml-container-creator --registry search --framework vllm
+ml-container-creator --registry search --framework vllm
 ```
 
 **What gets captured:**
@@ -432,10 +432,10 @@ npm install
 npm link
 
 # Generate a project
-yo @aws/ml-container-creator
+ml-container-creator
 
 # Or fully automated
-yo @aws/ml-container-creator --skip-prompts --deployment-config=http-flask --engine=sklearn
+ml-container-creator --skip-prompts --deployment-config=http-flask --engine=sklearn
 ```
 
 **Resources:**

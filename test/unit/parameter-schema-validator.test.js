@@ -10,7 +10,7 @@
 
 import { describe, it, beforeEach } from 'mocha';
 import assert from 'assert';
-import ParameterSchemaValidator, { PARAMETER_NAME_MAP, SUPPORTED_SCHEMA_VERSION, BUNDLED_SCHEMA_PATH } from '../../generators/app/lib/parameter-schema-validator.js';
+import ParameterSchemaValidator, { PARAMETER_NAME_MAP, SUPPORTED_SCHEMA_VERSION, BUNDLED_SCHEMA_PATH } from '../../src/lib/parameter-schema-validator.js';
 
 describe('ParameterSchemaValidator', () => {
     describe('constructor - schema loading', () => {

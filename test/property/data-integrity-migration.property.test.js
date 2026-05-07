@@ -24,7 +24,7 @@ import assert from 'assert';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import RegistryLoader from '../../generators/app/lib/registry-loader.js';
+import RegistryLoader from '../../src/lib/registry-loader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -1,0 +1,306 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Export current configuration as a CLI command or JSON object
+# Usage: ./do/export [--json]
+
+# Source configuration (suppress the summary output)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config" > /dev/null 2>&1
+
+# ── JSON output mode ─────────────────────────────────────────────────────────
+
+if [ "${1:-}" = "--json" ]; then
+    # Build a JSON object with all configuration parameters.
+    # Uses ConfigManager camelCase keys so the output can be fed directly
+    # back into the generator via --config=<file>.
+    JSON="{"
+    JSON="${JSON}\"projectName\":\"${PROJECT_NAME}\""
+
+    # Use deploymentConfig if available (bundles framework + model server)
+    if [ -n "${DEPLOYMENT_CONFIG:-}" ]; then
+        JSON="${JSON},\"deploymentConfig\":\"${DEPLOYMENT_CONFIG}\""
+    fi
+
+    # Model format (traditional ML only)
+    if [ -n "${MODEL_FORMAT:-}" ]; then
+        JSON="${JSON},\"modelFormat\":\"${MODEL_FORMAT}\""
+    fi
+
+    # Model name (transformers only)
+    if [ -n "${MODEL_NAME:-}" ]; then
+        JSON="${JSON},\"modelName\":\"${MODEL_NAME}\""
+    fi
+
+    # Build configuration
+    JSON="${JSON},\"buildTarget\":\"${BUILD_TARGET}\""
+    if [ "${BUILD_TARGET}" = "codebuild" ] && [ -n "${CODEBUILD_COMPUTE_TYPE:-}" ]; then
+        JSON="${JSON},\"codebuildComputeType\":\"${CODEBUILD_COMPUTE_TYPE}\""
+    fi
+
+    # Deployment target
+    JSON="${JSON},\"deploymentTarget\":\"${DEPLOYMENT_TARGET}\""
+
+<% if (deploymentTarget === 'managed-inference') { %>
+    # SageMaker Managed Inference
+    JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
+<% } else if (deploymentTarget === 'async-inference') { %>
+    # SageMaker Async Inference
+    JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
+    if [ -n "${ASYNC_S3_OUTPUT_PATH:-}" ]; then
+        JSON="${JSON},\"asyncS3OutputPath\":\"${ASYNC_S3_OUTPUT_PATH}\""
+    fi
+    if [ -n "${ASYNC_SNS_SUCCESS_TOPIC:-}" ]; then
+        JSON="${JSON},\"asyncSnsSuccessTopic\":\"${ASYNC_SNS_SUCCESS_TOPIC}\""
+    fi
+    if [ -n "${ASYNC_SNS_ERROR_TOPIC:-}" ]; then
+        JSON="${JSON},\"asyncSnsErrorTopic\":\"${ASYNC_SNS_ERROR_TOPIC}\""
+    fi
+    if [ "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-1}" != "1" ]; then
+        JSON="${JSON},\"asyncMaxConcurrentInvocations\":${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
+    fi
+<% } else if (deploymentTarget === 'batch-transform') { %>
+    # SageMaker Batch Transform
+    JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
+    JSON="${JSON},\"batchInputPath\":\"${BATCH_INPUT_PATH}\""
+    JSON="${JSON},\"batchOutputPath\":\"${BATCH_OUTPUT_PATH}\""
+    JSON="${JSON},\"batchInstanceCount\":${BATCH_INSTANCE_COUNT}"
+    JSON="${JSON},\"batchSplitType\":\"${BATCH_SPLIT_TYPE}\""
+    JSON="${JSON},\"batchStrategy\":\"${BATCH_STRATEGY}\""
+    if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
+        JSON="${JSON},\"batchJoinSource\":\"${BATCH_JOIN_SOURCE}\""
+    fi
+    if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
+        JSON="${JSON},\"batchMaxConcurrentTransforms\":${BATCH_MAX_CONCURRENT_TRANSFORMS}"
+    fi
+    if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
+        JSON="${JSON},\"batchMaxPayloadInMB\":${BATCH_MAX_PAYLOAD_IN_MB}"
+    fi
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+    # HyperPod EKS
+    JSON="${JSON},\"hyperPodCluster\":\"${HYPERPOD_CLUSTER_NAME}\""
+    if [ "${HYPERPOD_NAMESPACE}" != "default" ]; then
+        JSON="${JSON},\"hyperPodNamespace\":\"${HYPERPOD_NAMESPACE}\""
+    fi
+    if [ "${HYPERPOD_REPLICAS}" != "1" ]; then
+        JSON="${JSON},\"hyperPodReplicas\":${HYPERPOD_REPLICAS}"
+    fi
+<% if (fsxVolumeHandle) { %>
+    JSON="${JSON},\"fsxVolumeHandle\":\"${FSX_VOLUME_HANDLE}\""
+<% } %>
+<% } %>
+
+    # AWS region
+    JSON="${JSON},\"awsRegion\":\"${AWS_REGION}\""
+
+    # Role ARN
+    if [ -n "${ROLE_ARN:-}" ]; then
+        JSON="${JSON},\"awsRoleArn\":\"${ROLE_ARN}\""
+    fi
+
+    # HuggingFace token — reference env var, don't leak the actual value
+    if [ -n "${HF_TOKEN:-}" ]; then
+        JSON="${JSON},\"hfToken\":\"\$HF_TOKEN\""
+    fi
+
+    # Endpoint configuration (non-default values only)
+<%
+var epParts = [];
+if (endpointInitialInstanceCount != null && endpointInitialInstanceCount !== 1) {
+    epParts.push('"initialInstanceCount":' + endpointInitialInstanceCount);
+}
+if (endpointDataCapturePercent != null && endpointDataCapturePercent !== 0) {
+    epParts.push('"dataCapturePercent":' + endpointDataCapturePercent);
+}
+if (endpointVariantName != null && endpointVariantName !== 'AllTraffic') {
+    epParts.push('"variantName":"' + endpointVariantName + '"');
+}
+if (endpointVolumeSize != null) {
+    epParts.push('"volumeSize":' + endpointVolumeSize);
+}
+%>
+<% if (epParts.length > 0) { %>
+    JSON="${JSON},\"endpointConfig\":{<%- epParts.join(',') %>}"
+<% } %>
+
+    # IC configuration (non-default values only)
+<%
+var icParts = [];
+if (icCpuCount != null) {
+    icParts.push('"cpuCount":' + icCpuCount);
+}
+if (icMemorySize != null) {
+    icParts.push('"memorySize":' + icMemorySize);
+}
+if (icGpuCount != null) {
+    icParts.push('"gpuCount":' + icGpuCount);
+}
+if (icCopyCount != null && icCopyCount !== 1) {
+    icParts.push('"copyCount":' + icCopyCount);
+}
+if (icModelWeight != null && icModelWeight !== 1.0) {
+    icParts.push('"modelWeight":' + icModelWeight);
+}
+%>
+<% if (icParts.length > 0) { %>
+    JSON="${JSON},\"icConfig\":{<%- icParts.join(',') %>}"
+<% } %>
+
+    # Model environment variables
+<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+<%
+var mParts = Object.entries(modelEnvVars).map(function(entry) {
+    return '"' + entry[0] + '":"' + entry[1] + '"';
+});
+%>
+    JSON="${JSON},\"modelEnvVars\":{<%- mParts.join(',') %>}"
+<% } %>
+
+    # Server environment variables
+<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+<%
+var sParts = Object.entries(serverEnvVars).map(function(entry) {
+    return '"' + entry[0] + '":"' + entry[1] + '"';
+});
+%>
+    JSON="${JSON},\"serverEnvVars\":{<%- sParts.join(',') %>}"
+<% } %>
+
+    JSON="${JSON}}"
+
+    echo "${JSON}"
+    exit 0
+fi
+
+# ── CLI command output mode (default) ────────────────────────────────────────
+
+# Build the command
+CMD="ml-container-creator"
+CMD="${CMD} --project-name=${PROJECT_NAME}"
+
+# Use deployment-config if available (bundles framework + model server)
+if [ -n "${DEPLOYMENT_CONFIG:-}" ]; then
+    CMD="${CMD} --deployment-config=${DEPLOYMENT_CONFIG}"
+else
+    CMD="${CMD} --framework=${FRAMEWORK}"
+    CMD="${CMD} --model-server=${MODEL_SERVER}"
+fi
+
+# Model format (traditional ML only)
+if [ -n "${MODEL_FORMAT:-}" ]; then
+    CMD="${CMD} --model-format=${MODEL_FORMAT}"
+fi
+
+# Model name (transformers only)
+if [ -n "${MODEL_NAME:-}" ]; then
+    CMD="${CMD} --model-name=${MODEL_NAME}"
+fi
+
+# Build configuration
+CMD="${CMD} --build-target=${BUILD_TARGET}"
+if [ "${BUILD_TARGET}" = "codebuild" ] && [ -n "${CODEBUILD_COMPUTE_TYPE:-}" ]; then
+    CMD="${CMD} --codebuild-compute-type=${CODEBUILD_COMPUTE_TYPE}"
+fi
+
+# Deployment target
+CMD="${CMD} --deployment-target=${DEPLOYMENT_TARGET}"
+
+<% if (deploymentTarget === 'managed-inference') { %>
+# SageMaker Managed Inference
+CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+# SageMaker Managed Inference - Batch
+CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
+CMD="${CMD} --batch-input-path=${BATCH_INPUT_PATH}"
+CMD="${CMD} --batch-output-path=${BATCH_OUTPUT_PATH}"
+CMD="${CMD} --batch-instance-count=${BATCH_INSTANCE_COUNT}"
+CMD="${CMD} --batch-split-type=${BATCH_SPLIT_TYPE}"
+CMD="${CMD} --batch-strategy=${BATCH_STRATEGY}"
+if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
+    CMD="${CMD} --batch-join-source=${BATCH_JOIN_SOURCE}"
+fi
+if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
+    CMD="${CMD} --batch-max-concurrent=${BATCH_MAX_CONCURRENT_TRANSFORMS}"
+fi
+if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
+    CMD="${CMD} --batch-max-payload=${BATCH_MAX_PAYLOAD_IN_MB}"
+fi
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+# HyperPod EKS
+CMD="${CMD} --hyperpod-cluster=${HYPERPOD_CLUSTER_NAME}"
+if [ "${HYPERPOD_NAMESPACE}" != "default" ]; then
+    CMD="${CMD} --hyperpod-namespace=${HYPERPOD_NAMESPACE}"
+fi
+if [ "${HYPERPOD_REPLICAS}" != "1" ]; then
+    CMD="${CMD} --hyperpod-replicas=${HYPERPOD_REPLICAS}"
+fi
+<% if (fsxVolumeHandle) { %>
+CMD="${CMD} --fsx-volume-handle=${FSX_VOLUME_HANDLE}"
+<% } %>
+<% } %>
+
+# AWS region
+CMD="${CMD} --region=${AWS_REGION}"
+
+# Role ARN
+if [ -n "${ROLE_ARN:-}" ]; then
+    CMD="${CMD} --role-arn=${ROLE_ARN}"
+fi
+
+# HuggingFace token — reference env var, don't leak the actual value
+if [ -n "${HF_TOKEN:-}" ]; then
+    CMD="${CMD} --hf-token=\$HF_TOKEN"
+fi
+
+# Endpoint configuration (non-default values only)
+<% if (endpointInitialInstanceCount != null && endpointInitialInstanceCount !== 1) { %>
+CMD="${CMD} --endpoint-initial-instance-count=<%= endpointInitialInstanceCount %>"
+<% } %>
+<% if (endpointDataCapturePercent != null && endpointDataCapturePercent !== 0) { %>
+CMD="${CMD} --endpoint-data-capture-percent=<%= endpointDataCapturePercent %>"
+<% } %>
+<% if (endpointVariantName != null && endpointVariantName !== 'AllTraffic') { %>
+CMD="${CMD} --endpoint-variant-name=<%= endpointVariantName %>"
+<% } %>
+<% if (endpointVolumeSize != null) { %>
+CMD="${CMD} --endpoint-volume-size=<%= endpointVolumeSize %>"
+<% } %>
+
+# IC configuration (non-default values only)
+<% if (icCpuCount != null) { %>
+CMD="${CMD} --ic-cpu-count=<%= icCpuCount %>"
+<% } %>
+<% if (icMemorySize != null) { %>
+CMD="${CMD} --ic-memory-size=<%= icMemorySize %>"
+<% } %>
+<% if (icGpuCount != null) { %>
+CMD="${CMD} --ic-gpu-count=<%= icGpuCount %>"
+<% } %>
+<% if (icCopyCount != null && icCopyCount !== 1) { %>
+CMD="${CMD} --ic-copy-count=<%= icCopyCount %>"
+<% } %>
+<% if (icModelWeight != null && icModelWeight !== 1.0) { %>
+CMD="${CMD} --ic-model-weight=<%= icModelWeight %>"
+<% } %>
+
+# Model environment variables
+<% if (modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
+<% Object.entries(modelEnvVars).forEach(([key, value]) => { %>
+CMD="${CMD} --model-env=<%= key %>=<%= value %>"
+<% }); %>
+<% } %>
+
+# Server environment variables
+<% if (serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+<% Object.entries(serverEnvVars).forEach(([key, value]) => { %>
+CMD="${CMD} --server-env=<%= key %>=<%= value %>"
+<% }); %>
+<% } %>
+
+CMD="${CMD} --skip-prompts"
+
+echo ""
+echo "# Reproduce this project with a single command:"
+echo "${CMD}"
+echo ""

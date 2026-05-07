@@ -24,8 +24,8 @@ describe('Namespace Metadata', () => {
             readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf-8')
         );
 
-        it('has name @aws/generator-ml-container-creator (Req 1.1)', () => {
-            assert.strictEqual(rootPkg.name, '@aws/generator-ml-container-creator');
+        it('has name @aws/ml-container-creator (Req 1.1)', () => {
+            assert.strictEqual(rootPkg.name, '@aws/ml-container-creator');
         });
 
         it('does not have "private": true (Req 1.2)', () => {
@@ -39,10 +39,10 @@ describe('Namespace Metadata', () => {
             resolve(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf-8'
         );
 
-        it('contains yo @aws/ml-container-creator invocation (Req 7.1, 7.2)', () => {
+        it('contains ml-container-creator invocation (Req 7.1, 7.2)', () => {
             assert.ok(
-                ciYaml.includes('yo @aws/ml-container-creator'),
-                'CI workflow must reference yo @aws/ml-container-creator'
+                ciYaml.includes('ml-container-creator'),
+                'CI workflow must reference ml-container-creator'
             );
         });
 

@@ -16,7 +16,7 @@
 import fc from 'fast-check';
 import assert from 'assert';
 import { setupTestHooks } from './test-utils.js';
-import { infrastructurePrompts } from '../../generators/app/lib/prompts.js';
+import { infrastructurePrompts } from '../../src/lib/prompts.js';
 
 describe('Deployment Target Prompt Properties', () => {
     setupTestHooks('Deployment Target Prompt Properties');

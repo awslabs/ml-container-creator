@@ -19,7 +19,7 @@ import ejs from 'ejs';
 
 const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
-// ── EJS template snippet (from generators/app/templates/do/config) ───────────
+// ── EJS template snippet (from templates/do/config) ───────────
 
 const BASE_IMAGE_SNIPPET = [
     '<% if (baseImage) { %>',

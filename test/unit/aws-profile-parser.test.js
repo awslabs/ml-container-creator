@@ -13,7 +13,7 @@ import assert from 'node:assert';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
-import AwsProfileParser from '../../generators/app/lib/aws-profile-parser.js';
+import AwsProfileParser from '../../src/lib/aws-profile-parser.js';
 
 describe('AwsProfileParser', () => {
 

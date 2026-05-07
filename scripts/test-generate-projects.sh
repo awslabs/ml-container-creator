@@ -84,14 +84,11 @@ setup_test_environment() {
     mkdir -p "$TEST_OUTPUT_DIR"
     cd "$TEST_OUTPUT_DIR"
     
-    # Ensure Yeoman is available
-    if ! command -v yo &> /dev/null; then
-        print_info "Installing Yeoman globally..."
-        npm install -g yo > /dev/null 2>&1 || true
+    # Ensure ml-container-creator is available
+    if ! command -v ml-container-creator &> /dev/null; then
+        print_info "Linking ml-container-creator..."
+        npm link > /dev/null 2>&1 || true
     fi
-    
-    # Ensure generator is linked
-    npm link > /dev/null 2>&1 || true
     
     print_success "Test environment ready"
 }
@@ -353,7 +350,7 @@ test_cli_options() {
     cd "$project_name"
     
     local cmd_args=(
-        "yo" "ml-container-creator"
+        "ml-container-creator"
         "--framework=$framework"
         "--model-server=$server"
         "--skip-prompts"
@@ -441,7 +438,7 @@ test_env_variables() {
     mkdir -p "$project_name"
     cd "$project_name"
     
-    if yo @aws/ml-container-creator \
+    if ml-container-creator \
         --framework=sklearn \
         --model-server=flask \
         --model-format=pkl \
@@ -506,7 +503,7 @@ test_config_file() {
     mkdir -p "config-test-$(basename "$config_file" .json)"
     cd "config-test-$(basename "$config_file" .json)"
     
-    if yo @aws/ml-container-creator --config="../$config_file" --skip-prompts > "../${config_file%.json}.log" 2>&1; then
+    if ml-container-creator --config="../$config_file" --skip-prompts > "../${config_file%.json}.log" 2>&1; then
         
         # Validate framework-specific files
         local validation_passed=true
@@ -561,7 +558,7 @@ test_precedence() {
     mkdir -p "$project_name"
     cd "$project_name"
     
-    if yo @aws/ml-container-creator \
+    if ml-container-creator \
         --framework=sklearn \
         --model-server=flask \
         --model-format=pkl \
@@ -597,7 +594,7 @@ test_error_handling() {
     mkdir -p "error-test-invalid-framework"
     cd "error-test-invalid-framework"
     
-    if yo @aws/ml-container-creator --framework=invalid --skip-prompts > ../invalid-framework.log 2>&1; then
+    if ml-container-creator --framework=invalid --skip-prompts > ../invalid-framework.log 2>&1; then
         if grep -q "Unsupported framework\|not implemented\|invalid" ../invalid-framework.log; then
             verbose_log "Invalid framework error handling works"
             ((error_tests_passed++))
@@ -614,7 +611,7 @@ test_error_handling() {
     mkdir -p "error-test-missing-params"
     cd "error-test-missing-params"
     
-    if yo @aws/ml-container-creator --skip-prompts > ../missing-params.log 2>&1; then
+    if ml-container-creator --skip-prompts > ../missing-params.log 2>&1; then
         # When no framework is specified, generator should use defaults (sklearn)
         if [[ -f "Dockerfile" && -f "requirements.txt" ]]; then
             verbose_log "Missing parameter handling works (uses defaults)"
@@ -632,7 +629,7 @@ test_error_handling() {
     mkdir -p "error-test-invalid-combo"
     cd "error-test-invalid-combo"
     
-    if yo @aws/ml-container-creator --framework=sklearn --model-server=vllm --skip-prompts > ../invalid-combo.log 2>&1; then
+    if ml-container-creator --framework=sklearn --model-server=vllm --skip-prompts > ../invalid-combo.log 2>&1; then
         if grep -q "invalid\|incompatible\|not supported\|Unsupported" ../invalid-combo.log; then
             verbose_log "Invalid combination error handling works"
             ((error_tests_passed++))
@@ -666,7 +663,7 @@ test_cli_commands() {
     mkdir -p "cli-test-help"
     cd "cli-test-help"
     
-    if yo @aws/ml-container-creator help > ../help-output.log 2>&1; then
+    if ml-container-creator help > ../help-output.log 2>&1; then
         if grep -q "CLI OPTIONS\|USAGE\|EXAMPLES" ../help-output.log; then
             verbose_log "Help command works correctly"
             ((cli_tests_passed++))
@@ -679,7 +676,7 @@ test_cli_commands() {
     mkdir -p "cli-test-config"
     cd "cli-test-config"
     
-    if echo "1" | yo @aws/ml-container-creator generate-empty-config > ../empty-config.log 2>&1; then
+    if echo "1" | ml-container-creator generate-empty-config > ../empty-config.log 2>&1; then
         if [[ -f "config/mcp.json" ]]; then
             verbose_log "Generate empty config works correctly"
             ((cli_tests_passed++))
@@ -751,7 +748,7 @@ main() {
     print_step "6" "Testing Package.json Configuration (6th Precedence)"
     
     # The package.json should be in the current directory for the generator to find it
-    if yo @aws/ml-container-creator --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts > package-json-test.log 2>&1; then
+    if ml-container-creator --framework=sklearn --model-server=flask --model-format=pkl --skip-prompts > package-json-test.log 2>&1; then
         if validate_file_content "deploy/deploy.sh" "eu-central-1" "Package.json AWS region"; then
             print_success "Package.json configuration test passed"
             record_test_result "Package.json Configuration" "PASS"

@@ -8,12 +8,14 @@
  * used across all modular test files in the input-parsing-and-generation suite.
  */
 
-import assert from 'yeoman-assert';
+// eslint-disable-next-line no-unused-vars
+import assert from 'node:assert';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
+// eslint-disable-next-line no-unused-vars
 const __dirname = path.dirname(__filename);
 
 // Test configuration constants
@@ -24,9 +26,9 @@ export const FRAMEWORKS = {
     transformers: { formats: [], servers: ['vllm', 'sglang', 'tensorrt-llm'], hasSample: false }
 };
 
-export const REQUIRED_FILES = ['Dockerfile', 'deploy/build_and_push.sh', 'deploy/deploy.sh'];
+export const REQUIRED_FILES = ['Dockerfile'];
 export const TRADITIONAL_ML_FILES = ['requirements.txt', 'code/model_handler.py', 'code/serve.py'];
-export const TRANSFORMER_FILES = ['code/serve', 'deploy/upload_to_s3.sh'];
+export const TRANSFORMER_FILES = ['code/serve'];
 export const SAMPLE_MODEL_FILES = ['sample_model/train_abalone.py', 'sample_model/test_inference.py'];
 
 // Global test counter for numbering
@@ -47,13 +49,6 @@ export function resetTestCounter() {
 }
 
 /**
- * Get the generator path for tests
- */
-export function getGeneratorPath() {
-    return path.join(__dirname, '../../generators/app');
-}
-
-/**
  * Create a temporary configuration file
  */
 export function createTempConfig(dir, filename, config) {
@@ -68,9 +63,8 @@ export function createTempConfig(dir, filename, config) {
  */
 export function validateFiles(expectedFiles, context = '') {
     expectedFiles.forEach(file => {
-        try {
-            assert.file([file]);
-        } catch (error) {
+        const fullPath = path.resolve(file);
+        if (!fs.existsSync(fullPath)) {
             throw new Error(`Expected file not found${context ? ` in ${context}` : ''}: ${file}`);
         }
     });
@@ -108,9 +102,8 @@ export function validateNoFiles(unexpectedFiles, context = '') {
     const found = [];
     
     unexpectedFiles.forEach(file => {
-        try {
-            assert.noFile([file]);
-        } catch (error) {
+        const fullPath = path.resolve(file);
+        if (fs.existsSync(fullPath)) {
             found.push(file);
         }
     });

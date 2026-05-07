@@ -17,11 +17,11 @@
 
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import { modelLoadStrategyPrompts } from '../../generators/app/lib/prompts.js';
+import { modelLoadStrategyPrompts } from '../../src/lib/prompts.js';
 
 // ── Helper: simulate _ensureTemplateVariables defaults logic ─────────────────
 // This mirrors the defaults object from index.js _ensureTemplateVariables()
-// without requiring full Yeoman generator instantiation.
+// without requiring full generator instantiation.
 
 function applyDefaults(answers = {}) {
     const defaults = {

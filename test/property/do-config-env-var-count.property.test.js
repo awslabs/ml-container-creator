@@ -20,7 +20,7 @@ import ejs from 'ejs';
 
 const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
-// ── EJS template snippets (from generators/app/templates/do/config) ──────────
+// ── EJS template snippets (from templates/do/config) ──────────
 
 const DO_CONFIG_ENV_EXPORT_SNIPPET = [
     '<% if (orderedEnvVars && orderedEnvVars.length > 0) { %>',

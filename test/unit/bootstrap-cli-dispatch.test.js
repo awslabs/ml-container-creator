@@ -16,7 +16,7 @@
 
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import CliHandler from '../../generators/app/lib/cli-handler.js';
+import CliHandler from '../../src/lib/cli-handler.js';
 
 /**
  * Creates a minimal mock generator for CliHandler tests.

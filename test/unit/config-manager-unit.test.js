@@ -10,7 +10,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import assert from 'assert';
-import ConfigManager, { ValidationError } from '../../generators/app/lib/config-manager.js';
+import ConfigManager, { ValidationError } from '../../src/lib/config-manager.js';
 import {
     createMockGenerator,
     createMockGeneratorWithOptions,

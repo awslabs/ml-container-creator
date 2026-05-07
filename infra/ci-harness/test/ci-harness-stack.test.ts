@@ -65,51 +65,7 @@ describe('MlccCiHarnessStack', () => {
         });
     });
 
-    describe('SQS Queues', () => {
-        it('creates CI queue with correct visibility timeout', () => {
-            template.hasResourceProperties('AWS::SQS::Queue', {
-                QueueName: 'mlcc-ci-queue',
-                VisibilityTimeout: 3600,
-            });
-        });
 
-        it('creates CI queue with 7-day retention', () => {
-            template.hasResourceProperties('AWS::SQS::Queue', {
-                QueueName: 'mlcc-ci-queue',
-                MessageRetentionPeriod: 604800,
-            });
-        });
-
-        it('creates CI queue with SQS-managed encryption', () => {
-            template.hasResourceProperties('AWS::SQS::Queue', {
-                QueueName: 'mlcc-ci-queue',
-                SqsManagedSseEnabled: true,
-            });
-        });
-
-        it('creates CI queue with DLQ redrive policy (maxReceiveCount 3)', () => {
-            template.hasResourceProperties('AWS::SQS::Queue', {
-                QueueName: 'mlcc-ci-queue',
-                RedrivePolicy: Match.objectLike({
-                    maxReceiveCount: 3,
-                }),
-            });
-        });
-
-        it('creates DLQ with 14-day retention', () => {
-            template.hasResourceProperties('AWS::SQS::Queue', {
-                QueueName: 'mlcc-ci-dlq',
-                MessageRetentionPeriod: 1209600,
-            });
-        });
-
-        it('creates DLQ with SQS-managed encryption', () => {
-            template.hasResourceProperties('AWS::SQS::Queue', {
-                QueueName: 'mlcc-ci-dlq',
-                SqsManagedSseEnabled: true,
-            });
-        });
-    });
 
     describe('CloudWatch Log Group', () => {
         it('creates log group with correct name', () => {
@@ -126,39 +82,7 @@ describe('MlccCiHarnessStack', () => {
         });
     });
 
-    describe('CloudWatch Alarm', () => {
-        it('creates DLQ alarm on ApproximateNumberOfMessagesVisible', () => {
-            template.hasResourceProperties('AWS::CloudWatch::Alarm', {
-                AlarmName: 'mlcc-ci-dlq-messages-visible',
-                MetricName: 'ApproximateNumberOfMessagesVisible',
-                Threshold: 0,
-                ComparisonOperator: 'GreaterThanThreshold',
-                EvaluationPeriods: 1,
-                TreatMissingData: 'notBreaching',
-            });
-        });
 
-        it('alarm has a descriptive alarm description', () => {
-            template.hasResourceProperties('AWS::CloudWatch::Alarm', {
-                AlarmName: 'mlcc-ci-dlq-messages-visible',
-                AlarmDescription: Match.stringLikeRegexp('dead-letter queue'),
-            });
-        });
-
-        it('alarm publishes to SNS topic', () => {
-            template.hasResourceProperties('AWS::CloudWatch::Alarm', {
-                AlarmName: 'mlcc-ci-dlq-messages-visible',
-                AlarmActions: Match.anyValue(),
-            });
-        });
-
-        it('alarm uses 1-minute period', () => {
-            template.hasResourceProperties('AWS::CloudWatch::Alarm', {
-                AlarmName: 'mlcc-ci-dlq-messages-visible',
-                Period: 60,
-            });
-        });
-    });
 
     describe('SNS Topic', () => {
         it('creates DLQ notifications topic', () => {
@@ -193,26 +117,7 @@ describe('MlccCiHarnessStack', () => {
             });
         });
 
-        it('applies mlcc:managed-by tag to SQS queues', () => {
-            const queues = template.findResources('AWS::SQS::Queue');
-            const queueLogicalIds = Object.keys(queues);
-            // Both CI queue and DLQ should exist
-            if (queueLogicalIds.length < 2) {
-                throw new Error('Expected at least 2 SQS queues');
-            }
-            for (const id of queueLogicalIds) {
-                const tags = queues[id].Properties?.Tags;
-                if (tags) {
-                    const hasTag = tags.some(
-                        (t: { Key: string; Value: string }) =>
-                            t.Key === 'mlcc:managed-by' && t.Value === 'ml-container-creator'
-                    );
-                    if (!hasTag) {
-                        throw new Error(`SQS queue ${id} missing mlcc:managed-by tag`);
-                    }
-                }
-            }
-        });
+
 
         it('applies mlcc:managed-by tag to CloudWatch log group', () => {
             template.hasResourceProperties('AWS::Logs::LogGroup', {
@@ -259,14 +164,14 @@ describe('MlccCiHarnessStack', () => {
             });
         });
 
-        it('has required environment variables (CI_TABLE_NAME, CI_QUEUE_URL, GSI_NAME)', () => {
+        it('has required environment variables (CI_TABLE_NAME, GSI_NAME, STATE_MACHINE_ARN)', () => {
             template.hasResourceProperties('AWS::Lambda::Function', {
                 FunctionName: 'mlcc-ci-scanner',
                 Environment: {
                     Variables: Match.objectLike({
                         CI_TABLE_NAME: Match.anyValue(),
-                        CI_QUEUE_URL: Match.anyValue(),
                         GSI_NAME: 'testStatus-lastTestTimestamp-index',
+                        STATE_MACHINE_ARN: Match.anyValue(),
                     }),
                 },
             });
@@ -295,12 +200,12 @@ describe('MlccCiHarnessStack', () => {
             });
         });
 
-        it('has SQS:SendMessage permission', () => {
+        it('has States:StartExecution permission', () => {
             template.hasResourceProperties('AWS::IAM::Policy', {
                 PolicyDocument: Match.objectLike({
                     Statement: Match.arrayWith([
                         Match.objectLike({
-                            Action: 'sqs:SendMessage',
+                            Action: 'states:StartExecution',
                             Effect: 'Allow',
                         }),
                     ]),
@@ -394,51 +299,7 @@ describe('MlccCiHarnessStack', () => {
         });
     });
 
-    describe('EventBridge Pipe', () => {
-        it('creates pipe with name mlcc-ci-pipe', () => {
-            template.hasResourceProperties('AWS::Pipes::Pipe', {
-                Name: 'mlcc-ci-pipe',
-            });
-        });
 
-        it('has SQS queue as source', () => {
-            template.hasResourceProperties('AWS::Pipes::Pipe', {
-                Source: Match.anyValue(),
-            });
-        });
-
-        it('has Step Functions state machine as target', () => {
-            template.hasResourceProperties('AWS::Pipes::Pipe', {
-                Target: Match.anyValue(),
-            });
-        });
-
-        it('configures batch size of 1 for sequential processing', () => {
-            template.hasResourceProperties('AWS::Pipes::Pipe', {
-                SourceParameters: {
-                    SqsQueueParameters: {
-                        BatchSize: 1,
-                    },
-                },
-            });
-        });
-
-        it('uses FIRE_AND_FORGET invocation type for Step Functions target', () => {
-            template.hasResourceProperties('AWS::Pipes::Pipe', {
-                TargetParameters: {
-                    StepFunctionStateMachineParameters: {
-                        InvocationType: 'FIRE_AND_FORGET',
-                    },
-                },
-            });
-        });
-
-        it('has an IAM role ARN configured', () => {
-            template.hasResourceProperties('AWS::Pipes::Pipe', {
-                RoleArn: Match.anyValue(),
-            });
-        });
-    });
 
     describe('CodeBuild Project', () => {
         it('creates project with name mlcc-ci-executor', () => {
@@ -638,12 +499,14 @@ describe('MlccCiHarnessStack', () => {
             });
         });
 
-        it('has IAM:PassRole permission', () => {
+        it('has IAM permissions including PassRole', () => {
             template.hasResourceProperties('AWS::IAM::Policy', {
                 PolicyDocument: Match.objectLike({
                     Statement: Match.arrayWith([
                         Match.objectLike({
-                            Action: 'iam:PassRole',
+                            Action: Match.arrayWith([
+                                'iam:PassRole',
+                            ]),
                             Effect: 'Allow',
                         }),
                     ]),
@@ -655,55 +518,5 @@ describe('MlccCiHarnessStack', () => {
         });
     });
 
-    describe('Pipe IAM Role', () => {
-        it('creates pipe role assumed by pipes.amazonaws.com', () => {
-            template.hasResourceProperties('AWS::IAM::Role', {
-                RoleName: 'mlcc-ci-pipe-role',
-                AssumeRolePolicyDocument: Match.objectLike({
-                    Statement: Match.arrayWith([
-                        Match.objectLike({
-                            Principal: { Service: 'pipes.amazonaws.com' },
-                            Action: 'sts:AssumeRole',
-                        }),
-                    ]),
-                }),
-            });
-        });
 
-        it('has SQS permissions (ReceiveMessage, DeleteMessage, GetQueueAttributes)', () => {
-            template.hasResourceProperties('AWS::IAM::Policy', {
-                PolicyDocument: Match.objectLike({
-                    Statement: Match.arrayWith([
-                        Match.objectLike({
-                            Action: Match.arrayWith([
-                                'sqs:ReceiveMessage',
-                                'sqs:DeleteMessage',
-                                'sqs:GetQueueAttributes',
-                            ]),
-                            Effect: 'Allow',
-                        }),
-                    ]),
-                }),
-                Roles: Match.arrayWith([
-                    { Ref: Match.stringLikeRegexp('PipeRole') },
-                ]),
-            });
-        });
-
-        it('has States:StartExecution permission', () => {
-            template.hasResourceProperties('AWS::IAM::Policy', {
-                PolicyDocument: Match.objectLike({
-                    Statement: Match.arrayWith([
-                        Match.objectLike({
-                            Action: 'states:StartExecution',
-                            Effect: 'Allow',
-                        }),
-                    ]),
-                }),
-                Roles: Match.arrayWith([
-                    { Ref: Match.stringLikeRegexp('PipeRole') },
-                ]),
-            });
-        });
-    });
 });

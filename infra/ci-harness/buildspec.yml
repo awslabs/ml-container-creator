@@ -10,9 +10,11 @@ env:
 
 phases:
   install:
+    runtime-versions:
+      nodejs: 22
     commands:
       - echo "=== MLCC CI Harness - Install Phase ==="
-      - npm install -g @aws/generator-ml-container-creator
+      - npm install -g @aws/ml-container-creator
       # Track overall build start time for total duration calculation
       - BUILD_START_TIME=$(date +%s)
       # Initialize stage results tracking as flat variables.
@@ -63,7 +65,7 @@ phases:
           echo "$CONFIG_JSON" > /tmp/ci-config.json
           mkdir -p /tmp/ci-project
           cd /tmp/ci-project
-          yo @aws/ml-container-creator --config /tmp/ci-config.json --skip-prompts --force
+          ml-container-creator --config /tmp/ci-config.json --skip-prompts
           chmod +x do/*
         ) 2>"$STAGE_STDERR_FILE"; STAGE_EXIT=$?
       - STAGE_END=$(date +%s)

@@ -28,7 +28,7 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
     setupTestHooks('Infrastructure-First Prompt Ordering');
 
     // Read the prompt-runner.js source code for structural analysis
-    const promptRunnerPath = path.join(__dirname, '../../generators/app/lib/prompt-runner.js');
+    const promptRunnerPath = path.join(__dirname, '../../src/lib/prompt-runner.js');
     const promptRunnerSource = fs.readFileSync(promptRunnerPath, 'utf8');
 
     /**
@@ -219,7 +219,7 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
             this.timeout(10000);
 
             // Dynamically import the prompts module to check actual prompt definitions
-            const { infrastructurePrompts } = await import('../../generators/app/lib/prompts.js');
+            const { infrastructurePrompts } = await import('../../src/lib/prompts.js');
 
             const requiredPromptNames = [
                 'buildTarget',

@@ -10,8 +10,8 @@
 
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { parseKeyValue } from '../../generators/app/lib/key-value-parser.js';
-import { ValidationError } from '../../generators/app/lib/config-manager.js';
+import { parseKeyValue } from '../../src/lib/key-value-parser.js';
+import { ValidationError } from '../../src/lib/config-manager.js';
 
 describe('parseKeyValue', () => {
     describe('basic KEY=VALUE splitting', () => {

@@ -20,7 +20,7 @@ import assert from 'node:assert';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
-import AwsProfileParser from '../../generators/app/lib/aws-profile-parser.js';
+import AwsProfileParser from '../../src/lib/aws-profile-parser.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

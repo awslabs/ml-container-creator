@@ -22,7 +22,7 @@ import {
     detectRegressions,
     groupByDeploymentConfig,
     KNOWN_DEPLOYMENT_CONFIGS
-} from '../../generators/app/lib/ci-report-helpers.js';
+} from '../../src/lib/ci-report-helpers.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

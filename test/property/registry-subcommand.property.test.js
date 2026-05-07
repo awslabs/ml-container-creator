@@ -12,7 +12,7 @@
 import fc from 'fast-check';
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import assert from 'node:assert';
-import RegistryCommandHandler from '../../generators/app/lib/registry-command-handler.js';
+import RegistryCommandHandler from '../../src/lib/registry-command-handler.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
@@ -66,12 +66,7 @@ describe('Feature: deployment-registry, Property 17: Unknown subcommand handling
     it('unknown subcommands display error and help text without throwing', function () {
         this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-        const generatorMock = {
-            composeWith: () => {},
-            spawnCommandSync: () => {}
-        };
-
-        const handler = new RegistryCommandHandler(generatorMock);
+        const handler = new RegistryCommandHandler();
 
         fc.assert(fc.property(
             arbUnknownSubcommand,

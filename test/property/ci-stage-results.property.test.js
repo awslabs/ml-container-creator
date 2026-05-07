@@ -20,7 +20,7 @@ import {
     computeTestStatus,
     STAGE_ORDER,
     ALWAYS_RUN_STAGES
-} from '../../generators/app/lib/ci-stage-helpers.js';
+} from '../../src/lib/ci-stage-helpers.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

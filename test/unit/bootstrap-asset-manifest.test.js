@@ -19,8 +19,9 @@ import assert from 'assert';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import BootstrapCommandHandler from '../../generators/app/lib/bootstrap-command-handler.js';
-import AssetManager from '../../generators/app/lib/asset-manager.js';
+import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
+import AssetManager from '../../src/lib/asset-manager.js';
+import { runPrompts } from '../../src/prompt-adapter.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -115,8 +116,18 @@ describe('Bootstrap Asset Manifest Extensions', () => {
             hasProfile = true
         } = opts;
 
-        handler = new BootstrapCommandHandler(createMockGenerator(promptResponses));
+        let promptCallIndex = 0;
+        const mockPromptFn = async () => {
+            if (promptCallIndex < promptResponses.length) {
+                return promptResponses[promptCallIndex++];
+            }
+            return {};
+        };
 
+        handler = new BootstrapCommandHandler({ promptFn: mockPromptFn });
+
+        // Attach _mockPrompt for tests that monkey-patch methods
+        handler._mockPrompt = mockPromptFn;
         // Mock BootstrapConfig methods
         handler.config = {
             read: () => hasConfig ? { activeProfile: profileName, profiles: { [profileName]: profileConfig } } : null,
@@ -138,14 +149,14 @@ describe('Bootstrap Asset Manifest Extensions', () => {
             const config = this.config.read();
             if (!config) {
                 console.log('No bootstrap configuration found.');
-                console.log('Run `yo @aws/ml-container-creator bootstrap` to set up shared infrastructure.');
+                console.log('Run `ml-container-creator bootstrap` to set up shared infrastructure.');
                 return;
             }
 
             const profile = this.config.getActiveProfile();
             if (!profile) {
                 console.log('No active bootstrap profile found.');
-                console.log('Run `yo @aws/ml-container-creator bootstrap` to set up shared infrastructure.');
+                console.log('Run `ml-container-creator bootstrap` to set up shared infrastructure.');
                 return;
             }
 
@@ -817,7 +828,7 @@ describe('Bootstrap Asset Manifest Extensions', () => {
             // Patch _handleRemove to use temp configDir
             handler._handleRemove = async function(profileName, options) {
                 if (!profileName) {
-                    console.log('Usage: yo @aws/ml-container-creator bootstrap remove <profile> [--force]');
+                    console.log('Usage: ml-container-creator bootstrap remove <profile> [--force]');
                     return;
                 }
                 const profile = this.config.getProfile(profileName);
@@ -837,12 +848,7 @@ describe('Bootstrap Asset Manifest Extensions', () => {
                 }
 
                 if (!options.force) {
-                    const { confirm } = await this.generator.prompt([{
-                        type: 'confirm',
-                        name: 'confirm',
-                        message: `Remove bootstrap profile "${profileName}"?`,
-                        default: false
-                    }]);
+                    const { confirm } = await this._mockPrompt();
                     if (!confirm) {
                         console.log('Removal cancelled.');
                         return;
@@ -902,7 +908,7 @@ describe('Bootstrap Asset Manifest Extensions', () => {
                 }
 
                 if (!options.force) {
-                    const { confirm } = await this.generator.prompt([]);
+                    const { confirm } = await this._mockPrompt();
                     if (!confirm) { console.log('Removal cancelled.'); return; }
                 }
 
@@ -951,7 +957,7 @@ describe('Bootstrap Asset Manifest Extensions', () => {
                 }
 
                 if (!options.force) {
-                    const { confirm } = await this.generator.prompt([]);
+                    const { confirm } = await this._mockPrompt();
                     if (!confirm) { console.log('Removal cancelled.'); return; }
                 }
 
@@ -998,7 +1004,7 @@ describe('Bootstrap Asset Manifest Extensions', () => {
                 }
 
                 if (!options.force) {
-                    const { confirm } = await this.generator.prompt([]);
+                    const { confirm } = await this._mockPrompt();
                     if (!confirm) {
                         console.log('Removal cancelled.');
                         return;

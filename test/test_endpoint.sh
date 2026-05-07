@@ -6,15 +6,14 @@
 set -e
 
 
-
-# Check if endpoint name is provided
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <endpoint-name>"
-    echo "Example: $0 triton-endpoint-1234567890"
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <endpoint-name> <model-id>"
+    echo "Example: $0 transformers-endpoint-1234567890"
     exit 1
 fi
 
 ENDPOINT_NAME=$1
+MODEL_ID=$2
 AWS_REGION="us-east-1"
 
 
@@ -27,7 +26,21 @@ aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_
 echo "Testing inference endpoint..."
 
 
-echo '{"instances": [[1, 0.455, 0.365, 0.095, 0.514, 0.2245, 0.101, 0.15]]}' > input.json
+
+cat > input.json << EOF
+{
+  "model": "${MODEL_ID}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello, how are you?"
+    }
+  ],
+  "max_tokens": 100,
+  "temperature": 0.7
+}
+EOF
+
 
 
 aws sagemaker-runtime invoke-endpoint \
