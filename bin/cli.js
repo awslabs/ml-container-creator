@@ -24,7 +24,7 @@ program
     .enablePositionalOptions()
     .passThroughOptions()
     .helpCommand('help [command]', 'Display help for command')
-    .argument('[project-name]', 'Name for the generated project')
+    .argument('[project-name...]', 'Name for the generated project')
 
     // --- General ---
     .addOption(new Option('--skip-prompts', 'Skip interactive prompts and use configuration from other sources'))
@@ -105,7 +105,7 @@ program
     .addOption(new Option('--validate-with-docker', 'Enable Docker introspection validation (opt-in)'))
     .addOption(new Option('--offline', 'Disable HuggingFace API lookups'))
 
-    .action(run);
+    .action((projectNameArgs, options) => run(projectNameArgs?.[0] || null, options));
 
 // Custom help formatting — group options into logical sections (root command only)
 program.configureHelp({
@@ -240,6 +240,7 @@ program.configureHelp({
 program
     .command('bootstrap')
     .description('Set up AWS infrastructure (IAM role, ECR repo, S3 buckets)')
+    .passThroughOptions()
     .argument('[action]', 'Bootstrap action (status, use, list, remove, scan, prune, update)')
     .argument('[args...]', 'Additional arguments')
     .option('--profile <profile>', 'AWS profile name')
@@ -259,6 +260,7 @@ program
 program
     .command('mcp')
     .description('Manage MCP servers (add, list, get, remove, init)')
+    .passThroughOptions()
     .argument('<action>', 'MCP action (add, list, get, remove, init)')
     .argument('[args...]', 'Additional arguments')
     .option('-e <env>', 'Environment variable in KEY=VALUE format (for add)')
@@ -285,6 +287,7 @@ program
 program
     .command('registry')
     .description('Registry operations (list, get, remove, replay, export, import, search) — experimental, may be reconciled with do/register')
+    .passThroughOptions()
     .argument('<action>', 'Registry action (log, list, get, remove, replay, export, import, search)')
     .argument('[args...]', 'Additional arguments')
     .option('--backend <backend>', 'Filter by backend')
