@@ -22,7 +22,6 @@ program
     .name('ml-container-creator')
     .version(version)
     .enablePositionalOptions()
-    .passThroughOptions()
     .helpCommand('help [command]', 'Display help for command')
     .argument('[project-name...]', 'Name for the generated project')
 
