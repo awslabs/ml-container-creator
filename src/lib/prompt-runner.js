@@ -567,7 +567,7 @@ export default class PromptRunner {
                     }
                 }
                 return prompt.when({...allPreviousAnswers, ...answers});
-            } : (answers) => {
+            } : (_answers) => {
                 // No original when condition — skip if explicit or if auto-prompt + optional/non-matrix
                 if (explicitConfig[prompt.name] !== undefined && explicitConfig[prompt.name] !== null) {
                     return false;
