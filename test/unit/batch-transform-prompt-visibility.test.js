@@ -6,7 +6,7 @@
  *
  * Tests:
  * - Batch prompts appear when deploymentTarget === 'batch-transform'
- * - Batch prompts are hidden for managed-inference, async-inference, and hyperpod-eks
+ * - Batch prompts are hidden for realtime-inference, async-inference, and hyperpod-eks
  * - HyperPod prompts are hidden when deploymentTarget === 'batch-transform'
  * - Async prompts are hidden when deploymentTarget === 'batch-transform'
  *
@@ -85,11 +85,11 @@ describe('Batch Transform Prompt Visibility', () => {
         }
     });
 
-    describe('Batch prompts hidden for managed-inference (Requirement 2.10)', () => {
-        const answers = { deploymentTarget: 'managed-inference' };
+    describe('Batch prompts hidden for realtime-inference (Requirement 2.10)', () => {
+        const answers = { deploymentTarget: 'realtime-inference' };
 
         for (const name of batchPromptNames) {
-            it(`${name} when() should return false for managed-inference`, () => {
+            it(`${name} when() should return false for realtime-inference`, () => {
                 const prompt = findPrompt(infraBatchTransformPrompts, name);
                 assert.ok(prompt, `Prompt ${name} must exist`);
                 assert.equal(evaluateWhen(prompt, answers), false);

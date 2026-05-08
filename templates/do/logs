@@ -10,9 +10,9 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
 # ============================================================
-# SageMaker Managed Inference Logs (CloudWatch)
+# SageMaker Real-Time Inference Logs (CloudWatch)
 # ============================================================
 
 # Allow inference component name as argument or from config
@@ -95,7 +95,7 @@ aws logs tail "${LOG_GROUP}" \
 
 <% } else if (deploymentTarget === 'async-inference') { %>
 # ============================================================
-# SageMaker Managed Inference - Async Logs (CloudWatch)
+# SageMaker Async Inference Logs (CloudWatch)
 # ============================================================
 
 ENDPOINT="${1:-${ENDPOINT_NAME:-}}"
@@ -166,7 +166,7 @@ aws logs tail "${LOG_GROUP}" \
 
 <% } else if (deploymentTarget === 'batch-transform') { %>
 # ============================================================
-# SageMaker Managed Inference - Batch Logs (CloudWatch)
+# SageMaker Batch Transform Logs (CloudWatch)
 # ============================================================
 
 # Allow transform job name as argument or from config

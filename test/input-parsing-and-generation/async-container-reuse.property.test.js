@@ -5,7 +5,7 @@
  * Property 7: Container image reuse across deployment targets
  *
  * For any valid generator configuration, if only the deploymentTarget is changed
- * between managed-inference and async-inference while all other parameters remain
+ * between realtime-inference and async-inference while all other parameters remain
  * the same, the generated Dockerfile, serving code files, and container build
  * scripts (do/build, do/push, do/submit) SHALL be identical.
  *
@@ -39,7 +39,7 @@ function renderTemplate(template, vars) {
     return ejs.render(template, vars);
 }
 
-/** Arbitrary for a base config shared between managed-inference and async-inference */
+/** Arbitrary for a base config shared between realtime-inference and async-inference */
 const baseConfigArb = fc.record({
     projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
     deploymentConfig: fc.constantFrom(
@@ -85,22 +85,22 @@ describe('Feature: async-inference-endpoint, Property 7: Container image reuse a
         console.log('🔧 Configuration: EJS template rendering with fast-check\n');
     });
 
-    it('do/build output is identical for managed-inference and async-inference with same base config', function () {
+    it('do/build output is identical for realtime-inference and async-inference with same base config', function () {
         /**
          * **Validates: Requirements 11.1, 11.2**
          *
          * The do/build template has no deployment-target-specific branching.
-         * Rendering with managed-inference vs async-inference (same base config)
+         * Rendering with realtime-inference vs async-inference (same base config)
          * must produce character-for-character identical output.
          */
         this.timeout(30000);
 
-        console.log('  🧪 do/build: identical output for managed-inference and async-inference');
+        console.log('  🧪 do/build: identical output for realtime-inference and async-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
             (baseConfig) => {
-                const managedVars = buildVars(baseConfig, 'managed-inference');
+                const managedVars = buildVars(baseConfig, 'realtime-inference');
                 const asyncVars = buildVars(baseConfig, 'async-inference');
 
                 const managedOutput = renderTemplate(buildTemplate, managedVars);
@@ -109,7 +109,7 @@ describe('Feature: async-inference-endpoint, Property 7: Container image reuse a
                 assert.strictEqual(
                     managedOutput,
                     asyncOutput,
-                    'do/build output must be identical for managed-inference and async-inference'
+                    'do/build output must be identical for realtime-inference and async-inference'
                 );
             }
         ), { numRuns: 30 });
@@ -117,22 +117,22 @@ describe('Feature: async-inference-endpoint, Property 7: Container image reuse a
         console.log('    ✅ do/build is deployment-target-agnostic — container build is reused');
     });
 
-    it('do/push output is identical for managed-inference and async-inference with same base config', function () {
+    it('do/push output is identical for realtime-inference and async-inference with same base config', function () {
         /**
          * **Validates: Requirements 11.1, 11.3**
          *
          * The do/push template has no deployment-target-specific branching.
-         * Rendering with managed-inference vs async-inference (same base config)
+         * Rendering with realtime-inference vs async-inference (same base config)
          * must produce character-for-character identical output.
          */
         this.timeout(30000);
 
-        console.log('  🧪 do/push: identical output for managed-inference and async-inference');
+        console.log('  🧪 do/push: identical output for realtime-inference and async-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
             (baseConfig) => {
-                const managedVars = buildVars(baseConfig, 'managed-inference');
+                const managedVars = buildVars(baseConfig, 'realtime-inference');
                 const asyncVars = buildVars(baseConfig, 'async-inference');
 
                 const managedOutput = renderTemplate(pushTemplate, managedVars);
@@ -141,7 +141,7 @@ describe('Feature: async-inference-endpoint, Property 7: Container image reuse a
                 assert.strictEqual(
                     managedOutput,
                     asyncOutput,
-                    'do/push output must be identical for managed-inference and async-inference'
+                    'do/push output must be identical for realtime-inference and async-inference'
                 );
             }
         ), { numRuns: 30 });
@@ -149,22 +149,22 @@ describe('Feature: async-inference-endpoint, Property 7: Container image reuse a
         console.log('    ✅ do/push is deployment-target-agnostic — container push is reused');
     });
 
-    it('do/submit output is identical for managed-inference and async-inference with same base config', function () {
+    it('do/submit output is identical for realtime-inference and async-inference with same base config', function () {
         /**
          * **Validates: Requirements 11.1, 11.3**
          *
          * The do/submit template has no deployment-target-specific branching.
-         * Rendering with managed-inference vs async-inference (same base config)
+         * Rendering with realtime-inference vs async-inference (same base config)
          * must produce character-for-character identical output.
          */
         this.timeout(30000);
 
-        console.log('  🧪 do/submit: identical output for managed-inference and async-inference');
+        console.log('  🧪 do/submit: identical output for realtime-inference and async-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
             (baseConfig) => {
-                const managedVars = buildVars(baseConfig, 'managed-inference');
+                const managedVars = buildVars(baseConfig, 'realtime-inference');
                 const asyncVars = buildVars(baseConfig, 'async-inference');
 
                 const managedOutput = renderTemplate(submitTemplate, managedVars);
@@ -173,7 +173,7 @@ describe('Feature: async-inference-endpoint, Property 7: Container image reuse a
                 assert.strictEqual(
                     managedOutput,
                     asyncOutput,
-                    'do/submit output must be identical for managed-inference and async-inference'
+                    'do/submit output must be identical for realtime-inference and async-inference'
                 );
             }
         ), { numRuns: 30 });

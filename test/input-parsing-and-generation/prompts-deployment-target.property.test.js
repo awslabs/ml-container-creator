@@ -42,13 +42,13 @@ describe('Deployment Target Prompt Properties', () => {
 
     describe('Property 2: Deployment-Target-Conditional Prompt Visibility', () => {
         /**
-         * Property 2a: When deploymentTarget === 'managed-inference':
+         * Property 2a: When deploymentTarget === 'realtime-inference':
          * - instanceType prompt's `when` function must return true
          * - All HyperPod-specific prompts' `when` functions must return false
          * 
          * Validates: Requirements 2.1, 2.2
          */
-        it('should show instanceType and hide HyperPod prompts when deploymentTarget is managed-inference', function() {
+        it('should show instanceType and hide HyperPod prompts when deploymentTarget is realtime-inference', function() {
             this.timeout(10000);
 
             fc.assert(fc.property(
@@ -66,10 +66,10 @@ describe('Deployment Target Prompt Properties', () => {
                     ), { minLength: 0, maxLength: 5 }))
                 }),
                 (baseAnswers) => {
-                    // Set deploymentTarget to managed-inference
+                    // Set deploymentTarget to realtime-inference
                     const answers = {
                         ...baseAnswers,
-                        deploymentTarget: 'managed-inference'
+                        deploymentTarget: 'realtime-inference'
                     };
 
                     // Get the prompts
@@ -79,25 +79,25 @@ describe('Deployment Target Prompt Properties', () => {
                     const hyperPodReplicasPrompt = findPrompt('hyperPodReplicas');
                     const fsxVolumeHandlePrompt = findPrompt('fsxVolumeHandle');
 
-                    // instanceType should be shown for managed-inference
+                    // instanceType should be shown for realtime-inference
                     // Note: instanceType prompt doesn't have a `when` guard in current implementation
-                    // but if it does, it should return true for managed-inference
+                    // but if it does, it should return true for realtime-inference
                     if (instanceTypePrompt && instanceTypePrompt.when) {
                         const instanceTypeVisible = evaluateWhen(instanceTypePrompt, answers);
                         assert.strictEqual(
                             instanceTypeVisible,
                             true,
-                            'instanceType prompt should be visible when deploymentTarget is managed-inference'
+                            'instanceType prompt should be visible when deploymentTarget is realtime-inference'
                         );
                     }
 
-                    // All HyperPod prompts should be hidden for managed-inference
+                    // All HyperPod prompts should be hidden for realtime-inference
                     if (hyperPodClusterPrompt) {
                         const clusterVisible = evaluateWhen(hyperPodClusterPrompt, answers);
                         assert.strictEqual(
                             clusterVisible,
                             false,
-                            'hyperPodCluster prompt should be hidden when deploymentTarget is managed-inference'
+                            'hyperPodCluster prompt should be hidden when deploymentTarget is realtime-inference'
                         );
                     }
 
@@ -106,7 +106,7 @@ describe('Deployment Target Prompt Properties', () => {
                         assert.strictEqual(
                             namespaceVisible,
                             false,
-                            'hyperPodNamespace prompt should be hidden when deploymentTarget is managed-inference'
+                            'hyperPodNamespace prompt should be hidden when deploymentTarget is realtime-inference'
                         );
                     }
 
@@ -115,7 +115,7 @@ describe('Deployment Target Prompt Properties', () => {
                         assert.strictEqual(
                             replicasVisible,
                             false,
-                            'hyperPodReplicas prompt should be hidden when deploymentTarget is managed-inference'
+                            'hyperPodReplicas prompt should be hidden when deploymentTarget is realtime-inference'
                         );
                     }
 
@@ -124,7 +124,7 @@ describe('Deployment Target Prompt Properties', () => {
                         assert.strictEqual(
                             fsxVisible,
                             false,
-                            'fsxVolumeHandle prompt should be hidden when deploymentTarget is managed-inference'
+                            'fsxVolumeHandle prompt should be hidden when deploymentTarget is realtime-inference'
                         );
                     }
 
@@ -233,7 +233,7 @@ describe('Deployment Target Prompt Properties', () => {
             fc.assert(fc.property(
                 fc.record({
                     buildTarget: fc.constantFrom('codebuild'),
-                    deploymentTarget: fc.constantFrom('managed-inference', 'hyperpod-eks'),
+                    deploymentTarget: fc.constantFrom('realtime-inference', 'hyperpod-eks'),
                     deploymentConfig: fc.constantFrom(
                         'transformers-vllm', 'sklearn-flask', 'xgboost-fastapi'
                     )
@@ -256,16 +256,16 @@ describe('Deployment Target Prompt Properties', () => {
                         assert.strictEqual(
                             instanceTypeVisible,
                             true,
-                            'instanceType should be visible for both managed-inference and hyperpod-eks'
+                            'instanceType should be visible for both realtime-inference and hyperpod-eks'
                         );
                     }
 
                     // HyperPod prompts should only be visible for hyperpod-eks
-                    if (answers.deploymentTarget === 'managed-inference') {
+                    if (answers.deploymentTarget === 'realtime-inference') {
                         assert.strictEqual(
                             hyperPodVisible,
                             false,
-                            'hyperPodCluster should be hidden for managed-inference'
+                            'hyperPodCluster should be hidden for realtime-inference'
                         );
                     } else {
                         assert.strictEqual(
@@ -314,19 +314,19 @@ describe('Deployment Target Prompt Properties', () => {
             );
             assert.ok(hasCodebuild, 'buildTarget must have codebuild as an option');
 
-            // deploymentTarget should have both managed-inference and hyperpod-eks
+            // deploymentTarget should have both realtime-inference and hyperpod-eks
             const deploymentTargetChoices = typeof deploymentTargetPrompt.choices === 'function'
                 ? deploymentTargetPrompt.choices({})
                 : deploymentTargetPrompt.choices;
             
             const hasManagedInference = deploymentTargetChoices.some(
-                choice => (typeof choice === 'object' ? choice.value : choice) === 'managed-inference'
+                choice => (typeof choice === 'object' ? choice.value : choice) === 'realtime-inference'
             );
             const hasHyperPodEks = deploymentTargetChoices.some(
                 choice => (typeof choice === 'object' ? choice.value : choice) === 'hyperpod-eks'
             );
             
-            assert.ok(hasManagedInference, 'deploymentTarget must have managed-inference as an option');
+            assert.ok(hasManagedInference, 'deploymentTarget must have realtime-inference as an option');
             assert.ok(hasHyperPodEks, 'deploymentTarget must have hyperpod-eks as an option');
         });
 
@@ -340,7 +340,7 @@ describe('Deployment Target Prompt Properties', () => {
 
             fc.assert(fc.property(
                 fc.record({
-                    deploymentTarget: fc.constantFrom('managed-inference', 'hyperpod-eks'),
+                    deploymentTarget: fc.constantFrom('realtime-inference', 'hyperpod-eks'),
                     deploymentConfig: fc.constantFrom('transformers-vllm', 'sklearn-flask')
                 }),
                 (baseAnswers) => {
@@ -366,7 +366,7 @@ describe('Deployment Target Prompt Properties', () => {
                     // The visibility should depend only on deploymentTarget, not buildTarget
                     // Since we only have 'codebuild' as a build target currently,
                     // we verify that the visibility is consistent with deploymentTarget
-                    if (baseAnswers.deploymentTarget === 'managed-inference') {
+                    if (baseAnswers.deploymentTarget === 'realtime-inference') {
                         if (instanceTypePrompt && instanceTypePrompt.when) {
                             assert.strictEqual(
                                 instanceTypeVisibleCodebuild,
@@ -410,7 +410,7 @@ describe('Deployment Target Prompt Properties', () => {
 
             fc.assert(fc.property(
                 fc.record({
-                    deploymentTarget: fc.constantFrom('managed-inference', 'hyperpod-eks'),
+                    deploymentTarget: fc.constantFrom('realtime-inference', 'hyperpod-eks'),
                     deploymentConfig: fc.constantFrom('transformers-vllm', 'sklearn-flask')
                 }),
                 (baseAnswers) => {
@@ -438,9 +438,9 @@ describe('Deployment Target Prompt Properties', () => {
                     // (it should only depend on buildTarget)
                     const answersWithDifferentDeployment = {
                         ...answersWithCodebuild,
-                        deploymentTarget: baseAnswers.deploymentTarget === 'managed-inference' 
+                        deploymentTarget: baseAnswers.deploymentTarget === 'realtime-inference' 
                             ? 'hyperpod-eks' 
-                            : 'managed-inference'
+                            : 'realtime-inference'
                     };
                     
                     const visibleWithDifferentDeployment = evaluateWhen(
@@ -496,9 +496,9 @@ describe('Deployment Target Prompt Properties', () => {
         });
 
         /**
-         * Verify deploymentTarget defaults to managed-inference
+         * Verify deploymentTarget defaults to realtime-inference
          */
-        it('should default deploymentTarget to managed-inference', () => {
+        it('should default deploymentTarget to realtime-inference', () => {
             const deploymentTargetPrompt = findPrompt('deploymentTarget');
             
             assert.ok(deploymentTargetPrompt, 'deploymentTarget prompt must exist');
@@ -509,8 +509,8 @@ describe('Deployment Target Prompt Properties', () => {
             
             assert.strictEqual(
                 defaultValue,
-                'managed-inference',
-                'deploymentTarget should default to managed-inference'
+                'realtime-inference',
+                'deploymentTarget should default to realtime-inference'
             );
         });
     });

@@ -6,7 +6,7 @@
  *
  * Verifies that the four new async parameters exist in the ConfigManager
  * parameter matrix with correct CLI options, env vars, and defaults.
- * Also verifies deploymentTarget defaults to 'managed-inference'.
+ * Also verifies deploymentTarget defaults to 'realtime-inference'.
  *
  * Feature: async-inference-endpoint
  * Validates: Requirements 3.1, 3.2, 3.3, 3.4, 10.3
@@ -187,16 +187,16 @@ describe('ConfigManager Async Parameter Matrix Entries', () => {
     });
 
     describe('deploymentTarget default (Requirement 10.3)', () => {
-        it('should default to managed-inference', () => {
+        it('should default to realtime-inference', () => {
             const matrix = getParameterMatrix();
-            assert.equal(matrix.deploymentTarget.default, 'managed-inference');
+            assert.equal(matrix.deploymentTarget.default, 'realtime-inference');
         });
 
-        it('should apply managed-inference default when no value provided', async () => {
+        it('should apply realtime-inference default when no value provided', async () => {
             const mockGen = createMockGenerator();
             const cm = new ConfigManager(mockGen);
             const config = await cm.loadConfiguration();
-            assert.equal(config.deploymentTarget, 'managed-inference');
+            assert.equal(config.deploymentTarget, 'realtime-inference');
         });
     });
 });

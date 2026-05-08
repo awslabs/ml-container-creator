@@ -29,7 +29,7 @@ const _pushTemplate = readFileSync(path.join(templatesDir, 'do/push'), 'utf8'); 
 const _submitTemplate = readFileSync(path.join(templatesDir, 'do/submit'), 'utf8'); // eslint-disable-line no-unused-vars
 const _cleanTemplate = readFileSync(path.join(templatesDir, 'do/clean'), 'utf8'); // eslint-disable-line no-unused-vars
 
-/** Base template variables for managed-inference rendering */
+/** Base template variables for realtime-inference rendering */
 function managedInferenceVars(overrides = {}) {
     return {
         projectName: 'test-project',
@@ -38,7 +38,7 @@ function managedInferenceVars(overrides = {}) {
         modelServer: 'vllm',
         awsRegion: 'us-east-1',
         buildTarget: 'codebuild',
-        deploymentTarget: 'managed-inference',
+        deploymentTarget: 'realtime-inference',
         instanceType: 'ml.g5.xlarge',
         inferenceAmiVersion: undefined,
         roleArn: 'arn:aws:iam::123456789012:role/SageMakerRole',
@@ -176,12 +176,12 @@ describe('Manifest Generation Integration Tests', function () {
     // 4. do/deploy contains ./do/manifest add calls
     // ================================================================
     describe('do/deploy manifest integration', () => {
-        it('should contain ./do/manifest add calls for managed-inference', () => {
+        it('should contain ./do/manifest add calls for realtime-inference', () => {
             const output = ejs.render(deployTemplate, managedInferenceVars());
 
             assert.ok(
                 output.includes('./do/manifest add'),
-                'do/deploy (managed-inference) must contain ./do/manifest add'
+                'do/deploy (realtime-inference) must contain ./do/manifest add'
             );
             assert.ok(
                 output.includes('sagemaker-endpoint-config'),

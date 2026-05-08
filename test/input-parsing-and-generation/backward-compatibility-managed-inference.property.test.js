@@ -4,7 +4,7 @@
 /**
  * Property 14: Backward Compatibility for Managed Inference
  *
- * For any valid managed-inference configuration, the generated project
+ * For any valid realtime-inference configuration, the generated project
  * file structure, do/deploy SageMaker endpoint logic, do/clean endpoint
  * cleanup logic, do/logs CloudWatch tailing logic, and do/test endpoint
  * testing logic must be functionally equivalent to the current generator
@@ -43,7 +43,7 @@ function renderTemplate(template, vars) {
     return ejs.render(template, { orderedEnvVars: [], baseImage: '', ...vars });
 }
 
-/** Arbitrary for a managed-inference configuration */
+/** Arbitrary for a realtime-inference configuration */
 const managedInferenceConfigArb = fc.record({
     projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
     deploymentConfig: fc.constantFrom(
@@ -56,7 +56,7 @@ const managedInferenceConfigArb = fc.record({
     modelServer: fc.constantFrom('flask', 'fastapi', 'vllm', 'sglang'),
     awsRegion: fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1'),
     buildTarget: fc.constant('codebuild'),
-    deploymentTarget: fc.constant('managed-inference'),
+    deploymentTarget: fc.constant('realtime-inference'),
     instanceType: fc.constantFrom('ml.m5.xlarge', 'ml.g5.xlarge', 'ml.p4d.24xlarge'),
     modelName: fc.constantFrom('meta-llama/Llama-2-7b-hf', 'openai/gpt-oss-20b'),
     codebuildComputeType: fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'),
@@ -78,7 +78,7 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
         /**
          * **Validates: Requirements 11.1**
          *
-         * When deploymentTarget === 'managed-inference', the do/config must contain
+         * When deploymentTarget === 'realtime-inference', the do/config must contain
          * BUILD_TARGET (renamed from DEPLOY_TARGET) and DEPLOYMENT_TARGET variables,
          * and must NOT contain HyperPod-specific variables.
          */
@@ -103,24 +103,24 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
                     'do/config must contain DEPLOYMENT_TARGET variable'
                 );
 
-                // Must contain INSTANCE_TYPE for managed-inference
+                // Must contain INSTANCE_TYPE for realtime-inference
                 assert.ok(
                     output.includes('INSTANCE_TYPE'),
-                    'managed-inference do/config must contain INSTANCE_TYPE'
+                    'realtime-inference do/config must contain INSTANCE_TYPE'
                 );
 
                 // Must NOT contain HyperPod-specific variables
                 assert.ok(
                     !output.includes('HYPERPOD_CLUSTER_NAME'),
-                    'managed-inference do/config must NOT contain HYPERPOD_CLUSTER_NAME'
+                    'realtime-inference do/config must NOT contain HYPERPOD_CLUSTER_NAME'
                 );
                 assert.ok(
                     !output.includes('HYPERPOD_NAMESPACE'),
-                    'managed-inference do/config must NOT contain HYPERPOD_NAMESPACE'
+                    'realtime-inference do/config must NOT contain HYPERPOD_NAMESPACE'
                 );
                 assert.ok(
                     !output.includes('HYPERPOD_REPLICAS'),
-                    'managed-inference do/config must NOT contain HYPERPOD_REPLICAS'
+                    'realtime-inference do/config must NOT contain HYPERPOD_REPLICAS'
                 );
             }
         ), { numRuns: 30 });
@@ -132,7 +132,7 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
         /**
          * **Validates: Requirements 11.2**
          *
-         * When deploymentTarget === 'managed-inference', the do/deploy script must
+         * When deploymentTarget === 'realtime-inference', the do/deploy script must
          * contain SageMaker inference component logic: create-endpoint,
          * create-inference-component, and wait inference-component-in-service.
          */
@@ -156,35 +156,35 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
                 // Must contain SageMaker inference component commands
                 assert.ok(
                     output.includes('sagemaker create-endpoint-config'),
-                    'managed-inference do/deploy must contain create-endpoint-config'
+                    'realtime-inference do/deploy must contain create-endpoint-config'
                 );
                 assert.ok(
                     output.includes('sagemaker create-endpoint'),
-                    'managed-inference do/deploy must contain create-endpoint'
+                    'realtime-inference do/deploy must contain create-endpoint'
                 );
                 assert.ok(
                     output.includes('sagemaker create-inference-component'),
-                    'managed-inference do/deploy must contain create-inference-component'
+                    'realtime-inference do/deploy must contain create-inference-component'
                 );
                 assert.ok(
                     output.includes('sagemaker wait inference-component-in-service'),
-                    'managed-inference do/deploy must contain wait inference-component-in-service'
+                    'realtime-inference do/deploy must contain wait inference-component-in-service'
                 );
 
                 // Must contain ROLE_ARN validation
                 assert.ok(
                     output.includes('ROLE_ARN'),
-                    'managed-inference do/deploy must validate ROLE_ARN'
+                    'realtime-inference do/deploy must validate ROLE_ARN'
                 );
 
                 // Must NOT contain kubectl commands
                 assert.ok(
                     !output.includes('kubectl'),
-                    'managed-inference do/deploy must NOT contain kubectl commands'
+                    'realtime-inference do/deploy must NOT contain kubectl commands'
                 );
                 assert.ok(
                     !output.includes('describe-cluster'),
-                    'managed-inference do/deploy must NOT contain describe-cluster'
+                    'realtime-inference do/deploy must NOT contain describe-cluster'
                 );
             }
         ), { numRuns: 30 });
@@ -196,7 +196,7 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
         /**
          * **Validates: Requirements 11.3**
          *
-         * When deploymentTarget === 'managed-inference', the do/clean script must
+         * When deploymentTarget === 'realtime-inference', the do/clean script must
          * contain endpoint cleanup logic (delete-inference-component, delete-endpoint)
          * and must NOT contain HyperPod cleanup logic.
          */
@@ -220,41 +220,41 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
                 // Must contain endpoint cleanup target
                 assert.ok(
                     output.includes('clean_endpoint'),
-                    'managed-inference do/clean must contain clean_endpoint function'
+                    'realtime-inference do/clean must contain clean_endpoint function'
                 );
                 assert.ok(
                     output.includes('endpoint)'),
-                    'managed-inference do/clean must support endpoint cleanup target'
+                    'realtime-inference do/clean must support endpoint cleanup target'
                 );
 
                 // Must contain SageMaker delete commands
                 assert.ok(
                     output.includes('delete-endpoint'),
-                    'managed-inference do/clean must contain delete-endpoint'
+                    'realtime-inference do/clean must contain delete-endpoint'
                 );
 
                 // Must NOT contain HyperPod cleanup
                 assert.ok(
                     !output.includes('clean_hyperpod'),
-                    'managed-inference do/clean must NOT contain clean_hyperpod'
+                    'realtime-inference do/clean must NOT contain clean_hyperpod'
                 );
                 assert.ok(
                     !output.includes('kubectl delete'),
-                    'managed-inference do/clean must NOT contain kubectl delete'
+                    'realtime-inference do/clean must NOT contain kubectl delete'
                 );
 
                 // Must still contain shared cleanup targets
                 assert.ok(
                     output.includes('clean_local'),
-                    'managed-inference do/clean must contain clean_local'
+                    'realtime-inference do/clean must contain clean_local'
                 );
                 assert.ok(
                     output.includes('clean_ecr'),
-                    'managed-inference do/clean must contain clean_ecr'
+                    'realtime-inference do/clean must contain clean_ecr'
                 );
                 assert.ok(
                     output.includes('clean_codebuild'),
-                    'managed-inference do/clean must contain clean_codebuild'
+                    'realtime-inference do/clean must contain clean_codebuild'
                 );
             }
         ), { numRuns: 30 });
@@ -266,7 +266,7 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
         /**
          * **Validates: Requirements 11.4**
          *
-         * When deploymentTarget === 'managed-inference', the do/logs script must
+         * When deploymentTarget === 'realtime-inference', the do/logs script must
          * contain CloudWatch log tailing logic (aws logs tail) and must NOT
          * contain kubectl logs commands.
          */
@@ -290,25 +290,25 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
                 // Must contain CloudWatch log tailing
                 assert.ok(
                     output.includes('aws logs tail'),
-                    'managed-inference do/logs must contain aws logs tail'
+                    'realtime-inference do/logs must contain aws logs tail'
                 );
                 assert.ok(
                     output.includes('/aws/sagemaker/Endpoints/'),
-                    'managed-inference do/logs must reference SageMaker Endpoints log group'
+                    'realtime-inference do/logs must reference SageMaker Endpoints log group'
                 );
                 assert.ok(
                     output.includes('--follow'),
-                    'managed-inference do/logs must use --follow for tailing'
+                    'realtime-inference do/logs must use --follow for tailing'
                 );
 
                 // Must NOT contain kubectl logs
                 assert.ok(
                     !output.includes('kubectl logs'),
-                    'managed-inference do/logs must NOT contain kubectl logs'
+                    'realtime-inference do/logs must NOT contain kubectl logs'
                 );
                 assert.ok(
                     !output.includes('describe-cluster'),
-                    'managed-inference do/logs must NOT contain describe-cluster'
+                    'realtime-inference do/logs must NOT contain describe-cluster'
                 );
             }
         ), { numRuns: 30 });
@@ -320,7 +320,7 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
         /**
          * **Validates: Requirements 11.5**
          *
-         * When deploymentTarget === 'managed-inference', the do/test script must
+         * When deploymentTarget === 'realtime-inference', the do/test script must
          * contain both local container testing (curl to localhost:8080) and
          * SageMaker endpoint testing (aws sagemaker-runtime invoke-endpoint).
          */
@@ -344,36 +344,36 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
                 // Must contain local testing (curl to localhost:8080)
                 assert.ok(
                     output.includes('localhost:8080'),
-                    'managed-inference do/test must contain localhost:8080 for local testing'
+                    'realtime-inference do/test must contain localhost:8080 for local testing'
                 );
 
                 // Must contain SageMaker endpoint testing
                 assert.ok(
                     output.includes('sagemaker-runtime invoke-endpoint') ||
                     output.includes('sagemaker describe-endpoint'),
-                    'managed-inference do/test must contain SageMaker endpoint testing'
+                    'realtime-inference do/test must contain SageMaker endpoint testing'
                 );
 
                 // Must contain health check (/ping)
                 assert.ok(
                     output.includes('/ping'),
-                    'managed-inference do/test must contain /ping health check'
+                    'realtime-inference do/test must contain /ping health check'
                 );
 
                 // Must contain inference test (/invocations)
                 assert.ok(
                     output.includes('/invocations'),
-                    'managed-inference do/test must contain /invocations inference test'
+                    'realtime-inference do/test must contain /invocations inference test'
                 );
 
                 // Must NOT contain kubectl port-forward
                 assert.ok(
                     !output.includes('kubectl port-forward'),
-                    'managed-inference do/test must NOT contain kubectl port-forward'
+                    'realtime-inference do/test must NOT contain kubectl port-forward'
                 );
                 assert.ok(
                     !output.includes('describe-cluster'),
-                    'managed-inference do/test must NOT contain describe-cluster'
+                    'realtime-inference do/test must NOT contain describe-cluster'
                 );
             }
         ), { numRuns: 30 });
@@ -381,16 +381,16 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
         console.log('    ✅ do/test contains local and SageMaker endpoint testing logic');
     });
 
-    it('should default deploymentTarget to managed-inference when not explicitly set (Req 11.6)', function () {
+    it('should default deploymentTarget to realtime-inference when not explicitly set (Req 11.6)', function () {
         /**
          * **Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.5**
          *
-         * The generator defaults deploymentTarget to 'managed-inference' when
+         * The generator defaults deploymentTarget to 'realtime-inference' when
          * not explicitly set, ensuring backward compatibility.
          */
         this.timeout(30000);
 
-        console.log('  🧪 Req 11.6: deploymentTarget defaults to managed-inference');
+        console.log('  🧪 Req 11.6: deploymentTarget defaults to realtime-inference');
 
         fc.assert(fc.property(
             fc.record({
@@ -413,7 +413,7 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ deploymentTarget defaults to managed-inference');
+        console.log('    ✅ deploymentTarget defaults to realtime-inference');
     });
 
     it('should accept old deployTarget for backward compatibility in TemplateManager', function () {

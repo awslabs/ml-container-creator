@@ -52,7 +52,7 @@ function createMockGeneratorInstance(answers = {}, registryConfigManager = null)
                 testTypes: [],
                 buildTimestamp: new Date().toISOString(),
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 hyperPodCluster: null,
                 hyperPodNamespace: 'default',
                 hyperPodReplicas: 1,

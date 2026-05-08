@@ -27,7 +27,7 @@ const FAST_PROPERTY_CONFIG = {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const SUPPORTED_DEPLOYMENT_TARGETS = ['managed-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'];
+const SUPPORTED_DEPLOYMENT_TARGETS = ['realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'];
 
 const VALID_SPLIT_TYPES = ['Line', 'RecordIO', 'None'];
 const VALID_BATCH_STRATEGIES = ['MultiRecord', 'SingleRecord'];

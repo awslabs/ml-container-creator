@@ -4,7 +4,7 @@
 /**
  * Property 15: Logs Script Content by Deployment Target
  *
- * For any valid configuration, when deploymentTarget equals managed-inference,
+ * For any valid configuration, when deploymentTarget equals realtime-inference,
  * the generated do/logs script must contain CloudWatch Logs tailing logic
  * (aws logs tail) and must not contain kubectl commands. When deploymentTarget
  * equals hyperpod-eks, the generated do/logs script must contain kubectl logs
@@ -55,17 +55,17 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
         console.log('🔧 Configuration: EJS template rendering with fast-check\n');
     });
 
-    it('should contain CloudWatch Logs tailing logic for managed-inference (Req 15.2)', function () {
+    it('should contain CloudWatch Logs tailing logic for realtime-inference (Req 15.2)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 15.2: CloudWatch Logs tailing for managed-inference');
+        console.log('  🧪 Req 15.2: CloudWatch Logs tailing for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
             (base) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType: 'ml.m5.xlarge',
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -78,30 +78,30 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
                 // Must contain CloudWatch Logs tailing
                 assert.ok(
                     output.includes('aws logs tail'),
-                    'managed-inference must contain aws logs tail command'
+                    'realtime-inference must contain aws logs tail command'
                 );
                 assert.ok(
                     output.includes('/aws/sagemaker/Endpoints/'),
-                    'managed-inference must reference SageMaker Endpoints log group'
+                    'realtime-inference must reference SageMaker Endpoints log group'
                 );
                 assert.ok(
                     output.includes('--follow'),
-                    'managed-inference must tail logs with --follow flag'
+                    'realtime-inference must tail logs with --follow flag'
                 );
 
                 // Must NOT contain kubectl commands
                 assert.ok(
                     !output.includes('kubectl'),
-                    'managed-inference must NOT contain kubectl commands'
+                    'realtime-inference must NOT contain kubectl commands'
                 );
                 assert.ok(
                     !output.includes('describe-cluster'),
-                    'managed-inference must NOT contain describe-cluster'
+                    'realtime-inference must NOT contain describe-cluster'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ CloudWatch Logs tailing present for managed-inference');
+        console.log('    ✅ CloudWatch Logs tailing present for realtime-inference');
     });
 
     it('should contain kubectl logs tailing logic for hyperpod-eks (Req 15.3)', function () {
@@ -209,7 +209,7 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -223,9 +223,9 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
 
                 const output = renderLogs(vars);
 
-                if (deploymentTarget === 'managed-inference') {
-                    assert.ok(output.includes('aws logs tail'), 'managed-inference must have aws logs tail');
-                    assert.ok(!output.includes('kubectl logs'), 'managed-inference must NOT have kubectl logs');
+                if (deploymentTarget === 'realtime-inference') {
+                    assert.ok(output.includes('aws logs tail'), 'realtime-inference must have aws logs tail');
+                    assert.ok(!output.includes('kubectl logs'), 'realtime-inference must NOT have kubectl logs');
                 } else {
                     assert.ok(output.includes('kubectl logs'), 'hyperpod-eks must have kubectl logs');
                     assert.ok(!output.includes('aws logs tail'), 'hyperpod-eks must NOT have aws logs tail');

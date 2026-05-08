@@ -156,6 +156,22 @@ export async function run(projectName, options) {
             console.log('   If your model package lacks an InferenceSpecification, use the S3 path');
             console.log('   directly instead: --model-name="s3://bucket/path/model.tar.gz"\n');
         }
+    } else if (configManager.isAutoPrompt()) {
+        // Auto-prompt mode: run the wizard with all resolved values pre-filled.
+        // The wizard skips prompts for values already in explicitConfig and
+        // uses phase-level gates to skip irrelevant sections entirely.
+        // This gives context-aware prompting (correct MCP queries, filtered choices)
+        // while only asking for what's truly missing.
+        console.log('\n🔄 Auto-prompt mode — prompting only for missing values with full context');
+
+        const promptRunner = new PromptRunner({
+            configManager,
+            options: kebabOptions,
+            registryConfigManager,
+            baseConfig
+        });
+        const promptAnswers = await promptRunner.run();
+        answers = configManager.getFinalConfiguration(promptAnswers);
     } else {
         const promptRunner = new PromptRunner({
             configManager,
@@ -482,7 +498,7 @@ async function _ensureTemplateVariables(answers, registryConfigManager = null) {
         testTypes: [],
         buildTimestamp: new Date().toISOString(),
         buildTarget: 'codebuild',
-        deploymentTarget: 'managed-inference',
+        deploymentTarget: 'realtime-inference',
         hyperPodCluster: null,
         hyperPodNamespace: 'default',
         hyperPodReplicas: 1,

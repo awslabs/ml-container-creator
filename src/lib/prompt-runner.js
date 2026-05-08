@@ -81,9 +81,9 @@ export default class PromptRunner {
         const regionPreviousAnswers = bootstrapRegion ? { _bootstrapRegion: bootstrapRegion } : {};
         const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, regionPreviousAnswers, explicitConfig, existingConfig);
 
-        // 1b. Instance type — query MCP and prompt for managed-inference, async-inference, batch-transform, and hyperpod-eks
+        // 1b. Instance type — query MCP and prompt for realtime-inference, async-inference, batch-transform, and hyperpod-eks
         let instanceAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'managed-inference' ||
+        if (regionAndTargetAnswers.deploymentTarget === 'realtime-inference' ||
             regionAndTargetAnswers.deploymentTarget === 'async-inference' ||
             regionAndTargetAnswers.deploymentTarget === 'batch-transform' ||
             regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
@@ -521,7 +521,18 @@ export default class PromptRunner {
         // First, add any existing config values to previousAnswers so they're available for defaults
         const allPreviousAnswers = { ...existingConfig, ...previousAnswers };
         
-        return await this._runPrompts(promptablePrompts.map(prompt => ({
+        // Collect explicit values for prompts that will be skipped.
+        // When a prompt is skipped because its value is in explicitConfig,
+        // the prompt library won't include it in the returned answers.
+        // Downstream code expects the value to be present, so we inject it.
+        const skippedValues = {};
+        for (const prompt of promptablePrompts) {
+            if (explicitConfig[prompt.name] !== undefined && explicitConfig[prompt.name] !== null) {
+                skippedValues[prompt.name] = explicitConfig[prompt.name];
+            }
+        }
+
+        const promptedAnswers = await this._runPrompts(promptablePrompts.map(prompt => ({
             ...prompt,
             // Wrap message to inject previousAnswers so prompts can access _mcpInstanceChoices etc.
             message: typeof prompt.message === 'function' ? (answers) => {
@@ -541,14 +552,34 @@ export default class PromptRunner {
             } : (existingConfig[prompt.name] !== undefined && existingConfig[prompt.name] !== null) ? 
                 existingConfig[prompt.name] : undefined,
             // Skip prompt ONLY if we have explicit config (not defaults)
+            // In auto-prompt mode, also skip optional prompts (not required in parameter matrix)
             when: prompt.when ? (answers) => {
                 // Skip if we have the value from explicit config (CLI, env vars, config files)
                 if (explicitConfig[prompt.name] !== undefined && explicitConfig[prompt.name] !== null) {
                     return false;
                 }
+                // In auto-prompt mode, skip optional/non-matrix parameters entirely
+                if (this.configManager?.isAutoPrompt()) {
+                    const paramConfig = this.configManager.parameterMatrix[prompt.name];
+                    // Skip if not in matrix (supplementary prompt) or if optional
+                    if (!paramConfig || !paramConfig.required) {
+                        return false;
+                    }
+                }
                 return prompt.when({...allPreviousAnswers, ...answers});
-            } : (explicitConfig[prompt.name] !== undefined && explicitConfig[prompt.name] !== null) ? 
-                () => false : undefined,
+            } : (_answers) => {
+                // No original when condition — skip if explicit or if auto-prompt + optional/non-matrix
+                if (explicitConfig[prompt.name] !== undefined && explicitConfig[prompt.name] !== null) {
+                    return false;
+                }
+                if (this.configManager?.isAutoPrompt()) {
+                    const paramConfig = this.configManager.parameterMatrix[prompt.name];
+                    if (!paramConfig || !paramConfig.required) {
+                        return false;
+                    }
+                }
+                return true;
+            },
             // Provide access to previous answers for conditional logic
             // For unbounded parameters, inject MCP-provided choices if available
             choices: prompt.choices ? (answers) => {
@@ -563,6 +594,9 @@ export default class PromptRunner {
                 return prompt.choices;
             } : undefined
         })));
+
+        // Merge skipped explicit values into the answers so downstream code sees them
+        return { ...skippedValues, ...promptedAnswers };
     }
 
     /**
@@ -638,7 +672,7 @@ export default class PromptRunner {
 
     /**
      * Query MCP instance-recommender server after deployment target is known.
-     * Only runs when deploymentTarget is managed-inference.
+     * Only runs when deploymentTarget is realtime-inference.
      * Populates configManager.mcpChoices so _runPhase injects them into list prompts.
      * @private
      */
@@ -1314,11 +1348,21 @@ export default class PromptRunner {
             return inferenceAmiVersion ? { cudaVersion, inferenceAmiVersion } : null;
         }
 
-        // Multiple options — let the user choose
+        // Multiple options — let the user choose (or auto-select in auto-prompt mode)
         const defaultVersion = frameworkAccel?.version
             && compatibleVersions.includes(frameworkAccel.version)
             ? frameworkAccel.version
             : instanceInfo.accelerator.default || compatibleVersions[compatibleVersions.length - 1];
+
+        // In auto-prompt mode, auto-select the default without prompting
+        if (this.configManager?.isAutoPrompt()) {
+            const inferenceAmiVersion = PromptRunner.CUDA_AMI_MAP[defaultVersion];
+            if (inferenceAmiVersion) {
+                console.log(`\n🔧 CUDA ${defaultVersion} auto-selected (auto-prompt mode)`);
+                console.log(`   AMI: ${inferenceAmiVersion}`);
+            }
+            return inferenceAmiVersion ? { cudaVersion: defaultVersion, inferenceAmiVersion } : null;
+        }
 
         const choices = compatibleVersions.map(v => {
             const ami = PromptRunner.CUDA_AMI_MAP[v] || 'unknown';

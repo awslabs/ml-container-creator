@@ -18,7 +18,7 @@ describe('TemplateManager', () => {
             const answers = {
                 deploymentConfig: 'http-flask',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 instanceType: 'ml.m5.large',
                 awsRegion: 'us-east-1',
                 awsRoleArn: '',
@@ -34,7 +34,7 @@ describe('TemplateManager', () => {
             const answers = {
                 deploymentConfig: 'transformers-vllm',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: '',
@@ -50,7 +50,7 @@ describe('TemplateManager', () => {
             const answers = {
                 deploymentConfig: 'triton-fil',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: '',
@@ -150,7 +150,7 @@ describe('TemplateManager', () => {
             const answers = {
                 deploymentConfig: 'triton-vllm',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 instanceType: 'ml.m5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -164,7 +164,7 @@ describe('TemplateManager', () => {
             const answers = {
                 deploymentConfig: 'triton-tensorrtllm',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 instanceType: 'ml.c5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''
@@ -178,7 +178,7 @@ describe('TemplateManager', () => {
             const answers = {
                 deploymentConfig: 'triton-vllm',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 instanceType: 'ml.g5.xlarge',
                 awsRegion: 'us-east-1',
                 awsRoleArn: ''

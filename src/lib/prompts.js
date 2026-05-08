@@ -649,7 +649,7 @@ const modulePrompts = [
 /**
  * Infrastructure prompts split into sub-phases so the prompt runner can
  * interleave MCP queries between them (e.g. query instance-recommender
- * only after we know the deployment target is managed-inference).
+ * only after we know the deployment target is realtime-inference).
  *
  * Ordering: Region → Deployment Target → Instance/HyperPod → Build Target → Role
  */
@@ -683,21 +683,21 @@ const infraRegionAndTargetPrompts = [
         name: 'deploymentTarget',
         message: 'Deployment target?',
         choices: [
-            { name: 'SageMaker Managed Inference - Real Time', value: 'managed-inference' },
-            { name: 'SageMaker Managed Inference - Async', value: 'async-inference' },
-            { name: 'SageMaker Managed Inference - Batch', value: 'batch-transform' },
+            { name: 'SageMaker Real-Time Inference', value: 'realtime-inference' },
+            { name: 'SageMaker Async Inference', value: 'async-inference' },
+            { name: 'SageMaker Batch Transform', value: 'batch-transform' },
             { name: 'SageMaker HyperPod - EKS', value: 'hyperpod-eks' }
         ],
-        default: 'managed-inference'
+        default: 'realtime-inference'
     }
 ];
 
-// Sub-phase B: Instance type (only when deploymentTarget === 'managed-inference')
+// Sub-phase B: Instance type (only when deploymentTarget === 'realtime-inference')
 const infraInstancePrompts = [
     {
         type: 'list',
         name: 'instanceType',
-        when: answers => answers.deploymentTarget === 'managed-inference' || answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform' || answers.deploymentTarget === 'hyperpod-eks',
+        when: answers => answers.deploymentTarget === 'realtime-inference' || answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform' || answers.deploymentTarget === 'hyperpod-eks',
         message: (answers) => {
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             

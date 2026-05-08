@@ -6,7 +6,7 @@
  *
  * Feature: batch-transform-endpoint, Property 7: Backward compatibility for existing deployment targets
  *
- * For any valid generator configuration where deploymentTarget equals managed-inference,
+ * For any valid generator configuration where deploymentTarget equals realtime-inference,
  * async-inference, or hyperpod-eks, the generated project output (file set and file contents)
  * SHALL be identical to the output produced by the generator before the batch-transform feature
  * was added.
@@ -61,12 +61,12 @@ const GPU_INSTANCE_TYPES = [
 
 // ── Arbitrary generators ─────────────────────────────────────────────────────
 
-/** Generate a valid managed-inference configuration */
+/** Generate a valid realtime-inference configuration */
 const arbManagedInferenceConfig = fc.record({
     deploymentConfig: fc.constantFrom(...CPU_SAFE_DEPLOYMENT_CONFIGS),
     awsRegion: fc.constantFrom(...VALID_AWS_REGIONS),
     instanceType: fc.constantFrom(...VALID_INSTANCE_TYPES),
-    deploymentTarget: fc.constant('managed-inference')
+    deploymentTarget: fc.constant('realtime-inference')
 });
 
 /** Generate a valid async-inference configuration */
@@ -156,11 +156,11 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
         ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
     });
 
-    it('deploymentTarget defaults to managed-inference in ConfigManager', () => {
+    it('deploymentTarget defaults to realtime-inference in ConfigManager', () => {
         /**
          * Validates: Requirements 10.1, 10.2, 10.3
          *
-         * The default deploymentTarget must remain managed-inference to ensure
+         * The default deploymentTarget must remain realtime-inference to ensure
          * backward compatibility when no explicit selection is made.
          */
         const mockGenerator = {
@@ -171,12 +171,12 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
         const matrix = configManager.parameterMatrix;
         assert.strictEqual(
             matrix.deploymentTarget.default,
-            'managed-inference',
-            'deploymentTarget default must be managed-inference'
+            'realtime-inference',
+            'deploymentTarget default must be realtime-inference'
         );
     });
 
-    it('managed-inference configs always pass validation regardless of deployment config choice', function () {
+    it('realtime-inference configs always pass validation regardless of deployment config choice', function () {
         this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
         /**
@@ -191,7 +191,7 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
                     deploymentConfig,
                     awsRegion,
                     instanceType,
-                    deploymentTarget: 'managed-inference'
+                    deploymentTarget: 'realtime-inference'
                 };
                 const manager = new TemplateManager(config);
                 manager.validate();
@@ -262,7 +262,7 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
             fc.constantFrom(...gpuRequiringConfigs),
             fc.constantFrom(...GPU_INSTANCE_TYPES),
             fc.constantFrom(...VALID_AWS_REGIONS),
-            fc.constantFrom('managed-inference', 'async-inference'),
+            fc.constantFrom('realtime-inference', 'async-inference'),
             (deploymentConfig, instanceType, awsRegion, deploymentTarget) => {
                 const config = {
                     deploymentConfig,

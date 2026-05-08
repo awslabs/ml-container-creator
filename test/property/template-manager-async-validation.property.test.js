@@ -25,7 +25,7 @@ const FAST_PROPERTY_CONFIG = {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const SUPPORTED_DEPLOYMENT_TARGETS = ['managed-inference', 'async-inference', 'hyperpod-eks'];
+const SUPPORTED_DEPLOYMENT_TARGETS = ['realtime-inference', 'async-inference', 'hyperpod-eks'];
 
 /** Base answers that produce a valid async-inference config */
 const baseAsyncAnswers = {
@@ -34,7 +34,7 @@ const baseAsyncAnswers = {
     deploymentTarget: 'async-inference'
 };
 
-/** Base answers for managed-inference (used in Property 1) */
+/** Base answers for realtime-inference (used in Property 1) */
 const baseManagedAnswers = {
     deploymentConfig: 'http-flask',
     awsRegion: 'us-east-1',

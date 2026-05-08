@@ -266,7 +266,7 @@ echo "   Backend:           ${BACKEND}"
 <% if (framework === 'transformers') { %>
 echo "   Model name:        ${MODEL_NAME:-N/A}"
 <% } %>
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
 echo "   Instance type:     ${INSTANCE_TYPE}"
 <% } else if (deploymentTarget === 'batch-transform') { %>
 echo "   Instance:          ${INSTANCE_TYPE} x ${BATCH_INSTANCE_COUNT}"
@@ -498,7 +498,7 @@ DJEOF
     if [ "${CI_MODE}" = true ]; then
         echo ""
         echo "⚠️  CI Integration is experimental and currently only tested for"
-        echo "   SageMaker Managed Inference — Real Time endpoints."
+        echo "   SageMaker Real-Time Inference endpoints."
         echo ""
 
         # Compute configId
@@ -542,7 +542,7 @@ if [ -n "${MODEL_NAME:-}" ]; then
 fi
 <% } %>
 
-<% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
+<% if (deploymentTarget === 'realtime-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
 CMD_ARGS+=("--instance-type" "${INSTANCE_TYPE}")
 <% } %>
 

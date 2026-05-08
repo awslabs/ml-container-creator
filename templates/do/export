@@ -42,8 +42,8 @@ if [ "${1:-}" = "--json" ]; then
     # Deployment target
     JSON="${JSON},\"deploymentTarget\":\"${DEPLOYMENT_TARGET}\""
 
-<% if (deploymentTarget === 'managed-inference') { %>
-    # SageMaker Managed Inference
+<% if (deploymentTarget === 'realtime-inference') { %>
+    # SageMaker Real-Time Inference
     JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
 <% } else if (deploymentTarget === 'async-inference') { %>
     # SageMaker Async Inference
@@ -206,11 +206,11 @@ fi
 # Deployment target
 CMD="${CMD} --deployment-target=${DEPLOYMENT_TARGET}"
 
-<% if (deploymentTarget === 'managed-inference') { %>
-# SageMaker Managed Inference
+<% if (deploymentTarget === 'realtime-inference') { %>
+# SageMaker Real-Time Inference
 CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
 <% } else if (deploymentTarget === 'batch-transform') { %>
-# SageMaker Managed Inference - Batch
+# SageMaker Batch Transform
 CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
 CMD="${CMD} --batch-input-path=${BATCH_INPUT_PATH}"
 CMD="${CMD} --batch-output-path=${BATCH_OUTPUT_PATH}"

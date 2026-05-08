@@ -190,7 +190,7 @@ CLI OPTIONS:
   --instance-type=<type>      SageMaker instance type (e.g., ml.m5.large, ml.g5.xlarge)
   --region=<region>           AWS region
   --role-arn=<arn>            AWS IAM role ARN for SageMaker execution
-  --deployment-target=<target> Deployment target (managed-inference|hyperpod-eks)
+  --deployment-target=<target> Deployment target (realtime-inference|async-inference|batch-transform|hyperpod-eks)
   --hyperpod-cluster=<name> HyperPod EKS cluster name
   --hyperpod-namespace=<ns> Kubernetes namespace for HyperPod (default: default)
   --hyperpod-replicas=<n>   Number of replicas for HyperPod (default: 1)

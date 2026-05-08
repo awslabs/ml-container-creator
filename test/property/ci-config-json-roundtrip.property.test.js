@@ -51,7 +51,7 @@ const arbDeploymentConfigJson = fc.record({
     modelName: fc.string({ minLength: 1, maxLength: 60 }),
     instanceType: fc.constantFrom('ml.g5.xlarge', 'ml.m5.xlarge', 'ml.p3.2xlarge'),
     awsRegion: fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1'),
-    deploymentTarget: fc.constantFrom('managed-inference', 'async-inference'),
+    deploymentTarget: fc.constantFrom('realtime-inference', 'async-inference'),
     baseImage: fc.constant('vllm/vllm-openai:v0.8.5')
 });
 

@@ -25,7 +25,7 @@ import { createHash } from 'node:crypto';
  * @param {string} modelName - e.g. "meta-llama/Llama-2-7b-chat-hf", defaults to "none"
  * @param {string} instanceType - e.g. "ml.g5.xlarge"
  * @param {string} region - e.g. "us-east-1"
- * @param {string} deploymentTarget - e.g. "managed-inference"
+ * @param {string} deploymentTarget - e.g. "realtime-inference"
  * @returns {string} 16-character lowercase hex string
  */
 export function computeConfigId(deploymentConfig, modelName, instanceType, region, deploymentTarget) {

@@ -576,7 +576,7 @@ describe('ConfigManager Unit Tests', () => {
                 projectName: 'test-project',
                 destinationDir: '.',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 includeSampleModel: false,
                 includeTesting: true
             };
@@ -614,7 +614,7 @@ describe('ConfigManager Unit Tests', () => {
                 projectName: 'test-project',
                 destinationDir: '.',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference',
+                deploymentTarget: 'realtime-inference',
                 includeSampleModel: false,
                 includeTesting: true
             };
@@ -1174,7 +1174,7 @@ describe('ConfigManager Unit Tests', () => {
                     projectName: 'test-diffusion',
                     destinationDir: '.',
                     buildTarget: 'codebuild',
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     includeSampleModel: false,
                     includeTesting: true
                 };

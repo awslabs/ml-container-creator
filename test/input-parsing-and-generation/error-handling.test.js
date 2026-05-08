@@ -435,7 +435,7 @@ describe('Error Handling and Validation', () => {
                 projectName: 'test-project',
                 destinationDir: '.',
                 buildTarget: 'codebuild',
-                deploymentTarget: 'managed-inference'
+                deploymentTarget: 'realtime-inference'
             };
             
             const completeErrors = configManager.validateRequiredParameters(completeConfig);

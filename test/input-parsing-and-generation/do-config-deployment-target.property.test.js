@@ -6,7 +6,7 @@
  *
  * For any valid configuration, the generated do/config must contain
  * BUILD_TARGET and DEPLOYMENT_TARGET variables. When deploymentTarget
- * equals managed-inference, do/config must contain INSTANCE_TYPE.
+ * equals realtime-inference, do/config must contain INSTANCE_TYPE.
  * When deploymentTarget equals hyperpod-eks, do/config must contain
  * HYPERPOD_CLUSTER_NAME, HYPERPOD_NAMESPACE, and HYPERPOD_REPLICAS.
  * When fsxVolumeHandle is provided with hyperpod-eks, do/config must
@@ -68,7 +68,7 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -106,10 +106,10 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
         console.log('    ✅ BUILD_TARGET and DEPLOYMENT_TARGET always present');
     });
 
-    it('should contain INSTANCE_TYPE when deploymentTarget is managed-inference', function () {
+    it('should contain INSTANCE_TYPE when deploymentTarget is realtime-inference', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 9.3: INSTANCE_TYPE present for managed-inference');
+        console.log('  🧪 Req 9.3: INSTANCE_TYPE present for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -118,7 +118,7 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
             (base, instanceType, inferenceAmiVersion) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     inferenceAmiVersion,
                     // HyperPod vars not needed but provide defaults
@@ -138,15 +138,15 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
                 // Should NOT contain HyperPod variables
                 assert.ok(
                     !output.includes('export HYPERPOD_CLUSTER_NAME='),
-                    'managed-inference output must NOT contain HYPERPOD_CLUSTER_NAME'
+                    'realtime-inference output must NOT contain HYPERPOD_CLUSTER_NAME'
                 );
                 assert.ok(
                     !output.includes('export HYPERPOD_NAMESPACE='),
-                    'managed-inference output must NOT contain HYPERPOD_NAMESPACE'
+                    'realtime-inference output must NOT contain HYPERPOD_NAMESPACE'
                 );
                 assert.ok(
                     !output.includes('export HYPERPOD_REPLICAS='),
-                    'managed-inference output must NOT contain HYPERPOD_REPLICAS'
+                    'realtime-inference output must NOT contain HYPERPOD_REPLICAS'
                 );
 
                 // INFERENCE_AMI_VERSION conditional
@@ -164,7 +164,7 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ INSTANCE_TYPE present for managed-inference');
+        console.log('    ✅ INSTANCE_TYPE present for realtime-inference');
     });
 
     it('should contain HyperPod variables when deploymentTarget is hyperpod-eks', function () {
@@ -206,7 +206,7 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
                     'Output must contain HYPERPOD_REPLICAS'
                 );
 
-                // Should NOT contain managed-inference variables
+                // Should NOT contain realtime-inference variables
                 assert.ok(
                     !output.includes('export INSTANCE_TYPE='),
                     'hyperpod-eks output must NOT contain INSTANCE_TYPE'
@@ -266,7 +266,7 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -285,14 +285,14 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
                 assert.ok(output.includes('Build target:'), 'Summary must show Build target');
                 assert.ok(output.includes('Deployment target:'), 'Summary must show Deployment target');
 
-                if (deploymentTarget === 'managed-inference') {
+                if (deploymentTarget === 'realtime-inference') {
                     assert.ok(
                         output.includes('echo "   Instance: ${INSTANCE_TYPE}"'),
-                        'managed-inference summary must show Instance'
+                        'realtime-inference summary must show Instance'
                     );
                     assert.ok(
                         !output.includes('HyperPod cluster:'),
-                        'managed-inference summary must NOT show HyperPod cluster'
+                        'realtime-inference summary must NOT show HyperPod cluster'
                     );
                 } else {
                     assert.ok(

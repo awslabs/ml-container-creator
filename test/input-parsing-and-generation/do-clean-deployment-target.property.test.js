@@ -4,7 +4,7 @@
 /**
  * Property 8: Clean Script Content by Deployment Target
  *
- * For any valid configuration, when deploymentTarget equals managed-inference,
+ * For any valid configuration, when deploymentTarget equals realtime-inference,
  * the generated do/clean script must contain the `endpoint` cleanup target
  * with SageMaker deletion commands (delete-inference-component, delete-endpoint)
  * and must not contain kubectl commands. When deploymentTarget
@@ -63,7 +63,7 @@ describe('Property 8: Clean Script Content by Deployment Target', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -117,10 +117,10 @@ describe('Property 8: Clean Script Content by Deployment Target', () => {
         console.log('    ✅ local, ecr, codebuild targets present for both deployment targets');
     });
 
-    it('should contain SageMaker endpoint cleanup for managed-inference (Req 6.2)', function () {
+    it('should contain SageMaker endpoint cleanup for realtime-inference (Req 6.2)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 6.2: SageMaker endpoint cleanup logic for managed-inference');
+        console.log('  🧪 Req 6.2: SageMaker endpoint cleanup logic for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -128,7 +128,7 @@ describe('Property 8: Clean Script Content by Deployment Target', () => {
             (base, instanceType) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -140,44 +140,44 @@ describe('Property 8: Clean Script Content by Deployment Target', () => {
                 // Must contain endpoint cleanup target
                 assert.ok(
                     output.includes('endpoint)'),
-                    'managed-inference must contain endpoint case in switch'
+                    'realtime-inference must contain endpoint case in switch'
                 );
                 assert.ok(
                     output.includes('clean_endpoint'),
-                    'managed-inference must contain clean_endpoint function'
+                    'realtime-inference must contain clean_endpoint function'
                 );
 
                 // Must contain SageMaker deletion commands
                 assert.ok(
                     output.includes('sagemaker delete-endpoint'),
-                    'managed-inference must contain delete-endpoint command'
+                    'realtime-inference must contain delete-endpoint command'
                 );
                 assert.ok(
                     output.includes('sagemaker delete-endpoint-config'),
-                    'managed-inference must contain delete-endpoint-config command'
+                    'realtime-inference must contain delete-endpoint-config command'
                 );
                 assert.ok(
                     output.includes('sagemaker delete-inference-component'),
-                    'managed-inference must contain delete-inference-component command'
+                    'realtime-inference must contain delete-inference-component command'
                 );
 
                 // Must NOT contain kubectl commands
                 assert.ok(
                     !output.includes('kubectl delete'),
-                    'managed-inference must NOT contain kubectl delete commands'
+                    'realtime-inference must NOT contain kubectl delete commands'
                 );
                 assert.ok(
                     !output.includes('clean_hyperpod'),
-                    'managed-inference must NOT contain clean_hyperpod function'
+                    'realtime-inference must NOT contain clean_hyperpod function'
                 );
                 assert.ok(
                     !output.includes('hyperpod)'),
-                    'managed-inference must NOT contain hyperpod case in switch'
+                    'realtime-inference must NOT contain hyperpod case in switch'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ SageMaker endpoint cleanup present for managed-inference');
+        console.log('    ✅ SageMaker endpoint cleanup present for realtime-inference');
     });
 
     it('should contain kubectl cleanup for hyperpod-eks (Req 6.3)', function () {
@@ -243,17 +243,17 @@ describe('Property 8: Clean Script Content by Deployment Target', () => {
         console.log('    ✅ kubectl cleanup present for hyperpod-eks');
     });
 
-    it('should include appropriate cleanup in all target for managed-inference (Req 6.5)', function () {
+    it('should include appropriate cleanup in all target for realtime-inference (Req 6.5)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 6.5: all target includes endpoint cleanup for managed-inference');
+        console.log('  🧪 Req 6.5: all target includes endpoint cleanup for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
             (base) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType: 'ml.m5.xlarge',
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -270,16 +270,16 @@ describe('Property 8: Clean Script Content by Deployment Target', () => {
                 const allCaseContent = allCaseMatch[1];
                 assert.ok(
                     allCaseContent.includes('clean_endpoint'),
-                    'all target must call clean_endpoint for managed-inference'
+                    'all target must call clean_endpoint for realtime-inference'
                 );
                 assert.ok(
                     allCaseContent.includes('SageMaker resources'),
-                    'all target must reference SageMaker resources for managed-inference'
+                    'all target must reference SageMaker resources for realtime-inference'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ all target includes endpoint cleanup for managed-inference');
+        console.log('    ✅ all target includes endpoint cleanup for realtime-inference');
     });
 
     it('should include appropriate cleanup in all target for hyperpod-eks (Req 6.5)', function () {
@@ -330,7 +330,7 @@ describe('Property 8: Clean Script Content by Deployment Target', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -343,14 +343,14 @@ describe('Property 8: Clean Script Content by Deployment Target', () => {
 
                 const output = renderClean(vars);
 
-                if (deploymentTarget === 'managed-inference') {
+                if (deploymentTarget === 'realtime-inference') {
                     assert.ok(
                         output.includes('endpoint  - Delete SageMaker endpoint'),
-                        'managed-inference usage must show endpoint cleanup option'
+                        'realtime-inference usage must show endpoint cleanup option'
                     );
                     assert.ok(
                         output.includes('./do/clean endpoint'),
-                        'managed-inference examples must show endpoint cleanup'
+                        'realtime-inference examples must show endpoint cleanup'
                     );
                 } else {
                     assert.ok(

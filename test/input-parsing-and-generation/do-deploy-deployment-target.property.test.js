@@ -4,7 +4,7 @@
 /**
  * Property 7: Deploy Script Content by Deployment Target
  *
- * For any valid configuration, when deploymentTarget equals managed-inference,
+ * For any valid configuration, when deploymentTarget equals realtime-inference,
  * the generated do/deploy script must contain SageMaker inference component
  * commands (create-endpoint, create-inference-component) and must
  * not contain kubectl commands. When deploymentTarget equals hyperpod-eks,
@@ -63,7 +63,7 @@ describe('Property 7: Deploy Script Content by Deployment Target', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -96,10 +96,10 @@ describe('Property 7: Deploy Script Content by Deployment Target', () => {
         console.log('    ✅ ECR image verification present for both targets');
     });
 
-    it('should contain SageMaker endpoint creation commands for managed-inference (Req 5.2)', function () {
+    it('should contain SageMaker endpoint creation commands for realtime-inference (Req 5.2)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 5.2: SageMaker endpoint creation logic for managed-inference');
+        console.log('  🧪 Req 5.2: SageMaker endpoint creation logic for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -108,7 +108,7 @@ describe('Property 7: Deploy Script Content by Deployment Target', () => {
             (base, instanceType, inferenceAmiVersion) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     inferenceAmiVersion,
                     hyperPodCluster: undefined,
@@ -122,34 +122,34 @@ describe('Property 7: Deploy Script Content by Deployment Target', () => {
                 // Must contain SageMaker inference component commands
                 assert.ok(
                     output.includes('sagemaker create-endpoint-config'),
-                    'managed-inference must contain create-endpoint-config command'
+                    'realtime-inference must contain create-endpoint-config command'
                 );
                 assert.ok(
                     output.includes('sagemaker create-endpoint'),
-                    'managed-inference must contain create-endpoint command'
+                    'realtime-inference must contain create-endpoint command'
                 );
                 assert.ok(
                     output.includes('sagemaker create-inference-component'),
-                    'managed-inference must contain create-inference-component command'
+                    'realtime-inference must contain create-inference-component command'
                 );
                 assert.ok(
                     output.includes('sagemaker wait inference-component-in-service'),
-                    'managed-inference must contain wait inference-component-in-service command'
+                    'realtime-inference must contain wait inference-component-in-service command'
                 );
 
                 // Must NOT contain kubectl commands
                 assert.ok(
                     !output.includes('kubectl'),
-                    'managed-inference must NOT contain kubectl commands'
+                    'realtime-inference must NOT contain kubectl commands'
                 );
                 assert.ok(
                     !output.includes('describe-cluster'),
-                    'managed-inference must NOT contain describe-cluster'
+                    'realtime-inference must NOT contain describe-cluster'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ SageMaker endpoint creation commands present for managed-inference');
+        console.log('    ✅ SageMaker endpoint creation commands present for realtime-inference');
     });
 
     it('should contain kubectl commands for hyperpod-eks (Req 5.3, 5.4, 5.5)', function () {
@@ -338,7 +338,7 @@ describe('Property 7: Deploy Script Content by Deployment Target', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -359,10 +359,10 @@ describe('Property 7: Deploy Script Content by Deployment Target', () => {
                     'Deploy script must show deployment target'
                 );
 
-                if (deploymentTarget === 'managed-inference') {
+                if (deploymentTarget === 'realtime-inference') {
                     assert.ok(
                         output.includes('Instance type: ${INSTANCE_TYPE}'),
-                        'managed-inference header must show instance type'
+                        'realtime-inference header must show instance type'
                     );
                 } else {
                     assert.ok(

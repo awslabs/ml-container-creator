@@ -46,7 +46,7 @@ const GPU_INSTANCES = [
 /** Base answers that satisfy all non-deploymentConfig validation */
 const baseValidAnswers = {
     buildTarget: 'codebuild',
-    deploymentTarget: 'managed-inference',
+    deploymentTarget: 'realtime-inference',
     awsRegion: 'us-east-1',
     awsRoleArn: ''
 };

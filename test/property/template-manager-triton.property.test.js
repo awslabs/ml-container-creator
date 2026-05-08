@@ -44,7 +44,7 @@ const CPU_ONLY_INSTANCES = ['ml.m5.xlarge', 'ml.c5.xlarge', 'ml.t3.large', 'ml.r
 /** Base answers that satisfy all non-deploymentConfig validation */
 const baseValidAnswers = {
     buildTarget: 'codebuild',
-    deploymentTarget: 'managed-inference',
+    deploymentTarget: 'realtime-inference',
     awsRegion: 'us-east-1',
     awsRoleArn: ''
 };

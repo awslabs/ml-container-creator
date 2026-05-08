@@ -6,7 +6,7 @@
  *
  * For any valid configuration, the `hyperpod/` directory must be present in
  * the generated project if and only if `deploymentTarget` equals `hyperpod-eks`.
- * When `deploymentTarget` equals `managed-inference`, the `hyperpod/` directory
+ * When `deploymentTarget` equals `realtime-inference`, the `hyperpod/` directory
  * must be absent.
  *
  * This property validates the ignorePatterns logic in the writing() phase of
@@ -132,10 +132,10 @@ describe('Property 9: Conditional HyperPod Directory Presence', () => {
         console.log('    ✅ hyperpod/ directory included for hyperpod-eks');
     });
 
-    it('should exclude hyperpod/ directory when deploymentTarget is managed-inference (Req 7.2)', function () {
+    it('should exclude hyperpod/ directory when deploymentTarget is realtime-inference (Req 7.2)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 7.2: hyperpod/ absent when deploymentTarget === managed-inference');
+        console.log('  🧪 Req 7.2: hyperpod/ absent when deploymentTarget === realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -143,7 +143,7 @@ describe('Property 9: Conditional HyperPod Directory Presence', () => {
             (base, instanceType) => {
                 const answers = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -156,20 +156,20 @@ describe('Property 9: Conditional HyperPod Directory Presence', () => {
                 // **/hyperpod/** MUST be in ignorePatterns
                 assert.ok(
                     ignorePatterns.includes('**/hyperpod/**'),
-                    'hyperpod/ must be excluded when deploymentTarget is managed-inference'
+                    'hyperpod/ must be excluded when deploymentTarget is realtime-inference'
                 );
 
                 // All hyperpod template files must be excluded
                 for (const file of hyperpodFiles) {
                     assert.ok(
                         isExcludedByPatterns(file, ignorePatterns),
-                        `${file} must be excluded when deploymentTarget is managed-inference`
+                        `${file} must be excluded when deploymentTarget is realtime-inference`
                     );
                 }
             }
         ), { numRuns: 50 });
 
-        console.log('    ✅ hyperpod/ directory excluded for managed-inference');
+        console.log('    ✅ hyperpod/ directory excluded for realtime-inference');
     });
 
     it('should have hyperpod/ presence be a biconditional on deploymentTarget (Req 7.1, 7.2)', function () {
@@ -179,13 +179,13 @@ describe('Property 9: Conditional HyperPod Directory Presence', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             hyperPodConfigArb,
             (base, deploymentTarget, hpVars) => {
                 const answers = {
                     ...base,
                     deploymentTarget,
-                    instanceType: deploymentTarget === 'managed-inference' ? 'ml.m5.xlarge' : undefined,
+                    instanceType: deploymentTarget === 'realtime-inference' ? 'ml.m5.xlarge' : undefined,
                     ...(deploymentTarget === 'hyperpod-eks' ? hpVars : {
                         hyperPodCluster: undefined,
                         hyperPodNamespace: undefined,
@@ -235,7 +235,7 @@ describe('Property 9: Conditional HyperPod Directory Presence', () => {
         ];
 
         fc.assert(fc.property(
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (deploymentTarget) => {
                 const answers = { deploymentTarget };
                 const ignorePatterns = buildIgnorePatterns(answers);
