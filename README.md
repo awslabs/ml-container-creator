@@ -1,342 +1,106 @@
-# sharp-transformer-deployment
+# ML Container Creator
 
-SageMaker-compatible ML container for deploying transformers models using vllm.
+A CLI tool that creates SageMaker-compatible Docker containers for deploying ML models using the Bring Your Own Container (BYOC) paradigm.
 
-Generated on 2026-05-08T09-52-06 using [ML Container Creator](https://github.com/yourusername/ml-container-creator).
+> **Note:** This is a pre-release (`0.x`). APIs may change between minor versions. Weekly releases are planned until v1.
+
+## Supported Configurations
+
+| Architecture | Model Servers | Use Case |
+|---|---|---|
+| HTTP (traditional ML) | Flask, FastAPI | sklearn, XGBoost, TensorFlow |
+| Transformers (LLMs) | vLLM, SGLang, TensorRT-LLM, DJL/LMI | HuggingFace models, JumpStart, S3 |
+| Triton | FIL, ONNX, Python, TensorRT-LLM, vLLM | Multi-framework serving |
+| Diffusors | vLLM | Image generation models |
+
+| Deployment Target | Description |
+|---|---|
+| Real-Time Inference | SageMaker real-time endpoints |
+| Async Inference | SageMaker async endpoints with S3 output |
+| Batch Transform | SageMaker batch processing |
+| HyperPod EKS | Kubernetes-based deployment |
 
 ## Quick Start
 
-### 1. Build the Container
+### Install from npm
 
 ```bash
-./do/build
+npm install -g @aws/ml-container-creator
 ```
 
-Builds a Docker image tagged as `sharp-transformer-deployment:latest`.
-
-### 2. Test Locally
+### Or use without installing (npx)
 
 ```bash
-# Start the container
-./do/run
-
-# In another terminal, test the endpoints
-./do/test
+npx @aws/ml-container-creator --help
 ```
 
-### 3. Push to ECR
+### Or install from source
 
 ```bash
-./do/push
+git clone https://github.com/awslabs/ml-container-creator.git
+cd ml-container-creator
+npm install && npm link
 ```
 
-Pushes the image to Amazon ECR in the `us-west-2` region.
-
-### 4. Deploy to SageMaker
+### Bootstrap AWS infrastructure (one-time)
 
 ```bash
-./do/deploy <your-sagemaker-execution-role-arn>
+ml-container-creator bootstrap
 ```
 
-Creates a SageMaker endpoint named `sharp-transformer-deployment-endpoint`.
+Sets up an IAM execution role, ECR repository, optional S3 buckets, and optional CI Integration Harness for automated testing. Configuration is saved to `~/.ml-container-creator/config.json`.
 
-### 5. Test the Endpoint
+### Generate a project
 
 ```bash
-./do/test sharp-transformer-deployment-endpoint
+# Interactive
+ml-container-creator
+
+# Non-interactive
+ml-container-creator my-model \
+  --deployment-config=transformers-vllm \
+  --model-name=openai/gpt-oss-20b \
+  --instance-type=ml.g6.12xlarge \
+  --region=us-east-1 \
+  --skip-prompts
 ```
 
-## Project Structure
-
-```
-sharp-transformer-deployment/
-├── do/                      # do-framework lifecycle scripts
-│   ├── build                # Build Docker image
-│   ├── push                 # Push to Amazon ECR
-│   ├── deploy               # Deploy to SageMaker
-│   ├── run                  # Run container locally
-│   ├── test                 # Test container or endpoint
-│   ├── clean                # Clean up resources
-│   ├── submit               # Submit build to CodeBuild
-│   ├── config               # Configuration variables
-│   └── README.md            # Detailed do-framework documentation
-├── code/                    # Model serving code
-│   └── serve               # vllm entrypoint script
-├── deploy/                 # Legacy scripts (deprecated)
-│   ├── build_and_push.sh   # Use ./do/build && ./do/push instead
-│   └── deploy.sh           # Use ./do/deploy instead
-
-├── test/                  # Test suite
-│   ├── test_endpoint.sh    # Test SageMaker endpoint
-│   └── test_local_image.sh # Test local container
-
-├── Dockerfile              # Container definition
-├── requirements.txt        # Python dependencies
-└── README.md               # This file
-```
-
-## Configuration
-
-All deployment configuration is centralized in `do/config`:
+### Build, push, deploy
 
 ```bash
-# Project identification
-PROJECT_NAME="sharp-transformer-deployment"
-DEPLOYMENT_CONFIG="transformers-vllm"
-
-# AWS configuration
-AWS_REGION="us-west-2"
-INSTANCE_TYPE="ml.g5.xlarge"
-
-# Framework configuration
-FRAMEWORK="transformers"
-MODEL_SERVER="vllm"
-
-# Model configuration
-MODEL_NAME="openai/gpt-oss-20b"
-
+./do/build        # Build Docker image
+./do/push         # Push to Amazon ECR
+./do/deploy       # Deploy to SageMaker
+./do/test         # Test the endpoint
 ```
 
-You can override these values by setting environment variables before running do scripts.
+## Documentation
 
-## Deployment Workflows
+Full documentation is available at [awslabs.github.io/ml-container-creator](https://awslabs.github.io/ml-container-creator/).
 
-### Local Development Workflow
+- [Getting Started](https://awslabs.github.io/ml-container-creator/getting-started/) — Installation and walkthroughs
+- [Configuration](https://awslabs.github.io/ml-container-creator/configuration/) — CLI flags, env vars, config files, MCP servers
+- [Deployment Guide](https://awslabs.github.io/ml-container-creator/deployments/) — All deployment targets and lifecycle scripts
+- [CI Integration](https://awslabs.github.io/ml-container-creator/ci-integration/) — Automated lifecycle testing for all deployment configurations
+- [Examples](https://awslabs.github.io/ml-container-creator/EXAMPLES/) — Framework-specific walkthroughs
+- [Troubleshooting](https://awslabs.github.io/ml-container-creator/TROUBLESHOOTING/) — Common issues and solutions
 
-```bash
-# Build and test locally
-./do/build
-./do/run &
-./do/test
+## Prerequisites
 
-# When satisfied, push to ECR
-./do/push
-```
+| Tool | Version | Purpose |
+|---|---|---|
+| [Node.js](https://nodejs.org/) | 24+ | Runs the CLI |
+| [Docker](https://docs.docker.com/get-docker/) | 20+ | Container builds |
+| [AWS CLI](https://aws.amazon.com/cli/) | 2+ | AWS resource management |
 
-### CodeBuild Workflow
+## Contributing
 
-```bash
-# Submit build to CodeBuild (builds and pushes to ECR)
-./do/submit
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-# Deploy to SageMaker
-./do/deploy <role-arn>
+## Security
 
-# Test the endpoint
-./do/test sharp-transformer-deployment-endpoint
-```
-
-### Cleanup
-
-```bash
-# Remove local images
-./do/clean local
-
-# Remove ECR images
-./do/clean ecr
-
-# Delete SageMaker endpoint
-./do/clean endpoint
-
-# Clean everything
-./do/clean all
-```
-
-## do-framework Commands
-
-This project uses the [do-framework](https://github.com/iankoulski/do-framework) for standardized container lifecycle management.
-
-### Available Commands
-
-| Command | Description |
-|---------|-------------|
-| `./do/build` | Build Docker image locally |
-| `./do/push` | Push image to Amazon ECR |
-| `./do/deploy <role-arn>` | Deploy to SageMaker endpoint |
-| `./do/run` | Run container locally on port 8080 |
-| `./do/test [endpoint]` | Test local container or SageMaker endpoint |
-| `./do/clean <target>` | Clean up resources (local/ecr/endpoint/all) |
-| `./do/submit` | Submit build to AWS CodeBuild |
-
-For detailed documentation on each command, see `do/README.md`.
-
-## Framework-Specific Information
-
-### Transformers (vllm)
-
-This container serves transformer models using vllm.
-
-**Model**: openai/gpt-oss-20b
-
-**Server**: vLLM - High-throughput LLM serving with PagedAttention
-
-**Features**:
-- Continuous batching
-- Optimized CUDA kernels
-- OpenAI-compatible API
-
-
-**Inference**: Send requests to `/invocations` endpoint with:
-```json
-{
-  "inputs": "Your prompt here",
-  "parameters": {
-    "max_new_tokens": 100,
-    "temperature": 0.7
-  }
-}
-```
-
-
-
-## SageMaker Endpoints
-
-### Health Check
-
-SageMaker calls the `/ping` endpoint to verify container health:
-
-```bash
-curl http://localhost:8080/ping
-```
-
-Expected response: `200 OK`
-
-### Inference
-
-Send prediction requests to the `/invocations` endpoint:
-
-```bash
-curl -X POST http://localhost:8080/invocations \
-  -H "Content-Type: application/json" \
-  -d '{
-    "inputs": "What is machine learning?",
-    "parameters": {
-      "max_new_tokens": 100,
-      "temperature": 0.7
-    }
-  }'
-```
-
-
-## AWS Requirements
-
-### IAM Permissions
-
-The SageMaker execution role needs these permissions:
-
-- `ecr:GetAuthorizationToken`
-- `ecr:BatchCheckLayerAvailability`
-- `ecr:GetDownloadUrlForLayer`
-- `ecr:BatchGetImage`
-- `s3:GetObject` (if using S3 for model artifacts)
-- `logs:CreateLogGroup`
-- `logs:CreateLogStream`
-- `logs:PutLogEvents`
-
-See `IAM_PERMISSIONS.md` for detailed permission requirements.
-
-### AWS CLI Configuration
-
-Ensure AWS CLI is configured with appropriate credentials:
-
-```bash
-aws configure
-```
-
-Or use environment variables:
-
-```bash
-export AWS_ACCESS_KEY_ID=your-access-key
-export AWS_SECRET_ACCESS_KEY=your-secret-key
-export AWS_DEFAULT_REGION=us-west-2
-```
-
-## Troubleshooting
-
-### Build Issues
-
-**Docker Not Found**
-
-Install Docker: https://docs.docker.com/get-docker/
-
-**Permission Denied**
-
-Add your user to the docker group:
-```bash
-sudo usermod -aG docker $USER
-```
-
-### Deployment Issues
-
-**ECR Push Failed**
-
-Check AWS credentials and IAM permissions:
-```bash
-aws sts get-caller-identity
-```
-
-**Endpoint Creation Failed**
-
-- Verify the execution role ARN is correct
-- Check IAM permissions
-- Ensure the instance type is available in your region
-
-**Endpoint Stuck in Creating**
-
-Check CloudWatch logs:
-```bash
-aws logs tail /aws/sagemaker/Endpoints/sharp-transformer-deployment-endpoint --follow
-```
-
-### Runtime Issues
-
-**Container Exits Immediately**
-
-Check container logs:
-```bash
-docker logs $(docker ps -a | grep sharp-transformer-deployment | awk '{print $1}')
-```
-
-**Out of Memory**
-
-Increase instance size or optimize model:
-```bash
-# Edit do/config
-INSTANCE_TYPE="ml.m5.2xlarge"  # Larger instance
-```
-
-## Migration from Legacy Scripts
-
-If you're familiar with the old `deploy/` scripts, see `MIGRATION.md` for a command mapping guide.
-
-**Quick Reference**:
-
-| Legacy Command | do-framework Command |
-|----------------|---------------------|
-| `./deploy/build_and_push.sh` | `./do/build && ./do/push` |
-| `./deploy/deploy.sh <role>` | `./do/deploy <role>` |
-| `./deploy/submit_build.sh` | `./do/submit` |
-
-The legacy scripts are still available but deprecated. They will display warnings and forward to do-framework commands.
-
-## Additional Resources
-
-- [do-framework Documentation](https://github.com/iankoulski/do-framework)
-- [AWS SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
-- [SageMaker BYOC Guide](https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms.html)
-
-- [vLLM Documentation](https://docs.vllm.ai/)
-
-
-## Support
-
-For issues or questions:
-
-1. Check `do/README.md` for detailed command documentation
-2. Review CloudWatch logs for deployment issues
-3. See `MIGRATION.md` if migrating from legacy scripts
-4. Open an issue on the [ML Container Creator repository](https://github.com/yourusername/ml-container-creator)
+See [CONTRIBUTING.md](CONTRIBUTING.md#security-issue-notifications) for reporting security issues.
 
 ## License
 
-This generated project is provided as starter code. Modify as needed for your use case.
+Apache-2.0. See [LICENSE](LICENSE).
