@@ -96,10 +96,10 @@ describe('Feature: ci-integration-harness, Property 4: Promoted attribute extrac
                     modelName: 'test-model',
                     instanceType: 'ml.g5.xlarge',
                     awsRegion: 'us-east-1',
-                    deploymentTarget: 'managed-inference'
+                    deploymentTarget: 'realtime-inference'
                 });
 
-                const configId = computeConfigId(deploymentConfig, 'test-model', 'ml.g5.xlarge', 'us-east-1', 'managed-inference');
+                const configId = computeConfigId(deploymentConfig, 'test-model', 'ml.g5.xlarge', 'us-east-1', 'realtime-inference');
 
                 const record = buildCiRecord(configId, configJson, {
                     deploymentConfig,

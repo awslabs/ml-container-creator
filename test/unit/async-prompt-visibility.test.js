@@ -6,7 +6,7 @@
  *
  * Tests:
  * - Async prompts appear when deploymentTarget === 'async-inference'
- * - Async prompts are hidden for managed-inference and hyperpod-eks
+ * - Async prompts are hidden for realtime-inference and hyperpod-eks
  * - HyperPod prompts are hidden when deploymentTarget === 'async-inference'
  *
  * Feature: async-inference-endpoint
@@ -78,11 +78,11 @@ describe('Async Prompt Visibility', () => {
         }
     });
 
-    describe('Async prompts hidden for managed-inference (Requirement 2.6)', () => {
-        const answers = { deploymentTarget: 'managed-inference' };
+    describe('Async prompts hidden for realtime-inference (Requirement 2.6)', () => {
+        const answers = { deploymentTarget: 'realtime-inference' };
 
         for (const name of asyncPromptNames) {
-            it(`${name} when() should return false for managed-inference`, () => {
+            it(`${name} when() should return false for realtime-inference`, () => {
                 const prompt = findPrompt(infraAsyncPrompts, name);
                 assert.ok(prompt, `Prompt ${name} must exist`);
                 assert.equal(evaluateWhen(prompt, answers), false);

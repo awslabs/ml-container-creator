@@ -46,7 +46,7 @@ const arbRegion = fc.constantFrom(
 );
 
 const arbDeploymentTarget = fc.constantFrom(
-    'managed-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'
+    'realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'
 );
 
 const arbConfigInput = fc.record({

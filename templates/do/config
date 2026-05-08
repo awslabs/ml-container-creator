@@ -24,8 +24,8 @@ export CODEBUILD_PROJECT_NAME="${PROJECT_NAME}-build-$(date +%Y%m%d)"
 # Deployment configuration — WHERE the model runs
 export DEPLOYMENT_TARGET="<%= deploymentTarget %>"
 
-<% if (deploymentTarget === 'managed-inference') { %>
-# SageMaker Managed Inference configuration
+<% if (deploymentTarget === 'realtime-inference') { %>
+# SageMaker Real-Time Inference configuration
 export INSTANCE_TYPE="<%= instanceType %>"
 <% if (inferenceAmiVersion) { %>
 export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
@@ -33,7 +33,7 @@ export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
 <% } %>
 
 <% if (deploymentTarget === 'async-inference') { %>
-# SageMaker Managed Inference - Async configuration
+# SageMaker Async Inference configuration
 export INSTANCE_TYPE="<%= instanceType %>"
 <% if (inferenceAmiVersion) { %>
 export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
@@ -77,7 +77,7 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 <% } %>
 
 <% if (deploymentTarget === 'batch-transform') { %>
-# SageMaker Managed Inference - Batch configuration
+# SageMaker Batch Transform configuration
 export INSTANCE_TYPE="<%= instanceType %>"
 
 # Resolve AWS account ID at runtime for default resource names
@@ -187,7 +187,7 @@ export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage %>}
 
 # Allow environment variable overrides
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
-<% if (deploymentTarget === 'managed-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
+<% if (deploymentTarget === 'realtime-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 <% } %>
 export ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-ml-container-creator}
@@ -241,7 +241,7 @@ echo "   Model env vars: <%= Object.keys(modelEnvVars).length %>"
 <% if (typeof serverEnvVars !== 'undefined' && serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
 echo "   Server env vars: <%= Object.keys(serverEnvVars).length %>"
 <% } %>
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
 echo "   Instance: ${INSTANCE_TYPE}"
 <% } else if (deploymentTarget === 'async-inference') { %>
 echo "   Instance: ${INSTANCE_TYPE}"

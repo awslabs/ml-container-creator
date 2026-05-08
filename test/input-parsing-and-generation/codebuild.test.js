@@ -213,7 +213,7 @@ describe('CodeBuild Feature', () => {
                 instanceType: 'ml.m5.large',
                 projectName: 'test-project',
                 destinationDir: '.',
-                deploymentTarget: 'managed-inference'
+                deploymentTarget: 'realtime-inference'
             };
             
             const validationErrors = configManager.validateRequiredParameters(validConfig);

@@ -78,6 +78,7 @@ export default class ConfigManager {
         this.args = args || [];
         this.config = {};
         this.skipPrompts = false;
+        this.autoPrompt = false;
         this.deploymentConfigResolver = new DeploymentConfigResolver();
         this.parameterMatrix = this._getParameterMatrix();
         this.schemaValidator = new ParameterSchemaValidator();
@@ -106,12 +107,27 @@ export default class ConfigManager {
         await this._loadCliArguments();
         await this._loadCliOptions();
 
+        // Normalize deprecated values to canonical equivalents
+        this._normalizeDeprecatedValues();
+
         // Query configured MCP servers for unbounded parameter values
         await this._queryMcpServers();
 
         // Check if we should skip prompts
         this.skipPrompts = this.options['skip-prompts'] || 
                           this._hasCompleteConfiguration();
+
+        // Auto-prompt mode: fill defaults like skip-prompts, but prompt for truly missing values
+        this.autoPrompt = this.options['auto-prompt'] === true;
+        if (this.autoPrompt) {
+            // In auto-prompt mode, we don't skip prompts entirely — we'll selectively prompt
+            this.skipPrompts = false;
+
+            // Pre-fill defaults for required parameters that can be auto-generated.
+            // Promote these into explicitConfig so the wizard skips them.
+            // This means the wizard only prompts for values that are truly ambiguous.
+            this._fillAutoPromptDefaults();
+        }
 
         return this.config;
     }
@@ -182,8 +198,8 @@ export default class ConfigManager {
             }
         }
 
-        // When skipping prompts, provide reasonable defaults for missing required parameters
-        if (this.skipPrompts) {
+        // When skipping prompts or in auto-prompt mode, provide reasonable defaults for missing required parameters
+        if (this.skipPrompts || this.autoPrompt) {
             Object.entries(this.parameterMatrix).forEach(([param, config]) => {
                 if (config.required && 
                     (finalConfig[param] === null || finalConfig[param] === undefined)) {
@@ -635,7 +651,7 @@ export default class ConfigManager {
                 mcp: false,
                 promptable: true,
                 required: true,
-                default: 'managed-inference',
+                default: 'realtime-inference',
                 valueSpace: 'bounded'
             },
             hyperPodCluster: {
@@ -1374,6 +1390,35 @@ export default class ConfigManager {
     }
 
     /**
+     * Normalizes deprecated parameter values to their canonical equivalents.
+     * Prints a deprecation warning when a deprecated value is encountered.
+     * @private
+     */
+    _normalizeDeprecatedValues() {
+        const DEPRECATED_VALUES = {
+            deploymentTarget: {
+                'managed-inference': {
+                    canonical: 'realtime-inference',
+                    message: '--deployment-target=managed-inference is deprecated, use realtime-inference instead'
+                }
+            }
+        };
+
+        for (const [param, aliases] of Object.entries(DEPRECATED_VALUES)) {
+            const currentValue = this.config[param];
+            if (currentValue && aliases[currentValue]) {
+                const { canonical, message } = aliases[currentValue];
+                console.log(`\n⚠️  Deprecation: ${message}`);
+                this.config[param] = canonical;
+                // Also update explicit config if it was set there
+                if (this.explicitConfig && this.explicitConfig[param] === currentValue) {
+                    this.explicitConfig[param] = canonical;
+                }
+            }
+        }
+    }
+
+    /**
      * Parse --model-env or --server-env CLI options into env var collections.
      * Supports both array (multiple flags) and single string values.
      * Performs eager format validation at parse time.
@@ -1826,6 +1871,135 @@ export default class ConfigManager {
         ];
         
         return autoGeneratable.includes(param);
+    }
+
+    /**
+     * Fills auto-prompt defaults for parameters that have sensible defaults
+     * or can be inferred from the current config. Promotes these into
+     * explicitConfig so the wizard skips them.
+     * 
+     * Only fills parameters that:
+     * - Have a non-null default in the parameter matrix, OR
+     * - Can be auto-generated (instanceType, modelFormat, etc.)
+     * 
+     * Does NOT fill parameters that are truly ambiguous and need user input
+     * (e.g., deploymentConfig when not provided).
+     * @private
+     */
+    _fillAutoPromptDefaults() {
+        if (!this.explicitConfig) {
+            this.explicitConfig = {};
+        }
+
+        // Derive architecture from deploymentConfig if available
+        let architecture = this.config.architecture;
+        if (!architecture && this.config.deploymentConfig) {
+            try {
+                const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig);
+                architecture = parts.architecture;
+                this.config.architecture = parts.architecture;
+                this.config.backend = parts.backend;
+                this.config.engine = parts.engine;
+            } catch {
+                // Invalid deploymentConfig — will be caught by validation
+            }
+        }
+
+        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
+            // Skip if already explicitly set
+            if (this.explicitConfig[param] !== undefined && this.explicitConfig[param] !== null) {
+                return;
+            }
+
+            // For optional parameters: mark them as explicit (with null) so the wizard skips them.
+            // The downstream template logic handles defaults for optional params.
+            if (!config.required) {
+                // Don't override if there's already a value in config
+                if (this.config[param] !== undefined && this.config[param] !== null) {
+                    this.explicitConfig[param] = this.config[param];
+                } else if (config.default !== null && config.default !== undefined) {
+                    this.config[param] = config.default;
+                    this.explicitConfig[param] = config.default;
+                }
+                return;
+            }
+
+            // For required parameters: fill auto-generatable values
+            if (this.config[param] === undefined || this.config[param] === null) {
+                if (param === 'instanceType') {
+                    const arch = architecture || 'http';
+                    this.config[param] = arch === 'http' ? 'ml.m5.large' : 'ml.g5.xlarge';
+                } else if (param === 'modelFormat') {
+                    if (architecture === 'transformers' || architecture === 'triton' || architecture === 'diffusors') {
+                        return; // Not needed for these architectures
+                    }
+                    const engine = this.config.engine || 'sklearn';
+                    const formatMap = { sklearn: 'pkl', xgboost: 'json', tensorflow: 'keras' };
+                    this.config[param] = formatMap[engine] || 'pkl';
+                } else if (param === 'projectName') {
+                    this.config[param] = this._generateProjectName(architecture);
+                } else {
+                    return; // Can't fill — leave for prompting
+                }
+            }
+
+            // Promote non-null values to explicitConfig so the wizard skips them
+            if (this.config[param] !== undefined && this.config[param] !== null) {
+                if (config.default !== null || this._canAutoGenerate(param)) {
+                    this.explicitConfig[param] = this.config[param];
+                }
+            }
+        });
+    }
+
+    /**
+     * Returns whether auto-prompt mode is active
+     * @returns {boolean}
+     */
+    isAutoPrompt() {
+        return this.autoPrompt;
+    }
+
+    /**
+     * Gets the list of required parameters that are truly missing and cannot be
+     * auto-generated or defaulted. Used by auto-prompt mode to determine which
+     * specific prompts to show.
+     * 
+     * @returns {string[]} Array of parameter names that need prompting
+     */
+    getMissingRequiredParameters() {
+        const missing = [];
+
+        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
+            if (!config.required || !config.promptable) return;
+
+            const value = this.config[param];
+            const hasValue = value !== undefined && value !== null;
+
+            if (hasValue) return;
+
+            // Special case: modelFormat is not required for transformers/triton/diffusors
+            if (param === 'modelFormat') {
+                const architecture = this.config.architecture;
+                if (architecture === 'transformers' || architecture === 'triton' || architecture === 'diffusors') {
+                    return;
+                }
+                // Can be inferred from engine
+                if (this.config.engine || this.config.deploymentConfig) {
+                    return;
+                }
+            }
+
+            // Skip params that can be auto-generated
+            if (this._canAutoGenerate(param)) return;
+
+            // Skip params that have a non-null default
+            if (config.default !== null && config.default !== undefined) return;
+
+            missing.push(param);
+        });
+
+        return missing;
     }
 
     /**

@@ -35,7 +35,7 @@ describe('ParameterSchemaValidator', () => {
             const customSchema = {
                 schemaVersion: '1.0.0',
                 deploymentTargets: {
-                    'managed-inference': {
+                    'realtime-inference': {
                         endpoint: {
                             volumeSize: {
                                 type: 'integer',
@@ -77,7 +77,7 @@ describe('ParameterSchemaValidator', () => {
             const validator = new ParameterSchemaValidator({
                 schemaVersion: SUPPORTED_SCHEMA_VERSION,
                 deploymentTargets: {
-                    'managed-inference': {
+                    'realtime-inference': {
                         endpoint: {
                             volumeSize: { type: 'integer', min: 1, max: 100, apiReference: 'Test' }
                         }
@@ -92,7 +92,7 @@ describe('ParameterSchemaValidator', () => {
             const validator = new ParameterSchemaValidator({
                 schemaVersion: '99.0.0',
                 deploymentTargets: {
-                    'managed-inference': {
+                    'realtime-inference': {
                         endpoint: {
                             volumeSize: { type: 'integer', min: 1, max: 100, apiReference: 'Test' }
                         }
@@ -247,7 +247,7 @@ describe('ParameterSchemaValidator', () => {
             const validator = new ParameterSchemaValidator({
                 schemaVersion: '1.0.0',
                 deploymentTargets: {
-                    'managed-inference': {
+                    'realtime-inference': {
                         endpoint: {
                             volumeSize: { type: 'integer', min: 1, max: 100, apiReference: 'MI.VolumeSize' }
                         }
@@ -260,7 +260,7 @@ describe('ParameterSchemaValidator', () => {
                 }
             });
 
-            // Default target (managed-inference from PARAMETER_NAME_MAP)
+            // Default target (realtime-inference from PARAMETER_NAME_MAP)
             const result1 = validator.validate('endpointVolumeSize', 5);
             assert.deepStrictEqual(result1, { valid: true });
 
@@ -303,7 +303,7 @@ describe('ParameterSchemaValidator', () => {
             const validator2 = new ParameterSchemaValidator({
                 schemaVersion: '1.0.0',
                 deploymentTargets: {
-                    'managed-inference': {
+                    'realtime-inference': {
                         endpoint: {
                             volumeSize: { type: 'integer', min: 1, max: 100, apiReference: 'MI' }
                         }

@@ -10,9 +10,9 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
 # ============================================================
-# SageMaker Managed Inference Testing
+# SageMaker Real-Time Inference Testing
 # ============================================================
 
 # Parse arguments
@@ -295,7 +295,7 @@ fi
 
 <% } else if (deploymentTarget === 'async-inference') { %>
 # ============================================================
-# SageMaker Managed Inference - Async Testing
+# SageMaker Async Inference Testing
 # ============================================================
 
 # Parse arguments
@@ -875,7 +875,7 @@ fi
 
 <% } else if (deploymentTarget === 'batch-transform') { %>
 # ============================================================
-# SageMaker Managed Inference - Batch Testing
+# SageMaker Batch Transform Testing
 # ============================================================
 
 # Parse arguments: local or batch test mode

@@ -4,7 +4,7 @@
 /**
  * Property 16: Test Script Content by Deployment Target
  *
- * For any valid configuration, when deploymentTarget equals managed-inference,
+ * For any valid configuration, when deploymentTarget equals realtime-inference,
  * the generated do/test script must support local and SageMaker endpoint test
  * modes using aws sagemaker-runtime invoke-endpoint. When deploymentTarget
  * equals hyperpod-eks, the generated do/test script must support local and
@@ -55,10 +55,10 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
         console.log('🔧 Configuration: EJS template rendering with fast-check\n');
     });
 
-    it('should support local and SageMaker endpoint test modes for managed-inference (Req 16.2)', function () {
+    it('should support local and SageMaker endpoint test modes for realtime-inference (Req 16.2)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 16.2: local + SageMaker endpoint test modes for managed-inference');
+        console.log('  🧪 Req 16.2: local + SageMaker endpoint test modes for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -66,7 +66,7 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
             (base, instanceType) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -78,40 +78,40 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
                 // Must support local test mode
                 assert.ok(
                     output.includes('localhost:8080'),
-                    'managed-inference must support local testing at localhost:8080'
+                    'realtime-inference must support local testing at localhost:8080'
                 );
                 assert.ok(
                     output.includes('Testing local container'),
-                    'managed-inference must have local container test message'
+                    'realtime-inference must have local container test message'
                 );
 
                 // Must support SageMaker endpoint test mode
                 assert.ok(
                     output.includes('sagemaker-runtime invoke-endpoint'),
-                    'managed-inference must use aws sagemaker-runtime invoke-endpoint'
+                    'realtime-inference must use aws sagemaker-runtime invoke-endpoint'
                 );
                 assert.ok(
                     output.includes('Testing SageMaker endpoint'),
-                    'managed-inference must have SageMaker endpoint test message'
+                    'realtime-inference must have SageMaker endpoint test message'
                 );
                 assert.ok(
                     output.includes('describe-endpoint'),
-                    'managed-inference must check endpoint status via describe-endpoint'
+                    'realtime-inference must check endpoint status via describe-endpoint'
                 );
 
                 // Must NOT contain kubectl commands
                 assert.ok(
                     !output.includes('kubectl port-forward'),
-                    'managed-inference must NOT contain kubectl port-forward'
+                    'realtime-inference must NOT contain kubectl port-forward'
                 );
                 assert.ok(
                     !output.includes('describe-cluster'),
-                    'managed-inference must NOT contain describe-cluster'
+                    'realtime-inference must NOT contain describe-cluster'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ local + SageMaker endpoint test modes present for managed-inference');
+        console.log('    ✅ local + SageMaker endpoint test modes present for realtime-inference');
     });
 
     it('should support local and hyperpod test modes for hyperpod-eks (Req 16.3)', function () {
@@ -255,7 +255,7 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -312,7 +312,7 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -325,15 +325,15 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
 
                 const output = renderTest(vars);
 
-                if (deploymentTarget === 'managed-inference') {
-                    // managed-inference uses endpoint name as argument
+                if (deploymentTarget === 'realtime-inference') {
+                    // realtime-inference uses endpoint name as argument
                     assert.ok(
                         output.includes('ENDPOINT_NAME="${1:-'),
-                        'managed-inference must parse endpoint name from argument'
+                        'realtime-inference must parse endpoint name from argument'
                     );
                     assert.ok(
                         output.includes('Deploy to SageMaker'),
-                        'managed-inference next steps must mention SageMaker'
+                        'realtime-inference next steps must mention SageMaker'
                     );
                 } else {
                     // hyperpod-eks uses local|hyperpod as argument
@@ -363,7 +363,7 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -376,14 +376,14 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
 
                 const output = renderTest(vars);
 
-                if (deploymentTarget === 'managed-inference') {
+                if (deploymentTarget === 'realtime-inference') {
                     assert.ok(
                         output.includes('sagemaker-runtime invoke-endpoint'),
-                        'managed-inference must have invoke-endpoint'
+                        'realtime-inference must have invoke-endpoint'
                     );
                     assert.ok(
                         !output.includes('kubectl port-forward'),
-                        'managed-inference must NOT have kubectl port-forward'
+                        'realtime-inference must NOT have kubectl port-forward'
                     );
                 } else {
                     assert.ok(

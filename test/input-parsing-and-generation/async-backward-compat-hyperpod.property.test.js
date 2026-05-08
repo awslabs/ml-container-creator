@@ -345,8 +345,8 @@ describe('Feature: async-inference-endpoint, Property 6: Backward compatibility 
                     'hyperpod-eks do/logs must NOT contain async inference endpoint header'
                 );
                 assert.ok(
-                    !output.includes('SageMaker Managed Inference - Async Logs'),
-                    'hyperpod-eks do/logs must NOT contain SageMaker Managed Inference - Async Logs section header'
+                    !output.includes('SageMaker Async Inference Logs'),
+                    'hyperpod-eks do/logs must NOT contain SageMaker Async Inference Logs section header'
                 );
             }
         ), { numRuns: 30 });

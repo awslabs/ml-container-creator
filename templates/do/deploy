@@ -36,7 +36,7 @@ echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
 echo "   Region: ${AWS_REGION}"
 echo "   Build target: ${BUILD_TARGET}"
 echo "   Deployment target: ${DEPLOYMENT_TARGET}"
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
 echo "   Instance type: ${INSTANCE_TYPE}"
 <% } else if (deploymentTarget === 'async-inference') { %>
 echo "   Instance type: ${INSTANCE_TYPE}"
@@ -95,9 +95,9 @@ fi
 echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
 IMAGE_TAG="${PROJECT_NAME}-latest"
 
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
 # ============================================================
-# SageMaker Managed Inference Deployment (Inference Components)
+# SageMaker Real-Time Inference Deployment (Inference Components)
 # ============================================================
 
 # Validate execution role ARN
@@ -520,7 +520,7 @@ echo "   ./do/clean endpoint"
 
 <% } else if (deploymentTarget === 'async-inference') { %>
 # ============================================================
-# SageMaker Managed Inference - Async Deployment (Model-Based)
+# SageMaker Async Inference Deployment (Model-Based)
 # SageMaker async inference does NOT support Inference Components.
 # Flow: create-model → create-endpoint-config (with AsyncInferenceConfig) → create-endpoint
 # ============================================================
@@ -1151,7 +1151,7 @@ _update_config_var "KUBECONFIG" "${KUBECONFIG_PATH}"
 
 <% } else if (deploymentTarget === 'batch-transform') { %>
 # ============================================================
-# SageMaker Managed Inference - Batch Deployment
+# SageMaker Batch Transform Deployment
 # Flow: create-model → create-transform-job → poll until completion
 # ============================================================
 

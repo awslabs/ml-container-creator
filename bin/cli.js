@@ -27,7 +27,8 @@ program
 
     // --- General ---
     .addOption(new Option('--skip-prompts', 'Skip interactive prompts and use configuration from other sources'))
-    .addOption(new Option('--config <path>', 'Path to configuration file'))
+    .addOption(new Option('--auto-prompt', 'Fill defaults, prompt only for missing required values'))
+    .addOption(new Option('--config <path>', 'Path to JSON configuration file'))
     .addOption(new Option('--project-name <name>', 'Project name'))
     .addOption(new Option('--project-dir <dir>', 'Output directory path'))
     .addOption(new Option('--force', 'Overwrite existing output directory without prompting'))
@@ -41,7 +42,7 @@ program
     .addOption(new Option('--base-image <image>', 'Base container image for Dockerfile'))
 
     // --- Build & Infrastructure ---
-    .addOption(new Option('--deployment-target <target>', 'Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)'))
+    .addOption(new Option('--deployment-target <target>', 'Deployment target (realtime-inference, async-inference, batch-transform, hyperpod-eks)'))
     .addOption(new Option('--instance-type <type>', 'SageMaker instance type (e.g. ml.g5.xlarge, ml.m5.large)'))
     .addOption(new Option('--region <region>', 'AWS region'))
     .addOption(new Option('--role-arn <arn>', 'IAM role ARN for SageMaker execution'))
@@ -154,7 +155,7 @@ program.configureHelp({
 
         for (const opt of allOptions) {
             const long = opt.long || '';
-            if (['--skip-prompts', '--config', '--project-name', '--project-dir', '--force', '--version', '--help'].includes(long)) {
+            if (['--skip-prompts', '--auto-prompt', '--config', '--project-name', '--project-dir', '--force', '--version', '--help'].includes(long)) {
                 groups.general.push(opt);
             } else if (['--deployment-config', '--framework', '--model-format', '--model-name', '--model-server', '--base-image'].includes(long)) {
                 groups.model.push(opt);

@@ -64,7 +64,7 @@ export default class TemplateManager {
                 'diffusors-vllm-omni'
             ],
             buildTargets: ['codebuild'],
-            deploymentTargets: ['managed-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'],
+            deploymentTargets: ['realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
@@ -135,7 +135,7 @@ export default class TemplateManager {
         // Validate batch transform specific fields
         this._validateBatchTransformConfig();
         
-        // Validate instance type format (ml.*.*) - only for managed-inference
+        // Validate instance type format (ml.*.*) - only for realtime-inference
         if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
             const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
             if (!instancePattern.test(this.answers.instanceType)) {

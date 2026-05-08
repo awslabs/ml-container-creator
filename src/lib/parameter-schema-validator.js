@@ -27,15 +27,15 @@ const SUPPORTED_SCHEMA_VERSION = '1.0.0';
  * Format: 'deploymentTarget.category.schemaKey'
  */
 const PARAMETER_NAME_MAP = {
-    endpointInitialInstanceCount: 'managed-inference.endpoint.initialInstanceCount',
-    endpointDataCapturePercent: 'managed-inference.endpoint.dataCapturePercent',
-    endpointVariantName: 'managed-inference.endpoint.variantName',
-    endpointVolumeSize: 'managed-inference.endpoint.volumeSize',
-    icCpuCount: 'managed-inference.inferenceComponent.cpuCount',
-    icMemorySize: 'managed-inference.inferenceComponent.memorySize',
-    icGpuCount: 'managed-inference.inferenceComponent.gpuCount',
-    icCopyCount: 'managed-inference.inferenceComponent.copyCount',
-    icModelWeight: 'managed-inference.inferenceComponent.modelWeight'
+    endpointInitialInstanceCount: 'realtime-inference.endpoint.initialInstanceCount',
+    endpointDataCapturePercent: 'realtime-inference.endpoint.dataCapturePercent',
+    endpointVariantName: 'realtime-inference.endpoint.variantName',
+    endpointVolumeSize: 'realtime-inference.endpoint.volumeSize',
+    icCpuCount: 'realtime-inference.inferenceComponent.cpuCount',
+    icMemorySize: 'realtime-inference.inferenceComponent.memorySize',
+    icGpuCount: 'realtime-inference.inferenceComponent.gpuCount',
+    icCopyCount: 'realtime-inference.inferenceComponent.copyCount',
+    icModelWeight: 'realtime-inference.inferenceComponent.modelWeight'
 };
 
 export default class ParameterSchemaValidator {
@@ -96,7 +96,7 @@ export default class ParameterSchemaValidator {
     /**
      * Resolve a parameter name to its schema constraint object.
      * @param {string} parameterName - ConfigManager key (e.g., 'endpointVolumeSize')
-     * @param {string} [deploymentTarget] - Deployment target override (e.g., 'managed-inference')
+     * @param {string} [deploymentTarget] - Deployment target override (e.g., 'realtime-inference')
      * @returns {Object|null} Constraint object or null if not found
      */
     _resolveConstraint(parameterName, deploymentTarget) {

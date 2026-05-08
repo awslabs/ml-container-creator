@@ -72,10 +72,10 @@ describe('Property 6: Unified Script Generation', () => {
         console.log('🔧 Configuration: EJS template rendering with fast-check\n');
     });
 
-    it('should generate exactly one do/deploy script for managed-inference (Req 5.1)', function () {
+    it('should generate exactly one do/deploy script for realtime-inference (Req 5.1)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 5.1: Single do/deploy script for managed-inference');
+        console.log('  🧪 Req 5.1: Single do/deploy script for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -83,7 +83,7 @@ describe('Property 6: Unified Script Generation', () => {
             (base, instanceType) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -106,16 +106,16 @@ describe('Property 6: Unified Script Generation', () => {
                     'do/deploy must contain substantial content'
                 );
 
-                // Must contain managed-inference specific content
+                // Must contain realtime-inference specific content
                 assert.ok(
                     output.includes('sagemaker create-inference-component') ||
                     output.includes('SageMaker'),
-                    'managed-inference do/deploy must contain SageMaker logic'
+                    'realtime-inference do/deploy must contain SageMaker logic'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ Single do/deploy script generated for managed-inference');
+        console.log('    ✅ Single do/deploy script generated for realtime-inference');
     });
 
     it('should generate exactly one do/deploy script for hyperpod-eks (Req 5.1)', function () {
@@ -161,10 +161,10 @@ describe('Property 6: Unified Script Generation', () => {
         console.log('    ✅ Single do/deploy script generated for hyperpod-eks');
     });
 
-    it('should generate exactly one do/clean script for managed-inference (Req 6.1)', function () {
+    it('should generate exactly one do/clean script for realtime-inference (Req 6.1)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 6.1: Single do/clean script for managed-inference');
+        console.log('  🧪 Req 6.1: Single do/clean script for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -172,7 +172,7 @@ describe('Property 6: Unified Script Generation', () => {
             (base, instanceType) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -195,16 +195,16 @@ describe('Property 6: Unified Script Generation', () => {
                     'do/clean must contain substantial content'
                 );
 
-                // Must contain managed-inference specific cleanup
+                // Must contain realtime-inference specific cleanup
                 assert.ok(
                     output.includes('clean_endpoint') ||
                     output.includes('delete-endpoint'),
-                    'managed-inference do/clean must contain endpoint cleanup'
+                    'realtime-inference do/clean must contain endpoint cleanup'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ Single do/clean script generated for managed-inference');
+        console.log('    ✅ Single do/clean script generated for realtime-inference');
     });
 
     it('should generate exactly one do/clean script for hyperpod-eks (Req 6.1)', function () {
@@ -250,10 +250,10 @@ describe('Property 6: Unified Script Generation', () => {
         console.log('    ✅ Single do/clean script generated for hyperpod-eks');
     });
 
-    it('should generate exactly one do/logs script for managed-inference (Req 15.1)', function () {
+    it('should generate exactly one do/logs script for realtime-inference (Req 15.1)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 15.1: Single do/logs script for managed-inference');
+        console.log('  🧪 Req 15.1: Single do/logs script for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -261,7 +261,7 @@ describe('Property 6: Unified Script Generation', () => {
             (base, instanceType) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -284,16 +284,16 @@ describe('Property 6: Unified Script Generation', () => {
                     'do/logs must contain substantial content'
                 );
 
-                // Must contain managed-inference specific logs
+                // Must contain realtime-inference specific logs
                 assert.ok(
                     output.includes('aws logs tail') ||
                     output.includes('CloudWatch'),
-                    'managed-inference do/logs must contain CloudWatch logs logic'
+                    'realtime-inference do/logs must contain CloudWatch logs logic'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ Single do/logs script generated for managed-inference');
+        console.log('    ✅ Single do/logs script generated for realtime-inference');
     });
 
     it('should generate exactly one do/logs script for hyperpod-eks (Req 15.1)', function () {
@@ -339,10 +339,10 @@ describe('Property 6: Unified Script Generation', () => {
         console.log('    ✅ Single do/logs script generated for hyperpod-eks');
     });
 
-    it('should generate exactly one do/test script for managed-inference (Req 16.1)', function () {
+    it('should generate exactly one do/test script for realtime-inference (Req 16.1)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Req 16.1: Single do/test script for managed-inference');
+        console.log('  🧪 Req 16.1: Single do/test script for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
@@ -350,7 +350,7 @@ describe('Property 6: Unified Script Generation', () => {
             (base, instanceType) => {
                 const vars = {
                     ...base,
-                    deploymentTarget: 'managed-inference',
+                    deploymentTarget: 'realtime-inference',
                     instanceType,
                     hyperPodCluster: undefined,
                     hyperPodNamespace: undefined,
@@ -373,16 +373,16 @@ describe('Property 6: Unified Script Generation', () => {
                     'do/test must contain substantial content'
                 );
 
-                // Must contain managed-inference specific test
+                // Must contain realtime-inference specific test
                 assert.ok(
                     output.includes('sagemaker-runtime invoke-endpoint') ||
                     output.includes('SageMaker endpoint'),
-                    'managed-inference do/test must contain SageMaker test logic'
+                    'realtime-inference do/test must contain SageMaker test logic'
                 );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ Single do/test script generated for managed-inference');
+        console.log('    ✅ Single do/test script generated for realtime-inference');
     });
 
     it('should generate exactly one do/test script for hyperpod-eks (Req 16.1)', function () {
@@ -435,13 +435,13 @@ describe('Property 6: Unified Script Generation', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             hyperPodConfigArb,
             (base, deploymentTarget, hpVars) => {
                 const vars = {
                     ...base,
                     deploymentTarget,
-                    instanceType: deploymentTarget === 'managed-inference' ? 'ml.m5.xlarge' : undefined,
+                    instanceType: deploymentTarget === 'realtime-inference' ? 'ml.m5.xlarge' : undefined,
                     ...(deploymentTarget === 'hyperpod-eks' ? hpVars : {
                         hyperPodCluster: undefined,
                         hyperPodNamespace: undefined,
@@ -480,13 +480,13 @@ describe('Property 6: Unified Script Generation', () => {
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('managed-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
             hyperPodConfigArb,
             (base, deploymentTarget, hpVars) => {
                 const vars = {
                     ...base,
                     deploymentTarget,
-                    instanceType: deploymentTarget === 'managed-inference' ? 'ml.m5.xlarge' : undefined,
+                    instanceType: deploymentTarget === 'realtime-inference' ? 'ml.m5.xlarge' : undefined,
                     ...(deploymentTarget === 'hyperpod-eks' ? hpVars : {
                         hyperPodCluster: undefined,
                         hyperPodNamespace: undefined,

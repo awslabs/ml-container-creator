@@ -32,7 +32,7 @@ describe('CI Register Flags — configId Hashing', () => {
             'meta-llama/Llama-2-7b-chat-hf',
             'ml.g5.xlarge',
             'us-east-1',
-            'managed-inference'
+            'realtime-inference'
         );
 
         assert.strictEqual(id.length, 16);
@@ -45,7 +45,7 @@ describe('CI Register Flags — configId Hashing', () => {
             'meta-llama/Llama-2-7b-chat-hf',
             'ml.g5.xlarge',
             'us-east-1',
-            'managed-inference'
+            'realtime-inference'
         ];
 
         const id1 = computeConfigId(...args);
@@ -55,7 +55,7 @@ describe('CI Register Flags — configId Hashing', () => {
     });
 
     it('different deploymentConfig produces a different id', () => {
-        const base = ['meta-llama/Llama-2-7b-chat-hf', 'ml.g5.xlarge', 'us-east-1', 'managed-inference'];
+        const base = ['meta-llama/Llama-2-7b-chat-hf', 'ml.g5.xlarge', 'us-east-1', 'realtime-inference'];
 
         const id1 = computeConfigId('transformers-vllm', ...base);
         const id2 = computeConfigId('transformers-sglang', ...base);
@@ -64,37 +64,37 @@ describe('CI Register Flags — configId Hashing', () => {
     });
 
     it('different modelName produces a different id', () => {
-        const id1 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'managed-inference');
-        const id2 = computeConfigId('transformers-vllm', 'model-b', 'ml.g5.xlarge', 'us-east-1', 'managed-inference');
+        const id1 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'realtime-inference');
+        const id2 = computeConfigId('transformers-vllm', 'model-b', 'ml.g5.xlarge', 'us-east-1', 'realtime-inference');
 
         assert.notStrictEqual(id1, id2);
     });
 
     it('different instanceType produces a different id', () => {
-        const id1 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'managed-inference');
-        const id2 = computeConfigId('transformers-vllm', 'model-a', 'ml.p3.2xlarge', 'us-east-1', 'managed-inference');
+        const id1 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'realtime-inference');
+        const id2 = computeConfigId('transformers-vllm', 'model-a', 'ml.p3.2xlarge', 'us-east-1', 'realtime-inference');
 
         assert.notStrictEqual(id1, id2);
     });
 
     it('different region produces a different id', () => {
-        const id1 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'managed-inference');
-        const id2 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'eu-west-1', 'managed-inference');
+        const id1 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'realtime-inference');
+        const id2 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'eu-west-1', 'realtime-inference');
 
         assert.notStrictEqual(id1, id2);
     });
 
     it('different deploymentTarget produces a different id', () => {
-        const id1 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'managed-inference');
+        const id1 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'realtime-inference');
         const id2 = computeConfigId('transformers-vllm', 'model-a', 'ml.g5.xlarge', 'us-east-1', 'batch-transform');
 
         assert.notStrictEqual(id1, id2);
     });
 
     it('treats empty/null modelName as "none"', () => {
-        const id1 = computeConfigId('http-flask', null, 'ml.m5.xlarge', 'us-east-1', 'managed-inference');
-        const id2 = computeConfigId('http-flask', '', 'ml.m5.xlarge', 'us-east-1', 'managed-inference');
-        const id3 = computeConfigId('http-flask', 'none', 'ml.m5.xlarge', 'us-east-1', 'managed-inference');
+        const id1 = computeConfigId('http-flask', null, 'ml.m5.xlarge', 'us-east-1', 'realtime-inference');
+        const id2 = computeConfigId('http-flask', '', 'ml.m5.xlarge', 'us-east-1', 'realtime-inference');
+        const id3 = computeConfigId('http-flask', 'none', 'ml.m5.xlarge', 'us-east-1', 'realtime-inference');
 
         // null and empty both map to "none"
         assert.strictEqual(id1, id3);

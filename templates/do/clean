@@ -24,7 +24,7 @@ done
 
 # Function to display usage
 show_usage() {
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
     echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
@@ -37,7 +37,7 @@ show_usage() {
     echo "Cleanup targets:"
     echo "  local     - Remove local Docker images"
     echo "  ecr       - Remove images from Amazon ECR"
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
     echo "  endpoint  - Delete SageMaker endpoint, configuration, and model"
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "  endpoint  - Delete SageMaker async endpoint, configuration, and inference component"
@@ -51,7 +51,7 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  ./do/clean local      # Remove local Docker images only"
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
     echo "  ./do/clean endpoint   # Delete SageMaker resources only"
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "  ./do/clean endpoint   # Delete SageMaker async resources only"
@@ -198,7 +198,7 @@ clean_ecr() {
     fi
 }
 
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
 # Function to clean SageMaker endpoint and inference components
 clean_endpoint() {
     echo "🧹 Cleaning SageMaker resources"
@@ -720,7 +720,7 @@ case "${CLEANUP_TARGET}" in
     ecr)
         clean_ecr
         ;;
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
     endpoint)
         clean_endpoint
         ;;
@@ -761,7 +761,7 @@ case "${CLEANUP_TARGET}" in
         
         echo ""
         
-<% if (deploymentTarget === 'managed-inference') { %>
+<% if (deploymentTarget === 'realtime-inference') { %>
         # Clean SageMaker resources
         if clean_endpoint; then
             CLEANED_ITEMS+=("SageMaker resources")

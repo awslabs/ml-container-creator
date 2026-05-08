@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Property 5: Backward compatibility for managed-inference
+ * Property 5: Backward compatibility for realtime-inference
  *
- * For any valid managed-inference configuration, the generated do/ scripts
+ * For any valid realtime-inference configuration, the generated do/ scripts
  * are NOT affected by the async-inference feature addition. Specifically,
  * do/config, do/deploy, do/test, do/clean, and do/logs must not contain
- * any async-specific content when deploymentTarget is managed-inference.
+ * any async-specific content when deploymentTarget is realtime-inference.
  *
  * Validates: Requirements 10.1, 10.4
  *
@@ -41,7 +41,7 @@ function renderTemplate(template, vars) {
     return ejs.render(template, { orderedEnvVars: [], baseImage: '', ...vars });
 }
 
-/** Arbitrary for a managed-inference configuration with async vars set to undefined */
+/** Arbitrary for a realtime-inference configuration with async vars set to undefined */
 const managedInferenceConfigArb = fc.record({
     projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
     deploymentConfig: fc.constantFrom(
@@ -53,7 +53,7 @@ const managedInferenceConfigArb = fc.record({
     awsRegion: fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1'),
     buildTarget: fc.constant('codebuild'),
     codebuildComputeType: fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'),
-    deploymentTarget: fc.constant('managed-inference'),
+    deploymentTarget: fc.constant('realtime-inference'),
     instanceType: fc.constantFrom('ml.m5.xlarge', 'ml.g5.xlarge', 'ml.p4d.24xlarge'),
     modelName: fc.constantFrom('meta-llama/Llama-2-7b-hf', 'openai/gpt-oss-20b'),
     roleArn: fc.constantFrom('arn:aws:iam::123456789012:role/SageMakerRole', undefined),
@@ -63,18 +63,18 @@ const managedInferenceConfigArb = fc.record({
     modelFormat: fc.constantFrom('pkl', 'json', 'keras', undefined)
 });
 
-describe('Feature: async-inference-endpoint, Property 5: Backward compatibility for managed-inference', () => {
+describe('Feature: async-inference-endpoint, Property 5: Backward compatibility for realtime-inference', () => {
     before(() => {
         console.log('\n🔄 Starting Backward Compatibility for Managed Inference (Async Feature) Property Tests');
         console.log('📋 Testing: Requirements 10.1, 10.4');
         console.log('🔧 Configuration: EJS template rendering with fast-check\n');
     });
 
-    it('do/config for managed-inference must contain INSTANCE_TYPE but NOT async-specific variables', function () {
+    it('do/config for realtime-inference must contain INSTANCE_TYPE but NOT async-specific variables', function () {
         /**
          * **Validates: Requirements 10.1, 10.4**
          *
-         * When deploymentTarget === 'managed-inference', do/config must contain
+         * When deploymentTarget === 'realtime-inference', do/config must contain
          * INSTANCE_TYPE and must NOT contain ASYNC_S3_OUTPUT_PATH,
          * ASYNC_SNS_SUCCESS_TOPIC, ASYNC_SNS_ERROR_TOPIC, or
          * ASYNC_MAX_CONCURRENT_INVOCATIONS.
@@ -100,28 +100,28 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
 
                 const output = renderTemplate(configTemplate, vars);
 
-                // Must contain INSTANCE_TYPE for managed-inference
+                // Must contain INSTANCE_TYPE for realtime-inference
                 assert.ok(
                     output.includes('INSTANCE_TYPE'),
-                    'managed-inference do/config must contain INSTANCE_TYPE'
+                    'realtime-inference do/config must contain INSTANCE_TYPE'
                 );
 
                 // Must NOT contain async-specific variables
                 assert.ok(
                     !output.includes('ASYNC_S3_OUTPUT_PATH'),
-                    'managed-inference do/config must NOT contain ASYNC_S3_OUTPUT_PATH'
+                    'realtime-inference do/config must NOT contain ASYNC_S3_OUTPUT_PATH'
                 );
                 assert.ok(
                     !output.includes('ASYNC_SNS_SUCCESS_TOPIC'),
-                    'managed-inference do/config must NOT contain ASYNC_SNS_SUCCESS_TOPIC'
+                    'realtime-inference do/config must NOT contain ASYNC_SNS_SUCCESS_TOPIC'
                 );
                 assert.ok(
                     !output.includes('ASYNC_SNS_ERROR_TOPIC'),
-                    'managed-inference do/config must NOT contain ASYNC_SNS_ERROR_TOPIC'
+                    'realtime-inference do/config must NOT contain ASYNC_SNS_ERROR_TOPIC'
                 );
                 assert.ok(
                     !output.includes('ASYNC_MAX_CONCURRENT_INVOCATIONS'),
-                    'managed-inference do/config must NOT contain ASYNC_MAX_CONCURRENT_INVOCATIONS'
+                    'realtime-inference do/config must NOT contain ASYNC_MAX_CONCURRENT_INVOCATIONS'
                 );
             }
         ), { numRuns: 30 });
@@ -129,11 +129,11 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
         console.log('    ✅ do/config backward compatible — no async variables leak');
     });
 
-    it('do/deploy for managed-inference must contain SageMaker IC logic but NOT async deploy logic', function () {
+    it('do/deploy for realtime-inference must contain SageMaker IC logic but NOT async deploy logic', function () {
         /**
          * **Validates: Requirements 10.1, 10.4**
          *
-         * When deploymentTarget === 'managed-inference', do/deploy must contain
+         * When deploymentTarget === 'realtime-inference', do/deploy must contain
          * SageMaker inference component logic (create-endpoint-config,
          * create-endpoint, create-inference-component) but NOT contain
          * AsyncInferenceConfig, async-inference-config, s3api head-bucket
@@ -163,33 +163,33 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
                 // Must contain SageMaker inference component commands
                 assert.ok(
                     output.includes('sagemaker create-endpoint-config'),
-                    'managed-inference do/deploy must contain create-endpoint-config'
+                    'realtime-inference do/deploy must contain create-endpoint-config'
                 );
                 assert.ok(
                     output.includes('sagemaker create-endpoint'),
-                    'managed-inference do/deploy must contain create-endpoint'
+                    'realtime-inference do/deploy must contain create-endpoint'
                 );
                 assert.ok(
                     output.includes('sagemaker create-inference-component'),
-                    'managed-inference do/deploy must contain create-inference-component'
+                    'realtime-inference do/deploy must contain create-inference-component'
                 );
 
                 // Must NOT contain async-specific deploy logic
                 assert.ok(
                     !output.includes('AsyncInferenceConfig'),
-                    'managed-inference do/deploy must NOT contain AsyncInferenceConfig'
+                    'realtime-inference do/deploy must NOT contain AsyncInferenceConfig'
                 );
                 assert.ok(
                     !output.includes('async-inference-config'),
-                    'managed-inference do/deploy must NOT contain async-inference-config'
+                    'realtime-inference do/deploy must NOT contain async-inference-config'
                 );
                 assert.ok(
                     !output.includes('s3api head-bucket'),
-                    'managed-inference do/deploy must NOT contain s3api head-bucket (async bootstrap)'
+                    'realtime-inference do/deploy must NOT contain s3api head-bucket (async bootstrap)'
                 );
                 assert.ok(
                     !output.includes('sns create-topic'),
-                    'managed-inference do/deploy must NOT contain sns create-topic'
+                    'realtime-inference do/deploy must NOT contain sns create-topic'
                 );
             }
         ), { numRuns: 30 });
@@ -197,11 +197,11 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
         console.log('    ✅ do/deploy backward compatible — no async deploy logic leak');
     });
 
-    it('do/test for managed-inference must contain invoke-endpoint but NOT invoke-endpoint-async or S3 polling', function () {
+    it('do/test for realtime-inference must contain invoke-endpoint but NOT invoke-endpoint-async or S3 polling', function () {
         /**
          * **Validates: Requirements 10.1, 10.4**
          *
-         * When deploymentTarget === 'managed-inference', do/test must contain
+         * When deploymentTarget === 'realtime-inference', do/test must contain
          * sagemaker-runtime invoke-endpoint but NOT invoke-endpoint-async
          * or S3 polling logic.
          */
@@ -229,17 +229,17 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
                 // Must contain synchronous invoke-endpoint
                 assert.ok(
                     output.includes('sagemaker-runtime invoke-endpoint'),
-                    'managed-inference do/test must contain sagemaker-runtime invoke-endpoint'
+                    'realtime-inference do/test must contain sagemaker-runtime invoke-endpoint'
                 );
 
                 // Must NOT contain async invocation or S3 polling
                 assert.ok(
                     !output.includes('invoke-endpoint-async'),
-                    'managed-inference do/test must NOT contain invoke-endpoint-async'
+                    'realtime-inference do/test must NOT contain invoke-endpoint-async'
                 );
                 assert.ok(
                     !output.includes('Polling for async result'),
-                    'managed-inference do/test must NOT contain S3 polling logic'
+                    'realtime-inference do/test must NOT contain S3 polling logic'
                 );
             }
         ), { numRuns: 30 });
@@ -247,11 +247,11 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
         console.log('    ✅ do/test backward compatible — no async test logic leak');
     });
 
-    it('do/clean for managed-inference must contain clean_endpoint with SageMaker delete commands but NOT async-specific cleanup', function () {
+    it('do/clean for realtime-inference must contain clean_endpoint with SageMaker delete commands but NOT async-specific cleanup', function () {
         /**
          * **Validates: Requirements 10.1, 10.4**
          *
-         * When deploymentTarget === 'managed-inference', do/clean must contain
+         * When deploymentTarget === 'realtime-inference', do/clean must contain
          * clean_endpoint with SageMaker delete commands but NOT contain
          * async-specific cleanup patterns.
          */
@@ -279,23 +279,23 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
                 // Must contain endpoint cleanup
                 assert.ok(
                     output.includes('clean_endpoint'),
-                    'managed-inference do/clean must contain clean_endpoint function'
+                    'realtime-inference do/clean must contain clean_endpoint function'
                 );
 
                 // Must contain SageMaker delete commands
                 assert.ok(
                     output.includes('delete-endpoint'),
-                    'managed-inference do/clean must contain delete-endpoint'
+                    'realtime-inference do/clean must contain delete-endpoint'
                 );
 
                 // Must NOT contain async-specific cleanup references
                 assert.ok(
                     !output.includes('async resources'),
-                    'managed-inference do/clean must NOT contain async resources text'
+                    'realtime-inference do/clean must NOT contain async resources text'
                 );
                 assert.ok(
                     !output.includes('SageMaker async'),
-                    'managed-inference do/clean must NOT contain SageMaker async text'
+                    'realtime-inference do/clean must NOT contain SageMaker async text'
                 );
             }
         ), { numRuns: 30 });
@@ -303,11 +303,11 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
         console.log('    ✅ do/clean backward compatible — no async cleanup logic leak');
     });
 
-    it('do/logs for managed-inference must contain CloudWatch aws logs tail but NOT async-specific log patterns', function () {
+    it('do/logs for realtime-inference must contain CloudWatch aws logs tail but NOT async-specific log patterns', function () {
         /**
          * **Validates: Requirements 10.1, 10.4**
          *
-         * When deploymentTarget === 'managed-inference', do/logs must contain
+         * When deploymentTarget === 'realtime-inference', do/logs must contain
          * CloudWatch aws logs tail but NOT contain async-specific log patterns.
          */
         this.timeout(30000);
@@ -334,23 +334,23 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
                 // Must contain CloudWatch log tailing
                 assert.ok(
                     output.includes('aws logs tail'),
-                    'managed-inference do/logs must contain aws logs tail'
+                    'realtime-inference do/logs must contain aws logs tail'
                 );
 
                 // Must contain --follow for tailing
                 assert.ok(
                     output.includes('--follow'),
-                    'managed-inference do/logs must use --follow for tailing'
+                    'realtime-inference do/logs must use --follow for tailing'
                 );
 
                 // Must NOT contain async-specific log patterns
                 assert.ok(
                     !output.includes('Tailing logs for async inference endpoint'),
-                    'managed-inference do/logs must NOT contain async inference endpoint header'
+                    'realtime-inference do/logs must NOT contain async inference endpoint header'
                 );
                 assert.ok(
-                    !output.includes('SageMaker Managed Inference - Async Logs'),
-                    'managed-inference do/logs must NOT contain SageMaker Managed Inference - Async Logs section header'
+                    !output.includes('SageMaker Async Inference Logs'),
+                    'realtime-inference do/logs must NOT contain SageMaker Async Inference Logs section header'
                 );
             }
         ), { numRuns: 30 });

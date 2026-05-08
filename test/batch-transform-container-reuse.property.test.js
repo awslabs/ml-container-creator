@@ -7,7 +7,7 @@
  * Feature: batch-transform-endpoint, Property 8: Container image reuse across deployment targets
  *
  * For any valid generator configuration, if only the deploymentTarget is changed between
- * managed-inference and batch-transform while all other parameters remain the same, the
+ * realtime-inference and batch-transform while all other parameters remain the same, the
  * generated Dockerfile, serving code files, and container build scripts (do/build, do/push,
  * do/submit) SHALL be identical.
  *
@@ -83,14 +83,14 @@ const arbAnyBaseConfig = fc.oneof(arbCpuSafeBaseConfig, arbGpuBaseConfig);
 
 describe('Feature: batch-transform-endpoint, Property 8: Container image reuse across deployment targets', () => {
 
-    it('both managed-inference and batch-transform pass validation with the same base configuration', function () {
+    it('both realtime-inference and batch-transform pass validation with the same base configuration', function () {
         this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 11.1, 11.2
          *
          * For any valid base config (deploymentConfig, instanceType, region),
-         * both managed-inference and batch-transform should pass TemplateManager
+         * both realtime-inference and batch-transform should pass TemplateManager
          * validation. This proves the same container configuration is valid for
          * both targets — the Dockerfile, serving code, and build scripts are
          * shared because no target-specific file exclusions exist.
@@ -100,7 +100,7 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
             (baseConfig) => {
                 const managedConfig = {
                     ...baseConfig,
-                    deploymentTarget: 'managed-inference'
+                    deploymentTarget: 'realtime-inference'
                 };
                 const batchConfig = {
                     ...baseConfig,
@@ -168,10 +168,10 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
         /**
          * Validates: Requirements 11.1, 11.2
          *
-         * For any valid instance type, both managed-inference and batch-transform
+         * For any valid instance type, both realtime-inference and batch-transform
          * accept the same instanceType value. This confirms that the instance type
          * selection is shared — batch-transform does not restrict or modify the
-         * available instance types compared to managed-inference.
+         * available instance types compared to realtime-inference.
          */
         fc.assert(fc.property(
             fc.constantFrom(...CPU_INSTANCE_TYPES, ...GPU_INSTANCE_TYPES),
@@ -182,7 +182,7 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
                     deploymentConfig,
                     awsRegion,
                     instanceType,
-                    deploymentTarget: 'managed-inference'
+                    deploymentTarget: 'realtime-inference'
                 };
                 const batchConfig = {
                     deploymentConfig,
@@ -202,7 +202,7 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
         ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
     });
 
-    it('GPU-requiring configs work identically for both managed-inference and batch-transform', function () {
+    it('GPU-requiring configs work identically for both realtime-inference and batch-transform', function () {
         this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
         /**
@@ -210,7 +210,7 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
          *
          * GPU-requiring deployment configs (triton-vllm, triton-tensorrtllm,
          * diffusors-vllm-omni) with GPU instances pass validation for both
-         * managed-inference and batch-transform. This confirms that GPU
+         * realtime-inference and batch-transform. This confirms that GPU
          * enforcement is identical across both targets — the same container
          * image with GPU support works for both.
          */
@@ -223,7 +223,7 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
                     deploymentConfig,
                     instanceType,
                     awsRegion,
-                    deploymentTarget: 'managed-inference'
+                    deploymentTarget: 'realtime-inference'
                 };
                 const batchConfig = {
                     deploymentConfig,
@@ -250,7 +250,7 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
          * Validates: Requirements 11.1, 11.2
          *
          * GPU-requiring deployment configs paired with CPU-only instances
-         * should fail validation for BOTH managed-inference and batch-transform
+         * should fail validation for BOTH realtime-inference and batch-transform
          * with the same error. This confirms the GPU enforcement logic is
          * shared and not target-specific.
          */
@@ -263,7 +263,7 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
                     deploymentConfig,
                     instanceType,
                     awsRegion,
-                    deploymentTarget: 'managed-inference'
+                    deploymentTarget: 'realtime-inference'
                 };
                 const batchConfig = {
                     deploymentConfig,
@@ -288,7 +288,7 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
                 }
 
                 // Both should fail
-                assert.ok(managedError, 'managed-inference should fail with GPU config + CPU instance');
+                assert.ok(managedError, 'realtime-inference should fail with GPU config + CPU instance');
                 assert.ok(batchError, 'batch-transform should fail with GPU config + CPU instance');
 
                 // Both should fail with the same error message

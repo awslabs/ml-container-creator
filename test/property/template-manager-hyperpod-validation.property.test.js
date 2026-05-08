@@ -222,13 +222,13 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
             assert.throws(() => repManager.validate(), /hyperPodReplicas/);
         });
 
-        it('HyperPod validation is skipped for managed-inference (Req 10.3, 10.4, 10.5)', function () {
+        it('HyperPod validation is skipped for realtime-inference (Req 10.3, 10.4, 10.5)', function () {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
-                fc.constant('managed-inference'),
+                fc.constant('realtime-inference'),
                 (deploymentTarget) => {
-                    // managed-inference should not require HyperPod fields
+                    // realtime-inference should not require HyperPod fields
                     const answers = {
                         ...baseValidAnswers,
                         buildTarget: 'codebuild',
@@ -258,7 +258,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     const answers = {
                         ...baseValidAnswers,
                         buildTarget,
-                        deploymentTarget: 'managed-inference',
+                        deploymentTarget: 'realtime-inference',
                         instanceType: 'ml.m5.large'
                     };
 
@@ -279,7 +279,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     const answers = {
                         ...baseValidAnswers,
                         buildTarget,
-                        deploymentTarget: 'managed-inference',
+                        deploymentTarget: 'realtime-inference',
                         instanceType: 'ml.m5.large'
                     };
 
@@ -298,7 +298,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
-                fc.constantFrom('managed-inference', 'hyperpod-eks'),
+                fc.constantFrom('realtime-inference', 'hyperpod-eks'),
                 (deploymentTarget) => {
                     const answers = {
                         ...baseValidAnswers,
@@ -307,7 +307,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     };
 
                     // Add required fields based on deployment target
-                    if (deploymentTarget === 'managed-inference') {
+                    if (deploymentTarget === 'realtime-inference') {
                         answers.instanceType = 'ml.m5.large';
                     } else {
                         answers.hyperPodCluster = 'my-cluster';
@@ -327,7 +327,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
 
             fc.assert(fc.property(
                 fc.string({ minLength: 1, maxLength: 30 })
-                    .filter(s => !['managed-inference', 'hyperpod-eks'].includes(s)),
+                    .filter(s => !['realtime-inference', 'hyperpod-eks'].includes(s)),
                 (deploymentTarget) => {
                     const answers = {
                         ...baseValidAnswers,
