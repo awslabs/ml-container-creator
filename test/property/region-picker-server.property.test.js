@@ -42,9 +42,6 @@ const arbContext = fc.record({
 /** A region code drawn from the actual AWS_REGIONS constant */
 const arbRegionCode = fc.constantFrom(...AWS_REGIONS.map(r => r.code));
 
-/** A framework name from the supported set */
-const arbFramework = fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers');
-
 // ── Valid region code set (for assertions) ───────────────────────────────────
 
 const VALID_REGION_CODES = new Set(AWS_REGIONS.map(r => r.code));

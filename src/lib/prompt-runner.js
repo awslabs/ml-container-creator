@@ -889,7 +889,6 @@ export default class PromptRunner {
             const serverConfig = mcpConfig.mcpServers?.['instance-sizer'];
             if (!serverConfig) return;
 
-            const { McpClient } = await import('./mcp-client.js');
             const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
             const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
 
