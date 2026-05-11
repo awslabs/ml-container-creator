@@ -20,29 +20,34 @@ const schemasDir = resolve(root, 'servers/lib/schemas')
 // Catalog file path → schema file name mapping
 const CATALOG_SCHEMA_MAP = [
     {
-        catalog: 'servers/base-image-picker/catalogs/model-servers.json',
+        catalog: 'servers/lib/catalogs/model-servers.json',
         schema: 'image-catalog.schema.json',
         label: 'model-servers'
     },
     {
-        catalog: 'servers/base-image-picker/catalogs/triton-backends.json',
+        catalog: 'servers/lib/catalogs/triton-backends.json',
         schema: 'triton-backends.schema.json',
         label: 'triton-backends'
     },
     {
-        catalog: 'servers/instance-recommender/catalogs/instances.json',
+        catalog: 'servers/lib/catalogs/instances.json',
         schema: 'instances.schema.json',
         label: 'instances'
     },
     {
-        catalog: 'servers/model-picker/catalogs/popular-transformers.json',
+        catalog: 'servers/lib/catalogs/popular-transformers.json',
         schema: 'model-catalog.schema.json',
         label: 'popular-transformers'
     },
     {
-        catalog: 'servers/model-picker/catalogs/popular-diffusors.json',
+        catalog: 'servers/lib/catalogs/popular-diffusors.json',
         schema: 'model-catalog.schema.json',
         label: 'popular-diffusors'
+    },
+    {
+        catalog: 'servers/lib/catalogs/models.json',
+        schema: 'unified-model-catalog.schema.json',
+        label: 'models (unified)'
     }
 ]
 

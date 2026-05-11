@@ -94,6 +94,7 @@ sklearn-demo/
 │   ├── push                      # Push to ECR
 │   ├── submit                    # Submit build to CodeBuild
 │   ├── deploy                    # Deploy to SageMaker
+│   ├── validate                  # Validate config against AWS service models
 │   ├── test                      # Test local or deployed endpoint
 │   ├── clean                     # Tear down resources
 │   ├── register                  # Log to deployment registry
@@ -109,11 +110,16 @@ sklearn-demo/
 
 ### Build, push, and deploy
 
-If you haven't already, run `ml-container-creator bootstrap` to set up your IAM role and ECR repository.
+If you haven't already, run `ml-container-creator bootstrap` to set up your IAM role and ECR repository. Optionally sync AWS service models for pre-deploy validation:
+
+```bash
+ml-container-creator bootstrap sync-schemas
+```
 
 ```bash
 ./do/build        # Build the Docker image
 ./do/push         # Push to Amazon ECR
+./do/validate     # Validate config against AWS service models (optional)
 ./do/deploy       # Deploy to SageMaker (requires IAM role ARN)
 ```
 

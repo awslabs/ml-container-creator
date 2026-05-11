@@ -104,9 +104,9 @@ let PYTHON_SLIM_CATALOG
 let TRITON_IMAGE_CATALOG
 
 try {
-    TRANSFORMER_IMAGE_CATALOG = loadCatalog('./catalogs/model-servers.json')
-    PYTHON_SLIM_CATALOG = loadCatalog('./catalogs/python-slim.json')
-    TRITON_IMAGE_CATALOG = loadCatalog('./catalogs/triton.json')
+    TRANSFORMER_IMAGE_CATALOG = loadCatalog('../lib/catalogs/model-servers.json')
+    PYTHON_SLIM_CATALOG = loadCatalog('../lib/catalogs/python-slim.json')
+    TRITON_IMAGE_CATALOG = loadCatalog('../lib/catalogs/triton.json')
 } catch (err) {
     process.stderr.write(`[base-image-picker] Fatal: ${err.message}\n`)
     process.exit(1)

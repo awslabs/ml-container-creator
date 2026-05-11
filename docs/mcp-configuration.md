@@ -119,13 +119,15 @@ When multiple servers are configured, they are queried in order. Later servers t
 
 ## Bundled Servers
 
-### instance-recommender
+### instance-sizer
 
-Recommends SageMaker instance types based on the current framework. Traditional ML frameworks get CPU instance suggestions; transformer frameworks get GPU instances.
+The single authority for all instance-related recommendations. Estimates VRAM requirements from model metadata, performs search/tag-based filtering, and returns filtered, ranked SageMaker instance recommendations. Supports both VRAM-driven sizing (when a model name is provided) and tag-based search (when an `instanceSearch` query is provided).
 
 ```bash
-ml-container-creator mcp add instance-recommender --bundled
+ml-container-creator mcp add instance-sizer --bundled
 ```
+
+The instance-sizer accepts optional context including CUDA version constraints (from the base image), serving profile ENV overrides (for accurate KV cache estimation), and deployment target. When the model is known, it computes VRAM requirements and filters instances to only those with sufficient GPU memory and compatible CUDA versions.
 
 ### region-picker
 
@@ -133,6 +135,22 @@ Suggests AWS regions based on a search term. Set `REGION_SEARCH` to filter by re
 
 ```bash
 ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
+```
+
+### model-picker
+
+Discovers and resolves model metadata from multiple sources (HuggingFace Hub, JumpStart, S3, SageMaker Model Registry). Returns model configuration including architecture, parameter count, and framework compatibility.
+
+```bash
+ml-container-creator mcp add model-picker --bundled
+```
+
+### base-image-picker
+
+Recommends base Docker images based on the selected deployment configuration, framework version, and accelerator requirements.
+
+```bash
+ml-container-creator mcp add base-image-picker --bundled
 ```
 
 ## Smart Mode (Amazon Bedrock)

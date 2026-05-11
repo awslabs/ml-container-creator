@@ -43,8 +43,12 @@ case "${DEPLOYMENT_CONFIG}" in
             echo "   Install nvidia-docker: https://github.com/NVIDIA/nvidia-docker"
         fi
         ;;
-    sklearn-*|xgboost-*|tensorflow-*)
+    sklearn-*|xgboost-*|tensorflow-*|http-flask|http-fastapi)
         echo "💻 CPU-only mode for traditional ML deployment"
+        ;;
+    triton-*)
+        echo "🎮 GPU support enabled for Triton deployment"
+        GPU_FLAG="--gpus all"
         ;;
     *)
         echo "❌ Unknown deployment configuration: ${DEPLOYMENT_CONFIG}"

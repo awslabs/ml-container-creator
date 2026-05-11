@@ -1433,9 +1433,8 @@ let POPULAR_MODELS_CATALOG
 
 try {
     POPULAR_MODELS_CATALOG = {
-        ...loadCatalog('./catalogs/popular-transformers.json'),
-        ...loadCatalog('./catalogs/popular-diffusors.json'),
-        ...loadCatalog('./catalogs/jumpstart-public.json')
+        ...loadCatalog('../lib/catalogs/models.json'),
+        ...loadCatalog('../lib/catalogs/jumpstart-public.json')
     }
 } catch (err) {
     process.stderr.write(`[model-picker] Fatal: ${err.message}\n`)

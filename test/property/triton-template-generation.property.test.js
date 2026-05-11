@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 const __testFilename = fileURLToPath(import.meta.url);
 const __testDir = dirname(__testFilename);
-const tritonBackendsCatalogPath = resolve(__testDir, '../../servers/base-image-picker/catalogs/triton-backends.json');
+const tritonBackendsCatalogPath = resolve(__testDir, '../../servers/lib/catalogs/triton-backends.json');
 const tritonBackends = JSON.parse(readFileSync(tritonBackendsCatalogPath, 'utf8'));
 
 const FAST_PROPERTY_CONFIG = {

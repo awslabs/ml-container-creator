@@ -1,0 +1,129 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "unified-model-catalog.schema.json",
+    "type": "object",
+    "minProperties": 1,
+    "additionalProperties": {
+        "type": "object",
+        "required": [
+            "architecture",
+            "tasks",
+            "modelType"
+        ],
+        "properties": {
+            "architecture": {
+                "oneOf": [
+                    {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    {
+                        "type": "null"
+                    }
+                ]
+            },
+            "tasks": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "minItems": 1
+            },
+            "modelType": {
+                "type": "string",
+                "enum": [
+                    "transformer",
+                    "diffusor",
+                    "predictor"
+                ]
+            },
+            "family": {
+                "type": "string"
+            },
+            "parameterCount": {
+                "type": "integer"
+            },
+            "defaultDtype": {
+                "type": "string",
+                "enum": [
+                    "float32",
+                    "float16",
+                    "bfloat16",
+                    "int8",
+                    "int4"
+                ]
+            },
+            "maxPositionEmbeddings": {
+                "type": "integer"
+            },
+            "recommendedQuantizations": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "chatTemplate": {
+                "oneOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
+                ]
+            },
+            "gated": {
+                "type": "boolean"
+            },
+            "tags": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "frameworkCompatibility": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            },
+            "validationLevel": {
+                "type": "string",
+                "enum": [
+                    "tested",
+                    "community-validated",
+                    "experimental",
+                    "untested"
+                ]
+            },
+            "profiles": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "required": [
+                        "displayName"
+                    ],
+                    "properties": {
+                        "displayName": {
+                            "type": "string"
+                        },
+                        "envVars": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "notes": {
+                "type": "string"
+            },
+            "pipeline": {
+                "type": "string"
+            }
+        },
+        "additionalProperties": false
+    }
+}

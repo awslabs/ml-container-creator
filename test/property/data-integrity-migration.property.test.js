@@ -53,10 +53,10 @@ describe('Feature: registry-to-server-migration, Property 9: Data integrity acro
 
     before(async () => {
         // Load raw catalogs
-        modelServersCatalog = loadCatalog('base-image-picker/catalogs/model-servers.json');
-        transformersCatalog = loadCatalog('model-picker/catalogs/popular-transformers.json');
-        diffusorsCatalog = loadCatalog('model-picker/catalogs/popular-diffusors.json');
-        instancesCatalog = loadCatalog('instance-recommender/catalogs/instances.json');
+        modelServersCatalog = loadCatalog('lib/catalogs/model-servers.json');
+        transformersCatalog = loadCatalog('lib/catalogs/popular-transformers.json');
+        diffusorsCatalog = loadCatalog('lib/catalogs/popular-diffusors.json');
+        instancesCatalog = loadCatalog('lib/catalogs/instances.json');
 
         // Load transformed catalog data via RegistryLoader
         const loader = new RegistryLoader();

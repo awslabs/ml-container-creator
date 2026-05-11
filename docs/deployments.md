@@ -65,6 +65,7 @@ All generated projects include these `do/` scripts:
 | `./do/push` | Push image to Amazon ECR |
 | `./do/run` | Run container locally on port 8080 |
 | `./do/test` | Test local container or deployed endpoint |
+| `./do/validate` | Validate configuration against AWS service models (requires schema sync) |
 | `./do/deploy` | Deploy to the configured deployment target |
 | `./do/logs` | Tail logs (CloudWatch for managed-inference, kubectl for HyperPod) |
 | `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
@@ -73,3 +74,17 @@ All generated projects include these `do/` scripts:
 | `./do/submit` | Submit build to AWS CodeBuild (CodeBuild build target only) |
 
 See the generated `do/README.md` for detailed documentation on each command.
+
+### Pre-Deploy Validation
+
+Run `./do/validate` before deploying to catch configuration issues that would cause AWS API failures:
+
+```bash
+./do/validate                # Text output, exit 1 on errors
+./do/validate --format=json  # JSON output for CI pipelines
+./do/validate --smart        # Include smart-mode advisory findings
+```
+
+This validates your `do/config` values against the AWS service model, checking enum constraints, type correctness, required fields, and cross-cutting consistency (GPU counts, tensor parallelism, CUDA compatibility). See [Configuration — Schema-Driven Validation](configuration.md#schema-driven-validation) for setup instructions.
+
+The `./do/deploy --dry-run` flag also runs schema validation as part of its pre-flight checks and blocks deployment if errors are found.

@@ -45,6 +45,12 @@ export default class BootstrapCommandHandler {
      * @param {object} options - Parsed CLI options
      */
     async handle(args, options) {
+        // Handle legacy --sync-schemas flag for backward compatibility
+        if (options['sync-schemas']) {
+            await this._handleSyncSchemas();
+            if (args.length === 0) return;
+        }
+
         if (args.length === 0) {
             await this._handleInteractiveSetup(options);
             return;
@@ -73,6 +79,9 @@ export default class BootstrapCommandHandler {
             break;
         case 'update':
             await this._handleUpdate(options);
+            break;
+        case 'sync-schemas':
+            await this._handleSyncSchemas();
             break;
         default:
             console.log(`Unknown bootstrap subcommand: ${subcommand}`);
@@ -925,6 +934,35 @@ export default class BootstrapCommandHandler {
 
         const after = assetManager.listResources();
         console.log(`\n  Done. ${toRemove.length} removed, ${after.length} remaining.`);
+    }
+
+    /**
+     * Handle sync-schemas subcommand: download service models and verify AWS CLI.
+     */
+    async _handleSyncSchemas() {
+        console.log('\n📦 Schema Sync — Downloading AWS service models...\n');
+
+        // Verify AWS CLI is installed
+        try {
+            const version = execSync('aws --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+            console.log(`  AWS CLI: ${version}`);
+        } catch {
+            console.log('  ⚠️  AWS CLI not found.');
+            console.log('  Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html');
+            console.log('  Continuing without AWS CLI verification...\n');
+        }
+
+        // Dynamic import to avoid circular dependencies
+        const { syncSchemas } = await import('./schema-sync.js');
+        const result = await syncSchemas();
+
+        if (result.success) {
+            console.log('\n  ✅ Schema sync complete.');
+        } else {
+            console.log('\n  ⚠️  Schema sync completed with errors (some services may be unavailable).');
+        }
+
+        console.log(`  Manifest written: lastSynced = ${result.manifest.lastSynced}\n`);
     }
 
     /**

@@ -63,12 +63,6 @@
                         },
                         "inferenceAmiVersion": {
                             "type": "string"
-                        },
-                        "recommendedInstanceTypes": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
                         }
                     },
                     "additionalProperties": false
@@ -139,12 +133,6 @@
                             "envVars": {
                                 "type": "object",
                                 "additionalProperties": {
-                                    "type": "string"
-                                }
-                            },
-                            "recommendedInstanceTypes": {
-                                "type": "array",
-                                "items": {
                                     "type": "string"
                                 }
                             },

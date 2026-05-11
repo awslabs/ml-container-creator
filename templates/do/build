@@ -58,8 +58,13 @@ case "${DEPLOYMENT_CONFIG}" in
         docker build -t "${PROJECT_NAME}:latest" .
         ;;
         
-    sklearn-*|xgboost-*|tensorflow-*)
+    sklearn-*|xgboost-*|tensorflow-*|http-flask|http-fastapi)
         echo "🏗️  Building CPU-optimized image..."
+        docker build -t "${PROJECT_NAME}:latest" .
+        ;;
+
+    triton-*)
+        echo "🏗️  Building Triton Inference Server image..."
         docker build -t "${PROJECT_NAME}:latest" .
         ;;
         

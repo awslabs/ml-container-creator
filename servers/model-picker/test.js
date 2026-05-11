@@ -69,7 +69,7 @@ test('POPULAR_MODELS_CATALOG is a non-empty object', () => {
 })
 
 test('loadCatalog returns object for valid path', () => {
-    const catalog = loadCatalog(new URL('./catalogs/popular-transformers.json', import.meta.url).pathname)
+    const catalog = loadCatalog(new URL('../lib/catalogs/models.json', import.meta.url).pathname)
     assert.ok(typeof catalog === 'object')
     assert.ok(Object.keys(catalog).length > 0)
 })
@@ -94,7 +94,12 @@ test('catalog contains expected model families', () => {
 
 test('catalog entries have required fields', () => {
     for (const [modelId, entry] of Object.entries(POPULAR_MODELS_CATALOG)) {
-        assert.ok(entry.family !== undefined, `${modelId} should have family field`)
+        // Unified catalog entries from model-sizes may not have family (they have architecture/modelType)
+        // JumpStart entries have provider instead of family
+        assert.ok(
+            entry.family !== undefined || entry.modelType !== undefined || entry.provider !== undefined,
+            `${modelId} should have family, modelType, or provider field`
+        )
     }
 })
 
@@ -1391,8 +1396,14 @@ await asyncTest('manifest.json includes jumpstart-public catalog', async () => {
     assert.ok(manifest.catalogs['jumpstart-public'], 'manifest should include jumpstart-public catalog')
     assert.strictEqual(
         manifest.catalogs['jumpstart-public'],
-        './catalogs/jumpstart-public.json',
+        '../lib/catalogs/jumpstart-public.json',
         'jumpstart-public catalog path should be correct'
+    )
+    assert.ok(manifest.catalogs['models'], 'manifest should include models catalog')
+    assert.strictEqual(
+        manifest.catalogs['models'],
+        '../lib/catalogs/models.json',
+        'models catalog path should be correct'
     )
 })
 
@@ -1953,6 +1964,56 @@ test('Property 2 [Preservation]: resolver routing is preserved for all model ID 
         ),
         { numRuns: 200 }
     )
+})
+
+// --- Unified catalog tests ---
+console.log('\nmodel-picker: unified catalog (models.json)\n')
+
+test('unified catalog contains transformer models', () => {
+    const transformerModels = Object.entries(POPULAR_MODELS_CATALOG)
+        .filter(([, entry]) => entry.modelType === 'transformer')
+    assert.ok(transformerModels.length > 0, 'should have at least one transformer model')
+})
+
+test('unified catalog contains diffusor models', () => {
+    const diffusorModels = Object.entries(POPULAR_MODELS_CATALOG)
+        .filter(([, entry]) => entry.modelType === 'diffusor')
+    assert.ok(diffusorModels.length > 0, 'should have at least one diffusor model')
+})
+
+test('unified catalog entries have modelType field', () => {
+    const validTypes = ['transformer', 'diffusor', 'predictor']
+    for (const [modelId, entry] of Object.entries(POPULAR_MODELS_CATALOG)) {
+        if (entry.modelType) {
+            assert.ok(validTypes.includes(entry.modelType),
+                `${modelId}: invalid modelType "${entry.modelType}"`)
+        }
+    }
+})
+
+test('unified catalog entries have tasks array', () => {
+    for (const [modelId, entry] of Object.entries(POPULAR_MODELS_CATALOG)) {
+        if (entry.tasks) {
+            assert.ok(Array.isArray(entry.tasks), `${modelId}: tasks should be an array`)
+            assert.ok(entry.tasks.length > 0, `${modelId}: tasks should be non-empty`)
+        }
+    }
+})
+
+test('transformer models can be filtered by modelType', () => {
+    const transformers = Object.entries(POPULAR_MODELS_CATALOG)
+        .filter(([, entry]) => entry.modelType === 'transformer')
+        .map(([id]) => id)
+    assert.ok(transformers.some(id => id.includes('Llama') || id.includes('llama')),
+        'filtered transformers should include Llama models')
+})
+
+test('diffusor models can be filtered by modelType', () => {
+    const diffusors = Object.entries(POPULAR_MODELS_CATALOG)
+        .filter(([, entry]) => entry.modelType === 'diffusor')
+        .map(([id]) => id)
+    assert.ok(diffusors.some(id => id.includes('stable-diffusion') || id.includes('FLUX')),
+        'filtered diffusors should include Stable Diffusion or FLUX models')
 })
 
 // --- Summary ---

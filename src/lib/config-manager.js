@@ -29,7 +29,7 @@ import ParameterSchemaValidator from './parameter-schema-validator.js';
 
 const __configMgrFilename = fileURLToPath(import.meta.url);
 const __configMgrDir = dirname(__configMgrFilename);
-const tritonBackendsCatalogPath = resolve(__configMgrDir, '../../servers/base-image-picker/catalogs/triton-backends.json');
+const tritonBackendsCatalogPath = resolve(__configMgrDir, '../../servers/lib/catalogs/triton-backends.json');
 
 function loadTritonBackendsFromCatalog() {
     try {
@@ -1927,6 +1927,9 @@ export default class ConfigManager {
             // For required parameters: fill auto-generatable values
             if (this.config[param] === undefined || this.config[param] === null) {
                 if (param === 'instanceType') {
+                    // If instance-sizer is configured and model is known, defer to sizer
+                    // The sizer query happens in PromptRunner after model is selected
+                    // For now, set a heuristic default that may be overridden by the sizer
                     const arch = architecture || 'http';
                     this.config[param] = arch === 'http' ? 'ml.m5.large' : 'ml.g5.xlarge';
                 } else if (param === 'modelFormat') {

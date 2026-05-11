@@ -92,6 +92,35 @@
                     },
                     "notes": {
                         "type": "string"
+                    },
+                    "gpuMemoryGb": {
+                        "oneOf": [
+                            {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "gpuType": {
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "costTier": {
+                        "type": "string",
+                        "enum": [
+                            "low",
+                            "medium",
+                            "high"
+                        ]
                     }
                 },
                 "additionalProperties": false

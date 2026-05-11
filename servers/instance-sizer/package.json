@@ -1,0 +1,15 @@
+{
+  "name": "@amzn/ml-container-creator-instance-sizer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MCP server that estimates VRAM requirements from model metadata and returns filtered, ranked SageMaker instance recommendations.",
+  "type": "module",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

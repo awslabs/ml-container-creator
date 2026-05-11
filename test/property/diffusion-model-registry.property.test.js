@@ -19,8 +19,8 @@ import { fileURLToPath } from 'node:url';
 
 const __testFilename = fileURLToPath(import.meta.url);
 const __testDir = dirname(__testFilename);
-const modelsCatalogPath = resolve(__testDir, '../../servers/model-picker/catalogs/popular-diffusors.json');
-const transformersCatalogPath = resolve(__testDir, '../../servers/model-picker/catalogs/popular-transformers.json');
+const modelsCatalogPath = resolve(__testDir, '../../servers/lib/catalogs/popular-diffusors.json');
+const transformersCatalogPath = resolve(__testDir, '../../servers/lib/catalogs/popular-transformers.json');
 
 function loadModelRegistryFromCatalogs() {
     const transformers = JSON.parse(readFileSync(transformersCatalogPath, 'utf8'));
@@ -157,7 +157,7 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
             ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
         });
 
-        it('all diffusion model entries with profiles have non-empty profiles with recommendedInstanceTypes', function () {
+        it('all diffusion model entries with profiles have non-empty profiles with displayName', function () {
             this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
             const keysWithProfiles = DIFFUSION_MODEL_KEYS.filter(
@@ -184,31 +184,14 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
                         `Diffusion model '${modelKey}' must have at least one profile`
                     );
 
-                    // Each profile must have recommendedInstanceTypes as a non-empty array
+                    // Each profile must have a displayName (recommendedInstanceTypes removed per mcp-catalog-consolidation)
                     for (const profileName of profileNames) {
                         const profile = entry.profiles[profileName];
 
                         assert.ok(
-                            Array.isArray(profile.recommendedInstanceTypes),
-                            `Profile '${profileName}' in '${modelKey}' must have recommendedInstanceTypes as an array`
+                            typeof profile.displayName === 'string',
+                            `Profile '${profileName}' in '${modelKey}' must have a displayName string`
                         );
-                        assert.ok(
-                            profile.recommendedInstanceTypes.length > 0,
-                            `Profile '${profileName}' in '${modelKey}' must have at least one recommendedInstanceType`
-                        );
-
-                        // Each instance type should be a valid SageMaker instance type string
-                        for (const instanceType of profile.recommendedInstanceTypes) {
-                            assert.strictEqual(
-                                typeof instanceType,
-                                'string',
-                                `Instance type in profile '${profileName}' of '${modelKey}' must be a string`
-                            );
-                            assert.ok(
-                                instanceType.startsWith('ml.'),
-                                `Instance type '${instanceType}' in profile '${profileName}' of '${modelKey}' must start with 'ml.'`
-                            );
-                        }
                     }
 
                     return true;

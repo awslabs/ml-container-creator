@@ -127,7 +127,7 @@ describe('Feature: model-server-loading-adapter — resolver artifactUri example
             // **Validates: Requirements 1.6**
             const catalogPath = resolve(
                 __dirname,
-                '../../servers/model-picker/catalogs/jumpstart-public.json'
+                '../../servers/lib/catalogs/jumpstart-public.json'
             );
             const catalog = JSON.parse(readFileSync(catalogPath, 'utf-8'));
             const entries = Object.entries(catalog);

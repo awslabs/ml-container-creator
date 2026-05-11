@@ -75,11 +75,11 @@ describe('Feature: registry-to-server-migration, Property 3: Migration completen
 
     before(async () => {
         // Load raw catalogs
-        modelServersCatalog = loadCatalog('base-image-picker/catalogs/model-servers.json');
-        tritonBackendsCatalog = loadCatalog('base-image-picker/catalogs/triton-backends.json');
-        instancesCatalog = loadCatalog('instance-recommender/catalogs/instances.json');
-        transformersCatalog = loadCatalog('model-picker/catalogs/popular-transformers.json');
-        diffusorsCatalog = loadCatalog('model-picker/catalogs/popular-diffusors.json');
+        modelServersCatalog = loadCatalog('lib/catalogs/model-servers.json');
+        tritonBackendsCatalog = loadCatalog('lib/catalogs/triton-backends.json');
+        instancesCatalog = loadCatalog('lib/catalogs/instances.json');
+        transformersCatalog = loadCatalog('lib/catalogs/popular-transformers.json');
+        diffusorsCatalog = loadCatalog('lib/catalogs/popular-diffusors.json');
 
         // Load transformed data via RegistryLoader
         const loader = new RegistryLoader();

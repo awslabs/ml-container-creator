@@ -8,8 +8,10 @@
         "discover": true
     },
     "catalogs": {
-        "model-servers": "./catalogs/model-servers.json",
-        "python-slim": "./catalogs/python-slim.json"
+        "model-servers": "../lib/catalogs/model-servers.json",
+        "python-slim": "../lib/catalogs/python-slim.json",
+        "triton": "../lib/catalogs/triton.json",
+        "triton-backends": "../lib/catalogs/triton-backends.json"
     },
     "tool": {
         "name": "get_base_images"

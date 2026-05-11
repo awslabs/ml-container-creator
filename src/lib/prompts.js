@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const __promptsFilename = fileURLToPath(import.meta.url);
 const __promptsDir = dirname(__promptsFilename);
-const instancesCatalogPath = resolve(__promptsDir, '../../servers/instance-recommender/catalogs/instances.json');
+const instancesCatalogPath = resolve(__promptsDir, '../../servers/lib/catalogs/instances.json');
 
 /**
  * Load instance types from the instances.json catalog and transform

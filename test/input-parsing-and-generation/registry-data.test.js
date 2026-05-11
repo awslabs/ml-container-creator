@@ -54,8 +54,7 @@ describe('Registry Data - Unit Tests', () => {
                     assert.ok(entry.accelerator.type, `${frameworkName} ${version} must have accelerator.type`);
                     assert.ok(entry.envVars !== undefined, `${frameworkName} ${version} must have envVars`);
                     assert.ok(entry.inferenceAmiVersion, `${frameworkName} ${version} must have inferenceAmiVersion`);
-                    assert.ok(Array.isArray(entry.recommendedInstanceTypes), `${frameworkName} ${version} must have recommendedInstanceTypes array`);
-                    assert.ok(entry.recommendedInstanceTypes.length > 0, `${frameworkName} ${version} must have at least one recommended instance type`);
+                    // recommendedInstanceTypes removed per mcp-catalog-consolidation (instance-sizer handles this now)
                     assert.ok(entry.validationLevel, `${frameworkName} ${version} must have validationLevel`);
                     
                     // Check accelerator type is valid
@@ -323,7 +322,9 @@ describe('Registry Data - Unit Tests', () => {
                 for (const version of Object.keys(versions)) {
                     const entry = versions[version];
                     
-                    for (const instanceType of entry.recommendedInstanceTypes) {
+                    // recommendedInstanceTypes removed per mcp-catalog-consolidation
+                    const instanceTypesList = entry.recommendedInstanceTypes || [];
+                    for (const instanceType of instanceTypesList) {
                         // Check if instance type exists in mapping (or is a valid pattern)
                         const exists = instanceTypes.includes(instanceType);
                         

@@ -21,8 +21,12 @@
             },
             "chat_template": {
                 "oneOf": [
-                    { "type": "string" },
-                    { "type": "null" }
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
                 ]
             },
             "gated": {
@@ -36,8 +40,12 @@
             },
             "architecture": {
                 "oneOf": [
-                    { "type": "string" },
-                    { "type": "null" }
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
                 ]
             },
             "framework_compatibility": {
@@ -72,12 +80,6 @@
                         "envVars": {
                             "type": "object",
                             "additionalProperties": {
-                                "type": "string"
-                            }
-                        },
-                        "recommendedInstanceTypes": {
-                            "type": "array",
-                            "items": {
                                 "type": "string"
                             }
                         }

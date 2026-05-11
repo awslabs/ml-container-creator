@@ -232,7 +232,11 @@ Tokens are baked into the Docker image. Anyone with access to the image can extr
 
 ## Validation
 
-The generator validates configuration and provides error messages:
+The generator validates configuration at multiple levels:
+
+### Parameter Validation
+
+The generator validates configuration parameters and provides error messages:
 
 ```bash
 # Invalid deployment config
@@ -253,3 +257,86 @@ ml-container-creator --skip-prompts
 ```
 
 Do not mix incompatible options: traditional ML engines with LLM deployment configs, model formats with transformer configs, or sample models with transformer configs will all produce validation errors.
+
+### Schema-Driven Validation
+
+Schema-driven validation checks generated AWS API payloads against the actual AWS service model (`service-2.json`) files. It catches issues that parameter validation cannot — enum values that AWS has deprecated, type mismatches in nested structures, missing required fields for specific API operations, and cross-cutting consistency problems between your Dockerfile, deploy scripts, and configuration.
+
+#### Setup
+
+Download the AWS service models into your local schema registry:
+
+```bash
+ml-container-creator bootstrap sync-schemas
+```
+
+This downloads service models for SageMaker, IAM, ECR, and S3 from the AWS SDK source and stores them at `~/.ml-container-creator/schemas/`. Re-run periodically to pick up new enum values and API changes.
+
+#### When Validation Runs
+
+Schema validation runs at two points:
+
+**At generation time (non-blocking):** After the generator produces deploy scripts, it validates the constructed payloads and prints any issues as warnings. Generation still completes — this is informational.
+
+**At pre-deploy time (blocking):** Run `./do/validate` before deploying to catch all issues, including those introduced by manual edits to `do/config` after generation.
+
+```bash
+# Run full schema validation
+./do/validate
+
+# JSON output for CI integration
+./do/validate --format=json
+
+# Include smart-mode validators (future MCP integration)
+./do/validate --smart
+```
+
+#### What It Checks
+
+| Check | Example Issue Caught |
+|-------|---------------------|
+| **Enum values** | `InferenceAmiVersion` set to a value AWS no longer accepts |
+| **Type mismatches** | `InitialInstanceCount` set to a string instead of integer |
+| **Required fields** | `EndpointConfigName` missing from CreateEndpointConfig payload |
+| **Pattern constraints** | Role ARN not matching `arn:aws:iam::\d{12}:role/.+` |
+| **Range constraints** | `VolumeSizeInGB` below minimum or above maximum |
+| **GPU consistency** | `NumberOfAcceleratorDevicesRequired` doesn't match instance GPU count |
+| **Tensor parallelism** | `VLLM_TENSOR_PARALLEL_SIZE` != IC GPU count != instance GPUs |
+| **CUDA compatibility** | Base image requires CUDA 12 but instance only supports CUDA 11 |
+| **Model source requirements** | `jumpstart-hub` source without `HubAccessConfig.HubContentArn` |
+
+#### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Validation passed (no errors, may have warnings) |
+| 1 | Validation failed (one or more errors found) |
+| 2 | Validation could not run (schema registry missing) |
+
+#### Keeping Schemas Current
+
+The schema registry becomes stale as AWS adds new enum values and instance types. If schemas are older than 30 days, validation prints a warning:
+
+```
+⚠️  Schema registry is 45 days old. Run `ml-container-creator bootstrap sync-schemas` to update.
+```
+
+Suppress this warning with `--ignore-staleness` if you're working offline.
+
+#### Catalog Validation
+
+Validate that catalog entries use valid AWS enum values:
+
+```bash
+npm run validate:catalogs
+```
+
+This checks fields like `inferenceAmiVersion` in `model-servers.json` against the SageMaker service model's enum set. Run this as a CI gate when updating catalog files.
+
+#### Skipping Validation
+
+Pass `--no-validate` to the generator to skip schema validation at generation time:
+
+```bash
+ml-container-creator my-project --deployment-config=transformers-vllm --no-validate --skip-prompts
+```
