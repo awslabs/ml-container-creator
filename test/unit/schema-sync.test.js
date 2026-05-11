@@ -219,7 +219,8 @@ describe('Schema Sync', () => {
             assert.strictEqual(setupCalled, true, 'Should call interactive setup without flag');
         });
 
-        it('AWS CLI version check prints version when available', async () => {
+        it('AWS CLI version check prints version when available', async function() {
+            this.timeout(10000);
             // This test verifies the _handleSyncSchemas method checks AWS CLI
             // We test by calling the actual method with a mock download
             const handler = new BootstrapCommandHandler({
@@ -236,7 +237,7 @@ describe('Schema Sync', () => {
                     // Check AWS CLI (may or may not be installed in test env)
                     try {
                         const { execSync } = await import('node:child_process');
-                        const version = execSync('aws --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+                        const version = execSync('aws --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }).trim();
                         console.log(`  AWS CLI: ${version}`);
                     } catch {
                         console.log('  ⚠️  AWS CLI not found.');
