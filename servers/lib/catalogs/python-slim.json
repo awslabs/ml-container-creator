@@ -1,38 +1,38 @@
 [
     {
-        "image": "python:3.12-slim",
+        "image": "public.ecr.aws/docker/library/python:3.12-slim",
         "tag": "3.12-slim",
         "architecture": "amd64",
         "created": "2024-10-01T00:00:00Z",
         "labels": { "python_version": "3.12" },
-        "registry": "dockerhub",
-        "repository": "python"
+        "registry": "ecr-public",
+        "repository": "docker/library/python"
     },
     {
-        "image": "python:3.11-slim",
+        "image": "public.ecr.aws/docker/library/python:3.11-slim",
         "tag": "3.11-slim",
         "architecture": "amd64",
         "created": "2023-10-01T00:00:00Z",
         "labels": { "python_version": "3.11" },
-        "registry": "dockerhub",
-        "repository": "python"
+        "registry": "ecr-public",
+        "repository": "docker/library/python"
     },
     {
-        "image": "python:3.10-slim",
+        "image": "public.ecr.aws/docker/library/python:3.10-slim",
         "tag": "3.10-slim",
         "architecture": "amd64",
         "created": "2022-10-01T00:00:00Z",
         "labels": { "python_version": "3.10" },
-        "registry": "dockerhub",
-        "repository": "python"
+        "registry": "ecr-public",
+        "repository": "docker/library/python"
     },
     {
-        "image": "python:3.9-slim",
+        "image": "public.ecr.aws/docker/library/python:3.9-slim",
         "tag": "3.9-slim",
         "architecture": "amd64",
         "created": "2021-10-01T00:00:00Z",
         "labels": { "python_version": "3.9" },
-        "registry": "dockerhub",
-        "repository": "python"
+        "registry": "ecr-public",
+        "repository": "docker/library/python"
     }
 ]
