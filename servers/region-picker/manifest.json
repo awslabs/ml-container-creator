@@ -8,7 +8,7 @@
         "discover": false
     },
     "catalogs": {
-        "regions": "./catalogs/regions.json"
+        "regions": "../lib/catalogs/regions.json"
     },
     "tool": {
         "name": "get_regions"

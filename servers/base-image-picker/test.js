@@ -65,7 +65,7 @@ test('PYTHON_SLIM_CATALOG is a non-empty object', () => {
 })
 
 test('loadCatalog returns object for valid path', () => {
-    const catalog = loadCatalog(new URL('./catalogs/model-servers.json', import.meta.url).pathname)
+    const catalog = loadCatalog(new URL('../lib/catalogs/model-servers.json', import.meta.url).pathname)
     assert.ok(typeof catalog === 'object')
     assert.ok(Object.keys(catalog).length > 0)
 })

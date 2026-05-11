@@ -27,9 +27,9 @@ const FAST_PROPERTY_CONFIG = {
     verbose: false
 };
 
-const baseImagePickerCatalogsDir = resolve(__dirname, '../../servers/base-image-picker/catalogs');
-const instanceRecommenderCatalogsDir = resolve(__dirname, '../../servers/instance-recommender/catalogs');
-const regionPickerCatalogsDir = resolve(__dirname, '../../servers/region-picker/catalogs');
+const baseImagePickerCatalogsDir = resolve(__dirname, '../../servers/lib/catalogs');
+const instanceRecommenderCatalogsDir = resolve(__dirname, '../../servers/lib/catalogs');
+const regionPickerCatalogsDir = resolve(__dirname, '../../servers/lib/catalogs');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

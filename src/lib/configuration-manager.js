@@ -619,8 +619,8 @@ export default class ConfigurationManager {
      */
     _generateSubmissionInstructions(registryType, config, configEntry) {
         const registryFile = registryType === 'framework' 
-            ? 'servers/base-image-picker/catalogs/model-servers.json'
-            : 'servers/model-picker/catalogs/popular-transformers.json';
+            ? 'servers/lib/catalogs/model-servers.json'
+            : 'servers/lib/catalogs/popular-transformers.json';
         
         const registryName = registryType === 'framework' 
             ? 'Framework_Catalog'

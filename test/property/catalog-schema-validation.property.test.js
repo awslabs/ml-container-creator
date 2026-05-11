@@ -183,7 +183,20 @@ const enrichedInstancesSchema = {
                             { type: 'null' }
                         ]
                     },
-                    notes: { type: 'string' }
+                    notes: { type: 'string' },
+                    gpuMemoryGb: {
+                        oneOf: [
+                            { type: 'number', minimum: 0 },
+                            { type: 'null' }
+                        ]
+                    },
+                    gpuType: {
+                        oneOf: [
+                            { type: 'string' },
+                            { type: 'null' }
+                        ]
+                    },
+                    costTier: { type: 'string', enum: ['low', 'medium', 'high'] }
                 },
                 additionalProperties: false
             }
@@ -718,7 +731,7 @@ describe('Feature: registry-to-server-migration, Property 1: Catalog schema vali
     describe('actual catalog files pass enriched schema validation', () => {
 
         it('model-servers.json passes enriched image catalog schema', () => {
-            const catalogPath = resolve(__dirname, '../../servers/base-image-picker/catalogs/model-servers.json');
+            const catalogPath = resolve(__dirname, '../../servers/lib/catalogs/model-servers.json');
             const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
             const valid = validateEnrichedImageCatalog(catalog);
             assert.ok(valid,
@@ -726,7 +739,7 @@ describe('Feature: registry-to-server-migration, Property 1: Catalog schema vali
         });
 
         it('triton-backends.json passes triton backends schema', () => {
-            const catalogPath = resolve(__dirname, '../../servers/base-image-picker/catalogs/triton-backends.json');
+            const catalogPath = resolve(__dirname, '../../servers/lib/catalogs/triton-backends.json');
             const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
             const valid = validateTritonBackends(catalog);
             assert.ok(valid,
@@ -734,7 +747,7 @@ describe('Feature: registry-to-server-migration, Property 1: Catalog schema vali
         });
 
         it('instances.json passes enriched instances schema', () => {
-            const catalogPath = resolve(__dirname, '../../servers/instance-recommender/catalogs/instances.json');
+            const catalogPath = resolve(__dirname, '../../servers/lib/catalogs/instances.json');
             const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
             const valid = validateEnrichedInstances(catalog);
             assert.ok(valid,
@@ -742,7 +755,7 @@ describe('Feature: registry-to-server-migration, Property 1: Catalog schema vali
         });
 
         it('popular-transformers.json passes model catalog schema', () => {
-            const catalogPath = resolve(__dirname, '../../servers/model-picker/catalogs/popular-transformers.json');
+            const catalogPath = resolve(__dirname, '../../servers/lib/catalogs/popular-transformers.json');
             const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
             const valid = validateModelCatalog(catalog);
             assert.ok(valid,
@@ -750,7 +763,7 @@ describe('Feature: registry-to-server-migration, Property 1: Catalog schema vali
         });
 
         it('popular-diffusors.json passes model catalog schema', () => {
-            const catalogPath = resolve(__dirname, '../../servers/model-picker/catalogs/popular-diffusors.json');
+            const catalogPath = resolve(__dirname, '../../servers/lib/catalogs/popular-diffusors.json');
             const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
             const valid = validateModelCatalog(catalog);
             assert.ok(valid,

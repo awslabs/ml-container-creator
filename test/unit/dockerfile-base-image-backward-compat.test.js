@@ -50,16 +50,16 @@ function baseVars(overrides = {}) {
 describe('Dockerfile template backward compatibility', () => {
 
     describe('non-transformer fallback (Req 7.3)', () => {
-        it('should render FROM python:3.12-slim when baseImage is null', () => {
+        it('should render FROM public.ecr.aws/docker/library/python:3.12-slim when baseImage is null', () => {
             const output = ejs.render(dockerfileTemplate, baseVars({ baseImage: null }));
-            assert.ok(output.includes('FROM python:3.12-slim'),
-                'Should fall back to python:3.12-slim when baseImage is null');
+            assert.ok(output.includes('FROM public.ecr.aws/docker/library/python:3.12-slim'),
+                'Should fall back to ECR Public python:3.12-slim when baseImage is null');
         });
 
-        it('should render FROM python:3.12-slim when baseImage is undefined', () => {
+        it('should render FROM public.ecr.aws/docker/library/python:3.12-slim when baseImage is undefined', () => {
             const output = ejs.render(dockerfileTemplate, baseVars({ baseImage: undefined }));
-            assert.ok(output.includes('FROM python:3.12-slim'),
-                'Should fall back to python:3.12-slim when baseImage is undefined');
+            assert.ok(output.includes('FROM public.ecr.aws/docker/library/python:3.12-slim'),
+                'Should fall back to ECR Public python:3.12-slim when baseImage is undefined');
         });
     });
 

@@ -18,11 +18,11 @@ const __dirname = dirname(__filename);
 
 // Catalog file paths relative to this module
 const CATALOG_PATHS = {
-    modelServers: resolve(__dirname, '../../servers/base-image-picker/catalogs/model-servers.json'),
-    tritonBackends: resolve(__dirname, '../../servers/base-image-picker/catalogs/triton-backends.json'),
-    instances: resolve(__dirname, '../../servers/instance-recommender/catalogs/instances.json'),
-    popularTransformers: resolve(__dirname, '../../servers/model-picker/catalogs/popular-transformers.json'),
-    popularDiffusors: resolve(__dirname, '../../servers/model-picker/catalogs/popular-diffusors.json')
+    modelServers: resolve(__dirname, '../../servers/lib/catalogs/model-servers.json'),
+    tritonBackends: resolve(__dirname, '../../servers/lib/catalogs/triton-backends.json'),
+    instances: resolve(__dirname, '../../servers/lib/catalogs/instances.json'),
+    popularTransformers: resolve(__dirname, '../../servers/lib/catalogs/popular-transformers.json'),
+    popularDiffusors: resolve(__dirname, '../../servers/lib/catalogs/popular-diffusors.json')
 };
 
 class RegistryLoader {

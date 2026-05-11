@@ -280,9 +280,9 @@ TRANSFORMER MODEL EXAMPLES:
 
 REGISTRY CONTRIBUTION:
   To contribute to the catalogs:
-  - Framework Catalog: servers/base-image-picker/catalogs/model-servers.json
-  - Model Catalog: servers/model-picker/catalogs/popular-transformers.json
-  - Instance Catalog: servers/instance-recommender/catalogs/instances.json
+  - Framework Catalog: servers/lib/catalogs/model-servers.json
+  - Model Catalog: servers/lib/catalogs/popular-transformers.json
+  - Instance Catalog: servers/lib/catalogs/instances.json
   
   See docs/REGISTRY_CONTRIBUTION_GUIDE.md for detailed contribution guidelines.
 

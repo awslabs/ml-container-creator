@@ -2,16 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Property-Based Tests for Infrastructure-First Prompt Ordering
+ * Property-Based Tests for Prompt Phase Ordering
  * 
- * Property 3: Infrastructure-First Prompt Ordering
+ * Property 3: Model-First Prompt Ordering (MCP Catalog Consolidation)
  * 
  * For any valid generator run, the prompt phases must execute in strict order:
- * infrastructure prompts (Phase 1) before ML configuration prompts (Phase 2)
- * before module selection prompts (Phase 3) before project configuration prompts (Phase 4).
- * No ML configuration prompt may be presented before all infrastructure prompts have been collected.
+ * Phase 1 (What): ML configuration (deployment config + model)
+ * Phase 2 (How): Infrastructure & deployment target + base image
+ * Phase 3 (Where): Region + instance (derived from model) + HyperPod + build target
+ * Phase 4 (Details): Framework version, model profile, modules
+ * Phase 5 (Project): Project name + destination
  * 
- * Validates Requirements: 3.1, 3.2, 3.3, 3.4
+ * The key insight: model selection drives instance sizing. Instance type is a
+ * derived value — once you know the model, its VRAM requirement determines the instance.
+ * 
+ * Validates Requirements: 4.1, 4.2, 4.3
  */
 
 import fc from 'fast-check';
@@ -55,105 +60,105 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
 
     describe('Phase Ordering in run() Method', () => {
         /**
-         * Property 3a: Infrastructure prompts must run in Phase 1
+         * Property 3a: ML Configuration (Phase 1 - What) runs before Infrastructure (Phase 2/3)
+         * Model-first ordering: deployment config + model collected before instance type
          * 
-         * Validates: Requirement 3.1
+         * Validates: Requirement 4.1
          */
         it('should run infrastructure prompts in Phase 1 before ML configuration', function() {
             this.timeout(10000);
 
-            // Find the phase console.log statements to determine ordering
-            const phase1InfraPattern = /console\.log\([^)]*Infrastructure/;
-            const phase2MLPattern = /console\.log\([^)]*ML Configuration|console\.log\([^)]*Core ML Configuration/;
+            // New ordering: ML Config (Phase 1 - What) comes BEFORE Infrastructure (Phase 2/3 - How/Where)
+            const phase1MLPattern = /console\.log\([^)]*Core ML Configuration/;
+            const phase2InfraPattern = /console\.log\([^)]*Infrastructure/;
 
-            const infraPhasePos = findPosition(phase1InfraPattern);
-            const mlPhasePos = findPosition(phase2MLPattern);
+            const mlPhasePos = findPosition(phase1MLPattern);
+            const infraPhasePos = findPosition(phase2InfraPattern);
 
+            assert.ok(
+                mlPhasePos !== -1,
+                'Core ML Configuration phase console.log must exist in prompt-runner.js'
+            );
             assert.ok(
                 infraPhasePos !== -1,
                 'Infrastructure phase console.log must exist in prompt-runner.js'
             );
             assert.ok(
-                mlPhasePos !== -1,
-                'ML Configuration phase console.log must exist in prompt-runner.js'
-            );
-            assert.ok(
-                infraPhasePos < mlPhasePos,
-                `Infrastructure phase (pos ${infraPhasePos}) must come before ML Configuration phase (pos ${mlPhasePos})`
+                mlPhasePos < infraPhasePos,
+                `ML Configuration phase (pos ${mlPhasePos}) must come before Infrastructure phase (pos ${infraPhasePos}) — model-first ordering`
             );
         });
 
         /**
-         * Property 3b: ML configuration prompts must run in Phase 2
+         * Property 3b: deploymentConfigPrompts runs before infraRegionAndTargetPrompts
          * 
-         * Validates: Requirement 3.2
+         * Validates: Requirement 4.2
          */
         it('should run ML configuration prompts in Phase 2 after infrastructure', function() {
             this.timeout(10000);
 
-            // Infrastructure is now split into sub-phases; verify the last infra sub-phase
-            // (infraBuildPrompts) runs before deploymentConfigPrompts
-            const infraBuildRunPhasePattern = /_runPhase\(infraBuildPrompts/;
+            // New ordering: deploymentConfigPrompts (Phase 1) runs BEFORE infraRegionAndTargetPrompts (Phase 2/3)
             const deploymentConfigRunPhasePattern = /_runPhase\(deploymentConfigPrompts/;
+            const infraRegionRunPhasePattern = /_runPhase\(infraRegionAndTargetPrompts/;
 
-            const infraBuildRunPhasePos = findPosition(infraBuildRunPhasePattern);
             const deploymentConfigRunPhasePos = findPosition(deploymentConfigRunPhasePattern);
+            const infraRegionRunPhasePos = findPosition(infraRegionRunPhasePattern);
 
-            assert.ok(
-                infraBuildRunPhasePos !== -1,
-                '_runPhase(infraBuildPrompts) must exist in prompt-runner.js'
-            );
             assert.ok(
                 deploymentConfigRunPhasePos !== -1,
                 '_runPhase(deploymentConfigPrompts) must exist in prompt-runner.js'
             );
             assert.ok(
-                infraBuildRunPhasePos < deploymentConfigRunPhasePos,
-                `infraBuildPrompts (pos ${infraBuildRunPhasePos}) must be run before deploymentConfigPrompts (pos ${deploymentConfigRunPhasePos})`
+                infraRegionRunPhasePos !== -1,
+                '_runPhase(infraRegionAndTargetPrompts) must exist in prompt-runner.js'
+            );
+            assert.ok(
+                deploymentConfigRunPhasePos < infraRegionRunPhasePos,
+                `deploymentConfigPrompts (pos ${deploymentConfigRunPhasePos}) must be run before infraRegionAndTargetPrompts (pos ${infraRegionRunPhasePos}) — model-first ordering`
             );
         });
 
         /**
-         * Property 3c: Module selection prompts must run in Phase 3
+         * Property 3c: Module selection prompts must run after infrastructure
          * 
-         * Validates: Requirement 3.3
+         * Validates: Requirement 4.3
          */
         it('should run module selection prompts in Phase 3 after ML configuration', function() {
             this.timeout(10000);
 
-            const phase2MLPattern = /console\.log\([^)]*ML Configuration|console\.log\([^)]*Core ML Configuration/;
-            const phase3ModulePattern = /console\.log\([^)]*Module Selection/;
+            const phase2InfraPattern = /console\.log\([^)]*Infrastructure/;
+            const phase4ModulePattern = /console\.log\([^)]*Module Selection/;
 
-            const mlPhasePos = findPosition(phase2MLPattern);
-            const modulePhasePos = findPosition(phase3ModulePattern);
+            const infraPhasePos = findPosition(phase2InfraPattern);
+            const modulePhasePos = findPosition(phase4ModulePattern);
 
             assert.ok(
-                mlPhasePos !== -1,
-                'ML Configuration phase console.log must exist'
+                infraPhasePos !== -1,
+                'Infrastructure phase console.log must exist'
             );
             assert.ok(
                 modulePhasePos !== -1,
                 'Module Selection phase console.log must exist'
             );
             assert.ok(
-                mlPhasePos < modulePhasePos,
-                `ML Configuration phase (pos ${mlPhasePos}) must come before Module Selection phase (pos ${modulePhasePos})`
+                infraPhasePos < modulePhasePos,
+                `Infrastructure phase (pos ${infraPhasePos}) must come before Module Selection phase (pos ${modulePhasePos})`
             );
         });
 
         /**
-         * Property 3d: Project configuration prompts must run in Phase 4
+         * Property 3d: Project configuration prompts must run last
          * 
-         * Validates: Requirement 3.4
+         * Validates: Requirement 4.3
          */
         it('should run project configuration prompts in Phase 4 after module selection', function() {
             this.timeout(10000);
 
-            const phase3ModulePattern = /console\.log\([^)]*Module Selection/;
-            const phase4ProjectPattern = /console\.log\([^)]*Project Configuration/;
+            const phase4ModulePattern = /console\.log\([^)]*Module Selection/;
+            const phase5ProjectPattern = /console\.log\([^)]*Project Configuration/;
 
-            const modulePhasePos = findPosition(phase3ModulePattern);
-            const projectPhasePos = findPosition(phase4ProjectPattern);
+            const modulePhasePos = findPosition(phase4ModulePattern);
+            const projectPhasePos = findPosition(phase5ProjectPattern);
 
             assert.ok(
                 modulePhasePos !== -1,
@@ -172,15 +177,16 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
         /**
          * Property 3e: Complete phase ordering validation
          * 
-         * Validates: Requirements 3.1, 3.2, 3.3, 3.4
+         * New ordering: ML Config → Infrastructure → Module → Project
+         * Validates: Requirements 4.1, 4.2, 4.3
          */
         it('should maintain strict phase ordering: Infrastructure → ML Config → Module → Project', function() {
             this.timeout(10000);
 
-            // Find all phase markers
+            // New phase ordering: What (ML Config) → How/Where (Infrastructure) → Details (Module) → Project
             const phases = [
+                { name: 'ML Configuration', pattern: /console\.log\([^)]*Core ML Configuration/ },
                 { name: 'Infrastructure', pattern: /console\.log\([^)]*Infrastructure/ },
-                { name: 'ML Configuration', pattern: /console\.log\([^)]*ML Configuration|console\.log\([^)]*Core ML Configuration/ },
                 { name: 'Module Selection', pattern: /console\.log\([^)]*Module Selection/ },
                 { name: 'Project Configuration', pattern: /console\.log\([^)]*Project Configuration/ }
             ];
@@ -213,7 +219,7 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
          * Property 3f: Infrastructure phase must include buildTarget, deploymentTarget, 
          * instanceType/HyperPod prompts, region, and role
          * 
-         * Validates: Requirement 3.1
+         * Validates: Requirement 4.3
          */
         it('should include all required infrastructure prompts in Phase 1', async function() {
             this.timeout(10000);
@@ -246,39 +252,30 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
 
     describe('ML Configuration Prompts Content', () => {
         /**
-         * Property 3g: ML configuration phase must include deploymentConfig, 
-         * frameworkVersion, frameworkProfile, modelFormat, modelProfile, hfToken, ngcApiKey
+         * Property 3g: ML configuration prompts (deploymentConfig, modelFormat) must run
+         * BEFORE infrastructure prompts — model-first ordering
          * 
-         * Validates: Requirement 3.2
+         * Validates: Requirement 4.1, 4.2
          */
         it('should run ML configuration prompts after infrastructure prompts', function() {
             this.timeout(10000);
 
-            // Infrastructure is now split into sub-phases; use the first sub-phase
-            // (infraRegionAndTargetPrompts) as the anchor for "infrastructure starts here"
-            const infraRunPhasePos = findPosition(/_runPhase\(infraRegionAndTargetPrompts/);
+            // New ordering: deploymentConfigPrompts and modelFormatPrompts run BEFORE infra
             const deploymentConfigRunPhasePos = findPosition(/_runPhase\(deploymentConfigPrompts/);
-            const frameworkVersionRunPhasePos = findPosition(/_runPhase\(\s*frameworkVersionPrompts/);
-            const frameworkProfileRunPhasePos = findPosition(/_runPhase\(\s*frameworkProfilePrompts/);
             const modelFormatRunPhasePos = findPosition(/_runPhase\(\s*modelFormatPrompts/);
-            const hfTokenRunPhasePos = findPosition(/_runPhase\(hfTokenPrompts/);
-            const ngcApiKeyRunPhasePos = findPosition(/_runPhase\(ngcApiKeyPrompts/);
+            const infraRegionRunPhasePos = findPosition(/_runPhase\(infraRegionAndTargetPrompts/);
 
-            // All ML config prompts must come after infrastructure
+            // ML config prompts must come BEFORE infrastructure (model-first)
             const mlConfigPrompts = [
                 { name: 'deploymentConfigPrompts', pos: deploymentConfigRunPhasePos },
-                { name: 'frameworkVersionPrompts', pos: frameworkVersionRunPhasePos },
-                { name: 'frameworkProfilePrompts', pos: frameworkProfileRunPhasePos },
-                { name: 'modelFormatPrompts', pos: modelFormatRunPhasePos },
-                { name: 'hfTokenPrompts', pos: hfTokenRunPhasePos },
-                { name: 'ngcApiKeyPrompts', pos: ngcApiKeyRunPhasePos }
+                { name: 'modelFormatPrompts', pos: modelFormatRunPhasePos }
             ];
 
             mlConfigPrompts.forEach(prompt => {
                 if (prompt.pos !== -1) {
                     assert.ok(
-                        infraRunPhasePos < prompt.pos,
-                        `${prompt.name} (pos ${prompt.pos}) must run after infraRegionAndTargetPrompts (pos ${infraRunPhasePos})`
+                        prompt.pos < infraRegionRunPhasePos,
+                        `${prompt.name} (pos ${prompt.pos}) must run BEFORE infraRegionAndTargetPrompts (pos ${infraRegionRunPhasePos}) — model-first ordering`
                     );
                 }
             });
@@ -287,27 +284,27 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
 
     describe('Module Selection Prompts Content', () => {
         /**
-         * Property 3h: Module selection phase must run after ML configuration
+         * Property 3h: Module selection phase must run after infrastructure
          * 
-         * Validates: Requirement 3.3
+         * Validates: Requirement 4.3
          */
         it('should run modulePrompts after all ML configuration prompts', function() {
             this.timeout(10000);
 
             const moduleRunPhasePos = findPosition(/_runPhase\(modulePrompts/);
-            const ngcApiKeyRunPhasePos = findPosition(/_runPhase\(ngcApiKeyPrompts/);
+            const infraBuildRunPhasePos = findPosition(/_runPhase\(infraBuildPrompts/);
 
             assert.ok(
                 moduleRunPhasePos !== -1,
                 '_runPhase(modulePrompts) must exist'
             );
             assert.ok(
-                ngcApiKeyRunPhasePos !== -1,
-                '_runPhase(ngcApiKeyPrompts) must exist'
+                infraBuildRunPhasePos !== -1,
+                '_runPhase(infraBuildPrompts) must exist'
             );
             assert.ok(
-                ngcApiKeyRunPhasePos < moduleRunPhasePos,
-                `ngcApiKeyPrompts (pos ${ngcApiKeyRunPhasePos}) must run before modulePrompts (pos ${moduleRunPhasePos})`
+                infraBuildRunPhasePos < moduleRunPhasePos,
+                `infraBuildPrompts (pos ${infraBuildRunPhasePos}) must run before modulePrompts (pos ${moduleRunPhasePos})`
             );
         });
     });
@@ -316,7 +313,7 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
         /**
          * Property 3i: Project configuration phase must run last
          * 
-         * Validates: Requirement 3.4
+         * Validates: Requirement 4.3
          */
         it('should run projectPrompts and destinationPrompts after module selection', function() {
             this.timeout(10000);
@@ -409,6 +406,58 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
             assert.ok(
                 queryMcpPos !== -1,
                 'queryMcpServer must be called with hyperpod-cluster-picker'
+            );
+        });
+    });
+
+    describe('Instance Sizer Integration', () => {
+        /**
+         * Property 3l: Instance-sizer query must happen AFTER base image is known
+         * 
+         * Validates: Requirement 4.3
+         */
+        it('should query instance-sizer after base image selection', function() {
+            this.timeout(10000);
+
+            const baseImageRunPhasePos = findPosition(/_runPhase\(\s*baseImagePrompts/);
+            const sizerQueryPos = findPosition(/_queryMcpForInstanceSizing/);
+
+            assert.ok(
+                baseImageRunPhasePos !== -1,
+                '_runPhase(baseImagePrompts) must exist'
+            );
+            assert.ok(
+                sizerQueryPos !== -1,
+                '_queryMcpForInstanceSizing must exist'
+            );
+            assert.ok(
+                baseImageRunPhasePos < sizerQueryPos,
+                `baseImagePrompts (pos ${baseImageRunPhasePos}) must run before instance-sizer query (pos ${sizerQueryPos})`
+            );
+        });
+
+        /**
+         * Property 3m: Instance-sizer query must happen AFTER model is known
+         * 
+         * Validates: Requirement 4.4
+         */
+        it('should query instance-sizer after model selection', function() {
+            this.timeout(10000);
+
+            const modelFormatRunPhasePos = findPosition(/_runPhase\(\s*modelFormatPrompts/);
+            const sizerQueryPos = findPosition(/_queryMcpForInstanceSizing/);
+
+            assert.ok(
+                modelFormatRunPhasePos !== -1,
+                '_runPhase(modelFormatPrompts) must exist'
+            );
+            assert.ok(
+                sizerQueryPos !== -1,
+                '_queryMcpForInstanceSizing must exist'
+            );
+            assert.ok(
+                modelFormatRunPhasePos < sizerQueryPos,
+                `modelFormatPrompts (pos ${modelFormatRunPhasePos}) must run before instance-sizer query (pos ${sizerQueryPos})`
             );
         });
     });

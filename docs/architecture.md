@@ -9,21 +9,26 @@ graph TD
     subgraph "Generator"
         CLI["CLI Entry Point<br/>index.js"]
         CM["ConfigManager<br/>8-source precedence"]
-        PR["PromptRunner<br/>4-phase prompts"]
+        PR["PromptRunner<br/>5-phase prompts"]
         TM["TemplateManager<br/>validation"]
         TE["Template Engine<br/>EJS processing"]
+        GV["GenerationValidator<br/>schema validation"]
     end
 
     subgraph "MCP Servers"
         BIP["base-image-picker"]
-        IR["instance-recommender"]
+        IS["instance-sizer"]
         RP["region-picker"]
         MP["model-picker"]
         HCP["hyperpod-cluster-picker"]
     end
 
     subgraph "Catalogs"
-        CAT["servers/*/catalogs/*.json"]
+        CAT["servers/lib/catalogs/*.json"]
+    end
+
+    subgraph "Schema Registry"
+        SR["~/.ml-container-creator/schemas/"]
     end
 
     subgraph "Generated Project"
@@ -39,13 +44,15 @@ graph TD
     TE --> DO
     TE --> CODE
     TE --> DOCKER
+    TE --> GV
+    GV -->|"validates payloads"| SR
     CM -->|"queries"| BIP
-    CM -->|"queries"| IR
+    CM -->|"queries"| IS
     CM -->|"queries"| RP
     CM -->|"queries"| MP
     CM -->|"queries"| HCP
     CAT -->|"feeds"| BIP
-    CAT -->|"feeds"| IR
+    CAT -->|"feeds"| IS
     CAT -->|"feeds"| RP
     CAT -->|"feeds"| MP
 ```

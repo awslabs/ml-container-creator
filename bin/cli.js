@@ -101,6 +101,7 @@ program
     .addOption(new Option('--discover', 'Enable live registry lookups via MCP discovery'))
 
     // --- Validation ---
+    .addOption(new Option('--no-validate', 'Skip schema-driven validation at generation time'))
     .addOption(new Option('--validate-env-vars', 'Enable environment variable validation (default: true)'))
     .addOption(new Option('--validate-with-docker', 'Enable Docker introspection validation (opt-in)'))
     .addOption(new Option('--offline', 'Disable HuggingFace API lookups'))
@@ -179,7 +180,7 @@ program.configureHelp({
                 groups.features.push(opt);
             } else if (['--smart', '--discover'].includes(long)) {
                 groups.mcp.push(opt);
-            } else if (['--validate-env-vars', '--validate-with-docker', '--offline'].includes(long)) {
+            } else if (['--validate-env-vars', '--validate-with-docker', '--offline', '--no-validate'].includes(long)) {
                 groups.validation.push(opt);
             } else {
                 groups.general.push(opt);
@@ -241,7 +242,7 @@ program
     .command('bootstrap')
     .description('Set up AWS infrastructure (IAM role, ECR repo, S3 buckets)')
     .passThroughOptions()
-    .argument('[action]', 'Bootstrap action (status, use, list, remove, scan, prune, update)')
+    .argument('[action]', 'Bootstrap action (status, use, list, remove, scan, prune, update, sync-schemas)')
     .argument('[args...]', 'Additional arguments')
     .option('--profile <profile>', 'AWS profile name')
     .option('--region <region>', 'AWS region')
@@ -250,6 +251,10 @@ program
     .option('--force', 'Force removal without confirmation')
     .option('--verify', 'Verify resources exist (for status)')
     .option('--delete-stack', 'Delete CloudFormation stack on remove')
+    .option('--ignore-staleness', 'Suppress schema staleness warnings')
+    .option('--ci', 'Provision CI integration infrastructure')
+    .option('--skip-ci', 'Skip CI infrastructure provisioning')
+    .option('--skip-s3', 'Skip S3 bucket creation')
     .action(async (action, args, options) => {
         const { default: BootstrapCommandHandler } = await import('../src/lib/bootstrap-command-handler.js');
         const handler = new BootstrapCommandHandler();

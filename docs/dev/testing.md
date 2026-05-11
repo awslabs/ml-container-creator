@@ -23,7 +23,7 @@ npx mocha test/unit/config-manager-unit.test.js
 
 | Directory | What It Tests |
 |-----------|---------------|
-| `test/unit/` | Individual modules (config-manager, deployment-config-resolver, prompt-runner, template-manager) |
+| `test/unit/` | Individual modules (config-manager, deployment-config-resolver, prompt-runner, template-manager, schema-sync, generation-validator, validate-runner, catalog-validator, smart-mode-gating, multi-service-validation) |
 | `test/property/` | Universal correctness properties across parameter combinations using fast-check |
 | `test/input-parsing-and-generation/` | End-to-end generation: CLI options, env vars, config files, file generation, error handling |
 | `test/integration/` | MCP client-server integration |
@@ -50,5 +50,19 @@ Property tests use [fast-check](https://github.com/dubzzz/fast-check) to validat
 - Registry loader transformations
 - Template manager validation rules (GPU requirements, HyperPod config, async/batch config)
 - Namespace validation (RFC 1123 DNS labels)
+- **Schema-driven validation** (22 correctness properties):
+    - Service model parser constraint extraction and round-trip
+    - Payload builder field presence and JSON serialization
+    - Enum, type, pattern, required-field, and range validation correctness
+    - Cross-cutting checker (GPU consistency, tensor parallelism, CUDA compatibility, model type alignment)
+    - Validation report summary accuracy and finding metadata completeness
+    - Plugin ordering (static before smart validators)
+    - Schema registry staleness detection and store-then-query round-trip
+- **Catalog consolidation** (9 correctness properties):
+    - Unified catalog field completeness and schema validity
+    - No `recommendedInstanceTypes` in catalogs or MCP responses
+    - CUDA version filtering, tag-based search, combined VRAM + search filtering
+    - Architecture-based heuristic fallback correctness
+    - Discover mode source discrimination
 
 Run them with `npm run test:property`. Each test file targets a specific property and runs 20--100 iterations depending on complexity.

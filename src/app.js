@@ -188,6 +188,23 @@ export async function run(projectName, options) {
 
     // --- Phase: Writing ---
     const destDir = path.resolve(answers.destinationDir);
+
+    // Safety guard: refuse to generate into the generator's own directory
+    const destPkgPath = path.join(destDir, 'package.json');
+    if (fs.existsSync(destPkgPath)) {
+        try {
+            const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
+            if (destPkg.name === '@aws/ml-container-creator') {
+                console.log('\n❌ Refusing to generate into the generator\'s own directory.');
+                console.log('   This would overwrite the generator source files.');
+                console.log('   Use --project-dir or provide a project name instead.\n');
+                return;
+            }
+        } catch {
+            // If we can't read/parse package.json, it's not the generator dir — proceed
+        }
+    }
+
     fs.mkdirSync(destDir, { recursive: true });
 
     await writeProject(TEMPLATE_DIR, destDir, answers, registryConfigManager, tritonBackends, configManager);

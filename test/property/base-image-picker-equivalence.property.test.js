@@ -38,7 +38,7 @@ const FAST_PROPERTY_CONFIG = {
 // the original hardcoded constants. We load them independently to build expected
 // outputs and compare against resolveBaseImage() results.
 
-const catalogsDir = resolve(__dirname, '../../servers/base-image-picker/catalogs');
+const catalogsDir = resolve(__dirname, '../../servers/lib/catalogs');
 
 function loadCatalogDirect(filename) {
     return JSON.parse(readFileSync(resolve(catalogsDir, filename), 'utf8'));

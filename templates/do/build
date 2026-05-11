@@ -22,6 +22,11 @@ if ! command -v docker &> /dev/null; then
     exit 2
 fi
 
+# Always build for linux/amd64 — SageMaker runs x86_64 instances.
+# Without this, Apple Silicon Macs produce arm64 images that silently
+# fail on SageMaker with CannotStartContainerError.
+PLATFORM_FLAG="--platform linux/amd64"
+
 # Framework-specific build logic
 case "${DEPLOYMENT_CONFIG}" in
     transformers-tensorrt-llm)
@@ -41,12 +46,12 @@ case "${DEPLOYMENT_CONFIG}" in
         echo "${NGC_API_KEY}" | docker login nvcr.io --username '$oauthtoken' --password-stdin
         
         echo "🏗️  Building GPU-enabled image with TensorRT-LLM..."
-        docker build -t "${PROJECT_NAME}:latest" .
+        docker build ${PLATFORM_FLAG} -t "${PROJECT_NAME}:latest" .
         ;;
         
     transformers-vllm|transformers-sglang)
         echo "🏗️  Building GPU-enabled image..."
-        docker build -t "${PROJECT_NAME}:latest" .
+        docker build ${PLATFORM_FLAG} -t "${PROJECT_NAME}:latest" .
         ;;
         
     transformers-lmi|transformers-djl)
@@ -55,12 +60,17 @@ case "${DEPLOYMENT_CONFIG}" in
         aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 763104351884.dkr.ecr.us-east-1.amazonaws.com
         
         echo "🏗️  Building GPU-enabled image..."
-        docker build -t "${PROJECT_NAME}:latest" .
+        docker build ${PLATFORM_FLAG} -t "${PROJECT_NAME}:latest" .
         ;;
         
-    sklearn-*|xgboost-*|tensorflow-*)
+    sklearn-*|xgboost-*|tensorflow-*|http-flask|http-fastapi)
         echo "🏗️  Building CPU-optimized image..."
-        docker build -t "${PROJECT_NAME}:latest" .
+        docker build ${PLATFORM_FLAG} -t "${PROJECT_NAME}:latest" .
+        ;;
+
+    triton-*)
+        echo "🏗️  Building Triton Inference Server image..."
+        docker build ${PLATFORM_FLAG} -t "${PROJECT_NAME}:latest" .
         ;;
         
     *)

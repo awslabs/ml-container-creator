@@ -15,7 +15,6 @@ import { describe, it } from 'mocha';
 import assert from 'assert';
 import { filterRegions, AWS_REGIONS } from '../../servers/region-picker/index.js';
 import { extractJson } from '../../servers/lib/bedrock-client.js';
-import { getStaticInstances, INSTANCE_RECOMMENDATIONS, GPU_FRAMEWORKS } from '../../servers/instance-recommender/index.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,
@@ -42,9 +41,6 @@ const arbContext = fc.record({
 
 /** A region code drawn from the actual AWS_REGIONS constant */
 const arbRegionCode = fc.constantFrom(...AWS_REGIONS.map(r => r.code));
-
-/** A framework name from the supported set */
-const arbFramework = fc.constantFrom('sklearn', 'xgboost', 'tensorflow', 'transformers');
 
 // ── Valid region code set (for assertions) ───────────────────────────────────
 
@@ -340,39 +336,6 @@ describe('Region Picker Server Property-Based Tests', () => {
         });
     });
 
-    // Feature: region-picker-server, Property 9: Instance Recommender Static Behavioral Equivalence
-    describe('Property 9: Instance Recommender Static Behavioral Equivalence', () => {
-        it('GPU frameworks get GPU instances, others get CPU instances, truncated to limit', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
-
-            fc.assert(fc.property(
-                arbFramework,
-                arbLimit,
-                (framework, limit) => {
-                    const context = { framework };
-                    const instances = getStaticInstances(context);
-                    const limited = instances.slice(0, limit);
-
-                    if (GPU_FRAMEWORKS.has(framework)) {
-                        assert.deepStrictEqual(instances, INSTANCE_RECOMMENDATIONS.gpu,
-                            `GPU framework "${framework}" should return GPU instances`);
-                    } else {
-                        assert.deepStrictEqual(instances, INSTANCE_RECOMMENDATIONS.cpu,
-                            `Non-GPU framework "${framework}" should return CPU instances`);
-                    }
-
-                    // Truncated to limit
-                    assert.ok(limited.length <= limit);
-
-                    // values.instanceType === choices[0]
-                    if (limited.length > 0) {
-                        assert.strictEqual(limited[0], instances[0],
-                            'First choice should be the top recommendation');
-                    }
-
-                    return true;
-                }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
-        });
-    });
+    // Property 9 (Instance Recommender) removed — functionality absorbed into instance-sizer
+    // See test/instance-sizer-search.property.test.js for equivalent coverage
 });

@@ -54,6 +54,14 @@ export default class PromptRunner {
 
     /**
      * Runs all prompting phases and returns combined answers
+     * 
+     * Phase ordering (MCP Catalog Consolidation):
+     *   Phase 1 (What): deployment config + model name/ID + quantization
+     *   Phase 2 (How): deployment target + serving profile + base image
+     *   Phase 3 (Where): region + instance-sizer query + instance type + CUDA/AMI auto-resolution + HyperPod + build target
+     *   Phase 4 (Details): framework version, model profile, modules
+     *   Phase 5 (Project): project name + destination
+     *
      * @returns {Promise<Object>} Combined answers from all phases
      */
     async run() {
@@ -70,78 +78,14 @@ export default class PromptRunner {
         // Get only explicit configuration (not defaults) for prompt skipping
         const explicitConfig = this.configManager ? this.configManager.getExplicitConfiguration() : {};
 
-        // Phase 1: Infrastructure & Deployment
-        // Requirements: 3.1 — infrastructure prompts run first
-        // Ordering: Region → Deployment Target → Instance (if managed) → HyperPod (if eks) → Build Target
-        console.log('\n💪 Infrastructure & Deployment');
-
-        // 1a. Query region MCP, then prompt for region + deployment target
-        await this._queryMcpForRegion({}, explicitConfig);
-        const bootstrapRegion = existingConfig.awsRegion || explicitConfig.awsRegion;
-        const regionPreviousAnswers = bootstrapRegion ? { _bootstrapRegion: bootstrapRegion } : {};
-        const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, regionPreviousAnswers, explicitConfig, existingConfig);
-
-        // 1b. Instance type — query MCP and prompt for realtime-inference, async-inference, batch-transform, and hyperpod-eks
-        let instanceAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'realtime-inference' ||
-            regionAndTargetAnswers.deploymentTarget === 'async-inference' ||
-            regionAndTargetAnswers.deploymentTarget === 'batch-transform' ||
-            regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
-            await this._queryMcpForInstance({}, explicitConfig);
-            const mcpInstanceChoices = this.configManager?.mcpChoices?.instanceType;
-            const instancePreviousAnswers = {
-                ...regionAndTargetAnswers,
-                ...(mcpInstanceChoices && mcpInstanceChoices.length > 0 ? { _mcpInstanceChoices: mcpInstanceChoices } : {})
-            };
-            instanceAnswers = await this._runPhase(infraInstancePrompts, instancePreviousAnswers, explicitConfig, existingConfig);
-        }
-
-        // 1b-async. Async-specific prompts (only when deploymentTarget === 'async-inference')
-        let asyncAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'async-inference') {
-            asyncAnswers = await this._runPhase(infraAsyncPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
-        }
-
-        // 1b-batch. Batch transform-specific prompts (only when deploymentTarget === 'batch-transform')
-        let batchTransformAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'batch-transform') {
-            batchTransformAnswers = await this._runPhase(
-                infraBatchTransformPrompts,
-                { ...regionAndTargetAnswers },
-                explicitConfig,
-                existingConfig
-            );
-        }
-
-        // 1c. HyperPod prompts — only query MCP and prompt when deployment target is hyperpod-eks
-        let hyperPodAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
-            // Resolve the actual region (handle 'custom' selection)
-            const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
-            await this._queryMcpForHyperPod({ ...regionAndTargetAnswers, awsRegion: resolvedRegion }, explicitConfig);
-            hyperPodAnswers = await this._runPhase(infraHyperPodPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
-        }
-
-        // 1d. Build target + role ARN (always)
-        const buildAnswers = await this._runPhase(infraBuildPrompts, { ...regionAndTargetAnswers, ...instanceAnswers, ...hyperPodAnswers }, explicitConfig, existingConfig);
-
-        // Combine all infrastructure answers
-        const infraAnswers = {
-            ...regionAndTargetAnswers,
-            ...instanceAnswers,
-            ...asyncAnswers,
-            ...batchTransformAnswers,
-            ...hyperPodAnswers,
-            ...buildAnswers
-        };
-
-        // Phase 2: Core ML Configuration
-        // Requirements: 3.1, 3.2 — ML configuration prompts run after infrastructure
+        // ══════════════════════════════════════════════════════════════════════
+        // Phase 1 — What (deployment config + model name/ID + quantization)
+        // Requirements: 4.1, 4.2 — model selection drives instance sizing
+        // ══════════════════════════════════════════════════════════════════════
         console.log('\n🔧 Core ML Configuration');
-        const deploymentConfigAnswers = await this._runPhase(deploymentConfigPrompts, { ...infraAnswers }, explicitConfig, existingConfig);
+        const deploymentConfigAnswers = await this._runPhase(deploymentConfigPrompts, {}, explicitConfig, existingConfig);
         
         // Derive architecture, backend, and legacy framework/modelServer from deploymentConfig
-        // Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7
         let architecture, backend, framework, modelServer;
         if (deploymentConfigAnswers.deploymentConfig) {
             const parts = deploymentConfigAnswers.deploymentConfig.split('-');
@@ -162,15 +106,57 @@ export default class PromptRunner {
         };
         
         // Engine prompt for http architecture
-        // Requirements: 3.7
         const engineAnswers = await this._runPhase(enginePrompts, { ...frameworkAnswers }, explicitConfig, existingConfig);
         
         // Auto-set model format for Triton backends with single format
-        // Requirements: 3.3, 3.4, 3.5
         const tritonAutoFormat = this._getTritonAutoModelFormat(architecture, backend);
         
-        // Query base-image-picker MCP server for base image choices
-        // Requirements: 5.1, 5.2, 5.3
+        // Query model-picker MCP server for model choices
+        this._queryMcpForModels(frameworkAnswers.architecture);
+        if (this._mcpModelChoices) {
+            console.log('   🔍 Querying model-picker...');
+            console.log(`   ✓ ${this._mcpModelChoices.length} model(s) available from catalog`);
+        }
+        const modelFormatPreviousAnswers = {
+            ...frameworkAnswers,
+            ...engineAnswers,
+            ...(this._mcpModelChoices ? { _mcpModelChoices: this._mcpModelChoices } : {})
+        };
+        const modelFormatAnswers = await this._runPhase(
+            modelFormatPrompts, 
+            modelFormatPreviousAnswers, 
+            explicitConfig, 
+            existingConfig
+        );
+        
+        // Model server prompts are now deprecated (empty array)
+        const modelServerAnswers = await this._runPhase(
+            modelServerPrompts, 
+            {...frameworkAnswers, ...engineAnswers}, 
+            explicitConfig, 
+            existingConfig
+        );
+
+        // Resolve model ID early for instance-sizer query in Phase 3
+        const phase1ModelId = modelFormatAnswers.customModelName || modelFormatAnswers.modelName || explicitConfig.modelName;
+        
+        // Fetch model information from HuggingFace and Model Registry
+        if (phase1ModelId && phase1ModelId !== 'Custom (enter manually)') {
+            await this._fetchAndDisplayModelInfo(phase1ModelId);
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // Phase 2 — How (deployment target + serving profile + base image)
+        // Requirements: 4.3 — instance prompt appears AFTER base image is known
+        // ══════════════════════════════════════════════════════════════════════
+        console.log('\n💪 Infrastructure & Deployment');
+
+        // 2a. Deployment target (realtime, async, batch, hyperpod, local)
+        const bootstrapRegion = existingConfig.awsRegion || explicitConfig.awsRegion;
+        const regionPreviousAnswers = bootstrapRegion ? { _bootstrapRegion: bootstrapRegion } : {};
+        const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, { ...frameworkAnswers, ...regionPreviousAnswers }, explicitConfig, existingConfig);
+
+        // 2b. Query base-image-picker MCP server for base image choices
         await this._queryMcpForBaseImage(frameworkAnswers, explicitConfig);
         const baseImagePreviousAnswers = {
             ...frameworkAnswers,
@@ -183,6 +169,143 @@ export default class PromptRunner {
             explicitConfig,
             existingConfig
         );
+
+        // Extract CUDA version from selected base image for instance-sizer context
+        const selectedBaseImageCuda = this._extractCudaFromBaseImage(baseImageAnswers);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // Phase 3 — Where (region + instance [derived] + CUDA/AMI + HyperPod + build target)
+        // Requirements: 4.4, 4.5, 4.7, 3.6, 3.7 — sizer query with full context
+        // ══════════════════════════════════════════════════════════════════════
+
+        // 3a. Region query
+        await this._queryMcpForRegion(frameworkAnswers, explicitConfig);
+
+        // 3b. Instance type — query instance-sizer with full context (model + profile + CUDA)
+        let instanceAnswers = {};
+        const needsInstance = regionAndTargetAnswers.deploymentTarget === 'realtime-inference' ||
+            regionAndTargetAnswers.deploymentTarget === 'async-inference' ||
+            regionAndTargetAnswers.deploymentTarget === 'batch-transform' ||
+            regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks';
+
+        if (needsInstance) {
+            // Determine architecture type for heuristic fallback
+            const modelArchitecture = frameworkAnswers.architecture || frameworkAnswers.deploymentConfig?.split('-')[0];
+
+            // Skip sizer query if --instance-type was provided via CLI
+            if (!explicitConfig.instanceType) {
+                // Skip sizer for predictor models (CPU-only)
+                if (modelArchitecture === 'predictor' || modelArchitecture === 'http') {
+                    // Architecture heuristic: predictor → ml.m5.large
+                    console.log('   ℹ️  Predictor model: defaulting to CPU instance (ml.m5.large)');
+                    this._architectureHeuristicDefault = 'ml.m5.large';
+                } else if (phase1ModelId && phase1ModelId !== 'Custom (enter manually)') {
+                    // Query instance-sizer with full context
+                    await this._queryMcpForInstanceSizing(frameworkAnswers, modelFormatAnswers, explicitConfig, {
+                        cudaVersion: selectedBaseImageCuda,
+                        profileEnvVars: this._selectedProfileEnvVars || {}
+                    });
+                } else {
+                    // No model known — use architecture heuristic
+                    await this._queryMcpForInstance(frameworkAnswers, explicitConfig);
+                }
+            }
+
+            // Build instance prompt choices from sizer results
+            const mcpInstanceChoices = this._mcpInstanceSizerChoices || this.configManager?.mcpChoices?.instanceType;
+            const instancePreviousAnswers = {
+                ...regionAndTargetAnswers,
+                ...(mcpInstanceChoices && mcpInstanceChoices.length > 0 ? { _mcpInstanceChoices: mcpInstanceChoices } : {}),
+                ...(this._architectureHeuristicDefault ? { _architectureHeuristicDefault: this._architectureHeuristicDefault } : {})
+            };
+            instanceAnswers = await this._runPhase(infraInstancePrompts, instancePreviousAnswers, explicitConfig, existingConfig);
+
+            // Apply architecture heuristic fallback when sizer returns empty
+            if (!instanceAnswers.instanceType && !explicitConfig.instanceType && this._architectureHeuristicDefault) {
+                instanceAnswers.instanceType = this._architectureHeuristicDefault;
+            }
+        }
+
+        // In auto-prompt mode, use instance-sizer's top recommendation as the instance type
+        if (this.configManager?.isAutoPrompt() && this._mcpInstanceSizerChoices && this._mcpInstanceSizerChoices.length > 0) {
+            const sizerRecommendation = this._mcpInstanceSizerChoices[0];
+            if (!explicitConfig.instanceType) {
+                instanceAnswers.instanceType = sizerRecommendation;
+                console.log(`   ✓ Auto-prompt: using instance-sizer recommendation: ${sizerRecommendation}`);
+            }
+        }
+
+        // Auto-set tensor parallelism when sizer recommends TP > 1
+        // Requirements: 4.8
+        if (this._instanceSizerMetadata) {
+            const sizerRecs = this._instanceSizerMetadata.recommendations || [];
+            const finalInstanceType = instanceAnswers.customInstanceType || instanceAnswers.instanceType;
+            const matchingRec = sizerRecs.find(r => r.instanceType === finalInstanceType);
+            const tpRec = matchingRec || sizerRecs[0];
+            if (tpRec && tpRec.tensorParallelism > 1) {
+                this._autoTensorParallelism = tpRec.tensorParallelism;
+                this._autoGpuCount = tpRec.gpuCount;
+                console.log(`   ✓ Auto-set tensor parallelism: TP=${tpRec.tensorParallelism} (${tpRec.gpuCount} GPUs)`);
+            }
+        }
+
+        // 3c. Async-specific prompts (only when deploymentTarget === 'async-inference')
+        let asyncAnswers = {};
+        if (regionAndTargetAnswers.deploymentTarget === 'async-inference') {
+            asyncAnswers = await this._runPhase(infraAsyncPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
+        }
+
+        // 3d. Batch transform-specific prompts (only when deploymentTarget === 'batch-transform')
+        let batchTransformAnswers = {};
+        if (regionAndTargetAnswers.deploymentTarget === 'batch-transform') {
+            batchTransformAnswers = await this._runPhase(
+                infraBatchTransformPrompts,
+                { ...regionAndTargetAnswers },
+                explicitConfig,
+                existingConfig
+            );
+        }
+
+        // 3e. CUDA/AMI auto-resolution
+        const instanceType = instanceAnswers.customInstanceType || instanceAnswers.instanceType;
+        const cudaAnswer = await this._promptCudaVersion(
+            instanceType,
+            frameworkAnswers.framework,
+            null, // frameworkVersion not yet known in Phase 3
+            selectedBaseImageCuda // base image CUDA version for intersection
+        );
+
+        // 3f. HyperPod prompts — only query MCP and prompt when deployment target is hyperpod-eks
+        let hyperPodAnswers = {};
+        if (regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
+            const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
+            await this._queryMcpForHyperPod({ ...regionAndTargetAnswers, awsRegion: resolvedRegion }, explicitConfig);
+            hyperPodAnswers = await this._runPhase(infraHyperPodPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
+        }
+
+        // 3g. Build target + role ARN (always)
+        const buildAnswers = await this._runPhase(infraBuildPrompts, { ...regionAndTargetAnswers, ...instanceAnswers, ...hyperPodAnswers }, explicitConfig, existingConfig);
+
+        // Combine all infrastructure answers
+        const infraAnswers = {
+            ...regionAndTargetAnswers,
+            ...instanceAnswers,
+            ...asyncAnswers,
+            ...batchTransformAnswers,
+            ...hyperPodAnswers,
+            ...buildAnswers
+        };
+
+        // Apply CUDA resolution to infra answers
+        if (cudaAnswer) {
+            infraAnswers._selectedCudaVersion = cudaAnswer.cudaVersion;
+            infraAnswers._resolvedInferenceAmiVersion = cudaAnswer.inferenceAmiVersion;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // Phase 4 — Details (framework version, model profile, modules)
+        // ══════════════════════════════════════════════════════════════════════
+        console.log('\n📦 Module Selection');
 
         // Populate framework version choices from registry
         const frameworkVersionChoices = this._getFrameworkVersionChoices(frameworkAnswers.framework);
@@ -209,44 +332,10 @@ export default class PromptRunner {
             explicitConfig,
             existingConfig
         );
-        
-        // Query model-picker MCP server for model choices
-        this._queryMcpForModels(frameworkAnswers.architecture);
-        if (this._mcpModelChoices) {
-            console.log('   🔍 Querying model-picker...');
-            console.log(`   ✓ ${this._mcpModelChoices.length} model(s) available from catalog`);
-        }
-        const modelFormatPreviousAnswers = {
-            ...frameworkAnswers,
-            ...engineAnswers,
-            ...frameworkVersionAnswers,
-            ...frameworkProfileAnswers,
-            ...(this._mcpModelChoices ? { _mcpModelChoices: this._mcpModelChoices } : {})
-        };
-        const modelFormatAnswers = await this._runPhase(
-            modelFormatPrompts, 
-            modelFormatPreviousAnswers, 
-            explicitConfig, 
-            existingConfig
-        );
-        
-        // Model server prompts are now deprecated (empty array)
-        const modelServerAnswers = await this._runPhase(
-            modelServerPrompts, 
-            {...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers}, 
-            explicitConfig, 
-            existingConfig
-        );
-        
+
         // Populate model profile choices from registry (if model ID is available)
+        const modelId = phase1ModelId;
         const currentAnswers = {...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers};
-        const modelId = currentAnswers.customModelName || currentAnswers.modelName || explicitConfig.modelName;
-        
-        // Fetch model information from HuggingFace and Model Registry
-        // Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.11, 11.1, 11.2, 11.3, 11.5, 11.6, 11.7
-        if (modelId && modelId !== 'Custom (enter manually)') {
-            await this._fetchAndDisplayModelInfo(modelId);
-        }
         
         const modelProfileChoices = this._getModelProfileChoices(modelId);
         const modelProfileAnswers = await this._runPhase(
@@ -257,7 +346,6 @@ export default class PromptRunner {
         );
 
         // Model loading strategy prompt (build-time vs runtime)
-        // Requirements: 13.1, 13.2, 13.3, 13.4, 13.5
         const modelLoadStrategyAnswers = await this._runPhase(
             modelLoadStrategyPrompts,
             { ...frameworkAnswers, ...engineAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
@@ -273,32 +361,7 @@ export default class PromptRunner {
             { ...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
             explicitConfig, existingConfig);
 
-        // Validate instance type against framework requirements (now that framework is known)
-        // Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
-        const instanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;
-        if (instanceType && frameworkVersionAnswers.frameworkVersion) {
-            await this._validateAndDisplayInstanceType(
-                instanceType,
-                frameworkAnswers.framework,
-                frameworkVersionAnswers.frameworkVersion
-            );
-        }
-
-        // CUDA version selection: if the selected instance supports multiple CUDA versions,
-        // let the user pick which one. This transparently sets the inference AMI version.
-        const cudaAnswer = await this._promptCudaVersion(
-            instanceType,
-            frameworkAnswers.framework,
-            frameworkVersionAnswers.frameworkVersion
-        );
-        if (cudaAnswer) {
-            infraAnswers._selectedCudaVersion = cudaAnswer.cudaVersion;
-            infraAnswers._resolvedInferenceAmiVersion = cudaAnswer.inferenceAmiVersion;
-        }
-
-        // Phase 3: Module Selection
-        // Requirements: 3.3 — module selection after ML configuration
-        console.log('\n📦 Module Selection');
+        // Module selection
         const moduleAnswers = await this._runPhase(modulePrompts, { ...frameworkAnswers, ...engineAnswers }, explicitConfig, existingConfig);
         
         // Ensure transformers, diffusors, and ineligible Triton backends don't get sample model
@@ -309,8 +372,19 @@ export default class PromptRunner {
             moduleAnswers.includeSampleModel = false;
         }
 
-        // Phase 4: Project Configuration
-        // Requirements: 3.4 — project configuration last
+        // Validate instance type against framework requirements (now that framework version is known)
+        const finalInstanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;
+        if (finalInstanceType && frameworkVersionAnswers.frameworkVersion) {
+            await this._validateAndDisplayInstanceType(
+                finalInstanceType,
+                frameworkAnswers.framework,
+                frameworkVersionAnswers.frameworkVersion
+            );
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // Phase 5 — Project (project name + destination)
+        // ══════════════════════════════════════════════════════════════════════
         console.log('\n📋 Project Configuration');
         const allTechnicalAnswers = {
             ...frameworkAnswers,
@@ -437,6 +511,21 @@ export default class PromptRunner {
         if (combinedAnswers.customInstanceType) {
             combinedAnswers.instanceType = combinedAnswers.customInstanceType;
             delete combinedAnswers.customInstanceType;
+        }
+
+        // Propagate tensor parallelism from instance-sizer to templates
+        // Requirements: 4.8 — auto-set TP when sizer recommends > 1
+        if (this._autoTensorParallelism) {
+            combinedAnswers.tensorParallelSize = this._autoTensorParallelism;
+            combinedAnswers.gpuCount = this._autoGpuCount;
+        } else if (this._instanceSizerMetadata) {
+            const sizerInstanceType = combinedAnswers.instanceType;
+            const sizerRecs = this._instanceSizerMetadata.recommendations || [];
+            const matchingRec = sizerRecs.find(r => r.instanceType === sizerInstanceType);
+            if (matchingRec && matchingRec.tensorParallelism > 1) {
+                combinedAnswers.tensorParallelSize = matchingRec.tensorParallelism;
+                combinedAnswers.gpuCount = matchingRec.gpuCount;
+            }
         }
 
         // Handle custom HyperPod cluster name
@@ -624,6 +713,55 @@ export default class PromptRunner {
     }
 
     /**
+     * Extract CUDA version from the selected base image.
+     * Looks at the MCP base image metadata for accelerator.version or labels.cuda_version.
+     * @param {object} baseImageAnswers - Answers from the base image prompt
+     * @returns {string|null} CUDA version string (e.g., "12.1") or null
+     * @private
+     */
+    _extractCudaFromBaseImage(baseImageAnswers) {
+        if (!this._mcpBaseImageChoices) return null;
+
+        const selectedImage = baseImageAnswers.baseImage || baseImageAnswers.customBaseImage;
+        if (!selectedImage) return null;
+
+        // Find the matching entry in the MCP choices
+        const matchingChoice = this._mcpBaseImageChoices.find(c => c.value === selectedImage);
+        if (!matchingChoice) return null;
+
+        // Try to extract CUDA version from the choice metadata
+        // The formatImageChoices function stores labels in the choice object
+        if (matchingChoice._meta?.labels?.cuda_version) {
+            return matchingChoice._meta.labels.cuda_version;
+        }
+        if (matchingChoice._meta?.accelerator?.version) {
+            return matchingChoice._meta.accelerator.version;
+        }
+
+        return null;
+    }
+
+    /**
+     * Get architecture-based heuristic default instance type.
+     * Used when the instance-sizer cannot produce a recommendation.
+     * Requirements: 3.9, 4.6
+     * @param {string} architecture - Model architecture type
+     * @returns {string} Default instance type
+     * @private
+     */
+    _getArchitectureHeuristicDefault(architecture) {
+        const HEURISTIC_DEFAULTS = {
+            'transformers': 'ml.g5.xlarge',
+            'transformer': 'ml.g5.xlarge',
+            'diffusors': 'ml.g5.2xlarge',
+            'diffusor': 'ml.g5.2xlarge',
+            'predictor': 'ml.m5.large',
+            'http': 'ml.m5.large'
+        };
+        return Object.hasOwn(HEURISTIC_DEFAULTS, architecture) ? HEURISTIC_DEFAULTS[architecture] : 'ml.g5.xlarge';
+    }
+
+    /**
      * Query MCP region-picker server before infrastructure prompts.
      * Populates configManager.mcpChoices so _runPhase injects them into list prompts.
      * @private
@@ -671,8 +809,8 @@ export default class PromptRunner {
     }
 
     /**
-     * Query MCP instance-recommender server after deployment target is known.
-     * Only runs when deploymentTarget is realtime-inference.
+     * Query MCP instance-sizer server with tag-based search after deployment target is known.
+     * Used when no model name is available for VRAM-based sizing.
      * Populates configManager.mcpChoices so _runPhase injects them into list prompts.
      * @private
      */
@@ -686,7 +824,7 @@ export default class PromptRunner {
         const smart = this.options.smart === true;
 
         // Instance type: query if not already provided via CLI/config
-        if (!explicitConfig.instanceType && mcpServers.includes('instance-recommender')) {
+        if (!explicitConfig.instanceType && mcpServers.includes('instance-sizer')) {
             const { instanceSearch } = await this._runPrompts([{
                 type: 'input',
                 name: 'instanceSearch',
@@ -695,8 +833,8 @@ export default class PromptRunner {
             }]);
 
             if (instanceSearch && instanceSearch.trim()) {
-                console.log(`   🔍 Querying instance-recommender${smart ? ' [smart]' : ''}...`);
-                const result = await cm.queryMcpServer('instance-recommender', {
+                console.log(`   🔍 Querying instance-sizer [search]${smart ? ' [smart]' : ''}...`);
+                const result = await cm.queryMcpServer('instance-sizer', {
                     ...frameworkAnswers,
                     instanceSearch: instanceSearch.trim()
                 });
@@ -710,6 +848,146 @@ export default class PromptRunner {
                     console.log('   ↳ No MCP results, using static list');
                 }
             }
+        }
+    }
+
+    /**
+     * Query the instance-sizer MCP server after model is known.
+     * Estimates VRAM requirements and returns filtered, ranked instance recommendations.
+     * Stores results in this._mcpInstanceSizerChoices and this._instanceSizerMetadata.
+     * Requirements: 4.4, 4.5, 4.7, 3.6, 3.7
+     * @param {object} frameworkAnswers - Framework/architecture answers
+     * @param {object} modelFormatAnswers - Model format answers (contains modelName)
+     * @param {object} explicitConfig - Explicit CLI/config values
+     * @param {object} [sizerContext={}] - Additional context for the sizer query
+     * @param {string} [sizerContext.cudaVersion] - CUDA version from base image
+     * @param {object} [sizerContext.profileEnvVars] - Profile ENV overrides
+     * @private
+     */
+    async _queryMcpForInstanceSizing(frameworkAnswers, modelFormatAnswers, explicitConfig, sizerContext = {}) {
+        const cm = this.configManager;
+        if (!cm) return;
+
+        const mcpServers = cm.getMcpServerNames();
+        if (!mcpServers.includes('instance-sizer')) return;
+
+        // Resolve model name from answers or explicit config
+        const modelName = modelFormatAnswers.customModelName || modelFormatAnswers.modelName || explicitConfig.modelName;
+        if (!modelName || modelName === 'Custom (enter manually)') return;
+
+        const smart = this.options.smart === true;
+        const discover = this.options.discover === true;
+
+        const modeLabel = [smart && '[smart]', discover && '[discover]'].filter(Boolean).join(' ');
+        console.log(`   🔍 Querying instance-sizer${modeLabel ? ` ${modeLabel}` : ''}...`);
+
+        try {
+            const mcpConfigPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
+            if (!fs.existsSync(mcpConfigPath)) return;
+
+            const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'));
+            const serverConfig = mcpConfig.mcpServers?.['instance-sizer'];
+            if (!serverConfig) return;
+
+            const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+            const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+
+            const serverArgs = [...(serverConfig.args || [])];
+            if (discover && !serverArgs.includes('--discover')) {
+                serverArgs.push('--discover');
+            }
+
+            const transport = new StdioClientTransport({
+                command: serverConfig.command,
+                args: serverArgs,
+                env: {
+                    ...process.env,
+                    ...(serverConfig.env || {}),
+                    ...(smart ? { BEDROCK_SMART: 'true' } : {})
+                },
+                stderr: 'pipe'
+            });
+
+            const mcpClient = new Client(
+                { name: 'ml-container-creator', version: '1.0.0' },
+                { capabilities: {} }
+            );
+
+            await mcpClient.connect(transport);
+
+            const toolArgs = {
+                modelName,
+                limit: 8,
+                context: {
+                    architecture: frameworkAnswers.architecture || undefined,
+                    backend: frameworkAnswers.backend || undefined,
+                    deploymentTarget: frameworkAnswers.deploymentTarget || undefined,
+                    profileEnvVars: sizerContext.profileEnvVars || undefined
+                }
+            };
+
+            // Add CUDA version from base image for filtering
+            if (sizerContext.cudaVersion) {
+                toolArgs.cudaVersion = sizerContext.cudaVersion;
+            }
+
+            // Add quantization if available from model format answers
+            if (modelFormatAnswers.quantization) {
+                toolArgs.quantization = modelFormatAnswers.quantization;
+            }
+
+            const result = await mcpClient.callTool({
+                name: 'get_instance_recommendation',
+                arguments: toolArgs
+            });
+
+            await mcpClient.close();
+
+            // Parse the response
+            const textBlock = result?.content?.find(b => b.type === 'text');
+            if (textBlock) {
+                const parsed = JSON.parse(textBlock.text);
+
+                if (parsed.choices?.instanceType?.length > 0) {
+                    this._instanceSizerMetadata = parsed.metadata || null;
+
+                    // Build display labels with VRAM estimate and utilization percentage
+                    const recommendations = parsed.metadata?.recommendations || [];
+                    const estimatedVramGb = parsed.metadata?.estimatedVramGb;
+                    
+                    // Store choices with display labels for the instance prompt
+                    this._mcpInstanceSizerChoices = parsed.choices.instanceType;
+                    this._mcpInstanceSizerDisplayChoices = recommendations.map(rec => ({
+                        name: rec.displayLabel || `${rec.instanceType} (${estimatedVramGb ? estimatedVramGb.toFixed(1) : '?'}GB / ${rec.totalVramGb || '?'}GB — ${rec.utilizationPercent || '?'}% utilization)`,
+                        value: rec.instanceType,
+                        short: rec.instanceType
+                    }));
+
+                    const choices = parsed.choices.instanceType;
+                    const topRec = recommendations[0];
+                    const vramInfo = estimatedVramGb
+                        ? ` (VRAM: ${estimatedVramGb.toFixed(1)}GB)`
+                        : '';
+                    const tpInfo = topRec?.tensorParallelism > 1
+                        ? ` [TP=${topRec.tensorParallelism}]`
+                        : '';
+
+                    console.log(`   ✓ ${choices.length} sized instance(s): ${choices[0]}${vramInfo}${tpInfo}`);
+                } else if (parsed.metadata?.warning) {
+                    console.log(`   ⚠️  ${parsed.metadata.warning}`);
+                } else {
+                    // Apply architecture heuristic fallback when sizer returns empty
+                    const archForHeuristic = frameworkAnswers.architecture || frameworkAnswers.deploymentConfig?.split('-')[0];
+                    this._architectureHeuristicDefault = this._getArchitectureHeuristicDefault(archForHeuristic);
+                    console.log(`   ↳ No instance-sizer results, using heuristic default: ${this._architectureHeuristicDefault}`);
+                }
+            }
+        } catch (err) {
+            // Sizer unavailable — apply architecture heuristic fallback
+            const archForHeuristic = frameworkAnswers.architecture || frameworkAnswers.deploymentConfig?.split('-')[0];
+            this._architectureHeuristicDefault = this._getArchitectureHeuristicDefault(archForHeuristic);
+            console.log(`   ⚠️  instance-sizer: ${err.message}`);
+            console.log(`   ↳ Using heuristic default: ${this._architectureHeuristicDefault}`);
         }
     }
 
@@ -1297,16 +1575,21 @@ export default class PromptRunner {
      * supports multiple versions. The choice transparently resolves to the
      * correct SageMaker inference AMI.
      *
+     * When a base image CUDA version is provided, auto-resolves by intersecting
+     * with the instance's supported versions. Removes the CUDA prompt from the
+     * interactive flow when auto-resolution succeeds.
+     *
      * Skipped for CPU instances, non-CUDA accelerators, or when only one
      * compatible CUDA version exists.
      *
      * @param {string} instanceType - Selected instance type (e.g. "ml.g5.2xlarge")
      * @param {string} framework - Selected framework name
      * @param {string} frameworkVersion - Selected framework version
+     * @param {string} [baseImageCuda] - CUDA version from selected base image (for auto-resolution)
      * @returns {Promise<{cudaVersion: string, inferenceAmiVersion: string}|null>}
      * @private
      */
-    async _promptCudaVersion(instanceType, framework, frameworkVersion) {
+    async _promptCudaVersion(instanceType, framework, frameworkVersion, baseImageCuda) {
         if (!instanceType) return null;
 
         // Look up instance in accelerator mapping
@@ -1315,6 +1598,33 @@ export default class PromptRunner {
 
         const instanceCudaVersions = instanceInfo.accelerator.versions;
         if (!instanceCudaVersions || instanceCudaVersions.length === 0) return null;
+
+        // Auto-resolution: when base image specifies a CUDA version, intersect with instance support
+        // Requirements: 3.11, 4.9, 4.10, 4.11
+        if (baseImageCuda) {
+            const majorRequired = baseImageCuda.split('.')[0];
+            const intersection = instanceCudaVersions.filter(v => {
+                if (v === baseImageCuda) return true;
+                if (v.startsWith(`${majorRequired  }.`)) return true;
+                return false;
+            });
+
+            if (intersection.length > 0) {
+                // Auto-select: pick exact match or highest compatible
+                const exactMatch = intersection.find(v => v === baseImageCuda);
+                const selectedVersion = exactMatch || intersection.sort().pop();
+                const inferenceAmiVersion = PromptRunner.CUDA_AMI_MAP[selectedVersion];
+                if (inferenceAmiVersion) {
+                    console.log(`\n🔧 CUDA ${selectedVersion} auto-resolved from base image (requires ${baseImageCuda})`);
+                    console.log(`   AMI: ${inferenceAmiVersion}`);
+                    return { cudaVersion: selectedVersion, inferenceAmiVersion };
+                }
+            } else {
+                // No intersection — warn and fall through to manual prompt
+                console.log(`\n   ⚠️  Base image requires CUDA ${baseImageCuda} but instance ${instanceType} supports: ${instanceCudaVersions.join(', ')}`);
+                console.log('   No compatible CUDA version found. Falling back to manual selection.');
+            }
+        }
 
         // Get framework CUDA requirements (if available)
         const registryConfigManager = this.registryConfigManager;

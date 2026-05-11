@@ -1,0 +1,17 @@
+{
+    "name": "@amzn/ml-container-creator-instance-sizer",
+    "version": "1.0.0",
+    "description": "MCP server that estimates VRAM requirements and recommends compatible SageMaker instances.",
+    "modes": {
+        "static": true,
+        "smart": true,
+        "discover": true
+    },
+    "catalogs": {
+        "models": "../lib/catalogs/models.json",
+        "instances": "../lib/catalogs/instances.json"
+    },
+    "tool": {
+        "name": "get_instance_recommendation"
+    }
+}

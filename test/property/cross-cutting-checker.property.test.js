@@ -1,0 +1,475 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Cross-Cutting Checker Property-Based Tests
+ *
+ * Feature: schema-driven-validation, Property 14: GPU consistency check
+ * Feature: schema-driven-validation, Property 15: Tensor parallelism three-way consistency
+ * Feature: schema-driven-validation, Property 16: Model source artifact URI requirement
+ * Feature: schema-driven-validation, Property 17: CUDA compatibility check
+ * Feature: schema-driven-validation, Property 18: Model type instance alignment
+ */
+
+import fc from 'fast-check';
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import CrossCuttingChecker from '../../src/lib/cross-cutting-checker.js';
+
+const FAST_PROPERTY_CONFIG = {
+    numRuns: 100,
+    timeout: 30000,
+    verbose: false
+};
+
+// ── Generators ───────────────────────────────────────────────────────────────
+
+/**
+ * Generate a valid SageMaker instance type name.
+ */
+const arbInstanceType = fc.constantFrom(
+    'ml.g4dn.xlarge', 'ml.g4dn.2xlarge', 'ml.g4dn.12xlarge',
+    'ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.g5.12xlarge', 'ml.g5.48xlarge',
+    'ml.p3.2xlarge', 'ml.p3.8xlarge', 'ml.p3.16xlarge',
+    'ml.m5.xlarge', 'ml.m5.2xlarge', 'ml.c5.xlarge'
+);
+
+/**
+ * Generate a GPU instance type (gpus > 0).
+ */
+const arbGpuInstanceType = fc.constantFrom(
+    'ml.g4dn.xlarge', 'ml.g4dn.2xlarge', 'ml.g4dn.12xlarge',
+    'ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.g5.12xlarge', 'ml.g5.48xlarge',
+    'ml.p3.2xlarge', 'ml.p3.8xlarge', 'ml.p3.16xlarge'
+);
+
+/**
+ * Generate a CPU instance type (gpus === 0).
+ */
+const arbCpuInstanceType = fc.constantFrom(
+    'ml.m5.xlarge', 'ml.m5.2xlarge', 'ml.c5.xlarge', 'ml.c5.2xlarge',
+    'ml.m5.large', 'ml.m5.4xlarge', 'ml.r5.large', 'ml.r5.xlarge'
+);
+
+/**
+ * Generate a positive GPU count.
+ */
+const arbGpuCount = fc.integer({ min: 1, max: 16 });
+
+/**
+ * Generate a CUDA version string.
+ */
+const arbCudaVersion = fc.constantFrom(
+    '11.0', '11.4', '11.8', '12.0', '12.1', '12.2', '12.4'
+);
+
+/**
+ * Generate a model server that uses tensor parallelism.
+ */
+const arbTpModelServer = fc.constantFrom('vllm', 'sglang', 'vLLM', 'SGLang');
+
+/**
+ * Generate a model source that requires artifact URI.
+ */
+const arbArtifactModelSource = fc.constantFrom('s3', 'jumpstart', 'jumpstart-hub', 'registry');
+
+/**
+ * Build a minimal instance catalog for testing.
+ */
+function buildInstanceCatalog(entries) {
+    return { catalog: entries };
+}
+
+/**
+ * Build a minimal validation context.
+ */
+function buildContext(config, deploymentTarget = 'realtime-inference') {
+    return {
+        payloads: {},
+        config: config || {},
+        deploymentTarget,
+        metadata: {
+            generatedAt: new Date().toISOString(),
+            generatorVersion: '0.2.5',
+            services: ['sagemaker']
+        }
+    };
+}
+
+// ── Real instance catalog data for testing ───────────────────────────────────
+
+const REAL_CATALOG = {
+    'ml.g4dn.xlarge': { category: 'gpu', gpus: 1, cudaVersions: ['11.4', '11.8'] },
+    'ml.g4dn.2xlarge': { category: 'gpu', gpus: 1, cudaVersions: ['11.4', '11.8'] },
+    'ml.g4dn.12xlarge': { category: 'gpu', gpus: 4, cudaVersions: ['11.4', '11.8'] },
+    'ml.g5.xlarge': { category: 'gpu', gpus: 1, cudaVersions: ['11.8', '12.1', '12.2'] },
+    'ml.g5.2xlarge': { category: 'gpu', gpus: 1, cudaVersions: ['11.8', '12.1', '12.2'] },
+    'ml.g5.12xlarge': { category: 'gpu', gpus: 4, cudaVersions: ['11.8', '12.1', '12.2'] },
+    'ml.g5.48xlarge': { category: 'gpu', gpus: 8, cudaVersions: ['11.8', '12.1', '12.2'] },
+    'ml.p3.2xlarge': { category: 'gpu', gpus: 1, cudaVersions: ['11.0', '11.4', '11.8'] },
+    'ml.p3.8xlarge': { category: 'gpu', gpus: 4, cudaVersions: ['11.0', '11.4', '11.8'] },
+    'ml.p3.16xlarge': { category: 'gpu', gpus: 8, cudaVersions: ['11.0', '11.4', '11.8'] },
+    'ml.m5.large': { category: 'cpu', gpus: 0, cudaVersions: null },
+    'ml.m5.xlarge': { category: 'cpu', gpus: 0, cudaVersions: null },
+    'ml.m5.2xlarge': { category: 'cpu', gpus: 0, cudaVersions: null },
+    'ml.m5.4xlarge': { category: 'cpu', gpus: 0, cudaVersions: null },
+    'ml.c5.xlarge': { category: 'cpu', gpus: 0, cudaVersions: null },
+    'ml.c5.2xlarge': { category: 'cpu', gpus: 0, cudaVersions: null },
+    'ml.r5.large': { category: 'cpu', gpus: 0, cudaVersions: null },
+    'ml.r5.xlarge': { category: 'cpu', gpus: 0, cudaVersions: null }
+};
+
+// ── Property Tests ───────────────────────────────────────────────────────────
+
+describe('Cross-Cutting Checker Property-Based Tests', () => {
+
+    const checker = new CrossCuttingChecker();
+
+    // Feature: schema-driven-validation, Property 14: GPU consistency check
+    describe('Property 14: GPU consistency check', () => {
+
+        /**
+         * Validates: Requirements 7.1
+         */
+
+        it('reports error iff NumberOfAcceleratorDevicesRequired != instance GPU count', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(arbGpuInstanceType, arbGpuCount),
+                ([instanceType, icGpuCount]) => {
+                    const instanceInfo = REAL_CATALOG[instanceType];
+                    const instanceGpuCount = instanceInfo.gpus;
+
+                    const context = buildContext({
+                        INSTANCE_TYPE: instanceType,
+                        IC_GPU_COUNT: icGpuCount
+                    });
+
+                    const catalog = buildInstanceCatalog(REAL_CATALOG);
+                    const findings = checker.checkGpuConsistency(context, catalog);
+
+                    if (icGpuCount === instanceGpuCount) {
+                        assert.strictEqual(findings.length, 0,
+                            `Matching GPU count (${icGpuCount}) should produce no errors`);
+                    } else {
+                        assert.strictEqual(findings.length, 1,
+                            `Mismatched GPU count (IC: ${icGpuCount}, instance: ${instanceGpuCount}) should produce exactly one error`);
+                        assert.strictEqual(findings[0].severity, 'error');
+                        assert.strictEqual(findings[0].source, 'cross-cutting');
+                        assert.strictEqual(findings[0].confidence, 'high');
+                        assert.strictEqual(findings[0].fieldPath, 'NumberOfAcceleratorDevicesRequired');
+                    }
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('no error for CPU instances regardless of IC_GPU_COUNT', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(arbCpuInstanceType, arbGpuCount),
+                ([instanceType, icGpuCount]) => {
+                    const context = buildContext({
+                        INSTANCE_TYPE: instanceType,
+                        IC_GPU_COUNT: icGpuCount
+                    });
+
+                    const catalog = buildInstanceCatalog(REAL_CATALOG);
+                    const findings = checker.checkGpuConsistency(context, catalog);
+
+                    // CPU instances have gpus === 0, so the check returns early
+                    assert.strictEqual(findings.length, 0,
+                        'CPU instances should not trigger GPU consistency check');
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+
+    // Feature: schema-driven-validation, Property 15: Tensor parallelism three-way consistency
+    describe('Property 15: Tensor parallelism three-way consistency', () => {
+
+        /**
+         * Validates: Requirements 7.2
+         */
+
+        it('reports error if TP size, accelerator devices, and instance GPUs are not all equal', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(
+                    arbTpModelServer,
+                    arbGpuInstanceType,
+                    arbGpuCount,
+                    arbGpuCount
+                ),
+                ([modelServer, instanceType, tpSize, icGpuCount]) => {
+                    const instanceInfo = REAL_CATALOG[instanceType];
+                    const instanceGpuCount = instanceInfo.gpus;
+
+                    const context = buildContext({
+                        MODEL_SERVER: modelServer,
+                        INSTANCE_TYPE: instanceType,
+                        VLLM_TENSOR_PARALLEL_SIZE: tpSize,
+                        IC_GPU_COUNT: icGpuCount
+                    });
+
+                    const catalog = buildInstanceCatalog(REAL_CATALOG);
+                    const findings = checker.checkTensorParallelism(context, catalog);
+
+                    const allEqual = (tpSize === icGpuCount) && (tpSize === instanceGpuCount);
+
+                    if (allEqual) {
+                        assert.strictEqual(findings.length, 0,
+                            `All values equal (${tpSize}) should produce no errors`);
+                    } else {
+                        assert.ok(findings.length > 0,
+                            `Mismatched values (TP: ${tpSize}, IC: ${icGpuCount}, instance: ${instanceGpuCount}) should produce errors`);
+                        for (const finding of findings) {
+                            assert.strictEqual(finding.severity, 'error');
+                            assert.strictEqual(finding.source, 'cross-cutting');
+                            assert.strictEqual(finding.confidence, 'high');
+                        }
+                    }
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('no error when model server is not vLLM or SGLang', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(
+                    fc.constantFrom('flask', 'fastapi', 'triton', 'djl'),
+                    arbGpuInstanceType,
+                    arbGpuCount,
+                    arbGpuCount
+                ),
+                ([modelServer, instanceType, tpSize, icGpuCount]) => {
+                    const context = buildContext({
+                        MODEL_SERVER: modelServer,
+                        INSTANCE_TYPE: instanceType,
+                        VLLM_TENSOR_PARALLEL_SIZE: tpSize,
+                        IC_GPU_COUNT: icGpuCount
+                    });
+
+                    const catalog = buildInstanceCatalog(REAL_CATALOG);
+                    const findings = checker.checkTensorParallelism(context, catalog);
+
+                    assert.strictEqual(findings.length, 0,
+                        'Non-vLLM/SGLang servers should not trigger tensor parallelism check');
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+
+    // Feature: schema-driven-validation, Property 16: Model source artifact URI requirement
+    describe('Property 16: Model source artifact URI requirement', () => {
+
+        /**
+         * Validates: Requirements 7.4
+         */
+
+        it('reports error iff MODEL_ARTIFACT_URI is empty/unset for artifact-requiring sources', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(
+                    arbArtifactModelSource,
+                    fc.oneof(
+                        fc.constant(''),
+                        fc.constant(null),
+                        fc.constant(undefined),
+                        fc.stringMatching(/^s3:\/\/[a-z0-9-]+\/[a-z0-9/]+$/)
+                    )
+                ),
+                ([modelSource, artifactUri]) => {
+                    const config = { modelSource };
+                    if (artifactUri !== null && artifactUri !== undefined) {
+                        config.MODEL_ARTIFACT_URI = artifactUri;
+                    }
+
+                    const context = buildContext(config);
+                    const findings = checker.checkModelSourceRequirements(context);
+
+                    const isEmptyOrUnset = !artifactUri || (typeof artifactUri === 'string' && artifactUri.trim() === '');
+
+                    // Filter to only artifact URI findings (not hub content arn)
+                    const artifactFindings = findings.filter(f => f.fieldPath === 'MODEL_ARTIFACT_URI');
+
+                    if (isEmptyOrUnset) {
+                        assert.strictEqual(artifactFindings.length, 1,
+                            `Empty/unset MODEL_ARTIFACT_URI with source "${modelSource}" should produce an error`);
+                        assert.strictEqual(artifactFindings[0].severity, 'error');
+                        assert.strictEqual(artifactFindings[0].source, 'cross-cutting');
+                    } else {
+                        assert.strictEqual(artifactFindings.length, 0,
+                            `Non-empty MODEL_ARTIFACT_URI "${artifactUri}" should produce no artifact URI error`);
+                    }
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('no error when model source does not require artifact URI', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.constantFrom('huggingface', 'local', 'custom', 'none'),
+                (modelSource) => {
+                    const context = buildContext({
+                        modelSource,
+                        MODEL_ARTIFACT_URI: ''
+                    });
+
+                    const findings = checker.checkModelSourceRequirements(context);
+                    const artifactFindings = findings.filter(f => f.fieldPath === 'MODEL_ARTIFACT_URI');
+
+                    assert.strictEqual(artifactFindings.length, 0,
+                        `Model source "${modelSource}" should not require MODEL_ARTIFACT_URI`);
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+
+    // Feature: schema-driven-validation, Property 17: CUDA compatibility check
+    describe('Property 17: CUDA compatibility check', () => {
+
+        /**
+         * Validates: Requirements 7.6
+         */
+
+        it('reports error iff intersection of instance CUDA versions with base image CUDA major version is empty', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(
+                    arbGpuInstanceType,
+                    arbCudaVersion
+                ),
+                ([instanceType, requiredCuda]) => {
+                    const instanceInfo = REAL_CATALOG[instanceType];
+                    const instanceCudaVersions = instanceInfo.cudaVersions;
+
+                    const context = buildContext({
+                        INSTANCE_TYPE: instanceType,
+                        acceleratorVersion: requiredCuda
+                    });
+
+                    const catalog = buildInstanceCatalog(REAL_CATALOG);
+                    const findings = checker.checkCudaCompatibility(context, catalog);
+
+                    // Check if any instance CUDA version shares the same major version
+                    const requiredMajor = requiredCuda.split('.')[0];
+                    const hasCompatible = instanceCudaVersions.some(v => v.split('.')[0] === requiredMajor);
+
+                    if (hasCompatible) {
+                        assert.strictEqual(findings.length, 0,
+                            `Compatible CUDA (required: ${requiredCuda}, available: [${instanceCudaVersions}]) should produce no errors`);
+                    } else {
+                        assert.strictEqual(findings.length, 1,
+                            `Incompatible CUDA (required: ${requiredCuda}, available: [${instanceCudaVersions}]) should produce exactly one error`);
+                        assert.strictEqual(findings[0].severity, 'error');
+                        assert.strictEqual(findings[0].source, 'cross-cutting');
+                        assert.strictEqual(findings[0].fieldPath, 'acceleratorVersion');
+                    }
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('no error when instance has no CUDA versions (CPU instance)', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(arbCpuInstanceType, arbCudaVersion),
+                ([instanceType, requiredCuda]) => {
+                    const context = buildContext({
+                        INSTANCE_TYPE: instanceType,
+                        acceleratorVersion: requiredCuda
+                    });
+
+                    const catalog = buildInstanceCatalog(REAL_CATALOG);
+                    const findings = checker.checkCudaCompatibility(context, catalog);
+
+                    assert.strictEqual(findings.length, 0,
+                        'CPU instances with null cudaVersions should not trigger CUDA check');
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+
+    // Feature: schema-driven-validation, Property 18: Model type instance alignment
+    describe('Property 18: Model type instance alignment', () => {
+
+        /**
+         * Validates: Requirements 7.7
+         */
+
+        it('reports warning iff model type is predictor and instance is GPU', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(
+                    arbInstanceType,
+                    fc.boolean()
+                ),
+                ([instanceType, isPredictor]) => {
+                    const instanceInfo = REAL_CATALOG[instanceType];
+                    if (!instanceInfo) return true; // skip unknown instances
+
+                    const config = {
+                        INSTANCE_TYPE: instanceType,
+                        modelType: isPredictor ? 'predictor' : 'transformer'
+                    };
+
+                    const context = buildContext(config);
+                    const catalog = buildInstanceCatalog(REAL_CATALOG);
+                    const findings = checker.checkModelTypeInstanceAlignment(context, catalog);
+
+                    const isGpuInstance = instanceInfo.gpus > 0 || instanceInfo.category === 'gpu';
+
+                    if (isPredictor && isGpuInstance) {
+                        assert.strictEqual(findings.length, 1,
+                            `Predictor model on GPU instance ${instanceType} should produce a warning`);
+                        assert.strictEqual(findings[0].severity, 'warning');
+                        assert.strictEqual(findings[0].source, 'cross-cutting');
+                        assert.strictEqual(findings[0].confidence, 'high');
+                        assert.strictEqual(findings[0].fieldPath, 'INSTANCE_TYPE');
+                    } else {
+                        assert.strictEqual(findings.length, 0,
+                            'Non-predictor or CPU instance should produce no warnings');
+                    }
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('no warning for predictor models on CPU instances', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                arbCpuInstanceType,
+                (instanceType) => {
+                    const context = buildContext({
+                        INSTANCE_TYPE: instanceType,
+                        modelType: 'predictor'
+                    });
+
+                    const catalog = buildInstanceCatalog(REAL_CATALOG);
+                    const findings = checker.checkModelTypeInstanceAlignment(context, catalog);
+
+                    assert.strictEqual(findings.length, 0,
+                        'Predictor model on CPU instance should produce no warnings');
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+});

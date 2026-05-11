@@ -64,7 +64,7 @@ let AWS_REGIONS
 let VALID_REGION_CODES
 
 try {
-    AWS_REGIONS = loadCatalog('./catalogs/regions.json')
+    AWS_REGIONS = loadCatalog('../lib/catalogs/regions.json')
     VALID_REGION_CODES = new Set(AWS_REGIONS.map(r => r.code))
 } catch (err) {
     process.stderr.write(`[region-picker] Fatal: ${err.message}\n`)
