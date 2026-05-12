@@ -90,6 +90,9 @@ program
 
     // --- Authentication ---
     .addOption(new Option('--hf-token <token>', 'HuggingFace token (or "$HF_TOKEN" for env var reference)'))
+    .addOption(new Option('--hf-token-arn <arn>', 'HuggingFace token ARN from Secrets Manager'))
+    .addOption(new Option('--ngc-token <token>', 'NVIDIA NGC token (or "$NGC_API_KEY" for env var reference)'))
+    .addOption(new Option('--ngc-token-arn <arn>', 'NVIDIA NGC token ARN from Secrets Manager'))
 
     // --- Optional Features ---
     .addOption(new Option('--include-sample', 'Include sample model code'))
@@ -106,7 +109,18 @@ program
     .addOption(new Option('--validate-with-docker', 'Enable Docker introspection validation (opt-in)'))
     .addOption(new Option('--offline', 'Disable HuggingFace API lookups'))
 
-    .action((projectNameArgs, options) => run(projectNameArgs?.[0] || null, options));
+    .action((projectNameArgs, options) => {
+        // Mutual exclusion validation: plaintext token and ARN flags cannot both be provided
+        if (options.hfToken && options.hfTokenArn) {
+            console.error('❌ Cannot specify both --hf-token and --hf-token-arn. Use one or the other.');
+            process.exit(1);
+        }
+        if (options.ngcToken && options.ngcTokenArn) {
+            console.error('❌ Cannot specify both --ngc-token and --ngc-token-arn. Use one or the other.');
+            process.exit(1);
+        }
+        return run(projectNameArgs?.[0] || null, options);
+    });
 
 // Custom help formatting — group options into logical sections (root command only)
 program.configureHelp({
@@ -174,7 +188,7 @@ program.configureHelp({
                 groups.hyperpod.push(opt);
             } else if (['--model-env', '--server-env'].includes(long)) {
                 groups.env.push(opt);
-            } else if (['--hf-token'].includes(long)) {
+            } else if (['--hf-token', '--hf-token-arn', '--ngc-token', '--ngc-token-arn'].includes(long)) {
                 groups.auth.push(opt);
             } else if (['--include-sample', '--include-testing', '--test-types'].includes(long)) {
                 groups.features.push(opt);
@@ -255,6 +269,7 @@ program
     .option('--ci', 'Provision CI integration infrastructure')
     .option('--skip-ci', 'Skip CI infrastructure provisioning')
     .option('--skip-s3', 'Skip S3 bucket creation')
+    .option('--skip-post-setup', 'Skip post-setup chain (mcp init, sync-architectures, sync-schemas)')
     .action(async (action, args, options) => {
         const { default: BootstrapCommandHandler } = await import('../src/lib/bootstrap-command-handler.js');
         const handler = new BootstrapCommandHandler();
@@ -314,10 +329,31 @@ program
     .option('--project', 'Use project-level registry')
     .option('--parameters <json>', 'Parameters JSON string')
     .option('--generator-version <version>', 'Generator version')
+    // Options used by `registry list-architectures`
+    .option('--server <name>', 'Filter by server name (for list-architectures)')
+    .option('--verbose', 'Show full list of supported model types (for list-architectures)')
     .action(async (action, args, options) => {
         const { default: RegistryCommandHandler } = await import('../src/lib/registry-command-handler.js');
         const handler = new RegistryCommandHandler();
         await handler.handle([action, ...args], options);
+    });
+
+program
+    .command('secrets')
+    .description('Manage secrets in AWS Secrets Manager (create, list, describe)')
+    .argument('[action]', 'Secrets action (create, list, describe)')
+    .argument('[args...]', 'Additional arguments')
+    .option('--type <type>', 'Secret type (e.g., hf-token, ngc-token)')
+    .option('--name <label>', 'Secret label (used in naming convention)')
+    .option('--secret-value <value>', 'Secret value (masked in terminal)')
+    .option('--description <text>', 'Secret description')
+    .option('--kms-key-id <key>', 'KMS key for encryption')
+    .option('--json <json-or-path>', 'JSON input (inline or file://path)')
+    .action(async (action, args, options) => {
+        const { default: SecretsCommandHandler } = await import('../src/lib/secrets-command-handler.js');
+        const handler = new SecretsCommandHandler();
+        const allArgs = action ? [action, ...args] : [];
+        await handler.handle(allArgs, options);
     });
 
 program

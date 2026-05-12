@@ -114,11 +114,11 @@ function log(message) {
  * @param {string} search - Search query string
  * @param {object} instanceCatalog - Instance catalog object
  * @param {object} [options={}]
- * @param {number} [options.limit=8] - Max results
+ * @param {number} [options.limit=10] - Max results
  * @returns {string[]} Matching instance type names, sorted by relevance
  */
 function searchInstancesByTag(search, instanceCatalog, options = {}) {
-    const { limit = 8 } = options
+    const { limit = 10 } = options
     const candidates = Object.entries(instanceCatalog)
 
     // Tokenize search into lowercase keywords
@@ -236,7 +236,7 @@ async function handleGetInstanceRecommendation(params) {
         maxSequenceLength,
         batchSize,
         cudaVersion,
-        limit = 8,
+        limit = 10,
         context
     } = params
 
@@ -361,11 +361,14 @@ async function handleGetInstanceRecommendation(params) {
     }
 
     // Step 2: Estimate VRAM
+    // Use model's max_position_embeddings as the sequence length when no explicit value is provided.
+    // This ensures KV cache is sized for the model's actual context window, not the 4096 default.
+    const resolvedMaxSeqLen = effectiveMaxSeqLen || modelMetadata.maxPositionEmbeddings || undefined
     const vramEstimate = estimateVram({
         parameterCount: modelMetadata.parameterCount,
         dtype: modelMetadata.dtype,
         quantization: quantization || undefined,
-        maxSequenceLength: effectiveMaxSeqLen || undefined,
+        maxSequenceLength: resolvedMaxSeqLen,
         batchSize: effectiveBatchSize || undefined
     })
 
@@ -502,7 +505,7 @@ server.tool(
         maxSequenceLength: z.number().optional().describe('Max context/sequence length (affects KV cache estimate)'),
         batchSize: z.number().optional().describe('Expected concurrent batch size'),
         cudaVersion: z.string().optional().describe('Required CUDA version from base image (filters incompatible instances)'),
-        limit: z.number().optional().default(8).describe('Maximum number of instance recommendations to return'),
+        limit: z.number().optional().default(10).describe('Maximum number of instance recommendations to return'),
         context: z.object({
             architecture: z.string().optional(),
             backend: z.string().optional(),
@@ -526,7 +529,7 @@ server.tool(
         maxSequenceLength: z.number().optional().describe('Max context/sequence length (affects KV cache estimate)'),
         batchSize: z.number().optional().describe('Expected concurrent batch size'),
         cudaVersion: z.string().optional().describe('Required CUDA version from base image (filters incompatible instances)'),
-        limit: z.number().optional().default(8).describe('Maximum number of instance recommendations to return'),
+        limit: z.number().optional().default(10).describe('Maximum number of instance recommendations to return'),
         context: z.object({
             architecture: z.string().optional(),
             backend: z.string().optional(),

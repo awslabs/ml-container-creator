@@ -106,7 +106,7 @@ await test('Llama-2-7B recommendations are non-empty with required fields', asyn
 
 console.log('\ninstance-sizer: known model (Llama-2-70B)\n')
 
-await test('Llama-2-70B VRAM estimate is between 140 and 145 GB', async () => {
+await test('Llama-2-70B VRAM estimate is between 140 and 150 GB', async () => {
     const result = await handleGetInstanceRecommendation({
         modelName: 'meta-llama/Llama-2-70b-hf'
     })
@@ -114,8 +114,8 @@ await test('Llama-2-70B VRAM estimate is between 140 and 145 GB', async () => {
 
     assert.ok(data.metadata.estimatedVramGb >= 140,
         `estimatedVramGb should be >= 140, got: ${data.metadata.estimatedVramGb}`)
-    assert.ok(data.metadata.estimatedVramGb <= 145,
-        `estimatedVramGb should be <= 145, got: ${data.metadata.estimatedVramGb}`)
+    assert.ok(data.metadata.estimatedVramGb <= 150,
+        `estimatedVramGb should be <= 150, got: ${data.metadata.estimatedVramGb}`)
 })
 
 await test('Llama-2-70B includes multi-GPU instances (TP > 1)', async () => {

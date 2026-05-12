@@ -101,7 +101,8 @@ const enrichedImageCatalogSchema = {
                     type: 'object',
                     additionalProperties: { $ref: '#/definitions/profileEntry' }
                 },
-                notes: { type: 'string' }
+                notes: { type: 'string' },
+                supportedModelTypes: { type: 'array', items: { type: 'string' } }
             },
             additionalProperties: false
         }

@@ -119,6 +119,23 @@ export async function run(projectName, options) {
     let answers;
     if (configManager.shouldSkipPrompts()) {
         console.log('\n🚀 Skipping prompts - using configuration from other sources');
+
+        // Fail-fast if required parameters are missing
+        const missing = configManager.getMissingRequiredParameters();
+        if (missing.length > 0) {
+            console.error('\n❌ Cannot skip prompts — required parameters are missing:\n');
+            for (const param of missing) {
+                const matrix = configManager._getParameterMatrix()[param];
+                const cliFlag = matrix?.cliOption ? `--${matrix.cliOption}` : '';
+                const envVar = matrix?.envVar || '';
+                const hints = [cliFlag, envVar].filter(Boolean).join(' or ');
+                console.error(`   • ${param}${hints ? ` (${hints})` : ''}`);
+            }
+            console.error('\n   Provide these via CLI flags, environment variables, or a config file.');
+            console.error('   Run "ml-container-creator --help" for available options.\n');
+            process.exit(1);
+        }
+
         answers = configManager.getFinalConfiguration();
 
         // Infer modelSource from model name prefix if not set
@@ -493,7 +510,9 @@ async function _ensureTemplateVariables(answers, registryConfigManager = null) {
         chatTemplate: null,
         chatTemplateSource: null,
         hfToken: null,
+        hfTokenArn: null,
         ngcApiKey: null,
+        ngcTokenArn: null,
         envVars: {},
         inferenceAmiVersion: null,
         accelerator: null,

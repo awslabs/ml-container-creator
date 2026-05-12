@@ -28,7 +28,6 @@ This table shows every parameter, its CLI flag, which configuration sources supp
 | **Core** |
 | Deployment Config | `--deployment-config` | -- | yes | -- | -- | yes |
 | Engine | `--engine` | -- | yes | -- | -- | no |
-| Framework | `--framework` | -- | yes | -- | -- | no |
 | Model Server | `--model-server` | -- | yes | -- | -- | no |
 | Model Format | `--model-format` | -- | yes | -- | -- | yes |
 | **Modules** |
@@ -76,12 +75,12 @@ The `--deployment-config` flag bundles the architecture and model server into a 
 | `triton-tensorrtllm` | Triton | TensorRT-LLM | LLM serving on Triton with TensorRT-LLM |
 | `triton-python` | Triton | Python | Custom Python models on Triton |
 
-For traditional ML configs (`http-flask`, `http-fastapi`), also specify `--engine` to set the ML framework.
+For traditional ML configs (`http-flask`, `http-fastapi`), also specify `--engine` to set the ML engine (sklearn, xgboost, tensorflow).
 
 ### Model Formats
 
-| Framework | Supported Formats | Default |
-|-----------|-------------------|---------|
+| Engine | Supported Formats | Default |
+|--------|-------------------|---------|
 | sklearn | `pkl`, `joblib` | `pkl` |
 | xgboost | `json`, `model`, `ubj` | `json` |
 | tensorflow | `keras`, `h5`, `SavedModel` | `keras` |
@@ -213,6 +212,23 @@ ml-container-creator my-llm-project \
 
 **Interactive prompt:** When you enter a custom model ID during generation, you will be prompted for a token. You can enter the token directly, reference `$HF_TOKEN`, or leave it empty for public models.
 
+### Secrets Manager Alternative
+
+For improved security, use AWS Secrets Manager instead of plaintext tokens. Pass an ARN instead of a literal value:
+
+```bash
+ml-container-creator my-project \
+  --deployment-config=transformers-vllm \
+  --model-name=meta-llama/Llama-3-8B \
+  --hf-token-arn=arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token/production-AbCdEf \
+  --skip-prompts
+```
+
+This resolves the token at build-time and runtime without baking it into the image. See [Secrets Management](secrets.md) for the full workflow, including creating and managing secrets.
+
+!!!note
+    You cannot use both `--hf-token` and `--hf-token-arn` simultaneously. Choose one approach per project.
+
 ### Security
 
 Tokens are baked into the Docker image. Anyone with access to the image can extract the token via `docker inspect`.
@@ -221,6 +237,7 @@ Tokens are baked into the Docker image. Anyone with access to the image can extr
 - Never commit tokens to version control.
 - Use read-only tokens with minimal permissions.
 - Rotate tokens periodically. Generate new ones at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+- Consider using [Secrets Manager](secrets.md) for zero-knowledge images and automatic rotation.
 
 ### Troubleshooting Authentication
 
@@ -340,3 +357,90 @@ Pass `--no-validate` to the generator to skip schema validation at generation ti
 ```bash
 ml-container-creator my-project --deployment-config=transformers-vllm --no-validate --skip-prompts
 ```
+
+### Architecture Compatibility
+
+Architecture compatibility validation checks whether your chosen model's `model_type` (from its HuggingFace `config.json`) is supported by the selected server version. This catches mismatches early — before you spend time building and deploying a container that won't load the model.
+
+#### Syncing Architecture Data
+
+Populate the architecture registry by scraping model type lists from server GitHub repositories (vLLM, SGLang, TensorRT-LLM):
+
+```bash
+ml-container-creator registry sync-architectures
+```
+
+This fetches each server version's model registry source file, parses it for supported `model_type` values, and writes them into the `supportedModelTypes` field in `model-servers.json`.
+
+!!!note
+    `bootstrap` automatically runs `sync-architectures` as part of its post-setup chain. You only need to run it manually to pick up newly released server versions.
+
+#### Viewing Supported Architectures
+
+List supported architecture counts per server version:
+
+```bash
+ml-container-creator registry list-architectures
+```
+
+Output:
+
+```
+Model Architecture Support:
+
+  Server                Version      Architectures
+  ────────────────────  ───────────  ─────────────
+  vllm                  0.6.3        85
+  vllm                  0.5.5        72
+  sglang                0.4.1        68
+  tensorrt-llm          0.15.0       45
+```
+
+Filter by server or show the full model type list:
+
+```bash
+ml-container-creator registry list-architectures --server vllm
+ml-container-creator registry list-architectures --verbose
+```
+
+#### Pre-Generation Compatibility Check
+
+Check a specific model's compatibility before generating a project:
+
+```bash
+ml-container-creator registry check meta-llama/Llama-3-8B
+```
+
+Output:
+
+```
+🔍 Checking model: meta-llama/Llama-3-8B
+
+   Fetching model config from HuggingFace...
+   Model type: llama
+
+   ✅ Compatible server versions:
+      • vllm 0.6.3
+      • vllm 0.5.5
+      • sglang 0.4.1
+      • tensorrt-llm 0.15.0
+
+   ⚠️  Potentially incompatible server versions:
+      • tensorrt-llm 0.12.0
+```
+
+This fetches the model's `config.json` from HuggingFace, extracts the `model_type`, and checks it against all server versions in the catalog.
+
+#### Generation-Time Warning
+
+When you generate a project, the architecture check runs automatically. If the model type is not in the server's supported list, you'll see an advisory warning:
+
+```
+⚠️  Model architecture "mamba" may not be supported by vllm 0.5.5. Consider a newer server version.
+```
+
+This is advisory only — generation still completes. Some models work via `trust_remote_code` even when not in the official registry.
+
+#### `do/validate` Architecture Findings
+
+The `do/validate` script includes architecture compatibility as one of its cross-cutting checks. If the model type doesn't match the server's supported list, it reports a medium-confidence warning alongside other validation findings.

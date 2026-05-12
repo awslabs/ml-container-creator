@@ -25,6 +25,45 @@ const FAST_PROPERTY_CONFIG = {
 // ── Generators ───────────────────────────────────────────────────────────────
 
 /**
+ * Generate a model_type string (lowercase, alphanumeric with underscores).
+ */
+const arbModelType = fc.constantFrom(
+    'llama', 'qwen2', 'mistral', 'gemma2', 'phi3', 'falcon',
+    'gpt_neox', 'mpt', 'bloom', 'opt', 'starcoder2', 'deepseek'
+);
+
+/**
+ * Generate a model server name.
+ */
+const arbModelServer = fc.constantFrom('vllm', 'sglang', 'tensorrt-llm');
+
+/**
+ * Generate a framework version string.
+ */
+const arbFrameworkVersion = fc.constantFrom(
+    '0.10.1', '0.9.0', '0.8.5', '0.7.3', '0.6.0', '1.0.0'
+);
+
+/**
+ * Build a model servers catalog for architecture compatibility testing.
+ * @param {string} server - Server name
+ * @param {string} version - Framework version
+ * @param {string[]} supportedModelTypes - Array of supported model types
+ */
+function buildModelServersCatalog(server, version, supportedModelTypes) {
+    return {
+        [server]: [
+            {
+                image: `${server}/${server}:v${version}`,
+                tag: `v${version}`,
+                labels: { framework_version: version },
+                supportedModelTypes
+            }
+        ]
+    };
+}
+
+/**
  * Generate a valid SageMaker instance type name.
  */
 const arbInstanceType = fc.constantFrom(
@@ -467,6 +506,121 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
 
                     assert.strictEqual(findings.length, 0,
                         'Predictor model on CPU instance should produce no warnings');
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+    });
+
+    // Feature: model-architecture-validation, Property 19: Model architecture compatibility
+    describe('Property 19: Model architecture compatibility check', () => {
+
+        /**
+         * Validates: Requirements 5.3-5.5
+         */
+
+        it('compatible model_type produces no findings', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(arbModelServer, arbFrameworkVersion, arbModelType),
+                ([server, version, modelType]) => {
+                    // Build catalog where the model_type IS in supportedModelTypes
+                    const supportedTypes = [modelType, 'other_type_1', 'other_type_2'];
+                    const catalog = buildModelServersCatalog(server, version, supportedTypes);
+
+                    const context = buildContext({
+                        modelType,
+                        modelServer: server,
+                        baseImageVersion: version
+                    });
+
+                    const findings = checker.checkModelArchitectureCompatibility(context, catalog);
+
+                    assert.strictEqual(findings.length, 0,
+                        `Compatible model_type "${modelType}" with ${server} ${version} should produce no findings`);
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('incompatible model_type produces a warning finding', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(arbModelServer, arbFrameworkVersion, arbModelType),
+                ([server, version, modelType]) => {
+                    // Build catalog where the model_type is NOT in supportedModelTypes
+                    const supportedTypes = ['completely_different_arch', 'another_arch', 'third_arch'];
+                    const catalog = buildModelServersCatalog(server, version, supportedTypes);
+
+                    const context = buildContext({
+                        modelType,
+                        modelServer: server,
+                        baseImageVersion: version
+                    });
+
+                    const findings = checker.checkModelArchitectureCompatibility(context, catalog);
+
+                    assert.strictEqual(findings.length, 1,
+                        `Incompatible model_type "${modelType}" should produce exactly one finding`);
+                    assert.strictEqual(findings[0].severity, 'warning');
+                    assert.strictEqual(findings[0].confidence, 'medium');
+                    assert.strictEqual(findings[0].source, 'cross-cutting');
+                    assert.strictEqual(findings[0].fieldPath, 'MODEL_NAME');
+                    assert.strictEqual(findings[0].invalidValue, modelType);
+                    assert.strictEqual(findings[0].constraint.type, 'architecture-compatibility');
+                    assert.strictEqual(findings[0].constraint.server, server);
+                    assert.strictEqual(findings[0].constraint.version, version);
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('empty supportedModelTypes produces no findings (graceful skip)', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(arbModelServer, arbFrameworkVersion, arbModelType),
+                ([server, version, modelType]) => {
+                    // Build catalog with empty supportedModelTypes (sync not run)
+                    const catalog = buildModelServersCatalog(server, version, []);
+
+                    const context = buildContext({
+                        modelType,
+                        modelServer: server,
+                        baseImageVersion: version
+                    });
+
+                    const findings = checker.checkModelArchitectureCompatibility(context, catalog);
+
+                    assert.strictEqual(findings.length, 0,
+                        'Empty supportedModelTypes should skip check and produce no findings');
+                    return true;
+                }
+            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        });
+
+        it('missing model_type produces no findings', function () {
+            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+
+            fc.assert(fc.property(
+                fc.tuple(arbModelServer, arbFrameworkVersion),
+                ([server, version]) => {
+                    // Build catalog with supported types but context has no modelType
+                    const supportedTypes = ['llama', 'mistral', 'qwen2'];
+                    const catalog = buildModelServersCatalog(server, version, supportedTypes);
+
+                    const context = buildContext({
+                        modelServer: server,
+                        baseImageVersion: version
+                        // modelType intentionally omitted
+                    });
+
+                    const findings = checker.checkModelArchitectureCompatibility(context, catalog);
+
+                    assert.strictEqual(findings.length, 0,
+                        'Missing model_type should skip check and produce no findings');
                     return true;
                 }
             ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });

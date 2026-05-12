@@ -51,16 +51,31 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Wait for log group to exist before tailing
-MAX_WAIT=300
+MAX_WAIT=900
 INTERVAL=10
 ELAPSED=0
 
+# Try IC-specific log group first, fall back to endpoint log group
+FALLBACK_LOG_GROUP="/aws/sagemaker/Endpoints/${ENDPOINT}"
+
 while true; do
+    # Check IC-specific log group
     if aws logs describe-log-groups \
         --log-group-name-prefix "${LOG_GROUP}" \
         --region "${AWS_REGION}" \
         --query "logGroups[?logGroupName=='${LOG_GROUP}'].logGroupName" \
         --output text 2>/dev/null | grep -q "${LOG_GROUP}"; then
+        break
+    fi
+
+    # Check endpoint-level log group as fallback
+    if aws logs describe-log-groups \
+        --log-group-name-prefix "${FALLBACK_LOG_GROUP}" \
+        --region "${AWS_REGION}" \
+        --query "logGroups[?logGroupName=='${FALLBACK_LOG_GROUP}'].logGroupName" \
+        --output text 2>/dev/null | grep -q "${FALLBACK_LOG_GROUP}"; then
+        LOG_GROUP="${FALLBACK_LOG_GROUP}"
+        echo "   ℹ️  Using endpoint log group: ${LOG_GROUP}"
         break
     fi
 
@@ -123,7 +138,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Wait for log group to exist before tailing
-MAX_WAIT=300
+MAX_WAIT=900
 INTERVAL=10
 ELAPSED=0
 
@@ -195,7 +210,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Wait for log group to exist before tailing
-MAX_WAIT=300
+MAX_WAIT=900
 INTERVAL=10
 ELAPSED=0
 

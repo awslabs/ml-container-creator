@@ -1053,7 +1053,7 @@ function formatImageChoices(entries, isTransformer) {
             ? `${entry.repository.padEnd(30)} ${entry.tag.padEnd(16)} ${entry.architecture.padEnd(7)} ${cuda.padEnd(6)} ${python.padEnd(8)} ${date}`
             : `${entry.repository.padEnd(30)} ${entry.tag.padEnd(16)} ${entry.architecture.padEnd(7)} ${python.padEnd(8)} ${date}`;
 
-        return { name, value: entry.image };
+        return { name, value: entry.image, _meta: { labels: entry.labels, accelerator: entry.accelerator } };
     });
 }
 

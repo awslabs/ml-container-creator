@@ -15,10 +15,16 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import PayloadBuilder from './payload-builder.js';
 import SchemaValidationEngine from './schema-validation-engine.js';
 import ServiceModelParser from './service-model-parser.js';
+import CrossCuttingChecker from './cross-cutting-checker.js';
+import HuggingFaceClient from './huggingface-client.js';
 import { getRegistryPath, loadManifest } from './schema-sync.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * Parse a do/config shell file into a key-value object.
@@ -122,6 +128,49 @@ export async function run(options = {}) {
     });
 
     const report = await engine.validate(context);
+
+    // Run model architecture compatibility check (Requirement 5.1-5.2)
+    if (config.MODEL_NAME) {
+        try {
+            const catalogPath = path.resolve(__dirname, '../../servers/lib/catalogs/model-servers.json');
+            if (existsSync(catalogPath)) {
+                const modelServersCatalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
+
+                // Fetch model's config.json from HuggingFace to get model_type
+                const hfClient = new HuggingFaceClient({ timeout: 10000 });
+                const modelConfig = await hfClient.fetchModelConfig(config.MODEL_NAME);
+                const modelType = modelConfig?.model_type || null;
+
+                if (modelType) {
+                    // Extract baseImageVersion from BASE_IMAGE (e.g., "vllm/vllm-openai:v0.10.1" → "v0.10.1")
+                    const baseImage = config.BASE_IMAGE || '';
+                    const baseImageVersion = baseImage.includes(':') ? baseImage.split(':').pop() : '';
+                    // Strip leading 'v' to match catalog's framework_version format (e.g., "v0.10.1" → "0.10.1")
+                    const frameworkVersion = baseImageVersion.replace(/^v/, '');
+
+                    const modelServer = config.MODEL_SERVER || '';
+
+                    // Build context fields for the architecture checker
+                    const archContext = {
+                        config: {
+                            modelType,
+                            modelServer,
+                            baseImageVersion: frameworkVersion
+                        }
+                    };
+
+                    const checker = new CrossCuttingChecker();
+                    const archFindings = checker.checkModelArchitectureCompatibility(archContext, modelServersCatalog);
+                    for (const finding of archFindings) {
+                        report.addFinding(finding);
+                    }
+                }
+            }
+        } catch {
+            // Graceful degradation: if architecture check fails, continue without it
+        }
+    }
+
     const summary = report.getSummary();
 
     // Load manifest for version info

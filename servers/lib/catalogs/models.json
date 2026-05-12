@@ -1,6 +1,9 @@
 {
     "openai/gpt-oss-20b": {
         "family": "gpt-oss",
+        "parameterCount": 20000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 8192,
         "gated": false,
         "tags": [
             "text-generation",
@@ -99,6 +102,9 @@
     },
     "meta-llama/Llama-2-70b-chat-hf": {
         "family": "llama-2",
+        "parameterCount": 70000000000,
+        "defaultDtype": "float16",
+        "maxPositionEmbeddings": 4096,
         "gated": true,
         "tags": [
             "text-generation",
@@ -255,6 +261,30 @@
             "awq",
             "gptq"
         ],
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "meta-llama/Llama-2-70b-hf": {
+        "family": "llama-2",
+        "parameterCount": 70000000000,
+        "defaultDtype": "float16",
+        "maxPositionEmbeddings": 4096,
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-2"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "notes": "Llama-2 70B base model (non-chat). Requires multi-GPU for inference.",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validationLevel": "community-validated",
+        "modelType": "transformer",
         "tasks": [
             "text-generation"
         ]

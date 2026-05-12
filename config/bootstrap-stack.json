@@ -105,6 +105,20 @@
                     "arn:aws:s3:::ml-container-creator-*",
                     "arn:aws:s3:::ml-container-creator-*/*"
                   ]
+                },
+                {
+                  "Sid": "SecretsManagerRead",
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
+                  ],
+                  "Resource": "arn:aws:secretsmanager:*:*:secret:mlcc/*",
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:ResourceTag/mlcc:managed-by": "ml-container-creator"
+                    }
+                  }
                 }
               ]
             }
