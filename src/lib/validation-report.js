@@ -22,7 +22,14 @@ export default class ValidationReport {
         const source = finding.source || '';
 
         if (source === 'cross-cutting') {
-            this.crossCuttingErrors.push(finding);
+            // Cross-cutting findings with medium/low confidence are advisory, not errors
+            if (finding.confidence === 'medium' || finding.confidence === 'low') {
+                this.advisoryFindings.push(finding);
+            } else if (finding.severity === 'warning') {
+                this.warnings.push(finding);
+            } else {
+                this.crossCuttingErrors.push(finding);
+            }
         } else if (source === 'smart-mode' || source.startsWith('smart:')) {
             // Smart-mode findings are advisory UNLESS confidence is definitive AND severity is error
             if (finding.confidence === 'definitive' && finding.severity === 'error') {

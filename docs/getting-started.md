@@ -116,6 +116,9 @@ If you haven't already, run `ml-container-creator bootstrap` to set up your IAM 
 ml-container-creator bootstrap sync-schemas
 ```
 
+!!!tip
+    `bootstrap` automatically chains post-setup steps: AWS resources → mcp init → sync-architectures → sync-schemas. You don't need to run `sync-schemas` separately after a fresh bootstrap. Use `--skip-post-setup` to bypass the chain if you only need the core AWS resources.
+
 ```bash
 ./do/build        # Build the Docker image
 ./do/push         # Push to Amazon ECR

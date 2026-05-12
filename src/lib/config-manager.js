@@ -300,6 +300,15 @@ export default class ConfigManager {
             finalConfig.hfToken = this._resolveHfToken(finalConfig.hfToken);
         }
 
+        // Mutual exclusion: ARN takes precedence over plaintext when both are set
+        // (CLI validation should prevent this, but enforce at config level too)
+        if (finalConfig.hfTokenArn) {
+            finalConfig.hfToken = null;
+        }
+        if (finalConfig.ngcTokenArn) {
+            finalConfig.ngcApiKey = null;
+        }
+
         // Map awsRoleArn to roleArn for templates
         if (finalConfig.awsRoleArn) {
             finalConfig.roleArn = finalConfig.awsRoleArn;
@@ -639,6 +648,28 @@ export default class ConfigManager {
                 packageJson: false,
                 mcp: false,
                 promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'bounded'
+            },
+            hfTokenArn: {
+                cliOption: 'hf-token-arn',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
+                required: false,
+                default: null,
+                valueSpace: 'bounded'
+            },
+            ngcTokenArn: {
+                cliOption: 'ngc-token-arn',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: false,
                 required: false,
                 default: null,
                 valueSpace: 'bounded'
@@ -1672,6 +1703,18 @@ export default class ConfigManager {
                 }
             } catch {
                 // deploymentConfig already flagged as invalid above
+            }
+        }
+
+        // Validate mutual exclusion: plaintext token and ARN cannot both be set
+        if (this.config.hfToken && this.config.hfTokenArn) {
+            errors.push('Cannot specify both --hf-token and --hf-token-arn. Use one or the other.');
+        }
+        if (this.config.ngcTokenArn) {
+            // Check ngcToken from CLI options (Commander converts --ngc-token to ngcToken)
+            const ngcTokenFromCli = this.options['ngc-token'];
+            if (ngcTokenFromCli) {
+                errors.push('Cannot specify both --ngc-token and --ngc-token-arn. Use one or the other.');
             }
         }
 

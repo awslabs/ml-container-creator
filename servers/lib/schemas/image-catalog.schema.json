@@ -145,6 +145,12 @@
                 },
                 "notes": {
                     "type": "string"
+                },
+                "supportedModelTypes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             },
             "additionalProperties": false

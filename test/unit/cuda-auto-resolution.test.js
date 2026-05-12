@@ -103,9 +103,9 @@ describe('CUDA auto-resolution', function () {
     describe('CUDA AMI mapping', () => {
         it('maps known CUDA versions to AMI versions', () => {
             const knownMappings = {
-                '11.8': 'al2-ami-sagemaker-inference-gpu-3-1',
+                '11.8': 'al2-ami-sagemaker-inference-gpu-2-1',
                 '12.1': 'al2-ami-sagemaker-inference-gpu-3-1',
-                '12.4': 'al2-ami-sagemaker-inference-gpu-3-2'
+                '12.4': 'al2023-ami-sagemaker-inference-gpu-4-1'
             };
 
             for (const [cuda, expectedAmi] of Object.entries(knownMappings)) {

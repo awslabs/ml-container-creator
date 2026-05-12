@@ -22,6 +22,7 @@ export default class CrossCuttingChecker {
         findings.push(...this.checkRoleArnFormat(context));
         findings.push(...this.checkCudaCompatibility(context, instanceCatalog));
         findings.push(...this.checkModelTypeInstanceAlignment(context, instanceCatalog));
+        findings.push(...this.checkKvCacheMemoryFit(context, instanceCatalog));
 
         return findings;
     }
@@ -299,6 +300,45 @@ export default class CrossCuttingChecker {
     }
 
     /**
+     * Verify model architecture compatibility with the selected server version.
+     * Checks model_type against the server's supportedModelTypes from the catalog.
+     * Skips silently when supportedModelTypes is empty (sync not run).
+     *
+     * @param {Object} context - ValidationContext
+     * @param {Object} modelServersCatalog - Model servers catalog (from servers/lib/catalogs/model-servers.json)
+     * @returns {Array} Findings
+     */
+    checkModelArchitectureCompatibility(context, modelServersCatalog) {
+        const findings = [];
+        const config = context.config || {};
+
+        const modelType = config.modelType;
+        const serverVersion = config.baseImageVersion;
+        const server = config.modelServer;
+
+        if (!modelType || !server || !serverVersion) return findings;
+
+        const entries = modelServersCatalog[server] || [];
+        const entry = entries.find(e => e.labels?.framework_version === serverVersion);
+        if (!entry?.supportedModelTypes?.length) return findings;
+
+        if (!entry.supportedModelTypes.includes(modelType.toLowerCase())) {
+            findings.push({
+                service: 'cross-cutting',
+                operation: 'configuration',
+                fieldPath: 'MODEL_NAME',
+                invalidValue: modelType,
+                constraint: { type: 'architecture-compatibility', server, version: serverVersion },
+                severity: 'warning',
+                confidence: 'medium',
+                source: 'cross-cutting',
+                remediationHint: `Model architecture "${modelType}" may not be supported by ${server} ${serverVersion}. Consider a newer server version.`
+            });
+        }
+        return findings;
+    }
+
+    /**
      * Verify predictor models are not assigned GPU instances.
      * @param {Object} context - ValidationContext
      * @param {Object} instanceCatalog - Instance catalog
@@ -333,6 +373,85 @@ export default class CrossCuttingChecker {
                 confidence: 'high',
                 source: 'cross-cutting',
                 remediationHint: `Model type "predictor" typically does not require GPU acceleration. Consider using a CPU instance (e.g., ml.m5.xlarge) instead of ${instanceType}.`
+            });
+        }
+
+        return findings;
+    }
+
+    /**
+     * Verify that the model's estimated VRAM (weights + KV cache at configured max_model_len)
+     * fits in the instance's available GPU memory.
+     *
+     * Uses the same estimation formula as the instance-sizer's vram-estimator:
+     * total = weights + KV cache + 10% overhead
+     *
+     * @param {Object} context - ValidationContext
+     * @param {Object} instanceCatalog - Instance catalog
+     * @returns {Array} Findings
+     */
+    checkKvCacheMemoryFit(context, instanceCatalog) {
+        const findings = [];
+        const config = context.config || {};
+        const catalog = instanceCatalog?.catalog || instanceCatalog || {};
+
+        const instanceType = config.INSTANCE_TYPE;
+        if (!instanceType) return findings;
+
+        const instanceInfo = catalog[instanceType];
+        if (!instanceInfo || !instanceInfo.gpus || instanceInfo.gpus <= 0) return findings;
+
+        // Need parameter count to estimate weights
+        const parameterCount = config._parameterCount || config.parameterCount;
+        if (!parameterCount) return findings;
+
+        // Resolve max sequence length: explicit env var > model's max_position_embeddings > skip
+        const maxModelLen = parseInt(config.VLLM_MAX_MODEL_LEN || config.SGLANG_MAX_MODEL_LEN || '0', 10);
+        const maxPosEmbed = parseInt(config._maxPositionEmbeddings || '0', 10);
+        const seqLen = maxModelLen || maxPosEmbed;
+        if (!seqLen) return findings;
+
+        // Estimate per-GPU VRAM from instance catalog
+        let perGpuVramGb = instanceInfo.gpuMemoryGb;
+        if (!perGpuVramGb && instanceInfo.accelerator) {
+            const match = instanceInfo.accelerator.match(/(\d+)GB/);
+            if (match) {
+                const totalGb = parseInt(match[1], 10);
+                const hasMultiplier = instanceInfo.accelerator.match(/^(\d+)x\s/);
+                perGpuVramGb = hasMultiplier ? totalGb / instanceInfo.gpus : totalGb;
+            }
+        }
+        if (!perGpuVramGb) return findings;
+
+        const totalVramGb = perGpuVramGb * instanceInfo.gpus;
+
+        // Estimate VRAM needed (same formula as vram-estimator.js)
+        const dtype = config._dtype || 'float16';
+        const bytesPerParam = dtype === 'float32' ? 4.0 : dtype === 'int8' ? 1.0 : 2.0;
+        const weightsGb = (parameterCount * bytesPerParam) / (1024 ** 3);
+        const kvCacheGb = (parameterCount * (seqLen / 4096) * 0.05) / (1024 ** 3);
+        const overheadGb = weightsGb * 0.1;
+        const estimatedTotalGb = weightsGb + kvCacheGb + overheadGb;
+
+        if (estimatedTotalGb > totalVramGb) {
+            findings.push({
+                service: 'cross-cutting',
+                operation: 'configuration',
+                fieldPath: 'INSTANCE_TYPE',
+                invalidValue: instanceType,
+                constraint: {
+                    type: 'kv-cache-memory-fit',
+                    estimatedVramGb: Math.round(estimatedTotalGb * 10) / 10,
+                    weightsGb: Math.round(weightsGb * 10) / 10,
+                    kvCacheGb: Math.round(kvCacheGb * 10) / 10,
+                    totalVramGb,
+                    maxModelLen: seqLen,
+                    instanceType
+                },
+                severity: 'warning',
+                confidence: 'medium',
+                source: 'cross-cutting',
+                remediationHint: `Estimated VRAM needed: ${estimatedTotalGb.toFixed(1)}GB (weights: ${weightsGb.toFixed(1)}GB + KV cache: ${kvCacheGb.toFixed(1)}GB at seq_len=${seqLen}) exceeds instance capacity (${totalVramGb}GB). Reduce VLLM_MAX_MODEL_LEN, use quantization, or select a larger instance.`
             });
         }
 

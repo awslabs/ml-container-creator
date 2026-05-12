@@ -8,6 +8,7 @@ Guide for contributors who want to add new frameworks, model servers, or other f
 - [Adding a New Model Server](#adding-a-new-model-server)
 - [Adding a New Test Type](#adding-a-new-test-type)
 - [Adding a New Deployment Target](#adding-a-new-deployment-target)
+- [Adding a New Secret Type](#adding-a-new-secret-type)
 - [Testing Your Changes](#testing-your-changes)
 
 ---
@@ -503,6 +504,207 @@ if (this.answers.deployTarget === 'lambda') {
     ignorePatterns.push('**/code/lambda_handler.py');
 }
 ```
+
+---
+
+## Adding a New Secret Type
+
+The secrets system uses a registry-driven architecture. Adding a new secret type requires only adding an entry to the `Secret_Classification` registry — the CLI, prompt flow, and do-script templates derive behavior from this registry automatically.
+
+Let's walk through adding support for a private PyPI token used during build-time `pip install`.
+
+### Understanding the Registry
+
+The `Secret_Classification` registry lives at `src/lib/secret-classification.js`. Each entry defines all metadata needed for end-to-end integration:
+
+```javascript
+// src/lib/secret-classification.js
+export const SECRET_CLASSIFICATIONS = Object.freeze([
+    {
+        identifier: 'hf-token',           // Unique key — used in naming convention and CLI
+        displayName: 'HuggingFace Token',  // Human-readable label for prompts
+        stages: ['build-time', 'runtime'], // When the secret is needed
+        purpose: 'Gated model download from HuggingFace Hub',
+        cliFlag: 'hf-token-arn',           // CLI flag for ARN input (--hf-token-arn)
+        cliFlagPlaintext: 'hf-token',      // Existing CLI flag for plaintext (--hf-token)
+        envVar: 'HF_TOKEN',               // Environment variable for plaintext value
+        envVarArn: 'HF_TOKEN_ARN',        // Environment variable for ARN reference
+        promptLabel: 'HuggingFace token'   // Label shown in interactive prompts
+    },
+    // ... other entries
+]);
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `identifier` | `string` | Unique key (e.g., `pypi-token`) — used in naming convention and type selection |
+| `displayName` | `string` | Human-readable label shown in prompts and output |
+| `stages` | `string[]` | When the secret is needed: `['build-time']`, `['runtime']`, or `['build-time', 'runtime']` |
+| `purpose` | `string` | Description of what the secret is used for |
+| `cliFlag` | `string` | CLI flag name for ARN input (e.g., `pypi-token-arn`) |
+| `cliFlagPlaintext` | `string` | CLI flag name for plaintext input (e.g., `pypi-token`) |
+| `envVar` | `string` | Environment variable name for plaintext (e.g., `PIP_INDEX_TOKEN`) |
+| `envVarArn` | `string` | Environment variable name for ARN (e.g., `PIP_INDEX_TOKEN_ARN`) |
+| `promptLabel` | `string` | Label shown in interactive prompts |
+
+### Step 1: Add Registry Entry
+
+Edit `src/lib/secret-classification.js` and add a new entry to the `SECRET_CLASSIFICATIONS` array:
+
+```javascript
+export const SECRET_CLASSIFICATIONS = Object.freeze([
+    // ... existing entries ...
+    {
+        identifier: 'pypi-token',
+        displayName: 'Private PyPI Token',
+        stages: ['build-time'],
+        purpose: 'Authenticating with private PyPI registry during pip install',
+        cliFlag: 'pypi-token-arn',
+        cliFlagPlaintext: 'pypi-token',
+        envVar: 'PIP_INDEX_TOKEN',
+        envVarArn: 'PIP_INDEX_TOKEN_ARN',
+        promptLabel: 'Private PyPI token'
+    }
+]);
+```
+
+This single addition automatically enables:
+- The type appears in `secrets create` interactive prompts
+- The prompt flow queries for managed secrets of this type
+- The `secrets list` command includes secrets of this type
+
+### Step 2: Register CLI Flags
+
+Edit `bin/cli.js` to add the new ARN and plaintext flags on the root command:
+
+```javascript
+.addOption(new Option('--pypi-token-arn <arn>', 'Private PyPI token ARN from Secrets Manager'))
+.addOption(new Option('--pypi-token <value>', 'Private PyPI token (plaintext)'))
+```
+
+Add mutual exclusion validation alongside the existing checks:
+
+```javascript
+if (options.pypiToken && options.pypiTokenArn) {
+    console.error('❌ Cannot specify both --pypi-token and --pypi-token-arn');
+    process.exit(1);
+}
+```
+
+### Step 3: Update Do-Script Templates
+
+#### `templates/do/config`
+
+Add the ARN vs plaintext export logic:
+
+```bash
+<% if (pypiTokenArn) { %>
+# Private PyPI token — resolved from Secrets Manager at build-time
+export PIP_INDEX_TOKEN_ARN="<%= pypiTokenArn %>"
+<% } else if (pypiToken) { %>
+export PIP_INDEX_TOKEN="<%= pypiToken %>"
+<% } %>
+```
+
+#### `templates/do/build`
+
+Add a resolution block before `docker build` (alongside existing secret resolution blocks):
+
+```bash
+if [ -n "${PIP_INDEX_TOKEN_ARN:-}" ]; then
+    echo "🔐 Resolving Private PyPI token from Secrets Manager..."
+    PIP_INDEX_TOKEN=$(aws secretsmanager get-secret-value \
+        --secret-id "${PIP_INDEX_TOKEN_ARN}" \
+        --query SecretString --output text) || {
+        echo "❌ Failed to resolve Private PyPI token from Secrets Manager"
+        exit 3
+    }
+    export PIP_INDEX_TOKEN
+fi
+```
+
+Since `pypi-token` is build-time only, no changes are needed in `templates/do/serve`.
+
+### Step 4: IAM Considerations
+
+The existing IAM policy in `config/bootstrap-stack.json` already covers new secret types because it scopes to the `mlcc/*` naming prefix:
+
+```json
+{
+    "Sid": "SecretsManagerRead",
+    "Effect": "Allow",
+    "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+    ],
+    "Resource": "arn:aws:secretsmanager:*:*:secret:mlcc/*",
+    "Condition": {
+        "StringEquals": {
+            "aws:ResourceTag/mlcc:managed-by": "ml-container-creator"
+        }
+    }
+}
+```
+
+No IAM changes are needed as long as your new secret follows the `mlcc/<type>/<label>` naming convention. The policy grants access to any secret under the `mlcc/` prefix that carries the `mlcc:managed-by` tag.
+
+### Tagging Schema
+
+Every secret created by the CLI automatically receives these tags:
+
+| Tag Key | Value | Purpose |
+|---------|-------|---------|
+| `mlcc:managed-by` | `ml-container-creator` | Identifies mlcc-managed secrets for IAM scoping |
+| `mlcc:created-by` | `secrets` | Identifies the creation source |
+| `mlcc:secret-type` | `<identifier>` (e.g., `pypi-token`) | Links to the Secret_Classification entry |
+
+These tags are applied automatically by the `SecretsCommandHandler` and cannot be overridden by the user. If a user provides conflicting `mlcc:` tags via `--json`, the system values take precedence and a warning is displayed.
+
+### Naming Convention
+
+All managed secrets follow the pattern:
+
+```
+mlcc/<secret-type>/<user-provided-label>
+```
+
+Examples:
+- `mlcc/hf-token/production`
+- `mlcc/ngc-token/team-shared`
+- `mlcc/pypi-token/ci-pipeline`
+
+This naming convention maps directly to the IAM policy resource pattern `arn:aws:secretsmanager:*:*:secret:mlcc/*`, ensuring that any new secret type is automatically covered without IAM policy changes.
+
+### Step 5: Add Tests
+
+Add a test verifying the new entry has all required fields in `test/property/secret-classification-completeness.property.test.js` (the existing property test validates all entries automatically).
+
+Add unit tests for the new do-script resolution logic in `test/unit/secrets-template-output.test.js`.
+
+### Validation Checklist
+
+After adding a new secret type, verify:
+
+- [ ] The new type appears in `secrets create` interactive type selection prompt
+- [ ] `secrets create --type <new-type> --name test --secret-value xxx` creates a secret with the correct name (`mlcc/<type>/test`)
+- [ ] The prompt flow lists managed secrets of the new type during project generation
+- [ ] Do-scripts resolve the secret at the correct stage (build-time, runtime, or both)
+- [ ] The IAM policy covers the new naming path (automatic if using `mlcc/` prefix)
+- [ ] Mutual exclusion validation rejects both `--<type>` and `--<type>-arn` flags together
+- [ ] The `do/config` template exports the correct `_ARN` variable when an ARN is configured
+- [ ] Existing plaintext flows remain unchanged when no ARN is provided
+- [ ] All property tests pass (`npm test`)
+
+### Files to Update Summary
+
+| File | Change |
+|------|--------|
+| `src/lib/secret-classification.js` | Add new entry to `SECRET_CLASSIFICATIONS` array |
+| `bin/cli.js` | Add `--<type>-arn` and `--<type>` flags, add mutual exclusion check |
+| `templates/do/config` | Add ARN/plaintext export conditional |
+| `templates/do/build` | Add resolution block (if stages include `build-time`) |
+| `templates/do/serve` | Add resolution block (if stages include `runtime`) |
+| `test/unit/secrets-template-output.test.js` | Add tests for new template output |
 
 ---
 

@@ -52,6 +52,7 @@ nav:
       - How It Works: how-it-works.md
       - Configuration: configuration.md
       - MCP Servers: mcp-configuration.md
+      - Secrets Management: secrets.md
       - Deployment & Inference: deployments.md
       - CI Integration: ci-integration.md
       - Examples: EXAMPLES.md

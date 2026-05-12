@@ -51,6 +51,17 @@ const TEST_CATALOG = {
         hardware: 'NVIDIA T4',
         gpuArchitecture: 'Turing'
     },
+    'ml.g6.xlarge': {
+        category: 'gpu',
+        gpus: 1,
+        vcpus: 4,
+        memGb: 32,
+        accelerator: 'L4 24GB',
+        family: 'g6',
+        acceleratorType: 'cuda',
+        hardware: 'NVIDIA L4',
+        gpuArchitecture: 'Ada Lovelace'
+    },
     'ml.g5.xlarge': {
         category: 'gpu',
         gpus: 1,
@@ -333,24 +344,26 @@ test('single-GPU instances appear before multi-GPU for same model', () => {
     }
 })
 
-test('lower cost tier ranks before higher cost tier within same TP', () => {
-    // 14GB model: g4dn (low) should rank before g5 (medium) should rank before p3 (high)
+test('newer generation ranks before older generation within same TP', () => {
+    // 14GB model fits g4dn (16GB), g6 (24GB), g5 (24GB), p3 (16GB)
+    // Expected order: g6 (gen 1) → g5 (gen 3) → p3 (gen 5) → g4dn (gen 6)
     const results = filterAndRankInstances(14, TEST_CATALOG)
     const singleGpu = results.filter(r => r.tensorParallelism === 1)
+    const families = singleGpu.map(r => r.family)
 
-    // Find first low and first medium/high
-    const firstLow = singleGpu.findIndex(r => r.costTier === 'low')
-    const firstMedium = singleGpu.findIndex(r => r.costTier === 'medium')
-    const firstHigh = singleGpu.findIndex(r => r.costTier === 'high')
+    const firstG6 = families.indexOf('g6')
+    const firstG5 = families.indexOf('g5')
+    const firstP3 = families.indexOf('p3')
+    const firstG4dn = families.indexOf('g4dn')
 
-    if (firstLow !== -1 && firstMedium !== -1) {
-        assert.ok(firstLow < firstMedium,
-            `Low cost (idx ${firstLow}) should rank before medium (idx ${firstMedium})`)
-    }
-    if (firstMedium !== -1 && firstHigh !== -1) {
-        assert.ok(firstMedium < firstHigh,
-            `Medium cost (idx ${firstMedium}) should rank before high (idx ${firstHigh})`)
-    }
+    assert.ok(firstG6 !== -1, 'g6 should be in results')
+    assert.ok(firstG5 !== -1, 'g5 should be in results')
+    assert.ok(firstP3 !== -1, 'p3 should be in results')
+    assert.ok(firstG4dn !== -1, 'g4dn should be in results')
+
+    assert.ok(firstG6 < firstG5, `g6 (idx ${firstG6}) should rank before g5 (idx ${firstG5})`)
+    assert.ok(firstG5 < firstP3, `g5 (idx ${firstG5}) should rank before p3 (idx ${firstP3})`)
+    assert.ok(firstP3 < firstG4dn, `p3 (idx ${firstP3}) should rank before g4dn (idx ${firstG4dn})`)
 })
 
 test('all returned instances have required fields', () => {
@@ -388,10 +401,10 @@ test('limit=1 returns only top recommendation', () => {
     assert.strictEqual(results.length, 1)
 })
 
-test('default limit is 8', () => {
-    // With our small test catalog we won't hit 8, but verify it doesn't crash
+test('default limit is 10', () => {
+    // With our small test catalog we won't hit 10, but verify it doesn't crash
     const results = filterAndRankInstances(14, TEST_CATALOG)
-    assert.ok(results.length <= 8, `Default limit should cap at 8, got ${results.length}`)
+    assert.ok(results.length <= 10, `Default limit should cap at 10, got ${results.length}`)
 })
 
 // ── Constants Validation ─────────────────────────────────────────────────────

@@ -52,6 +52,22 @@ const COST_TIER_WEIGHT = {
 }
 
 /**
+ * Generation weight by instance family.
+ * Lower is newer (sorted first). Newer generations offer better perf/$.
+ */
+const GENERATION_WEIGHT = {
+    'g6': 1,
+    'p5': 1,
+    'trn1': 2,
+    'inf2': 2,
+    'g5': 3,
+    'p4de': 4,
+    'p4d': 4,
+    'p3': 5,
+    'g4dn': 6
+}
+
+/**
  * TP overhead penalty: 10% per additional GPU beyond the first.
  * Effective VRAM = totalVram × (1 - 0.10 × (gpuCount - 1))
  */
@@ -144,12 +160,12 @@ const effectiveVram = (totalVramGb, gpuCount) => {
  * @param {number} vramRequired - Required VRAM in GB
  * @param {object} instanceCatalog - Object keyed by instance type, values are metadata
  * @param {object} [options={}]
- * @param {number} [options.limit=8] - Max results to return
+ * @param {number} [options.limit=10] - Max results to return
  * @param {boolean} [options.allowTensorParallelism=true] - Consider multi-GPU splits
  * @returns {object[]} Ranked list of compatible instances
  */
 const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => {
-    const { limit = 8, allowTensorParallelism = true } = options
+    const { limit = 10, allowTensorParallelism = true } = options
 
     if (!vramRequired || vramRequired <= 0) {
         return []
@@ -182,7 +198,8 @@ const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => 
                     totalVramGb,
                     utilizationPercent,
                     tensorParallelism: 1,
-                    costTier: getCostTier(meta)
+                    costTier: getCostTier(meta),
+                    family: meta.family || ''
                 })
             }
         } else if (allowTensorParallelism) {
@@ -196,7 +213,8 @@ const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => 
                     totalVramGb,
                     utilizationPercent,
                     tensorParallelism: gpuCount,
-                    costTier: getCostTier(meta)
+                    costTier: getCostTier(meta),
+                    family: meta.family || ''
                 })
             }
         }
@@ -204,24 +222,30 @@ const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => 
 
     // Sort candidates by ranking criteria:
     // 1. Single-GPU first (TP=1), then multi-GPU by lowest TP degree
-    // 2. Within each TP tier, sort by cost-efficiency (lowest cost tier first,
-    //    then by lowest utilization — more headroom is better for the same cost)
+    // 2. Within each TP tier, newest generation first (g6 > g5 > g4dn)
+    // 3. Within same generation, sort by cost tier (lower is better)
+    // 4. Within same cost tier, prefer lower total VRAM (right-sized)
     candidates.sort((a, b) => {
         // Primary: TP degree (lower is better)
         if (a.tensorParallelism !== b.tensorParallelism) {
             return a.tensorParallelism - b.tensorParallelism
         }
 
-        // Secondary: cost tier (lower is better)
+        // Secondary: generation (newer is better — lower weight)
+        const genA = GENERATION_WEIGHT[a.family] || 4
+        const genB = GENERATION_WEIGHT[b.family] || 4
+        if (genA !== genB) {
+            return genA - genB
+        }
+
+        // Tertiary: cost tier (lower is better)
         const costA = COST_TIER_WEIGHT[a.costTier] || 2
         const costB = COST_TIER_WEIGHT[b.costTier] || 2
         if (costA !== costB) {
             return costA - costB
         }
 
-        // Tertiary: cost-efficiency — lower $/GB approximated by
-        // lower cost tier with higher total VRAM (more GB per dollar)
-        // Since cost tier is equal here, prefer higher total VRAM (better value)
+        // Quaternary: prefer lower total VRAM (right-sized, less waste)
         if (a.totalVramGb !== b.totalVramGb) {
             return a.totalVramGb - b.totalVramGb
         }
@@ -241,5 +265,6 @@ export {
     GPU_MEMORY_MAP,
     COST_TIER_MAP,
     COST_TIER_WEIGHT,
+    GENERATION_WEIGHT,
     TP_OVERHEAD_PER_GPU
 }

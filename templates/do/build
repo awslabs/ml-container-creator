@@ -27,6 +27,28 @@ fi
 # fail on SageMaker with CannotStartContainerError.
 PLATFORM_FLAG="--platform linux/amd64"
 
+# --- Secrets Manager resolution (build-time) ---
+if [ -n "${HF_TOKEN_ARN:-}" ]; then
+    echo "🔐 Resolving HuggingFace token from Secrets Manager..."
+    HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text) || {
+        echo "❌ Failed to resolve HuggingFace token from Secrets Manager"
+        exit 3
+    }
+    export HF_TOKEN
+fi
+
+if [ -n "${NGC_API_KEY_ARN:-}" ]; then
+    echo "🔐 Resolving NGC API key from Secrets Manager..."
+    NGC_API_KEY=$(aws secretsmanager get-secret-value --secret-id "${NGC_API_KEY_ARN}" --query SecretString --output text) || {
+        echo "❌ Failed to resolve NGC API key from Secrets Manager"
+        exit 3
+    }
+    export NGC_API_KEY
+fi
+
+# NOTE: Build-time secrets are passed as --build-arg. The secret value may persist
+# in the image layer. A future improvement will use BuildKit --secret mounts.
+
 # Framework-specific build logic
 case "${DEPLOYMENT_CONFIG}" in
     transformers-tensorrt-llm)

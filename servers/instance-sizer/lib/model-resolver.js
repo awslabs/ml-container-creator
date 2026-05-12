@@ -214,12 +214,16 @@ const resolveModelMetadata = async (modelName, options = {}) => {
     const catalogEntry = catalogLookup(modelName, catalog)
 
     if (catalogEntry) {
-        return {
-            parameterCount: catalogEntry.parameterCount,
-            dtype: catalogEntry.defaultDtype,
-            architecture: catalogEntry.architecture,
-            maxPositionEmbeddings: catalogEntry.maxPositionEmbeddings,
-            source: 'catalog'
+        // Only use catalog entry if it has a usable parameterCount for VRAM estimation.
+        // If parameterCount is missing, fall through to HuggingFace API (tier 2).
+        if (catalogEntry.parameterCount) {
+            return {
+                parameterCount: catalogEntry.parameterCount,
+                dtype: catalogEntry.defaultDtype,
+                architecture: catalogEntry.architecture,
+                maxPositionEmbeddings: catalogEntry.maxPositionEmbeddings,
+                source: 'catalog'
+            }
         }
     }
 

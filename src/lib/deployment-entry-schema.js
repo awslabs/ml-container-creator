@@ -65,8 +65,7 @@ export default {
             required: ['modelName'],
             properties: {
                 modelName: {
-                    type: 'string',
-                    minLength: 1
+                    type: ['string', 'null']
                 },
                 modelFormat: {
                     type: ['string', 'null']

@@ -16,7 +16,8 @@ import {
     filterAndRankInstances,
     getPerGpuMemoryGb,
     effectiveVram,
-    COST_TIER_WEIGHT
+    COST_TIER_WEIGHT,
+    GENERATION_WEIGHT
 } from '../lib/instance-ranker.js'
 
 let passed = 0
@@ -38,6 +39,7 @@ function test(name, fn) {
 
 const TEST_CATALOG = {
     'ml.g4dn.xlarge': { category: 'gpu', gpus: 1, accelerator: 'T4 16GB', family: 'g4dn', hardware: 'NVIDIA T4' },
+    'ml.g6.xlarge': { category: 'gpu', gpus: 1, accelerator: 'L4 24GB', family: 'g6', hardware: 'NVIDIA L4' },
     'ml.g5.xlarge': { category: 'gpu', gpus: 1, accelerator: 'A10G 24GB', family: 'g5', hardware: 'NVIDIA A10G' },
     'ml.g5.2xlarge': { category: 'gpu', gpus: 1, accelerator: 'A10G 24GB', family: 'g5', hardware: 'NVIDIA A10G' },
     'ml.g5.12xlarge': { category: 'gpu', gpus: 4, accelerator: '4x A10G 96GB', family: 'g5', hardware: 'NVIDIA A10G' },
@@ -88,16 +90,17 @@ test('Property 3: every returned instance has sufficient VRAM for the model (sin
     )
 })
 
-// ── Property 4: Ranking respects cost-efficiency within TP tiers ─────────────
+// ── Property 4: Ranking respects generation and cost-efficiency within TP tiers
 // For any two adjacent instances in the ranked results (position i and i+1),
-// instance at position i SHALL have equal or better cost-efficiency than the
-// instance at position i+1, within the same TP tier.
+// within the same TP tier, instance at position i SHALL have equal or newer
+// generation than the instance at position i+1. Within the same generation,
+// cost tier should be non-decreasing.
 //
 // **Validates: Requirements 2.2**
 
-console.log('\ninstance-ranker property tests: Ranking respects cost-efficiency within TP tiers\n')
+console.log('\ninstance-ranker property tests: Ranking respects generation and cost-efficiency within TP tiers\n')
 
-test('Property 4: within the same TP tier, adjacent instances are ordered by cost tier (lower or equal cost weight first)', () => {
+test('Property 4: within the same TP tier, adjacent instances are ordered by generation (newer first), then cost tier', () => {
     fc.assert(
         fc.property(
             vramRequiredArb,
@@ -110,13 +113,24 @@ test('Property 4: within the same TP tier, adjacent instances are ordered by cos
 
                     // Only check within the same TP tier
                     if (current.tensorParallelism === next.tensorParallelism) {
-                        const costCurrent = COST_TIER_WEIGHT[current.costTier] || 2
-                        const costNext = COST_TIER_WEIGHT[next.costTier] || 2
+                        const genCurrent = GENERATION_WEIGHT[current.family] || 4
+                        const genNext = GENERATION_WEIGHT[next.family] || 4
 
                         assert.ok(
-                            costCurrent <= costNext,
-                            `Within TP=${current.tensorParallelism}: ${current.instanceType} (cost weight ${costCurrent}) should have <= cost weight than ${next.instanceType} (cost weight ${costNext})`
+                            genCurrent <= genNext,
+                            `Within TP=${current.tensorParallelism}: ${current.instanceType} (gen weight ${genCurrent}) should have <= gen weight than ${next.instanceType} (gen weight ${genNext})`
                         )
+
+                        // Within same generation, cost tier should be non-decreasing
+                        if (genCurrent === genNext) {
+                            const costCurrent = COST_TIER_WEIGHT[current.costTier] || 2
+                            const costNext = COST_TIER_WEIGHT[next.costTier] || 2
+
+                            assert.ok(
+                                costCurrent <= costNext,
+                                `Within TP=${current.tensorParallelism}, gen=${genCurrent}: ${current.instanceType} (cost weight ${costCurrent}) should have <= cost weight than ${next.instanceType} (cost weight ${costNext})`
+                            )
+                        }
                     }
                 }
             }

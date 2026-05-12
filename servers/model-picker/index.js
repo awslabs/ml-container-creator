@@ -195,11 +195,12 @@ class HuggingFaceResolver extends ModelResolver {
         }
 
         // Fetch model config (conditional)
-        if (!fields || fields.includes('architecture')) {
+        if (!fields || fields.includes('architecture') || fields.includes('model_type')) {
             const modelConfig = await this._fetchJson(
                 `${this.baseUrl}/${modelId}/resolve/main/config.json`
             )
             metadata.architecture = modelConfig?.architectures?.[0] || null
+            metadata.model_type = modelConfig?.model_type || null
         }
 
         return Object.keys(metadata).length > 0 ? metadata : null

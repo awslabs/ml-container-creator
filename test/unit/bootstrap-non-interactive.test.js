@@ -107,6 +107,9 @@ function setupHandler(_opts = {}) {
         return false;
     };
 
+    // Mock _runPostSetupChain to prevent real network calls (mcp init, sync-architectures, sync-schemas)
+    handler._runPostSetupChain = async () => {};
+
     const restore = () => { console.log = origLog; };
 
     return { handler, calls, logs, restore, promptCalls, configPath };

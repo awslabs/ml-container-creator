@@ -151,17 +151,29 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 # Framework-specific configuration
 <% if (framework === 'transformers') { %>
 export MODEL_NAME="<%= modelName %>"
-<% if (hfToken) { %>
+# Secrets Manager integration: when an ARN is configured, do-scripts resolve the
+# secret at the appropriate stage (build-time or runtime). When a plaintext value
+# is configured, it is exported directly. The _ARN suffix signals resolution is needed.
+<% if (typeof hfTokenArn !== 'undefined' && hfTokenArn) { %>
+export HF_TOKEN_ARN="<%= hfTokenArn %>"
+<% } else if (hfToken) { %>
 export HF_TOKEN="<%= hfToken %>"
 <% } %>
-<% if (ngcApiKey) { %>
+<% if (typeof ngcTokenArn !== 'undefined' && ngcTokenArn) { %>
+export NGC_API_KEY_ARN="<%= ngcTokenArn %>"
+<% } else if (ngcApiKey) { %>
 export NGC_API_KEY="<%= ngcApiKey %>"
 <% } %>
 <% } %>
 
 <% if (framework === 'diffusors') { %>
 export MODEL_NAME="<%= modelName %>"
-<% if (hfToken) { %>
+# Secrets Manager integration: when an ARN is configured, do-scripts resolve the
+# secret at the appropriate stage (build-time or runtime). When a plaintext value
+# is configured, it is exported directly. The _ARN suffix signals resolution is needed.
+<% if (typeof hfTokenArn !== 'undefined' && hfTokenArn) { %>
+export HF_TOKEN_ARN="<%= hfTokenArn %>"
+<% } else if (hfToken) { %>
 export HF_TOKEN="<%= hfToken %>"
 <% } %>
 <% } %>

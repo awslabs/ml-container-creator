@@ -17,8 +17,6 @@ import {
     modelServerPrompts,
     modelLoadStrategyPrompts,
     modelProfilePrompts,
-    hfTokenPrompts,
-    ngcApiKeyPrompts,
     modulePrompts,
     infraRegionAndTargetPrompts,
     infraInstancePrompts,
@@ -35,9 +33,13 @@ import {
 
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import RegistryLoader from './registry-loader.js';
 import { runPrompts } from '../prompt-adapter.js';
+import { SECRET_CLASSIFICATIONS } from './secret-classification.js';
+import { isSecretsManagerArn } from './arn-detection.js';
+import BootstrapConfig from './bootstrap-config.js';
 
 const __pr_filename = fileURLToPath(import.meta.url);
 const __pr_dirname = path.dirname(__pr_filename);
@@ -169,6 +171,9 @@ export default class PromptRunner {
             explicitConfig,
             existingConfig
         );
+
+        // Requirements: 4.2-4.5 — Check model architecture compatibility after base image selection
+        this._checkModelArchitectureCompatibility(baseImageAnswers, frameworkAnswers);
 
         // Extract CUDA version from selected base image for instance-sizer context
         const selectedBaseImageCuda = this._extractCudaFromBaseImage(baseImageAnswers);
@@ -353,13 +358,11 @@ export default class PromptRunner {
             existingConfig
         );
 
-        const hfTokenAnswers = await this._runPhase(hfTokenPrompts, 
-            { ...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers }, 
-            explicitConfig, existingConfig);
-
-        const ngcApiKeyAnswers = await this._runPhase(ngcApiKeyPrompts,
-            { ...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
-            explicitConfig, existingConfig);
+        // Secret prompts — registry-driven secret selection (replaces hardcoded hfToken/ngcApiKey prompts)
+        const secretPreviousAnswers = { ...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers };
+        const secretAnswers = await this._runSecretPrompts(secretPreviousAnswers, explicitConfig, existingConfig);
+        const hfTokenAnswers = { hfToken: secretAnswers.hfToken, hfTokenArn: secretAnswers.hfTokenArn };
+        const ngcApiKeyAnswers = { ngcApiKey: secretAnswers.ngcApiKey, ngcTokenArn: secretAnswers.ngcTokenArn };
 
         // Module selection
         const moduleAnswers = await this._runPhase(modulePrompts, { ...frameworkAnswers, ...engineAnswers }, explicitConfig, existingConfig);
@@ -742,6 +745,69 @@ export default class PromptRunner {
     }
 
     /**
+     * Check model architecture compatibility against the selected base image.
+     * Emits an advisory warning if the model's model_type is not in the server's
+     * supportedModelTypes. Skips silently if supportedModelTypes is empty (sync not run).
+     * Requirements: 4.2, 4.3, 4.4, 4.5
+     * @param {Object} baseImageAnswers - Answers from base image selection phase
+     * @param {Object} frameworkAnswers - Answers from framework/deployment config phase
+     * @private
+     */
+    _checkModelArchitectureCompatibility(baseImageAnswers, frameworkAnswers) {
+        // Requirement 4.5: skip if no model_type was resolved
+        if (!this._modelType) return;
+
+        // Determine the selected image
+        const selectedImage = baseImageAnswers.baseImage || baseImageAnswers.customBaseImage;
+        if (!selectedImage || selectedImage === 'custom') return;
+
+        // Resolve the matching choice from MCP base image choices
+        if (!this._mcpBaseImageChoices) return;
+        const matchingChoice = this._mcpBaseImageChoices.find(c => c.value === selectedImage);
+        if (!matchingChoice) return;
+
+        // Determine the server name from framework answers
+        const server = frameworkAnswers.modelServer || frameworkAnswers.backend;
+        if (!server) return;
+
+        // Load the model-servers catalog to find the entry with supportedModelTypes
+        try {
+            const catalogPath = path.resolve(GENERATOR_ROOT, 'servers', 'lib', 'catalogs', 'model-servers.json');
+            const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+
+            const serverEntries = catalog[server];
+            if (!Array.isArray(serverEntries)) return;
+
+            // Find the catalog entry matching the selected image
+            const entry = serverEntries.find(e => e.image === selectedImage);
+            if (!entry) return;
+
+            const supported = entry.supportedModelTypes;
+            // Requirement 4.5: skip silently when supportedModelTypes is empty (sync not run)
+            if (!supported || supported.length === 0) return;
+
+            // Requirement 4.2-4.3: cross-reference model_type (case-insensitive)
+            const modelTypeLower = this._modelType.toLowerCase();
+            if (!supported.includes(modelTypeLower)) {
+                const version = entry.labels?.framework_version || entry.tag || 'unknown';
+                const docsUrls = {
+                    vllm: 'https://docs.vllm.ai/en/latest/models/supported_models.html',
+                    sglang: 'https://sgl-project.github.io/references/supported_models.html',
+                    'tensorrt-llm': 'https://nvidia.github.io/TensorRT-LLM/reference/support-matrix.html'
+                };
+                const docsUrl = docsUrls[server] || `https://github.com/search?q=${server}+supported+models`;
+
+                // Requirement 4.3-4.4: emit advisory warning (does not block generation)
+                console.log(`\n   ⚠️  Model architecture "${this._modelType}" may not be supported by ${server} ${version}`);
+                console.log('      Consider upgrading to a newer base image, or verify compatibility at:');
+                console.log(`      ${docsUrl}`);
+            }
+        } catch (err) {
+            // Graceful degradation: if catalog can't be read, skip silently
+        }
+    }
+
+    /**
      * Get architecture-based heuristic default instance type.
      * Used when the instance-sizer cannot produce a recommendation.
      * Requirements: 3.9, 4.6
@@ -917,7 +983,7 @@ export default class PromptRunner {
 
             const toolArgs = {
                 modelName,
-                limit: 8,
+                limit: 10,
                 context: {
                     architecture: frameworkAnswers.architecture || undefined,
                     backend: frameworkAnswers.backend || undefined,
@@ -966,13 +1032,17 @@ export default class PromptRunner {
                     const choices = parsed.choices.instanceType;
                     const topRec = recommendations[0];
                     const vramInfo = estimatedVramGb
-                        ? ` (VRAM: ${estimatedVramGb.toFixed(1)}GB)`
-                        : '';
-                    const tpInfo = topRec?.tensorParallelism > 1
-                        ? ` [TP=${topRec.tensorParallelism}]`
+                        ? ` (model needs ~${estimatedVramGb.toFixed(1)}GB VRAM)`
                         : '';
 
-                    console.log(`   ✓ ${choices.length} sized instance(s): ${choices[0]}${vramInfo}${tpInfo}`);
+                    console.log(`   ✓ ${choices.length} compatible instance(s) found${vramInfo}`);
+                    // Display compact recommendation table
+                    for (const rec of recommendations) {
+                        const tp = rec.tensorParallelism > 1 ? ` TP=${rec.tensorParallelism}` : '';
+                        const vram = rec.totalVramGb ? `${rec.totalVramGb}GB` : '?';
+                        const util = rec.utilizationPercent ? `${rec.utilizationPercent}%` : '?';
+                        console.log(`     ${rec === topRec ? '→' : ' '} ${rec.instanceType.padEnd(20)} ${vram.padStart(5)} VRAM  ${util.padStart(4)} util${tp}`);
+                    }
                 } else if (parsed.metadata?.warning) {
                     console.log(`   ⚠️  ${parsed.metadata.warning}`);
                 } else {
@@ -1376,6 +1446,12 @@ export default class PromptRunner {
                                         modelFamily = vals.family;
                                     }
 
+                                    // Extract model_type for architecture validation
+                                    // Requirements: 4.1
+                                    if (vals.model_type) {
+                                        this._modelType = vals.model_type;
+                                    }
+
                                     // Extract model source metadata for loading adapter
                                     // Requirements: 2.1, 2.2, 2.3, 2.4
                                     if (vals.provider) {
@@ -1426,6 +1502,11 @@ export default class PromptRunner {
                             sources.push('HuggingFace_Hub_API');
                             if (hfData.chatTemplate) {
                                 chatTemplate = hfData.chatTemplate;
+                            }
+                            // Extract model_type for architecture validation
+                            // Requirements: 4.1
+                            if (hfData.modelConfig?.model_type) {
+                                this._modelType = hfData.modelConfig.model_type;
                             }
                             console.log('   ✅ Found on HuggingFace Hub');
                         } else {
@@ -1555,19 +1636,345 @@ export default class PromptRunner {
     }
 
     /**
+     * Run secret prompts using the Secret_Classification registry.
+     * For each secret type whose stages apply to the current context:
+     * - Query for managed secrets of that type
+     * - If managed secrets exist: show selection list (secrets + "Enter plaintext token" + "Skip")
+     * - If no managed secrets exist: fall back to existing plaintext prompt
+     * 
+     * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9
+     * @param {object} previousAnswers - Answers from previous prompt phases
+     * @param {object} explicitConfig - Explicit CLI/config values
+     * @param {object} existingConfig - Existing project configuration
+     * @returns {Promise<object>} Object with token/ARN values keyed by config field names
+     * @private
+     */
+    async _runSecretPrompts(previousAnswers, explicitConfig, existingConfig) {
+        const results = {};
+
+        for (const classification of SECRET_CLASSIFICATIONS) {
+            // Check if this secret type's stages apply to the current context
+            if (!this._secretStagesApply(classification, previousAnswers)) continue;
+
+            // Determine the config keys for this classification
+            const arnConfigKey = this._getArnConfigKey(classification);
+            const plaintextConfigKey = this._getPlaintextConfigKey(classification);
+
+            // Skip if ARN already provided via CLI flag
+            if (explicitConfig[arnConfigKey]) {
+                results[arnConfigKey] = explicitConfig[arnConfigKey];
+                continue;
+            }
+
+            // Skip if plaintext already provided via CLI flag
+            if (explicitConfig[plaintextConfigKey]) {
+                results[plaintextConfigKey] = explicitConfig[plaintextConfigKey];
+                continue;
+            }
+
+            // Query for existing managed secrets of this type
+            const managedSecrets = await this._listManagedSecrets(classification.identifier);
+
+            if (managedSecrets.length > 0) {
+                // Show selection list: managed secrets + plaintext entry + skip
+                const answer = await this._promptSecretSelection(classification, managedSecrets, previousAnswers);
+                Object.assign(results, answer);
+            } else {
+                // Fall back to existing plaintext prompt
+                const answer = await this._promptPlaintextFallback(classification, previousAnswers, explicitConfig, existingConfig);
+                Object.assign(results, answer);
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Determine if a secret classification's stages apply to the current generation context.
+     * Build-time secrets apply when the project involves a Docker build step.
+     * Runtime secrets apply when the architecture uses HuggingFace Hub models.
+     * Requirements: 8.9
+     * @param {object} classification - Secret classification entry
+     * @param {object} answers - Current answers from previous phases
+     * @returns {boolean} True if the secret type is applicable
+     * @private
+     */
+    _secretStagesApply(classification, answers) {
+        const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
+        const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-');
+
+        if (classification.identifier === 'hf-token') {
+            // HF token applies to transformers, diffusors, and Triton LLM backends
+            const isTransformers = architecture === 'transformers';
+            const isDiffusors = architecture === 'diffusors';
+            const isTritonLlm = architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm');
+
+            if (!isTransformers && !isDiffusors && !isTritonLlm) return false;
+
+            // Skip for non-HuggingFace model sources
+            const modelSource = answers.modelSource;
+            if (modelSource && modelSource !== 'huggingface') return false;
+
+            return true;
+        }
+
+        if (classification.identifier === 'ngc-token') {
+            // NGC token only applies to transformers-tensorrt-llm (build-time only)
+            if (architecture === 'triton') return false;
+            if (architecture === 'diffusors') return false;
+            return architecture === 'transformers' && backend === 'tensorrt-llm';
+        }
+
+        // For future secret types, check if any stage applies
+        // Build-time applies to all Docker-based deployments
+        // Runtime applies to architectures that download at startup
+        return classification.stages.length > 0;
+    }
+
+    /**
+     * Get the ARN config key for a classification.
+     * Maps classification identifiers to config field names.
+     * @param {object} classification - Secret classification entry
+     * @returns {string} Config key for the ARN value
+     * @private
+     */
+    _getArnConfigKey(classification) {
+        const keyMap = {
+            'hf-token': 'hfTokenArn',
+            'ngc-token': 'ngcTokenArn'
+        };
+        return keyMap[classification.identifier] || `${classification.identifier.replace(/-([a-z])/g, (_, c) => c.toUpperCase())}Arn`;
+    }
+
+    /**
+     * Get the plaintext config key for a classification.
+     * Maps classification identifiers to config field names.
+     * @param {object} classification - Secret classification entry
+     * @returns {string} Config key for the plaintext value
+     * @private
+     */
+    _getPlaintextConfigKey(classification) {
+        const keyMap = {
+            'hf-token': 'hfToken',
+            'ngc-token': 'ngcApiKey'
+        };
+        return keyMap[classification.identifier] || classification.identifier.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    }
+
+    /**
+     * List managed secrets of a given type from AWS Secrets Manager.
+     * Uses the active bootstrap profile to query for secrets tagged with
+     * the mlcc:secret-type matching the given identifier.
+     * @param {string} secretType - The secret type identifier (e.g., 'hf-token')
+     * @returns {Promise<Array<{name: string, arn: string}>>} Array of managed secrets
+     * @private
+     */
+    async _listManagedSecrets(secretType) {
+        try {
+            const bootstrapConfig = new BootstrapConfig();
+            const activeProfile = bootstrapConfig.getActiveProfile();
+            if (!activeProfile) return [];
+
+            const profile = activeProfile.config.awsProfile;
+            const region = activeProfile.config.awsRegion;
+            if (!profile || !region) return [];
+
+            const command = `aws secretsmanager list-secrets --filters Key=tag-key,Values=mlcc:managed-by Key=tag-value,Values=ml-container-creator --region ${region} --profile ${profile} --output json`;
+            const output = execSync(command, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 });
+            const trimmed = output.trim();
+            if (!trimmed) return [];
+
+            const result = JSON.parse(trimmed);
+            const secrets = result.SecretList || [];
+
+            // Filter by secret type tag
+            return secrets
+                .filter(secret => {
+                    const typeTag = (secret.Tags || []).find(t => t.Key === 'mlcc:secret-type');
+                    return typeTag && typeTag.Value === secretType;
+                })
+                .map(secret => ({
+                    name: secret.Name,
+                    arn: secret.ARN
+                }));
+        } catch {
+            // If AWS CLI fails (not configured, no credentials, etc.), return empty
+            return [];
+        }
+    }
+
+    /**
+     * Display a selection list for managed secrets of a given type.
+     * Shows available secrets plus options for plaintext entry and skip.
+     * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
+     * @param {object} classification - Secret classification entry
+     * @param {Array<{name: string, arn: string}>} managedSecrets - Available managed secrets
+     * @param {object} previousAnswers - Answers from previous phases
+     * @returns {Promise<object>} Object with the selected value keyed by config field name
+     * @private
+     */
+    async _promptSecretSelection(classification, managedSecrets, previousAnswers) {
+        const arnConfigKey = this._getArnConfigKey(classification);
+
+        console.log(`\n🔐 ${classification.displayName}`);
+        console.log(`   ${classification.purpose}`);
+
+        // Build choices: managed secrets + enter plaintext + skip
+        const choices = [
+            ...managedSecrets.map(secret => ({
+                name: `🔒 ${secret.name} (${secret.arn})`,
+                value: secret.arn,
+                short: secret.name
+            })),
+            { name: '✏️  Enter plaintext token', value: '__plaintext__', short: 'Plaintext' },
+            { name: '⏭️  Skip (use environment variable)', value: '__skip__', short: 'Skip' }
+        ];
+
+        const { secretSelection } = await this._runPrompts([{
+            type: 'list',
+            name: 'secretSelection',
+            message: `Select ${classification.promptLabel}:`,
+            choices
+        }]);
+
+        if (secretSelection === '__skip__') {
+            return {};
+        }
+
+        if (secretSelection === '__plaintext__') {
+            // Use existing plaintext flow
+            return this._promptPlaintextEntry(classification, previousAnswers);
+        }
+
+        // User selected a managed secret ARN
+        return { [arnConfigKey]: secretSelection };
+    }
+
+    /**
+     * Prompt for plaintext token entry with ARN detection.
+     * If the user enters an ARN, store it as an ARN reference.
+     * Requirements: 8.4, 8.5, 8.6
+     * @param {object} classification - Secret classification entry
+     * @param {object} previousAnswers - Answers from previous phases
+     * @returns {Promise<object>} Object with the value keyed by config field name
+     * @private
+     */
+    async _promptPlaintextEntry(classification, _previousAnswers) {
+        const arnConfigKey = this._getArnConfigKey(classification);
+        const plaintextConfigKey = this._getPlaintextConfigKey(classification);
+
+        const { tokenValue } = await this._runPrompts([{
+            type: 'input',
+            name: 'tokenValue',
+            message: `${classification.promptLabel} (enter token, ARN, or leave empty):`,
+            validate: (input) => {
+                // Empty is valid
+                if (!input || input.trim() === '') return true;
+                // Environment variable reference is valid
+                if (input.trim().startsWith('$')) return true;
+                return true;
+            }
+        }]);
+
+        if (!tokenValue || tokenValue.trim() === '') {
+            return {};
+        }
+
+        const value = tokenValue.trim();
+
+        // ARN detection: if the value is a Secrets Manager ARN, store as ARN
+        if (isSecretsManagerArn(value)) {
+            return { [arnConfigKey]: value };
+        }
+
+        // Otherwise store as plaintext
+        return { [plaintextConfigKey]: value };
+    }
+
+    /**
+     * Fall back to existing plaintext prompt when no managed secrets exist.
+     * Uses the same prompts as the original hfTokenPrompts/ngcApiKeyPrompts
+     * but with ARN detection on the input.
+     * Requirements: 8.7
+     * @param {object} classification - Secret classification entry
+     * @param {object} previousAnswers - Answers from previous phases
+     * @param {object} explicitConfig - Explicit CLI/config values
+     * @param {object} existingConfig - Existing project configuration
+     * @returns {Promise<object>} Object with the value keyed by config field name
+     * @private
+     */
+    async _promptPlaintextFallback(classification, _previousAnswers, _explicitConfig, _existingConfig) {
+        const arnConfigKey = this._getArnConfigKey(classification);
+        const plaintextConfigKey = this._getPlaintextConfigKey(classification);
+
+        // If in auto-prompt mode, skip
+        if (this.configManager?.isAutoPrompt()) {
+            return {};
+        }
+
+        // Display context-appropriate security message
+        if (classification.identifier === 'hf-token') {
+            console.log('\n🔐 HuggingFace Authentication');
+            console.log('   Many models (e.g. Llama, Mistral) are gated and require a token.');
+            console.log('   💡 Tip: Use `ml-container-creator secrets create --type hf-token` to store');
+            console.log('   your token in AWS Secrets Manager for zero-knowledge operation.');
+            console.log('   For CI/CD pipelines, use "$HF_TOKEN" to reference an environment variable.\n');
+        } else if (classification.identifier === 'ngc-token') {
+            console.log('\n🔐 NVIDIA NGC Authentication');
+            console.log('   TensorRT-LLM base images are hosted on NVIDIA NGC and require an API key.');
+            console.log('   💡 Tip: Use `ml-container-creator secrets create --type ngc-token` to store');
+            console.log('   your key in AWS Secrets Manager for zero-knowledge operation.');
+            console.log('   For CI/CD pipelines, use "$NGC_API_KEY" to reference an environment variable.\n');
+        } else {
+            console.log(`\n🔐 ${classification.displayName}`);
+            console.log(`   ${classification.purpose}\n`);
+        }
+
+        const { tokenValue } = await this._runPrompts([{
+            type: 'input',
+            name: 'tokenValue',
+            message: `${classification.promptLabel} (enter token, ARN, "$${classification.envVar}" for env var, or leave empty):`,
+            validate: (input) => {
+                if (!input || input.trim() === '') return true;
+                if (input.trim().startsWith('$')) return true;
+                // Warn about HF token format
+                if (classification.identifier === 'hf-token' && !input.startsWith('hf_') && !isSecretsManagerArn(input)) {
+                    console.warn('\n⚠️  Warning: HuggingFace tokens typically start with "hf_"');
+                    console.warn('   If this is intentional, you can ignore this warning.');
+                }
+                return true;
+            }
+        }]);
+
+        if (!tokenValue || tokenValue.trim() === '') {
+            return {};
+        }
+
+        const value = tokenValue.trim();
+
+        // ARN detection: if the value is a Secrets Manager ARN, store as ARN
+        if (isSecretsManagerArn(value)) {
+            return { [arnConfigKey]: value };
+        }
+
+        // Otherwise store as plaintext
+        return { [plaintextConfigKey]: value };
+    }
+
+    /**
      * CUDA-to-AMI mapping.
      * Maps CUDA major.minor versions to the SageMaker inference AMI that provides
      * the matching CUDA driver. Derived from the framework registry patterns.
      * @private
      */
     static CUDA_AMI_MAP = {
-        '11.0': 'al2-ami-sagemaker-inference-gpu-2-1',
+        '11.0': 'al2-ami-sagemaker-inference-gpu-2',
         '11.4': 'al2-ami-sagemaker-inference-gpu-2-1',
-        '11.8': 'al2-ami-sagemaker-inference-gpu-3-1',
+        '11.8': 'al2-ami-sagemaker-inference-gpu-2-1',
         '12.1': 'al2-ami-sagemaker-inference-gpu-3-1',
-        '12.2': 'al2-ami-sagemaker-inference-gpu-3-2',
-        '12.4': 'al2-ami-sagemaker-inference-gpu-3-2',
-        '12.6': 'al2-ami-sagemaker-inference-gpu-3-2'
+        '12.2': 'al2023-ami-sagemaker-inference-gpu-4-1',
+        '12.4': 'al2023-ami-sagemaker-inference-gpu-4-1',
+        '12.6': 'al2023-ami-sagemaker-inference-gpu-4-1'
     };
 
     /**

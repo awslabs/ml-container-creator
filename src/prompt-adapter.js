@@ -1,12 +1,12 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { select, input, confirm, checkbox, number, Separator } from '@inquirer/prompts';
+import { select, input, confirm, checkbox, number, password, Separator } from '@inquirer/prompts';
 
 /**
  * Maps Yeoman prompt type names to @inquirer/prompts runner functions.
  */
-const runners = { list: select, select, input, confirm, checkbox, number };
+const runners = { list: select, select, input, confirm, checkbox, number, password };
 
 /**
  * Runs a sequence of Yeoman-style prompt definitions using @inquirer/prompts.
@@ -55,6 +55,7 @@ export async function runPrompts(prompts, previousAnswers = {}, options = {}) {
         if (mappedChoices !== undefined) config.choices = mappedChoices;
         if (defaultVal !== undefined) config.default = defaultVal;
         if (prompt.validate) config.validate = prompt.validate;
+        if (prompt.mask !== undefined) config.mask = prompt.mask;
 
         answers[prompt.name] = await runner(config);
     }

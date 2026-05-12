@@ -24,6 +24,8 @@ import { fileURLToPath } from 'node:url';
 import BootstrapConfig from './bootstrap-config.js';
 import AwsProfileParser from './aws-profile-parser.js';
 import AssetManager from './asset-manager.js';
+import McpCommandHandler from './mcp-command-handler.js';
+import RegistryCommandHandler from './registry-command-handler.js';
 import { runPrompts } from '../prompt-adapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -311,6 +313,9 @@ export default class BootstrapCommandHandler {
 
         // Display summary
         this._displaySummary(profileName, profileData);
+
+        // Step 6: Post-setup chain (mcp init → sync-architectures → sync-schemas)
+        await this._runPostSetupChain(options);
     }
 
     /**
@@ -1054,6 +1059,74 @@ export default class BootstrapCommandHandler {
         // Save updated profile
         this.config.setProfile(name, profileConfig);
         console.log(`\n✅ Update complete for profile "${name}"`);
+
+        // Re-run post-setup chain after updating AWS resources
+        await this._runPostSetupChain(options);
+    }
+
+    /**
+     * Run the post-setup chain: mcp init → registry sync-architectures → sync-schemas.
+     * Each step is independent — failures are collected and reported at the end.
+     *
+     * @param {object} options - Parsed CLI options (checks skipPostSetup)
+     */
+    async _runPostSetupChain(options = {}) {
+        if (options['skip-post-setup']) {
+            console.log('\n⏭️  Skipping post-setup chain (--skip-post-setup)');
+            return;
+        }
+
+        console.log('\n🔗 Running post-setup configuration...\n');
+
+        const failures = [];
+
+        // 1. MCP init — register bundled MCP servers
+        console.log('📡 Registering MCP servers...');
+        try {
+            const generatorAdapter = {
+                destinationPath(...segments) {
+                    return path.resolve(process.cwd(), ...segments);
+                }
+            };
+            const mcpHandler = new McpCommandHandler(generatorAdapter);
+            await mcpHandler.handle(['init'], {});
+        } catch (error) {
+            failures.push({ step: 'mcp init', error: error.message });
+            console.log(`  ⚠️  mcp init failed: ${error.message}`);
+        }
+
+        // 2. Registry sync-architectures — populate supportedModelTypes
+        console.log('\n📋 Syncing model architecture registry...');
+        try {
+            const registryHandler = new RegistryCommandHandler();
+            await registryHandler.handle(['sync-architectures'], {});
+        } catch (error) {
+            failures.push({ step: 'registry sync-architectures', error: error.message });
+            console.log(`  ⚠️  registry sync-architectures failed: ${error.message}`);
+        }
+
+        // 3. Schema sync — download AWS service models
+        console.log('\n📐 Syncing service schemas...');
+        try {
+            await this._handleSyncSchemas();
+        } catch (error) {
+            failures.push({ step: 'sync-schemas', error: error.message });
+            console.log(`  ⚠️  sync-schemas failed: ${error.message}`);
+        }
+
+        // Report results
+        if (failures.length === 0) {
+            console.log('\n✅ Bootstrap complete — all systems operational');
+        } else {
+            console.log(`\n⚠️  Bootstrap complete with ${failures.length} warning${failures.length === 1 ? '' : 's'}:`);
+            for (const { step, error } of failures) {
+                console.log(`  • ${step}: ${error}`);
+            }
+            console.log('\n  These steps can be re-run individually:');
+            console.log('    ml-container-creator mcp init');
+            console.log('    ml-container-creator registry sync-architectures');
+            console.log('    ml-container-creator bootstrap sync-schemas');
+        }
     }
 
     /**
@@ -1242,12 +1315,20 @@ export default class BootstrapCommandHandler {
                     Effect: 'Allow',
                     Action: [
                         's3:GetObject',
+                        's3:PutObject',
+                        's3:AbortMultipartUpload',
                         's3:ListBucket'
                     ],
                     Resource: [
                         'arn:aws:s3:::ml-container-creator-*',
                         'arn:aws:s3:::ml-container-creator-*/*'
                     ]
+                },
+                {
+                    Sid: 'SNSPublish',
+                    Effect: 'Allow',
+                    Action: 'sns:Publish',
+                    Resource: 'arn:aws:sns:*:*:ml-container-creator-*'
                 }
             ]
         };
@@ -1649,6 +1730,7 @@ SETUP OPTIONS:
   --skip-s3                           Skip S3 bucket creation
   --ci                                Provision CI testing infrastructure
   --skip-ci                           Skip CI infrastructure provisioning
+  --skip-post-setup                   Skip post-setup chain (mcp init, sync-architectures, sync-schemas)
 
 STATUS OPTIONS:
   --verify                            Check each active resource against AWS APIs for drift detection

@@ -68,6 +68,16 @@ if [ -n "${MODEL_DIR:-}" ]; then
     fi
 fi
 
+# --- Secrets Manager resolution (runtime) ---
+if [ -n "${HF_TOKEN_ARN:-}" ]; then
+    echo "🔐 Resolving HuggingFace token from Secrets Manager..."
+    HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text) || {
+        echo "❌ Failed to resolve HuggingFace token from Secrets Manager"
+        exit 3
+    }
+    export HF_TOKEN
+fi
+
 # Prepare environment variables
 ENV_VARS=""
 <% if (framework === 'transformers') { %>
