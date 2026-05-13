@@ -375,7 +375,7 @@ For more information, visit: https://github.com/awslabs/ml-container-creator
                 type: 'confirm',
                 name: 'includeSampleModel',
                 message: 'Include sample model:',
-                default: false,
+                default: true,
                 when: answers => answers.framework !== 'transformers'
             },
             {
@@ -515,7 +515,7 @@ ml-container-creator \\
             'framework': 'sklearn',
             'modelServer': 'flask',
             'modelFormat': 'pkl',
-            'includeSampleModel': false,
+            'includeSampleModel': true,
             'includeTesting': true,
             'testTypes': ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
             'buildTarget': 'codebuild',

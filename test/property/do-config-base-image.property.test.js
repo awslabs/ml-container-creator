@@ -4,12 +4,13 @@
 /**
  * do/config BASE_IMAGE Export Property-Based Tests
  *
- * Property 7: For any non-empty baseImage template variable, the do/config
- * template SHALL render `export BASE_IMAGE=${BASE_IMAGE:-<value>}`. When
- * baseImage is empty or unset, the template SHALL NOT render a BASE_IMAGE export.
+ * Property 7: The do/config template SHALL always render
+ * `export BASE_IMAGE=${BASE_IMAGE:-<value>}`. When baseImage is non-empty,
+ * <value> is the baseImage string. When baseImage is empty or unset,
+ * <value> is an empty string (the export line is still present).
  *
  * Feature: registry-to-server-migration, Property 7: do/config BASE_IMAGE export
- * Validates: Requirements 8.6, 8.7
+ * Validates: Requirements 3.1, 3.3
  */
 
 import fc from 'fast-check';
@@ -21,11 +22,7 @@ const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
 
 // ── EJS template snippet (from templates/do/config) ───────────
 
-const BASE_IMAGE_SNIPPET = [
-    '<% if (baseImage) { %>',
-    'export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage %>}',
-    '<% } %>'
-].join('\n');
+const BASE_IMAGE_SNIPPET = 'export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage || \'\' %>}';
 
 // ── Arbitrary generators ─────────────────────────────────────────────────────
 
@@ -33,7 +30,7 @@ const BASE_IMAGE_SNIPPET = [
 const arbNonEmptyBaseImage = fc.stringMatching(/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]{0,80}$/)
     .filter(s => s.length >= 1);
 
-// Falsy baseImage values that should NOT produce a BASE_IMAGE export
+// Falsy baseImage values
 const arbFalsyBaseImage = fc.oneof(
     fc.constant(''),
     fc.constant(undefined),
@@ -41,7 +38,7 @@ const arbFalsyBaseImage = fc.oneof(
 );
 
 // ── Regex for the BASE_IMAGE export pattern ──────────────────────────────────
-const BASE_IMAGE_PATTERN = /^export BASE_IMAGE=\$\{BASE_IMAGE:-(.+)}\s*$/;
+const BASE_IMAGE_PATTERN = /^export BASE_IMAGE=\$\{BASE_IMAGE:-(.*)}$/;
 
 // ── Helper functions ─────────────────────────────────────────────────────────
 
@@ -59,7 +56,7 @@ function getExportLines(rendered) {
 
 describe('Feature: registry-to-server-migration, Property 7: do/config BASE_IMAGE export', () => {
 
-    describe('non-empty baseImage renders the BASE_IMAGE export', () => {
+    describe('non-empty baseImage renders the BASE_IMAGE export with value', () => {
 
         it('for any non-empty baseImage, the template renders exactly one export line', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
@@ -124,46 +121,55 @@ describe('Feature: registry-to-server-migration, Property 7: do/config BASE_IMAG
         });
     });
 
-    describe('empty/undefined/null baseImage renders no BASE_IMAGE export', () => {
+    describe('empty/undefined/null baseImage still renders BASE_IMAGE export with empty default', () => {
 
-        it('for any falsy baseImage, the template renders no export lines', function () {
+        it('for any falsy baseImage, the template renders exactly one export line with empty default', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
             fc.assert(fc.property(
                 arbFalsyBaseImage,
                 (baseImage) => {
                     const rendered = renderBaseImageSnippet(baseImage);
-                    const trimmed = rendered.trim();
+                    const exportLines = getExportLines(rendered);
 
-                    assert.strictEqual(trimmed, '',
-                        `expected empty output for baseImage=${JSON.stringify(baseImage)}, ` +
-                        `got: "${trimmed}"`);
+                    assert.strictEqual(exportLines.length, 1,
+                        `expected exactly 1 export line for baseImage=${JSON.stringify(baseImage)}, ` +
+                        `got ${exportLines.length}`);
+                    assert.strictEqual(exportLines[0], 'export BASE_IMAGE=${BASE_IMAGE:-}',
+                        `expected empty default for falsy baseImage=${JSON.stringify(baseImage)}, ` +
+                        `got: "${exportLines[0]}"`);
                 }
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
-        it('for empty string baseImage, no BASE_IMAGE text appears in output', function () {
+        it('for empty string baseImage, BASE_IMAGE export is present with empty default', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
             const rendered = renderBaseImageSnippet('');
-            assert.ok(!rendered.includes('BASE_IMAGE'),
-                `output must not contain "BASE_IMAGE" for empty baseImage, got: "${rendered.trim()}"`);
+            assert.ok(rendered.includes('export BASE_IMAGE'),
+                `output must contain "export BASE_IMAGE" for empty baseImage, got: "${rendered.trim()}"`);
+            assert.strictEqual(rendered.trim(), 'export BASE_IMAGE=${BASE_IMAGE:-}',
+                `expected empty default, got: "${rendered.trim()}"`);
         });
 
-        it('for undefined baseImage, no BASE_IMAGE text appears in output', function () {
+        it('for undefined baseImage, BASE_IMAGE export is present with empty default', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
             const rendered = renderBaseImageSnippet(undefined);
-            assert.ok(!rendered.includes('BASE_IMAGE'),
-                `output must not contain "BASE_IMAGE" for undefined baseImage, got: "${rendered.trim()}"`);
+            assert.ok(rendered.includes('export BASE_IMAGE'),
+                `output must contain "export BASE_IMAGE" for undefined baseImage, got: "${rendered.trim()}"`);
+            assert.strictEqual(rendered.trim(), 'export BASE_IMAGE=${BASE_IMAGE:-}',
+                `expected empty default, got: "${rendered.trim()}"`);
         });
 
-        it('for null baseImage, no BASE_IMAGE text appears in output', function () {
+        it('for null baseImage, BASE_IMAGE export is present with empty default', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
             const rendered = renderBaseImageSnippet(null);
-            assert.ok(!rendered.includes('BASE_IMAGE'),
-                `output must not contain "BASE_IMAGE" for null baseImage, got: "${rendered.trim()}"`);
+            assert.ok(rendered.includes('export BASE_IMAGE'),
+                `output must contain "export BASE_IMAGE" for null baseImage, got: "${rendered.trim()}"`);
+            assert.strictEqual(rendered.trim(), 'export BASE_IMAGE=${BASE_IMAGE:-}',
+                `expected empty default, got: "${rendered.trim()}"`);
         });
     });
 
-    describe('conditional rendering is consistent', () => {
+    describe('unconditional rendering is consistent', () => {
 
         it('for any baseImage (truthy or falsy), rendering is deterministic', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
@@ -179,7 +185,7 @@ describe('Feature: registry-to-server-migration, Property 7: do/config BASE_IMAG
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
-        it('truthy baseImage always produces output, falsy never does', function () {
+        it('BASE_IMAGE export is always present regardless of baseImage value', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
             fc.assert(fc.property(
                 fc.oneof(
@@ -190,12 +196,16 @@ describe('Feature: registry-to-server-migration, Property 7: do/config BASE_IMAG
                     const rendered = renderBaseImageSnippet(value);
                     const hasExport = rendered.includes('export BASE_IMAGE');
 
+                    assert.ok(hasExport,
+                        'BASE_IMAGE export must always be present, ' +
+                        `baseImage=${JSON.stringify(value)} (truthy=${truthy})`);
+
                     if (truthy) {
-                        assert.ok(hasExport,
-                            `truthy baseImage="${value}" must produce BASE_IMAGE export`);
+                        assert.ok(rendered.includes(`\${BASE_IMAGE:-${value}}`),
+                            `truthy baseImage="${value}" must include value in default`);
                     } else {
-                        assert.ok(!hasExport,
-                            `falsy baseImage=${JSON.stringify(value)} must NOT produce BASE_IMAGE export`);
+                        assert.ok(rendered.includes('${BASE_IMAGE:-}'),
+                            `falsy baseImage=${JSON.stringify(value)} must have empty default`);
                     }
                 }
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });

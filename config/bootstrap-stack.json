@@ -68,6 +68,37 @@
                   "Resource": "*"
                 },
                 {
+                  "Sid": "SageMakerBenchmarking",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sagemaker:CreateAIBenchmarkJob",
+                    "sagemaker:DescribeAIBenchmarkJob",
+                    "sagemaker:ListAIBenchmarkJobs",
+                    "sagemaker:StopAIBenchmarkJob",
+                    "sagemaker:DeleteAIBenchmarkJob",
+                    "sagemaker:CreateAIWorkloadConfig",
+                    "sagemaker:DescribeAIWorkloadConfig",
+                    "sagemaker:ListAIWorkloadConfigs",
+                    "sagemaker:DeleteAIWorkloadConfig",
+                    "sagemaker:CreateTrainingJob",
+                    "sagemaker:DescribeTrainingJob",
+                    "sagemaker:StopTrainingJob",
+                    "sagemaker:AddTags"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "PassRoleToSageMaker",
+                  "Effect": "Allow",
+                  "Action": "iam:PassRole",
+                  "Resource": { "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/mlcc-sagemaker-execution-role" },
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PassedToService": "sagemaker.amazonaws.com"
+                    }
+                  }
+                },
+                {
                   "Sid": "ECRPull",
                   "Effect": "Allow",
                   "Action": [
@@ -76,7 +107,7 @@
                     "ecr:GetDownloadUrlForLayer",
                     "ecr:BatchGetImage"
                   ],
-                  "Resource": { "Fn::Sub": "arn:aws:ecr:*:${AWS::AccountId}:repository/ml-container-creator" }
+                  "Resource": "*"
                 },
                 {
                   "Sid": "ECRAuth",
@@ -99,6 +130,7 @@
                   "Effect": "Allow",
                   "Action": [
                     "s3:GetObject",
+                    "s3:PutObject",
                     "s3:ListBucket"
                   ],
                   "Resource": [
@@ -113,12 +145,36 @@
                     "secretsmanager:GetSecretValue",
                     "secretsmanager:DescribeSecret"
                   ],
-                  "Resource": "arn:aws:secretsmanager:*:*:secret:mlcc/*",
-                  "Condition": {
-                    "StringEquals": {
-                      "aws:ResourceTag/mlcc:managed-by": "ml-container-creator"
-                    }
-                  }
+                  "Resource": [
+                    "arn:aws:secretsmanager:*:*:secret:mlcc/*",
+                    "arn:aws:secretsmanager:*:*:secret:ml-container-creator/*"
+                  ]
+                },
+                {
+                  "Sid": "SecretsManagerWrite",
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:CreateSecret",
+                    "secretsmanager:PutSecretValue",
+                    "secretsmanager:TagResource"
+                  ],
+                  "Resource": [
+                    "arn:aws:secretsmanager:*:*:secret:mlcc/*",
+                    "arn:aws:secretsmanager:*:*:secret:ml-container-creator/*"
+                  ]
+                },
+                {
+                  "Sid": "QuotaAndAvailability",
+                  "Effect": "Allow",
+                  "Action": [
+                    "service-quotas:GetServiceQuota",
+                    "service-quotas:ListServiceQuotas",
+                    "ec2:DescribeCapacityReservations",
+                    "sagemaker:ListTrainingPlans",
+                    "sagemaker:DescribeTrainingPlan",
+                    "sagemaker:ListEndpoints"
+                  ],
+                  "Resource": "*"
                 }
               ]
             }
@@ -185,6 +241,25 @@
           { "Key": "mlcc:created-by", "Value": "bootstrap" }
         ]
       }
+    },
+
+    "BenchmarkS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": { "Fn::Sub": "ml-container-creator-benchmark-${AWS::Region}-${AWS::AccountId}" },
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            { "ServerSideEncryptionByDefault": { "SSEAlgorithm": "AES256" } }
+          ]
+        },
+        "Tags": [
+          { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
+          { "Key": "mlcc:created-by", "Value": "bootstrap" }
+        ]
+      }
     }
   },
 
@@ -216,6 +291,10 @@
       "Condition": "ShouldCreateS3Buckets",
       "Description": "S3 bucket for batch transform I/O",
       "Value": { "Ref": "BatchS3Bucket" }
+    },
+    "BenchmarkS3BucketName": {
+      "Description": "S3 bucket for benchmark results output",
+      "Value": { "Ref": "BenchmarkS3Bucket" }
     },
     "StackVersion": {
       "Description": "Bootstrap stack template version for forward compatibility tracking",

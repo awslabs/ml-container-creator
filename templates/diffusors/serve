@@ -2,6 +2,9 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# CUDA compatibility setup (required for newer SageMaker inference AMIs)
+source /usr/bin/cuda_compat.sh 2>/dev/null || true
+
 echo "Starting vLLM-Omni server (diffusion model serving)"
 
 # Resolve model URI prefixes that engines cannot handle natively.

@@ -189,6 +189,37 @@ export function loadServiceModel(serviceName, registryPath) {
 }
 
 /**
+ * Check whether the SageMaker service model includes the CreateAIBenchmarkJob operation shape.
+ * Used to determine if benchmark parameter validation can be performed.
+ *
+ * @param {string} [registryPath] - Override registry path
+ * @returns {{ available: boolean, reason?: string }}
+ */
+export function hasBenchmarkShape(registryPath) {
+    const regPath = registryPath || getRegistryPath();
+    const modelContent = loadServiceModel('sagemaker', regPath);
+
+    if (!modelContent) {
+        return { available: false, reason: 'SageMaker service model not found in registry' };
+    }
+
+    try {
+        const model = JSON.parse(modelContent);
+        const operations = model.operations || {};
+        const shapes = model.shapes || {};
+
+        // Check for the CreateAIBenchmarkJob operation or its input shape
+        if (operations.CreateAIBenchmarkJob || shapes.CreateAIBenchmarkJobRequest) {
+            return { available: true };
+        }
+
+        return { available: false, reason: 'service model does not include AI Benchmark operations' };
+    } catch {
+        return { available: false, reason: 'Failed to parse SageMaker service model' };
+    }
+}
+
+/**
  * Store a service model in the registry.
  * @param {string} serviceName - Service name (e.g., 'sagemaker')
  * @param {string} content - Raw file content to store

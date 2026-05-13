@@ -75,6 +75,21 @@ The Framework Registry stores framework-specific configurations indexed by frame
 - `recommendedInstanceTypes` - Array of recommended instance types
 - `validationLevel` - Validation level (see [Validation Levels](#validation-levels))
 
+### Valid `inferenceAmiVersion` Values
+
+The `inferenceAmiVersion` field must be one of the following valid AWS SageMaker AMI versions:
+
+| AMI Version | Accelerator | Notes |
+|---|---|---|
+| `al2023-ami-sagemaker-inference-cpu-0` | CPU | For CPU-only deployments |
+| `al2-ami-sagemaker-inference-gpu-2` | GPU (CUDA) | Legacy GPU AMI |
+| `al2-ami-sagemaker-inference-gpu-2-1` | GPU (CUDA) | Legacy GPU AMI |
+| `al2-ami-sagemaker-inference-neuron-2` | Neuron | For AWS Inferentia/Trainium |
+| `al2-ami-sagemaker-inference-gpu-3-1` | GPU (CUDA) | **Recommended default for GPU** |
+| `al2023-ami-sagemaker-inference-gpu-4-1` | GPU (CUDA) | AL2023-based GPU AMI |
+
+> **Recommendation:** Use `al2-ami-sagemaker-inference-gpu-3-1` as the default for GPU-accelerated deployments. This is the most widely tested and stable option for CUDA-based inference workloads.
+
 ### Example: Adding vLLM 0.5.0
 
 ```javascript
@@ -151,7 +166,7 @@ The Framework Registry stores framework-specific configurations indexed by frame
         "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
         "OPTION_DTYPE": "fp16"
       },
-      "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2",
+      "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1",
       "recommendedInstanceTypes": [
         "ml.g5.xlarge",
         "ml.g5.2xlarge",

@@ -583,7 +583,7 @@ const modulePrompts = [
         type: 'confirm',
         name: 'includeSampleModel',
         message: 'Include sample Abalone classifier?',
-        default: false,
+        default: true,
         when: (answers) => {
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
             const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-');
@@ -622,7 +622,10 @@ const modulePrompts = [
             
             // Transformers and Triton LLM backends only support hosted endpoint tests
             if (architecture === 'transformers') {
-                return ['hosted-model-endpoint'];
+                return ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
+            }
+            if (architecture === 'diffusors') {
+                return ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
             }
             if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')) {
                 return ['hosted-model-endpoint'];
@@ -635,7 +638,10 @@ const modulePrompts = [
             const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-');
             
             if (architecture === 'transformers') {
-                return ['hosted-model-endpoint'];
+                return ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
+            }
+            if (architecture === 'diffusors') {
+                return ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
             }
             if (architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm')) {
                 return ['hosted-model-endpoint'];
@@ -700,7 +706,12 @@ const infraInstancePrompts = [
         when: answers => answers.deploymentTarget === 'realtime-inference' || answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform' || answers.deploymentTarget === 'hyperpod-eks',
         message: (answers) => {
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
-            
+
+            // Skip table when MCP sizer already displayed annotated results
+            if (answers._mcpInstanceChoices && answers._mcpInstanceChoices.length > 0) {
+                return 'Select instance type:';
+            }
+
             const table = new Table({
                 head: [
                     chalk.cyan('Instance Type'),
@@ -1110,6 +1121,56 @@ const baseImagePrompts = [
     }
 ];
 
+/**
+ * Benchmark prompts for SageMaker AI Benchmarking (NVIDIA AIPerf)
+ * Sub-prompts shown when 'sagemaker-ai-automated-benchmarking' is selected in testTypes.
+ * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+ */
+const benchmarkPrompts = [
+    {
+        type: 'number',
+        name: 'benchmarkConcurrency',
+        message: 'Concurrent requests for benchmark:',
+        default: 10,
+        when: (answers) => answers.includeBenchmark === true
+    },
+    {
+        type: 'number',
+        name: 'benchmarkInputTokensMean',
+        message: 'Mean input tokens per request:',
+        default: 550,
+        when: (answers) => answers.includeBenchmark === true
+    },
+    {
+        type: 'number',
+        name: 'benchmarkOutputTokensMean',
+        message: 'Mean output tokens per request:',
+        default: 150,
+        when: (answers) => answers.includeBenchmark === true
+    },
+    {
+        type: 'confirm',
+        name: 'benchmarkStreaming',
+        message: 'Enable streaming for benchmark?',
+        default: true,
+        when: (answers) => answers.includeBenchmark === true
+    },
+    {
+        type: 'input',
+        name: 'benchmarkRequestCount',
+        message: 'Total request count (leave empty for service default):',
+        default: '',
+        when: (answers) => answers.includeBenchmark === true
+    },
+    {
+        type: 'input',
+        name: 'benchmarkS3OutputPath',
+        message: 'Benchmark results S3 path (leave empty for auto-created bucket):',
+        default: '',
+        when: (answers) => answers.includeBenchmark === true
+    }
+];
+
 export {
     deploymentConfigPrompts,
     frameworkPrompts, // Deprecated: kept for backward compatibility
@@ -1123,6 +1184,7 @@ export {
     hfTokenPrompts,
     ngcApiKeyPrompts,
     modulePrompts,
+    benchmarkPrompts,
     infrastructurePrompts,
     infraRegionAndTargetPrompts,
     infraInstancePrompts,

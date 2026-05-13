@@ -122,6 +122,11 @@ EXPOSE 8080
 # --http-port=8080: SageMaker requires port 8080
 # --model-repository: Path to model repository
 # --strict-model-config=false: Allow Triton to auto-complete config for some backends
+
+# CUDA compatibility: ensure compat libs are on LD_LIBRARY_PATH for newer SageMaker AMIs
+# (NVIDIA Container Toolkit 1.17.4+ no longer auto-mounts these)
+ENV LD_LIBRARY_PATH="/usr/local/cuda/compat:${LD_LIBRARY_PATH:-}"
+
 ENTRYPOINT ["tritonserver", \
             "--http-port=8080", \
             "--model-repository=/opt/ml/model/model_repository", \

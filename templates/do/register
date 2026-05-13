@@ -393,6 +393,7 @@ CJEOF
 
     # Try put-item with condition (new record)
     if aws dynamodb put-item \
+        --region "${AWS_REGION}" \
         --table-name "${CI_TABLE_NAME}" \
         --item "{
             \"configId\": {\"S\": \"${config_id}\"},
@@ -412,6 +413,7 @@ CJEOF
     else
         # Record already exists — update it (reset testStatus, update configJson, preserve createdAt)
         if aws dynamodb update-item \
+            --region "${AWS_REGION}" \
             --table-name "${CI_TABLE_NAME}" \
             --key "{\"configId\": {\"S\": \"${config_id}\"}}" \
             --update-expression "SET configJson = :cj, testStatus = :ts, deploymentConfig = :dc, baseImage = :bi, baseImageVersion = :bv, buildStrategy = :bs, projectName = :pn, schemaVersion = :sv" \
@@ -496,6 +498,11 @@ DJEOF
     echo "${DEPLOYMENT_JSON}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${DEPLOYMENT_JSON}"
 
     if [ "${CI_MODE}" = true ]; then
+        # Strip capacity reservation ARN for CI — force on-demand deployment
+        # CI projects must never use reserved capacity (reservations are account-specific
+        # and time-bound; CI replay should always target on-demand instances)
+        unset CAPACITY_RESERVATION_ARN 2>/dev/null || true
+
         echo ""
         echo "⚠️  CI Integration is experimental and currently only tested for"
         echo "   SageMaker Real-Time Inference endpoints."
@@ -507,7 +514,7 @@ DJEOF
         echo "🔑 configId: ${CONFIG_ID}"
 
         # Check if CI_Table exists before writing
-        if ! aws dynamodb describe-table --table-name "${CI_TABLE_NAME}" &>/dev/null; then
+        if ! aws dynamodb describe-table --table-name "${CI_TABLE_NAME}" --region "${AWS_REGION}" &>/dev/null; then
             echo ""
             echo "⚠️  CI infrastructure not provisioned. Run 'ml-container-creator bootstrap' with CI enabled."
             echo "   Skipping CI table write."

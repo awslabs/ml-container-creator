@@ -21,7 +21,7 @@ import SchemaValidationEngine from './schema-validation-engine.js';
 import ServiceModelParser from './service-model-parser.js';
 import CrossCuttingChecker from './cross-cutting-checker.js';
 import HuggingFaceClient from './huggingface-client.js';
-import { getRegistryPath, loadManifest } from './schema-sync.js';
+import { getRegistryPath, loadManifest, hasBenchmarkShape } from './schema-sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +50,115 @@ export function parseDoConfig(configPath) {
     }
 
     return config;
+}
+
+/**
+ * Validate benchmark parameters against service model constraints.
+ * Called when the CreateAIBenchmarkJob shape is available in the synced schema.
+ *
+ * Validates:
+ * - Concurrency: integer, min 1
+ * - S3OutputLocation: string, starts with s3://
+ * - AIBenchmarkJobName: pattern ^[a-zA-Z0-9](-*[a-zA-Z0-9])*, max 63 chars
+ *
+ * Requirements: 8.1, 8.2, 8.3
+ *
+ * @param {Object} config - Parsed do/config values
+ * @returns {Array<Object>} Array of validation findings
+ */
+export function validateBenchmarkParams(config) {
+    const findings = [];
+
+    // Validate Concurrency (integer, min 1)
+    if (config.BENCHMARK_CONCURRENCY !== null && config.BENCHMARK_CONCURRENCY !== undefined && config.BENCHMARK_CONCURRENCY !== '') {
+        const concurrency = Number(config.BENCHMARK_CONCURRENCY);
+        if (!Number.isInteger(concurrency) || concurrency < 1) {
+            findings.push({
+                severity: 'error',
+                operation: 'CreateAIBenchmarkJob',
+                fieldPath: 'Concurrency',
+                constraint: 'integer >= 1',
+                invalidValue: config.BENCHMARK_CONCURRENCY,
+                remediationHint: 'BENCHMARK_CONCURRENCY must be a positive integer (>= 1)'
+            });
+        }
+    }
+
+    // Validate S3OutputLocation (string, starts with s3://)
+    if (config.BENCHMARK_S3_OUTPUT_PATH !== null && config.BENCHMARK_S3_OUTPUT_PATH !== undefined && config.BENCHMARK_S3_OUTPUT_PATH !== '') {
+        const s3Path = config.BENCHMARK_S3_OUTPUT_PATH;
+        // Skip dynamic shell expressions (e.g., s3://...$(aws ...))
+        if (!s3Path.includes('$(') && !s3Path.startsWith('s3://')) {
+            findings.push({
+                severity: 'error',
+                operation: 'CreateAIBenchmarkJob',
+                fieldPath: 'OutputConfig.S3OutputLocation',
+                constraint: 'must start with s3://',
+                invalidValue: s3Path,
+                remediationHint: 'BENCHMARK_S3_OUTPUT_PATH must start with "s3://". Example: s3://my-bucket/benchmark-results/'
+            });
+        }
+    }
+
+    // Validate AIBenchmarkJobName pattern (^[a-zA-Z0-9](-*[a-zA-Z0-9])*, max 63 chars)
+    if (config.BENCHMARK_JOB_NAME !== null && config.BENCHMARK_JOB_NAME !== undefined && config.BENCHMARK_JOB_NAME !== '') {
+        const jobName = config.BENCHMARK_JOB_NAME;
+        // Skip dynamic shell expressions
+        if (!jobName.includes('$(') && !jobName.includes('${')) {
+            const namePattern = /^[a-zA-Z0-9](-*[a-zA-Z0-9])*$/;
+            if (jobName.length > 63) {
+                findings.push({
+                    severity: 'error',
+                    operation: 'CreateAIBenchmarkJob',
+                    fieldPath: 'AIBenchmarkJobName',
+                    constraint: 'max 63 characters',
+                    invalidValue: jobName,
+                    remediationHint: 'AIBenchmarkJobName must be at most 63 characters'
+                });
+            } else if (!namePattern.test(jobName)) {
+                findings.push({
+                    severity: 'error',
+                    operation: 'CreateAIBenchmarkJob',
+                    fieldPath: 'AIBenchmarkJobName',
+                    constraint: 'pattern: ^[a-zA-Z0-9](-*[a-zA-Z0-9])*',
+                    invalidValue: jobName,
+                    remediationHint: 'AIBenchmarkJobName must start with alphanumeric and contain only alphanumeric characters and hyphens'
+                });
+            }
+        }
+    }
+
+    // Validate input tokens mean (integer, min 1)
+    if (config.BENCHMARK_INPUT_TOKENS_MEAN !== null && config.BENCHMARK_INPUT_TOKENS_MEAN !== undefined && config.BENCHMARK_INPUT_TOKENS_MEAN !== '') {
+        const inputTokens = Number(config.BENCHMARK_INPUT_TOKENS_MEAN);
+        if (!Number.isInteger(inputTokens) || inputTokens < 1) {
+            findings.push({
+                severity: 'error',
+                operation: 'CreateAIWorkloadConfig',
+                fieldPath: 'WorkloadSpec.parameters.prompt_input_tokens_mean',
+                constraint: 'integer >= 1',
+                invalidValue: config.BENCHMARK_INPUT_TOKENS_MEAN,
+                remediationHint: 'BENCHMARK_INPUT_TOKENS_MEAN must be a positive integer (>= 1)'
+            });
+        }
+    }
+
+    // Validate output tokens mean (integer, min 1)
+    if (config.BENCHMARK_OUTPUT_TOKENS_MEAN !== null && config.BENCHMARK_OUTPUT_TOKENS_MEAN !== undefined && config.BENCHMARK_OUTPUT_TOKENS_MEAN !== '') {
+        const outputTokens = Number(config.BENCHMARK_OUTPUT_TOKENS_MEAN);
+        if (!Number.isInteger(outputTokens) || outputTokens < 1) {
+            findings.push({
+                severity: 'error',
+                operation: 'CreateAIWorkloadConfig',
+                fieldPath: 'WorkloadSpec.parameters.output_tokens_mean',
+                constraint: 'integer >= 1',
+                invalidValue: config.BENCHMARK_OUTPUT_TOKENS_MEAN,
+                remediationHint: 'BENCHMARK_OUTPUT_TOKENS_MEAN must be a positive integer (>= 1)'
+            });
+        }
+    }
+
+    return findings;
 }
 
 /**
@@ -171,6 +280,20 @@ export async function run(options = {}) {
         }
     }
 
+    // Run benchmark parameter validation (Requirements 8.1, 8.2, 8.3)
+    if (config.BENCHMARK_CONCURRENCY || config.BENCHMARK_INPUT_TOKENS_MEAN ||
+        config.BENCHMARK_OUTPUT_TOKENS_MEAN || config.BENCHMARK_S3_OUTPUT_PATH) {
+        const benchmarkCheck = hasBenchmarkShape(registryPath);
+        if (benchmarkCheck.available) {
+            const benchmarkFindings = validateBenchmarkParams(config);
+            for (const finding of benchmarkFindings) {
+                report.addFinding(finding);
+            }
+        } else {
+            console.log('⚠️  Benchmark validation skipped: service model does not include AI Benchmark operations. Run `bootstrap sync-schemas` to update.');
+        }
+    }
+
     const summary = report.getSummary();
 
     // Load manifest for version info
@@ -213,4 +336,4 @@ export async function run(options = {}) {
     return exitCode;
 }
 
-export default { run, parseDoConfig };
+export default { run, parseDoConfig, validateBenchmarkParams };

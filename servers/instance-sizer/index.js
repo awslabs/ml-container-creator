@@ -26,7 +26,8 @@ import { fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
 import { resolveModelMetadata } from './lib/model-resolver.js'
 import { estimateVram } from './lib/vram-estimator.js'
-import { filterAndRankInstances } from './lib/instance-ranker.js'
+import { filterAndRankInstances, applyAvailabilityRanking } from './lib/instance-ranker.js'
+import { QuotaResolver } from './lib/quota-resolver.js'
 import { queryBedrock } from '../lib/bedrock-client.js'
 
 // ── Path setup ───────────────────────────────────────────────────────────────
@@ -379,6 +380,38 @@ async function handleGetInstanceRecommendation(params) {
         { limit }
     )
 
+    // Step 3a: Quota & availability filtering (discover mode only)
+    let preQuotaFilterCount = 0
+    let allFilteredByQuota = false
+    if (DISCOVER_MODE && recommendations.length > 0) {
+        try {
+            const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || BEDROCK_REGION
+            const quotaResolver = new QuotaResolver(region)
+
+            const instanceTypes = recommendations.map(r => r.instanceType)
+            const [quotas, reservations, ftps] = await Promise.allSettled([
+                quotaResolver.getQuotaHeadroom(instanceTypes),
+                quotaResolver.getCapacityReservations(),
+                quotaResolver.getTrainingPlans()
+            ])
+
+            preQuotaFilterCount = recommendations.length
+            recommendations = applyAvailabilityRanking(
+                recommendations,
+                quotas.status === 'fulfilled' ? quotas.value : null,
+                reservations.status === 'fulfilled' ? reservations.value : null,
+                ftps.status === 'fulfilled' ? ftps.value : null
+            )
+            if (recommendations.length === 0 && preQuotaFilterCount > 0) {
+                allFilteredByQuota = true
+            }
+        } catch (err) {
+            // Graceful degradation: if credentials are missing or any unexpected
+            // error occurs, skip quota filtering and continue with unfiltered results
+            log(`Quota resolution skipped: ${err.message}`)
+        }
+    }
+
     // Step 3b: If instanceSearch is also provided, further filter by tags
     if (instanceSearch && recommendations.length > 0) {
         const searchMatches = new Set(searchInstancesByTag(instanceSearch, effectiveCatalog, { limit: 100 }))
@@ -480,7 +513,8 @@ async function handleGetInstanceRecommendation(params) {
                     vramBreakdown: vramEstimate.breakdown,
                     recommendations: finalRecommendations,
                     source: modelMetadata.source,
-                    smartModeUsed
+                    smartModeUsed,
+                    allFilteredByQuota
                 }
             })
         }]

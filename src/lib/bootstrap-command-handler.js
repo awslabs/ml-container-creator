@@ -116,6 +116,11 @@ export default class BootstrapCommandHandler {
 
         console.log('\n🚀 Bootstrap — Shared AWS Infrastructure Setup\n');
 
+        // Verify AWS CLI v2 is installed
+        if (!this._verifyCliV2()) {
+            return;
+        }
+
         // Determine bootstrap profile name
         let profileName;
         if (nonInteractive) {
@@ -193,6 +198,9 @@ export default class BootstrapCommandHandler {
             }
             if (stackOutputs.BatchS3BucketName) {
                 profileData.batchS3Bucket = stackOutputs.BatchS3BucketName;
+            }
+            if (stackOutputs.BenchmarkS3BucketName) {
+                profileData.benchmarkS3Bucket = stackOutputs.BenchmarkS3BucketName;
             }
 
             console.log('  ✅ Bootstrap stack deployed successfully');
@@ -382,6 +390,9 @@ export default class BootstrapCommandHandler {
                 if (outputs.BatchS3BucketName) {
                     console.log(`  ✅ S3 bucket (batch): ${outputs.BatchS3BucketName}`);
                 }
+                if (outputs.BenchmarkS3BucketName) {
+                    console.log(`  ✅ S3 bucket (benchmark): ${outputs.BenchmarkS3BucketName}`);
+                }
                 if (outputs.StackVersion) {
                     console.log(`  📋 Stack version: ${outputs.StackVersion}`);
                 }
@@ -450,6 +461,20 @@ export default class BootstrapCommandHandler {
                         : `  ⚠️  S3 bucket: ${profile.config.batchS3Bucket} — missing`);
                 } catch {
                     console.log(`  ⚠️  S3 bucket: ${profile.config.batchS3Bucket} — could not validate`);
+                }
+            }
+
+            if (profile.config.benchmarkS3Bucket) {
+                try {
+                    const benchmarkExists = this._resourceExists(
+                        `s3api head-bucket --bucket ${profile.config.benchmarkS3Bucket}`,
+                        profile.config.awsProfile
+                    );
+                    console.log(benchmarkExists
+                        ? `  ✅ S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket}`
+                        : `  ⚠️  S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket} — missing`);
+                } catch {
+                    console.log(`  ⚠️  S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket} — could not validate`);
                 }
             }
         }
@@ -1005,6 +1030,7 @@ export default class BootstrapCommandHandler {
             if (stackOutputs.EcrRepositoryName) profileConfig.ecrRepositoryName = stackOutputs.EcrRepositoryName;
             if (stackOutputs.AsyncS3BucketName) profileConfig.asyncS3Bucket = stackOutputs.AsyncS3BucketName;
             if (stackOutputs.BatchS3BucketName) profileConfig.batchS3Bucket = stackOutputs.BatchS3BucketName;
+            if (stackOutputs.BenchmarkS3BucketName) profileConfig.benchmarkS3Bucket = stackOutputs.BenchmarkS3BucketName;
             profileConfig.stackName = stackName;
 
             console.log('  ✅ Bootstrap stack updated');
@@ -1278,8 +1304,25 @@ export default class BootstrapCommandHandler {
                         'sagemaker:DescribeEndpointConfig',
                         'sagemaker:DescribeModel',
                         'sagemaker:DescribeInferenceComponent',
+                        'sagemaker:ListInferenceComponents',
                         'sagemaker:InvokeEndpoint',
                         'sagemaker:InvokeEndpointAsync'
+                    ],
+                    Resource: '*'
+                },
+                {
+                    Sid: 'SageMakerBenchmarking',
+                    Effect: 'Allow',
+                    Action: [
+                        'sagemaker:CreateAIBenchmarkJob',
+                        'sagemaker:DescribeAIBenchmarkJob',
+                        'sagemaker:ListAIBenchmarkJobs',
+                        'sagemaker:StopAIBenchmarkJob',
+                        'sagemaker:DeleteAIBenchmarkJob',
+                        'sagemaker:CreateAIWorkloadConfig',
+                        'sagemaker:DescribeAIWorkloadConfig',
+                        'sagemaker:ListAIWorkloadConfigs',
+                        'sagemaker:DeleteAIWorkloadConfig'
                     ],
                     Resource: '*'
                 },
@@ -1329,6 +1372,29 @@ export default class BootstrapCommandHandler {
                     Effect: 'Allow',
                     Action: 'sns:Publish',
                     Resource: 'arn:aws:sns:*:*:ml-container-creator-*'
+                },
+                {
+                    Sid: 'SecretsManagerBenchmark',
+                    Effect: 'Allow',
+                    Action: [
+                        'secretsmanager:CreateSecret',
+                        'secretsmanager:PutSecretValue',
+                        'secretsmanager:GetSecretValue',
+                        'secretsmanager:DescribeSecret'
+                    ],
+                    Resource: 'arn:aws:secretsmanager:*:*:secret:ml-container-creator/*'
+                },
+                {
+                    Sid: 'QuotaAndAvailability',
+                    Effect: 'Allow',
+                    Action: [
+                        'service-quotas:GetServiceQuota',
+                        'service-quotas:ListServiceQuotas',
+                        'sagemaker:ListTrainingPlans',
+                        'sagemaker:DescribeTrainingPlan',
+                        'sagemaker:ListEndpoints'
+                    ],
+                    Resource: '*'
                 }
             ]
         };
@@ -1478,9 +1544,15 @@ export default class BootstrapCommandHandler {
 
     /**
      * Optionally create S3 buckets for async/batch deployments.
+     * Always creates the benchmark S3 bucket (unconditional).
      * @returns {Promise<object|null>} Bucket names or null if skipped
      */
     async _setupS3Buckets() {
+        // Always create benchmark bucket (unconditional — avoids re-bootstrap when benchmarking is enabled later)
+        const benchmarkBucketName = `ml-container-creator-benchmark-${this._currentRegion}-${this._currentAccountId}`;
+        const tags = this._buildResourceTags();
+        const benchmarkS3Bucket = await this._createS3Bucket(benchmarkBucketName, tags);
+
         const { useS3 } = await this._promptFn([{
             type: 'confirm',
             name: 'useS3',
@@ -1489,17 +1561,16 @@ export default class BootstrapCommandHandler {
         }]);
 
         if (!useS3) {
-            return null;
+            return { benchmarkS3Bucket };
         }
 
         const asyncBucketName = `ml-container-creator-async-${this._currentRegion}-${this._currentAccountId}`;
         const batchBucketName = `ml-container-creator-batch-${this._currentRegion}-${this._currentAccountId}`;
 
-        const tags = this._buildResourceTags();
         const asyncS3Bucket = await this._createS3Bucket(asyncBucketName, tags);
         const batchS3Bucket = await this._createS3Bucket(batchBucketName, tags);
 
-        return { asyncS3Bucket, batchS3Bucket };
+        return { asyncS3Bucket, batchS3Bucket, benchmarkS3Bucket };
     }
 
     /**
@@ -1555,6 +1626,28 @@ export default class BootstrapCommandHandler {
     }
 
     // ── AWS CLI helpers ─────────────────────────────────────────────
+
+    /**
+     * Verify AWS CLI v2 is installed. Returns true if v2 is detected, false otherwise.
+     * Extracted as a method so tests can override it.
+     * @returns {boolean}
+     */
+    _verifyCliV2() {
+        try {
+            const versionOutput = execSync('aws --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+            if (!versionOutput.includes('aws-cli/2')) {
+                console.log(`  ❌ AWS CLI v2 is required. Detected: ${versionOutput.split(' ')[0]}`);
+                console.log('  Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html');
+                console.log('  Some features (benchmarking, newer SageMaker APIs) require CLI v2.\n');
+                return false;
+            }
+            return true;
+        } catch {
+            console.log('  ❌ AWS CLI not found.');
+            console.log('  Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html\n');
+            return false;
+        }
+    }
 
     /**
      * Execute an AWS CLI command and return parsed JSON output.

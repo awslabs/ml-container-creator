@@ -262,6 +262,39 @@ Clean everything:
 
 ---
 
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+### `./do/benchmark`
+
+Run SageMaker AI Benchmark against deployed endpoint.
+
+**What it does:**
+- Verifies endpoint is InService
+- Ensures S3 output bucket exists
+- Creates AI workload configuration
+- Creates and monitors AI benchmark job
+- Displays performance results (throughput, latency P50/P90/P99, TTFT, ITL)
+
+**Prerequisites:**
+- Endpoint deployed and InService (`./do/deploy`)
+- AWS credentials configured
+
+**Usage:**
+```bash
+./do/benchmark
+```
+
+**Clean up benchmark resources:**
+```bash
+./do/benchmark --clean
+```
+
+**Output:**
+- Benchmark results summary table
+- Detailed results in S3
+
+---
+
+<% } %>
 <% if (buildTarget === 'codebuild') { %>
 ### `./do/submit`
 

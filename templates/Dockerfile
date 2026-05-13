@@ -12,6 +12,9 @@
 <% if (framework !== 'transformers') { %>
 FROM <%= baseImage || 'public.ecr.aws/docker/library/python:3.12-slim' %>
 
+# Ensure Python output is unbuffered so SageMaker can capture logs in CloudWatch
+ENV PYTHONUNBUFFERED=1
+
 # Set a docker label to name this project, postpended with the build time
 LABEL project.name="<%= projectName %>-<%= buildTimestamp %>" \
       project.base-name="<%= projectName %>" \
@@ -143,6 +146,9 @@ ARG BASE_IMAGE=<%= baseImage || 'deepjavalibrary/djl-serving:0.36.0-pytorch-gpu'
 
 FROM ${BASE_IMAGE}
 
+# Ensure Python output is unbuffered so SageMaker can capture logs in CloudWatch
+ENV PYTHONUNBUFFERED=1
+
 <% if (comments && comments.chatTemplate) { %>
 <%= comments.chatTemplate %>
 <% } %>
@@ -271,8 +277,9 @@ COPY code/serve /usr/bin/serve_trtllm
 RUN chmod +x /usr/bin/serve_trtllm
 
 # Copy startup script
+COPY code/cuda_compat.sh /usr/bin/cuda_compat.sh
 COPY code/start_server.sh /usr/bin/start_server.sh
-RUN chmod +x /usr/bin/start_server.sh
+RUN chmod +x /usr/bin/start_server.sh /usr/bin/cuda_compat.sh
 
 ENTRYPOINT [ "/usr/bin/start_server.sh" ]
 <% } else if (modelServer === 'lmi' || modelServer === 'djl') { %>
@@ -287,8 +294,9 @@ COPY code/serving.properties /opt/ml/model/serving.properties
 # LMI/DJL containers use their own entrypoint
 # The container will automatically start DJL Serving with the configuration
 <% } else { %>
+COPY code/cuda_compat.sh /usr/bin/cuda_compat.sh
 COPY code/serve /usr/bin/serve
-RUN chmod 777 /usr/bin/serve
+RUN chmod 777 /usr/bin/serve /usr/bin/cuda_compat.sh
 
 <% if (comments && comments.troubleshooting) { %>
 <%= comments.troubleshooting %>

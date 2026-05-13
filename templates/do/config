@@ -30,6 +30,9 @@ export INSTANCE_TYPE="<%= instanceType %>"
 <% if (inferenceAmiVersion) { %>
 export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
 <% } %>
+<% if (typeof capacityReservationArn !== 'undefined' && capacityReservationArn) { %>
+export CAPACITY_RESERVATION_ARN="<%= capacityReservationArn %>"
+<% } %>
 <% } %>
 
 <% if (deploymentTarget === 'async-inference') { %>
@@ -126,6 +129,8 @@ export IC_MEMORY_SIZE="<%= icMemorySize %>"
 <% } %>
 <% if (typeof icGpuCount !== 'undefined' && icGpuCount != null) { %>
 export IC_GPU_COUNT="<%= icGpuCount %>"
+<% } else { %>
+export IC_GPU_COUNT="${IC_GPU_COUNT:-1}"
 <% } %>
 <% if (typeof icCopyCount !== 'undefined' && icCopyCount != null) { %>
 export IC_COPY_COUNT="<%= icCopyCount %>"
@@ -186,6 +191,26 @@ export MODEL_FORMAT="<%= modelFormat %>"
 export ROLE_ARN="<%= roleArn %>"
 <% } %>
 
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+# SageMaker AI Benchmarking configuration
+export BENCHMARK_CONCURRENCY="<%= benchmarkConcurrency %>"
+export BENCHMARK_INPUT_TOKENS_MEAN="<%= benchmarkInputTokensMean %>"
+export BENCHMARK_OUTPUT_TOKENS_MEAN="<%= benchmarkOutputTokensMean %>"
+export BENCHMARK_STREAMING="<%= benchmarkStreaming %>"
+<% if (benchmarkRequestCount) { %>
+export BENCHMARK_REQUEST_COUNT="<%= benchmarkRequestCount %>"
+<% } else { %>
+export BENCHMARK_REQUEST_COUNT=""
+<% } %>
+<% if (benchmarkS3OutputPath) { %>
+export BENCHMARK_S3_OUTPUT_PATH="<%= benchmarkS3OutputPath %>"
+<% } else { %>
+export BENCHMARK_S3_OUTPUT_PATH="s3://ml-container-creator-benchmark-${AWS_REGION}-$(aws sts get-caller-identity --query Account --output text)/${PROJECT_NAME}/"
+<% } %>
+export BENCHMARK_JOB_NAME=""
+export BENCHMARK_WORKLOAD_CONFIG_NAME=""
+<% } %>
+
 <% if (orderedEnvVars && orderedEnvVars.length > 0) { %>
 # Runtime environment variables (from catalog)
 <% orderedEnvVars.forEach(({ key, value }) => { %>
@@ -193,9 +218,7 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 <% }); %>
 <% } %>
 
-<% if (baseImage) { %>
-export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage %>}
-<% } %>
+export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage || '' %>}
 
 # Allow environment variable overrides
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}

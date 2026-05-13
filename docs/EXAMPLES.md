@@ -277,6 +277,77 @@ ml-container-creator hyperpod-demo \
 ./do/submit && ./do/deploy && ./do/test hyperpod
 ```
 
+## Benchmarking: Generate → Deploy → Benchmark → Results
+
+Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf). Benchmarking is available for transformer and diffusor architectures only.
+
+Generate a project with benchmarking enabled:
+
+```bash
+ml-container-creator vllm-benchmark-demo \
+  --deployment-config=transformers-vllm \
+  --model-name=meta-llama/Llama-3.1-8B-Instruct \
+  --deployment-target=managed-inference \
+  --instance-type=ml.g5.2xlarge \
+  --build-target=codebuild \
+  --region=us-east-1 \
+  --include-benchmark \
+  --benchmark-concurrency=10 \
+  --benchmark-input-tokens=550 \
+  --benchmark-output-tokens=150 \
+  --benchmark-streaming \
+  --skip-prompts
+```
+
+Build, deploy, and wait for the endpoint to reach `InService`:
+
+```bash
+cd vllm-benchmark-demo
+./do/submit    # Build and push via CodeBuild
+./do/deploy
+```
+
+Run the benchmark against the deployed endpoint:
+
+```bash
+./do/benchmark
+```
+
+Example output:
+
+```
+✓ Endpoint is InService
+✓ Created workload config: vllm-benchmark-demo-benchmark-config
+✓ Created benchmark job: vllm-benchmark-demo-benchmark-20250115-143022
+⏳ Polling for completion (every 30s, up to 30 min)...
+✓ Benchmark completed
+
+┌─────────────────────────────┬───────────┐
+│ Metric                      │ Value     │
+├─────────────────────────────┼───────────┤
+│ Request throughput (req/s)  │ 8.42      │
+│ Output token throughput     │ 1,263     │
+│ Request latency P50         │ 1.12s     │
+│ Request latency P90         │ 1.58s     │
+│ Request latency P99         │ 2.34s     │
+│ TTFT P50                    │ 85ms      │
+│ TTFT P90                    │ 142ms     │
+│ TTFT P99                    │ 298ms     │
+│ ITL P50                     │ 7.2ms     │
+│ ITL P90                     │ 12.1ms    │
+│ ITL P99                     │ 24.8ms    │
+└─────────────────────────────┴───────────┘
+```
+
+Clean up benchmark resources when done:
+
+```bash
+./do/benchmark --clean    # Delete workload config and benchmark jobs
+./do/clean all            # Delete endpoint, ECR images, and benchmark resources
+```
+
+For parameter tuning and interpreting results, see [Benchmarking](benchmarking.md).
+
 ## Cleanup
 
 Tear down resources when done to stop incurring charges:
@@ -285,5 +356,6 @@ Tear down resources when done to stop incurring charges:
 ./do/clean endpoint   # Delete SageMaker endpoint, config, and inference component
 ./do/clean ecr        # Delete ECR images
 ./do/clean codebuild  # Delete CodeBuild project and IAM role
+./do/clean benchmark  # Delete workload configs and benchmark jobs
 ./do/clean all        # All of the above
 ```

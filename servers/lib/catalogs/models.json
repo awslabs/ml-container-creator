@@ -532,6 +532,77 @@
             "text-generation"
         ]
     },
+    "meta-llama/Llama-3.1-8B*": {
+        "parameterCount": 8030261248,
+        "defaultDtype": "bfloat16",
+        "architecture": "LlamaForCausalLM",
+        "maxPositionEmbeddings": 131072,
+        "recommendedQuantizations": [
+            "awq",
+            "gptq"
+        ],
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "meta-llama/Llama-3.1-70B*": {
+        "parameterCount": 70553706496,
+        "defaultDtype": "bfloat16",
+        "architecture": "LlamaForCausalLM",
+        "maxPositionEmbeddings": 131072,
+        "recommendedQuantizations": [
+            "awq",
+            "gptq"
+        ],
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "meta-llama/Llama-3.1-405B*": {
+        "parameterCount": 405000000000,
+        "defaultDtype": "bfloat16",
+        "architecture": "LlamaForCausalLM",
+        "maxPositionEmbeddings": 131072,
+        "recommendedQuantizations": [
+            "awq",
+            "gptq",
+            "fp8"
+        ],
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "meta-llama/Llama-3.2-1B*": {
+        "parameterCount": 1235814400,
+        "defaultDtype": "bfloat16",
+        "architecture": "LlamaForCausalLM",
+        "maxPositionEmbeddings": 131072,
+        "recommendedQuantizations": [
+            "awq",
+            "gptq"
+        ],
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "meta-llama/Llama-3.2-3B*": {
+        "parameterCount": 3212749824,
+        "defaultDtype": "bfloat16",
+        "architecture": "LlamaForCausalLM",
+        "maxPositionEmbeddings": 131072,
+        "recommendedQuantizations": [
+            "awq",
+            "gptq"
+        ],
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
     "Qwen/Qwen-7B*": {
         "parameterCount": 7721324544,
         "defaultDtype": "bfloat16",

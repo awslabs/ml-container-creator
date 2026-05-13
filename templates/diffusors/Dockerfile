@@ -59,8 +59,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends nginx \
 COPY nginx-diffusors.conf /etc/nginx/nginx.conf
 
 # Copy serve entrypoint and startup scripts
+COPY code/cuda_compat.sh /usr/bin/cuda_compat.sh
 COPY code/serve /usr/bin/serve
-RUN chmod 777 /usr/bin/serve
+RUN chmod 777 /usr/bin/serve /usr/bin/cuda_compat.sh
 
 COPY code/start_server.sh /usr/bin/start_server.sh
 RUN chmod +x /usr/bin/start_server.sh
