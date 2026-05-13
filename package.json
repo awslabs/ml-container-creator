@@ -111,6 +111,8 @@
     "tinyglobby": "^0.2.16"
   },
   "devDependencies": {
+    "@aws-sdk/client-sagemaker": "^3.700.0",
+    "@aws-sdk/client-service-quotas": "^3.700.0",
     "@microsoft/eslint-formatter-sarif": "^3.1.0",
     "eslint": "^8.57.0",
     "fast-check": "^4.5.2",
