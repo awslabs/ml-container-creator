@@ -61,21 +61,26 @@ describe('Bootstrap Stack — SecretsManagerRead IAM Policy', () => {
         assert.strictEqual(secretsStatement.Action.length, 2, 'Expected exactly 2 actions');
     });
 
-    it('should scope Resource to arn:aws:secretsmanager:*:*:secret:mlcc/*', () => {
-        assert.strictEqual(
-            secretsStatement.Resource,
-            'arn:aws:secretsmanager:*:*:secret:mlcc/*',
-            'Expected Resource to match the mlcc/* naming pattern'
+    it('should scope Resource to mlcc/* and ml-container-creator/* patterns', () => {
+        const resources = Array.isArray(secretsStatement.Resource)
+            ? secretsStatement.Resource
+            : [secretsStatement.Resource];
+        assert.ok(
+            resources.includes('arn:aws:secretsmanager:*:*:secret:mlcc/*'),
+            'Expected Resource to include the mlcc/* naming pattern'
+        );
+        assert.ok(
+            resources.includes('arn:aws:secretsmanager:*:*:secret:ml-container-creator/*'),
+            'Expected Resource to include the ml-container-creator/* naming pattern'
         );
     });
 
-    it('should include a StringEquals condition on aws:ResourceTag/mlcc:managed-by', () => {
-        assert.ok(secretsStatement.Condition, 'Expected a Condition block');
-        assert.ok(secretsStatement.Condition.StringEquals, 'Expected a StringEquals condition');
-        assert.strictEqual(
-            secretsStatement.Condition.StringEquals['aws:ResourceTag/mlcc:managed-by'],
-            'ml-container-creator',
-            'Expected condition to require mlcc:managed-by = ml-container-creator'
+    it('should not require a tag condition (benchmark service needs unrestricted read)', () => {
+        // The tag condition was removed to allow the SageMaker benchmark service
+        // to read HF tokens without needing the mlcc:managed-by tag
+        assert.ok(
+            !secretsStatement.Condition,
+            'Expected no Condition block (removed for benchmark service compatibility)'
         );
     });
 

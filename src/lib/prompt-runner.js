@@ -18,6 +18,7 @@ import {
     modelLoadStrategyPrompts,
     modelProfilePrompts,
     modulePrompts,
+    benchmarkPrompts,
     infraRegionAndTargetPrompts,
     infraInstancePrompts,
     infraAsyncPrompts,
@@ -252,6 +253,29 @@ export default class PromptRunner {
                 this._autoGpuCount = tpRec.gpuCount;
                 console.log(`   ✓ Auto-set tensor parallelism: TP=${tpRec.tensorParallelism} (${tpRec.gpuCount} GPUs)`);
             }
+
+            // Display capacity type confirmation for selected instance
+            // Requirements: 5.4
+            if (matchingRec && matchingRec.capacityType) {
+                if (matchingRec.capacityType === 'reserved') {
+                    const resType = matchingRec.reservationType === 'capacity-block' ? 'Capacity Block' : 'ODCR';
+                    const endInfo = matchingRec.reservationType === 'capacity-block' && matchingRec.reservationInfo?.endDate
+                        ? `, ends ${new Date(matchingRec.reservationInfo.endDate).toLocaleDateString()}`
+                        : '';
+                    console.log(`   ✓ Using reserved capacity — ${resType} (reservation ${matchingRec.reservationInfo?.reservationId || 'unknown'}${endInfo})`);
+                } else if (matchingRec.capacityType === 'ftp') {
+                    console.log(`   ✓ Using reserved capacity (plan ${matchingRec.ftpInfo?.planName || 'unknown'})`);
+                } else {
+                    const headroom = matchingRec.quotaHeadroom;
+                    console.log(`   ✓ Using on-demand capacity (quota headroom: ${headroom ?? 'unknown'})`);
+                }
+            }
+
+            // Extract reservation ARN from selected instance for deployment config
+            // Requirements: 2.3
+            if (matchingRec && matchingRec.capacityType === 'reserved' && matchingRec.reservationInfo?.reservationArn) {
+                this._selectedCapacityReservationArn = matchingRec.reservationInfo.reservationArn;
+            }
         }
 
         // 3c. Async-specific prompts (only when deploymentTarget === 'async-inference')
@@ -375,6 +399,21 @@ export default class PromptRunner {
             moduleAnswers.includeSampleModel = false;
         }
 
+        // Benchmark prompts — derive includeBenchmark from testTypes selection or CLI flag
+        // Requirements: 1.1, 1.2
+        let benchmarkAnswers = {};
+        if (frameworkAnswers.architecture === 'transformers' || frameworkAnswers.architecture === 'diffusors') {
+            const testTypes = moduleAnswers.testTypes || [];
+            const includeBenchmark = testTypes.includes('sagemaker-ai-automated-benchmarking') ||
+                explicitConfig.includeBenchmark === true ||
+                explicitConfig.includeBenchmark === 'true';
+            benchmarkAnswers.includeBenchmark = includeBenchmark;
+            if (includeBenchmark) {
+                const subAnswers = await this._runPhase(benchmarkPrompts, { ...frameworkAnswers, ...moduleAnswers, includeBenchmark }, explicitConfig, existingConfig);
+                benchmarkAnswers = { ...benchmarkAnswers, ...subAnswers };
+            }
+        }
+
         // Validate instance type against framework requirements (now that framework version is known)
         const finalInstanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;
         if (finalInstanceType && frameworkVersionAnswers.frameworkVersion) {
@@ -416,6 +455,7 @@ export default class PromptRunner {
             ...hfTokenAnswers,
             ...ngcApiKeyAnswers,
             ...moduleAnswers,
+            ...benchmarkAnswers,
             ...projectAnswers,
             ...destinationAnswers,
             buildTimestamp
@@ -433,6 +473,12 @@ export default class PromptRunner {
         }
         if (this._mcpArtifactUri) {
             combinedAnswers.artifactUri = this._mcpArtifactUri;
+        }
+
+        // Flow capacity reservation ARN from instance-sizer selection
+        // Requirements: 2.3
+        if (this._selectedCapacityReservationArn) {
+            combinedAnswers.capacityReservationArn = this._selectedCapacityReservationArn;
         }
 
         // Validate: non-HF model sources require an artifact URI
@@ -1036,13 +1082,53 @@ export default class PromptRunner {
                         : '';
 
                     console.log(`   ✓ ${choices.length} compatible instance(s) found${vramInfo}`);
-                    // Display compact recommendation table
-                    for (const rec of recommendations) {
-                        const tp = rec.tensorParallelism > 1 ? ` TP=${rec.tensorParallelism}` : '';
-                        const vram = rec.totalVramGb ? `${rec.totalVramGb}GB` : '?';
-                        const util = rec.utilizationPercent ? `${rec.utilizationPercent}%` : '?';
-                        console.log(`     ${rec === topRec ? '→' : ' '} ${rec.instanceType.padEnd(20)} ${vram.padStart(5)} VRAM  ${util.padStart(4)} util${tp}`);
+
+                    // Check if availability data is present (recommendations have capacityType)
+                    const hasAvailabilityData = recommendations.some(r => r.capacityType);
+
+                    if (hasAvailabilityData) {
+                        // Group by capacityType for display
+                        const reserved = recommendations.filter(r => r.capacityType === 'reserved' || r.capacityType === 'ftp');
+                        const onDemand = recommendations.filter(r => r.capacityType === 'on-demand');
+
+                        if (reserved.length > 0) {
+                            console.log('     ── Reserved Capacity ──');
+                            for (const rec of reserved) {
+                                const tp = rec.tensorParallelism > 1 ? ` TP=${rec.tensorParallelism}` : '';
+                                const vram = rec.totalVramGb ? `${rec.totalVramGb}GB` : '?';
+                                const util = rec.utilizationPercent ? `${rec.utilizationPercent}%` : '?';
+                                const tag = rec.capacityType === 'reserved'
+                                    ? ` [CR] ${rec.reservationInfo?.planName || rec.reservationInfo?.reservationId || ''}`
+                                    : ` [FTP] ${rec.ftpInfo?.planName || ''}`;
+                                console.log(`     ${rec === topRec ? '→' : ' '} ${rec.instanceType.padEnd(20)} ${vram.padStart(5)} VRAM  ${util.padStart(4)} util${tp}${tag}`);
+                            }
+                        }
+
+                        if (onDemand.length > 0) {
+                            console.log('     ── On-Demand ──');
+                            for (const rec of onDemand) {
+                                const tp = rec.tensorParallelism > 1 ? ` TP=${rec.tensorParallelism}` : '';
+                                const vram = rec.totalVramGb ? `${rec.totalVramGb}GB` : '?';
+                                const util = rec.utilizationPercent ? `${rec.utilizationPercent}%` : '?';
+                                const deployed = rec.quotaDeployed;
+                                const quota = rec.quotaLimit;
+                                const tag = quota !== null && quota !== undefined ? ` [Q:${deployed ?? 0}/${quota}]` : '';
+                                console.log(`     ${rec === topRec ? '→' : ' '} ${rec.instanceType.padEnd(20)} ${vram.padStart(5)} VRAM  ${util.padStart(4)} util${tp}${tag}`);
+                            }
+                        }
+                    } else {
+                        // Fallback: display compact recommendation table (no availability data)
+                        for (const rec of recommendations) {
+                            const tp = rec.tensorParallelism > 1 ? ` TP=${rec.tensorParallelism}` : '';
+                            const vram = rec.totalVramGb ? `${rec.totalVramGb}GB` : '?';
+                            const util = rec.utilizationPercent ? `${rec.utilizationPercent}%` : '?';
+                            console.log(`     ${rec === topRec ? '→' : ' '} ${rec.instanceType.padEnd(20)} ${vram.padStart(5)} VRAM  ${util.padStart(4)} util${tp}`);
+                        }
                     }
+                } else if (parsed.metadata?.allFilteredByQuota) {
+                    // All VRAM-compatible instances had zero quota
+                    console.log('   ⚠️ No quota available for compatible instances. Request a quota increase.');
+                    this._instanceSizerMetadata = parsed.metadata || null;
                 } else if (parsed.metadata?.warning) {
                     console.log(`   ⚠️  ${parsed.metadata.warning}`);
                 } else {
@@ -1972,9 +2058,10 @@ export default class PromptRunner {
         '11.4': 'al2-ami-sagemaker-inference-gpu-2-1',
         '11.8': 'al2-ami-sagemaker-inference-gpu-2-1',
         '12.1': 'al2-ami-sagemaker-inference-gpu-3-1',
-        '12.2': 'al2023-ami-sagemaker-inference-gpu-4-1',
-        '12.4': 'al2023-ami-sagemaker-inference-gpu-4-1',
-        '12.6': 'al2023-ami-sagemaker-inference-gpu-4-1'
+        '12.2': 'al2-ami-sagemaker-inference-gpu-3-1',
+        '12.4': 'al2-ami-sagemaker-inference-gpu-3-1',
+        '12.6': 'al2-ami-sagemaker-inference-gpu-3-1',
+        '13.0': 'al2023-ami-sagemaker-inference-gpu-4-1'
     };
 
     /**

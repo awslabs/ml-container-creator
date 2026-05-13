@@ -812,6 +812,508 @@
             "gpuType": "NVIDIA V100",
             "costTier": "high"
         },
+        "ml.p4d.24xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 96,
+            "memGb": 1152,
+            "accelerator": "8x A100 320GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "high-performance",
+                "training",
+                "a100",
+                "parallel",
+                "cuda-12",
+                "large-models"
+            ],
+            "family": "p4d",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A100",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "8x NVIDIA A100 GPUs (40GB each, 320GB total). For very large models requiring multi-GPU TP",
+            "gpuMemoryGb": 40,
+            "gpuType": "NVIDIA A100",
+            "costTier": "high"
+        },
+        "ml.p5.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 2048,
+            "accelerator": "8x H100 640GB",
+            "cudaVersions": [
+                "12.1",
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "high-performance",
+                "h100",
+                "parallel",
+                "cuda-12",
+                "large-models"
+            ],
+            "family": "p5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA H100",
+            "gpuArchitecture": "Hopper",
+            "defaultCudaVersion": "12.2",
+            "notes": "8x NVIDIA H100 GPUs (80GB each, 640GB total). High-performance for large LLMs",
+            "gpuMemoryGb": 80,
+            "gpuType": "NVIDIA H100",
+            "costTier": "high"
+        },
+        "ml.p5e.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 2048,
+            "accelerator": "8x H200 1128GB",
+            "cudaVersions": [
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "high-performance",
+                "h200",
+                "parallel",
+                "cuda-12",
+                "large-models"
+            ],
+            "family": "p5e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA H200",
+            "gpuArchitecture": "Hopper",
+            "defaultCudaVersion": "12.4",
+            "notes": "8x NVIDIA H200 GPUs (141GB each, 1128GB total). Maximum Hopper-class memory",
+            "gpuMemoryGb": 141,
+            "gpuType": "NVIDIA H200",
+            "costTier": "high"
+        },
+        "ml.p5en.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 2048,
+            "accelerator": "8x H200 1128GB",
+            "cudaVersions": [
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "high-performance",
+                "h200",
+                "parallel",
+                "cuda-12",
+                "large-models",
+                "enhanced-networking"
+            ],
+            "family": "p5en",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA H200",
+            "gpuArchitecture": "Hopper",
+            "defaultCudaVersion": "12.4",
+            "notes": "8x NVIDIA H200 GPUs (141GB each, 1128GB total). Enhanced networking variant of p5e",
+            "gpuMemoryGb": 141,
+            "gpuType": "NVIDIA H200",
+            "costTier": "high"
+        },
+        "ml.g6e.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 32,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l40s",
+                "newer",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.4",
+            "notes": "1x NVIDIA L40S GPU (48GB). Cost-effective for medium models",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 64,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l40s",
+                "newer",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.4",
+            "notes": "1x NVIDIA L40S GPU (48GB). Better CPU/memory for preprocessing",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 128,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "l40s",
+                "newer",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.4",
+            "notes": "1x NVIDIA L40S GPU (48GB). High CPU/memory ratio",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 256,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "l40s",
+                "newer",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.4",
+            "notes": "1x NVIDIA L40S GPU (48GB). Maximum CPU/memory for single GPU",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.12xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 48,
+            "memGb": 384,
+            "accelerator": "4x L40S 192GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "l40s",
+                "newer",
+                "parallel",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.4",
+            "notes": "4x NVIDIA L40S GPUs (192GB total). Good for tensor parallelism",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.24xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 96,
+            "memGb": 768,
+            "accelerator": "4x L40S 192GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "l40s",
+                "newer",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.4",
+            "notes": "4x NVIDIA L40S GPUs (192GB total). High CPU/memory with multi-GPU",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 1536,
+            "accelerator": "8x L40S 384GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "l40s",
+                "newer",
+                "cuda-12",
+                "large-models"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.4",
+            "notes": "8x NVIDIA L40S GPUs (384GB total). Maximum multi-GPU configuration",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.p6-b200.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 2048,
+            "accelerator": "8x B200 1432GB",
+            "cudaVersions": [
+                "13.0"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "high-performance",
+                "blackwell",
+                "b200",
+                "parallel",
+                "cuda-13",
+                "large-models"
+            ],
+            "family": "p6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA B200",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "13.0",
+            "notes": "8x NVIDIA B200 GPUs (179GB each, 1432GB total). Blackwell architecture for frontier models",
+            "gpuMemoryGb": 179,
+            "gpuType": "NVIDIA B200",
+            "costTier": "high"
+        },
+        "ml.g7e.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 64,
+            "accelerator": "RTX PRO 6000 96GB",
+            "cudaVersions": [
+                "13.0"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "blackwell",
+                "rtx-pro",
+                "cuda-13"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "13.0",
+            "notes": "1x NVIDIA RTX PRO 6000 GPU (96GB). Blackwell for inference",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO 6000",
+            "costTier": "medium"
+        },
+        "ml.g7e.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 128,
+            "accelerator": "RTX PRO 6000 96GB",
+            "cudaVersions": [
+                "13.0"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "blackwell",
+                "rtx-pro",
+                "cuda-13"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "13.0",
+            "notes": "1x NVIDIA RTX PRO 6000 GPU (96GB). High CPU/memory ratio",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO 6000",
+            "costTier": "medium"
+        },
+        "ml.g7e.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 256,
+            "accelerator": "RTX PRO 6000 96GB",
+            "cudaVersions": [
+                "13.0"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "blackwell",
+                "rtx-pro",
+                "cuda-13"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "13.0",
+            "notes": "1x NVIDIA RTX PRO 6000 GPU (96GB). Maximum CPU/memory for single GPU",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO 6000",
+            "costTier": "medium"
+        },
+        "ml.g7e.12xlarge": {
+            "category": "gpu",
+            "gpus": 2,
+            "vcpus": 48,
+            "memGb": 512,
+            "accelerator": "2x RTX PRO 6000 192GB",
+            "cudaVersions": [
+                "13.0"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "blackwell",
+                "rtx-pro",
+                "parallel",
+                "cuda-13"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "13.0",
+            "notes": "2x NVIDIA RTX PRO 6000 GPUs (192GB total). Multi-GPU for larger models",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO 6000",
+            "costTier": "medium"
+        },
+        "ml.g7e.24xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 96,
+            "memGb": 1024,
+            "accelerator": "4x RTX PRO 6000 384GB",
+            "cudaVersions": [
+                "13.0"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "blackwell",
+                "rtx-pro",
+                "parallel",
+                "cuda-13"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "13.0",
+            "notes": "4x NVIDIA RTX PRO 6000 GPUs (384GB total). High-capacity multi-GPU",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO 6000",
+            "costTier": "medium"
+        },
+        "ml.g7e.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 2048,
+            "accelerator": "8x RTX PRO 6000 768GB",
+            "cudaVersions": [
+                "13.0"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "blackwell",
+                "rtx-pro",
+                "parallel",
+                "cuda-13",
+                "large-models"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "13.0",
+            "notes": "8x NVIDIA RTX PRO 6000 GPUs (768GB total). Maximum Blackwell multi-GPU",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO 6000",
+            "costTier": "medium"
+        },
         "ml.r5.large": {
             "category": "cpu",
             "gpus": 0,
@@ -923,25 +1425,38 @@
             "ml.r5.xlarge"
         ],
         "gpu": [
-            "ml.g4dn.xlarge",
-            "ml.g4dn.2xlarge",
-            "ml.g5.xlarge",
-            "ml.g5.2xlarge",
-            "ml.g5.4xlarge",
-            "ml.p3.2xlarge",
-            "ml.g5.12xlarge",
+            "ml.g7e.2xlarge",
+            "ml.g7e.4xlarge",
+            "ml.g7e.8xlarge",
+            "ml.g7e.12xlarge",
+            "ml.g7e.24xlarge",
+            "ml.g7e.48xlarge",
+            "ml.g6e.xlarge",
+            "ml.g6e.2xlarge",
+            "ml.g6e.4xlarge",
+            "ml.g6e.8xlarge",
+            "ml.g6e.12xlarge",
+            "ml.g6e.24xlarge",
+            "ml.g6e.48xlarge",
             "ml.g6.xlarge",
             "ml.g6.2xlarge",
             "ml.g6.12xlarge",
-            "ml.p3.8xlarge",
-            "ml.g5.8xlarge",
-            "ml.g5.16xlarge",
+            "ml.g5.xlarge",
+            "ml.g5.2xlarge",
+            "ml.g5.4xlarge",
+            "ml.g5.12xlarge",
             "ml.g5.24xlarge",
             "ml.g5.48xlarge",
-            "ml.g4dn.4xlarge",
-            "ml.g4dn.8xlarge",
+            "ml.g4dn.xlarge",
+            "ml.g4dn.2xlarge",
             "ml.g4dn.12xlarge",
-            "ml.g4dn.16xlarge",
+            "ml.p6-b200.48xlarge",
+            "ml.p5e.48xlarge",
+            "ml.p5en.48xlarge",
+            "ml.p5.48xlarge",
+            "ml.p4d.24xlarge",
+            "ml.p3.2xlarge",
+            "ml.p3.8xlarge",
             "ml.p3.16xlarge",
             "ml.inf2.xlarge",
             "ml.inf2.8xlarge",

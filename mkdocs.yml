@@ -54,6 +54,7 @@ nav:
       - MCP Servers: mcp-configuration.md
       - Secrets Management: secrets.md
       - Deployment & Inference: deployments.md
+      - Benchmarking: benchmarking.md
       - CI Integration: ci-integration.md
       - Examples: EXAMPLES.md
       - Troubleshooting: TROUBLESHOOTING.md

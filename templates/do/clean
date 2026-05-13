@@ -740,6 +740,49 @@ case "${CLEANUP_TARGET}" in
     codebuild)
         clean_codebuild
         ;;
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+    benchmark)
+        echo "🧹 Cleaning benchmark resources..."
+        WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config"
+
+        # Delete workload config if exists
+        if aws sagemaker describe-ai-workload-config \
+            --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+            --region "$AWS_REGION" 2>/dev/null; then
+            aws sagemaker delete-ai-workload-config \
+                --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted workload config: $WORKLOAD_CONFIG_NAME"
+        fi
+
+        # Delete terminal benchmark jobs matching project prefix
+        aws sagemaker list-ai-benchmark-jobs \
+            --name-contains "${PROJECT_NAME}-benchmark-" \
+            --region "$AWS_REGION" \
+            --query 'AIBenchmarkJobs[?AIBenchmarkJobStatus!=`InProgress`].AIBenchmarkJobName' \
+            --output text | tr '\t' '\n' | while read -r job; do
+            [ -z "$job" ] && continue
+            aws sagemaker delete-ai-benchmark-job \
+                --ai-benchmark-job-name "$job" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted benchmark job: $job"
+        done
+
+        # Delete local benchmark results
+        if [ -d "${SCRIPT_DIR}/../benchmarks" ]; then
+            read -p "Delete local benchmark results? (Y/n) " CONFIRM_DELETE
+            CONFIRM_DELETE="${CONFIRM_DELETE:-Y}"
+            if [[ "${CONFIRM_DELETE}" =~ ^[Yy]$ ]]; then
+                rm -rf "${SCRIPT_DIR}/../benchmarks"
+                echo "   ✓ Deleted local benchmarks/ directory"
+            else
+                echo "   ⏭ Skipped local benchmarks/ deletion"
+            fi
+        fi
+
+        echo "✅ Benchmark cleanup complete"
+        ;;
+<% } %>
     all)
         echo "🧹 Performing complete cleanup"
         echo ""
@@ -790,6 +833,49 @@ case "${CLEANUP_TARGET}" in
             CLEANED_ITEMS+=("CodeBuild resources")
         fi
         
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+        echo ""
+        
+        # Clean benchmark resources
+        WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config"
+
+        # Delete workload config if exists
+        if aws sagemaker describe-ai-workload-config \
+            --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+            --region "$AWS_REGION" 2>/dev/null; then
+            aws sagemaker delete-ai-workload-config \
+                --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted workload config: $WORKLOAD_CONFIG_NAME"
+        fi
+
+        # Delete terminal benchmark jobs matching project prefix
+        aws sagemaker list-ai-benchmark-jobs \
+            --name-contains "${PROJECT_NAME}-benchmark-" \
+            --region "$AWS_REGION" \
+            --query 'AIBenchmarkJobs[?AIBenchmarkJobStatus!=`InProgress`].AIBenchmarkJobName' \
+            --output text | tr '\t' '\n' | while read -r job; do
+            [ -z "$job" ] && continue
+            aws sagemaker delete-ai-benchmark-job \
+                --ai-benchmark-job-name "$job" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted benchmark job: $job"
+        done
+
+        # Delete local benchmark results
+        if [ -d "${SCRIPT_DIR}/../benchmarks" ]; then
+            read -p "Delete local benchmark results? (Y/n) " CONFIRM_DELETE
+            CONFIRM_DELETE="${CONFIRM_DELETE:-Y}"
+            if [[ "${CONFIRM_DELETE}" =~ ^[Yy]$ ]]; then
+                rm -rf "${SCRIPT_DIR}/../benchmarks"
+                echo "   ✓ Deleted local benchmarks/ directory"
+            else
+                echo "   ⏭ Skipped local benchmarks/ deletion"
+            fi
+        fi
+
+        CLEANED_ITEMS+=("Benchmark resources")
+<% } %>
         # Display summary
         echo ""
         echo "✅ Cleanup complete!"

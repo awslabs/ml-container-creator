@@ -12,7 +12,7 @@
     "awsRegion": "us-east-1",
     "includeTesting": true,
     "testTypes": ["local-model-cli", "local-model-server", "hosted-model-endpoint"],
-    "includeSampleModel": false,
+    "includeSampleModel": true,
     "skipPrompts": false
   },
   "validation": {

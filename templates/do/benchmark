@@ -1,0 +1,646 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# do/benchmark — Run SageMaker AI Benchmark against deployed endpoint
+# Uses NVIDIA AIPerf via the SageMaker AI Benchmarking service to measure
+# LLM endpoint performance: throughput, latency, TTFT, and ITL.
+
+set -e
+set -u
+set -o pipefail
+
+# ── Source project configuration ──────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# ── Parse flags ───────────────────────────────────────────────────────────────
+CLEAN_AFTER=false
+FORCE=false
+for arg in "$@"; do
+    case "$arg" in
+        --clean) CLEAN_AFTER=true ;;
+        --force) FORCE=true ;;
+        --help|-h)
+            echo "Usage: ./do/benchmark [--force] [--clean]"
+            echo ""
+            echo "Run SageMaker AI Benchmark against the deployed endpoint."
+            echo ""
+            echo "Options:"
+            echo "  --force    Create a new benchmark job even if one is already running"
+            echo "  --clean    Delete workload config and benchmark job after displaying results"
+            echo ""
+            echo "Idempotency:"
+            echo "  If a benchmark job is already in progress, re-running without --force"
+            echo "  will resume waiting for the existing job and display its results."
+            echo ""
+            echo "Prerequisites:"
+            echo "  • Endpoint must be deployed and InService (run ./do/deploy first)"
+            echo "  • AWS credentials must be configured"
+            exit 0
+            ;;
+    esac
+done
+
+# ── Verify AWS CLI v2 ─────────────────────────────────────────────────────────
+if ! aws --version 2>&1 | grep -q "aws-cli/2"; then
+    echo "❌ AWS CLI v2 is required for benchmarking."
+    echo "   The SageMaker AI Benchmarking API is only available in CLI v2."
+    echo "   Detected: $(aws --version 2>&1 | head -1)"
+    echo ""
+    echo "   Install CLI v2: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+    exit 1
+fi
+
+# ── Helper: update a variable in do/config ────────────────────────────────────
+_update_benchmark_var() {
+    local var_name="$1"
+    local var_value="$2"
+    local config_file="${SCRIPT_DIR}/config"
+
+    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
+        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
+        rm -f "${config_file}.bak"
+    else
+        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
+    fi
+}
+
+# ── Idempotency: Check for existing benchmark job ─────────────────────────────
+# If BENCHMARK_JOB_NAME is set in do/config and the job is still running,
+# resume waiting for it instead of creating a new one (unless --force is used).
+RESUME_EXISTING=false
+
+if [ "${FORCE}" = false ] && [ -n "${BENCHMARK_JOB_NAME:-}" ]; then
+    EXISTING_STATUS=$(aws sagemaker describe-ai-benchmark-job \
+        --ai-benchmark-job-name "${BENCHMARK_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'AIBenchmarkJobStatus' \
+        --output text 2>/dev/null) || EXISTING_STATUS=""
+
+    case "${EXISTING_STATUS}" in
+        InProgress|Starting|Pending)
+            echo "📊 Resuming existing benchmark job: ${BENCHMARK_JOB_NAME}"
+            echo "   Status: ${EXISTING_STATUS}"
+            echo "   (use --force to start a new benchmark instead)"
+            echo ""
+            RESUME_EXISTING=true
+            ;;
+        Completed)
+            echo "📊 Previous benchmark job already completed: ${BENCHMARK_JOB_NAME}"
+            echo "   (use --force to start a new benchmark)"
+            echo ""
+            RESUME_EXISTING=true
+            JOB_STATUS="Completed"
+            ;;
+        Failed|Stopped)
+            FAILURE_REASON=$(aws sagemaker describe-ai-benchmark-job \
+                --ai-benchmark-job-name "${BENCHMARK_JOB_NAME}" \
+                --region "${AWS_REGION}" \
+                --query 'FailureReason' \
+                --output text 2>/dev/null) || FAILURE_REASON="unknown"
+            echo "⚠️  Previous benchmark job ${EXISTING_STATUS}: ${BENCHMARK_JOB_NAME}"
+            if [ "${EXISTING_STATUS}" = "Failed" ] && [ -n "${FAILURE_REASON}" ] && [ "${FAILURE_REASON}" != "None" ]; then
+                echo "   Reason: ${FAILURE_REASON}"
+            fi
+            echo "   Use --force to start a new benchmark."
+            exit 1
+            ;;
+        *)
+            # Job doesn't exist or can't be described — proceed with new job
+            ;;
+    esac
+fi
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config"
+if [ "${RESUME_EXISTING}" = false ]; then
+    BENCHMARK_JOB_NAME="${PROJECT_NAME}-benchmark-$(date +%Y%m%d-%H%M%S)"
+fi
+POLL_INTERVAL=30
+MAX_POLL_ATTEMPTS=60  # 30 minutes max (60 * 30s)
+
+echo "📊 SageMaker AI Benchmark"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Endpoint: ${ENDPOINT_NAME:-not set}"
+echo "   Inference Component: ${INFERENCE_COMPONENT_NAME:-not set}"
+echo "   Concurrency: ${BENCHMARK_CONCURRENCY}"
+echo "   Input tokens (mean): ${BENCHMARK_INPUT_TOKENS_MEAN}"
+echo "   Output tokens (mean): ${BENCHMARK_OUTPUT_TOKENS_MEAN}"
+echo "   Streaming: ${BENCHMARK_STREAMING}"
+if [ -n "${BENCHMARK_REQUEST_COUNT:-}" ]; then
+    echo "   Request count: ${BENCHMARK_REQUEST_COUNT}"
+fi
+echo "   S3 output: ${BENCHMARK_S3_OUTPUT_PATH}"
+echo ""
+
+# ── Pre-flight check: Verify endpoint is InService ────────────────────────────
+if [ "${RESUME_EXISTING}" = false ]; then
+
+echo "🔍 Pre-flight: Verifying endpoint status..."
+
+if [ -z "${ENDPOINT_NAME:-}" ]; then
+    echo "❌ ENDPOINT_NAME is not set in do/config"
+    echo "   Deploy your endpoint first: ./do/deploy"
+    exit 1
+fi
+
+ENDPOINT_STATUS=$(aws sagemaker describe-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}" \
+    --query 'EndpointStatus' \
+    --output text 2>/dev/null) || {
+    echo "❌ Failed to describe endpoint: ${ENDPOINT_NAME}"
+    echo "   Check that the endpoint exists and your AWS credentials are valid."
+    exit 1
+}
+
+if [ "${ENDPOINT_STATUS}" != "InService" ]; then
+    echo "❌ Endpoint is not InService (current status: ${ENDPOINT_STATUS})"
+    echo "   The endpoint must be InService before running a benchmark."
+    echo "   Check status: aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION}"
+    exit 1
+fi
+
+echo "✅ Endpoint is InService: ${ENDPOINT_NAME}"
+
+# ── Pre-flight check: Ensure S3 output bucket exists ──────────────────────────
+echo "🔍 Pre-flight: Checking S3 output bucket..."
+
+BENCHMARK_S3_BUCKET=$(echo "${BENCHMARK_S3_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
+
+if ! aws s3api head-bucket --bucket "${BENCHMARK_S3_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
+    echo "📦 Creating S3 bucket: ${BENCHMARK_S3_BUCKET}"
+    if [ "${AWS_REGION}" = "us-east-1" ]; then
+        if ! aws s3api create-bucket \
+            --bucket "${BENCHMARK_S3_BUCKET}" \
+            --region "${AWS_REGION}"; then
+            echo "❌ Failed to create S3 bucket: ${BENCHMARK_S3_BUCKET}"
+            exit 1
+        fi
+    else
+        if ! aws s3api create-bucket \
+            --bucket "${BENCHMARK_S3_BUCKET}" \
+            --region "${AWS_REGION}" \
+            --create-bucket-configuration LocationConstraint="${AWS_REGION}"; then
+            echo "❌ Failed to create S3 bucket: ${BENCHMARK_S3_BUCKET}"
+            exit 1
+        fi
+    fi
+    echo "✅ S3 bucket created: ${BENCHMARK_S3_BUCKET}"
+else
+    echo "✅ S3 bucket exists: ${BENCHMARK_S3_BUCKET}"
+fi
+
+# ── Pre-flight check: Ensure Secrets Manager secret for HF token ──────────────
+# The benchmarking service requires a Secrets Manager ARN for tokenizer access.
+# If HF_TOKEN is available (plaintext or resolved from ARN), store it in Secrets Manager.
+SECRET_ARN=""
+
+if [ -n "${HF_TOKEN_ARN:-}" ]; then
+    # Already using Secrets Manager ARN — use it directly
+    SECRET_ARN="${HF_TOKEN_ARN}"
+    echo "✅ Using existing Secrets Manager ARN for HF token: ${SECRET_ARN}"
+elif [ -n "${HF_TOKEN:-}" ]; then
+    # Plaintext HF token provided — store in Secrets Manager for the benchmark service
+    SECRET_NAME="ml-container-creator/${PROJECT_NAME}/hf-token"
+    echo "🔐 Pre-flight: Ensuring Secrets Manager secret for HF token..."
+
+    if ! aws secretsmanager describe-secret --secret-id "$SECRET_NAME" --region "$AWS_REGION" 2>/dev/null; then
+        echo "   Creating Secrets Manager secret: ${SECRET_NAME}"
+        aws secretsmanager create-secret \
+            --name "$SECRET_NAME" \
+            --secret-string "$HF_TOKEN" \
+            --region "$AWS_REGION" > /dev/null || {
+            echo "❌ Failed to create Secrets Manager secret"
+            exit 1
+        }
+    else
+        echo "   Updating Secrets Manager secret: ${SECRET_NAME}"
+        aws secretsmanager put-secret-value \
+            --secret-id "$SECRET_NAME" \
+            --secret-string "$HF_TOKEN" \
+            --region "$AWS_REGION" > /dev/null || {
+            echo "❌ Failed to update Secrets Manager secret"
+            exit 1
+        }
+    fi
+
+    SECRET_ARN=$(aws secretsmanager describe-secret \
+        --secret-id "$SECRET_NAME" \
+        --region "$AWS_REGION" \
+        --query 'ARN' \
+        --output text)
+    echo "✅ HF token stored in Secrets Manager: ${SECRET_ARN}"
+else
+    echo "⚠️  No HF_TOKEN provided — tokenizer-based metrics (TTFT, ITL) may be unavailable"
+fi
+
+echo ""
+
+# ── Step 1: Create AI Workload Config ─────────────────────────────────────────
+# Build the inline workload spec JSON from do/config variables.
+# The workload spec defines benchmark type, parameters, tooling, and secrets.
+echo "⚙️  Step 1: Creating AI Workload Config: ${WORKLOAD_CONFIG_NAME}"
+
+# Build parameters block
+PARAMS_JSON="{\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN},\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${MODEL_NAME}\""
+
+# Add optional request_count if specified
+if [ -n "${BENCHMARK_REQUEST_COUNT:-}" ]; then
+    PARAMS_JSON="${PARAMS_JSON},\"request_count\":${BENCHMARK_REQUEST_COUNT}"
+fi
+
+PARAMS_JSON="${PARAMS_JSON}}"
+
+# Build secrets block (only if HF token is available)
+SECRETS_JSON=""
+if [ -n "${SECRET_ARN}" ]; then
+    SECRETS_JSON=",\"secrets\":{\"hf_token\":\"${SECRET_ARN}\"}"
+fi
+
+# Assemble full workload spec (inline YAML/JSON string for the WorkloadSpec.Inline field)
+WORKLOAD_SPEC="{\"benchmark\":{\"type\":\"aiperf\"},\"parameters\":${PARAMS_JSON},\"tooling\":{\"api_standard\":\"openai\"}${SECRETS_JSON}}"
+
+# Wrap in the API's expected structure: --ai-workload-configs '{"WorkloadSpec":{"Inline":"..."}}'
+# The Inline field takes the spec as a JSON-encoded string
+WORKLOAD_CONFIGS="{\"WorkloadSpec\":{\"Inline\":$(echo "${WORKLOAD_SPEC}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}}"
+
+# Workload config idempotency: reuse if params match, recreate if they differ
+EXISTING_CONFIG_SPEC=""
+if aws sagemaker describe-ai-workload-config \
+    --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
+    --region "${AWS_REGION}" 2>/dev/null >/dev/null; then
+    EXISTING_CONFIG_SPEC=$(aws sagemaker describe-ai-workload-config \
+        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'AIWorkloadConfigs.WorkloadSpec.Inline' \
+        --output text 2>/dev/null) || EXISTING_CONFIG_SPEC=""
+fi
+
+if [ -n "${EXISTING_CONFIG_SPEC}" ]; then
+    # Compare existing spec with desired spec (normalize for comparison)
+    EXISTING_NORMALIZED=$(echo "${EXISTING_CONFIG_SPEC}" | python3 -c "import sys,json; print(json.dumps(json.loads(sys.stdin.read()), sort_keys=True))" 2>/dev/null) || EXISTING_NORMALIZED=""
+    DESIRED_NORMALIZED=$(echo "${WORKLOAD_SPEC}" | python3 -c "import sys,json; print(json.dumps(json.loads(sys.stdin.read()), sort_keys=True))" 2>/dev/null) || DESIRED_NORMALIZED=""
+
+    if [ "${EXISTING_NORMALIZED}" = "${DESIRED_NORMALIZED}" ]; then
+        echo "   ✅ Existing workload config matches current parameters — reusing"
+    else
+        echo "   ⚠️  Workload config parameters changed — recreating..."
+        aws sagemaker delete-ai-workload-config \
+            --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
+            --region "${AWS_REGION}" || true
+        CREATE_WORKLOAD_CONFIG=true
+    fi
+else
+    CREATE_WORKLOAD_CONFIG=true
+fi
+
+if [ "${CREATE_WORKLOAD_CONFIG:-true}" = "true" ]; then
+    # Create the workload config
+    if ! aws sagemaker create-ai-workload-config \
+        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
+        --ai-workload-configs "${WORKLOAD_CONFIGS}" \
+        --region "${AWS_REGION}"; then
+        echo "❌ Failed to create AI Workload Config"
+        echo "   This may indicate the SageMaker AI Benchmarking API is not available in region: ${AWS_REGION}"
+        echo "   Check: https://docs.aws.amazon.com/sagemaker/latest/dg/regions-quotas.html"
+        exit 1
+    fi
+    echo "✅ Workload config created: ${WORKLOAD_CONFIG_NAME}"
+fi
+
+# Persist workload config name for resume
+_update_benchmark_var "BENCHMARK_WORKLOAD_CONFIG_NAME" "${WORKLOAD_CONFIG_NAME}"
+echo ""
+
+# ── Step 2: Create AI Benchmark Job ──────────────────────────────────────────
+# Target the deployed endpoint and inference component with the workload config.
+echo "🚀 Step 2: Creating AI Benchmark Job: ${BENCHMARK_JOB_NAME}"
+
+BENCHMARK_TARGET="{\"Endpoint\":{\"Identifier\":\"${ENDPOINT_NAME}\",\"InferenceComponents\":[{\"Identifier\":\"${INFERENCE_COMPONENT_NAME}\"}]}}"
+OUTPUT_CONFIG="{\"S3OutputLocation\":\"${BENCHMARK_S3_OUTPUT_PATH}\"}"
+
+if ! aws sagemaker create-ai-benchmark-job \
+    --ai-benchmark-job-name "${BENCHMARK_JOB_NAME}" \
+    --benchmark-target "${BENCHMARK_TARGET}" \
+    --output-config "${OUTPUT_CONFIG}" \
+    --ai-workload-config-identifier "${WORKLOAD_CONFIG_NAME}" \
+    --role-arn "${ROLE_ARN}" \
+    --region "${AWS_REGION}"; then
+    echo "❌ Failed to create AI Benchmark Job"
+    echo "   Check that:"
+    echo "   • The execution role has sagemaker:CreateAIBenchmarkJob permission"
+    echo "   • The endpoint and inference component are valid"
+    echo "   • The S3 output path is accessible: ${BENCHMARK_S3_OUTPUT_PATH}"
+    exit 1
+fi
+
+echo "✅ Benchmark job created: ${BENCHMARK_JOB_NAME}"
+
+# Save job name to do/config for idempotency on re-run
+_update_benchmark_var "BENCHMARK_JOB_NAME" "${BENCHMARK_JOB_NAME}"
+
+echo ""
+
+fi  # end of RESUME_EXISTING=false block
+
+# ── Step 3: Poll for completion ───────────────────────────────────────────────
+# Poll describe-ai-benchmark-job every POLL_INTERVAL seconds until terminal state.
+# Terminal states: Completed, Failed, Stopped
+
+# Skip polling if we already know the job completed (resumed a finished job)
+if [ "${JOB_STATUS:-}" != "Completed" ] && [ "${JOB_STATUS:-}" != "Failed" ] && [ "${JOB_STATUS:-}" != "Stopped" ]; then
+
+echo "⏳ Step 3: Waiting for benchmark to complete..."
+echo "   Polling every ${POLL_INTERVAL}s (max ${MAX_POLL_ATTEMPTS} attempts = 30 min)"
+echo ""
+
+POLL_COUNT=0
+JOB_STATUS=""
+
+while [ ${POLL_COUNT} -lt ${MAX_POLL_ATTEMPTS} ]; do
+    JOB_STATUS=$(aws sagemaker describe-ai-benchmark-job \
+        --ai-benchmark-job-name "${BENCHMARK_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'AIBenchmarkJobStatus' \
+        --output text 2>/dev/null) || {
+        echo "⚠️  Failed to describe benchmark job (credentials may have expired)"
+        echo "   Re-run to check status manually:"
+        echo "   aws sagemaker describe-ai-benchmark-job --ai-benchmark-job-name ${BENCHMARK_JOB_NAME} --region ${AWS_REGION}"
+        exit 1
+    }
+
+    case "${JOB_STATUS}" in
+        Completed)
+            echo "✅ Benchmark completed successfully!"
+            break
+            ;;
+        Failed)
+            echo "❌ Benchmark job failed"
+            break
+            ;;
+        Stopped)
+            echo "⚠️  Benchmark job was stopped"
+            break
+            ;;
+        *)
+            POLL_COUNT=$((POLL_COUNT + 1))
+            ELAPSED=$((POLL_COUNT * POLL_INTERVAL))
+            echo "   $(date +%H:%M:%S) Status: ${JOB_STATUS} (${ELAPSED}s elapsed)"
+            sleep ${POLL_INTERVAL}
+            ;;
+    esac
+done
+
+# Check for timeout
+if [ ${POLL_COUNT} -ge ${MAX_POLL_ATTEMPTS} ]; then
+    echo ""
+    echo "⚠️  Benchmark timed out after 30 minutes (status: ${JOB_STATUS})"
+    echo "   The job may still be running. Re-run ./do/benchmark to resume waiting."
+    echo "   Or check status manually:"
+    echo "   aws sagemaker describe-ai-benchmark-job --ai-benchmark-job-name ${BENCHMARK_JOB_NAME} --region ${AWS_REGION}"
+    exit 1
+fi
+
+fi  # end of polling conditional
+
+echo ""
+
+# ── Step 4: Display results ───────────────────────────────────────────────────
+if [ "${JOB_STATUS}" = "Completed" ]; then
+    # Persist results locally to benchmarks/<job-name>/
+    PROJECT_ROOT="${SCRIPT_DIR}/.."
+    LOCAL_RESULTS_DIR="${PROJECT_ROOT}/benchmarks/${BENCHMARK_JOB_NAME}"
+    RESULTS_FILE="${LOCAL_RESULTS_DIR}/results.json"
+
+    # Check if results already exist locally (idempotency: skip S3 download)
+    if [ -f "${RESULTS_FILE}" ]; then
+        echo "📥 Step 4: Results already available locally"
+        RESULTS_DOWNLOADED=true
+    else
+        echo "📥 Step 4: Downloading benchmark results..."
+
+        RESULTS_S3_PATH=$(aws sagemaker describe-ai-benchmark-job \
+            --ai-benchmark-job-name "${BENCHMARK_JOB_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'OutputConfig.S3OutputLocation' \
+            --output text 2>/dev/null)
+
+        # Create local benchmarks directory
+        mkdir -p "${LOCAL_RESULTS_DIR}"
+
+        # The benchmark service writes results into a subdirectory (e.g., bmk-prod-<job>-<hash>/)
+        # under the S3OutputLocation. We use multiple strategies to locate the results file.
+        RESULTS_DOWNLOADED=false
+
+        # Ensure RESULTS_S3_PATH has a trailing slash for consistent path joining
+        RESULTS_S3_PATH="${RESULTS_S3_PATH%/}/"
+
+        # Strategy 1: Sync the entire output tree locally, then find results
+        # This is the most reliable approach — handles any subdirectory structure
+        echo "   Syncing results from S3..."
+        if aws s3 sync "${RESULTS_S3_PATH}" "${LOCAL_RESULTS_DIR}/" --region "${AWS_REGION}" 2>/dev/null; then
+            # Look for any JSON file in the synced directory tree
+            FOUND_FILE=$(find "${LOCAL_RESULTS_DIR}" -name "*.json" -type f 2>/dev/null | head -1)
+            if [ -n "${FOUND_FILE}" ]; then
+                # If the found file isn't already at our canonical path, copy it there
+                if [ "${FOUND_FILE}" != "${RESULTS_FILE}" ]; then
+                    cp "${FOUND_FILE}" "${RESULTS_FILE}"
+                fi
+                RESULTS_DOWNLOADED=true
+            fi
+        fi
+
+        # Strategy 2: If sync found nothing, try listing and downloading individual files
+        # This handles cases where s3 sync silently fails (permissions, empty prefix match)
+        if [ "${RESULTS_DOWNLOADED}" = false ]; then
+            echo "   Searching for results files..."
+            RESULTS_BUCKET=$(echo "${RESULTS_S3_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
+            RESULTS_PREFIX=$(echo "${RESULTS_S3_PATH}" | sed "s|s3://${RESULTS_BUCKET}/||")
+
+            # List all objects under the output path and find data files
+            # aws s3api list-objects-v2 is more reliable than aws s3 ls --recursive
+            FOUND_KEY=$(aws s3api list-objects-v2 \
+                --bucket "${RESULTS_BUCKET}" \
+                --prefix "${RESULTS_PREFIX}" \
+                --region "${AWS_REGION}" \
+                --query 'Contents[].Key' \
+                --output text 2>/dev/null \
+                | tr '\t' '\n' \
+                | grep -E '\.(json|jsonl|csv)$' \
+                | head -1)
+
+            if [ -n "${FOUND_KEY}" ] && [ "${FOUND_KEY}" != "None" ]; then
+                if aws s3 cp "s3://${RESULTS_BUCKET}/${FOUND_KEY}" "${RESULTS_FILE}" --region "${AWS_REGION}" 2>/dev/null; then
+                    RESULTS_DOWNLOADED=true
+                fi
+            fi
+        fi
+
+        # Strategy 3: If still nothing, try direct path patterns the service might use
+        if [ "${RESULTS_DOWNLOADED}" = false ]; then
+            for PATTERN in "results.json" "benchmark_results.json" "output.json"; do
+                if aws s3 cp "${RESULTS_S3_PATH}${PATTERN}" "${RESULTS_FILE}" --region "${AWS_REGION}" 2>/dev/null; then
+                    RESULTS_DOWNLOADED=true
+                    break
+                fi
+            done
+        fi
+    fi
+
+    if [ "${RESULTS_DOWNLOADED}" = true ]; then
+        echo "✅ Results downloaded"
+        echo ""
+
+        # Display summary table
+        echo "╔══════════════════════════════════════════════════════════════════╗"
+        echo "║              SageMaker AI Benchmark Results                     ║"
+        echo "╠══════════════════════════════════════════════════════════════════╣"
+        echo "║  Job: ${BENCHMARK_JOB_NAME}"
+        echo "║  Endpoint: ${ENDPOINT_NAME}"
+        echo "╠══════════════════════════════════════════════════════════════════╣"
+
+        # Parse and display metrics using built-in tools
+        # Extract key metrics from the results JSON
+        if command -v python3 &>/dev/null; then
+            python3 -c "
+import json, sys
+
+try:
+    with open('${RESULTS_FILE}') as f:
+        data = json.load(f)
+
+    metrics = data if isinstance(data, dict) else {}
+
+    # Helper to safely get nested values
+    def get_metric(d, *keys):
+        for k in keys:
+            if isinstance(d, dict):
+                d = d.get(k, 'N/A')
+            else:
+                return 'N/A'
+        return d
+
+    # Display throughput
+    throughput = get_metric(metrics, 'request_throughput')
+    output_throughput = get_metric(metrics, 'output_token_throughput')
+    print(f'║  Request Throughput:      {throughput} req/s')
+    print(f'║  Output Token Throughput: {output_throughput} tokens/s')
+    print('║')
+
+    # Display request latency
+    lat_p50 = get_metric(metrics, 'request_latency', 'p50')
+    lat_p90 = get_metric(metrics, 'request_latency', 'p90')
+    lat_p99 = get_metric(metrics, 'request_latency', 'p99')
+    print(f'║  Request Latency (ms):')
+    print(f'║    P50: {lat_p50}  P90: {lat_p90}  P99: {lat_p99}')
+    print('║')
+
+    # Display TTFT (time to first token)
+    ttft_p50 = get_metric(metrics, 'time_to_first_token', 'p50')
+    ttft_p90 = get_metric(metrics, 'time_to_first_token', 'p90')
+    ttft_p99 = get_metric(metrics, 'time_to_first_token', 'p99')
+    print(f'║  Time to First Token (ms):')
+    print(f'║    P50: {ttft_p50}  P90: {ttft_p90}  P99: {ttft_p99}')
+    print('║')
+
+    # Display ITL (inter-token latency)
+    itl_p50 = get_metric(metrics, 'inter_token_latency', 'p50')
+    itl_p90 = get_metric(metrics, 'inter_token_latency', 'p90')
+    itl_p99 = get_metric(metrics, 'inter_token_latency', 'p99')
+    print(f'║  Inter-Token Latency (ms):')
+    print(f'║    P50: {itl_p50}  P90: {itl_p90}  P99: {itl_p99}')
+
+except Exception as e:
+    print(f'║  ⚠️  Could not parse results: {e}')
+    print(f'║  Raw file: ${RESULTS_FILE}')
+"
+        else
+            # Fallback: display raw JSON if python3 is not available
+            echo "║  (python3 not available — showing raw results)"
+            echo "║"
+            cat "${RESULTS_FILE}" | head -50
+        fi
+
+        echo "╚══════════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "📁 Results saved to: benchmarks/${BENCHMARK_JOB_NAME}/"
+        echo "☁️  S3 results: ${RESULTS_S3_PATH:-${BENCHMARK_S3_OUTPUT_PATH}}"
+    else
+        echo "⚠️  Could not download results from S3"
+        echo "   The benchmark completed but results could not be located."
+        echo ""
+        echo "   Debug — list objects at the output path:"
+        echo "   aws s3 ls ${RESULTS_S3_PATH} --recursive --region ${AWS_REGION}"
+        echo ""
+        echo "   Or list via API:"
+        RESULTS_BUCKET=$(echo "${RESULTS_S3_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
+        RESULTS_PREFIX=$(echo "${RESULTS_S3_PATH}" | sed "s|s3://${RESULTS_BUCKET}/||")
+        echo "   aws s3api list-objects-v2 --bucket ${RESULTS_BUCKET} --prefix ${RESULTS_PREFIX} --region ${AWS_REGION}"
+        echo ""
+        # Show what's actually there to help debug
+        echo "   Objects found at output path:"
+        aws s3api list-objects-v2 \
+            --bucket "${RESULTS_BUCKET}" \
+            --prefix "${RESULTS_PREFIX}" \
+            --region "${AWS_REGION}" \
+            --query 'Contents[].{Key: Key, Size: Size}' \
+            --output table 2>/dev/null || echo "   (could not list objects)"
+    fi
+
+elif [ "${JOB_STATUS}" = "Failed" ]; then
+    # Display failure reason
+    echo "❌ Step 4: Benchmark job failed"
+    FAILURE_REASON=$(aws sagemaker describe-ai-benchmark-job \
+        --ai-benchmark-job-name "${BENCHMARK_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'FailureReason' \
+        --output text 2>/dev/null)
+    echo "   Reason: ${FAILURE_REASON}"
+    echo ""
+    echo "   Debug:"
+    echo "   aws sagemaker describe-ai-benchmark-job --ai-benchmark-job-name ${BENCHMARK_JOB_NAME} --region ${AWS_REGION}"
+
+elif [ "${JOB_STATUS}" = "Stopped" ]; then
+    echo "⚠️  Step 4: Benchmark job was stopped before completion"
+    echo "   No results available."
+fi
+
+# ── Optional cleanup (--clean flag) ───────────────────────────────────────────
+# Delete workload config and benchmark job to avoid resource accumulation.
+if [ "${CLEAN_AFTER}" = true ]; then
+    echo ""
+    echo "🧹 Cleaning up benchmark resources (--clean)..."
+
+    # Delete workload config
+    if aws sagemaker delete-ai-workload-config \
+        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
+        --region "${AWS_REGION}" 2>/dev/null; then
+        echo "   ✓ Deleted workload config: ${WORKLOAD_CONFIG_NAME}"
+    else
+        echo "   ⚠️  Could not delete workload config: ${WORKLOAD_CONFIG_NAME}"
+    fi
+
+    # Delete benchmark job (must be in terminal state)
+    if aws sagemaker delete-ai-benchmark-job \
+        --ai-benchmark-job-name "${BENCHMARK_JOB_NAME}" \
+        --region "${AWS_REGION}" 2>/dev/null; then
+        echo "   ✓ Deleted benchmark job: ${BENCHMARK_JOB_NAME}"
+    else
+        echo "   ⚠️  Could not delete benchmark job: ${BENCHMARK_JOB_NAME}"
+    fi
+
+    echo "✅ Cleanup complete"
+fi
+
+echo ""
+echo "📋 Summary:"
+echo "   Workload Config: ${WORKLOAD_CONFIG_NAME}"
+echo "   Benchmark Job:   ${BENCHMARK_JOB_NAME}"
+echo "   Status:          ${JOB_STATUS}"
+echo ""
+if [ "${CLEAN_AFTER}" = false ]; then
+    echo "🧹 To clean up benchmark resources:"
+    echo "   ./do/clean benchmark"
+fi

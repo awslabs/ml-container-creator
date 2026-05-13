@@ -336,6 +336,11 @@ if [ -z "${SKIP_TO}" ]; then
         echo "   AMI version: ${INFERENCE_AMI_VERSION}"
     fi
 
+    if [ -n "${CAPACITY_RESERVATION_ARN:-}" ]; then
+        VARIANT_JSON="${VARIANT_JSON},\"CapacityReservationConfig\":{\"CapacityReservationPreference\":\"capacity-reservations-only\",\"MlReservationArn\":\"${CAPACITY_RESERVATION_ARN}\"}"
+        echo "   ⚠️  Capacity reservation (experimental): ${CAPACITY_RESERVATION_ARN}"
+    fi
+
     VARIANT_JSON="${VARIANT_JSON}}]"
 
     echo "⚙️  Creating endpoint configuration: ${ENDPOINT_CONFIG_NAME}"
@@ -453,7 +458,7 @@ if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "create_ic" ] || [ "${SKIP_TO}" = "wa
                 \"ContainerStartupHealthCheckTimeoutInSeconds\": 900
             },
             \"ComputeResourceRequirements\": {
-                \"NumberOfAcceleratorDevicesRequired\": 1,
+                \"NumberOfAcceleratorDevicesRequired\": ${IC_GPU_COUNT},
                 \"MinMemoryRequiredInMb\": 1024
             }
         }" \

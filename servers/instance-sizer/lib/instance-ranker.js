@@ -31,14 +31,20 @@ const GPU_MEMORY_MAP = {
  */
 const COST_TIER_MAP = {
     'g4dn': 'low',
+    'g4ad': 'low',
     'inf2': 'low',
     'g5': 'medium',
     'g6': 'medium',
+    'g6e': 'medium',
+    'g7e': 'medium',
     'trn1': 'medium',
     'p3': 'high',
     'p4d': 'high',
     'p4de': 'high',
-    'p5': 'high'
+    'p5': 'high',
+    'p5e': 'high',
+    'p5en': 'high',
+    'p6': 'high'
 }
 
 /**
@@ -56,15 +62,21 @@ const COST_TIER_WEIGHT = {
  * Lower is newer (sorted first). Newer generations offer better perf/$.
  */
 const GENERATION_WEIGHT = {
-    'g6': 1,
-    'p5': 1,
-    'trn1': 2,
-    'inf2': 2,
-    'g5': 3,
-    'p4de': 4,
-    'p4d': 4,
-    'p3': 5,
-    'g4dn': 6
+    'g7e': 1,
+    'p6': 1,
+    'g6e': 2,
+    'p5e': 2,
+    'p5en': 2,
+    'g6': 3,
+    'p5': 3,
+    'trn1': 3,
+    'inf2': 3,
+    'g5': 4,
+    'p4de': 5,
+    'p4d': 5,
+    'p3': 6,
+    'g4dn': 7,
+    'g4ad': 7
 }
 
 /**
@@ -257,8 +269,99 @@ const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => 
     return candidates.slice(0, limit)
 }
 
+// ── Availability Ranking ─────────────────────────────────────────────────────
+
+/**
+ * Priority weights for capacity types used in availability ranking.
+ * Lower value = higher priority (sorted first).
+ */
+const CAPACITY_TYPE_PRIORITY = {
+    reserved: 0,
+    ftp: 1,
+    'on-demand': 2
+}
+
+/**
+ * Annotate, filter, and re-rank instance recommendations based on
+ * quota headroom, capacity reservations, and Flexible Training Plans.
+ *
+ * Each recommendation is annotated with:
+ * - capacityType: 'reserved' | 'ftp' | 'on-demand'
+ * - quotaStatus: 'available' | 'limited' | 'zero-quota'
+ * - reservationInfo: object (when capacityType is 'reserved')
+ * - ftpInfo: object (when capacityType is 'ftp')
+ *
+ * Instances with quotaStatus === 'zero-quota' are filtered out.
+ * Sort order: reserved → FTP → on-demand, preserving existing order within tiers.
+ *
+ * When any input signal is null (API failure), that signal is skipped
+ * and the function degrades gracefully.
+ *
+ * @param {object[]} recommendations - Ranked instance recommendations from filterAndRankInstances
+ * @param {Map|null} quotas - Map: instanceType → { quota, deployed, headroom }, or null
+ * @param {Map|null} reservations - Map: instanceType → { reservationId, count, expiresAt }, or null
+ * @param {Map|null} ftps - Map: instanceType → { planName, remainingCapacity, expiresAt }, or null
+ * @returns {object[]} Filtered and re-ranked recommendations
+ */
+const applyAvailabilityRanking = (recommendations, quotas, reservations, ftps) => {
+    if (!recommendations || recommendations.length === 0) {
+        return []
+    }
+
+    // If all signals are null (all API calls failed), return unmodified
+    if (!quotas && !reservations && !ftps) {
+        return recommendations
+    }
+
+    // Annotate each recommendation with capacityType and quotaStatus
+    for (const rec of recommendations) {
+        rec.capacityType = 'on-demand'
+        rec.quotaStatus = 'available'
+
+        if (reservations?.has(rec.instanceType)) {
+            rec.capacityType = 'reserved'
+            rec.reservationInfo = reservations.get(rec.instanceType)
+            rec.reservationType = 'training-plan'
+        } else if (ftps?.has(rec.instanceType)) {
+            rec.capacityType = 'ftp'
+            rec.ftpInfo = ftps.get(rec.instanceType)
+        }
+
+        // quotaStatus applies to all instances regardless of capacityType
+        if (quotas) {
+            const q = quotas.get(rec.instanceType)
+            if (q && q.headroom === 0) {
+                rec.quotaStatus = 'zero-quota'
+            } else if (q && q.headroom < 2) {
+                rec.quotaStatus = 'limited'
+            }
+            if (q) {
+                rec.quotaHeadroom = q.headroom
+                rec.quotaDeployed = q.deployed
+                rec.quotaLimit = q.quota
+            }
+        }
+    }
+
+    // Filter out zero-quota instances (but never filter reserved/FTP — you have the capacity)
+    const filtered = recommendations.filter(r =>
+        r.quotaStatus !== 'zero-quota' || r.capacityType === 'reserved' || r.capacityType === 'ftp'
+    )
+
+    // Sort: reserved first, then FTP, then on-demand (preserve existing order within tier)
+    filtered.sort((a, b) => {
+        const pa = CAPACITY_TYPE_PRIORITY[a.capacityType] ?? 2
+        const pb = CAPACITY_TYPE_PRIORITY[b.capacityType] ?? 2
+        if (pa !== pb) return pa - pb
+        return 0
+    })
+
+    return filtered
+}
+
 export {
     filterAndRankInstances,
+    applyAvailabilityRanking,
     getPerGpuMemoryGb,
     getCostTier,
     effectiveVram,
@@ -266,5 +369,6 @@ export {
     COST_TIER_MAP,
     COST_TIER_WEIGHT,
     GENERATION_WEIGHT,
+    CAPACITY_TYPE_PRIORITY,
     TP_OVERHEAD_PER_GPU
 }

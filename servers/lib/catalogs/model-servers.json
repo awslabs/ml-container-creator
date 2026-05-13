@@ -542,7 +542,7 @@
                     "TRTLLM_ENABLE_CHUNKED_CONTEXT": "true",
                     "UCX_MEMTYPE_CACHE": "n"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -612,7 +612,7 @@
                     "TRTLLM_ENABLE_CHUNKED_CONTEXT": "true",
                     "UCX_MEMTYPE_CACHE": "n"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -681,7 +681,7 @@
                     "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
                     "OPTION_DTYPE": "fp16"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -754,7 +754,7 @@
                     "OPTION_MAX_ROLLING_BATCH_SIZE": "32",
                     "OPTION_DTYPE": "fp16"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -828,7 +828,7 @@
                     "OPTION_TENSOR_PARALLEL_DEGREE": "1",
                     "OPTION_DEVICE_MAP": "auto"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -881,7 +881,7 @@
                     "OPTION_TENSOR_PARALLEL_DEGREE": "1",
                     "OPTION_DEVICE_MAP": "auto"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -935,7 +935,7 @@
                     "HF_TOKEN": "${hfToken}",
                     "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -985,7 +985,7 @@
                     "HF_TOKEN": "${hfToken}",
                     "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -1036,7 +1036,7 @@
                 "envVars": {
                     "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -1067,7 +1067,7 @@
                 "envVars": {
                     "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -1098,7 +1098,7 @@
                 "envVars": {
                     "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -1129,7 +1129,7 @@
                 "envVars": {
                     "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -1160,7 +1160,7 @@
                 "envVars": {
                     "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -1191,7 +1191,7 @@
                 "envVars": {
                     "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",
@@ -1222,7 +1222,7 @@
                 "envVars": {
                     "TRITON_MODEL_REPOSITORY": "/opt/ml/model/model_repository"
                 },
-                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-2"
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
             },
             "accelerator": {
                 "type": "cuda",

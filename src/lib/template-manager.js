@@ -65,7 +65,7 @@ export default class TemplateManager {
             ],
             buildTargets: ['codebuild'],
             deploymentTargets: ['realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'],
-            testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'],
+            testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
                 'eu-west-1', 'eu-west-2', 'eu-central-1', 'eu-north-1',
@@ -134,6 +134,9 @@ export default class TemplateManager {
 
         // Validate batch transform specific fields
         this._validateBatchTransformConfig();
+
+        // Validate benchmark specific fields
+        this._validateBenchmarkConfig();
         
         // Validate instance type format (ml.*.*) - only for realtime-inference
         if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
@@ -293,6 +296,51 @@ export default class TemplateManager {
             const val = this.answers.batchMaxPayloadInMB;
             if (!Number.isInteger(val) || val < 0 || val > 100) {
                 throw new Error('⚠️  batchMaxPayloadInMB must be an integer between 0 and 100');
+            }
+        }
+    }
+
+    /**
+     * Validates benchmark configuration parameters
+     * @private
+     * @throws {Error} If benchmark configuration is invalid
+     */
+    _validateBenchmarkConfig() {
+        if (!this.answers.includeBenchmark) return;
+
+        // Gate to supported architectures
+        const dc = this.answers.deploymentConfig;
+        const arch = dc ? dc.split('-')[0] : this.answers.architecture;
+        if (arch !== 'transformers' && arch !== 'diffusors') {
+            throw new Error('⚠️  Benchmarking is only supported with transformers and diffusors architectures.');
+        }
+
+        // Gate to supported deployment targets
+        if (this.answers.deploymentTarget === 'hyperpod-eks') {
+            throw new Error('⚠️  Benchmarking is only supported with managed-inference, async-inference, and batch-transform deployment targets');
+        }
+
+        // Validate numeric parameters
+        if (this.answers.benchmarkConcurrency !== undefined) {
+            if (!Number.isInteger(this.answers.benchmarkConcurrency) || this.answers.benchmarkConcurrency < 1) {
+                throw new Error('⚠️  benchmarkConcurrency must be an integer >= 1');
+            }
+        }
+        if (this.answers.benchmarkInputTokensMean !== undefined) {
+            if (!Number.isInteger(this.answers.benchmarkInputTokensMean) || this.answers.benchmarkInputTokensMean < 1) {
+                throw new Error('⚠️  benchmarkInputTokensMean must be an integer >= 1');
+            }
+        }
+        if (this.answers.benchmarkOutputTokensMean !== undefined) {
+            if (!Number.isInteger(this.answers.benchmarkOutputTokensMean) || this.answers.benchmarkOutputTokensMean < 1) {
+                throw new Error('⚠️  benchmarkOutputTokensMean must be an integer >= 1');
+            }
+        }
+
+        // Validate S3 path format
+        if (this.answers.benchmarkS3OutputPath && this.answers.benchmarkS3OutputPath.trim() !== '') {
+            if (!this.answers.benchmarkS3OutputPath.startsWith('s3://')) {
+                throw new Error('⚠️  benchmarkS3OutputPath must start with "s3://". Example: s3://my-bucket/benchmark-results/');
             }
         }
     }

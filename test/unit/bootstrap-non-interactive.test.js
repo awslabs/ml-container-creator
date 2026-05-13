@@ -110,6 +110,9 @@ function setupHandler(_opts = {}) {
     // Mock _runPostSetupChain to prevent real network calls (mcp init, sync-architectures, sync-schemas)
     handler._runPostSetupChain = async () => {};
 
+    // Mock _verifyCliV2 to skip real CLI version check in tests
+    handler._verifyCliV2 = () => true;
+
     const restore = () => { console.log = origLog; };
 
     return { handler, calls, logs, restore, promptCalls, configPath };

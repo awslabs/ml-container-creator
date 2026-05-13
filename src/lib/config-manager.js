@@ -979,6 +979,83 @@ export default class ConfigManager {
                 default: 1.0,
                 valueSpace: 'bounded',
                 schemaValidated: true
+            },
+            includeBenchmark: {
+                cliOption: 'include-benchmark',
+                envVar: 'ML_INCLUDE_BENCHMARK',
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: false,
+                valueSpace: 'bounded'
+            },
+            benchmarkConcurrency: {
+                cliOption: 'benchmark-concurrency',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 10,
+                valueSpace: 'bounded'
+            },
+            benchmarkInputTokensMean: {
+                cliOption: 'benchmark-input-tokens',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 550,
+                valueSpace: 'bounded'
+            },
+            benchmarkOutputTokensMean: {
+                cliOption: 'benchmark-output-tokens',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 150,
+                valueSpace: 'bounded'
+            },
+            benchmarkStreaming: {
+                cliOption: 'benchmark-streaming',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: true,
+                valueSpace: 'bounded'
+            },
+            benchmarkRequestCount: {
+                cliOption: 'benchmark-request-count',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'bounded'
+            },
+            benchmarkS3OutputPath: {
+                cliOption: 'benchmark-s3-output-path',
+                envVar: 'ML_BENCHMARK_S3_OUTPUT_PATH',
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'bounded'
             }
         };
     }
@@ -1011,7 +1088,7 @@ export default class ConfigManager {
      */
     _parseValue(parameter, value) {
         // Handle boolean parameters
-        if (parameter === 'includeSampleModel' || parameter === 'includeTesting' || parameter === 'skipPrompts') {
+        if (parameter === 'includeSampleModel' || parameter === 'includeTesting' || parameter === 'skipPrompts' || parameter === 'includeBenchmark' || parameter === 'benchmarkStreaming') {
             return value === true || value === 'true';
         }
         

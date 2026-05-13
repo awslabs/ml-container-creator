@@ -88,3 +88,9 @@ Run `./do/validate` before deploying to catch configuration issues that would ca
 This validates your `do/config` values against the AWS service model, checking enum constraints, type correctness, required fields, and cross-cutting consistency (GPU counts, tensor parallelism, CUDA compatibility). See [Configuration — Schema-Driven Validation](configuration.md#schema-driven-validation) for setup instructions.
 
 The `./do/deploy --dry-run` flag also runs schema validation as part of its pre-flight checks and blocks deployment if errors are found.
+
+## Benchmarking
+
+For transformer and diffusor architectures, MCC can generate a `do/benchmark` script that measures endpoint performance using the SageMaker AI Benchmarking service (NVIDIA AIPerf). Enable it with `--include-benchmark` during project generation.
+
+See the dedicated [Benchmarking](benchmarking.md) guide for prerequisites, parameter tuning, and interpreting results.

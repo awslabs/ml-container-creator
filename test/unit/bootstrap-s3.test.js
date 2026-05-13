@@ -24,6 +24,7 @@ const REGION = 'us-east-1';
 const ACCOUNT_ID = '123456789012';
 const ASYNC_BUCKET = `ml-container-creator-async-${REGION}-${ACCOUNT_ID}`;
 const BATCH_BUCKET = `ml-container-creator-batch-${REGION}-${ACCOUNT_ID}`;
+const BENCHMARK_BUCKET = `ml-container-creator-benchmark-${REGION}-${ACCOUNT_ID}`;
 
 /**
  * Creates a mock generator with a configurable prompt response.
@@ -53,6 +54,7 @@ function setupHandler({
     useS3 = true,
     asyncBucketExists = false,
     batchBucketExists = false,
+    benchmarkBucketExists = false,
     region = REGION,
     accountId = ACCOUNT_ID
 } = {}) {
@@ -72,8 +74,10 @@ function setupHandler({
     handler._resourceExists = (command) => {
         const asyncName = `ml-container-creator-async-${region}-${accountId}`;
         const batchName = `ml-container-creator-batch-${region}-${accountId}`;
+        const benchmarkName = `ml-container-creator-benchmark-${region}-${accountId}`;
         if (command.includes(asyncName)) return asyncBucketExists;
         if (command.includes(batchName)) return batchBucketExists;
+        if (command.includes(benchmarkName)) return benchmarkBucketExists;
         return false;
     };
 
@@ -94,17 +98,21 @@ function setupHandler({
 
 describe('Bootstrap S3 Bucket Setup', () => {
     describe('when user declines S3 buckets', () => {
-        it('should return null and not create any buckets', async () => {
+        it('should still create benchmark bucket and not create async/batch buckets', async () => {
             const { handler, execAwsCalls, restore } = setupHandler({ useS3: false });
 
             try {
                 const result = await handler._setupS3Buckets();
 
-                assert.strictEqual(result, null, 'should return null when user declines');
+                assert.ok(result, 'should return a result object (benchmark bucket always created)');
+                assert.strictEqual(result.benchmarkS3Bucket, BENCHMARK_BUCKET, 'should return correct benchmark bucket name');
+                assert.strictEqual(result.asyncS3Bucket, undefined, 'should not return async bucket');
+                assert.strictEqual(result.batchS3Bucket, undefined, 'should not return batch bucket');
 
-                // Should NOT have called any s3api commands
-                const s3Calls = execAwsCalls.filter(c => c.command.includes('s3api'));
-                assert.strictEqual(s3Calls.length, 0, 'should not call any s3api commands');
+                // Should have created only the benchmark bucket (1 create-bucket call)
+                const createCalls = execAwsCalls.filter(c => c.command.includes('s3api create-bucket'));
+                assert.strictEqual(createCalls.length, 1, 'should call s3api create-bucket once (benchmark only)');
+                assert.ok(createCalls[0].command.includes(BENCHMARK_BUCKET), 'should create benchmark bucket');
             } finally {
                 restore();
             }
@@ -121,10 +129,11 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 assert.ok(result, 'should return a result object');
                 assert.strictEqual(result.asyncS3Bucket, ASYNC_BUCKET, 'should return correct async bucket name');
                 assert.strictEqual(result.batchS3Bucket, BATCH_BUCKET, 'should return correct batch bucket name');
+                assert.strictEqual(result.benchmarkS3Bucket, BENCHMARK_BUCKET, 'should return correct benchmark bucket name');
 
-                // Should have called s3api create-bucket for both buckets
+                // Should have called s3api create-bucket for all three buckets
                 const createCalls = execAwsCalls.filter(c => c.command.includes('s3api create-bucket'));
-                assert.strictEqual(createCalls.length, 2, 'should call s3api create-bucket twice');
+                assert.strictEqual(createCalls.length, 3, 'should call s3api create-bucket three times');
 
                 const asyncCreate = createCalls.find(c => c.command.includes(ASYNC_BUCKET));
                 assert.ok(asyncCreate, 'should create async bucket');
@@ -132,9 +141,13 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 const batchCreate = createCalls.find(c => c.command.includes(BATCH_BUCKET));
                 assert.ok(batchCreate, 'should create batch bucket');
 
+                const benchmarkCreate = createCalls.find(c => c.command.includes(BENCHMARK_BUCKET));
+                assert.ok(benchmarkCreate, 'should create benchmark bucket');
+
                 // Should display "created" messages
                 assert.ok(logs.some(l => l.includes('created') && l.includes(ASYNC_BUCKET)), 'should display "created" for async bucket');
                 assert.ok(logs.some(l => l.includes('created') && l.includes(BATCH_BUCKET)), 'should display "created" for batch bucket');
+                assert.ok(logs.some(l => l.includes('created') && l.includes(BENCHMARK_BUCKET)), 'should display "created" for benchmark bucket');
             } finally {
                 restore();
             }
@@ -146,7 +159,8 @@ describe('Bootstrap S3 Bucket Setup', () => {
             const { handler, execAwsCalls, logs, restore } = setupHandler({
                 useS3: true,
                 asyncBucketExists: true,
-                batchBucketExists: true
+                batchBucketExists: true,
+                benchmarkBucketExists: true
             });
 
             try {
@@ -155,6 +169,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 assert.ok(result, 'should return a result object');
                 assert.strictEqual(result.asyncS3Bucket, ASYNC_BUCKET, 'should return correct async bucket name');
                 assert.strictEqual(result.batchS3Bucket, BATCH_BUCKET, 'should return correct batch bucket name');
+                assert.strictEqual(result.benchmarkS3Bucket, BENCHMARK_BUCKET, 'should return correct benchmark bucket name');
 
                 // Should NOT have called s3api create-bucket
                 const createCalls = execAwsCalls.filter(c => c.command.includes('s3api create-bucket'));
@@ -167,6 +182,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 // Should display "reused" messages
                 assert.ok(logs.some(l => l.includes('reused') && l.includes(ASYNC_BUCKET)), 'should display "reused" for async bucket');
                 assert.ok(logs.some(l => l.includes('reused') && l.includes(BATCH_BUCKET)), 'should display "reused" for batch bucket');
+                assert.ok(logs.some(l => l.includes('reused') && l.includes(BENCHMARK_BUCKET)), 'should display "reused" for benchmark bucket');
             } finally {
                 restore();
             }
@@ -181,7 +197,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 await handler._setupS3Buckets();
 
                 const versioningCalls = execAwsCalls.filter(c => c.command.includes('put-bucket-versioning'));
-                assert.strictEqual(versioningCalls.length, 2, 'should call put-bucket-versioning for both buckets');
+                assert.strictEqual(versioningCalls.length, 3, 'should call put-bucket-versioning for all three buckets');
 
                 for (const call of versioningCalls) {
                     assert.ok(
@@ -190,7 +206,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                     );
                 }
 
-                // Verify one call is for async and one for batch
+                // Verify calls cover all buckets
                 assert.ok(
                     versioningCalls.some(c => c.command.includes(ASYNC_BUCKET)),
                     'should enable versioning on async bucket'
@@ -198,6 +214,10 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 assert.ok(
                     versioningCalls.some(c => c.command.includes(BATCH_BUCKET)),
                     'should enable versioning on batch bucket'
+                );
+                assert.ok(
+                    versioningCalls.some(c => c.command.includes(BENCHMARK_BUCKET)),
+                    'should enable versioning on benchmark bucket'
                 );
             } finally {
                 restore();
@@ -213,7 +233,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 await handler._setupS3Buckets();
 
                 const encryptionCalls = execAwsCalls.filter(c => c.command.includes('put-bucket-encryption'));
-                assert.strictEqual(encryptionCalls.length, 2, 'should call put-bucket-encryption for both buckets');
+                assert.strictEqual(encryptionCalls.length, 3, 'should call put-bucket-encryption for all three buckets');
 
                 for (const call of encryptionCalls) {
                     assert.ok(
@@ -222,7 +242,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                     );
                 }
 
-                // Verify one call is for async and one for batch
+                // Verify calls cover all buckets
                 assert.ok(
                     encryptionCalls.some(c => c.command.includes(ASYNC_BUCKET)),
                     'should enable encryption on async bucket'
@@ -230,6 +250,10 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 assert.ok(
                     encryptionCalls.some(c => c.command.includes(BATCH_BUCKET)),
                     'should enable encryption on batch bucket'
+                );
+                assert.ok(
+                    encryptionCalls.some(c => c.command.includes(BENCHMARK_BUCKET)),
+                    'should enable encryption on benchmark bucket'
                 );
             } finally {
                 restore();
@@ -245,7 +269,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 await handler._setupS3Buckets();
 
                 const taggingCalls = execAwsCalls.filter(c => c.command.includes('put-bucket-tagging'));
-                assert.strictEqual(taggingCalls.length, 2, 'should call put-bucket-tagging for both buckets');
+                assert.strictEqual(taggingCalls.length, 3, 'should call put-bucket-tagging for all three buckets');
 
                 for (const call of taggingCalls) {
                     assert.ok(
@@ -262,7 +286,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                     );
                 }
 
-                // Verify one call is for async and one for batch
+                // Verify calls cover all buckets
                 assert.ok(
                     taggingCalls.some(c => c.command.includes(ASYNC_BUCKET)),
                     'should apply tags to async bucket'
@@ -270,6 +294,10 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 assert.ok(
                     taggingCalls.some(c => c.command.includes(BATCH_BUCKET)),
                     'should apply tags to batch bucket'
+                );
+                assert.ok(
+                    taggingCalls.some(c => c.command.includes(BENCHMARK_BUCKET)),
+                    'should apply tags to benchmark bucket'
                 );
             } finally {
                 restore();
@@ -323,7 +351,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 await handler._setupS3Buckets();
 
                 const createCalls = execAwsCalls.filter(c => c.command.includes('s3api create-bucket'));
-                assert.strictEqual(createCalls.length, 2, 'should call s3api create-bucket twice');
+                assert.strictEqual(createCalls.length, 3, 'should call s3api create-bucket three times');
 
                 for (const call of createCalls) {
                     assert.ok(
@@ -346,7 +374,7 @@ describe('Bootstrap S3 Bucket Setup', () => {
                 await handler._setupS3Buckets();
 
                 const createCalls = execAwsCalls.filter(c => c.command.includes('s3api create-bucket'));
-                assert.strictEqual(createCalls.length, 2, 'should call s3api create-bucket twice');
+                assert.strictEqual(createCalls.length, 3, 'should call s3api create-bucket three times');
 
                 for (const call of createCalls) {
                     assert.ok(
