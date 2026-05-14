@@ -40,6 +40,10 @@ phases:
       - REGISTER_DURATION=0
       - REGISTER_LOG_POINTER=""
       - REGISTER_ERROR_SUMMARY=""
+      - ADAPTER_TEST_STATUS="skip"
+      - ADAPTER_TEST_DURATION=0
+      - ADAPTER_TEST_LOG_POINTER=""
+      - ADAPTER_TEST_ERROR_SUMMARY=""
       - TEARDOWN_STATUS="skip"
       - TEARDOWN_DURATION=0
       - TEARDOWN_LOG_POINTER=""
@@ -182,6 +186,54 @@ phases:
         fi
       - rm -f "$STAGE_STDERR_FILE"
 
+      # --- Stage: Adapter_Test (only if do/adapters/ has .conf files) ---
+      - echo "=== Stage: Adapter_Test ==="
+      - STAGE_START=$(date +%s)
+      - ADAPTER_TEST_LOG_POINTER="$LOG_POINTER_PREFIX"
+      - STAGE_STDERR_FILE=$(mktemp)
+      - |
+        if [ -n "$FIRST_FAILURE" ]; then
+          echo "Skipping Adapter_Test stage due to prior failure in $FIRST_FAILURE"
+          ADAPTER_TEST_STATUS="skip"
+          ADAPTER_TEST_DURATION=0
+        else
+          cd /tmp/ci-project
+          ADAPTER_CONFS=$(find do/adapters -name '*.conf' 2>/dev/null | grep -v '.gitkeep' || true)
+          if [ -z "$ADAPTER_CONFS" ]; then
+            echo "No adapter configs found in do/adapters/ — skipping"
+            ADAPTER_TEST_STATUS="skip"
+            ADAPTER_TEST_DURATION=0
+          else
+            (
+              set -e
+              cd /tmp/ci-project
+              for conf in do/adapters/*.conf; do
+                [ -f "$conf" ] || continue
+                [[ "$(basename "$conf")" == ".gitkeep" ]] && continue
+                ADAPTER_NAME=$(basename "$conf" .conf)
+                echo "Testing adapter: ${ADAPTER_NAME}"
+                # Source to get weights URI
+                source "$conf"
+                ./do/adapter add "${ADAPTER_NAME}" --weights "${ADAPTER_WEIGHTS_URI}"
+                ./do/test --ic "${ADAPTER_NAME}"
+                ./do/adapter remove "${ADAPTER_NAME}"
+              done
+            ) 2>"$STAGE_STDERR_FILE"; STAGE_EXIT=$?
+            STAGE_END=$(date +%s)
+            ADAPTER_TEST_DURATION=$((STAGE_END - STAGE_START))
+            if [ "$STAGE_EXIT" -eq 0 ]; then
+              ADAPTER_TEST_STATUS="pass"
+              echo "Adapter_Test stage passed in ${ADAPTER_TEST_DURATION}s"
+            else
+              ADAPTER_TEST_STATUS="fail"
+              ADAPTER_TEST_ERROR_SUMMARY=$(tail -c 500 "$STAGE_STDERR_FILE" | tr -d '\000' | tr '"' "'" | tr '\n' ' ')
+              FIRST_FAILURE="adapter_test"
+              echo "Adapter_Test stage FAILED (exit code $STAGE_EXIT) in ${ADAPTER_TEST_DURATION}s"
+            fi
+          fi
+        fi
+      - rm -f "$STAGE_STDERR_FILE"
+
       # --- Stage: Register (placeholder) ---
       - echo "=== Stage: Register ==="
       - STAGE_START=$(date +%s)
@@ -260,6 +312,7 @@ phases:
             validate)    FINAL_ERROR_MESSAGE="$VALIDATE_ERROR_SUMMARY" ;;
             build)       FINAL_ERROR_MESSAGE="$BUILD_ERROR_SUMMARY" ;;
             deploy_test) FINAL_ERROR_MESSAGE="$DEPLOY_TEST_ERROR_SUMMARY" ;;
+            adapter_test) FINAL_ERROR_MESSAGE="$ADAPTER_TEST_ERROR_SUMMARY" ;;
             register)    FINAL_ERROR_MESSAGE="$REGISTER_ERROR_SUMMARY" ;;
             *)           FINAL_ERROR_MESSAGE="Unknown failure stage" ;;
           esac
@@ -272,6 +325,7 @@ phases:
         ESCAPED_VALIDATE_ERROR=$(printf '%s' "$VALIDATE_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
         ESCAPED_BUILD_ERROR=$(printf '%s' "$BUILD_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
         ESCAPED_DEPLOY_TEST_ERROR=$(printf '%s' "$DEPLOY_TEST_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        ESCAPED_ADAPTER_TEST_ERROR=$(printf '%s' "$ADAPTER_TEST_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
         ESCAPED_REGISTER_ERROR=$(printf '%s' "$REGISTER_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
         ESCAPED_TEARDOWN_ERROR=$(printf '%s' "$TEARDOWN_ERROR_SUMMARY" | sed 's/\\/\\\\/g; s/"/\\"/g')
         ESCAPED_FINAL_ERROR=$(printf '%s' "$FINAL_ERROR_MESSAGE" | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -313,6 +367,12 @@ phases:
                   \"durationSeconds\": {\"N\": \"$DEPLOY_TEST_DURATION\"},
                   \"logPointer\": {\"S\": \"$DEPLOY_TEST_LOG_POINTER\"},
                   \"errorSummary\": {\"S\": \"$ESCAPED_DEPLOY_TEST_ERROR\"}
+                }},
+                \"adapter_test\": {\"M\": {
+                  \"status\": {\"S\": \"$ADAPTER_TEST_STATUS\"},
+                  \"durationSeconds\": {\"N\": \"$ADAPTER_TEST_DURATION\"},
+                  \"logPointer\": {\"S\": \"$ADAPTER_TEST_LOG_POINTER\"},
+                  \"errorSummary\": {\"S\": \"$ESCAPED_ADAPTER_TEST_ERROR\"}
                 }},
                 \"register\": {\"M\": {
                   \"status\": {\"S\": \"$REGISTER_STATUS\"},

@@ -383,6 +383,7 @@ async function handleGetInstanceRecommendation(params) {
     // Step 3a: Quota & availability filtering (discover mode only)
     let preQuotaFilterCount = 0
     let allFilteredByQuota = false
+    let preQuotaRecommendations = []
     if (DISCOVER_MODE && recommendations.length > 0) {
         try {
             const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || BEDROCK_REGION
@@ -396,6 +397,7 @@ async function handleGetInstanceRecommendation(params) {
             ])
 
             preQuotaFilterCount = recommendations.length
+            preQuotaRecommendations = [...recommendations]
             recommendations = applyAvailabilityRanking(
                 recommendations,
                 quotas.status === 'fulfilled' ? quotas.value : null,
@@ -404,6 +406,10 @@ async function handleGetInstanceRecommendation(params) {
             )
             if (recommendations.length === 0 && preQuotaFilterCount > 0) {
                 allFilteredByQuota = true
+                // Restore pre-filter recommendations so user can see compatible instances
+                // and request quota increases for the ones they want
+                recommendations = preQuotaRecommendations
+                log(`All ${preQuotaFilterCount} instances filtered by zero-quota — restoring unfiltered list`)
             }
         } catch (err) {
             // Graceful degradation: if credentials are missing or any unexpected

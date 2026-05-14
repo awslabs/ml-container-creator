@@ -114,7 +114,7 @@ export default class RegistryCommandHandler {
                 backend,
                 baseImage: options.baseImage || options['base-image'] || null,
                 deploymentTarget: options.deploymentTarget || options['deployment-target'] || null,
-                buildTarget: options.buildTarget || options['build-target'] || null
+                buildTarget: options.buildTarget || options['build-target'] || null,
             },
             model: {
                 modelName: options.modelName || options['model-name'] || null,
@@ -147,6 +147,18 @@ export default class RegistryCommandHandler {
             } catch (err) {
                 console.log(`Warning: Could not parse parameters JSON: ${err.message}`);
                 entry.configuration.parameters = {};
+            }
+        }
+
+        // Parse icList from JSON string if provided
+        const icListRaw = options.icList || options['ic-list'];
+        if (icListRaw) {
+            try {
+                entry.deployment.icList = typeof icListRaw === 'string'
+                    ? JSON.parse(icListRaw)
+                    : icListRaw;
+            } catch (err) {
+                console.log(`Warning: Could not parse ic-list JSON: ${err.message}`);
             }
         }
 

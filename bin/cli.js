@@ -98,6 +98,9 @@ program
     .addOption(new Option('--include-sample', 'Include sample model code'))
     .addOption(new Option('--include-testing', 'Include test suite'))
     .addOption(new Option('--test-types <types>', 'Comma-separated test types'))
+    .addOption(new Option('--enable-lora', 'Enable LoRA adapter serving (transformers with vllm/sglang/djl-lmi only)'))
+    .addOption(new Option('--max-loras <n>', 'Maximum concurrent LoRA adapters in GPU memory (default: 30)'))
+    .addOption(new Option('--max-lora-rank <n>', 'Maximum LoRA rank (default: 64)'))
 
     // --- MCP & Discovery ---
     .addOption(new Option('--smart', 'Enable Bedrock-powered smart mode on MCP servers'))
@@ -190,7 +193,7 @@ program.configureHelp({
                 groups.env.push(opt);
             } else if (['--hf-token', '--hf-token-arn', '--ngc-token', '--ngc-token-arn'].includes(long)) {
                 groups.auth.push(opt);
-            } else if (['--include-sample', '--include-testing', '--test-types'].includes(long)) {
+            } else if (['--include-sample', '--include-testing', '--test-types', '--enable-lora', '--max-loras', '--max-lora-rank'].includes(long)) {
                 groups.features.push(opt);
             } else if (['--smart', '--discover'].includes(long)) {
                 groups.mcp.push(opt);
@@ -307,7 +310,6 @@ program
 program
     .command('registry')
     .description('Registry operations (list, get, remove, replay, export, import, search) — experimental, may be reconciled with do/register')
-    .passThroughOptions()
     .argument('<action>', 'Registry action (log, list, get, remove, replay, export, import, search)')
     .argument('[args...]', 'Additional arguments')
     .option('--backend <backend>', 'Filter by backend')
@@ -328,6 +330,7 @@ program
     .option('--notes <text>', 'Deployment notes')
     .option('--project', 'Use project-level registry')
     .option('--parameters <json>', 'Parameters JSON string')
+    .option('--ic-list <json>', 'IC list JSON string')
     .option('--generator-version <version>', 'Generator version')
     // Options used by `registry list-architectures`
     .option('--server <name>', 'Filter by server name (for list-architectures)')

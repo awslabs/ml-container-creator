@@ -160,18 +160,24 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
 
                 const output = renderTemplate(deployTemplate, vars);
 
-                // Must contain SageMaker inference component commands
+                // Must source shared helpers for IC-based deployment
                 assert.ok(
-                    output.includes('sagemaker create-endpoint-config'),
-                    'realtime-inference do/deploy must contain create-endpoint-config'
+                    output.includes('source') && output.includes('lib/inference-component.sh'),
+                    'realtime-inference do/deploy must source lib/inference-component.sh'
                 );
+                assert.ok(
+                    output.includes('source') && output.includes('lib/endpoint-config.sh'),
+                    'realtime-inference do/deploy must source lib/endpoint-config.sh'
+                );
+                // Must contain inline create-endpoint call
                 assert.ok(
                     output.includes('sagemaker create-endpoint'),
                     'realtime-inference do/deploy must contain create-endpoint'
                 );
+                // Must call create_inference_component or create_inference_component_legacy
                 assert.ok(
-                    output.includes('sagemaker create-inference-component'),
-                    'realtime-inference do/deploy must contain create-inference-component'
+                    output.includes('create_inference_component'),
+                    'realtime-inference do/deploy must call create_inference_component'
                 );
 
                 // Must NOT contain async-specific deploy logic

@@ -57,6 +57,22 @@ export default {
                 },
                 buildTarget: {
                     type: ['string', 'null']
+                },
+                icList: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['name'],
+                        properties: {
+                            name: { type: 'string', minLength: 1 },
+                            image: { type: 'string' },
+                            gpuCount: { type: 'integer', minimum: 0 },
+                            copyCount: { type: 'integer', minimum: 1 },
+                            isAdapter: { type: 'boolean' },
+                            baseIcName: { type: 'string' },
+                            artifactUrl: { type: 'string' }
+                        }
+                    }
                 }
             }
         },

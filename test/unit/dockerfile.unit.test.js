@@ -47,6 +47,9 @@ function renderDockerfile(overrides = {}) {
         comments: {},
         orderedEnvVars: [],
         includeSampleModel: false,
+        enableLora: false,
+        maxLoras: 30,
+        maxLoraRank: 64,
         ...overrides
     };
     return ejs.render(DOCKERFILE_TEMPLATE, vars);

@@ -57,7 +57,9 @@ function renderServingProperties(modelSource, modelServer, modelName, artifactUr
         artifactUri: artifactUri || '',
         hfToken: '',
         chatTemplate: '',
-        orderedEnvVars: []
+        orderedEnvVars: [],
+        enableLora: false,
+        maxLoras: 30
     });
 }
 

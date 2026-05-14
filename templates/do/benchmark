@@ -17,18 +17,29 @@ source "${SCRIPT_DIR}/config"
 # ── Parse flags ───────────────────────────────────────────────────────────────
 CLEAN_AFTER=false
 FORCE=false
-for arg in "$@"; do
-    case "$arg" in
-        --clean) CLEAN_AFTER=true ;;
-        --force) FORCE=true ;;
+IC_ARG=""
+ADAPTER_ARG=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --clean) CLEAN_AFTER=true; shift ;;
+        --force) FORCE=true; shift ;;
+        --ic) shift; IC_ARG="${1:-}"; shift ;;
+        --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
         --help|-h)
-            echo "Usage: ./do/benchmark [--force] [--clean]"
+            echo "Usage: ./do/benchmark [--ic <name>] [--adapter <name>] [--force] [--clean]"
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
             echo "Options:"
-            echo "  --force    Create a new benchmark job even if one is already running"
-            echo "  --clean    Delete workload config and benchmark job after displaying results"
+            echo "  --ic <name>      Benchmark a specific inference component"
+            echo "  --adapter <name> Benchmark a specific LoRA adapter IC"
+            echo "  --force          Create a new benchmark job even if one is already running"
+            echo "  --clean          Delete workload config and benchmark job after displaying results"
+            echo ""
+            echo "IC resolution:"
+            echo "  --adapter <name> Use ADAPTER_IC_NAME from do/adapters/<name>.conf"
+            echo "  --ic <name>      Use IC_DEPLOYED_NAME from do/ic/<name>.conf"
+            echo "  (no flag)        Use first IC in do/ic/ alphabetically, or legacy config"
             echo ""
             echo "Idempotency:"
             echo "  If a benchmark job is already in progress, re-running without --force"
@@ -39,6 +50,7 @@ for arg in "$@"; do
             echo "  • AWS credentials must be configured"
             exit 0
             ;;
+        *) shift ;;
     esac
 done
 
@@ -50,6 +62,66 @@ if ! aws --version 2>&1 | grep -q "aws-cli/2"; then
     echo ""
     echo "   Install CLI v2: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
     exit 1
+fi
+
+# ── Resolve inference component name ──────────────────────────────────────────
+# Resolution precedence: --adapter <name>, --ic <name>, first in do/ic/, or legacy config
+IC_NAME=""
+if [ -n "${ADAPTER_ARG}" ]; then
+    # Adapter name provided via --adapter flag — look up adapter IC
+    ADAPTER_CONF="${SCRIPT_DIR}/adapters/${ADAPTER_ARG}.conf"
+    if [ ! -f "${ADAPTER_CONF}" ]; then
+        echo "❌ Adapter config not found: do/adapters/${ADAPTER_ARG}.conf"
+        echo "   Available adapters:"
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${conf}" ] || continue
+                echo "     • $(basename "${conf}" .conf)"
+            done
+        else
+            echo "     (none)"
+        fi
+        exit 1
+    fi
+    ADAPTER_IC_NAME=""
+    source "${ADAPTER_CONF}"
+    if [ -z "${ADAPTER_IC_NAME}" ]; then
+        echo "❌ Adapter '${ADAPTER_ARG}' conf is missing ADAPTER_IC_NAME."
+        exit 1
+    fi
+    IC_NAME="${ADAPTER_IC_NAME}"
+elif [ -n "${IC_ARG}" ]; then
+    # Explicit IC name provided via --ic flag
+    IC_CONF="${SCRIPT_DIR}/ic/${IC_ARG}.conf"
+    if [ ! -f "${IC_CONF}" ]; then
+        echo "❌ IC config not found: do/ic/${IC_ARG}.conf"
+        exit 1
+    fi
+    IC_DEPLOYED_NAME=""
+    source "${IC_CONF}"
+    if [ -z "${IC_DEPLOYED_NAME}" ]; then
+        echo "❌ IC '${IC_ARG}' has not been deployed yet. Run ./do/deploy --ic ${IC_ARG} first."
+        exit 1
+    fi
+    IC_NAME="${IC_DEPLOYED_NAME}"
+elif [ -d "${SCRIPT_DIR}/ic" ]; then
+    # No --ic argument, but do/ic/ exists — use first IC alphabetically
+    for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+        [ -f "${conf}" ] || continue
+        IC_DEPLOYED_NAME=""
+        source "${conf}"
+        if [ -n "${IC_DEPLOYED_NAME}" ]; then
+            IC_NAME="${IC_DEPLOYED_NAME}"
+            break
+        fi
+    done
+    if [ -z "${IC_NAME}" ]; then
+        echo "❌ No ICs deployed. Run ./do/deploy first."
+        exit 1
+    fi
+else
+    # Legacy: no do/ic/ directory, use INFERENCE_COMPONENT_NAME from do/config
+    IC_NAME="${INFERENCE_COMPONENT_NAME:-}"
 fi
 
 # ── Helper: update a variable in do/config ────────────────────────────────────
@@ -123,7 +195,7 @@ MAX_POLL_ATTEMPTS=60  # 30 minutes max (60 * 30s)
 echo "📊 SageMaker AI Benchmark"
 echo "   Project: ${PROJECT_NAME}"
 echo "   Endpoint: ${ENDPOINT_NAME:-not set}"
-echo "   Inference Component: ${INFERENCE_COMPONENT_NAME:-not set}"
+echo "   Inference Component: ${IC_NAME:-not set}"
 echo "   Concurrency: ${BENCHMARK_CONCURRENCY}"
 echo "   Input tokens (mean): ${BENCHMARK_INPUT_TOKENS_MEAN}"
 echo "   Output tokens (mean): ${BENCHMARK_OUTPUT_TOKENS_MEAN}"
@@ -318,7 +390,7 @@ echo ""
 # Target the deployed endpoint and inference component with the workload config.
 echo "🚀 Step 2: Creating AI Benchmark Job: ${BENCHMARK_JOB_NAME}"
 
-BENCHMARK_TARGET="{\"Endpoint\":{\"Identifier\":\"${ENDPOINT_NAME}\",\"InferenceComponents\":[{\"Identifier\":\"${INFERENCE_COMPONENT_NAME}\"}]}}"
+BENCHMARK_TARGET="{\"Endpoint\":{\"Identifier\":\"${ENDPOINT_NAME}\",\"InferenceComponents\":[{\"Identifier\":\"${IC_NAME}\"}]}}"
 OUTPUT_CONFIG="{\"S3OutputLocation\":\"${BENCHMARK_S3_OUTPUT_PATH}\"}"
 
 if ! aws sagemaker create-ai-benchmark-job \

@@ -80,7 +80,10 @@ function renderDockerfile(modelSource, modelLoadStrategy, modelServer, modelName
         chatTemplate: '',
         comments: {},
         orderedEnvVars: [],
-        includeSampleModel: false
+        includeSampleModel: false,
+        enableLora: false,
+        maxLoras: 30,
+        maxLoraRank: 64
     });
 }
 

@@ -238,6 +238,18 @@ ENV <%= key %>=<%= value %>
 <% }); %>
 <% } %>
 
+<% if (enableLora && modelServer === 'vllm') { %>
+# LoRA adapter serving configuration
+ENV VLLM_ENABLE_LORA=true
+ENV VLLM_MAX_LORAS=<%= maxLoras %>
+ENV VLLM_MAX_LORA_RANK=<%= maxLoraRank %>
+<% } %>
+<% if (enableLora && modelServer === 'sglang') { %>
+# LoRA adapter serving configuration
+ENV SGLANG_ENABLE_LORA=true
+ENV SGLANG_MAX_LORAS=<%= maxLoras %>
+<% } %>
+
 <% if (typeof modelSource !== 'undefined' && modelSource && modelSource !== 'huggingface' && modelServer !== 'lmi' && modelServer !== 'djl') { %>
 # Install AWS CLI for S3 model downloads
 RUN pip install --no-cache-dir awscli

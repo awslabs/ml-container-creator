@@ -1,0 +1,2 @@
+# This file ensures the do/adapters/ directory is tracked by git
+# Adapter metadata files (*.conf) are stored here after do/adapter add

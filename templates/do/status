@@ -1,0 +1,337 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# ============================================================
+# SageMaker Real-Time Inference Status
+# ============================================================
+
+# Validate AWS credentials
+if ! aws sts get-caller-identity &> /dev/null; then
+    echo "❌ AWS credentials not configured"
+    echo "   Run: aws configure"
+    exit 4
+fi
+
+# Check that we have an endpoint to query
+if [ -z "${ENDPOINT_NAME:-}" ]; then
+    echo "❌ No endpoint configured"
+    echo "   Run ./do/deploy first to create an endpoint."
+    exit 1
+fi
+
+# ============================================================
+# Describe Endpoint
+# ============================================================
+ENDPOINT_JSON=$(aws sagemaker describe-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}" 2>/dev/null) || {
+    echo "❌ Endpoint not found: ${ENDPOINT_NAME}"
+    echo "   The endpoint may have been deleted. Run ./do/deploy to create a new one."
+    exit 1
+}
+
+EP_STATUS=$(echo "${ENDPOINT_JSON}" | grep -o '"EndpointStatus":"[^"]*"' | head -1 | cut -d'"' -f4)
+EP_INSTANCE_TYPE=$(echo "${ENDPOINT_JSON}" | grep -o '"InstanceType":"[^"]*"' | head -1 | cut -d'"' -f4)
+EP_INSTANCE_COUNT=$(echo "${ENDPOINT_JSON}" | grep -o '"CurrentInstanceCount":[0-9]*' | head -1 | cut -d':' -f2)
+
+# Fallback for instance count if not available
+if [ -z "${EP_INSTANCE_COUNT}" ]; then
+    EP_INSTANCE_COUNT=$(echo "${ENDPOINT_JSON}" | grep -o '"InitialInstanceCount":[0-9]*' | head -1 | cut -d':' -f2)
+fi
+EP_INSTANCE_COUNT="${EP_INSTANCE_COUNT:-1}"
+
+# Use INSTANCE_TYPE from config as fallback if not in describe response
+EP_INSTANCE_TYPE="${EP_INSTANCE_TYPE:-${INSTANCE_TYPE:-unknown}}"
+
+# GPU count lookup for the instance type
+_get_instance_gpus() {
+    local itype="$1"
+    case "${itype}" in
+        ml.g4dn.xlarge)     echo 1 ;;
+        ml.g4dn.12xlarge)   echo 4 ;;
+        ml.g5.xlarge)       echo 1 ;;
+        ml.g5.2xlarge)      echo 1 ;;
+        ml.g5.4xlarge)      echo 1 ;;
+        ml.g5.8xlarge)      echo 1 ;;
+        ml.g5.12xlarge)     echo 4 ;;
+        ml.g5.48xlarge)     echo 8 ;;
+        ml.g6.xlarge)       echo 1 ;;
+        ml.g6.12xlarge)     echo 4 ;;
+        ml.g6.48xlarge)     echo 8 ;;
+        ml.g6e.xlarge)      echo 1 ;;
+        ml.g6e.2xlarge)     echo 1 ;;
+        ml.g6e.4xlarge)     echo 1 ;;
+        ml.g6e.8xlarge)     echo 1 ;;
+        ml.g6e.12xlarge)    echo 4 ;;
+        ml.g6e.48xlarge)    echo 8 ;;
+        ml.g7e.xlarge)      echo 1 ;;
+        ml.g7e.2xlarge)     echo 1 ;;
+        ml.g7e.4xlarge)     echo 1 ;;
+        ml.g7e.8xlarge)     echo 1 ;;
+        ml.g7e.12xlarge)    echo 4 ;;
+        ml.g7e.48xlarge)    echo 8 ;;
+        ml.p3.2xlarge)      echo 1 ;;
+        ml.p3.8xlarge)      echo 4 ;;
+        ml.p3.16xlarge)     echo 8 ;;
+        ml.p4d.24xlarge)    echo 8 ;;
+        ml.p4de.24xlarge)   echo 8 ;;
+        ml.p5.48xlarge)     echo 8 ;;
+        *)                  echo "" ;;
+    esac
+}
+
+INSTANCE_GPUS=$(_get_instance_gpus "${EP_INSTANCE_TYPE}")
+TOTAL_GPUS=""
+if [ -n "${INSTANCE_GPUS}" ]; then
+    TOTAL_GPUS=$(( INSTANCE_GPUS * EP_INSTANCE_COUNT ))
+fi
+
+# ============================================================
+# Detect Instance Pools
+# ============================================================
+HAS_INSTANCE_POOLS=false
+if echo "${ENDPOINT_JSON}" | grep -q '"InstancePools"'; then
+    HAS_INSTANCE_POOLS=true
+fi
+
+# ============================================================
+# Print Endpoint Status
+# ============================================================
+echo ""
+if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
+    echo "Endpoint: ${ENDPOINT_NAME} (external) [${EP_STATUS}]"
+else
+    echo "Endpoint: ${ENDPOINT_NAME} [${EP_STATUS}]"
+fi
+
+if [ "${HAS_INSTANCE_POOLS}" = "true" ]; then
+    # Instance pools path: show per-pool information
+    echo "Instance Pools:"
+
+    # Extract pool entries from the DescribeEndpoint response
+    # Each pool has: InstanceType, Priority, and CurrentInstanceCount (from the running endpoint)
+    # Parse using grep/sed — pools are in ProductionVariants[0].InstancePools array
+    pool_entries=$(echo "${ENDPOINT_JSON}" | grep -oE '"InstancePools"\s*:\s*\[[^]]*\]' | head -1 | sed 's/"InstancePools"\s*:\s*//')
+
+    if [ -n "${pool_entries}" ]; then
+        # Extract individual pool objects
+        # Each pool: {"InstanceType":"ml.xxx","Priority":N} — may also have CurrentInstanceCount
+        pool_types=$(echo "${pool_entries}" | grep -oE '"InstanceType"\s*:\s*"[^"]+"' | sed 's/"InstanceType"\s*:\s*"//;s/"$//')
+        pool_priorities=$(echo "${pool_entries}" | grep -oE '"Priority"\s*:\s*[0-9]+' | sed 's/"Priority"\s*:\s*//')
+
+        # CurrentInstanceCount may appear per-pool in the response
+        # If not per-pool, fall back to the endpoint-level CurrentInstanceCount
+        pool_instance_counts=$(echo "${pool_entries}" | grep -oE '"CurrentInstanceCount"\s*:\s*[0-9]+' | sed 's/"CurrentInstanceCount"\s*:\s*//')
+
+        # Convert to arrays
+        IFS=$'\n' read -r -d '' -a types_arr <<< "${pool_types}" || true
+        IFS=$'\n' read -r -d '' -a priorities_arr <<< "${pool_priorities}" || true
+        IFS=$'\n' read -r -d '' -a counts_arr <<< "${pool_instance_counts}" || true
+
+        for i in "${!types_arr[@]}"; do
+            local_type="${types_arr[$i]}"
+            local_priority="${priorities_arr[$i]:-$((i+1))}"
+            local_count="${counts_arr[$i]:-0}"
+
+            # Mark pools with instances > 0 as active
+            if [ "${local_count}" -gt 0 ] 2>/dev/null; then
+                printf "  Priority %s: %-20s (%s instances) ← active\n" "${local_priority}" "${local_type}" "${local_count}"
+            else
+                printf "  Priority %s: %-20s (%s instances)\n" "${local_priority}" "${local_type}" "${local_count}"
+            fi
+        done
+    fi
+else
+    # Standard single instance type path
+    if [ -n "${TOTAL_GPUS}" ]; then
+        echo "Instance: ${EP_INSTANCE_TYPE} (${EP_INSTANCE_COUNT} instance, ${TOTAL_GPUS} GPUs)"
+    else
+        echo "Instance: ${EP_INSTANCE_TYPE} (${EP_INSTANCE_COUNT} instance)"
+    fi
+fi
+echo ""
+
+# ============================================================
+# Describe Inference Components
+# ============================================================
+TOTAL_GPU_USED=0
+IC_ROWS=""
+
+if [ -d "${SCRIPT_DIR}/ic" ]; then
+    # Multi-IC path: iterate do/ic/*.conf files
+    # NOTE: Only base ICs in do/ic/ are counted toward GPU usage.
+    # Adapter ICs (do/adapters/*.conf) share the base IC's GPU resources
+    # and do not have their own ComputeResourceRequirements, so they are
+    # intentionally excluded from GPU capacity calculations.
+    HAS_ICS=false
+
+    for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+        [ -f "${conf}" ] || continue
+        HAS_ICS=true
+
+        ic_basename=$(basename "${conf}" .conf)
+
+        # Read IC_DEPLOYED_NAME from the conf file
+        ic_deployed_name=""
+        if grep -q "^export IC_DEPLOYED_NAME=" "${conf}" 2>/dev/null; then
+            ic_deployed_name=$(grep "^export IC_DEPLOYED_NAME=" "${conf}" | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//')
+        fi
+
+        if [ -z "${ic_deployed_name}" ]; then
+            IC_ROWS="${IC_ROWS}$(printf "%-18s %-12s %-6s %-6s" "${ic_basename}" "Not Deployed" "-" "-")\n"
+            continue
+        fi
+
+        # Call DescribeInferenceComponent
+        IC_JSON=$(aws sagemaker describe-inference-component \
+            --inference-component-name "${ic_deployed_name}" \
+            --region "${AWS_REGION}" 2>/dev/null) || {
+            IC_ROWS="${IC_ROWS}$(printf "%-18s %-12s %-6s %-6s" "${ic_basename}" "Not Found" "-" "-")\n"
+            continue
+        }
+
+        ic_status=$(echo "${IC_JSON}" | grep -o '"InferenceComponentStatus":"[^"]*"' | head -1 | cut -d'"' -f4)
+        ic_status="${ic_status:-Unknown}"
+
+        ic_gpu_count=$(echo "${IC_JSON}" | grep -o '"NumberOfAcceleratorDevicesRequired":[0-9]*' | head -1 | cut -d':' -f2)
+        ic_gpu_count="${ic_gpu_count:-0}"
+
+        ic_copy_count=$(echo "${IC_JSON}" | grep -o '"DesiredCopyCount":[0-9]*' | head -1 | cut -d':' -f2)
+        if [ -z "${ic_copy_count}" ]; then
+            ic_copy_count=$(echo "${IC_JSON}" | grep -o '"CurrentCopyCount":[0-9]*' | head -1 | cut -d':' -f2)
+        fi
+        ic_copy_count="${ic_copy_count:-1}"
+
+        TOTAL_GPU_USED=$(( TOTAL_GPU_USED + ic_gpu_count ))
+
+        IC_ROWS="${IC_ROWS}$(printf "%-18s %-12s %-6s %-6s" "${ic_basename}" "${ic_status}" "${ic_gpu_count}" "${ic_copy_count}")\n"
+    done
+
+    if [ "${HAS_ICS}" = true ]; then
+        echo "Inference Components:"
+        printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES"
+        echo -e "${IC_ROWS}" | head -n -1
+        echo "                                    ─────"
+        if [ -n "${TOTAL_GPUS}" ]; then
+            printf "Total GPU usage:                    %s/%s\n" "${TOTAL_GPU_USED}" "${TOTAL_GPUS}"
+        else
+            printf "Total GPU usage:                    %s\n" "${TOTAL_GPU_USED}"
+        fi
+    else
+        echo "No IC config files found in do/ic/"
+    fi
+else
+    # Legacy single-IC path: use INFERENCE_COMPONENT_NAME from config
+    ic_name="${INFERENCE_COMPONENT_NAME:-}"
+
+    if [ -z "${ic_name}" ]; then
+        echo "No inference component deployed."
+        echo "Run ./do/deploy to create one."
+    else
+        IC_JSON=$(aws sagemaker describe-inference-component \
+            --inference-component-name "${ic_name}" \
+            --region "${AWS_REGION}" 2>/dev/null) || {
+            echo "Inference Components:"
+            printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES"
+            printf "%-18s %-12s %-6s %-6s\n" "default" "Not Found" "-" "-"
+            echo ""
+            exit 0
+        }
+
+        ic_status=$(echo "${IC_JSON}" | grep -o '"InferenceComponentStatus":"[^"]*"' | head -1 | cut -d'"' -f4)
+        ic_status="${ic_status:-Unknown}"
+
+        ic_gpu_count=$(echo "${IC_JSON}" | grep -o '"NumberOfAcceleratorDevicesRequired":[0-9]*' | head -1 | cut -d':' -f2)
+        ic_gpu_count="${ic_gpu_count:-0}"
+
+        ic_copy_count=$(echo "${IC_JSON}" | grep -o '"DesiredCopyCount":[0-9]*' | head -1 | cut -d':' -f2)
+        if [ -z "${ic_copy_count}" ]; then
+            ic_copy_count=$(echo "${IC_JSON}" | grep -o '"CurrentCopyCount":[0-9]*' | head -1 | cut -d':' -f2)
+        fi
+        ic_copy_count="${ic_copy_count:-1}"
+
+        TOTAL_GPU_USED=$(( TOTAL_GPU_USED + ic_gpu_count ))
+
+        echo "Inference Components:"
+        printf "%-18s %-12s %-6s %-6s\n" "NAME" "STATUS" "GPUs" "COPIES"
+        printf "%-18s %-12s %-6s %-6s\n" "default" "${ic_status}" "${ic_gpu_count}" "${ic_copy_count}"
+        echo "                                    ─────"
+        if [ -n "${TOTAL_GPUS}" ]; then
+            printf "Total GPU usage:                    %s/%s\n" "${TOTAL_GPU_USED}" "${TOTAL_GPUS}"
+        else
+            printf "Total GPU usage:                    %s\n" "${TOTAL_GPU_USED}"
+        fi
+    fi
+fi
+
+echo ""
+
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+# ============================================================
+# Describe LoRA Adapters
+# ============================================================
+if [ "${ENABLE_LORA:-}" = "true" ]; then
+    # List all inference components on the endpoint
+    ADAPTER_IC_LIST=$(aws sagemaker list-inference-components \
+        --endpoint-name-equals "${ENDPOINT_NAME}" \
+        --region "${AWS_REGION}" 2>/dev/null) || ADAPTER_IC_LIST=""
+
+    if [ -n "${ADAPTER_IC_LIST}" ]; then
+        # Extract IC names
+        ADAPTER_IC_NAMES=$(echo "${ADAPTER_IC_LIST}" | jq -r '.InferenceComponents[].InferenceComponentName' 2>/dev/null)
+
+        # Filter to adapter ICs (those with BaseInferenceComponentName) and collect details
+        ADAPTER_ROWS=""
+        ADAPTER_COUNT=0
+
+        for ic_name in ${ADAPTER_IC_NAMES}; do
+            # Describe each IC to check if it's an adapter
+            ic_detail=$(aws sagemaker describe-inference-component \
+                --inference-component-name "${ic_name}" \
+                --region "${AWS_REGION}" 2>/dev/null) || continue
+
+            # Check if this IC has a BaseInferenceComponentName (adapter IC)
+            base_ic=$(echo "${ic_detail}" | jq -r '.Specification.BaseInferenceComponentName // empty' 2>/dev/null)
+
+            if [ -z "${base_ic}" ]; then
+                # Not an adapter IC — skip
+                continue
+            fi
+
+            # Extract status and artifact URL
+            adapter_status=$(echo "${ic_detail}" | jq -r '.InferenceComponentStatus // "Unknown"' 2>/dev/null)
+            adapter_weights=$(echo "${ic_detail}" | jq -r '.Specification.Container.ArtifactUrl // "N/A"' 2>/dev/null)
+
+            # Derive display name (strip project prefix if present)
+            display_name="${ic_name}"
+            if [[ "${ic_name}" == "${PROJECT_NAME}-adapter-"* ]]; then
+                display_name="${ic_name#${PROJECT_NAME}-adapter-}"
+            fi
+
+            ADAPTER_ROWS="${ADAPTER_ROWS}$(printf '%-14s%-12s%s' "${display_name}" "${adapter_status}" "${adapter_weights}")\n"
+            ADAPTER_COUNT=$((ADAPTER_COUNT + 1))
+        done
+
+        echo "Adapters (LoRA):  [max: <%= maxLoras %> GPU / 70 CPU]"
+        if [ "${ADAPTER_COUNT}" -eq 0 ]; then
+            echo "  No adapters deployed"
+        else
+            printf '%-14s%-12s%s\n' "NAME" "STATUS" "WEIGHTS"
+            echo -e "${ADAPTER_ROWS}" | head -n -1
+        fi
+    else
+        echo "Adapters (LoRA):  [max: <%= maxLoras %> GPU / 70 CPU]"
+        echo "  No adapters deployed"
+    fi
+    echo ""
+fi
+<% } %>
