@@ -90,6 +90,103 @@ case "${STATUS}" in
 esac
 
 # ============================================================
+# Build IC list from do/ic/ directory (multi-IC support)
+# ============================================================
+
+<% if (deploymentTarget === 'realtime-inference') { %>
+IC_LIST_JSON="[]"
+if [ -d "${SCRIPT_DIR}/ic" ]; then
+    # Build IC list from all conf files (alphabetical order)
+    IC_ENTRIES=""
+    IC_COUNT=0
+    for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+        [ -f "${conf}" ] || continue
+
+        # Source the IC config to get its variables
+        (
+            # Subshell to avoid polluting current environment
+            source "${conf}" 2>/dev/null
+            echo "${IC_DEPLOYED_NAME:-}|${IC_IMAGE_TAG:-}|${IC_GPU_COUNT:-1}|${IC_COPY_COUNT:-1}"
+        ) > /tmp/ic_entry_$$ 2>/dev/null
+
+        IC_ENTRY=$(cat /tmp/ic_entry_$$ 2>/dev/null || echo "|||")
+        rm -f /tmp/ic_entry_$$
+
+        IC_BASENAME=$(basename "${conf}" .conf)
+        IC_ENTRY_IMAGE=$(echo "${IC_ENTRY}" | cut -d'|' -f2)
+        IC_ENTRY_GPU=$(echo "${IC_ENTRY}" | cut -d'|' -f3)
+        IC_ENTRY_COPY=$(echo "${IC_ENTRY}" | cut -d'|' -f4)
+
+        if [ -n "${IC_ENTRIES}" ]; then
+            IC_ENTRIES="${IC_ENTRIES},"
+        fi
+        IC_ENTRIES="${IC_ENTRIES}{\"name\":\"${IC_BASENAME}\",\"image\":\"${IC_ENTRY_IMAGE}\",\"gpuCount\":${IC_ENTRY_GPU:-1},\"copyCount\":${IC_ENTRY_COPY:-1}}"
+        IC_COUNT=$((IC_COUNT + 1))
+    done
+
+    if [ "${CI_MODE}" = true ] && [ ${IC_COUNT} -gt 1 ]; then
+        # CI mode: only include the first IC (alphabetically) to keep CI costs down
+        FIRST_CONF=$(ls "${SCRIPT_DIR}"/ic/*.conf 2>/dev/null | head -1)
+        if [ -n "${FIRST_CONF}" ]; then
+            (
+                source "${FIRST_CONF}" 2>/dev/null
+                echo "${IC_DEPLOYED_NAME:-}|${IC_IMAGE_TAG:-}|${IC_GPU_COUNT:-1}|${IC_COPY_COUNT:-1}"
+            ) > /tmp/ic_first_$$ 2>/dev/null
+
+            FIRST_ENTRY=$(cat /tmp/ic_first_$$ 2>/dev/null || echo "|||")
+            rm -f /tmp/ic_first_$$
+
+            FIRST_BASENAME=$(basename "${FIRST_CONF}" .conf)
+            FIRST_IMAGE=$(echo "${FIRST_ENTRY}" | cut -d'|' -f2)
+            FIRST_GPU=$(echo "${FIRST_ENTRY}" | cut -d'|' -f3)
+            FIRST_COPY=$(echo "${FIRST_ENTRY}" | cut -d'|' -f4)
+
+            IC_LIST_JSON="[{\"name\":\"${FIRST_BASENAME}\",\"image\":\"${FIRST_IMAGE}\",\"gpuCount\":${FIRST_GPU:-1},\"copyCount\":${FIRST_COPY:-1}}]"
+        fi
+    else
+        IC_LIST_JSON="[${IC_ENTRIES}]"
+    fi
+else
+    # Legacy: single IC from do/config
+    IC_LIST_JSON="[{\"name\":\"default\",\"image\":\"${PROJECT_NAME}-latest\",\"gpuCount\":${IC_GPU_COUNT:-1},\"copyCount\":${IC_COPY_COUNT:-1}}]"
+fi
+
+# Append adapter entries from do/adapters/*.conf
+ADAPTER_COUNT=0
+if [ -d "${SCRIPT_DIR}/adapters" ]; then
+    ADAPTER_ENTRIES=""
+    for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+        [ -f "${conf}" ] || continue
+        [[ "$(basename "${conf}")" == ".gitkeep" ]] && continue
+
+        ADAPTER_NAME_VAL=""
+        ADAPTER_WEIGHTS_VAL=""
+        ADAPTER_IC_VAL=""
+        eval "$(grep '^export ADAPTER_NAME=' "${conf}" 2>/dev/null)"
+        eval "$(grep '^export ADAPTER_WEIGHTS_URI=' "${conf}" 2>/dev/null)"
+        eval "$(grep '^export ADAPTER_IC_NAME=' "${conf}" 2>/dev/null)"
+        ADAPTER_NAME_VAL="${ADAPTER_NAME:-$(basename "${conf}" .conf)}"
+        ADAPTER_WEIGHTS_VAL="${ADAPTER_WEIGHTS_URI:-}"
+        ADAPTER_IC_VAL="${ADAPTER_IC_NAME:-}"
+
+        if [ -n "${ADAPTER_ENTRIES}" ]; then
+            ADAPTER_ENTRIES="${ADAPTER_ENTRIES},"
+        fi
+        ADAPTER_ENTRIES="${ADAPTER_ENTRIES}{\"name\":\"${ADAPTER_NAME_VAL}\",\"isAdapter\":true,\"baseIcName\":\"${ADAPTER_IC_VAL}\",\"artifactUrl\":\"${ADAPTER_WEIGHTS_VAL}\",\"gpuCount\":0,\"copyCount\":1}"
+        ADAPTER_COUNT=$((ADAPTER_COUNT + 1))
+        unset ADAPTER_NAME ADAPTER_WEIGHTS_URI ADAPTER_IC_NAME
+    done
+
+    if [ -n "${ADAPTER_ENTRIES}" ] && [ "${IC_LIST_JSON}" != "[]" ]; then
+        # Append adapters to existing IC list
+        IC_LIST_JSON="${IC_LIST_JSON%]},${ADAPTER_ENTRIES}]"
+    elif [ -n "${ADAPTER_ENTRIES}" ]; then
+        IC_LIST_JSON="[${ADAPTER_ENTRIES}]"
+    fi
+fi
+<% } %>
+
+# ============================================================
 # Derive architecture and backend from DEPLOYMENT_CONFIG
 # ============================================================
 
@@ -293,7 +390,7 @@ echo ""
 # ============================================================
 
 compute_config_id() {
-    local input="${DEPLOYMENT_CONFIG}:${MODEL_NAME:-none}:${INSTANCE_TYPE}:${AWS_REGION}:${DEPLOYMENT_TARGET}"
+    local input="${DEPLOYMENT_CONFIG}:${MODEL_NAME:-none}:${INSTANCE_TYPE}:${AWS_REGION}:${DEPLOYMENT_TARGET}:ic${IC_COUNT:-1}:adapt${ADAPTER_COUNT:-0}"
     # Use sha256sum (Linux) with fallback to shasum (macOS)
     if command -v sha256sum &> /dev/null; then
         echo -n "$input" | sha256sum | cut -c1-16
@@ -373,6 +470,9 @@ write_ci_record() {
     "modelWeight": ${IC_MODEL_WEIGHT}
 <% } %>
   },
+<% } %>
+<% if (deploymentTarget === 'realtime-inference') { %>
+  "icList": ${IC_LIST_JSON},
 <% } %>
   "parameters": ${PARAMETERS}
 }
@@ -489,6 +589,9 @@ if [ "${JSON_OUTPUT}" = true ] || [ "${CI_MODE}" = true ]; then
 <% } %>
   },
 <% } %>
+<% if (deploymentTarget === 'realtime-inference') { %>
+  "icList": ${IC_LIST_JSON},
+<% } %>
   "parameters": ${PARAMETERS}
 }
 DJEOF
@@ -573,6 +676,13 @@ fi
 
 # Pass parameters as JSON string
 CMD_ARGS+=("--parameters" "${PARAMETERS}")
+
+# Pass IC list as JSON string
+<% if (deploymentTarget === 'realtime-inference') { %>
+if [ "${IC_LIST_JSON}" != "[]" ]; then
+    CMD_ARGS+=("--ic-list" "${IC_LIST_JSON}")
+fi
+<% } %>
 
 # Pass generator version from package.json if available
 GENERATOR_VERSION=""

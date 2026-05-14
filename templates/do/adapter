@@ -1,0 +1,1214 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# do/adapter — Manage LoRA adapter inference components
+#
+# Usage:
+#   ./do/adapter add <name> --weights <s3-uri>
+#   ./do/adapter list
+#   ./do/adapter remove <name>
+#   ./do/adapter update <name> --weights <new-s3-uri>
+#   ./do/adapter --help
+
+set -e
+set -u
+set -o pipefail
+
+# ── Source project configuration ──────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/wait.sh"
+
+# ── Usage ─────────────────────────────────────────────────────────────────────
+_usage() {
+    echo "Usage: ./do/adapter <command> [options]"
+    echo ""
+    echo "Manage LoRA adapter inference components on endpoint: ${ENDPOINT_NAME:-<not deployed>}"
+    echo ""
+    echo "Commands:"
+    echo "  add <name> --weights <s3-uri>        Add a new LoRA adapter from S3"
+    echo "  add <name> --from-hub <hf-repo-id>   Add a new LoRA adapter from HuggingFace Hub"
+    echo "  list                                  List all adapters on the endpoint"
+    echo "  remove <name>                         Remove an adapter"
+    echo "  update <name> --weights <new-s3-uri>  Update adapter weights from S3"
+    echo "  update <name> --from-hub <hf-repo-id> Update adapter weights from HuggingFace Hub"
+    echo "  search [--limit N]                    Search HuggingFace Hub for compatible adapters"
+    echo ""
+    echo "Options:"
+    echo "  --help, -h    Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  ./do/adapter add ectsum --weights s3://my-bucket/adapters/ectsum/adapter.tar.gz"
+    echo "  ./do/adapter add ectsum --from-hub predibase/llama-3.1-8b-ectsum"
+    echo "  ./do/adapter list"
+    echo "  ./do/adapter remove ectsum"
+    echo "  ./do/adapter update ectsum --weights s3://my-bucket/adapters/ectsum-v2/adapter.tar.gz"
+    echo "  ./do/adapter update ectsum --from-hub predibase/llama-3.1-8b-ectsum-v2"
+    echo ""
+    echo "Adapter metadata is stored in do/adapters/<name>.conf"
+    echo ""
+    echo "Note: --weights and --from-hub are mutually exclusive."
+}
+
+# ── Validate LoRA is enabled ──────────────────────────────────────────────────
+_validate_lora_enabled() {
+    if [ "${ENABLE_LORA:-}" != "true" ]; then
+        echo "❌ LoRA adapter serving is not enabled for this project."
+        echo ""
+        echo "   ENABLE_LORA=true was not found in do/config."
+        echo ""
+        echo "   To enable LoRA adapters, regenerate your project with --enable-lora"
+        echo "   or add ENABLE_LORA=true to do/config and configure your model server"
+        echo "   environment (e.g., VLLM_ENABLE_LORA=true)."
+        exit 1
+    fi
+}
+
+# ── Resolve base IC name ──────────────────────────────────────────────────────
+_resolve_base_ic_name() {
+    local base_ic_name=""
+
+    # Try multi-IC path first: do/ic/default.conf
+    if [ -f "${SCRIPT_DIR}/ic/default.conf" ]; then
+        base_ic_name=$(grep "^export IC_DEPLOYED_NAME=" "${SCRIPT_DIR}/ic/default.conf" 2>/dev/null | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//' || echo "")
+    fi
+
+    # Fallback to legacy config: INFERENCE_COMPONENT_NAME
+    if [ -z "${base_ic_name}" ]; then
+        base_ic_name="${INFERENCE_COMPONENT_NAME:-}"
+    fi
+
+    if [ -z "${base_ic_name}" ]; then
+        echo "❌ Cannot determine base inference component name."
+        echo ""
+        echo "   No IC_DEPLOYED_NAME found in do/ic/default.conf and no"
+        echo "   INFERENCE_COMPONENT_NAME in do/config."
+        echo ""
+        echo "   Deploy your base model first with: ./do/deploy"
+        exit 1
+    fi
+
+    echo "${base_ic_name}"
+}
+
+# ── Best-effort adapter_config.json validation ────────────────────────────────
+# Downloads the adapter tar.gz, extracts adapter_config.json, and checks that
+# base_model_name_or_path matches MODEL_NAME from do/config.
+# Returns 0 always — failures are silently ignored (best-effort).
+_validate_adapter_config() {
+    local weights_uri="$1"
+    local tmp_dir="/tmp/adapter_config_check_$$"
+
+    (
+        # Run in subshell so any failure is contained
+        set +e
+
+        # Skip if MODEL_NAME is not configured (non-transformers projects)
+        if [ -z "${MODEL_NAME:-}" ]; then
+            exit 0
+        fi
+
+        mkdir -p "${tmp_dir}"
+
+        # Download the tar.gz
+        if ! aws s3 cp "${weights_uri}" "${tmp_dir}/adapter.tar.gz" --region "${AWS_REGION}" --quiet 2>/dev/null; then
+            exit 0
+        fi
+
+        # Extract just adapter_config.json
+        if ! tar -xzf "${tmp_dir}/adapter.tar.gz" -C "${tmp_dir}" adapter_config.json 2>/dev/null; then
+            exit 0
+        fi
+
+        # Read base_model_name_or_path from the JSON
+        local adapter_base_model=""
+        if command -v jq &>/dev/null; then
+            adapter_base_model=$(jq -r '.base_model_name_or_path // empty' "${tmp_dir}/adapter_config.json" 2>/dev/null)
+        else
+            # Fallback: use grep/sed for environments without jq
+            adapter_base_model=$(grep -o '"base_model_name_or_path"[[:space:]]*:[[:space:]]*"[^"]*"' "${tmp_dir}/adapter_config.json" 2>/dev/null | sed 's/.*"base_model_name_or_path"[[:space:]]*:[[:space:]]*"//' | sed 's/"$//')
+        fi
+
+        # Compare with MODEL_NAME
+        if [ -n "${adapter_base_model}" ] && [ "${adapter_base_model}" != "${MODEL_NAME}" ]; then
+            echo "⚠️  Adapter was trained on '${adapter_base_model}' but base model is '${MODEL_NAME}'. Adapter may not work correctly."
+        fi
+    ) 2>/dev/null
+
+    # Clean up temp files
+    rm -rf "${tmp_dir}" 2>/dev/null
+
+    return 0
+}
+
+# ── Download adapter from HuggingFace Hub ─────────────────────────────────────
+# Downloads adapter files from a HuggingFace Hub repository, validates
+# adapter_config.json exists, creates a tar.gz, and uploads to S3.
+# Sets the variable `weights_uri` to the resulting S3 path.
+#
+# Arguments:
+#   $1 - HuggingFace repo ID (e.g., "org/adapter-name" or "adapter-name")
+#   $2 - Adapter name (for S3 path construction)
+#
+# Returns 0 on success, exits on failure.
+_download_from_hub() {
+    local hf_repo_id="$1"
+    local adapter_name="$2"
+    local tmp_dir="/tmp/adapter_hub_download_$$"
+
+    echo "📥 Downloading adapter from HuggingFace Hub: ${hf_repo_id}"
+    echo ""
+
+    # ── Resolve S3 bucket ─────────────────────────────────────────────────
+    local s3_bucket=""
+    if [ -n "${ASYNC_S3_BUCKET:-}" ]; then
+        s3_bucket="${ASYNC_S3_BUCKET}"
+    else
+        local account_id
+        account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+        if [ -z "${account_id}" ]; then
+            echo "❌ Could not determine AWS account ID."
+            echo "   Ensure AWS credentials are configured."
+            exit 1
+        fi
+        s3_bucket="ml-container-creator-${account_id}-${AWS_REGION}"
+    fi
+
+    # ── Create temp directory ─────────────────────────────────────────────
+    mkdir -p "${tmp_dir}/adapter_files"
+
+    # ── Download adapter files ────────────────────────────────────────────
+    if command -v huggingface-cli &>/dev/null; then
+        echo "   Using huggingface-cli to download..."
+        local hf_args=("download" "${hf_repo_id}" "--local-dir" "${tmp_dir}/adapter_files")
+        if [ -n "${HF_TOKEN:-}" ]; then
+            hf_args+=("--token" "${HF_TOKEN}")
+        fi
+        if ! huggingface-cli "${hf_args[@]}" 2>/dev/null; then
+            echo "❌ Failed to download adapter from HuggingFace Hub: ${hf_repo_id}"
+            echo ""
+            echo "   Check that:"
+            echo "   • The repository exists: https://huggingface.co/${hf_repo_id}"
+            echo "   • For gated repos, set HF_TOKEN environment variable"
+            echo "   • You have network connectivity to huggingface.co"
+            rm -rf "${tmp_dir}"
+            exit 1
+        fi
+    else
+        # Fallback: use curl with HF Hub API
+        echo "   Using curl to download (huggingface-cli not found)..."
+
+        # Get file listing from the repo
+        local api_url="https://huggingface.co/api/models/${hf_repo_id}"
+        local auth_header=""
+        if [ -n "${HF_TOKEN:-}" ]; then
+            auth_header="Authorization: Bearer ${HF_TOKEN}"
+        fi
+
+        local repo_info
+        if [ -n "${auth_header}" ]; then
+            repo_info=$(curl -sS -H "${auth_header}" "${api_url}" 2>/dev/null)
+        else
+            repo_info=$(curl -sS "${api_url}" 2>/dev/null)
+        fi
+
+        if [ -z "${repo_info}" ] || echo "${repo_info}" | grep -q '"error"'; then
+            echo "❌ Failed to access HuggingFace Hub repository: ${hf_repo_id}"
+            echo ""
+            echo "   Check that:"
+            echo "   • The repository exists: https://huggingface.co/${hf_repo_id}"
+            echo "   • For gated repos, set HF_TOKEN environment variable"
+            echo "   • You have network connectivity to huggingface.co"
+            rm -rf "${tmp_dir}"
+            exit 1
+        fi
+
+        # Extract file list from siblings array
+        local files
+        if command -v jq &>/dev/null; then
+            files=$(echo "${repo_info}" | jq -r '.siblings[]?.rfilename // empty' 2>/dev/null)
+        else
+            files=$(echo "${repo_info}" | grep -o '"rfilename":"[^"]*"' | sed 's/"rfilename":"//;s/"$//')
+        fi
+
+        if [ -z "${files}" ]; then
+            echo "❌ No files found in repository: ${hf_repo_id}"
+            rm -rf "${tmp_dir}"
+            exit 1
+        fi
+
+        # Download each file (only root-level files, skip subdirectories)
+        local download_base="https://huggingface.co/${hf_repo_id}/resolve/main"
+        while IFS= read -r filename; do
+            # Skip files in subdirectories (we only want root-level adapter files)
+            if echo "${filename}" | grep -q '/'; then
+                continue
+            fi
+            # Skip hidden files and READMEs
+            case "${filename}" in
+                .gitattributes|.gitignore|README.md|LICENSE*) continue ;;
+            esac
+
+            echo "   Downloading: ${filename}"
+            local curl_args=("-sS" "-L" "-o" "${tmp_dir}/adapter_files/${filename}")
+            if [ -n "${auth_header}" ]; then
+                curl_args+=("-H" "${auth_header}")
+            fi
+            if ! curl "${curl_args[@]}" "${download_base}/${filename}" 2>/dev/null; then
+                echo "   ⚠️  Failed to download: ${filename} (skipping)"
+            fi
+        done <<< "${files}"
+    fi
+
+    # ── Remove .huggingface metadata if present ───────────────────────────
+    rm -rf "${tmp_dir}/adapter_files/.cache" "${tmp_dir}/adapter_files/.huggingface" 2>/dev/null
+    # Remove hidden files that huggingface-cli may create
+    find "${tmp_dir}/adapter_files" -name ".*" -delete 2>/dev/null || true
+    # Remove subdirectories (flatten to root-level files only)
+    find "${tmp_dir}/adapter_files" -mindepth 2 -type f -exec mv {} "${tmp_dir}/adapter_files/" \; 2>/dev/null || true
+    find "${tmp_dir}/adapter_files" -mindepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+
+    # ── Validate adapter_config.json exists ───────────────────────────────
+    if [ ! -f "${tmp_dir}/adapter_files/adapter_config.json" ]; then
+        echo "❌ adapter_config.json not found in downloaded files."
+        echo ""
+        echo "   The repository '${hf_repo_id}' does not appear to contain"
+        echo "   a valid PEFT/LoRA adapter. A valid adapter must include:"
+        echo "   • adapter_config.json"
+        echo "   • adapter_model.safetensors (or adapter_model.bin)"
+        echo ""
+        echo "   Verify the repository at: https://huggingface.co/${hf_repo_id}"
+        rm -rf "${tmp_dir}"
+        exit 1
+    fi
+
+    echo "✅ adapter_config.json found"
+
+    # ── Optional: check base_model_name_or_path matches MODEL_NAME ────────
+    if [ -n "${MODEL_NAME:-}" ]; then
+        local adapter_base_model=""
+        if command -v jq &>/dev/null; then
+            adapter_base_model=$(jq -r '.base_model_name_or_path // empty' "${tmp_dir}/adapter_files/adapter_config.json" 2>/dev/null)
+        else
+            adapter_base_model=$(grep -o '"base_model_name_or_path"[[:space:]]*:[[:space:]]*"[^"]*"' "${tmp_dir}/adapter_files/adapter_config.json" 2>/dev/null | sed 's/.*"base_model_name_or_path"[[:space:]]*:[[:space:]]*"//' | sed 's/"$//')
+        fi
+
+        if [ -n "${adapter_base_model}" ] && [ "${adapter_base_model}" != "${MODEL_NAME}" ]; then
+            echo "⚠️  Adapter was trained on '${adapter_base_model}' but base model is '${MODEL_NAME}'. Adapter may not work correctly."
+        fi
+    fi
+
+    # ── Create adapter.tar.gz from downloaded files (flat, no subdirs) ────
+    echo "📦 Creating adapter.tar.gz..."
+    if ! tar -czf "${tmp_dir}/adapter.tar.gz" -C "${tmp_dir}/adapter_files" . 2>/dev/null; then
+        echo "❌ Failed to create adapter.tar.gz"
+        rm -rf "${tmp_dir}"
+        exit 1
+    fi
+
+    local tar_size
+    tar_size=$(du -h "${tmp_dir}/adapter.tar.gz" | cut -f1)
+    echo "   Archive size: ${tar_size}"
+
+    # ── Upload to S3 ─────────────────────────────────────────────────────
+    local s3_path="s3://${s3_bucket}/adapters/${PROJECT_NAME}/${adapter_name}/adapter.tar.gz"
+    echo "☁️  Uploading to S3: ${s3_path}"
+
+    if ! aws s3 cp "${tmp_dir}/adapter.tar.gz" "${s3_path}" --region "${AWS_REGION}"; then
+        echo "❌ Failed to upload adapter to S3."
+        echo ""
+        echo "   Check that:"
+        echo "   • The S3 bucket '${s3_bucket}' exists"
+        echo "   • Your IAM credentials have s3:PutObject permission"
+        echo "   • Run bootstrap if the bucket doesn't exist: ./do/bootstrap"
+        rm -rf "${tmp_dir}"
+        exit 1
+    fi
+
+    echo "✅ Uploaded to S3: ${s3_path}"
+
+    # ── Clean up ──────────────────────────────────────────────────────────
+    rm -rf "${tmp_dir}"
+
+    # Set the weights_uri variable for the caller
+    weights_uri="${s3_path}"
+}
+
+# ── Subcommand implementations ────────────────────────────────────────────────
+
+_adapter_add() {
+    local adapter_name=""
+    local weights_uri=""
+    local from_hub=""
+
+    # Parse add arguments
+    shift  # remove 'add' from args
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --weights)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --weights requires an S3 URI argument"
+                    echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
+                    exit 1
+                fi
+                weights_uri="$2"
+                shift 2
+                ;;
+            --from-hub)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --from-hub requires a HuggingFace repo ID argument"
+                    echo "   Usage: ./do/adapter add <name> --from-hub <hf-repo-id>"
+                    exit 1
+                fi
+                from_hub="$2"
+                shift 2
+                ;;
+            --help|-h)
+                echo "Usage: ./do/adapter add <name> --weights <s3-uri>"
+                echo "       ./do/adapter add <name> --from-hub <hf-repo-id>"
+                echo ""
+                echo "Add a new LoRA adapter to the endpoint."
+                echo ""
+                echo "Arguments:"
+                echo "  <name>                    Adapter name (lowercase alphanumeric + hyphens, 1-50 chars)"
+                echo "  --weights <s3-uri>        S3 URI to adapter weights (.tar.gz)"
+                echo "  --from-hub <hf-repo-id>   Download adapter from HuggingFace Hub"
+                echo ""
+                echo "Note: --weights and --from-hub are mutually exclusive."
+                echo ""
+                echo "Examples:"
+                echo "  ./do/adapter add ectsum --weights s3://bucket/adapters/ectsum/adapter.tar.gz"
+                echo "  ./do/adapter add ectsum --from-hub predibase/llama-3.1-8b-ectsum"
+                exit 0
+                ;;
+            -*)
+                echo "❌ Unknown option: $1"
+                echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
+                echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
+                exit 1
+                ;;
+            *)
+                if [ -z "${adapter_name}" ]; then
+                    adapter_name="$1"
+                else
+                    echo "❌ Unexpected argument: $1"
+                    echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
+                    echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [ -z "${adapter_name}" ]; then
+        echo "❌ Adapter name is required"
+        echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
+        echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
+        exit 1
+    fi
+
+    # ── Mutual exclusivity check ─────────────────────────────────────────
+    if [ -n "${weights_uri}" ] && [ -n "${from_hub}" ]; then
+        echo "❌ --weights and --from-hub are mutually exclusive"
+        echo ""
+        echo "   Use one or the other:"
+        echo "   ./do/adapter add ${adapter_name} --weights <s3-uri>"
+        echo "   ./do/adapter add ${adapter_name} --from-hub <hf-repo-id>"
+        exit 1
+    fi
+
+    if [ -z "${weights_uri}" ] && [ -z "${from_hub}" ]; then
+        echo "❌ Either --weights or --from-hub is required"
+        echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
+        echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
+        exit 1
+    fi
+
+    # ── Validate HF repo ID format (if --from-hub) ───────────────────────
+    if [ -n "${from_hub}" ]; then
+        # Valid formats: "org/name" or "name" (alphanumeric, hyphens, underscores, dots)
+        if ! echo "${from_hub}" | grep -qE '^[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)?$'; then
+            echo "❌ Invalid HuggingFace repo ID: ${from_hub}"
+            echo ""
+            echo "   Repo ID must be in format 'org/name' or 'name'"
+            echo "   Examples: predibase/llama-3.1-8b-ectsum, my-adapter"
+            exit 1
+        fi
+    fi
+
+    # ── Validate adapter name format ──────────────────────────────────────
+    if ! echo "${adapter_name}" | grep -qE '^[a-z0-9][a-z0-9-]{0,49}$'; then
+        echo "❌ Invalid adapter name: ${adapter_name}"
+        echo ""
+        echo "   Adapter names must be:"
+        echo "   • 1-50 characters long"
+        echo "   • Lowercase alphanumeric and hyphens only"
+        echo "   • Start with a letter or number"
+        echo ""
+        echo "   Examples: ectsum, finance-qa, my-adapter-v2"
+        exit 1
+    fi
+
+    # ── Validate S3 URI format (only when --weights is used) ─────────────
+    if [ -n "${weights_uri}" ]; then
+        if ! echo "${weights_uri}" | grep -qE '^s3://.*\.tar\.gz$'; then
+            echo "❌ Invalid S3 URI: ${weights_uri}"
+            echo ""
+            echo "   Adapter weights must be:"
+            echo "   • An S3 URI starting with s3://"
+            echo "   • A .tar.gz archive containing adapter files"
+            echo ""
+            echo "   Example: s3://my-bucket/adapters/ectsum/adapter.tar.gz"
+            exit 1
+        fi
+    fi
+
+    # ── Validate adapter name uniqueness ──────────────────────────────────
+    if [ -f "${SCRIPT_DIR}/adapters/${adapter_name}.conf" ]; then
+        echo "❌ Adapter already exists: ${adapter_name}"
+        echo ""
+        echo "   An adapter with this name is already registered."
+        echo "   To update its weights, use: ./do/adapter update ${adapter_name} --weights <new-uri>"
+        echo "   To remove it first: ./do/adapter remove ${adapter_name}"
+        exit 1
+    fi
+
+    echo "🔌 Adding adapter: ${adapter_name}"
+    if [ -n "${from_hub}" ]; then
+        echo "   Source: HuggingFace Hub (${from_hub})"
+    else
+        echo "   Weights: ${weights_uri}"
+    fi
+    echo ""
+
+    # ── If --from-hub: download, tar, upload to S3 ────────────────────────
+    if [ -n "${from_hub}" ]; then
+        _download_from_hub "${from_hub}" "${adapter_name}"
+        # weights_uri is now set by _download_from_hub
+        echo ""
+    fi
+
+    # ── Validate base IC is InService ─────────────────────────────────────
+    local base_ic_name
+    base_ic_name=$(_resolve_base_ic_name)
+
+    echo "🔍 Checking base inference component: ${base_ic_name}"
+    local base_status
+    base_status=$(_get_ic_status "${base_ic_name}")
+
+    if [ "${base_status}" != "InService" ]; then
+        echo "❌ Base inference component is not InService: ${base_ic_name}"
+        echo "   Current status: ${base_status:-not found}"
+        echo ""
+        echo "   Adapters require a running base model. Deploy first with:"
+        echo "   ./do/deploy"
+        exit 1
+    fi
+    echo "✅ Base IC is InService: ${base_ic_name}"
+
+    # ── Validate S3 object exists (best-effort, only for --weights) ──────
+    if [ -z "${from_hub}" ]; then
+        echo "🔍 Checking S3 object exists..."
+        if ! aws s3 ls "${weights_uri}" --region "${AWS_REGION}" &>/dev/null; then
+            echo "⚠️  Could not verify S3 object: ${weights_uri}"
+            echo "   This may be a permissions issue. Proceeding anyway..."
+            echo "   SageMaker will fail at load time if the object doesn't exist."
+            echo ""
+        else
+            echo "✅ S3 object verified: ${weights_uri}"
+        fi
+
+        # ── Best-effort: validate adapter_config.json base model ─────────────
+        # Downloads the tar.gz, extracts adapter_config.json, and checks that
+        # base_model_name_or_path matches MODEL_NAME from do/config.
+        # If anything fails (download, extraction, parsing), skip silently.
+        _validate_adapter_config "${weights_uri}" || true
+    fi
+
+    # ── Build adapter IC name ─────────────────────────────────────────────
+    local adapter_ic_name="${PROJECT_NAME}-adapter-${adapter_name}"
+
+    # ── Create adapter inference component ────────────────────────────────
+    echo "🚀 Creating adapter inference component: ${adapter_ic_name}"
+    if ! aws sagemaker create-inference-component \
+        --inference-component-name "${adapter_ic_name}" \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --specification "{\"BaseInferenceComponentName\":\"${base_ic_name}\",\"Container\":{\"ArtifactUrl\":\"${weights_uri}\"}}" \
+        --region "${AWS_REGION}"; then
+
+        echo "❌ Failed to create adapter inference component"
+        echo "   Check that:"
+        echo "   • Your IAM credentials have sagemaker:CreateInferenceComponent permission"
+        echo "   • The base IC '${base_ic_name}' is InService"
+        echo "   • The S3 URI is accessible by the SageMaker execution role"
+        exit 1
+    fi
+
+    echo "✅ Adapter IC creation initiated: ${adapter_ic_name}"
+
+    # ── Wait for adapter IC to reach InService ────────────────────────────
+    echo "⏳ Waiting for adapter IC to reach InService..."
+    echo "   This typically takes 1-3 minutes for adapters."
+
+    wait_ic "${adapter_ic_name}"
+
+    echo "✅ Adapter IC is InService: ${adapter_ic_name}"
+
+    # ── Create adapter metadata conf file ─────────────────────────────────
+    local created_at
+    created_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    mkdir -p "${SCRIPT_DIR}/adapters"
+    cat > "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
+export ADAPTER_NAME="${adapter_name}"
+export ADAPTER_IC_NAME="${adapter_ic_name}"
+export ADAPTER_WEIGHTS_URI="${weights_uri}"
+export ADAPTER_CREATED_AT="${created_at}"
+EOF
+
+    # Add hub-specific metadata if --from-hub was used
+    if [ -n "${from_hub}" ]; then
+        cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
+export ADAPTER_SOURCE="hub"
+export ADAPTER_HF_REPO="${from_hub}"
+EOF
+    fi
+
+    echo ""
+    echo "✅ Adapter added successfully!"
+    echo ""
+    echo "📋 Adapter Details:"
+    echo "   Name: ${adapter_name}"
+    echo "   IC Name: ${adapter_ic_name}"
+    echo "   Weights: ${weights_uri}"
+    if [ -n "${from_hub}" ]; then
+        echo "   Source: HuggingFace Hub (${from_hub})"
+    fi
+    echo "   Created: ${created_at}"
+    echo ""
+    echo "🧪 Test your adapter:"
+    echo "   ./do/test ${adapter_name}"
+    echo ""
+    echo "🗑️  Remove when done:"
+    echo "   ./do/adapter remove ${adapter_name}"
+}
+
+_adapter_list() {
+    if [ -z "${ENDPOINT_NAME:-}" ]; then
+        echo "❌ No endpoint configured. Deploy first with: ./do/deploy"
+        exit 1
+    fi
+
+    echo "Adapters on endpoint: ${ENDPOINT_NAME}"
+    echo ""
+
+    # ── List all inference components on the endpoint ─────────────────────
+    local ic_list
+    ic_list=$(aws sagemaker list-inference-components \
+        --endpoint-name-equals "${ENDPOINT_NAME}" \
+        --region "${AWS_REGION}" 2>/dev/null) || {
+        echo "❌ Failed to list inference components on endpoint: ${ENDPOINT_NAME}"
+        echo "   Check that the endpoint exists and you have sagemaker:ListInferenceComponents permission."
+        exit 1
+    }
+
+    # Extract IC names from the list response
+    local ic_names
+    ic_names=$(echo "${ic_list}" | jq -r '.InferenceComponents[].InferenceComponentName' 2>/dev/null)
+
+    if [ -z "${ic_names}" ]; then
+        echo "No adapters found on this endpoint."
+        echo ""
+        echo "Add one with: ./do/adapter add <name> --weights <s3-uri>"
+        return 0
+    fi
+
+    # ── Collect local adapter names for ownership check ───────────────────
+    local local_adapters=""
+    if [ -d "${SCRIPT_DIR}/adapters" ]; then
+        for conf_file in "${SCRIPT_DIR}"/adapters/*.conf; do
+            [ -f "${conf_file}" ] || continue
+            local conf_adapter_name
+            conf_adapter_name=$(grep "^export ADAPTER_IC_NAME=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+            if [ -n "${conf_adapter_name}" ]; then
+                local_adapters="${local_adapters} ${conf_adapter_name}"
+            fi
+        done
+    fi
+
+    # ── Filter to adapter ICs and collect details ─────────────────────────
+    local found_adapters=0
+    local output_lines=""
+
+    for ic_name in ${ic_names}; do
+        # Describe each IC to check if it's an adapter (has BaseInferenceComponentName)
+        local ic_detail
+        ic_detail=$(aws sagemaker describe-inference-component \
+            --inference-component-name "${ic_name}" \
+            --region "${AWS_REGION}" 2>/dev/null) || continue
+
+        # Check if this IC has a BaseInferenceComponentName (adapter IC)
+        local base_ic
+        base_ic=$(echo "${ic_detail}" | jq -r '.Specification.BaseInferenceComponentName // empty' 2>/dev/null)
+
+        if [ -z "${base_ic}" ]; then
+            # Not an adapter IC — skip
+            continue
+        fi
+
+        # Extract status and artifact URL
+        local status
+        status=$(echo "${ic_detail}" | jq -r '.InferenceComponentStatus // "Unknown"' 2>/dev/null)
+
+        local weights_url
+        weights_url=$(echo "${ic_detail}" | jq -r '.Specification.Container.ArtifactUrl // "N/A"' 2>/dev/null)
+
+        # Derive display name (strip project prefix if present)
+        local display_name="${ic_name}"
+        if [[ "${ic_name}" == "${PROJECT_NAME}-adapter-"* ]]; then
+            display_name="${ic_name#${PROJECT_NAME}-adapter-}"
+        fi
+
+        # Check ownership: is this adapter in our local do/adapters/*.conf?
+        local ownership=""
+        if echo "${local_adapters}" | grep -qw "${ic_name}"; then
+            ownership=""
+        else
+            ownership=" (external)"
+        fi
+
+        output_lines="${output_lines}$(printf '%-14s%-12s%s%s' "${display_name}" "${status}" "${weights_url}" "${ownership}")\n"
+        found_adapters=$((found_adapters + 1))
+    done
+
+    if [ "${found_adapters}" -eq 0 ]; then
+        echo "No adapters found on this endpoint."
+        echo ""
+        echo "Add one with: ./do/adapter add <name> --weights <s3-uri>"
+        return 0
+    fi
+
+    # ── Print table ───────────────────────────────────────────────────────
+    printf '%-14s%-12s%s\n' "NAME" "STATUS" "WEIGHTS"
+    echo -e "${output_lines}" | head -n -1
+}
+
+_adapter_remove() {
+    local adapter_name=""
+
+    # Parse remove arguments
+    shift  # remove 'remove' from args
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --help|-h)
+                echo "Usage: ./do/adapter remove <name>"
+                echo ""
+                echo "Remove a LoRA adapter from the endpoint."
+                echo ""
+                echo "Arguments:"
+                echo "  <name>  Adapter name to remove"
+                exit 0
+                ;;
+            -*)
+                echo "❌ Unknown option: $1"
+                echo "   Usage: ./do/adapter remove <name>"
+                exit 1
+                ;;
+            *)
+                if [ -z "${adapter_name}" ]; then
+                    adapter_name="$1"
+                else
+                    echo "❌ Unexpected argument: $1"
+                    echo "   Usage: ./do/adapter remove <name>"
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "${adapter_name}" ]; then
+        echo "❌ Adapter name is required"
+        echo "   Usage: ./do/adapter remove <name>"
+        exit 1
+    fi
+
+    echo "🗑️  Removing adapter: ${adapter_name}"
+    echo ""
+
+    # ── Validate adapter conf exists ──────────────────────────────────────
+    local conf_file="${SCRIPT_DIR}/adapters/${adapter_name}.conf"
+    if [ ! -f "${conf_file}" ]; then
+        echo "❌ Adapter not found: ${adapter_name}"
+        echo ""
+        echo "   No configuration file at: do/adapters/${adapter_name}.conf"
+        echo ""
+        echo "   Available adapters:"
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            for f in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${f}" ] || continue
+                echo "   • $(basename "${f}" .conf)"
+            done
+        else
+            echo "   (none)"
+        fi
+        exit 1
+    fi
+
+    # ── Read adapter IC name from conf ────────────────────────────────────
+    local adapter_ic_name
+    adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//')
+
+    if [ -z "${adapter_ic_name}" ]; then
+        echo "❌ Could not read ADAPTER_IC_NAME from: do/adapters/${adapter_name}.conf"
+        echo "   The conf file may be corrupted. Removing it manually."
+        rm -f "${conf_file}"
+        exit 1
+    fi
+
+    echo "📋 Adapter IC: ${adapter_ic_name}"
+
+    # ── Delete the inference component ────────────────────────────────────
+    echo "🔄 Deleting inference component: ${adapter_ic_name}"
+    if ! aws sagemaker delete-inference-component \
+        --inference-component-name "${adapter_ic_name}" \
+        --region "${AWS_REGION}" 2>/dev/null; then
+
+        # Check if it's already gone
+        local current_status
+        current_status=$(_get_ic_status "${adapter_ic_name}")
+        if [ -z "${current_status}" ]; then
+            echo "   Inference component already deleted or not found. Cleaning up local files."
+        else
+            echo "❌ Failed to delete inference component: ${adapter_ic_name}"
+            echo "   Current status: ${current_status}"
+            echo ""
+            echo "   Check that your IAM credentials have sagemaker:DeleteInferenceComponent permission."
+            exit 1
+        fi
+    fi
+
+    # ── Wait for deletion to complete ─────────────────────────────────────
+    echo "⏳ Waiting for adapter IC deletion to complete..."
+    local wait_start
+    wait_start=$(date +%s)
+    local timeout=600  # 10 minutes
+
+    while true; do
+        local status
+        status=$(_get_ic_status "${adapter_ic_name}")
+
+        if [ -z "${status}" ] || [ "${status}" = "None" ]; then
+            break
+        fi
+
+        local elapsed=$(( $(date +%s) - wait_start ))
+        if [ "${elapsed}" -ge "${timeout}" ]; then
+            echo "⚠️  Adapter IC still deleting after ${timeout}s."
+            echo "   It may complete in the background. Local conf removed."
+            break
+        fi
+
+        echo "   $(date +%H:%M:%S) Status: ${status} (${elapsed}s elapsed)..."
+        sleep 10
+    done
+
+    echo "✅ Adapter IC deleted: ${adapter_ic_name}"
+
+    # ── Remove local conf file ────────────────────────────────────────────
+    rm -f "${conf_file}"
+    echo "✅ Removed: do/adapters/${adapter_name}.conf"
+
+    echo ""
+    echo "✅ Adapter removed successfully: ${adapter_name}"
+}
+
+_adapter_update() {
+    local adapter_name=""
+    local weights_uri=""
+    local from_hub=""
+
+    # Parse update arguments
+    shift  # remove 'update' from args
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --weights)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --weights requires an S3 URI argument"
+                    echo "   Usage: ./do/adapter update <name> --weights <new-s3-uri>"
+                    exit 1
+                fi
+                weights_uri="$2"
+                shift 2
+                ;;
+            --from-hub)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --from-hub requires a HuggingFace repo ID argument"
+                    echo "   Usage: ./do/adapter update <name> --from-hub <hf-repo-id>"
+                    exit 1
+                fi
+                from_hub="$2"
+                shift 2
+                ;;
+            --help|-h)
+                echo "Usage: ./do/adapter update <name> --weights <new-s3-uri>"
+                echo "       ./do/adapter update <name> --from-hub <hf-repo-id>"
+                echo ""
+                echo "Update the weights of an existing LoRA adapter."
+                echo ""
+                echo "Arguments:"
+                echo "  <name>                    Adapter name to update"
+                echo "  --weights <new-s3-uri>    New S3 URI to adapter weights (.tar.gz)"
+                echo "  --from-hub <hf-repo-id>   Download new weights from HuggingFace Hub"
+                echo ""
+                echo "Note: --weights and --from-hub are mutually exclusive."
+                echo ""
+                echo "Examples:"
+                echo "  ./do/adapter update ectsum --weights s3://bucket/adapters/ectsum-v2/adapter.tar.gz"
+                echo "  ./do/adapter update ectsum --from-hub predibase/llama-3.1-8b-ectsum-v2"
+                exit 0
+                ;;
+            -*)
+                echo "❌ Unknown option: $1"
+                echo "   Usage: ./do/adapter update <name> --weights <new-s3-uri>"
+                echo "          ./do/adapter update <name> --from-hub <hf-repo-id>"
+                exit 1
+                ;;
+            *)
+                if [ -z "${adapter_name}" ]; then
+                    adapter_name="$1"
+                else
+                    echo "❌ Unexpected argument: $1"
+                    echo "   Usage: ./do/adapter update <name> --weights <new-s3-uri>"
+                    echo "          ./do/adapter update <name> --from-hub <hf-repo-id>"
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [ -z "${adapter_name}" ]; then
+        echo "❌ Adapter name is required"
+        echo "   Usage: ./do/adapter update <name> --weights <new-s3-uri>"
+        echo "          ./do/adapter update <name> --from-hub <hf-repo-id>"
+        exit 1
+    fi
+
+    # ── Mutual exclusivity check ─────────────────────────────────────────
+    if [ -n "${weights_uri}" ] && [ -n "${from_hub}" ]; then
+        echo "❌ --weights and --from-hub are mutually exclusive"
+        echo ""
+        echo "   Use one or the other:"
+        echo "   ./do/adapter update ${adapter_name} --weights <s3-uri>"
+        echo "   ./do/adapter update ${adapter_name} --from-hub <hf-repo-id>"
+        exit 1
+    fi
+
+    if [ -z "${weights_uri}" ] && [ -z "${from_hub}" ]; then
+        echo "❌ Either --weights or --from-hub is required"
+        echo "   Usage: ./do/adapter update <name> --weights <new-s3-uri>"
+        echo "          ./do/adapter update <name> --from-hub <hf-repo-id>"
+        exit 1
+    fi
+
+    # ── Validate HF repo ID format (if --from-hub) ───────────────────────
+    if [ -n "${from_hub}" ]; then
+        if ! echo "${from_hub}" | grep -qE '^[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)?$'; then
+            echo "❌ Invalid HuggingFace repo ID: ${from_hub}"
+            echo ""
+            echo "   Repo ID must be in format 'org/name' or 'name'"
+            echo "   Examples: predibase/llama-3.1-8b-ectsum-v2, my-adapter"
+            exit 1
+        fi
+    fi
+
+    # ── Validate S3 URI format (only when --weights is used) ─────────────
+    if [ -n "${weights_uri}" ]; then
+        if ! echo "${weights_uri}" | grep -qE '^s3://.*\.tar\.gz$'; then
+            echo "❌ Invalid S3 URI: ${weights_uri}"
+            echo ""
+            echo "   Adapter weights must be:"
+            echo "   • An S3 URI starting with s3://"
+            echo "   • A .tar.gz archive containing adapter files"
+            echo ""
+            echo "   Example: s3://my-bucket/adapters/ectsum-v2/adapter.tar.gz"
+            exit 1
+        fi
+    fi
+
+    # ── Validate adapter conf exists ──────────────────────────────────────
+    local conf_file="${SCRIPT_DIR}/adapters/${adapter_name}.conf"
+    if [ ! -f "${conf_file}" ]; then
+        echo "❌ Adapter not found: ${adapter_name}"
+        echo ""
+        echo "   No configuration file at: do/adapters/${adapter_name}.conf"
+        echo ""
+        echo "   Available adapters:"
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            for f in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${f}" ] || continue
+                echo "   • $(basename "${f}" .conf)"
+            done
+        else
+            echo "   (none)"
+        fi
+        exit 1
+    fi
+
+    # ── Read adapter IC name from conf ────────────────────────────────────
+    local adapter_ic_name
+    adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//')
+
+    if [ -z "${adapter_ic_name}" ]; then
+        echo "❌ Could not read ADAPTER_IC_NAME from: do/adapters/${adapter_name}.conf"
+        echo "   The conf file may be corrupted."
+        exit 1
+    fi
+
+    echo "🔄 Updating adapter: ${adapter_name}"
+    echo "   IC Name: ${adapter_ic_name}"
+    if [ -n "${from_hub}" ]; then
+        echo "   Source: HuggingFace Hub (${from_hub})"
+    else
+        echo "   New weights: ${weights_uri}"
+    fi
+    echo ""
+
+    # ── If --from-hub: download, tar, upload to S3 ────────────────────────
+    if [ -n "${from_hub}" ]; then
+        _download_from_hub "${from_hub}" "${adapter_name}"
+        # weights_uri is now set by _download_from_hub
+        echo ""
+    fi
+
+    # ── Update the inference component ────────────────────────────────────
+    echo "🚀 Updating inference component: ${adapter_ic_name}"
+    if ! aws sagemaker update-inference-component \
+        --inference-component-name "${adapter_ic_name}" \
+        --specification "{\"Container\":{\"ArtifactUrl\":\"${weights_uri}\"}}" \
+        --region "${AWS_REGION}"; then
+
+        echo "❌ Failed to update adapter inference component"
+        echo "   Check that:"
+        echo "   • Your IAM credentials have sagemaker:UpdateInferenceComponent permission"
+        echo "   • The adapter IC '${adapter_ic_name}' exists and is InService"
+        echo "   • The new S3 URI is accessible by the SageMaker execution role"
+        exit 1
+    fi
+
+    echo "✅ Adapter IC update initiated: ${adapter_ic_name}"
+
+    # ── Wait for adapter IC to return to InService ────────────────────────
+    echo "⏳ Waiting for adapter IC to return to InService..."
+    echo "   The IC will transition through Updating state."
+
+    wait_ic "${adapter_ic_name}"
+
+    echo "✅ Adapter IC is InService: ${adapter_ic_name}"
+
+    # ── Update conf file ──────────────────────────────────────────────────
+    sed -i.bak "s|^export ADAPTER_WEIGHTS_URI=.*|export ADAPTER_WEIGHTS_URI=\"${weights_uri}\"|" "${conf_file}"
+    rm -f "${conf_file}.bak"
+
+    # Update hub-specific metadata
+    if [ -n "${from_hub}" ]; then
+        # Add or update ADAPTER_SOURCE
+        if grep -q "^export ADAPTER_SOURCE=" "${conf_file}"; then
+            sed -i.bak "s|^export ADAPTER_SOURCE=.*|export ADAPTER_SOURCE=\"hub\"|" "${conf_file}"
+            rm -f "${conf_file}.bak"
+        else
+            echo "export ADAPTER_SOURCE=\"hub\"" >> "${conf_file}"
+        fi
+
+        # Add or update ADAPTER_HF_REPO
+        if grep -q "^export ADAPTER_HF_REPO=" "${conf_file}"; then
+            sed -i.bak "s|^export ADAPTER_HF_REPO=.*|export ADAPTER_HF_REPO=\"${from_hub}\"|" "${conf_file}"
+            rm -f "${conf_file}.bak"
+        else
+            echo "export ADAPTER_HF_REPO=\"${from_hub}\"" >> "${conf_file}"
+        fi
+    fi
+
+    echo ""
+    echo "✅ Adapter updated successfully!"
+    echo ""
+    echo "📋 Updated Details:"
+    echo "   Name: ${adapter_name}"
+    echo "   IC Name: ${adapter_ic_name}"
+    echo "   New Weights: ${weights_uri}"
+    if [ -n "${from_hub}" ]; then
+        echo "   Source: HuggingFace Hub (${from_hub})"
+    fi
+    echo ""
+    echo "🧪 Test your updated adapter:"
+    echo "   ./do/test ${adapter_name}"
+}
+
+_adapter_search() {
+    local limit=10
+
+    # Parse search arguments
+    shift  # remove 'search' from args
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --limit)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --limit requires a numeric argument"
+                    echo "   Usage: ./do/adapter search [--limit N]"
+                    exit 1
+                fi
+                limit="$2"
+                shift 2
+                ;;
+            --help|-h)
+                echo "Usage: ./do/adapter search [--limit N]"
+                echo ""
+                echo "Search HuggingFace Hub for LoRA adapters compatible with your base model."
+                echo ""
+                echo "Options:"
+                echo "  --limit N   Maximum number of results (default: 10)"
+                echo ""
+                echo "Examples:"
+                echo "  ./do/adapter search"
+                echo "  ./do/adapter search --limit 20"
+                echo ""
+                echo "To add a found adapter:"
+                echo "  ./do/adapter add <name> --from-hub <repo-id>"
+                exit 0
+                ;;
+            -*)
+                echo "❌ Unknown option: $1"
+                echo "   Usage: ./do/adapter search [--limit N]"
+                exit 1
+                ;;
+            *)
+                echo "❌ Unexpected argument: $1"
+                echo "   Usage: ./do/adapter search [--limit N]"
+                exit 1
+                ;;
+        esac
+    done
+
+    # ── Validate MODEL_NAME is set ────────────────────────────────────────
+    if [ -z "${MODEL_NAME:-}" ]; then
+        echo "❌ MODEL_NAME is not configured in do/config."
+        echo ""
+        echo "   The search command requires a base model to find compatible adapters."
+        exit 1
+    fi
+
+    echo "LoRA adapters for ${MODEL_NAME}:"
+    echo ""
+
+    # ── Build API URL ─────────────────────────────────────────────────────
+    local encoded_model
+    encoded_model=$(echo "${MODEL_NAME}" | sed 's|/|%2F|g')
+    local api_url="https://huggingface.co/api/models?filter=peft&other=base_model:adapter:${encoded_model}&sort=downloads&direction=-1&limit=${limit}"
+
+    # ── Make API request ──────────────────────────────────────────────────
+    local curl_args=("-sS" "-f")
+    if [ -n "${HF_TOKEN:-}" ]; then
+        curl_args+=("-H" "Authorization: Bearer ${HF_TOKEN}")
+    fi
+
+    local response
+    if ! response=$(curl "${curl_args[@]}" "${api_url}" 2>/dev/null); then
+        echo "❌ Could not reach HuggingFace Hub. Check network connectivity."
+        exit 1
+    fi
+
+    # ── Parse and display results ─────────────────────────────────────────
+    local count=0
+
+    if command -v jq &>/dev/null; then
+        count=$(echo "${response}" | jq 'length' 2>/dev/null)
+    else
+        # Fallback: count array elements by counting "id" fields
+        count=$(echo "${response}" | grep -o '"id"' | wc -l | tr -d ' ')
+    fi
+
+    if [ "${count}" -eq 0 ] || [ -z "${count}" ]; then
+        echo "No adapters found for ${MODEL_NAME}."
+        echo ""
+        echo "Try searching with a different model name or check:"
+        echo "  https://huggingface.co/models?other=base_model:adapter:${MODEL_NAME}&sort=downloads"
+        return 0
+    fi
+
+    # ── Print results table ───────────────────────────────────────────────
+    printf '%-4s%-42s%-12s%s\n' "#" "REPO ID" "DOWNLOADS" "DESCRIPTION"
+
+    if command -v jq &>/dev/null; then
+        local i=0
+        while [ "${i}" -lt "${count}" ]; do
+            local repo_id downloads description
+            repo_id=$(echo "${response}" | jq -r ".[${i}].id // \"\"" 2>/dev/null)
+            downloads=$(echo "${response}" | jq -r ".[${i}].downloads // 0" 2>/dev/null)
+            description=$(echo "${response}" | jq -r ".[${i}].pipeline_tag // .[${i}].tags[0] // \"\"" 2>/dev/null)
+
+            # Format downloads with commas
+            local formatted_downloads
+            formatted_downloads=$(printf "%'d" "${downloads}" 2>/dev/null || echo "${downloads}")
+
+            local num=$((i + 1))
+            printf '%-4s%-42s%-12s%s\n' "${num}" "${repo_id}" "${formatted_downloads}" "${description}"
+            i=$((i + 1))
+        done
+    else
+        # Fallback without jq: basic parsing
+        local idx=1
+        echo "${response}" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"$//' | while IFS= read -r repo_id; do
+            printf '%-4s%-42s\n' "${idx}" "${repo_id}"
+            idx=$((idx + 1))
+        done
+    fi
+
+    echo ""
+    echo "Add an adapter: ./do/adapter add <name> --from-hub <repo-id>"
+}
+
+# ── Main: parse subcommand ────────────────────────────────────────────────────
+if [ $# -eq 0 ]; then
+    _usage
+    exit 1
+fi
+
+SUBCOMMAND="$1"
+
+case "${SUBCOMMAND}" in
+    add)
+        _validate_lora_enabled
+        _adapter_add "$@"
+        ;;
+    list)
+        _validate_lora_enabled
+        _adapter_list
+        ;;
+    remove)
+        _validate_lora_enabled
+        _adapter_remove "$@"
+        ;;
+    update)
+        _validate_lora_enabled
+        _adapter_update "$@"
+        ;;
+    search)
+        _validate_lora_enabled
+        _adapter_search "$@"
+        ;;
+    --help|-h)
+        _usage
+        exit 0
+        ;;
+    *)
+        echo "❌ Unknown command: ${SUBCOMMAND}"
+        echo ""
+        _usage
+        exit 1
+        ;;
+esac

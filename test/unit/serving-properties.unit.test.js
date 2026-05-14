@@ -35,6 +35,8 @@ function renderServingProperties(overrides = {}) {
         hfToken: '',
         chatTemplate: '',
         orderedEnvVars: [],
+        enableLora: false,
+        maxLoras: 30,
         ...overrides
     };
     return ejs.render(SERVING_PROPS_TEMPLATE, vars);

@@ -1,0 +1,528 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# do/optimize — Run SageMaker AI Inference Recommendations to find optimal
+# instance types and model configurations for your workload.
+# Wraps CreateAIRecommendationJob / DescribeAIRecommendationJob.
+
+set -e
+set -u
+set -o pipefail
+
+# ── Source project configuration ──────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/wait.sh"
+
+# ── Parse flags ───────────────────────────────────────────────────────────────
+GOAL=""
+INSTANCES_ARG=""
+FORCE=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --goal) shift; GOAL="${1:-}"; shift ;;
+        --instances) shift; INSTANCES_ARG="${1:-}"; shift ;;
+        --force) FORCE=true; shift ;;
+        --help|-h)
+            echo "Usage: ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]"
+            echo ""
+            echo "Run SageMaker AI Inference Recommendations to find optimal"
+            echo "instance types and model configurations for your workload."
+            echo ""
+            echo "Options:"
+            echo "  --goal <goal>       Optimization goal: cost, latency, or throughput (required)"
+            echo "  --instances <list>  Comma-separated instance types to evaluate"
+            echo "                      Defaults to INSTANCE_POOLS entries or INSTANCE_TYPE from do/config"
+            echo "  --force             Create a new recommendation job even if one exists"
+            echo ""
+            echo "Examples:"
+            echo "  ./do/optimize --goal throughput"
+            echo "  ./do/optimize --goal cost --instances ml.g6e.48xlarge,ml.p5.48xlarge"
+            echo "  ./do/optimize --goal latency --force"
+            echo ""
+            echo "Idempotency:"
+            echo "  If OPTIMIZE_JOB_NAME is set in do/config and the job is still running,"
+            echo "  re-running without --force will resume waiting for the existing job."
+            echo ""
+            echo "Prerequisites:"
+            echo "  • MODEL_NAME must be set in do/config (HuggingFace model ID or S3 path)"
+            echo "  • AWS credentials must be configured"
+            exit 0
+            ;;
+        *) shift ;;
+    esac
+done
+
+# ── Validate goal ─────────────────────────────────────────────────────────────
+if [ -z "${GOAL}" ]; then
+    echo "❌ --goal is required. Choose one of: cost, latency, throughput"
+    echo "   Example: ./do/optimize --goal throughput"
+    exit 1
+fi
+
+case "${GOAL}" in
+    cost|latency|throughput) ;;
+    *)
+        echo "❌ Invalid goal: ${GOAL}"
+        echo "   Valid goals: cost, latency, throughput"
+        exit 1
+        ;;
+esac
+
+# ── Verify AWS CLI v2 ─────────────────────────────────────────────────────────
+if ! aws --version 2>&1 | grep -q "aws-cli/2"; then
+    echo "❌ AWS CLI v2 is required for inference recommendations."
+    echo "   Detected: $(aws --version 2>&1 | head -1)"
+    echo ""
+    echo "   Install CLI v2: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+    exit 1
+fi
+
+# ── Resolve model name ────────────────────────────────────────────────────────
+if [ -z "${MODEL_NAME:-}" ]; then
+    echo "❌ MODEL_NAME is not set in do/config"
+    echo "   Set MODEL_NAME to a HuggingFace model ID or S3 model path."
+    exit 1
+fi
+
+echo "🔍 Inference Recommendations"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Model: ${MODEL_NAME}"
+echo "   Goal: ${GOAL}"
+
+# ── Resolve instance types ────────────────────────────────────────────────────
+# Priority: --instances flag > INSTANCE_POOLS > INSTANCE_TYPE
+INSTANCE_TYPES=""
+
+if [ -n "${INSTANCES_ARG}" ]; then
+    # From --instances flag (comma-separated)
+    INSTANCE_TYPES="${INSTANCES_ARG}"
+    echo "   Instances (from --instances): ${INSTANCE_TYPES}"
+elif [ -n "${INSTANCE_POOLS:-}" ]; then
+    # Extract instance types from INSTANCE_POOLS JSON
+    INSTANCE_TYPES=$(echo "${INSTANCE_POOLS}" | grep -oE '"InstanceType"\s*:\s*"[^"]+"' | sed 's/"InstanceType"\s*:\s*"//;s/"$//' | paste -sd ',' - || true)
+    echo "   Instances (from INSTANCE_POOLS): ${INSTANCE_TYPES}"
+elif [ -n "${INSTANCE_TYPE:-}" ]; then
+    INSTANCE_TYPES="${INSTANCE_TYPE}"
+    echo "   Instances (from INSTANCE_TYPE): ${INSTANCE_TYPES}"
+else
+    echo "❌ No instance types available."
+    echo "   Provide --instances flag, or set INSTANCE_POOLS or INSTANCE_TYPE in do/config."
+    exit 1
+fi
+
+# ── Resolve workload parameters from benchmark config (if available) ──────────
+CONCURRENCY="${BENCHMARK_CONCURRENCY:-1}"
+INPUT_TOKENS="${BENCHMARK_INPUT_TOKENS_MEAN:-256}"
+OUTPUT_TOKENS="${BENCHMARK_OUTPUT_TOKENS_MEAN:-256}"
+
+echo "   Concurrency: ${CONCURRENCY}"
+echo "   Input tokens: ${INPUT_TOKENS}"
+echo "   Output tokens: ${OUTPUT_TOKENS}"
+echo ""
+
+# ── Helper: update a variable in do/config ────────────────────────────────────
+_update_optimize_var() {
+    _update_config_var "$1" "$2"
+}
+
+# ── Idempotency: Check for existing recommendation job ────────────────────────
+RESUME_EXISTING=false
+
+if [ "${FORCE}" = false ] && [ -n "${OPTIMIZE_JOB_NAME:-}" ]; then
+    EXISTING_STATUS=$(aws sagemaker describe-ai-recommendation-job \
+        --job-name "${OPTIMIZE_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'Status' \
+        --output text 2>/dev/null) || EXISTING_STATUS=""
+
+    case "${EXISTING_STATUS}" in
+        IN_PROGRESS|PENDING|STARTING)
+            echo "📊 Resuming existing recommendation job: ${OPTIMIZE_JOB_NAME}"
+            echo "   Status: ${EXISTING_STATUS}"
+            echo "   (use --force to start a new job instead)"
+            echo ""
+            RESUME_EXISTING=true
+            ;;
+        COMPLETED)
+            echo "📊 Previous recommendation job already completed: ${OPTIMIZE_JOB_NAME}"
+            echo "   (use --force to start a new job)"
+            echo ""
+            RESUME_EXISTING=true
+            JOB_STATUS="COMPLETED"
+            ;;
+        FAILED|STOPPED)
+            FAILURE_REASON=$(aws sagemaker describe-ai-recommendation-job \
+                --job-name "${OPTIMIZE_JOB_NAME}" \
+                --region "${AWS_REGION}" \
+                --query 'FailureReason' \
+                --output text 2>/dev/null) || FAILURE_REASON="unknown"
+            echo "⚠️  Previous recommendation job ${EXISTING_STATUS}: ${OPTIMIZE_JOB_NAME}"
+            if [ -n "${FAILURE_REASON}" ] && [ "${FAILURE_REASON}" != "None" ]; then
+                echo "   Reason: ${FAILURE_REASON}"
+            fi
+            echo "   Use --force to start a new job."
+            exit 1
+            ;;
+        *)
+            # Job doesn't exist or can't be described — proceed with new job
+            ;;
+    esac
+fi
+
+# ── Create recommendation job ─────────────────────────────────────────────────
+if [ "${RESUME_EXISTING}" = false ]; then
+    OPTIMIZE_JOB_NAME="${PROJECT_NAME}-optimize-$(date +%Y%m%d-%H%M%S)"
+
+    echo "🚀 Creating AI Recommendation Job: ${OPTIMIZE_JOB_NAME}"
+
+    # Build instance type list as JSON array
+    INSTANCE_TYPES_JSON="["
+    FIRST=true
+    IFS=',' read -ra TYPES <<< "${INSTANCE_TYPES}"
+    for itype in "${TYPES[@]}"; do
+        itype=$(echo "${itype}" | xargs)  # trim whitespace
+        if [ "${FIRST}" = true ]; then
+            INSTANCE_TYPES_JSON="${INSTANCE_TYPES_JSON}\"${itype}\""
+            FIRST=false
+        else
+            INSTANCE_TYPES_JSON="${INSTANCE_TYPES_JSON},\"${itype}\""
+        fi
+    done
+    INSTANCE_TYPES_JSON="${INSTANCE_TYPES_JSON}]"
+
+    # Build job input config
+    # The model is specified as either a HuggingFace model ID or S3 path
+    MODEL_SOURCE_JSON=""
+    if [[ "${MODEL_NAME}" == s3://* ]]; then
+        MODEL_SOURCE_JSON="{\"S3DataSource\":{\"S3Uri\":\"${MODEL_NAME}\"}}"
+    else
+        MODEL_SOURCE_JSON="{\"ModelName\":\"${MODEL_NAME}\"}"
+    fi
+
+    # Build workload config
+    WORKLOAD_JSON="{\"Concurrency\":${CONCURRENCY},\"InputTokens\":${INPUT_TOKENS},\"OutputTokens\":${OUTPUT_TOKENS}}"
+
+    # Build the full job specification
+    JOB_INPUT="{\"ModelSource\":${MODEL_SOURCE_JSON},\"Workload\":${WORKLOAD_JSON},\"InstanceTypes\":${INSTANCE_TYPES_JSON},\"OptimizationGoal\":\"${GOAL}\"}"
+
+    if ! aws sagemaker create-ai-recommendation-job \
+        --job-name "${OPTIMIZE_JOB_NAME}" \
+        --role-arn "${ROLE_ARN}" \
+        --input-config "${JOB_INPUT}" \
+        --region "${AWS_REGION}"; then
+        echo "❌ Failed to create AI Recommendation Job"
+        echo "   Check that:"
+        echo "   • The execution role has sagemaker:CreateAIRecommendationJob permission"
+        echo "   • The model name or S3 path is valid: ${MODEL_NAME}"
+        echo "   • The instance types are valid: ${INSTANCE_TYPES}"
+        echo "   • The API is available in region: ${AWS_REGION}"
+        exit 1
+    fi
+
+    echo "✅ Recommendation job created: ${OPTIMIZE_JOB_NAME}"
+
+    # Save job name to do/config for idempotency on re-run
+    _update_optimize_var "OPTIMIZE_JOB_NAME" "${OPTIMIZE_JOB_NAME}"
+    echo ""
+fi
+
+# ── Poll for completion ───────────────────────────────────────────────────────
+POLL_INTERVAL=30
+MAX_POLL_ATTEMPTS=120  # 60 minutes max (120 * 30s)
+
+if [ "${JOB_STATUS:-}" != "COMPLETED" ] && [ "${JOB_STATUS:-}" != "FAILED" ] && [ "${JOB_STATUS:-}" != "STOPPED" ]; then
+
+echo "⏳ Waiting for recommendation job to complete..."
+echo "   Polling every ${POLL_INTERVAL}s (max ${MAX_POLL_ATTEMPTS} attempts = 60 min)"
+echo ""
+
+POLL_COUNT=0
+JOB_STATUS=""
+
+while [ ${POLL_COUNT} -lt ${MAX_POLL_ATTEMPTS} ]; do
+    JOB_STATUS=$(aws sagemaker describe-ai-recommendation-job \
+        --job-name "${OPTIMIZE_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'Status' \
+        --output text 2>/dev/null) || {
+        echo "⚠️  Failed to describe recommendation job (credentials may have expired)"
+        echo "   Re-run to check status:"
+        echo "   aws sagemaker describe-ai-recommendation-job --job-name ${OPTIMIZE_JOB_NAME} --region ${AWS_REGION}"
+        exit 1
+    }
+
+    case "${JOB_STATUS}" in
+        COMPLETED)
+            echo "✅ Recommendation job completed!"
+            break
+            ;;
+        FAILED)
+            echo "❌ Recommendation job failed"
+            break
+            ;;
+        STOPPED)
+            echo "⚠️  Recommendation job was stopped"
+            break
+            ;;
+        *)
+            POLL_COUNT=$((POLL_COUNT + 1))
+            ELAPSED=$((POLL_COUNT * POLL_INTERVAL))
+            echo "   $(date +%H:%M:%S) Status: ${JOB_STATUS} (${ELAPSED}s elapsed)"
+            sleep ${POLL_INTERVAL}
+            ;;
+    esac
+done
+
+if [ ${POLL_COUNT} -ge ${MAX_POLL_ATTEMPTS} ]; then
+    echo ""
+    echo "⚠️  Recommendation job timed out after 60 minutes (status: ${JOB_STATUS})"
+    echo "   The job may still be running. Re-run ./do/optimize to resume waiting."
+    exit 1
+fi
+
+fi  # end of polling conditional
+
+echo ""
+
+# ── Display results ───────────────────────────────────────────────────────────
+if [ "${JOB_STATUS}" = "COMPLETED" ]; then
+    echo "📊 Fetching recommendation results..."
+
+    # Get the full job description with results
+    JOB_DESCRIPTION=$(aws sagemaker describe-ai-recommendation-job \
+        --job-name "${OPTIMIZE_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --output json 2>/dev/null) || {
+        echo "❌ Failed to fetch recommendation results"
+        exit 1
+    }
+
+    # Display results using python for JSON parsing
+    if command -v python3 &>/dev/null; then
+        echo "${JOB_DESCRIPTION}" | python3 -c "
+import json, sys
+
+data = json.load(sys.stdin)
+results = data.get('Results', data.get('InferenceRecommendations', []))
+
+if not results:
+    print('   No recommendations returned.')
+    sys.exit(0)
+
+# If results is a dict with a list inside, extract it
+if isinstance(results, dict):
+    results = results.get('Recommendations', results.get('InferenceRecommendations', []))
+
+print('╔══════════════════════════════════════════════════════════════════════════╗')
+print('║              SageMaker AI Inference Recommendations                     ║')
+print('╠══════════════════════════════════════════════════════════════════════════╣')
+print(f'║  Job: ${OPTIMIZE_JOB_NAME}')
+print(f'║  Goal: ${GOAL}')
+print(f'║  Model: ${MODEL_NAME}')
+print('╠══════════════════════════════════════════════════════════════════════════╣')
+
+for i, rec in enumerate(results, 1):
+    instance_type = rec.get('InstanceType', rec.get('EndpointConfiguration', {}).get('InstanceType', 'N/A'))
+    model_config = rec.get('ModelConfiguration', {})
+    model_package_arn = model_config.get('ModelPackageArn', rec.get('ModelPackageArn', 'N/A'))
+    inference_spec = model_config.get('InferenceSpecificationName', rec.get('InferenceSpecificationName', 'N/A'))
+
+    metrics = rec.get('Metrics', rec.get('RecommendationMetrics', {}))
+    ttft = metrics.get('TimeToFirstToken', metrics.get('TTFT', 'N/A'))
+    itl = metrics.get('InterTokenLatency', metrics.get('ITL', 'N/A'))
+    throughput = metrics.get('Throughput', metrics.get('MaxInvocations', 'N/A'))
+    cost = metrics.get('CostPerHour', metrics.get('CostPerInference', 'N/A'))
+
+    rank_marker = ' ← TOP' if i == 1 else ''
+    print(f'║')
+    print(f'║  #{i}{rank_marker}')
+    print(f'║  Instance Type:    {instance_type}')
+    print(f'║  ModelPackageArn:  {model_package_arn}')
+    print(f'║  InferenceSpec:    {inference_spec}')
+    print(f'║  ────────────────────────────────────────')
+    print(f'║  TTFT (ms):        {ttft}')
+    print(f'║  ITL (ms):         {itl}')
+    print(f'║  Throughput:       {throughput}')
+    print(f'║  Cost:             {cost}')
+
+print('║')
+print('╚══════════════════════════════════════════════════════════════════════════╝')
+
+# Output structured data for the interactive choices below
+# Write results to a temp file for bash to read
+import tempfile, os
+results_file = os.path.join('${SCRIPT_DIR}', '.optimize-results.json')
+with open(results_file, 'w') as f:
+    json.dump(results, f)
+"
+    else
+        echo "   (python3 not available — showing raw JSON)"
+        echo "${JOB_DESCRIPTION}" | head -100
+    fi
+
+    echo ""
+
+    # ── Interactive choices ───────────────────────────────────────────────────
+    RESULTS_FILE="${SCRIPT_DIR}/.optimize-results.json"
+
+    if [ -f "${RESULTS_FILE}" ]; then
+        echo "What would you like to do with these results?"
+        echo ""
+        echo "  1) Deploy top recommendation — update do/config with optimized model"
+        echo "  2) Set up instance pools — build INSTANCE_POOLS with all results"
+        echo "  3) Save for later — store ModelPackageArn in do/config"
+        echo ""
+        printf "Choose [1/2/3]: "
+        read -r CHOICE
+
+        case "${CHOICE}" in
+            1)
+                echo ""
+                echo "📦 Deploying top recommendation..."
+                # Extract top result's ModelPackageArn and InferenceSpecificationName
+                TOP_MODEL_PACKAGE_ARN=$(python3 -c "
+import json
+with open('${RESULTS_FILE}') as f:
+    results = json.load(f)
+if results:
+    r = results[0]
+    mc = r.get('ModelConfiguration', {})
+    print(mc.get('ModelPackageArn', r.get('ModelPackageArn', '')))
+" 2>/dev/null) || TOP_MODEL_PACKAGE_ARN=""
+
+                TOP_INFERENCE_SPEC=$(python3 -c "
+import json
+with open('${RESULTS_FILE}') as f:
+    results = json.load(f)
+if results:
+    r = results[0]
+    mc = r.get('ModelConfiguration', {})
+    print(mc.get('InferenceSpecificationName', r.get('InferenceSpecificationName', '')))
+" 2>/dev/null) || TOP_INFERENCE_SPEC=""
+
+                TOP_INSTANCE_TYPE=$(python3 -c "
+import json
+with open('${RESULTS_FILE}') as f:
+    results = json.load(f)
+if results:
+    r = results[0]
+    print(r.get('InstanceType', r.get('EndpointConfiguration', {}).get('InstanceType', '')))
+" 2>/dev/null) || TOP_INSTANCE_TYPE=""
+
+                if [ -n "${TOP_MODEL_PACKAGE_ARN}" ]; then
+                    _update_optimize_var "OPTIMIZE_MODEL_PACKAGE_ARN" "${TOP_MODEL_PACKAGE_ARN}"
+                    echo "   ✅ OPTIMIZE_MODEL_PACKAGE_ARN set in do/config"
+                fi
+                if [ -n "${TOP_INFERENCE_SPEC}" ]; then
+                    _update_optimize_var "OPTIMIZE_INFERENCE_SPEC" "${TOP_INFERENCE_SPEC}"
+                    echo "   ✅ OPTIMIZE_INFERENCE_SPEC set in do/config"
+                fi
+                if [ -n "${TOP_INSTANCE_TYPE}" ]; then
+                    _update_optimize_var "INSTANCE_TYPE" "${TOP_INSTANCE_TYPE}"
+                    echo "   ✅ INSTANCE_TYPE updated to: ${TOP_INSTANCE_TYPE}"
+                fi
+                echo ""
+                echo "✅ Top recommendation applied to do/config"
+                echo "   Run ./do/deploy to deploy with the optimized configuration."
+                ;;
+            2)
+                echo ""
+                echo "📦 Setting up instance pools from all results..."
+                # Build INSTANCE_POOLS JSON from results
+                POOLS_JSON=$(python3 -c "
+import json
+with open('${RESULTS_FILE}') as f:
+    results = json.load(f)
+pools = []
+for i, r in enumerate(results, 1):
+    instance_type = r.get('InstanceType', r.get('EndpointConfiguration', {}).get('InstanceType', ''))
+    if not instance_type:
+        continue
+    entry = {'InstanceType': instance_type, 'Priority': i}
+    mc = r.get('ModelConfiguration', {})
+    model_name = mc.get('ModelPackageArn', r.get('ModelPackageArn', ''))
+    if model_name:
+        entry['ModelName'] = model_name
+    pools.append(entry)
+print(json.dumps(pools))
+" 2>/dev/null) || POOLS_JSON=""
+
+                if [ -n "${POOLS_JSON}" ] && [ "${POOLS_JSON}" != "[]" ]; then
+                    _update_optimize_var "INSTANCE_POOLS" "${POOLS_JSON}"
+                    echo "   ✅ INSTANCE_POOLS set in do/config"
+                    echo "   Pools: ${POOLS_JSON}"
+                    echo ""
+                    echo "✅ Instance pools configured from recommendation results."
+                    echo "   Each pool entry includes ModelName for ModelNameOverride support."
+                    echo "   Run ./do/deploy to deploy with heterogeneous instance pools."
+                else
+                    echo "   ⚠️  Could not build instance pools from results"
+                fi
+                ;;
+            3)
+                echo ""
+                echo "📦 Saving results for later..."
+                # Store the top ModelPackageArn
+                SAVE_MODEL_PACKAGE_ARN=$(python3 -c "
+import json
+with open('${RESULTS_FILE}') as f:
+    results = json.load(f)
+if results:
+    r = results[0]
+    mc = r.get('ModelConfiguration', {})
+    print(mc.get('ModelPackageArn', r.get('ModelPackageArn', '')))
+" 2>/dev/null) || SAVE_MODEL_PACKAGE_ARN=""
+
+                if [ -n "${SAVE_MODEL_PACKAGE_ARN}" ]; then
+                    _update_optimize_var "OPTIMIZE_MODEL_PACKAGE_ARN" "${SAVE_MODEL_PACKAGE_ARN}"
+                    echo "   ✅ OPTIMIZE_MODEL_PACKAGE_ARN saved to do/config"
+                fi
+                echo ""
+                echo "✅ Results saved. You can apply them later by editing do/config."
+                ;;
+            *)
+                echo "   No action taken. Results are available in the job output."
+                ;;
+        esac
+
+        # Clean up temp results file
+        rm -f "${RESULTS_FILE}"
+    fi
+
+elif [ "${JOB_STATUS}" = "FAILED" ]; then
+    FAILURE_REASON=$(echo "${JOB_DESCRIPTION:-}" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    print(data.get('FailureReason', 'unknown'))
+except:
+    print('unknown')
+" 2>/dev/null) || FAILURE_REASON="unknown"
+
+    if [ "${FAILURE_REASON}" = "unknown" ]; then
+        FAILURE_REASON=$(aws sagemaker describe-ai-recommendation-job \
+            --job-name "${OPTIMIZE_JOB_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'FailureReason' \
+            --output text 2>/dev/null) || FAILURE_REASON="unknown"
+    fi
+
+    echo "❌ Recommendation job failed"
+    echo "   Reason: ${FAILURE_REASON}"
+    echo ""
+    echo "   Debug:"
+    echo "   aws sagemaker describe-ai-recommendation-job --job-name ${OPTIMIZE_JOB_NAME} --region ${AWS_REGION}"
+
+elif [ "${JOB_STATUS}" = "STOPPED" ]; then
+    echo "⚠️  Recommendation job was stopped before completion"
+    echo "   No results available."
+fi
+
+echo ""
+echo "📋 Summary:"
+echo "   Recommendation Job: ${OPTIMIZE_JOB_NAME}"
+echo "   Status:             ${JOB_STATUS}"
+echo "   Goal:               ${GOAL}"
+echo ""

@@ -1,0 +1,130 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Add a new inference component to this project.
+# Creates a new IC config file in do/ic/ and deploys it immediately.
+
+set -e
+set -u
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+echo "➕ Add New Inference Component"
+echo "   Project: ${PROJECT_NAME}"
+echo ""
+
+# ============================================================
+# Prompt for IC name
+# ============================================================
+while true; do
+    read -p "IC name (lowercase alphanumeric + hyphens): " IC_NAME
+
+    # Validate: non-empty
+    if [ -z "${IC_NAME}" ]; then
+        echo "   ❌ IC name cannot be empty."
+        continue
+    fi
+
+    # Validate: lowercase alphanumeric + hyphens only
+    if ! echo "${IC_NAME}" | grep -qE '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'; then
+        echo "   ❌ IC name must be lowercase alphanumeric with hyphens (e.g., 'llama-70b')."
+        echo "      Must start and end with a letter or number."
+        continue
+    fi
+
+    # Validate: no collision with existing config
+    if [ -f "${SCRIPT_DIR}/ic/${IC_NAME}.conf" ]; then
+        echo "   ❌ IC config already exists: do/ic/${IC_NAME}.conf"
+        echo "      Choose a different name or edit the existing config."
+        continue
+    fi
+
+    break
+done
+
+# ============================================================
+# Prompt for image tag
+# ============================================================
+DEFAULT_IMAGE_TAG="${PROJECT_NAME}-latest"
+read -p "Image tag [${DEFAULT_IMAGE_TAG}]: " IC_IMAGE_TAG
+IC_IMAGE_TAG="${IC_IMAGE_TAG:-${DEFAULT_IMAGE_TAG}}"
+
+# ============================================================
+# Prompt for GPU count
+# ============================================================
+read -p "GPU count [1]: " IC_GPU_COUNT
+IC_GPU_COUNT="${IC_GPU_COUNT:-1}"
+
+# Validate numeric
+if ! echo "${IC_GPU_COUNT}" | grep -qE '^[0-9]+$'; then
+    echo "   ❌ GPU count must be a positive integer."
+    exit 1
+fi
+
+# ============================================================
+# Prompt for copy count
+# ============================================================
+read -p "Copy count [1]: " IC_COPY_COUNT
+IC_COPY_COUNT="${IC_COPY_COUNT:-1}"
+
+# Validate numeric
+if ! echo "${IC_COPY_COUNT}" | grep -qE '^[0-9]+$'; then
+    echo "   ❌ Copy count must be a positive integer."
+    exit 1
+fi
+
+# ============================================================
+# Prompt for memory MB
+# ============================================================
+read -p "Min memory MB [1024]: " IC_MIN_MEMORY_MB
+IC_MIN_MEMORY_MB="${IC_MIN_MEMORY_MB:-1024}"
+
+# Validate numeric
+if ! echo "${IC_MIN_MEMORY_MB}" | grep -qE '^[0-9]+$'; then
+    echo "   ❌ Memory MB must be a positive integer."
+    exit 1
+fi
+
+# ============================================================
+# Create IC config file
+# ============================================================
+IC_CONF_PATH="${SCRIPT_DIR}/ic/${IC_NAME}.conf"
+mkdir -p "${SCRIPT_DIR}/ic"
+
+cat > "${IC_CONF_PATH}" <<EOF
+# Per-IC configuration: ${IC_NAME}
+# Created by do/add-ic on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+#
+# This file is sourced by do/lib/inference-component.sh during deployment.
+# After deployment, IC_DEPLOYED_NAME and IC_DEPLOYED_AT will be appended
+# by the deploy script to track the active inference component.
+
+export IC_IMAGE_TAG="${IC_IMAGE_TAG}"
+export IC_GPU_COUNT=${IC_GPU_COUNT}
+export IC_COPY_COUNT=${IC_COPY_COUNT}
+export IC_MIN_MEMORY_MB=${IC_MIN_MEMORY_MB}
+export IC_STARTUP_TIMEOUT=900
+
+# Optional overrides:
+# export IC_MODEL_NAME="my-model-v2"
+# export IC_CONTAINER_ENV_EXTRA='"KEY":"value"'
+
+EOF
+
+echo ""
+echo "✅ Created IC config: do/ic/${IC_NAME}.conf"
+echo "   Image tag:  ${IC_IMAGE_TAG}"
+echo "   GPU count:  ${IC_GPU_COUNT}"
+echo "   Copy count: ${IC_COPY_COUNT}"
+echo "   Memory MB:  ${IC_MIN_MEMORY_MB}"
+echo ""
+
+# ============================================================
+# Deploy the new IC immediately
+# ============================================================
+echo "🚀 Deploying IC '${IC_NAME}'..."
+echo ""
+exec "${SCRIPT_DIR}/deploy" --ic "${IC_NAME}"

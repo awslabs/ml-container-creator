@@ -15,10 +15,11 @@ source "${SCRIPT_DIR}/config"
 # SageMaker Real-Time Inference Testing
 # ============================================================
 
-# Parse arguments
-ENDPOINT_NAME="${1:-${ENDPOINT_NAME:-}}"
+# Parse arguments: ./do/test [<ic-name>]
+IC_ARG="${1:-}"
 
-if [ -z "${ENDPOINT_NAME}" ]; then
+# Determine test mode based on ENDPOINT_NAME in config
+if [ -z "${ENDPOINT_NAME:-}" ]; then
     echo "🧪 Testing local container at localhost:8080"
     echo "   Project: ${PROJECT_NAME}"
     echo "   Framework: ${FRAMEWORK}"
@@ -210,8 +211,53 @@ else
     # Create temporary file for response
     TEMP_RESPONSE=$(mktemp)
     
-    # Invoke endpoint via inference component
-    IC_NAME="${INFERENCE_COMPONENT_NAME:-}"
+    # Resolve inference component name
+    # Precedence: do/adapters/ → do/ic/ → legacy config
+    IC_NAME=""
+    if [ -n "${IC_ARG}" ] && [ -f "${SCRIPT_DIR}/adapters/${IC_ARG}.conf" ]; then
+        # Argument matches an adapter name — use adapter IC
+        ADAPTER_IC_NAME=""
+        source "${SCRIPT_DIR}/adapters/${IC_ARG}.conf"
+        if [ -z "${ADAPTER_IC_NAME}" ]; then
+            echo "❌ Adapter '${IC_ARG}' conf is missing ADAPTER_IC_NAME."
+            exit 1
+        fi
+        IC_NAME="${ADAPTER_IC_NAME}"
+    elif [ -n "${IC_ARG}" ]; then
+        # Explicit IC name provided as argument
+        IC_CONF="${SCRIPT_DIR}/ic/${IC_ARG}.conf"
+        if [ ! -f "${IC_CONF}" ]; then
+            echo "❌ IC config not found: do/ic/${IC_ARG}.conf"
+            exit 1
+        fi
+        IC_DEPLOYED_NAME=""
+        source "${IC_CONF}"
+        if [ -z "${IC_DEPLOYED_NAME}" ]; then
+            echo "❌ IC '${IC_ARG}' has not been deployed yet. Run ./do/deploy --ic ${IC_ARG} first."
+            exit 1
+        fi
+        IC_NAME="${IC_DEPLOYED_NAME}"
+    elif [ -d "${SCRIPT_DIR}/ic" ]; then
+        # No argument, but do/ic/ exists — use first IC alphabetically
+        IC_NAME=""
+        for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+            [ -f "${conf}" ] || continue
+            IC_DEPLOYED_NAME=""
+            source "${conf}"
+            if [ -n "${IC_DEPLOYED_NAME}" ]; then
+                IC_NAME="${IC_DEPLOYED_NAME}"
+                break
+            fi
+        done
+        if [ -z "${IC_NAME}" ]; then
+            echo "❌ No ICs deployed. Run ./do/deploy first."
+            exit 1
+        fi
+    else
+        # Legacy: no do/ic/ directory, use INFERENCE_COMPONENT_NAME from do/config
+        IC_NAME="${INFERENCE_COMPONENT_NAME:-}"
+    fi
+
     INVOKE_ARGS=(
         --endpoint-name "${ENDPOINT_NAME}"
         --region "${AWS_REGION}"
@@ -285,12 +331,15 @@ if [ "${TEST_MODE}" = "local" ]; then
     echo "  • Push to ECR: ./do/push"
     echo "  • Deploy to SageMaker: ./do/deploy"
 else
-    echo "Endpoint is ready for production use!"
-    echo "  • Endpoint name: ${ENDPOINT_NAME}"
-    echo "  • Region: ${AWS_REGION}"
-    echo ""
-    echo "📝 Register this deployment:"
-    echo "  ./do/register"
+    echo "📋 What's next?"
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+    echo "   • Benchmark performance:      ./do/benchmark"
+<% } %>
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    echo "   • Add a LoRA adapter:         ./do/adapter add <name> --weights s3://..."
+<% } %>
+    echo "   • Register this deployment:   ./do/register"
+    echo "   • View logs:                  ./do/logs"
 fi
 
 <% } else if (deploymentTarget === 'async-inference') { %>
@@ -599,13 +648,13 @@ if [ "${TEST_MODE}" = "local" ]; then
     echo "  • Push to ECR: ./do/push"
     echo "  • Deploy to SageMaker: ./do/deploy"
 else
-    echo "Async endpoint is ready for production use!"
-    echo "  • Endpoint name: ${ENDPOINT_NAME}"
-    echo "  • Region: ${AWS_REGION}"
-    echo "  • S3 output: ${ASYNC_S3_OUTPUT_PATH}"
-    echo ""
-    echo "📝 Register this deployment:"
-    echo "  ./do/register"
+    echo "📋 What's next?"
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+    echo "   • Benchmark performance:      ./do/benchmark"
+<% } %>
+    echo "   • Check async output:         aws s3 ls ${ASYNC_S3_OUTPUT_PATH}"
+    echo "   • Register this deployment:   ./do/register"
+    echo "   • View logs:                  ./do/logs"
 fi
 
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
@@ -864,13 +913,14 @@ if [ "${TEST_TARGET}" = "local" ]; then
     echo "  • Push to ECR: ./do/push"
     echo "  • Deploy to HyperPod: ./do/deploy"
 else
-    echo "HyperPod deployment is ready for production use!"
-    echo "  • Cluster: ${HYPERPOD_CLUSTER_NAME}"
-    echo "  • Namespace: ${HYPERPOD_NAMESPACE}"
-    echo "  • Service: ${PROJECT_NAME}"
-    echo ""
-    echo "📝 Register this deployment:"
-    echo "  ./do/register"
+    echo "📋 What's next?"
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+    echo "   • Benchmark performance:      ./do/benchmark"
+<% } %>
+    echo "   • Check pod status:           kubectl get pods -n ${HYPERPOD_NAMESPACE}"
+    echo "   • View pod logs:              kubectl logs -n ${HYPERPOD_NAMESPACE} -l app=${PROJECT_NAME}"
+    echo "   • Register this deployment:   ./do/register"
+    echo "   • View logs:                  ./do/logs"
 fi
 
 <% } else if (deploymentTarget === 'batch-transform') { %>
@@ -950,8 +1000,10 @@ case "${TEST_TARGET}" in
                 echo ""
                 echo "✅ All tests passed!"
                 echo ""
-                echo "📝 Register this deployment:"
-                echo "  ./do/register"
+                echo "📋 What's next?"
+                echo "   • View results:               cat batch-output/"
+                echo "   • Register this deployment:   ./do/register"
+                echo "   • View logs:                  ./do/logs"
                 ;;
             InProgress)
                 echo "⏳ Transform job is still in progress"

@@ -1056,6 +1056,39 @@ export default class ConfigManager {
                 required: false,
                 default: null,
                 valueSpace: 'bounded'
+            },
+            enableLora: {
+                cliOption: 'enable-lora',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: false,
+                valueSpace: 'bounded'
+            },
+            maxLoras: {
+                cliOption: 'max-loras',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 30,
+                valueSpace: 'bounded'
+            },
+            maxLoraRank: {
+                cliOption: 'max-lora-rank',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: false,
+                promptable: true,
+                required: false,
+                default: 64,
+                valueSpace: 'bounded'
             }
         };
     }
@@ -1088,7 +1121,7 @@ export default class ConfigManager {
      */
     _parseValue(parameter, value) {
         // Handle boolean parameters
-        if (parameter === 'includeSampleModel' || parameter === 'includeTesting' || parameter === 'skipPrompts' || parameter === 'includeBenchmark' || parameter === 'benchmarkStreaming') {
+        if (parameter === 'includeSampleModel' || parameter === 'includeTesting' || parameter === 'skipPrompts' || parameter === 'includeBenchmark' || parameter === 'benchmarkStreaming' || parameter === 'enableLora') {
             return value === true || value === 'true';
         }
         
@@ -1923,6 +1956,12 @@ export default class ConfigManager {
                 // so it should normally be present
                 if (param === 'instanceType' && finalConfig.deploymentTarget === 'hyperpod-eks' && !finalConfig.instanceType) {
                     return; // Skip validation only if truly missing for backward compat
+                }
+
+                // Special case: instanceType is not required when attaching to an existing endpoint
+                // The instance type is inherited from the existing endpoint configuration
+                if (param === 'instanceType' && finalConfig.existingEndpointName) {
+                    return; // Skip validation — instance is inherited from existing endpoint
                 }
                 
                 if (isEmpty) {

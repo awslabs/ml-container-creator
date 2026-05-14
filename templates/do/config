@@ -10,6 +10,11 @@ export DEPLOYMENT_CONFIG="<%= deploymentConfig %>"
 export FRAMEWORK="<%= framework %>"
 export MODEL_SERVER="<%= modelServer %>"
 
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+# LoRA adapter serving
+export ENABLE_LORA=true
+<% } %>
+
 # AWS configuration
 export AWS_REGION="<%= awsRegion %>"
 export ECR_REPOSITORY_NAME="ml-container-creator"
@@ -26,12 +31,25 @@ export DEPLOYMENT_TARGET="<%= deploymentTarget %>"
 
 <% if (deploymentTarget === 'realtime-inference') { %>
 # SageMaker Real-Time Inference configuration
+<% if (typeof existingEndpointName !== 'undefined' && existingEndpointName) { %>
+# External endpoint — attaching IC to an existing running endpoint
+export ENDPOINT_NAME="<%= existingEndpointName %>"
+export ENDPOINT_EXTERNAL=true
+<% } else { %>
 export INSTANCE_TYPE="<%= instanceType %>"
+<% if (typeof instancePools !== 'undefined' && instancePools && instancePools.length > 1) { %>
+# Instance pools: heterogeneous instance types with priority-based fallback
+# Priority = selection order (1 = preferred, higher = fallback)
+export INSTANCE_POOLS='<%= JSON.stringify(instancePools) %>'
+<% } %>
 <% if (inferenceAmiVersion) { %>
 export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
 <% } %>
 <% if (typeof capacityReservationArn !== 'undefined' && capacityReservationArn) { %>
+# Note: Capacity reservations and instance pools (INSTANCE_POOLS) are mutually exclusive.
+# If both are set, the capacity reservation takes precedence and INSTANCE_POOLS is ignored.
 export CAPACITY_RESERVATION_ARN="<%= capacityReservationArn %>"
+<% } %>
 <% } %>
 <% } %>
 
@@ -222,7 +240,7 @@ export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage || '' %>}
 
 # Allow environment variable overrides
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
-<% if (deploymentTarget === 'realtime-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
+<% if ((deploymentTarget === 'realtime-inference' && !(typeof existingEndpointName !== 'undefined' && existingEndpointName)) || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 <% } %>
 export ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-ml-container-creator}
@@ -277,7 +295,11 @@ echo "   Model env vars: <%= Object.keys(modelEnvVars).length %>"
 echo "   Server env vars: <%= Object.keys(serverEnvVars).length %>"
 <% } %>
 <% if (deploymentTarget === 'realtime-inference') { %>
+<% if (typeof existingEndpointName !== 'undefined' && existingEndpointName) { %>
+echo "   Endpoint: ${ENDPOINT_NAME} (external)"
+<% } else { %>
 echo "   Instance: ${INSTANCE_TYPE}"
+<% } %>
 <% } else if (deploymentTarget === 'async-inference') { %>
 echo "   Instance: ${INSTANCE_TYPE}"
 echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"

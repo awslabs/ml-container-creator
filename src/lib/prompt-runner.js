@@ -18,8 +18,10 @@ import {
     modelLoadStrategyPrompts,
     modelProfilePrompts,
     modulePrompts,
+    loraPrompts,
     benchmarkPrompts,
     infraRegionAndTargetPrompts,
+    infraExistingEndpointPrompts,
     infraInstancePrompts,
     infraAsyncPrompts,
     infraBatchTransformPrompts,
@@ -29,7 +31,9 @@ import {
     destinationPrompts,
     baseImageSearchPrompts,
     baseImagePrompts,
-    formatImageChoices
+    formatImageChoices,
+    filterByCudaGeneration,
+    instanceCatalogRaw
 } from './prompts.js';
 
 import fs from 'fs';
@@ -187,12 +191,40 @@ export default class PromptRunner {
         // 3a. Region query
         await this._queryMcpForRegion(frameworkAnswers, explicitConfig);
 
+        // 3a2. Existing endpoint prompt (only for realtime-inference)
+        // Requirements: 3.3, 4.3, 4.4 — endpoint-picker MCP query
+        let existingEndpointAnswers = {};
+        if (regionAndTargetAnswers.deploymentTarget === 'realtime-inference') {
+            // Query endpoint-picker MCP server for available endpoints
+            const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
+            await this._queryMcpForEndpoints({ ...regionAndTargetAnswers, awsRegion: resolvedRegion }, explicitConfig);
+
+            const endpointPreviousAnswers = {
+                ...regionAndTargetAnswers,
+                ...(this._mcpEndpointChoices ? { _mcpEndpointChoices: this._mcpEndpointChoices } : {})
+            };
+            existingEndpointAnswers = await this._runPhase(
+                infraExistingEndpointPrompts,
+                endpointPreviousAnswers,
+                explicitConfig,
+                existingConfig
+            );
+
+            // Resolve custom endpoint name
+            if (existingEndpointAnswers.customExistingEndpointName) {
+                existingEndpointAnswers.existingEndpointName = existingEndpointAnswers.customExistingEndpointName;
+                delete existingEndpointAnswers.customExistingEndpointName;
+            }
+        }
+
         // 3b. Instance type — query instance-sizer with full context (model + profile + CUDA)
         let instanceAnswers = {};
-        const needsInstance = regionAndTargetAnswers.deploymentTarget === 'realtime-inference' ||
+        // Skip instance prompts when attaching to an existing endpoint (instance is inherited)
+        const useExistingEndpoint = !!(existingEndpointAnswers.existingEndpointName);
+        const needsInstance = !useExistingEndpoint && (regionAndTargetAnswers.deploymentTarget === 'realtime-inference' ||
             regionAndTargetAnswers.deploymentTarget === 'async-inference' ||
             regionAndTargetAnswers.deploymentTarget === 'batch-transform' ||
-            regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks';
+            regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks');
 
         if (needsInstance) {
             // Determine architecture type for heuristic fallback
@@ -229,6 +261,74 @@ export default class PromptRunner {
             // Apply architecture heuristic fallback when sizer returns empty
             if (!instanceAnswers.instanceType && !explicitConfig.instanceType && this._architectureHeuristicDefault) {
                 instanceAnswers.instanceType = this._architectureHeuristicDefault;
+            }
+
+            // Process multi-select instance type results (Requirements: 6.4)
+            // When user selects multiple instances via checkbox, derive instanceType and instancePools
+            if (instanceAnswers.instanceTypeSelections && instanceAnswers.instanceTypeSelections.length > 0) {
+                let selections = instanceAnswers.instanceTypeSelections.slice(0, 5); // Cap at 5 (API limit)
+
+                // Resolve custom input: replace __custom_input__ sentinel with parsed instances
+                if (selections.includes('__custom_input__') && instanceAnswers.customInstanceTypeSelections) {
+                    const customInstances = instanceAnswers.customInstanceTypeSelections
+                        .split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    // Remove the sentinel and any other MCP selections, replace with custom entries
+                    selections = selections.filter(s => s !== '__custom_input__');
+                    selections = [...selections, ...customInstances];
+                    delete instanceAnswers.customInstanceTypeSelections;
+                } else if (selections.includes('__custom_input__')) {
+                    // Sentinel selected but no custom input provided — remove it
+                    selections = selections.filter(s => s !== '__custom_input__');
+                }
+
+                // Cap at 5 after custom expansion
+                if (selections.length > 5) {
+                    console.log('   ⚠️  Maximum 5 instance types allowed. Using first 5 selections.');
+                    selections = selections.slice(0, 5);
+                }
+
+                // Filter to same CUDA generation and warn about incompatible removals
+                const { filtered, generation, removed } = filterByCudaGeneration(selections);
+                if (removed.length > 0) {
+                    console.log(`   ⚠️  Removed incompatible instances (different CUDA generation): ${removed.join(', ')}`);
+                    console.log(`   Keeping ${generation} generation: ${filtered.join(', ')}`);
+                }
+
+                const finalSelections = filtered.length > 0 ? filtered : selections;
+
+                if (finalSelections.length === 1) {
+                    // Single selection → standard single instance type (no pools)
+                    instanceAnswers.instanceType = finalSelections[0];
+                    console.log(`   ✓ Single instance selected: ${finalSelections[0]}`);
+                } else {
+                    // Multiple selections → instance pools with priority = selection order
+                    instanceAnswers.instanceType = finalSelections[0]; // backward compat: first is primary
+                    instanceAnswers.instancePools = finalSelections.map((it, idx) => ({
+                        InstanceType: it,
+                        Priority: idx + 1
+                    }));
+
+                    // Auto-generate multi-spec IC config from catalog
+                    instanceAnswers.instancePoolSpecs = finalSelections.map(it => {
+                        const entry = instanceCatalogRaw[it];
+                        return {
+                            instanceType: it,
+                            gpuCount: entry?.gpus || 1,
+                            minMemoryMb: entry?.gpuMemoryGb ? entry.gpuMemoryGb * 1024 : 1024
+                        };
+                    });
+
+                    console.log(`   ✓ Instance pools configured (${finalSelections.length} types):`);
+                    finalSelections.forEach((it, idx) => {
+                        const entry = instanceCatalogRaw[it];
+                        const gpus = entry?.gpus || '?';
+                        const mem = entry?.gpuMemoryGb || '?';
+                        console.log(`     Priority ${idx + 1}: ${it} (${gpus} GPUs, ${mem}GB GPU memory)`);
+                    });
+                }
+
+                // Clean up the raw selections from answers (not needed downstream)
+                delete instanceAnswers.instanceTypeSelections;
             }
         }
 
@@ -318,6 +418,7 @@ export default class PromptRunner {
         // Combine all infrastructure answers
         const infraAnswers = {
             ...regionAndTargetAnswers,
+            ...existingEndpointAnswers,
             ...instanceAnswers,
             ...asyncAnswers,
             ...batchTransformAnswers,
@@ -414,6 +515,14 @@ export default class PromptRunner {
             }
         }
 
+        // LoRA adapter prompts — only for transformers with vllm/sglang/djl-lmi
+        // Requirements: 1.1, 1.2, 1.4
+        let loraAnswers = {};
+        const loraSubAnswers = await this._runPhase(loraPrompts, { ...frameworkAnswers, ...engineAnswers }, explicitConfig, existingConfig);
+        if (loraSubAnswers.enableLora !== undefined) {
+            loraAnswers = loraSubAnswers;
+        }
+
         // Validate instance type against framework requirements (now that framework version is known)
         const finalInstanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;
         if (finalInstanceType && frameworkVersionAnswers.frameworkVersion) {
@@ -456,6 +565,7 @@ export default class PromptRunner {
             ...ngcApiKeyAnswers,
             ...moduleAnswers,
             ...benchmarkAnswers,
+            ...loraAnswers,
             ...projectAnswers,
             ...destinationAnswers,
             buildTimestamp
@@ -1083,6 +1193,11 @@ export default class PromptRunner {
 
                     console.log(`   ✓ ${choices.length} compatible instance(s) found${vramInfo}`);
 
+                    // Warn if all instances had zero quota but were restored for visibility
+                    if (parsed.metadata?.allFilteredByQuota) {
+                        console.log('   ⚠️  All instances have zero quota — request a quota increase for your preferred type');
+                    }
+
                     // Check if availability data is present (recommendations have capacityType)
                     const hasAvailabilityData = recommendations.some(r => r.capacityType);
 
@@ -1184,6 +1299,62 @@ export default class PromptRunner {
             } else {
                 console.log('   ↳ No HyperPod clusters found via MCP, manual entry available');
             }
+        }
+    }
+
+    /**
+     * Query the endpoint-picker MCP server for available InService real-time endpoints.
+     * Populates this._mcpEndpointChoices for the existing endpoint selection prompt.
+     * Graceful fallback: if MCP server fails (no credentials, timeout), skip and create new endpoint.
+     * Requirements: 3.3, 4.3, 4.4
+     * @private
+     */
+    async _queryMcpForEndpoints(infraAnswers, explicitConfig) {
+        const cm = this.configManager;
+        if (!cm) return;
+
+        const mcpServers = cm.getMcpServerNames();
+        if (!mcpServers.includes('endpoint-picker')) return;
+
+        // Skip if existing endpoint already provided via CLI/config
+        if (explicitConfig.existingEndpointName) return;
+
+        console.log('   🔍 Querying endpoint-picker...');
+
+        try {
+            const result = await cm.queryMcpServer('endpoint-picker', {
+                awsRegion: infraAnswers.awsRegion,
+                deploymentTarget: 'realtime-inference'
+            });
+
+            if (result && result.choices?.endpointName?.length > 0) {
+                const endpointNames = result.choices.endpointName;
+                const metadata = result.metadata || {};
+
+                // Build choices with metadata annotations
+                this._mcpEndpointChoices = endpointNames.map(name => {
+                    const meta = metadata[name];
+                    if (meta) {
+                        const gpuInfo = meta.availableGpus === '?' ? 'GPUs: ?' : `${meta.availableGpus} GPUs free`;
+                        return {
+                            name: `${name} (${meta.instanceType}, ${gpuInfo}, ${meta.icCount} IC${meta.icCount !== 1 ? 's' : ''})`,
+                            value: name
+                        };
+                    }
+                    return { name, value: name };
+                });
+
+                console.log(`   ✓ ${endpointNames.length} endpoint(s) with available capacity`);
+            } else {
+                if (result?.message) {
+                    console.log(`   ↳ ${result.message}`);
+                } else {
+                    console.log('   ↳ No endpoints with available capacity found');
+                }
+            }
+        } catch (err) {
+            // Graceful fallback: if MCP server fails, skip and create new endpoint
+            console.log(`   ⚠️  endpoint-picker: ${err.message || 'query failed'} — will create new endpoint`);
         }
     }
 

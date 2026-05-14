@@ -48,6 +48,69 @@ function loadInstanceTypeRegistry() {
 const instanceTypeRegistry = loadInstanceTypeRegistry();
 
 /**
+ * Load the raw instance catalog for GPU/CUDA generation lookups.
+ * Returns the full catalog entries keyed by instance type.
+ */
+function loadInstanceCatalogRaw() {
+    try {
+        const raw = readFileSync(instancesCatalogPath, 'utf8');
+        const catalog = JSON.parse(raw);
+        return catalog?.catalog || {};
+    } catch (error) {
+        return {};
+    }
+}
+
+const instanceCatalogRaw = loadInstanceCatalogRaw();
+
+/**
+ * Get the CUDA generation key for an instance type.
+ * Uses gpuArchitecture as the generation grouping (e.g., "Turing", "Ampere", "Hopper").
+ * Instances in the same generation share AMI compatibility.
+ * @param {string} instanceType - e.g., "ml.g5.xlarge"
+ * @returns {string|null} Generation key or null if not found/not GPU
+ */
+function getInstanceCudaGeneration(instanceType) {
+    const entry = instanceCatalogRaw[instanceType];
+    if (!entry) return null;
+    if (entry.acceleratorType !== 'cuda') return null;
+    return entry.gpuArchitecture || null;
+}
+
+/**
+ * Filter instance choices to only include instances from the same CUDA generation
+ * as the first (highest-priority) instance in the list.
+ * @param {string[]} instanceTypes - Array of instance type strings
+ * @returns {{ filtered: string[], generation: string|null, removed: string[] }}
+ */
+function filterByCudaGeneration(instanceTypes) {
+    if (!instanceTypes || instanceTypes.length === 0) {
+        return { filtered: [], generation: null, removed: [] };
+    }
+
+    // Find the generation of the first instance
+    const firstGen = getInstanceCudaGeneration(instanceTypes[0]);
+    if (!firstGen) {
+        // First instance not in catalog or not CUDA — return all (can't filter)
+        return { filtered: instanceTypes, generation: null, removed: [] };
+    }
+
+    const filtered = [];
+    const removed = [];
+    for (const it of instanceTypes) {
+        const gen = getInstanceCudaGeneration(it);
+        // Keep if same generation, or if not in catalog (don't block unknown types)
+        if (gen === firstGen || gen === null) {
+            filtered.push(it);
+        } else {
+            removed.push(it);
+        }
+    }
+
+    return { filtered, generation: firstGen, removed };
+}
+
+/**
  * Generate pseudo-randomized project name based on framework
  * @param {string} framework - The ML framework
  * @returns {string} Generated project name
@@ -698,12 +761,129 @@ const infraRegionAndTargetPrompts = [
     }
 ];
 
+// Sub-phase A2: Existing endpoint prompt (only when deploymentTarget === 'realtime-inference')
+const infraExistingEndpointPrompts = [
+    {
+        type: 'list',
+        name: 'useExistingEndpoint',
+        message: 'Deploy to an existing endpoint? (attach IC to running endpoint)',
+        choices: [
+            { name: 'No — create a new endpoint', value: 'no' },
+            { name: 'Yes — attach to an existing endpoint', value: 'yes' }
+        ],
+        default: 'no',
+        when: answers => answers.deploymentTarget === 'realtime-inference'
+    },
+    {
+        type: 'list',
+        name: 'existingEndpointName',
+        message: 'Select endpoint:',
+        choices: (answers) => {
+            const mcpChoices = answers._mcpEndpointChoices || [];
+            if (mcpChoices.length > 0) {
+                return [...mcpChoices, { name: 'Custom (enter manually)', value: 'custom' }];
+            }
+            return [{ name: 'Enter endpoint name manually', value: 'custom' }];
+        },
+        when: answers => answers.useExistingEndpoint === 'yes'
+    },
+    {
+        type: 'input',
+        name: 'customExistingEndpointName',
+        message: 'Enter existing endpoint name:',
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return 'Endpoint name is required';
+            }
+            return true;
+        },
+        when: answers => answers.useExistingEndpoint === 'yes' && answers.existingEndpointName === 'custom'
+    }
+];
+
 // Sub-phase B: Instance type (only when deploymentTarget === 'realtime-inference')
 const infraInstancePrompts = [
+    // Multi-select prompt: shown when MCP sizer has choices AND deployment target is realtime-inference
+    // User can select 1-5 instances; selection count determines single-type vs instance-pools behavior
+    // Requirements: 6.4
+    {
+        type: 'checkbox',
+        name: 'instanceTypeSelections',
+        when: answers => answers.deploymentTarget === 'realtime-inference' &&
+            answers._mcpInstanceChoices && answers._mcpInstanceChoices.length > 1,
+        message: 'Select instance type(s) — select multiple for instance pools (priority = selection order, max 5):',
+        choices: (answers) => {
+            const mcpChoices = answers._mcpInstanceChoices || [];
+            // Show all compatible instances — CUDA generation filtering happens
+            // after selection to allow users to see all options and make informed choices.
+            // If they select instances from different generations, the post-selection
+            // filter (filterByCudaGeneration in prompt-runner.js) will warn and remove incompatible ones.
+            const choices = mcpChoices.map(instanceType => {
+                const entry = instanceCatalogRaw[instanceType];
+                const gpuInfo = entry ? `${entry.gpus} GPU${entry.gpus > 1 ? 's' : ''}, ${entry.gpuMemoryGb || '?'}GB` : '';
+                return {
+                    name: gpuInfo ? `${instanceType} (${gpuInfo})` : instanceType,
+                    value: instanceType,
+                    short: instanceType
+                };
+            });
+            // Always include a "Custom Input" option at the end
+            choices.push({
+                name: 'Custom Input (enter one or comma-separated list)',
+                value: '__custom_input__',
+                short: 'Custom'
+            });
+            return choices;
+        },
+        validate: (input) => {
+            if (!input || input.length === 0) {
+                return 'Select at least one instance type';
+            }
+            if (input.length > 5) {
+                return 'Maximum 5 instance types allowed (API limit). Please deselect some.';
+            }
+            return true;
+        }
+    },
+    // Custom input prompt for multi-select: shown when user selects "Custom Input" in instanceTypeSelections
+    {
+        type: 'input',
+        name: 'customInstanceTypeSelections',
+        message: 'Enter instance type(s) — single for homogeneous, comma-separated for heterogeneous (e.g., ml.g5.xlarge or ml.g5.xlarge,ml.g5.2xlarge):',
+        when: answers => Array.isArray(answers.instanceTypeSelections) &&
+            answers.instanceTypeSelections.includes('__custom_input__'),
+        validate: (input) => {
+            if (!input || input.trim() === '') {
+                return 'At least one instance type is required';
+            }
+            const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
+            const instances = input.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            if (instances.length === 0) {
+                return 'At least one instance type is required';
+            }
+            if (instances.length > 5) {
+                return 'Maximum 5 instance types allowed (API limit).';
+            }
+            for (const inst of instances) {
+                if (!instancePattern.test(inst)) {
+                    return `Invalid instance type format: "${inst}". Expected format: ml.{family}.{size} (e.g., ml.g5.xlarge)`;
+                }
+            }
+            return true;
+        }
+    },
+    // Single-select prompt: shown when no MCP choices, or for non-realtime targets, or only 1 MCP choice
     {
         type: 'list',
         name: 'instanceType',
-        when: answers => answers.deploymentTarget === 'realtime-inference' || answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform' || answers.deploymentTarget === 'hyperpod-eks',
+        when: answers => {
+            // Skip if multi-select was shown (realtime with multiple MCP choices)
+            if (answers.deploymentTarget === 'realtime-inference' &&
+                answers._mcpInstanceChoices && answers._mcpInstanceChoices.length > 1) {
+                return false;
+            }
+            return answers.deploymentTarget === 'realtime-inference' || answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform' || answers.deploymentTarget === 'hyperpod-eks';
+        },
         message: (answers) => {
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
 
@@ -1122,6 +1302,41 @@ const baseImagePrompts = [
 ];
 
 /**
+ * LoRA adapter prompts for multi-adapter serving configuration.
+ * Only shown when architecture is transformers AND model server is vllm, sglang, or djl-lmi.
+ * Requirements: 1.1, 1.2, 1.4
+ */
+const loraPrompts = [
+    {
+        type: 'confirm',
+        name: 'enableLora',
+        message: 'Enable LoRA adapter serving?',
+        default: false,
+        when: (answers) => {
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
+            const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-');
+            if (architecture !== 'transformers') return false;
+            const loraCapableServers = ['vllm', 'sglang', 'djl-lmi', 'lmi', 'djl'];
+            return loraCapableServers.includes(backend);
+        }
+    },
+    {
+        type: 'number',
+        name: 'maxLoras',
+        message: 'Maximum concurrent LoRA adapters in GPU memory:',
+        default: 30,
+        when: (answers) => answers.enableLora === true
+    },
+    {
+        type: 'number',
+        name: 'maxLoraRank',
+        message: 'Maximum LoRA rank:',
+        default: 64,
+        when: (answers) => answers.enableLora === true
+    }
+];
+
+/**
  * Benchmark prompts for SageMaker AI Benchmarking (NVIDIA AIPerf)
  * Sub-prompts shown when 'sagemaker-ai-automated-benchmarking' is selected in testTypes.
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
@@ -1184,9 +1399,11 @@ export {
     hfTokenPrompts,
     ngcApiKeyPrompts,
     modulePrompts,
+    loraPrompts,
     benchmarkPrompts,
     infrastructurePrompts,
     infraRegionAndTargetPrompts,
+    infraExistingEndpointPrompts,
     infraInstancePrompts,
     infraAsyncPrompts,
     infraBatchTransformPrompts,
@@ -1196,5 +1413,8 @@ export {
     destinationPrompts,
     baseImageSearchPrompts,
     baseImagePrompts,
-    formatImageChoices
+    formatImageChoices,
+    filterByCudaGeneration,
+    getInstanceCudaGeneration,
+    instanceCatalogRaw
 };

@@ -12,20 +12,27 @@ source "${SCRIPT_DIR}/config"
 
 # Parse arguments
 CLEANUP_TARGET=""
+CLEANUP_ARG=""
 FORCE_CLEAN=false
 
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE_CLEAN=true ;;
         -*) ;; # ignore other flags
-        *) CLEANUP_TARGET="$arg" ;;
+        *)
+            if [ -z "${CLEANUP_TARGET}" ]; then
+                CLEANUP_TARGET="$arg"
+            elif [ -z "${CLEANUP_ARG}" ]; then
+                CLEANUP_ARG="$arg"
+            fi
+            ;;
     esac
 done
 
 # Function to display usage
 show_usage() {
 <% if (deploymentTarget === 'realtime-inference') { %>
-    echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
+    echo "Usage: ./do/clean [local|ecr|endpoint|ic <name>|adapter <name>|adapters|codebuild|all]"
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "Usage: ./do/clean [local|ecr|endpoint|codebuild|all]"
 <% } else if (deploymentTarget === 'batch-transform') { %>
@@ -38,7 +45,12 @@ show_usage() {
     echo "  local     - Remove local Docker images"
     echo "  ecr       - Remove images from Amazon ECR"
 <% if (deploymentTarget === 'realtime-inference') { %>
-    echo "  endpoint  - Delete SageMaker endpoint, configuration, and model"
+    echo "  endpoint  - Delete SageMaker endpoint, configuration, and inference components"
+    echo "  ic <name> - Delete a single inference component (does not touch the endpoint)"
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    echo "  adapter <name> - Delete a single LoRA adapter (synonym for do/adapter remove)"
+    echo "  adapters       - Remove ALL LoRA adapters (keeps base IC and endpoint running)"
+<% } %>
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "  endpoint  - Delete SageMaker async endpoint, configuration, and inference component"
 <% } else if (deploymentTarget === 'batch-transform') { %>
@@ -53,6 +65,11 @@ show_usage() {
     echo "  ./do/clean local      # Remove local Docker images only"
 <% if (deploymentTarget === 'realtime-inference') { %>
     echo "  ./do/clean endpoint   # Delete SageMaker resources only"
+    echo "  ./do/clean ic llama   # Delete a single inference component"
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    echo "  ./do/clean adapter ectsum  # Delete a single LoRA adapter"
+    echo "  ./do/clean adapters        # Remove all LoRA adapters"
+<% } %>
 <% } else if (deploymentTarget === 'async-inference') { %>
     echo "  ./do/clean endpoint   # Delete SageMaker async resources only"
 <% } else if (deploymentTarget === 'batch-transform') { %>
@@ -150,19 +167,19 @@ clean_ecr() {
     if ! IMAGE_IDS=$(aws ecr list-images \
         --repository-name "${ECR_REPOSITORY_NAME}" \
         --region "${AWS_REGION}" \
-        --query 'imageIds[*].[imageTag]' \
+        --query "imageIds[?starts_with(imageTag, '${PROJECT_NAME}-')].[imageTag]" \
         --output text 2>&1); then
-        echo "ℹ️  No images found in repository"
+        echo "ℹ️  No images found for project: ${PROJECT_NAME}"
         return 0
     fi
     
     if [ -z "${IMAGE_IDS}" ] || [ "${IMAGE_IDS}" = "None" ]; then
-        echo "ℹ️  No images found in repository"
+        echo "ℹ️  No images found for project: ${PROJECT_NAME}"
         return 0
     fi
     
     # Display images
-    echo "Images in repository:"
+    echo "Images for project ${PROJECT_NAME}:"
     echo "${IMAGE_IDS}" | while read -r tag; do
         if [ -n "${tag}" ] && [ "${tag}" != "None" ]; then
             echo "   - ${tag}"
@@ -176,25 +193,25 @@ clean_ecr() {
     # Remove images
     echo "🗑️  Removing ECR images..."
     
-    # Get image IDs in JSON format for batch delete
+    # Only delete images tagged with this project's name (not all images in the shared repo)
     IMAGE_IDS_JSON=$(aws ecr list-images \
         --repository-name "${ECR_REPOSITORY_NAME}" \
         --region "${AWS_REGION}" \
-        --query 'imageIds' \
+        --query "imageIds[?starts_with(imageTag, '${PROJECT_NAME}-')]" \
         --output json)
     
-    if [ "${IMAGE_IDS_JSON}" != "[]" ]; then
+    if [ "${IMAGE_IDS_JSON}" != "[]" ] && [ -n "${IMAGE_IDS_JSON}" ]; then
         if aws ecr batch-delete-image \
             --repository-name "${ECR_REPOSITORY_NAME}" \
             --region "${AWS_REGION}" \
             --image-ids "${IMAGE_IDS_JSON}" &> /dev/null; then
-            echo "✅ ECR images removed"
+            echo "✅ ECR images removed for project: ${PROJECT_NAME}"
         else
             echo "❌ Failed to remove some ECR images"
             return 1
         fi
     else
-        echo "ℹ️  No images to remove"
+        echo "ℹ️  No images to remove for project: ${PROJECT_NAME}"
     fi
 }
 
@@ -225,6 +242,122 @@ clean_endpoint() {
         return 1
     fi
 
+    # External endpoint: only remove inference components, not the endpoint itself
+    if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
+        echo ""
+        echo "⚠️  Endpoint is external — only removing inference components"
+        echo "   Endpoint ${EP_NAME} will NOT be deleted (managed externally)."
+        echo ""
+
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+        # Delete adapter ICs first (adapters depend on base ICs)
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            local ADAPTER_COUNT=0
+            for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${adapter_conf}" ] || continue
+                ADAPTER_COUNT=$((ADAPTER_COUNT + 1))
+            done
+
+            if [ "${ADAPTER_COUNT}" -gt 0 ]; then
+                echo "🔌 Deleting ${ADAPTER_COUNT} LoRA adapter(s) first..."
+                for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                    [ -f "${adapter_conf}" ] || continue
+                    local adapter_ic_name=""
+                    adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${adapter_conf}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+                    local adapter_display_name
+                    adapter_display_name=$(basename "${adapter_conf}" .conf)
+
+                    if [ -n "${adapter_ic_name}" ]; then
+                        echo "🗑️  Deleting adapter: ${adapter_display_name} (${adapter_ic_name})"
+                        if aws sagemaker delete-inference-component \
+                            --inference-component-name "${adapter_ic_name}" \
+                            --region "${AWS_REGION}" 2>/dev/null; then
+                            echo "⏳ Waiting for adapter deletion..."
+                            aws sagemaker wait inference-component-deleted \
+                                --inference-component-name "${adapter_ic_name}" \
+                                --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                            echo "✅ Adapter deleted: ${adapter_display_name}"
+
+                            # Mark adapter IC as deleted in manifest (non-blocking)
+                            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${adapter_ic_name}" 2>/dev/null || true
+                        else
+                            echo "⚠️  Failed to delete adapter IC: ${adapter_ic_name} (may already be gone)"
+                        fi
+                    fi
+
+                    # Remove adapter conf file
+                    rm -f "${adapter_conf}"
+                done
+                echo "✅ All adapters deleted"
+                echo ""
+            fi
+        fi
+
+<% } %>
+        # Iterate do/ic/*.conf and delete each IC owned by this project
+        local IC_DELETED=0
+        if [ -d "${SCRIPT_DIR}/ic" ]; then
+            for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                [ -f "${conf}" ] || continue
+                local ic_deployed_name=""
+                if grep -q "^export IC_DEPLOYED_NAME=" "${conf}" 2>/dev/null; then
+                    ic_deployed_name=$(grep "^export IC_DEPLOYED_NAME=" "${conf}" | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//')
+                fi
+                if [ -n "${ic_deployed_name}" ]; then
+                    echo "🗑️  Deleting inference component: ${ic_deployed_name}"
+                    if aws sagemaker delete-inference-component \
+                        --inference-component-name "${ic_deployed_name}" \
+                        --region "${AWS_REGION}" 2>/dev/null; then
+                        echo "⏳ Waiting for inference component deletion..."
+                        aws sagemaker wait inference-component-deleted \
+                            --inference-component-name "${ic_deployed_name}" \
+                            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                        echo "✅ Inference component deleted: ${ic_deployed_name}"
+
+                        # Mark inference component as deleted in manifest (non-blocking)
+                        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${ic_deployed_name}" 2>/dev/null || true
+
+                        # Clear deployed state from config
+                        sed -i.bak '/^export IC_DEPLOYED_NAME=/d;/^export IC_DEPLOYED_AT=/d' "${conf}"
+                        rm -f "${conf}.bak"
+                    else
+                        echo "⚠️  Failed to delete inference component: ${ic_deployed_name}"
+                    fi
+                    IC_DELETED=$((IC_DELETED + 1))
+                fi
+            done
+        fi
+
+        # Also handle legacy single IC from config
+        if [ -n "${IC_NAME}" ]; then
+            if aws sagemaker describe-inference-component \
+                --inference-component-name "${IC_NAME}" \
+                --region "${AWS_REGION}" &> /dev/null; then
+                echo "🗑️  Deleting inference component: ${IC_NAME}"
+                if aws sagemaker delete-inference-component \
+                    --inference-component-name "${IC_NAME}" \
+                    --region "${AWS_REGION}" 2>/dev/null; then
+                    echo "⏳ Waiting for inference component deletion..."
+                    aws sagemaker wait inference-component-deleted \
+                        --inference-component-name "${IC_NAME}" \
+                        --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                    echo "✅ Inference component deleted: ${IC_NAME}"
+
+                    # Mark inference component as deleted in manifest (non-blocking)
+                    ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${IC_NAME}" 2>/dev/null || true
+                fi
+                IC_DELETED=$((IC_DELETED + 1))
+            fi
+        fi
+
+        if [ "${IC_DELETED}" -eq 0 ]; then
+            echo "ℹ️  No deployed inference components found to clean"
+        fi
+
+        echo "✅ External endpoint cleanup complete (endpoint preserved)"
+        return 0
+    fi
+
     echo ""
     echo "Checking for SageMaker resources..."
 
@@ -240,23 +373,125 @@ clean_endpoint() {
         return 0
     fi
 
-    # Check for inference component
+    # Count ICs to be deleted (multi-IC path)
+    local IC_COUNT=0
+    local IC_NAMES_TO_DELETE=()
+    local IC_CONFS_TO_CLEAN=()
+
+    if [ -d "${SCRIPT_DIR}/ic" ]; then
+        for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+            [ -f "${conf}" ] || continue
+            local ic_deployed_name=""
+            if grep -q "^export IC_DEPLOYED_NAME=" "${conf}" 2>/dev/null; then
+                ic_deployed_name=$(grep "^export IC_DEPLOYED_NAME=" "${conf}" | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//')
+            fi
+            if [ -n "${ic_deployed_name}" ]; then
+                IC_NAMES_TO_DELETE+=("${ic_deployed_name}")
+                IC_CONFS_TO_CLEAN+=("${conf}")
+                IC_COUNT=$((IC_COUNT + 1))
+                echo "   ✓ Inference component: ${ic_deployed_name}"
+            fi
+        done
+    fi
+
+    # Legacy: check single IC from config (no do/ic/ directory)
     local IC_EXISTS=false
-    if [ -n "${IC_NAME}" ]; then
+    if [ "${IC_COUNT}" -eq 0 ] && [ -n "${IC_NAME}" ]; then
         if aws sagemaker describe-inference-component \
             --inference-component-name "${IC_NAME}" \
             --region "${AWS_REGION}" &> /dev/null; then
             IC_EXISTS=true
+            IC_COUNT=1
             echo "   ✓ Inference component: ${IC_NAME}"
         fi
     fi
 
-    if ! confirm_action "This will delete the SageMaker endpoint and inference component(s)"; then
+    # Confirmation with IC count
+    local confirm_msg="Delete ${IC_COUNT} inference component"
+    if [ "${IC_COUNT}" -ne 1 ]; then
+        confirm_msg="${confirm_msg}s"
+    fi
+    confirm_msg="${confirm_msg} and endpoint?"
+
+    if ! confirm_action "${confirm_msg}"; then
         return 1
     fi
 
-    # Delete inference component first (must be deleted before endpoint)
-    if [ "${IC_EXISTS}" = true ]; then
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    # Delete adapter ICs first (adapters depend on base ICs)
+    if [ -d "${SCRIPT_DIR}/adapters" ]; then
+        local ADAPTER_COUNT=0
+        for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+            [ -f "${adapter_conf}" ] || continue
+            ADAPTER_COUNT=$((ADAPTER_COUNT + 1))
+        done
+
+        if [ "${ADAPTER_COUNT}" -gt 0 ]; then
+            echo ""
+            echo "🔌 Deleting ${ADAPTER_COUNT} LoRA adapter(s) first..."
+            for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${adapter_conf}" ] || continue
+                local adapter_ic_name=""
+                adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${adapter_conf}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+                local adapter_display_name
+                adapter_display_name=$(basename "${adapter_conf}" .conf)
+
+                if [ -n "${adapter_ic_name}" ]; then
+                    echo "🗑️  Deleting adapter: ${adapter_display_name} (${adapter_ic_name})"
+                    if aws sagemaker delete-inference-component \
+                        --inference-component-name "${adapter_ic_name}" \
+                        --region "${AWS_REGION}" 2>/dev/null; then
+                        echo "⏳ Waiting for adapter deletion..."
+                        aws sagemaker wait inference-component-deleted \
+                            --inference-component-name "${adapter_ic_name}" \
+                            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                        echo "✅ Adapter deleted: ${adapter_display_name}"
+
+                        # Mark adapter IC as deleted in manifest (non-blocking)
+                        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${adapter_ic_name}" 2>/dev/null || true
+                    else
+                        echo "⚠️  Failed to delete adapter IC: ${adapter_ic_name} (may already be gone)"
+                    fi
+                fi
+
+                # Remove adapter conf file
+                rm -f "${adapter_conf}"
+            done
+            echo "✅ All adapters deleted"
+            echo ""
+        fi
+    fi
+
+<% } %>
+    # Delete inference components first (must be deleted before endpoint)
+    if [ ${#IC_NAMES_TO_DELETE[@]} -gt 0 ]; then
+        # Multi-IC path: iterate do/ic/*.conf
+        local idx=0
+        for ic_deployed_name in "${IC_NAMES_TO_DELETE[@]}"; do
+            local conf="${IC_CONFS_TO_CLEAN[$idx]}"
+            echo "🗑️  Deleting inference component: ${ic_deployed_name}"
+            if aws sagemaker delete-inference-component \
+                --inference-component-name "${ic_deployed_name}" \
+                --region "${AWS_REGION}" 2>/dev/null; then
+                echo "⏳ Waiting for inference component deletion..."
+                aws sagemaker wait inference-component-deleted \
+                    --inference-component-name "${ic_deployed_name}" \
+                    --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                echo "✅ Inference component deleted: ${ic_deployed_name}"
+
+                # Mark inference component as deleted in manifest (non-blocking)
+                ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${ic_deployed_name}" 2>/dev/null || true
+
+                # Clear deployed state from config
+                sed -i.bak '/^export IC_DEPLOYED_NAME=/d;/^export IC_DEPLOYED_AT=/d' "${conf}"
+                rm -f "${conf}.bak"
+            else
+                echo "❌ Failed to delete inference component: ${ic_deployed_name}"
+            fi
+            idx=$((idx + 1))
+        done
+    elif [ "${IC_EXISTS}" = true ]; then
+        # Legacy single IC path
         echo "🗑️  Deleting inference component: ${IC_NAME}"
         if aws sagemaker delete-inference-component \
             --inference-component-name "${IC_NAME}" \
@@ -314,6 +549,250 @@ clean_endpoint() {
     
     echo "✅ SageMaker resources cleaned"
 }
+
+# Function to clean a single inference component by name
+clean_ic() {
+    local ic_name="$1"
+    echo "🧹 Cleaning inference component: ${ic_name}"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+
+    # Validate IC name argument
+    if [ -z "${ic_name}" ]; then
+        echo "❌ IC name required"
+        echo "   Usage: ./do/clean ic <name>"
+        return 1
+    fi
+
+    # Check that the IC config file exists
+    local ic_conf="${SCRIPT_DIR}/ic/${ic_name}.conf"
+    if [ ! -f "${ic_conf}" ]; then
+        echo "❌ IC config not found: do/ic/${ic_name}.conf"
+        echo "   Available ICs:"
+        if [ -d "${SCRIPT_DIR}/ic" ]; then
+            for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                [ -f "${conf}" ] || continue
+                echo "     - $(basename "${conf}" .conf)"
+            done
+        else
+            echo "     (none)"
+        fi
+        return 1
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Look up IC_DEPLOYED_NAME from the config file
+    local ic_deployed_name=""
+    if grep -q "^export IC_DEPLOYED_NAME=" "${ic_conf}" 2>/dev/null; then
+        ic_deployed_name=$(grep "^export IC_DEPLOYED_NAME=" "${ic_conf}" | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//')
+    fi
+
+    if [ -z "${ic_deployed_name}" ]; then
+        echo "ℹ️  IC '${ic_name}' has not been deployed (no IC_DEPLOYED_NAME in config)"
+        return 0
+    fi
+
+    echo "   Deployed as: ${ic_deployed_name}"
+
+    if ! confirm_action "This will delete inference component '${ic_deployed_name}'"; then
+        return 1
+    fi
+
+    # Delete the inference component
+    echo "🗑️  Deleting inference component: ${ic_deployed_name}"
+    if aws sagemaker delete-inference-component \
+        --inference-component-name "${ic_deployed_name}" \
+        --region "${AWS_REGION}" 2>/dev/null; then
+        echo "⏳ Waiting for inference component deletion..."
+        aws sagemaker wait inference-component-deleted \
+            --inference-component-name "${ic_deployed_name}" \
+            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+        echo "✅ Inference component deleted: ${ic_deployed_name}"
+
+        # Mark inference component as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${ic_deployed_name}" 2>/dev/null || true
+
+        # Clear deployed state from config
+        sed -i.bak '/^export IC_DEPLOYED_NAME=/d;/^export IC_DEPLOYED_AT=/d' "${ic_conf}"
+        rm -f "${ic_conf}.bak"
+    else
+        echo "❌ Failed to delete inference component: ${ic_deployed_name}"
+        return 1
+    fi
+
+    echo "✅ Inference component '${ic_name}' cleaned"
+}
+
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+# Function to clean a single LoRA adapter by name (synonym for do/adapter remove)
+clean_adapter() {
+    local adapter_name="$1"
+    echo "🧹 Cleaning LoRA adapter: ${adapter_name}"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+
+    # Validate adapter name argument
+    if [ -z "${adapter_name}" ]; then
+        echo "❌ Adapter name required"
+        echo "   Usage: ./do/clean adapter <name>"
+        return 1
+    fi
+
+    # Check that the adapter config file exists
+    local adapter_conf="${SCRIPT_DIR}/adapters/${adapter_name}.conf"
+    if [ ! -f "${adapter_conf}" ]; then
+        echo "❌ Adapter config not found: do/adapters/${adapter_name}.conf"
+        echo "   Available adapters:"
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${conf}" ] || continue
+                echo "     - $(basename "${conf}" .conf)"
+            done
+        else
+            echo "     (none)"
+        fi
+        return 1
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Read ADAPTER_IC_NAME from the config file
+    local adapter_ic_name=""
+    adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${adapter_conf}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//')
+
+    if [ -z "${adapter_ic_name}" ]; then
+        echo "⚠️  No ADAPTER_IC_NAME found in do/adapters/${adapter_name}.conf"
+        echo "   Removing local config file."
+        rm -f "${adapter_conf}"
+        return 0
+    fi
+
+    echo "   Adapter IC: ${adapter_ic_name}"
+
+    if ! confirm_action "This will delete LoRA adapter '${adapter_name}' (IC: ${adapter_ic_name})"; then
+        return 1
+    fi
+
+    # Delete the adapter inference component
+    echo "🗑️  Deleting adapter inference component: ${adapter_ic_name}"
+    if aws sagemaker delete-inference-component \
+        --inference-component-name "${adapter_ic_name}" \
+        --region "${AWS_REGION}" 2>/dev/null; then
+        echo "⏳ Waiting for adapter IC deletion..."
+        aws sagemaker wait inference-component-deleted \
+            --inference-component-name "${adapter_ic_name}" \
+            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+        echo "✅ Adapter IC deleted: ${adapter_ic_name}"
+
+        # Mark adapter IC as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${adapter_ic_name}" 2>/dev/null || true
+    else
+        echo "⚠️  Failed to delete adapter IC: ${adapter_ic_name} (may already be gone)"
+    fi
+
+    # Remove local conf file
+    rm -f "${adapter_conf}"
+    echo "✅ Removed: do/adapters/${adapter_name}.conf"
+
+    echo "✅ Adapter '${adapter_name}' cleaned"
+}
+
+# Function to clean ALL LoRA adapters (keeps base IC and endpoint running)
+clean_adapters() {
+    echo "🧹 Cleaning all LoRA adapters"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+
+    # Check if adapters directory exists and has conf files
+    if [ ! -d "${SCRIPT_DIR}/adapters" ]; then
+        echo "ℹ️  No adapters directory found"
+        return 0
+    fi
+
+    local ADAPTER_COUNT=0
+    local ADAPTER_NAMES=()
+    for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+        [ -f "${conf}" ] || continue
+        ADAPTER_COUNT=$((ADAPTER_COUNT + 1))
+        ADAPTER_NAMES+=("$(basename "${conf}" .conf)")
+    done
+
+    if [ "${ADAPTER_COUNT}" -eq 0 ]; then
+        echo "ℹ️  No adapters found to clean"
+        return 0
+    fi
+
+    echo ""
+    echo "Adapters to be removed (${ADAPTER_COUNT}):"
+    for name in "${ADAPTER_NAMES[@]}"; do
+        echo "   • ${name}"
+    done
+
+    if ! confirm_action "This will delete ${ADAPTER_COUNT} LoRA adapter(s). Base IC and endpoint will remain running."; then
+        return 1
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Delete each adapter
+    local DELETED=0
+    for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+        [ -f "${adapter_conf}" ] || continue
+        local adapter_ic_name=""
+        adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${adapter_conf}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+        local adapter_display_name
+        adapter_display_name=$(basename "${adapter_conf}" .conf)
+
+        if [ -n "${adapter_ic_name}" ]; then
+            echo "🗑️  Deleting adapter: ${adapter_display_name} (${adapter_ic_name})"
+            if aws sagemaker delete-inference-component \
+                --inference-component-name "${adapter_ic_name}" \
+                --region "${AWS_REGION}" 2>/dev/null; then
+                echo "⏳ Waiting for adapter deletion..."
+                aws sagemaker wait inference-component-deleted \
+                    --inference-component-name "${adapter_ic_name}" \
+                    --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                echo "✅ Adapter deleted: ${adapter_display_name}"
+
+                # Mark adapter IC as deleted in manifest (non-blocking)
+                ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${adapter_ic_name}" 2>/dev/null || true
+            else
+                echo "⚠️  Failed to delete adapter IC: ${adapter_ic_name} (may already be gone)"
+            fi
+        fi
+
+        # Remove adapter conf file
+        rm -f "${adapter_conf}"
+        DELETED=$((DELETED + 1))
+    done
+
+    echo ""
+    echo "✅ All adapters cleaned (${DELETED} removed)"
+    echo "   Base IC and endpoint remain running."
+}
+<% } %>
 <% } else if (deploymentTarget === 'async-inference') { %>
 # Function to clean SageMaker async endpoint and model
 clean_endpoint() {
@@ -724,6 +1203,17 @@ case "${CLEANUP_TARGET}" in
     endpoint)
         clean_endpoint
         ;;
+    ic)
+        clean_ic "${CLEANUP_ARG}"
+        ;;
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    adapter)
+        clean_adapter "${CLEANUP_ARG}"
+        ;;
+    adapters)
+        clean_adapters
+        ;;
+<% } %>
 <% } else if (deploymentTarget === 'async-inference') { %>
     endpoint)
         clean_endpoint

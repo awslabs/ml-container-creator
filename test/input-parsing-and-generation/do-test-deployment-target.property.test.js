@@ -326,10 +326,10 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
                 const output = renderTest(vars);
 
                 if (deploymentTarget === 'realtime-inference') {
-                    // realtime-inference uses endpoint name as argument
+                    // realtime-inference uses IC name as optional argument
                     assert.ok(
-                        output.includes('ENDPOINT_NAME="${1:-'),
-                        'realtime-inference must parse endpoint name from argument'
+                        output.includes('IC_ARG="${1:-'),
+                        'realtime-inference must parse IC name from argument'
                     );
                     assert.ok(
                         output.includes('Deploy to SageMaker'),

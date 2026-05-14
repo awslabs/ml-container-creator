@@ -15,7 +15,12 @@ servers/
 │   ├── test.js                 # Standalone tests (node test.js)
 │   ├── package.json
 │   └── LICENSE
-└── region-picker/              # AWS region suggestion server
+├── region-picker/              # AWS region suggestion server
+│   ├── index.js                # MCP server entry point
+│   ├── test.js                 # Standalone tests (node test.js)
+│   ├── package.json
+│   └── LICENSE
+└── endpoint-picker/            # SageMaker endpoint discovery server
     ├── index.js                # MCP server entry point
     ├── test.js                 # Standalone tests (node test.js)
     ├── package.json
@@ -71,6 +76,39 @@ Suggests AWS regions for SageMaker deployments based on a search term. Filters t
 {
   "values": { "awsRegion": "eu-west-1" },
   "choices": { "awsRegion": ["eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1"] }
+}
+```
+
+### endpoint-picker
+
+Discovers InService SageMaker real-time endpoints with available GPU capacity for attaching new inference components. Uses `ListEndpoints`, `DescribeEndpoint`, and `ListInferenceComponents` to calculate available capacity.
+
+**Discover mode:** Queries the SageMaker API using a 3-strategy credential fallback (explicit profile → default chain → detect profiles). No static mode — always requires AWS credentials.
+
+**Tool:** `get_inference_endpoints`
+
+| Input Field | Type | Description |
+|-------------|------|-------------|
+| `parameters` | `string[]` | Must include `"endpointName"` to get results |
+| `limit` | `number` | Max endpoints to return (default: 10) |
+| `context` | `object` | `awsRegion`, `awsProfile`, `deploymentTarget` (must be `realtime-inference`) |
+
+**Example response:**
+
+```json
+{
+  "values": { "endpointName": "my-endpoint-1234567890" },
+  "choices": { "endpointName": ["my-endpoint-1234567890", "prod-llm-endpoint"] },
+  "metadata": {
+    "my-endpoint-1234567890": {
+      "variantName": "AllTraffic",
+      "instanceType": "ml.g6e.48xlarge",
+      "instanceCount": 1,
+      "icCount": 2,
+      "availableGpus": 4,
+      "hasInstancePools": false
+    }
+  }
 }
 ```
 
@@ -297,6 +335,7 @@ The Bedrock API didn't respond within 10 seconds. This usually means network con
 ```bash
 node servers/region-picker/test.js
 node servers/instance-recommender/test.js
+node servers/endpoint-picker/test.js
 ```
 
 ### Smart Mode Not Activating
@@ -313,6 +352,7 @@ Each server has standalone tests that run without AWS credentials or network acc
 # Run individual server tests
 node servers/region-picker/test.js
 node servers/instance-recommender/test.js
+node servers/endpoint-picker/test.js
 
 # Run all server tests from the project root
 npm run test:servers

@@ -1,0 +1,14 @@
+{
+    "name": "@amzn/ml-container-creator-endpoint-picker",
+    "version": "1.0.0",
+    "description": "Discovers InService SageMaker real-time endpoints for IC attachment.",
+    "modes": {
+        "static": false,
+        "smart": false,
+        "discover": true
+    },
+    "catalogs": {},
+    "tool": {
+        "name": "get_inference_endpoints"
+    }
+}

@@ -150,6 +150,18 @@ export default class RegistryCommandHandler {
             }
         }
 
+        // Parse icList from JSON string if provided
+        const icListRaw = options.icList || options['ic-list'];
+        if (icListRaw) {
+            try {
+                entry.deployment.icList = typeof icListRaw === 'string'
+                    ? JSON.parse(icListRaw)
+                    : icListRaw;
+            } catch (err) {
+                console.log(`Warning: Could not parse ic-list JSON: ${err.message}`);
+            }
+        }
+
         try {
             const id = registry.add(entry);
             console.log('✅ Deployment entry logged successfully.');

@@ -86,6 +86,8 @@ function buildVars(baseConfig, includeBenchmark) {
         asyncSnsSuccessTopic: undefined,
         asyncSnsErrorTopic: undefined,
         asyncMaxConcurrentInvocations: undefined,
+        enableLora: false,
+        existingEndpointName: null,
         includeBenchmark,
         benchmarkConcurrency: 10,
         benchmarkInputTokensMean: 550,
@@ -157,15 +159,15 @@ describe('Feature: sagemaker-ai-benchmarking, Property: Backward compatibility w
         console.log('    ✅ do/clean contains no benchmark case when feature is disabled');
     });
 
-    it('Property 3: do/deploy output is identical regardless of includeBenchmark value', () => {
+    it('Property 3: do/deploy includes benchmark suggestion only when includeBenchmark is true', () => {
         /**
          * **Validates: Requirements 10.2, 10.3**
          *
-         * The do/deploy template must produce identical output whether
-         * includeBenchmark is true or false. Benchmarking is entirely
-         * isolated to do/benchmark.
+         * The do/deploy template must include the benchmark suggestion line
+         * only when includeBenchmark is true. When false or undefined, the
+         * benchmark suggestion must not appear.
          */
-        console.log('  🧪 do/deploy: unchanged regardless of includeBenchmark');
+        console.log('  🧪 do/deploy: benchmark suggestion conditional on includeBenchmark');
 
         fc.assert(fc.property(
             baseVarsArb,
@@ -176,15 +178,18 @@ describe('Feature: sagemaker-ai-benchmarking, Property: Backward compatibility w
                 const outputWith = ejs.render(deployTemplate, varsWithBenchmark);
                 const outputWithout = ejs.render(deployTemplate, varsWithoutBenchmark);
 
-                assert.strictEqual(
-                    outputWith,
-                    outputWithout,
-                    'do/deploy output must be identical regardless of includeBenchmark value'
+                assert.ok(
+                    outputWith.includes('./do/benchmark'),
+                    'do/deploy must include ./do/benchmark suggestion when includeBenchmark is true'
+                );
+                assert.ok(
+                    !outputWithout.includes('./do/benchmark'),
+                    'do/deploy must NOT include ./do/benchmark suggestion when includeBenchmark is false'
                 );
             }
         ), { numRuns: 25 });
 
-        console.log('    ✅ do/deploy is benchmark-agnostic — no benchmark logic leaks into deploy');
+        console.log('    ✅ do/deploy conditionally shows benchmark suggestion based on includeBenchmark');
     });
 
     it('Property 4: do/logs output is identical regardless of includeBenchmark value', () => {

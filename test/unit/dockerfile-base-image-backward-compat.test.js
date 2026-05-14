@@ -43,6 +43,9 @@ function baseVars(overrides = {}) {
         hfToken: null,
         chatTemplate: null,
         baseImage: null,
+        enableLora: false,
+        maxLoras: 30,
+        maxLoraRank: 64,
         ...overrides
     };
 }

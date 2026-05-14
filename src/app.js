@@ -302,6 +302,22 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/hyperpod/**');
     }
 
+    // HyperPod is kubectl-based — no shared bash helpers or IC configs
+    if (answers.deploymentTarget === 'hyperpod-eks') {
+        ignorePatterns.push('**/do/lib/**');
+        ignorePatterns.push('**/do/ic/**');
+        ignorePatterns.push('**/do/add-ic');
+        ignorePatterns.push('**/do/status');
+        ignorePatterns.push('**/do/optimize');
+    }
+
+    // Async and batch don't use inference components (IC is real-time only)
+    if (answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform') {
+        ignorePatterns.push('**/do/ic/**');
+        ignorePatterns.push('**/do/add-ic');
+        ignorePatterns.push('**/do/status');
+    }
+
     // Resolve architecture
     const resolver = new DeploymentConfigResolver();
     let architecture = answers.architecture;
@@ -325,6 +341,13 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     // Exclude do/benchmark when benchmarking is not selected
     if (!answers.includeBenchmark) {
         ignorePatterns.push('**/do/benchmark');
+        ignorePatterns.push('**/do/optimize');
+    }
+
+    // Exclude do/adapter and do/adapters/ when LoRA is not enabled
+    if (!answers.enableLora) {
+        ignorePatterns.push('**/do/adapter');
+        ignorePatterns.push('**/do/adapters/**');
     }
 
     // Exclude do/test when hosted-model-endpoint is not selected
@@ -567,7 +590,11 @@ async function _ensureTemplateVariables(answers, registryConfigManager = null) {
         baseImage: null,
         modelSource: 'huggingface',
         artifactUri: '',
-        modelLoadStrategy: 'runtime'
+        modelLoadStrategy: 'runtime',
+        existingEndpointName: null,
+        enableLora: false,
+        maxLoras: 30,
+        maxLoraRank: 64
     };
 
     Object.entries(defaults).forEach(([key, value]) => {
@@ -1052,7 +1079,11 @@ function _setExecutablePermissions(destDir) {
         'do/register',
         'do/ci',
         'do/manifest',
-        'do/benchmark'
+        'do/benchmark',
+        'do/optimize',
+        'do/status',
+        'do/add-ic',
+        'do/adapter'
     ];
 
     shellScripts.forEach(script => {

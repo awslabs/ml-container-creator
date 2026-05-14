@@ -74,22 +74,25 @@ describe('Deployment Target Prompt Properties', () => {
 
                     // Get the prompts
                     const instanceTypePrompt = findPrompt('instanceType');
+                    const instanceTypeSelectionsPrompt = findPrompt('instanceTypeSelections');
                     const hyperPodClusterPrompt = findPrompt('hyperPodCluster');
                     const hyperPodNamespacePrompt = findPrompt('hyperPodNamespace');
                     const hyperPodReplicasPrompt = findPrompt('hyperPodReplicas');
                     const fsxVolumeHandlePrompt = findPrompt('fsxVolumeHandle');
 
-                    // instanceType should be shown for realtime-inference
-                    // Note: instanceType prompt doesn't have a `when` guard in current implementation
-                    // but if it does, it should return true for realtime-inference
-                    if (instanceTypePrompt && instanceTypePrompt.when) {
-                        const instanceTypeVisible = evaluateWhen(instanceTypePrompt, answers);
-                        assert.strictEqual(
-                            instanceTypeVisible,
-                            true,
-                            'instanceType prompt should be visible when deploymentTarget is realtime-inference'
-                        );
-                    }
+                    // At least one instance selection prompt should be visible for realtime-inference:
+                    // - instanceType (single-select) when no MCP choices or only 1 choice
+                    // - instanceTypeSelections (multi-select) when MCP choices have 2+ items
+                    const instanceTypeVisible = instanceTypePrompt && instanceTypePrompt.when
+                        ? evaluateWhen(instanceTypePrompt, answers) : true;
+                    const instanceSelectionsVisible = instanceTypeSelectionsPrompt && instanceTypeSelectionsPrompt.when
+                        ? evaluateWhen(instanceTypeSelectionsPrompt, answers) : false;
+
+                    assert.strictEqual(
+                        instanceTypeVisible || instanceSelectionsVisible,
+                        true,
+                        'Either instanceType or instanceTypeSelections prompt should be visible when deploymentTarget is realtime-inference'
+                    );
 
                     // All HyperPod prompts should be hidden for realtime-inference
                     if (hyperPodClusterPrompt) {

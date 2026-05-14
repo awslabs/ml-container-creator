@@ -15,33 +15,111 @@ source "${SCRIPT_DIR}/config"
 # SageMaker Real-Time Inference Logs (CloudWatch)
 # ============================================================
 
-# Allow inference component name as argument or from config
-IC_NAME="${1:-${INFERENCE_COMPONENT_NAME:-}}"
+# Parse arguments: ./do/logs [--ic <name>] [--adapter <name>]
+IC_ARG=""
+ADAPTER_ARG=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --ic) shift; IC_ARG="${1:-}"; shift ;;
+        --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
+        --help|-h)
+            echo "Usage: ./do/logs [--ic <name>] [--adapter <name>]"
+            echo ""
+            echo "Tail CloudWatch logs for the deployed inference component."
+            echo ""
+            echo "Options:"
+            echo "  --ic <name>      Show logs for a specific inference component"
+            echo "  --adapter <name> Show logs for a specific LoRA adapter IC"
+            echo ""
+            echo "IC resolution:"
+            echo "  --adapter <name> Use ADAPTER_IC_NAME from do/adapters/<name>.conf"
+            echo "  --ic <name>      Use IC_DEPLOYED_NAME from do/ic/<name>.conf"
+            echo "  (no flag)        Show all logs for the endpoint (current behavior)"
+            exit 0
+            ;;
+        *) shift ;;
+    esac
+done
+
 ENDPOINT="${ENDPOINT_NAME:-}"
 
-if [ -z "${IC_NAME}" ] && [ -z "${ENDPOINT}" ]; then
-    echo "❌ No inference component or endpoint name provided"
+if [ -z "${ENDPOINT}" ]; then
+    echo "❌ ENDPOINT_NAME not set in config"
     echo ""
     echo "Usage:"
-    echo "  ./do/logs <inference-component-name>"
-    echo "  ./do/logs                  # uses INFERENCE_COMPONENT_NAME from do/config"
+    echo "  ./do/logs --ic <name>    # logs for a specific IC"
+    echo "  ./do/logs                # all endpoint logs"
     echo ""
-    echo "Run ./do/deploy first to set INFERENCE_COMPONENT_NAME automatically."
+    echo "Run ./do/deploy first to set ENDPOINT_NAME automatically."
     exit 1
 fi
 
-# Inference component logs live under the endpoint log group
-# but in log streams named after the inference component
-if [ -z "${ENDPOINT}" ]; then
-    echo "⚠️  ENDPOINT_NAME not set in config — cannot determine log group"
-    echo "   Run ./do/deploy first, or set ENDPOINT_NAME in do/config"
-    exit 1
+# Resolve inference component name for filtering
+# Precedence: --adapter <name>, --ic <name>, first in do/ic/, or legacy config
+IC_NAME=""
+if [ -n "${ADAPTER_ARG}" ]; then
+    # Adapter name provided via --adapter flag — look up adapter IC
+    ADAPTER_CONF="${SCRIPT_DIR}/adapters/${ADAPTER_ARG}.conf"
+    if [ ! -f "${ADAPTER_CONF}" ]; then
+        echo "❌ Adapter config not found: do/adapters/${ADAPTER_ARG}.conf"
+        echo "   Available adapters:"
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${conf}" ] || continue
+                echo "     • $(basename "${conf}" .conf)"
+            done
+        else
+            echo "     (none)"
+        fi
+        exit 1
+    fi
+    ADAPTER_IC_NAME=""
+    source "${ADAPTER_CONF}"
+    if [ -z "${ADAPTER_IC_NAME}" ]; then
+        echo "❌ Adapter '${ADAPTER_ARG}' conf is missing ADAPTER_IC_NAME."
+        exit 1
+    fi
+    IC_NAME="${ADAPTER_IC_NAME}"
+elif [ -n "${IC_ARG}" ]; then
+    # Explicit IC name provided via --ic flag
+    IC_CONF="${SCRIPT_DIR}/ic/${IC_ARG}.conf"
+    if [ ! -f "${IC_CONF}" ]; then
+        echo "❌ IC config not found: do/ic/${IC_ARG}.conf"
+        exit 1
+    fi
+    IC_DEPLOYED_NAME=""
+    source "${IC_CONF}"
+    if [ -z "${IC_DEPLOYED_NAME}" ]; then
+        echo "❌ IC '${IC_ARG}' has not been deployed yet. Run ./do/deploy --ic ${IC_ARG} first."
+        exit 1
+    fi
+    IC_NAME="${IC_DEPLOYED_NAME}"
+elif [ -d "${SCRIPT_DIR}/ic" ]; then
+    # No --ic argument, but do/ic/ exists — use first IC alphabetically
+    for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+        [ -f "${conf}" ] || continue
+        IC_DEPLOYED_NAME=""
+        source "${conf}"
+        if [ -n "${IC_DEPLOYED_NAME}" ]; then
+            IC_NAME="${IC_DEPLOYED_NAME}"
+            break
+        fi
+    done
+    # If no ICs deployed, fall through to show all endpoint logs
+else
+    # Legacy: no do/ic/ directory, use INFERENCE_COMPONENT_NAME from do/config
+    IC_NAME="${INFERENCE_COMPONENT_NAME:-}"
 fi
 
-LOG_GROUP="/aws/sagemaker/InferenceComponents/${IC_NAME}"
-
-echo "📋 Tailing logs for inference component: ${IC_NAME}"
-echo "   Endpoint: ${ENDPOINT}"
+# Determine log group based on whether we have an IC name
+if [ -n "${IC_NAME}" ]; then
+    LOG_GROUP="/aws/sagemaker/InferenceComponents/${IC_NAME}"
+    echo "📋 Tailing logs for inference component: ${IC_NAME}"
+    echo "   Endpoint: ${ENDPOINT}"
+else
+    LOG_GROUP="/aws/sagemaker/Endpoints/${ENDPOINT}"
+    echo "📋 Tailing logs for endpoint: ${ENDPOINT}"
+fi
 echo "   Log group: ${LOG_GROUP}"
 echo "   Region: ${AWS_REGION}"
 echo ""
@@ -59,7 +137,7 @@ ELAPSED=0
 FALLBACK_LOG_GROUP="/aws/sagemaker/Endpoints/${ENDPOINT}"
 
 while true; do
-    # Check IC-specific log group
+    # Check primary log group
     if aws logs describe-log-groups \
         --log-group-name-prefix "${LOG_GROUP}" \
         --region "${AWS_REGION}" \
@@ -68,15 +146,17 @@ while true; do
         break
     fi
 
-    # Check endpoint-level log group as fallback
-    if aws logs describe-log-groups \
-        --log-group-name-prefix "${FALLBACK_LOG_GROUP}" \
-        --region "${AWS_REGION}" \
-        --query "logGroups[?logGroupName=='${FALLBACK_LOG_GROUP}'].logGroupName" \
-        --output text 2>/dev/null | grep -q "${FALLBACK_LOG_GROUP}"; then
-        LOG_GROUP="${FALLBACK_LOG_GROUP}"
-        echo "   ℹ️  Using endpoint log group: ${LOG_GROUP}"
-        break
+    # Check endpoint-level log group as fallback (only when targeting a specific IC)
+    if [ -n "${IC_NAME}" ]; then
+        if aws logs describe-log-groups \
+            --log-group-name-prefix "${FALLBACK_LOG_GROUP}" \
+            --region "${AWS_REGION}" \
+            --query "logGroups[?logGroupName=='${FALLBACK_LOG_GROUP}'].logGroupName" \
+            --output text 2>/dev/null | grep -q "${FALLBACK_LOG_GROUP}"; then
+            LOG_GROUP="${FALLBACK_LOG_GROUP}"
+            echo "   ℹ️  Using endpoint log group: ${LOG_GROUP}"
+            break
+        fi
     fi
 
     if [ "${ELAPSED}" -ge "${MAX_WAIT}" ]; then
