@@ -25,7 +25,7 @@ import {
     instanceCatalogRaw
 } from '../../src/lib/prompts.js';
 
-describe('Instance Multi-Select (Task 5.5)', function () {
+describe('Instance Multi-Select (Task 5.5)', () => {
     setupTestHooks('Instance Multi-Select');
 
     // Helper to find a prompt by name
@@ -42,8 +42,8 @@ describe('Instance Multi-Select (Task 5.5)', function () {
         return prompt.when !== false;
     }
 
-    describe('Prompt visibility', function () {
-        it('shows multi-select (instanceTypeSelections) when realtime-inference with 2+ MCP choices', function () {
+    describe('Prompt visibility', () => {
+        it('shows multi-select (instanceTypeSelections) when realtime-inference with 2+ MCP choices', () => {
             const prompt = findPrompt('instanceTypeSelections');
             assert.ok(prompt, 'instanceTypeSelections prompt should exist');
 
@@ -54,7 +54,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.strictEqual(evaluateWhen(prompt, answers), true);
         });
 
-        it('hides multi-select when only 1 MCP choice', function () {
+        it('hides multi-select when only 1 MCP choice', () => {
             const prompt = findPrompt('instanceTypeSelections');
             const answers = {
                 deploymentTarget: 'realtime-inference',
@@ -63,7 +63,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.strictEqual(evaluateWhen(prompt, answers), false);
         });
 
-        it('hides multi-select when no MCP choices', function () {
+        it('hides multi-select when no MCP choices', () => {
             const prompt = findPrompt('instanceTypeSelections');
             const answers = {
                 deploymentTarget: 'realtime-inference',
@@ -72,7 +72,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.strictEqual(evaluateWhen(prompt, answers), false);
         });
 
-        it('hides multi-select for async-inference', function () {
+        it('hides multi-select for async-inference', () => {
             const prompt = findPrompt('instanceTypeSelections');
             const answers = {
                 deploymentTarget: 'async-inference',
@@ -81,7 +81,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.strictEqual(evaluateWhen(prompt, answers), false);
         });
 
-        it('hides multi-select for batch-transform', function () {
+        it('hides multi-select for batch-transform', () => {
             const prompt = findPrompt('instanceTypeSelections');
             const answers = {
                 deploymentTarget: 'batch-transform',
@@ -90,7 +90,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.strictEqual(evaluateWhen(prompt, answers), false);
         });
 
-        it('shows single-select (instanceType) for async-inference regardless of MCP choices', function () {
+        it('shows single-select (instanceType) for async-inference regardless of MCP choices', () => {
             const prompt = findPrompt('instanceType');
             const answers = {
                 deploymentTarget: 'async-inference',
@@ -99,7 +99,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.strictEqual(evaluateWhen(prompt, answers), true);
         });
 
-        it('hides single-select (instanceType) when multi-select is shown', function () {
+        it('hides single-select (instanceType) when multi-select is shown', () => {
             const prompt = findPrompt('instanceType');
             const answers = {
                 deploymentTarget: 'realtime-inference',
@@ -108,7 +108,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.strictEqual(evaluateWhen(prompt, answers), false);
         });
 
-        it('shows single-select (instanceType) for realtime-inference with 0-1 MCP choices', function () {
+        it('shows single-select (instanceType) for realtime-inference with 0-1 MCP choices', () => {
             const prompt = findPrompt('instanceType');
             const answers = {
                 deploymentTarget: 'realtime-inference',
@@ -118,29 +118,29 @@ describe('Instance Multi-Select (Task 5.5)', function () {
         });
     });
 
-    describe('Multi-select validation', function () {
-        it('rejects empty selection', function () {
+    describe('Multi-select validation', () => {
+        it('rejects empty selection', () => {
             const prompt = findPrompt('instanceTypeSelections');
             const result = prompt.validate([]);
             assert.notStrictEqual(result, true);
         });
 
-        it('accepts 1-5 selections', function () {
+        it('accepts 1-5 selections', () => {
             const prompt = findPrompt('instanceTypeSelections');
             assert.strictEqual(prompt.validate(['ml.g5.xlarge']), true);
             assert.strictEqual(prompt.validate(['ml.g5.xlarge', 'ml.g5.2xlarge']), true);
             assert.strictEqual(prompt.validate(['a', 'b', 'c', 'd', 'e']), true);
         });
 
-        it('rejects more than 5 selections', function () {
+        it('rejects more than 5 selections', () => {
             const prompt = findPrompt('instanceTypeSelections');
             const result = prompt.validate(['a', 'b', 'c', 'd', 'e', 'f']);
             assert.notStrictEqual(result, true);
         });
     });
 
-    describe('CUDA generation filtering (filterByCudaGeneration)', function () {
-        it('keeps instances from same generation as first', function () {
+    describe('CUDA generation filtering (filterByCudaGeneration)', () => {
+        it('keeps instances from same generation as first', () => {
             // g5 instances are Ampere, g4dn are Turing
             const result = filterByCudaGeneration(['ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.g5.12xlarge']);
             assert.deepStrictEqual(result.filtered, ['ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.g5.12xlarge']);
@@ -148,7 +148,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.deepStrictEqual(result.removed, []);
         });
 
-        it('removes instances from different generation', function () {
+        it('removes instances from different generation', () => {
             // g5 = Ampere, g4dn = Turing
             const result = filterByCudaGeneration(['ml.g5.xlarge', 'ml.g4dn.xlarge', 'ml.g5.2xlarge']);
             assert.deepStrictEqual(result.filtered, ['ml.g5.xlarge', 'ml.g5.2xlarge']);
@@ -156,25 +156,25 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.deepStrictEqual(result.removed, ['ml.g4dn.xlarge']);
         });
 
-        it('keeps unknown instances (not in catalog)', function () {
+        it('keeps unknown instances (not in catalog)', () => {
             const result = filterByCudaGeneration(['ml.g5.xlarge', 'ml.unknown.xlarge']);
             assert.ok(result.filtered.includes('ml.unknown.xlarge'),
                 'Unknown instance types should not be filtered out');
         });
 
-        it('returns all when first instance is not in catalog', function () {
+        it('returns all when first instance is not in catalog', () => {
             const result = filterByCudaGeneration(['ml.unknown.xlarge', 'ml.g5.xlarge', 'ml.g4dn.xlarge']);
             assert.deepStrictEqual(result.filtered, ['ml.unknown.xlarge', 'ml.g5.xlarge', 'ml.g4dn.xlarge']);
             assert.strictEqual(result.generation, null);
         });
 
-        it('handles empty array', function () {
+        it('handles empty array', () => {
             const result = filterByCudaGeneration([]);
             assert.deepStrictEqual(result.filtered, []);
             assert.strictEqual(result.generation, null);
         });
 
-        it('allows same-generation instances (g6e + p4d both Ampere)', function () {
+        it('allows same-generation instances (g6e + p4d both Ampere)', () => {
             // Both g5 and p4d are Ampere generation
             const result = filterByCudaGeneration(['ml.g5.xlarge', 'ml.p4d.24xlarge']);
             assert.deepStrictEqual(result.filtered, ['ml.g5.xlarge', 'ml.p4d.24xlarge']);
@@ -182,37 +182,37 @@ describe('Instance Multi-Select (Task 5.5)', function () {
         });
     });
 
-    describe('getInstanceCudaGeneration', function () {
-        it('returns correct generation for known GPU instances', function () {
+    describe('getInstanceCudaGeneration', () => {
+        it('returns correct generation for known GPU instances', () => {
             assert.strictEqual(getInstanceCudaGeneration('ml.g4dn.xlarge'), 'Turing');
             assert.strictEqual(getInstanceCudaGeneration('ml.g5.xlarge'), 'Ampere');
             assert.strictEqual(getInstanceCudaGeneration('ml.p5.48xlarge'), 'Hopper');
         });
 
-        it('returns null for CPU instances', function () {
+        it('returns null for CPU instances', () => {
             assert.strictEqual(getInstanceCudaGeneration('ml.m5.xlarge'), null);
         });
 
-        it('returns null for unknown instances', function () {
+        it('returns null for unknown instances', () => {
             assert.strictEqual(getInstanceCudaGeneration('ml.unknown.xlarge'), null);
         });
     });
 
-    describe('instanceCatalogRaw', function () {
-        it('is loaded and contains GPU instance data', function () {
+    describe('instanceCatalogRaw', () => {
+        it('is loaded and contains GPU instance data', () => {
             assert.ok(instanceCatalogRaw['ml.g5.xlarge'], 'Should contain ml.g5.xlarge');
             assert.strictEqual(instanceCatalogRaw['ml.g5.xlarge'].gpus, 1);
             assert.strictEqual(instanceCatalogRaw['ml.g5.xlarge'].gpuArchitecture, 'Ampere');
         });
 
-        it('contains gpuMemoryGb for GPU instances', function () {
+        it('contains gpuMemoryGb for GPU instances', () => {
             const entry = instanceCatalogRaw['ml.g5.xlarge'];
             assert.ok(entry.gpuMemoryGb > 0, 'GPU instances should have gpuMemoryGb');
         });
     });
 
-    describe('Multi-select choices filtering', function () {
-        it('shows all instances regardless of CUDA generation (filtering happens post-selection)', function () {
+    describe('Multi-select choices filtering', () => {
+        it('shows all instances regardless of CUDA generation (filtering happens post-selection)', () => {
             const prompt = findPrompt('instanceTypeSelections');
             // Simulate answers with mixed-generation MCP choices
             const answers = {
@@ -229,7 +229,7 @@ describe('Instance Multi-Select (Task 5.5)', function () {
             assert.ok(choiceValues.includes('ml.g4dn.xlarge'), 'Should include g4dn.xlarge (shown, filtered post-selection if mixed)');
         });
 
-        it('includes GPU info in choice names', function () {
+        it('includes GPU info in choice names', () => {
             const prompt = findPrompt('instanceTypeSelections');
             const answers = {
                 deploymentTarget: 'realtime-inference',

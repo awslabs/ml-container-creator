@@ -466,17 +466,17 @@ describe('Lifecycle Scripts Multi-IC (Requirement 7.3)', () => {
         it('should be excluded for hyperpod-eks via ignore patterns in app.js', () => {
             // Check that app.js has ignore pattern for do/status when hyperpod-eks
             assert.ok(
-                appJsContent.includes("'**/do/status'"),
+                appJsContent.includes('\'**/do/status\''),
                 'app.js must have ignore pattern for do/status'
             );
 
             // Verify it's in the hyperpod-eks block
             const hyperpodBlock = appJsContent.substring(
-                appJsContent.indexOf("deploymentTarget === 'hyperpod-eks'"),
-                appJsContent.indexOf('}', appJsContent.indexOf("'**/do/status'", appJsContent.indexOf("deploymentTarget === 'hyperpod-eks'")))
+                appJsContent.indexOf('deploymentTarget === \'hyperpod-eks\''),
+                appJsContent.indexOf('}', appJsContent.indexOf('\'**/do/status\'', appJsContent.indexOf('deploymentTarget === \'hyperpod-eks\'')))
             );
             assert.ok(
-                hyperpodBlock.includes("'**/do/status'"),
+                hyperpodBlock.includes('\'**/do/status\''),
                 'do/status must be in hyperpod-eks ignore patterns'
             );
         });
@@ -484,13 +484,13 @@ describe('Lifecycle Scripts Multi-IC (Requirement 7.3)', () => {
         it('should be excluded for async-inference via ignore patterns in app.js', () => {
             // Find the async/batch block
             const asyncBatchBlock = appJsContent.substring(
-                appJsContent.indexOf("async-inference") > 0
-                    ? appJsContent.indexOf("async-inference")
+                appJsContent.indexOf('async-inference') > 0
+                    ? appJsContent.indexOf('async-inference')
                     : 0,
-                appJsContent.indexOf('}', appJsContent.lastIndexOf("'**/do/status'"))
+                appJsContent.indexOf('}', appJsContent.lastIndexOf('\'**/do/status\''))
             );
             assert.ok(
-                asyncBatchBlock.includes("'**/do/status'"),
+                asyncBatchBlock.includes('\'**/do/status\''),
                 'do/status must be in async-inference ignore patterns'
             );
         });
@@ -498,11 +498,11 @@ describe('Lifecycle Scripts Multi-IC (Requirement 7.3)', () => {
         it('should be excluded for batch-transform via ignore patterns in app.js', () => {
             // The async and batch share the same ignore block
             const ignoreBlock = appJsContent.substring(
-                appJsContent.indexOf("async-inference' || answers.deploymentTarget === 'batch-transform'"),
-                appJsContent.indexOf('}', appJsContent.indexOf("async-inference' || answers.deploymentTarget === 'batch-transform'") + 50)
+                appJsContent.indexOf('async-inference\' || answers.deploymentTarget === \'batch-transform\''),
+                appJsContent.indexOf('}', appJsContent.indexOf('async-inference\' || answers.deploymentTarget === \'batch-transform\'') + 50)
             );
             assert.ok(
-                ignoreBlock.includes("'**/do/status'"),
+                ignoreBlock.includes('\'**/do/status\''),
                 'do/status must be in batch-transform ignore patterns (shared with async)'
             );
         });
@@ -520,19 +520,19 @@ describe('Lifecycle Scripts Multi-IC (Requirement 7.3)', () => {
 
             // Find the block that checks for non-hyperpod (which is the only realtime-specific block)
             const nonHyperpodBlock = appJsContent.substring(
-                appJsContent.indexOf("deploymentTarget !== 'hyperpod-eks'"),
-                appJsContent.indexOf('}', appJsContent.indexOf("deploymentTarget !== 'hyperpod-eks'"))
+                appJsContent.indexOf('deploymentTarget !== \'hyperpod-eks\''),
+                appJsContent.indexOf('}', appJsContent.indexOf('deploymentTarget !== \'hyperpod-eks\''))
             );
 
             assert.ok(
-                !nonHyperpodBlock.includes("'**/do/status'"),
+                !nonHyperpodBlock.includes('\'**/do/status\''),
                 'realtime-inference must NOT exclude do/status'
             );
         });
 
         it('should be in the executable permissions list in app.js', () => {
             assert.ok(
-                appJsContent.includes("'do/status'"),
+                appJsContent.includes('\'do/status\''),
                 'do/status must be in the executable permissions list in app.js'
             );
         });

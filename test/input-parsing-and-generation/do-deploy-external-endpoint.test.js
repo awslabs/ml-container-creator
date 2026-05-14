@@ -65,7 +65,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         output = renderDeploy(baseConfig);
     });
 
-    it('should contain ENDPOINT_EXTERNAL check in the endpoint creation section', function () {
+    it('should contain ENDPOINT_EXTERNAL check in the endpoint creation section', () => {
         console.log('  🧪 Req 3.4: deploy contains ENDPOINT_EXTERNAL conditional');
 
         assert.ok(
@@ -80,7 +80,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ ENDPOINT_EXTERNAL check present');
     });
 
-    it('should validate external endpoint status via _get_endpoint_status', function () {
+    it('should validate external endpoint status via _get_endpoint_status', () => {
         console.log('  🧪 Req 3.4: deploy validates external endpoint via _get_endpoint_status');
 
         // The external endpoint path must call _get_endpoint_status to validate
@@ -92,7 +92,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ _get_endpoint_status validation present');
     });
 
-    it('should error when external endpoint is not found (empty status)', function () {
+    it('should error when external endpoint is not found (empty status)', () => {
         console.log('  🧪 Req 3.4: deploy errors when external endpoint not found');
 
         // Must check for empty status (endpoint not found)
@@ -109,7 +109,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ Error message for missing external endpoint present');
     });
 
-    it('should error when external endpoint is not InService', function () {
+    it('should error when external endpoint is not InService', () => {
         console.log('  🧪 Req 3.4: deploy errors when external endpoint not InService');
 
         assert.ok(
@@ -120,7 +120,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ Error message for non-InService external endpoint present');
     });
 
-    it('should show success message when external endpoint is InService', function () {
+    it('should show success message when external endpoint is InService', () => {
         console.log('  🧪 Req 3.4: deploy shows success when external endpoint is InService');
 
         assert.ok(
@@ -131,7 +131,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ Success message for InService external endpoint present');
     });
 
-    it('should skip to IC creation when external endpoint is valid', function () {
+    it('should skip to IC creation when external endpoint is valid', () => {
         console.log('  🧪 Req 3.4: deploy skips to IC creation for external endpoints');
 
         // After validating external endpoint, SKIP_TO should be set to create_ic
@@ -143,7 +143,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ SKIP_TO=create_ic set for external endpoints');
     });
 
-    it('should NOT call create_endpoint_config in the external endpoint path', function () {
+    it('should NOT call create_endpoint_config in the external endpoint path', () => {
         console.log('  🧪 Req 3.4: external endpoint path skips create_endpoint_config');
 
         // The external endpoint block (between the if ENDPOINT_EXTERNAL check and the else)
@@ -167,7 +167,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ External endpoint path skips endpoint config and creation');
     });
 
-    it('should show external endpoint info in deployment header', function () {
+    it('should show external endpoint info in deployment header', () => {
         console.log('  🧪 Req 3.4: deploy header shows external endpoint info');
 
         // The header section should show "(external)" when ENDPOINT_EXTERNAL is true
@@ -179,7 +179,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ External endpoint info shown in header');
     });
 
-    it('should show external endpoint info in deployment summary', function () {
+    it('should show external endpoint info in deployment summary', () => {
         console.log('  🧪 Req 3.4: deploy summary shows external endpoint info');
 
         // The deployment complete section should indicate external endpoint
@@ -191,7 +191,7 @@ describe('do/deploy External Endpoint Handling (Req 3.4)', () => {
         console.log('    ✅ External endpoint info shown in deployment summary');
     });
 
-    it('should contain the external endpoint validation before the normal endpoint creation', function () {
+    it('should contain the external endpoint validation before the normal endpoint creation', () => {
         console.log('  🧪 Req 3.4: external endpoint validation comes before normal creation');
 
         // The ENDPOINT_EXTERNAL check should appear before create_endpoint_config

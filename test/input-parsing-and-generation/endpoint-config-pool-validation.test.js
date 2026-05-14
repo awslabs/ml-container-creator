@@ -46,16 +46,16 @@ function runBashTest(scriptContent, tmpName) {
     }
 }
 
-describe('do/lib/endpoint-config.sh — _validate_instance_pools()', function () {
+describe('do/lib/endpoint-config.sh — _validate_instance_pools()', () => {
 
-    it('contains _validate_instance_pools function definition', function () {
+    it('contains _validate_instance_pools function definition', () => {
         assert.ok(
             endpointConfigContent.includes('_validate_instance_pools()'),
             'endpoint-config.sh must define _validate_instance_pools function'
         );
     });
 
-    it('calls _validate_instance_pools from create_endpoint_config when INSTANCE_POOLS is set', function () {
+    it('calls _validate_instance_pools from create_endpoint_config when INSTANCE_POOLS is set', () => {
         // Check that the pools branch calls _validate_instance_pools
         assert.ok(
             endpointConfigContent.includes('_validate_instance_pools'),
@@ -63,7 +63,7 @@ describe('do/lib/endpoint-config.sh — _validate_instance_pools()', function ()
         );
         // Verify it's called within the INSTANCE_POOLS branch
         const poolsBranchMatch = endpointConfigContent.match(
-            /if \[ -n "\$\{INSTANCE_POOLS:-\}" \]; then\n([\s\S]*?)\n    else/
+            /if \[ -n "\$\{INSTANCE_POOLS:-\}" \]; then\n([\s\S]*?)\n {4}else/
         );
         assert.ok(poolsBranchMatch, 'Must have an INSTANCE_POOLS branch');
         assert.ok(
@@ -72,7 +72,7 @@ describe('do/lib/endpoint-config.sh — _validate_instance_pools()', function ()
         );
     });
 
-    it('allows same-generation CUDA 12 instances (g6 + g6e) (Req 6.1)', function () {
+    it('allows same-generation CUDA 12 instances (g6 + g6e) (Req 6.1)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.g6.12xlarge","Priority":2}]'
 
@@ -85,7 +85,7 @@ echo "PASS"
         assert.ok(result.stdout.includes('PASS'), 'Same-generation instances should pass validation');
     });
 
-    it('allows same-generation CUDA 11 instances (g4dn + g5 + p3) (Req 6.1)', function () {
+    it('allows same-generation CUDA 11 instances (g4dn + g5 + p3) (Req 6.1)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g4dn.12xlarge","Priority":1},{"InstanceType":"ml.g5.48xlarge","Priority":2},{"InstanceType":"ml.p3.16xlarge","Priority":3}]'
 
@@ -98,7 +98,7 @@ echo "PASS"
         assert.ok(result.stdout.includes('PASS'), 'Same-generation cuda-11 instances should pass');
     });
 
-    it('allows same-generation CUDA 12 instances (g6e + p5) (Req 6.1)', function () {
+    it('allows same-generation CUDA 12 instances (g6e + p5) (Req 6.1)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.p5.48xlarge","Priority":2}]'
 
@@ -111,7 +111,7 @@ echo "PASS"
         assert.ok(result.stdout.includes('PASS'), 'g6e + p5 (both cuda-12) should pass');
     });
 
-    it('allows same-generation neuron instances (inf2 + trn1) (Req 6.2)', function () {
+    it('allows same-generation neuron instances (inf2 + trn1) (Req 6.2)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.inf2.xlarge","Priority":1},{"InstanceType":"ml.trn1.2xlarge","Priority":2}]'
 
@@ -124,7 +124,7 @@ echo "PASS"
         assert.ok(result.stdout.includes('PASS'), 'Same-generation neuron instances should pass');
     });
 
-    it('rejects mixed CUDA generations: g6e (cuda-12) + g4dn (cuda-11) (Req 6.1)', function () {
+    it('rejects mixed CUDA generations: g6e (cuda-12) + g4dn (cuda-11) (Req 6.1)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.g4dn.12xlarge","Priority":2}]'
 
@@ -148,7 +148,7 @@ echo "SHOULD_NOT_REACH"
         );
     });
 
-    it('rejects mixed CUDA/Neuron types: g6e (cuda-12) + inf2 (neuron) (Req 6.2)', function () {
+    it('rejects mixed CUDA/Neuron types: g6e (cuda-12) + inf2 (neuron) (Req 6.2)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.inf2.xlarge","Priority":2}]'
 
@@ -164,7 +164,7 @@ echo "SHOULD_NOT_REACH"
         );
     });
 
-    it('rejects mixed generations: p4d (cuda-11) + p5 (cuda-12) (Req 6.1)', function () {
+    it('rejects mixed generations: p4d (cuda-11) + p5 (cuda-12) (Req 6.1)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.p4d.24xlarge","Priority":1},{"InstanceType":"ml.p5.48xlarge","Priority":2}]'
 
@@ -180,7 +180,7 @@ echo "SHOULD_NOT_REACH"
         );
     });
 
-    it('warns but allows unknown instance types (Req 6.1)', function () {
+    it('warns but allows unknown instance types (Req 6.1)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.x99.unknown","Priority":2}]'
 
@@ -197,7 +197,7 @@ echo "PASS"
         assert.ok(result.stdout.includes('PASS'), 'Must allow deployment to proceed');
     });
 
-    it('allows pool with only unknown instance types', function () {
+    it('allows pool with only unknown instance types', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.x99.large","Priority":1},{"InstanceType":"ml.z42.xlarge","Priority":2}]'
 
@@ -210,7 +210,7 @@ echo "PASS"
         assert.ok(result.stdout.includes('PASS'), 'Must allow deployment with all unknown types');
     });
 
-    it('handles empty INSTANCE_POOLS gracefully', function () {
+    it('handles empty INSTANCE_POOLS gracefully', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[]'
 
@@ -223,7 +223,7 @@ echo "PASS"
         assert.ok(result.stdout.includes('PASS'), 'Empty pool must not error');
     });
 
-    it('handles single instance in pool (always valid)', function () {
+    it('handles single instance in pool (always valid)', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1}]'
 
@@ -236,7 +236,7 @@ echo "PASS"
         assert.ok(result.stdout.includes('PASS'), 'Single instance pool must pass');
     });
 
-    it('error message includes both conflicting instance types', function () {
+    it('error message includes both conflicting instance types', () => {
         const scriptContent = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.g4dn.xlarge","Priority":2}]'
 
@@ -251,7 +251,7 @@ _validate_instance_pools
         );
     });
 
-    it('validation is called during create_endpoint_config with pools', function () {
+    it('validation is called during create_endpoint_config with pools', () => {
         // This test verifies that _validate_instance_pools is actually invoked
         // by create_endpoint_config when INSTANCE_POOLS is set with mixed types.
         // The create_endpoint_config call should fail before reaching the AWS CLI call.
@@ -287,7 +287,7 @@ echo "SHOULD_NOT_REACH"
         );
     });
 
-    it('validation passes and create_endpoint_config proceeds for valid pools', function () {
+    it('validation passes and create_endpoint_config proceeds for valid pools', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"

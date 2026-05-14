@@ -25,7 +25,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import {
     filterByCudaGeneration,
-    getInstanceCudaGeneration,
     instanceCatalogRaw
 } from '../../src/lib/prompts.js';
 
@@ -70,8 +69,8 @@ describe('Instance Pools Integration Tests (Req 7.1, 7.2)', function () {
     // ================================================================
     // E2E: Single instance selection produces INSTANCE_TYPE (no pools)
     // ================================================================
-    describe('E2E: Single instance selection flow', function () {
-        it('single instance selection produces INSTANCE_TYPE config (no pools)', function () {
+    describe('E2E: Single instance selection flow', () => {
+        it('single instance selection produces INSTANCE_TYPE config (no pools)', () => {
             // Simulate: user selects 1 instance from MCP choices
             const selections = ['ml.g5.xlarge'];
 
@@ -115,8 +114,8 @@ create_endpoint_config 2>/dev/null
     // ================================================================
     // E2E: Multi instance selection produces INSTANCE_POOLS with priorities
     // ================================================================
-    describe('E2E: Multi instance selection flow', function () {
-        it('multi instance selection produces INSTANCE_POOLS with correct priorities', function () {
+    describe('E2E: Multi instance selection flow', () => {
+        it('multi instance selection produces INSTANCE_POOLS with correct priorities', () => {
             // Simulate: user selects 3 instances from MCP choices
             const selections = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.p5.48xlarge'];
 
@@ -171,8 +170,8 @@ create_endpoint_config 2>/dev/null
     // ================================================================
     // E2E: Pool generation filter excludes cross-AMI instances
     // ================================================================
-    describe('E2E: Pool generation filter excludes cross-AMI instances', function () {
-        it('filterByCudaGeneration removes cross-generation instances from selection', function () {
+    describe('E2E: Pool generation filter excludes cross-AMI instances', () => {
+        it('filterByCudaGeneration removes cross-generation instances from selection', () => {
             // Simulate MCP sizer returning mixed-generation results
             const mcpChoices = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.g4dn.xlarge', 'ml.p5.48xlarge'];
 
@@ -186,7 +185,7 @@ create_endpoint_config 2>/dev/null
                 'g4dn must appear in removed list');
         });
 
-        it('filtered instances can be used directly as INSTANCE_POOLS without validation failure', function () {
+        it('filtered instances can be used directly as INSTANCE_POOLS without validation failure', () => {
             // After filtering, remaining instances should pass pool validation
             const mcpChoices = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.g4dn.xlarge'];
             const { filtered } = filterByCudaGeneration(mcpChoices);
@@ -215,8 +214,8 @@ echo "PASS"
     // ================================================================
     // E2E: Capacity reservation wins over pools (mutual exclusivity)
     // ================================================================
-    describe('E2E: Capacity reservation mutual exclusivity', function () {
-        it('capacity reservation wins over pools in full endpoint config flow', function () {
+    describe('E2E: Capacity reservation mutual exclusivity', () => {
+        it('capacity reservation wins over pools in full endpoint config flow', () => {
             const script = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -257,8 +256,8 @@ create_endpoint_config
     // ================================================================
     // E2E: Pool validation rejects mixed CUDA 12.x + next-gen instances
     // ================================================================
-    describe('E2E: Pool validation rejects incompatible generations', function () {
-        it('rejects mixed CUDA 12.x (g6e) + cuda-next (g7e) instances', function () {
+    describe('E2E: Pool validation rejects incompatible generations', () => {
+        it('rejects mixed CUDA 12.x (g6e) + cuda-next (g7e) instances', () => {
             const script = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.g7e.xlarge","Priority":2}]'
 
@@ -272,7 +271,7 @@ echo "SHOULD_NOT_REACH"
             assert.ok(!result.stdout.includes('SHOULD_NOT_REACH'));
         });
 
-        it('allows same-generation instances (g6 + g6e both CUDA 12.x)', function () {
+        it('allows same-generation instances (g6 + g6e both CUDA 12.x)', () => {
             const script = `set -euo pipefail
 export INSTANCE_POOLS='[{"InstanceType":"ml.g6.12xlarge","Priority":1},{"InstanceType":"ml.g6e.48xlarge","Priority":2}]'
 
@@ -289,14 +288,14 @@ echo "PASS"
     // ================================================================
     // E2E: Multi-spec IC JSON has Specifications array
     // ================================================================
-    describe('E2E: Multi-spec IC with Specifications array', function () {
-        it('multi-spec IC JSON has Specifications array with per-type entries', function () {
+    describe('E2E: Multi-spec IC with Specifications array', () => {
+        it('multi-spec IC JSON has Specifications array with per-type entries', () => {
             const icContent = readFileSync(inferenceComponentPath, 'utf8');
             assert.ok(icContent.includes('Specifications'), 'IC script must support Specifications array');
             assert.ok(icContent.includes('IC_MULTI_SPEC'), 'IC script must check IC_MULTI_SPEC');
         });
 
-        it('single-spec IC unchanged when IC_MULTI_SPEC not set', function () {
+        it('single-spec IC unchanged when IC_MULTI_SPEC not set', () => {
             const icContent = readFileSync(inferenceComponentPath, 'utf8');
             // The else branch should use single spec
             assert.ok(icContent.includes('IC_GPU_COUNT:-1'), 'Single spec path must use IC_GPU_COUNT default');
@@ -307,8 +306,8 @@ echo "PASS"
     // ================================================================
     // E2E: ModelNameOverride included/omitted based on pool entry
     // ================================================================
-    describe('E2E: ModelNameOverride handling', function () {
-        it('ModelNameOverride included when pool entry has ModelName', function () {
+    describe('E2E: ModelNameOverride handling', () => {
+        it('ModelNameOverride included when pool entry has ModelName', () => {
             const script = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -342,7 +341,7 @@ create_endpoint_config
             assert.ok(!('ModelName' in variant[0].InstancePools[0]), 'Original ModelName must be removed');
         });
 
-        it('ModelNameOverride omitted when pool entry lacks ModelName', function () {
+        it('ModelNameOverride omitted when pool entry lacks ModelName', () => {
             const script = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -381,13 +380,13 @@ create_endpoint_config
     // ================================================================
     // E2E: Full flow — selection, filtering, validation, config generation
     // ================================================================
-    describe('E2E: Complete flow from selection to deployment config', function () {
-        it('full flow: filter selections, validate pool, generate endpoint config + multi-spec IC', function () {
+    describe('E2E: Complete flow from selection to deployment config', () => {
+        it('full flow: filter selections, validate pool, generate endpoint config + multi-spec IC', () => {
             // Step 1: Simulate MCP sizer returning ranked instances
             const mcpChoices = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.g4dn.xlarge'];
 
             // Step 2: Filter by CUDA generation
-            const { filtered, removed } = filterByCudaGeneration(mcpChoices);
+            const { filtered } = filterByCudaGeneration(mcpChoices);
             assert.ok(filtered.length >= 2, 'Should have at least 2 compatible instances');
             assert.ok(!filtered.includes('ml.g4dn.xlarge'), 'g4dn should be filtered out');
 

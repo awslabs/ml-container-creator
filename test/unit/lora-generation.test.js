@@ -35,9 +35,6 @@ const DOCKERFILE_TEMPLATE = readFileSync(DOCKERFILE_TEMPLATE_PATH, 'utf-8');
 const SERVING_PROPS_TEMPLATE_PATH = resolve(__dirname, '../../templates/code/serving.properties');
 const SERVING_PROPS_TEMPLATE = readFileSync(SERVING_PROPS_TEMPLATE_PATH, 'utf-8');
 
-const SERVE_TEMPLATE_PATH = resolve(__dirname, '../../templates/code/serve');
-const SERVE_TEMPLATE = readFileSync(SERVE_TEMPLATE_PATH, 'utf-8');
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function renderDockerfile(overrides = {}) {

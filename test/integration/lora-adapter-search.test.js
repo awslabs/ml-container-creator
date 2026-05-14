@@ -17,12 +17,7 @@
 import { describe, it, before, after } from 'mocha';
 import assert from 'node:assert';
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { runGenerator } from '../helpers/run-generator.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 describe('Feature: lora-adapter-lifecycle — do/adapter search (Req 2.1)', function () {
     this.timeout(120000);
@@ -30,7 +25,7 @@ describe('Feature: lora-adapter-lifecycle — do/adapter search (Req 2.1)', func
     let result;
     let adapterScript;
 
-    before(function () {
+    before(() => {
         result = runGenerator({
             'deployment-config': 'transformers-vllm',
             'model-name': 'meta-llama/Llama-3.2-3B-Instruct',
@@ -44,7 +39,7 @@ describe('Feature: lora-adapter-lifecycle — do/adapter search (Req 2.1)', func
         adapterScript = fs.readFileSync(adapterPath, 'utf8');
     });
 
-    after(function () {
+    after(() => {
         if (result) result.cleanup();
     });
 

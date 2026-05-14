@@ -59,7 +59,7 @@ describe('do/config External Endpoint Wiring', () => {
         console.log('🔧 Configuration: EJS template rendering\n');
     });
 
-    it('should emit ENDPOINT_NAME and ENDPOINT_EXTERNAL=true when existingEndpointName is set', function () {
+    it('should emit ENDPOINT_NAME and ENDPOINT_EXTERNAL=true when existingEndpointName is set', () => {
         const vars = {
             ...baseConfig,
             existingEndpointName: 'my-shared-endpoint-12345',
@@ -79,7 +79,7 @@ describe('do/config External Endpoint Wiring', () => {
         );
     });
 
-    it('should NOT emit INSTANCE_TYPE when existingEndpointName is set', function () {
+    it('should NOT emit INSTANCE_TYPE when existingEndpointName is set', () => {
         const vars = {
             ...baseConfig,
             existingEndpointName: 'my-shared-endpoint-12345',
@@ -96,7 +96,7 @@ describe('do/config External Endpoint Wiring', () => {
         );
     });
 
-    it('should NOT emit INFERENCE_AMI_VERSION when existingEndpointName is set', function () {
+    it('should NOT emit INFERENCE_AMI_VERSION when existingEndpointName is set', () => {
         const vars = {
             ...baseConfig,
             existingEndpointName: 'my-shared-endpoint-12345',
@@ -112,7 +112,7 @@ describe('do/config External Endpoint Wiring', () => {
         );
     });
 
-    it('should NOT emit INSTANCE_TYPE override at bottom when existingEndpointName is set', function () {
+    it('should NOT emit INSTANCE_TYPE override at bottom when existingEndpointName is set', () => {
         const vars = {
             ...baseConfig,
             existingEndpointName: 'my-shared-endpoint-12345',
@@ -129,7 +129,7 @@ describe('do/config External Endpoint Wiring', () => {
         );
     });
 
-    it('should show endpoint name in summary when existingEndpointName is set', function () {
+    it('should show endpoint name in summary when existingEndpointName is set', () => {
         const vars = {
             ...baseConfig,
             existingEndpointName: 'my-shared-endpoint-12345',
@@ -149,7 +149,7 @@ describe('do/config External Endpoint Wiring', () => {
         );
     });
 
-    it('should emit INSTANCE_TYPE normally when existingEndpointName is NOT set', function () {
+    it('should emit INSTANCE_TYPE normally when existingEndpointName is NOT set', () => {
         const vars = {
             ...baseConfig,
             existingEndpointName: null,
@@ -177,7 +177,7 @@ describe('do/config External Endpoint Wiring', () => {
         );
     });
 
-    it('should emit INSTANCE_TYPE normally when existingEndpointName is undefined', function () {
+    it('should emit INSTANCE_TYPE normally when existingEndpointName is undefined', () => {
         const vars = {
             ...baseConfig,
             // existingEndpointName not set at all (undefined)
@@ -197,7 +197,7 @@ describe('do/config External Endpoint Wiring', () => {
         );
     });
 
-    it('should NOT emit CAPACITY_RESERVATION_ARN when existingEndpointName is set', function () {
+    it('should NOT emit CAPACITY_RESERVATION_ARN when existingEndpointName is set', () => {
         const vars = {
             ...baseConfig,
             existingEndpointName: 'my-shared-endpoint-12345',

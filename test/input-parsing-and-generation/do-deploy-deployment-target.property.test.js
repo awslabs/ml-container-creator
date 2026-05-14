@@ -411,7 +411,7 @@ describe('Multi-IC Refactoring: do/lib/ Helper Regression Tests', () => {
         console.log('🔧 Configuration: Static lib file content + EJS template rendering\n');
     });
 
-    it('do/lib/inference-component.sh contains create-inference-component API call (Req 7.3)', function () {
+    it('do/lib/inference-component.sh contains create-inference-component API call (Req 7.3)', () => {
         console.log('  🧪 Req 7.3: inference-component.sh contains create-inference-component');
 
         assert.ok(
@@ -430,7 +430,7 @@ describe('Multi-IC Refactoring: do/lib/ Helper Regression Tests', () => {
         console.log('    ✅ inference-component.sh contains expected API calls');
     });
 
-    it('do/lib/secrets.sh contains secretsmanager get-secret-value (Req 7.3)', function () {
+    it('do/lib/secrets.sh contains secretsmanager get-secret-value (Req 7.3)', () => {
         console.log('  🧪 Req 7.3: secrets.sh contains secretsmanager get-secret-value');
 
         assert.ok(
@@ -449,7 +449,7 @@ describe('Multi-IC Refactoring: do/lib/ Helper Regression Tests', () => {
         console.log('    ✅ secrets.sh contains expected API calls');
     });
 
-    it('do/lib/endpoint-config.sh contains create-endpoint-config API call (Req 7.3)', function () {
+    it('do/lib/endpoint-config.sh contains create-endpoint-config API call (Req 7.3)', () => {
         console.log('  🧪 Req 7.3: endpoint-config.sh contains create-endpoint-config');
 
         assert.ok(

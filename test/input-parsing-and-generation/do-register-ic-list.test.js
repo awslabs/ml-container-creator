@@ -117,7 +117,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
     });
 
     describe('IC list building from do/ic/ directory', () => {
-        it('rendered register script contains IC list building logic for realtime-inference', function () {
+        it('rendered register script contains IC list building logic for realtime-inference', () => {
             const rendered = renderRegister(realtimeVars());
 
             // Should contain the IC list building section
@@ -131,7 +131,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('iterates do/ic/*.conf files in alphabetical order', function () {
+        it('iterates do/ic/*.conf files in alphabetical order', () => {
             const rendered = renderRegister(realtimeVars());
 
             assert.ok(
@@ -140,7 +140,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('extracts IC_IMAGE_TAG, IC_GPU_COUNT, IC_COPY_COUNT from each conf file', function () {
+        it('extracts IC_IMAGE_TAG, IC_GPU_COUNT, IC_COPY_COUNT from each conf file', () => {
             const rendered = renderRegister(realtimeVars());
 
             // The script sources each conf file and extracts the relevant variables
@@ -162,7 +162,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('builds JSON array with name, image, gpuCount, copyCount fields', function () {
+        it('builds JSON array with name, image, gpuCount, copyCount fields', () => {
             const rendered = renderRegister(realtimeVars());
 
             // In bash heredocs with escaped quotes, the fields appear as \"name\"
@@ -184,7 +184,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('derives IC name from config filename (basename without .conf)', function () {
+        it('derives IC name from config filename (basename without .conf)', () => {
             const rendered = renderRegister(realtimeVars());
 
             assert.ok(
@@ -195,7 +195,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
     });
 
     describe('CI mode (--ci flag) behavior', () => {
-        it('CI mode only includes the first IC alphabetically when multiple ICs exist', function () {
+        it('CI mode only includes the first IC alphabetically when multiple ICs exist', () => {
             const rendered = renderRegister(realtimeVars());
 
             // Should check CI_MODE and IC_COUNT
@@ -214,7 +214,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('CI mode builds a single-element IC list array', function () {
+        it('CI mode builds a single-element IC list array', () => {
             const rendered = renderRegister(realtimeVars());
 
             // In CI mode with multiple ICs, should build a single-element array
@@ -226,7 +226,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
     });
 
     describe('Legacy behavior (no do/ic/ directory)', () => {
-        it('falls back to single IC from do/config when no do/ic/ directory', function () {
+        it('falls back to single IC from do/config when no do/ic/ directory', () => {
             const rendered = renderRegister(realtimeVars());
 
             // Should have an else branch for legacy behavior
@@ -247,7 +247,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
     });
 
     describe('IC list included in registry output', () => {
-        it('IC list is included in DEPLOYMENT_JSON for realtime-inference', function () {
+        it('IC list is included in DEPLOYMENT_JSON for realtime-inference', () => {
             const rendered = renderRegister(realtimeVars());
 
             // The icList field should appear in the JSON output
@@ -257,7 +257,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('IC list is included in CI record configJson for realtime-inference', function () {
+        it('IC list is included in CI record configJson for realtime-inference', () => {
             const rendered = renderRegister(realtimeVars());
 
             // Count occurrences of icList in the rendered output
@@ -268,7 +268,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('IC list is NOT included for non-realtime deployment targets', function () {
+        it('IC list is NOT included for non-realtime deployment targets', () => {
             const rendered = renderRegister(batchVars());
 
             // Batch transform should not have IC list logic
@@ -284,7 +284,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
     });
 
     describe('Endpoint-level config in registry', () => {
-        it('register stores endpoint name (PROJECT_NAME) in output', function () {
+        it('register stores endpoint name (PROJECT_NAME) in output', () => {
             const rendered = renderRegister(realtimeVars());
 
             assert.ok(
@@ -293,7 +293,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('register stores instance type in output for realtime-inference', function () {
+        it('register stores instance type in output for realtime-inference', () => {
             const rendered = renderRegister(realtimeVars());
 
             assert.ok(
@@ -302,7 +302,7 @@ describe('do/register IC List Interaction (Req 2.7)', () => {
             );
         });
 
-        it('register stores region in output', function () {
+        it('register stores region in output', () => {
             const rendered = renderRegister(realtimeVars());
 
             assert.ok(

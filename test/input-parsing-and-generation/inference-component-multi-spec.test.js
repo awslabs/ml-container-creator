@@ -44,13 +44,13 @@ function runBashTest(scriptContent, tmpName) {
     }
 }
 
-describe('do/lib/inference-component.sh — Multi-spec IC support (Req 6.3, 7.2)', function () {
+describe('do/lib/inference-component.sh — Multi-spec IC support (Req 6.3, 7.2)', () => {
 
     // ================================================================
     // Static analysis: script contains multi-spec branching logic
     // ================================================================
     describe('Static analysis: multi-spec branching', () => {
-        it('detects IC_MULTI_SPEC=true to choose multi-spec path', function () {
+        it('detects IC_MULTI_SPEC=true to choose multi-spec path', () => {
             assert.ok(
                 libInferenceComponentContent.includes('IC_MULTI_SPEC'),
                 'inference-component.sh must reference IC_MULTI_SPEC variable'
@@ -61,14 +61,14 @@ describe('do/lib/inference-component.sh — Multi-spec IC support (Req 6.3, 7.2)
             );
         });
 
-        it('uses Specifications (plural) array when multi-spec is active', function () {
+        it('uses Specifications (plural) array when multi-spec is active', () => {
             assert.ok(
                 libInferenceComponentContent.includes('\\"Specifications\\"'),
                 'inference-component.sh must build Specifications (plural) key in multi-spec path'
             );
         });
 
-        it('loops from 1 to IC_SPEC_COUNT reading per-spec variables', function () {
+        it('loops from 1 to IC_SPEC_COUNT reading per-spec variables', () => {
             assert.ok(
                 libInferenceComponentContent.includes('IC_SPEC_COUNT'),
                 'inference-component.sh must reference IC_SPEC_COUNT'
@@ -87,7 +87,7 @@ describe('do/lib/inference-component.sh — Multi-spec IC support (Req 6.3, 7.2)
             );
         });
 
-        it('each spec entry includes Container, StartupParameters, and ComputeResourceRequirements', function () {
+        it('each spec entry includes Container, StartupParameters, and ComputeResourceRequirements', () => {
             // In the multi-spec loop, each entry must have all three fields
             const multiSpecSection = libInferenceComponentContent.substring(
                 libInferenceComponentContent.indexOf('Multi-spec:'),
@@ -115,7 +115,7 @@ describe('do/lib/inference-component.sh — Multi-spec IC support (Req 6.3, 7.2)
             );
         });
 
-        it('single-spec path is unchanged when IC_MULTI_SPEC is not set', function () {
+        it('single-spec path is unchanged when IC_MULTI_SPEC is not set', () => {
             // The else branch must still use the single Specification object
             const singleSpecSection = libInferenceComponentContent.substring(
                 libInferenceComponentContent.indexOf('Single spec:')
@@ -130,7 +130,7 @@ describe('do/lib/inference-component.sh — Multi-spec IC support (Req 6.3, 7.2)
             );
         });
 
-        it('shares container spec between multi-spec entries', function () {
+        it('shares container spec between multi-spec entries', () => {
             // The container_spec variable is built once and reused in the loop
             const multiSpecSection = libInferenceComponentContent.substring(
                 libInferenceComponentContent.indexOf('Multi-spec:'),

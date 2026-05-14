@@ -114,7 +114,7 @@ export default class RegistryCommandHandler {
                 backend,
                 baseImage: options.baseImage || options['base-image'] || null,
                 deploymentTarget: options.deploymentTarget || options['deployment-target'] || null,
-                buildTarget: options.buildTarget || options['build-target'] || null,
+                buildTarget: options.buildTarget || options['build-target'] || null
             },
             model: {
                 modelName: options.modelName || options['model-name'] || null,

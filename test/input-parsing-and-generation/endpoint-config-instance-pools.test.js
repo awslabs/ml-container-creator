@@ -50,8 +50,8 @@ function extractVariantJson(output) {
     return JSON.parse(jsonLine);
 }
 
-describe('do/lib/endpoint-config.sh — INSTANCE_POOLS support', function () {
-    it('contains INSTANCE_POOLS branch that uses InstancePools array (Req 6.1, 6.2)', function () {
+describe('do/lib/endpoint-config.sh — INSTANCE_POOLS support', () => {
+    it('contains INSTANCE_POOLS branch that uses InstancePools array (Req 6.1, 6.2)', () => {
         assert.ok(
             endpointConfigContent.includes('InstancePools'),
             'endpoint-config.sh must reference InstancePools when INSTANCE_POOLS is set'
@@ -62,7 +62,7 @@ describe('do/lib/endpoint-config.sh — INSTANCE_POOLS support', function () {
         );
     });
 
-    it('sets VariantInstanceProvisionTimeoutInSeconds from POOL_TIMEOUT with default 1200 (Req 6.5)', function () {
+    it('sets VariantInstanceProvisionTimeoutInSeconds from POOL_TIMEOUT with default 1200 (Req 6.5)', () => {
         assert.ok(
             endpointConfigContent.includes('VariantInstanceProvisionTimeoutInSeconds'),
             'endpoint-config.sh must include VariantInstanceProvisionTimeoutInSeconds'
@@ -73,7 +73,7 @@ describe('do/lib/endpoint-config.sh — INSTANCE_POOLS support', function () {
         );
     });
 
-    it('sets RoutingConfig to LEAST_OUTSTANDING_REQUESTS when pools active (Req 6.6)', function () {
+    it('sets RoutingConfig to LEAST_OUTSTANDING_REQUESTS when pools active (Req 6.6)', () => {
         assert.ok(
             endpointConfigContent.includes('RoutingConfig'),
             'endpoint-config.sh must include RoutingConfig when pools are active'
@@ -84,17 +84,17 @@ describe('do/lib/endpoint-config.sh — INSTANCE_POOLS support', function () {
         );
     });
 
-    it('sets InitialInstanceCount from POOL_INSTANCE_COUNT with default 1 (Req 6.1)', function () {
+    it('sets InitialInstanceCount from POOL_INSTANCE_COUNT with default 1 (Req 6.1)', () => {
         assert.ok(
             endpointConfigContent.includes('${POOL_INSTANCE_COUNT:-1}'),
             'endpoint-config.sh must use POOL_INSTANCE_COUNT with default 1 for pools path'
         );
     });
 
-    it('omits InstanceType when INSTANCE_POOLS is set (mutually exclusive) (Req 6.1)', function () {
+    it('omits InstanceType when INSTANCE_POOLS is set (mutually exclusive) (Req 6.1)', () => {
         // Extract the pools branch content (between the if INSTANCE_POOLS and else)
         const poolsBranchMatch = endpointConfigContent.match(
-            /if \[ -n "\$\{INSTANCE_POOLS:-\}" \]; then\n([\s\S]*?)\n    else/
+            /if \[ -n "\$\{INSTANCE_POOLS:-\}" \]; then\n([\s\S]*?)\n {4}else/
         );
         assert.ok(poolsBranchMatch, 'Must have an INSTANCE_POOLS branch');
         const poolsBranch = poolsBranchMatch[1];
@@ -106,10 +106,10 @@ describe('do/lib/endpoint-config.sh — INSTANCE_POOLS support', function () {
         );
     });
 
-    it('standard path still uses InstanceType when INSTANCE_POOLS is not set', function () {
+    it('standard path still uses InstanceType when INSTANCE_POOLS is not set', () => {
         // The else branch should use InstanceType
         const elseBranchMatch = endpointConfigContent.match(
-            /else\n([\s\S]*?)\n    fi/
+            /else\n([\s\S]*?)\n {4}fi/
         );
         assert.ok(elseBranchMatch, 'Must have an else branch for standard path');
         const elseBranch = elseBranchMatch[1];
@@ -124,7 +124,7 @@ describe('do/lib/endpoint-config.sh — INSTANCE_POOLS support', function () {
         );
     });
 
-    it('produces valid JSON for pools path with custom POOL_TIMEOUT and POOL_INSTANCE_COUNT', function () {
+    it('produces valid JSON for pools path with custom POOL_TIMEOUT and POOL_INSTANCE_COUNT', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -169,7 +169,7 @@ create_endpoint_config 2>/dev/null
         assert.deepStrictEqual(variant.RoutingConfig, { RoutingStrategy: 'LEAST_OUTSTANDING_REQUESTS' });
     });
 
-    it('produces valid JSON for standard path (no pools)', function () {
+    it('produces valid JSON for standard path (no pools)', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -209,7 +209,7 @@ create_endpoint_config 2>/dev/null
         assert.ok(!('VariantInstanceProvisionTimeoutInSeconds' in variant), 'Must NOT have timeout when using single type');
     });
 
-    it('uses default POOL_TIMEOUT=1200 and POOL_INSTANCE_COUNT=1 when not set', function () {
+    it('uses default POOL_TIMEOUT=1200 and POOL_INSTANCE_COUNT=1 when not set', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -242,7 +242,7 @@ create_endpoint_config 2>/dev/null
         assert.strictEqual(variant.VariantInstanceProvisionTimeoutInSeconds, 1200, 'Default timeout should be 1200');
     });
 
-    it('pools path includes INFERENCE_AMI_VERSION when set', function () {
+    it('pools path includes INFERENCE_AMI_VERSION when set', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -276,7 +276,7 @@ create_endpoint_config 2>/dev/null
             'AMI version should be included in pools path');
     });
 
-    it('capacity reservation wins over instance pools — mutual exclusivity (Req 6.1)', function () {
+    it('capacity reservation wins over instance pools — mutual exclusivity (Req 6.1)', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -288,11 +288,11 @@ export CAPACITY_RESERVATION_ARN="arn:aws:sagemaker:us-east-1:123456789012:infere
 aws() {
     local capture_next=false
     for arg in "$@"; do
-        if [ "\$capture_next" = true ]; then
-            echo "\$arg"
+        if [ "$capture_next" = true ]; then
+            echo "$arg"
             return 0
         fi
-        if [ "\$arg" = "--production-variants" ]; then
+        if [ "$arg" = "--production-variants" ]; then
             capture_next=true
         fi
     done
@@ -328,7 +328,7 @@ create_endpoint_config
         );
     });
 
-    it('does not print warning when only INSTANCE_POOLS is set (no CAPACITY_RESERVATION_ARN)', function () {
+    it('does not print warning when only INSTANCE_POOLS is set (no CAPACITY_RESERVATION_ARN)', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -338,11 +338,11 @@ export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1}]'
 aws() {
     local capture_next=false
     for arg in "$@"; do
-        if [ "\$capture_next" = true ]; then
-            echo "\$arg"
+        if [ "$capture_next" = true ]; then
+            echo "$arg"
             return 0
         fi
-        if [ "\$arg" = "--production-variants" ]; then
+        if [ "$arg" = "--production-variants" ]; then
             capture_next=true
         fi
     done
@@ -366,7 +366,7 @@ create_endpoint_config
         assert.ok('InstancePools' in variant, 'Must use InstancePools when only pools are set');
     });
 
-    it('does not print warning when only CAPACITY_RESERVATION_ARN is set (no INSTANCE_POOLS)', function () {
+    it('does not print warning when only CAPACITY_RESERVATION_ARN is set (no INSTANCE_POOLS)', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -377,11 +377,11 @@ export CAPACITY_RESERVATION_ARN="arn:aws:sagemaker:us-east-1:123456789012:infere
 aws() {
     local capture_next=false
     for arg in "$@"; do
-        if [ "\$capture_next" = true ]; then
-            echo "\$arg"
+        if [ "$capture_next" = true ]; then
+            echo "$arg"
             return 0
         fi
-        if [ "\$arg" = "--production-variants" ]; then
+        if [ "$arg" = "--production-variants" ]; then
             capture_next=true
         fi
     done
@@ -406,7 +406,7 @@ create_endpoint_config
         assert.ok(!('InstancePools' in variant), 'Must NOT have InstancePools');
     });
 
-    it('transforms ModelName to ModelNameOverride when pool entries include ModelName (Req 6.4)', function () {
+    it('transforms ModelName to ModelNameOverride when pool entries include ModelName (Req 6.4)', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -416,11 +416,11 @@ export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1,"ModelNam
 aws() {
     local capture_next=false
     for arg in "$@"; do
-        if [ "\$capture_next" = true ]; then
-            echo "\$arg"
+        if [ "$capture_next" = true ]; then
+            echo "$arg"
             return 0
         fi
-        if [ "\$arg" = "--production-variants" ]; then
+        if [ "$arg" = "--production-variants" ]; then
             capture_next=true
         fi
     done
@@ -455,7 +455,7 @@ create_endpoint_config
             'Must print ModelNameOverride detection message');
     });
 
-    it('omits ModelNameOverride when pool entries do not include ModelName (Req 6.4)', function () {
+    it('omits ModelNameOverride when pool entries do not include ModelName (Req 6.4)', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -465,11 +465,11 @@ export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"Instan
 aws() {
     local capture_next=false
     for arg in "$@"; do
-        if [ "\$capture_next" = true ]; then
-            echo "\$arg"
+        if [ "$capture_next" = true ]; then
+            echo "$arg"
             return 0
         fi
-        if [ "\$arg" = "--production-variants" ]; then
+        if [ "$arg" = "--production-variants" ]; then
             capture_next=true
         fi
     done
@@ -496,7 +496,7 @@ create_endpoint_config
             'Must NOT print ModelNameOverride message when no ModelName in pools');
     });
 
-    it('handles mixed pool entries — some with ModelName, some without (Req 6.4)', function () {
+    it('handles mixed pool entries — some with ModelName, some without (Req 6.4)', () => {
         const scriptContent = `set -euo pipefail
 export PROJECT_NAME="test-project"
 export AWS_REGION="us-east-1"
@@ -506,11 +506,11 @@ export INSTANCE_POOLS='[{"InstanceType":"ml.g6e.48xlarge","Priority":1,"ModelNam
 aws() {
     local capture_next=false
     for arg in "$@"; do
-        if [ "\$capture_next" = true ]; then
-            echo "\$arg"
+        if [ "$capture_next" = true ]; then
+            echo "$arg"
             return 0
         fi
-        if [ "\$arg" = "--production-variants" ]; then
+        if [ "$arg" = "--production-variants" ]; then
             capture_next=true
         fi
     done

@@ -36,7 +36,7 @@ describe('IC Naming Convention and State Tracking (Req 2.6, 2.7)', () => {
         console.log('🔧 Configuration: Static lib file content analysis + property-based testing\n');
     });
 
-    it('IC name is constructed as ${PROJECT_NAME}-${ic_basename}-${TIMESTAMP} (Req 2.6)', function () {
+    it('IC name is constructed as ${PROJECT_NAME}-${ic_basename}-${TIMESTAMP} (Req 2.6)', () => {
         console.log('  🧪 Req 2.6: IC name follows naming convention');
 
         // Verify the naming convention pattern exists in the script
@@ -124,7 +124,7 @@ describe('IC Naming Convention and State Tracking (Req 2.6, 2.7)', () => {
         console.log('    ✅ IC name components produce valid resource names');
     });
 
-    it('IC_DEPLOYED_NAME is persisted to IC config file after creation (Req 2.7)', function () {
+    it('IC_DEPLOYED_NAME is persisted to IC config file after creation (Req 2.7)', () => {
         console.log('  🧪 Req 2.7: IC_DEPLOYED_NAME persisted to IC config file');
 
         // Verify the script persists IC_DEPLOYED_NAME using _update_config_var
@@ -141,7 +141,7 @@ describe('IC Naming Convention and State Tracking (Req 2.6, 2.7)', () => {
         console.log('    ✅ IC_DEPLOYED_NAME persisted to IC config file');
     });
 
-    it('IC_DEPLOYED_AT timestamp is persisted for debugging (Req 2.7)', function () {
+    it('IC_DEPLOYED_AT timestamp is persisted for debugging (Req 2.7)', () => {
         console.log('  🧪 Req 2.7: IC_DEPLOYED_AT persisted for debugging');
 
         // Verify the script persists IC_DEPLOYED_AT using _update_config_var
@@ -158,7 +158,7 @@ describe('IC Naming Convention and State Tracking (Req 2.6, 2.7)', () => {
         console.log('    ✅ IC_DEPLOYED_AT persisted for debugging');
     });
 
-    it('create_inference_component uses the IC config file path for _update_config_var (Req 2.7)', function () {
+    it('create_inference_component uses the IC config file path for _update_config_var (Req 2.7)', () => {
         console.log('  🧪 Req 2.7: _update_config_var targets the IC config file, not do/config');
 
         // The third argument to _update_config_var must be "${ic_conf}" (the IC config file)
@@ -172,7 +172,7 @@ describe('IC Naming Convention and State Tracking (Req 2.6, 2.7)', () => {
         console.log('    ✅ _update_config_var targets the IC config file');
     });
 
-    it('legacy function persists INFERENCE_COMPONENT_NAME to do/config (Req 2.7)', function () {
+    it('legacy function persists INFERENCE_COMPONENT_NAME to do/config (Req 2.7)', () => {
         console.log('  🧪 Req 2.7: legacy function persists to do/config for backward compat');
 
         // The legacy function should persist to do/config (default path, no third arg)
@@ -188,7 +188,7 @@ describe('IC Naming Convention and State Tracking (Req 2.6, 2.7)', () => {
         console.log('    ✅ legacy function persists to do/config');
     });
 
-    it('IC config file is validated before sourcing (Req 2.6)', function () {
+    it('IC config file is validated before sourcing (Req 2.6)', () => {
         console.log('  🧪 Req 2.6: IC config file existence validated');
 
         assert.ok(
@@ -203,7 +203,7 @@ describe('IC Naming Convention and State Tracking (Req 2.6, 2.7)', () => {
         console.log('    ✅ IC config file existence validated before sourcing');
     });
 
-    it('IC name is used in the create-inference-component API call (Req 2.6)', function () {
+    it('IC name is used in the create-inference-component API call (Req 2.6)', () => {
         console.log('  🧪 Req 2.6: IC name passed to create-inference-component API');
 
         assert.ok(
@@ -214,7 +214,7 @@ describe('IC Naming Convention and State Tracking (Req 2.6, 2.7)', () => {
         console.log('    ✅ IC name used in create-inference-component API call');
     });
 
-    it('IC name is echoed as return value for caller use (Req 2.6)', function () {
+    it('IC name is echoed as return value for caller use (Req 2.6)', () => {
         console.log('  🧪 Req 2.6: IC name echoed as return value');
 
         // After successful creation, the function echoes the IC name

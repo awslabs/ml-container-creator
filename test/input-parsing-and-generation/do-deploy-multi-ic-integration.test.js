@@ -560,7 +560,7 @@ describe('Multi-IC Deployment Integration Tests (Task 2.8)', () => {
     // Test 4: do/add-ic creates valid conf file with expected fields
     // ================================================================
     describe('do/add-ic creates valid conf file with expected fields', () => {
-        it('add-ic script creates conf file with all required IC fields', function () {
+        it('add-ic script creates conf file with all required IC fields', () => {
             console.log('  🧪 Req 7.6: add-ic creates conf with required fields');
 
             // The add-ic script must write a conf file with these fields
@@ -588,7 +588,7 @@ describe('Multi-IC Deployment Integration Tests (Task 2.8)', () => {
             console.log('    ✅ add-ic creates conf with all required fields');
         });
 
-        it('add-ic uses heredoc to write conf file with export statements', function () {
+        it('add-ic uses heredoc to write conf file with export statements', () => {
             console.log('  🧪 Req 7.6: add-ic uses export statements in conf');
 
             // The conf file content must use export for each variable
@@ -616,7 +616,7 @@ describe('Multi-IC Deployment Integration Tests (Task 2.8)', () => {
             console.log('    ✅ add-ic uses export statements in conf');
         });
 
-        it('add-ic validates IC name format (lowercase alphanumeric + hyphens)', function () {
+        it('add-ic validates IC name format (lowercase alphanumeric + hyphens)', () => {
             console.log('  🧪 Req 7.6: add-ic validates IC name format');
 
             // Must validate the IC name
@@ -632,7 +632,7 @@ describe('Multi-IC Deployment Integration Tests (Task 2.8)', () => {
             console.log('    ✅ add-ic validates IC name format');
         });
 
-        it('add-ic checks for collision with existing conf files', function () {
+        it('add-ic checks for collision with existing conf files', () => {
             console.log('  🧪 Req 7.6: add-ic checks for name collision');
 
             // Must check if conf file already exists
@@ -648,7 +648,7 @@ describe('Multi-IC Deployment Integration Tests (Task 2.8)', () => {
             console.log('    ✅ add-ic checks for name collision');
         });
 
-        it('add-ic creates conf in do/ic/ directory', function () {
+        it('add-ic creates conf in do/ic/ directory', () => {
             console.log('  🧪 Req 7.6: add-ic creates conf in do/ic/ directory');
 
             // Must create the file in the ic/ subdirectory
@@ -664,7 +664,7 @@ describe('Multi-IC Deployment Integration Tests (Task 2.8)', () => {
             console.log('    ✅ add-ic creates conf in do/ic/ directory');
         });
 
-        it('add-ic deploys the new IC immediately after creation', function () {
+        it('add-ic deploys the new IC immediately after creation', () => {
             console.log('  🧪 Req 7.6: add-ic deploys IC immediately');
 
             // Must call do/deploy --ic <name> after creating the conf
@@ -723,7 +723,7 @@ describe('Multi-IC Deployment Integration Tests (Task 2.8)', () => {
             console.log('    ✅ default.conf template renders correctly');
         });
 
-        it('default.conf uses icGpuCount=1 when not provided', function () {
+        it('default.conf uses icGpuCount=1 when not provided', () => {
             console.log('  🧪 Req 7.6: default.conf defaults GPU count to 1');
 
             const rendered = renderDefaultConf({ projectName: 'my-project', icGpuCount: undefined });

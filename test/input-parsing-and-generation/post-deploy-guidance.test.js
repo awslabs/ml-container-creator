@@ -208,7 +208,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
 
         it('do/deploy should NOT show benchmark suggestion', () => {
             // Extract the "What's next?" block from deploy output
-            const whatsNextIdx = deployOutput.indexOf("What's next?");
+            const whatsNextIdx = deployOutput.indexOf('What\'s next?');
             assert.ok(whatsNextIdx > 0, 'deploy must contain What\'s next? block');
             const whatsNextBlock = deployOutput.substring(whatsNextIdx);
 
@@ -219,7 +219,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
         });
 
         it('do/deploy should NOT show adapter suggestion', () => {
-            const whatsNextIdx = deployOutput.indexOf("What's next?");
+            const whatsNextIdx = deployOutput.indexOf('What\'s next?');
             const whatsNextBlock = deployOutput.substring(whatsNextIdx);
 
             assert.ok(
@@ -229,7 +229,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
         });
 
         it('do/deploy should show base suggestions (test, status, register, logs, clean)', () => {
-            const whatsNextIdx = deployOutput.indexOf("What's next?");
+            const whatsNextIdx = deployOutput.indexOf('What\'s next?');
             const whatsNextBlock = deployOutput.substring(whatsNextIdx);
 
             assert.ok(whatsNextBlock.includes('./do/test'), 'must show ./do/test');
@@ -240,7 +240,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
         });
 
         it('do/test should NOT show benchmark suggestion', () => {
-            const whatsNextIdx = testOutput.indexOf("What's next?");
+            const whatsNextIdx = testOutput.indexOf('What\'s next?');
             assert.ok(whatsNextIdx > 0, 'test must contain What\'s next? block');
             const whatsNextBlock = testOutput.substring(whatsNextIdx);
 
@@ -251,7 +251,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
         });
 
         it('do/test should NOT show adapter suggestion', () => {
-            const whatsNextIdx = testOutput.indexOf("What's next?");
+            const whatsNextIdx = testOutput.indexOf('What\'s next?');
             const whatsNextBlock = testOutput.substring(whatsNextIdx);
 
             assert.ok(
@@ -261,7 +261,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
         });
 
         it('do/test should show base suggestions (register, logs)', () => {
-            const whatsNextIdx = testOutput.indexOf("What's next?");
+            const whatsNextIdx = testOutput.indexOf('What\'s next?');
             const whatsNextBlock = testOutput.substring(whatsNextIdx);
 
             assert.ok(whatsNextBlock.includes('./do/register'), 'must show ./do/register');
@@ -290,7 +290,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
         });
 
         it('do/deploy should show async test suggestion', () => {
-            const whatsNextIdx = deployOutput.indexOf("What's next?");
+            const whatsNextIdx = deployOutput.indexOf('What\'s next?');
             const whatsNextBlock = deployOutput.substring(whatsNextIdx);
 
             assert.ok(
@@ -319,7 +319,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
         });
 
         it('do/deploy should NOT show clean endpoint suggestion', () => {
-            const whatsNextIdx = deployOutput.indexOf("What's next?");
+            const whatsNextIdx = deployOutput.indexOf('What\'s next?');
             assert.ok(whatsNextIdx > 0, 'deploy must contain What\'s next? block');
             const whatsNextBlock = deployOutput.substring(whatsNextIdx);
 
@@ -330,7 +330,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
         });
 
         it('do/deploy should still show other base suggestions', () => {
-            const whatsNextIdx = deployOutput.indexOf("What's next?");
+            const whatsNextIdx = deployOutput.indexOf('What\'s next?');
             const whatsNextBlock = deployOutput.substring(whatsNextIdx);
 
             assert.ok(whatsNextBlock.includes('./do/test'), 'must show ./do/test');

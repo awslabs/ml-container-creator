@@ -78,7 +78,7 @@ describe('Feature: lora-adapter-lifecycle, Property: Adapter IC JSON structure',
 
     describe('Template contains the expected specification pattern', () => {
 
-        it('the adapter template contains a --specification flag with BaseInferenceComponentName', function () {
+        it('the adapter template contains a --specification flag with BaseInferenceComponentName', () => {
             assert.ok(
                 ADAPTER_TEMPLATE.includes('--specification') &&
                 ADAPTER_TEMPLATE.includes('BaseInferenceComponentName'),
@@ -86,21 +86,21 @@ describe('Feature: lora-adapter-lifecycle, Property: Adapter IC JSON structure',
             );
         });
 
-        it('the adapter template contains Container.ArtifactUrl in the specification', function () {
+        it('the adapter template contains Container.ArtifactUrl in the specification', () => {
             assert.ok(
                 ADAPTER_TEMPLATE.includes('ArtifactUrl'),
                 'Template must contain ArtifactUrl in the specification JSON'
             );
         });
 
-        it('the adapter template does NOT contain ComputeResourceRequirements', function () {
+        it('the adapter template does NOT contain ComputeResourceRequirements', () => {
             assert.ok(
                 !ADAPTER_TEMPLATE.includes('ComputeResourceRequirements'),
                 'Template must NOT contain ComputeResourceRequirements — adapter ICs share base IC resources'
             );
         });
 
-        it('the adapter template uses ${PROJECT_NAME}-adapter-${adapter_name} naming', function () {
+        it('the adapter template uses ${PROJECT_NAME}-adapter-${adapter_name} naming', () => {
             assert.ok(
                 ADAPTER_TEMPLATE.includes('${PROJECT_NAME}-adapter-${adapter_name}'),
                 'Template must use ${PROJECT_NAME}-adapter-${adapter_name} for IC naming'
@@ -127,7 +127,7 @@ describe('Feature: lora-adapter-lifecycle, Property: Adapter IC JSON structure',
                     assert.strictEqual(
                         parsed.BaseInferenceComponentName,
                         baseIcName,
-                        `BaseInferenceComponentName must equal the base IC name`
+                        'BaseInferenceComponentName must equal the base IC name'
                     );
                 }
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
@@ -153,7 +153,7 @@ describe('Feature: lora-adapter-lifecycle, Property: Adapter IC JSON structure',
                     assert.strictEqual(
                         parsed.Container.ArtifactUrl,
                         weightsUri,
-                        `Container.ArtifactUrl must equal the weights URI`
+                        'Container.ArtifactUrl must equal the weights URI'
                     );
                 }
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
@@ -174,7 +174,7 @@ describe('Feature: lora-adapter-lifecycle, Property: Adapter IC JSON structure',
 
                     assert.ok(
                         !('ComputeResourceRequirements' in parsed),
-                        `Adapter IC specification must NOT contain ComputeResourceRequirements — adapters share base IC resources`
+                        'Adapter IC specification must NOT contain ComputeResourceRequirements — adapters share base IC resources'
                     );
                 }
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
@@ -220,7 +220,7 @@ describe('Feature: lora-adapter-lifecycle, Property: Adapter IC JSON structure',
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
-        it('the adapter IC name format in the template matches the convention', function () {
+        it('the adapter IC name format in the template matches the convention', () => {
             // Verify the template actually uses this exact pattern
             const namingPattern = /adapter_ic_name="\$\{PROJECT_NAME\}-adapter-\$\{adapter_name\}"/;
             assert.ok(
