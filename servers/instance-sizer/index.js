@@ -51,7 +51,7 @@ try {
 
 // ── Mode configuration ───────────────────────────────────────────────────────
 
-const DISCOVER_MODE = process.argv.includes('--discover') || process.env.DISCOVER_MODE === 'true'
+const DISCOVER_MODE = process.env.DISCOVER_MODE !== 'false' && !process.argv.includes('--no-discover')
 const SMART_MODE = process.env.BEDROCK_SMART === 'true'
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-20250514-v1:0'
 const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1'
@@ -593,10 +593,10 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === __filename
 if (isMain) {
     if (SMART_MODE) {
         log(`Smart mode enabled (model: ${BEDROCK_MODEL}, region: ${BEDROCK_REGION})`)
-    } else if (DISCOVER_MODE) {
-        log('Discover mode enabled (HuggingFace API lookups active)')
+    } else if (!DISCOVER_MODE) {
+        log('Static mode (catalog-only, no network calls) — use --no-discover to force this')
     } else {
-        log('Static mode (catalog-only, no network calls)')
+        log('Discover mode (HuggingFace API + quota lookups active)')
     }
 
     const transport = new StdioServerTransport()

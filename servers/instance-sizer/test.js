@@ -38,11 +38,11 @@ function parseResponse(result) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-console.log('\ninstance-sizer: known model (Llama-2-7B)\n')
+console.log('\ninstance-sizer: known model (Llama-3.1-8B)\n')
 
-await test('Llama-2-7B returns valid response shape', async () => {
+await test('Llama-3.1-8B returns valid response shape', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf'
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct'
     })
     const data = parseResponse(result)
 
@@ -59,9 +59,9 @@ await test('Llama-2-7B returns valid response shape', async () => {
     }
 })
 
-await test('Llama-2-7B metadata has required fields', async () => {
+await test('Llama-3.1-8B metadata has required fields', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf'
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct'
     })
     const data = parseResponse(result)
 
@@ -71,21 +71,21 @@ await test('Llama-2-7B metadata has required fields', async () => {
     assert.strictEqual(data.metadata.source, 'catalog', 'metadata.source should be catalog')
 })
 
-await test('Llama-2-7B VRAM estimate is between 14 and 15 GB', async () => {
+await test('Llama-3.1-8B VRAM estimate is between 26 and 32 GB', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf'
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct'
     })
     const data = parseResponse(result)
 
-    assert.ok(data.metadata.estimatedVramGb >= 14,
-        `estimatedVramGb should be >= 14, got: ${data.metadata.estimatedVramGb}`)
-    assert.ok(data.metadata.estimatedVramGb <= 15,
-        `estimatedVramGb should be <= 15, got: ${data.metadata.estimatedVramGb}`)
+    assert.ok(data.metadata.estimatedVramGb >= 26,
+        `estimatedVramGb should be >= 26, got: ${data.metadata.estimatedVramGb}`)
+    assert.ok(data.metadata.estimatedVramGb <= 32,
+        `estimatedVramGb should be <= 32, got: ${data.metadata.estimatedVramGb}`)
 })
 
-await test('Llama-2-7B recommendations are non-empty with required fields', async () => {
+await test('Llama-3.1-8B recommendations are non-empty with required fields', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf'
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct'
     })
     const data = parseResponse(result)
 
@@ -102,25 +102,25 @@ await test('Llama-2-7B recommendations are non-empty with required fields', asyn
     }
 })
 
-// ── Known model (Llama-2-70B) ────────────────────────────────────────────────
+// ── Known model (Llama-3.3-70B) ──────────────────────────────────────────────
 
-console.log('\ninstance-sizer: known model (Llama-2-70B)\n')
+console.log('\ninstance-sizer: known model (Llama-3.3-70B)\n')
 
-await test('Llama-2-70B VRAM estimate is between 140 and 150 GB', async () => {
+await test('Llama-3.3-70B VRAM estimate is between 240 and 260 GB', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-70b-hf'
+        modelName: 'meta-llama/Llama-3.3-70B-Instruct'
     })
     const data = parseResponse(result)
 
-    assert.ok(data.metadata.estimatedVramGb >= 140,
-        `estimatedVramGb should be >= 140, got: ${data.metadata.estimatedVramGb}`)
-    assert.ok(data.metadata.estimatedVramGb <= 150,
-        `estimatedVramGb should be <= 150, got: ${data.metadata.estimatedVramGb}`)
+    assert.ok(data.metadata.estimatedVramGb >= 240,
+        `estimatedVramGb should be >= 240, got: ${data.metadata.estimatedVramGb}`)
+    assert.ok(data.metadata.estimatedVramGb <= 260,
+        `estimatedVramGb should be <= 260, got: ${data.metadata.estimatedVramGb}`)
 })
 
-await test('Llama-2-70B includes multi-GPU instances (TP > 1)', async () => {
+await test('Llama-3.3-70B includes multi-GPU instances (TP > 1)', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-70b-hf'
+        modelName: 'meta-llama/Llama-3.3-70B-Instruct'
     })
     const data = parseResponse(result)
 
@@ -128,13 +128,13 @@ await test('Llama-2-70B includes multi-GPU instances (TP > 1)', async () => {
     assert.ok(multiGpu.length > 0, 'should include at least one multi-GPU recommendation')
 })
 
-await test('Llama-2-70B top recommendation is a multi-GPU instance', async () => {
+await test('Llama-3.3-70B top recommendation is a multi-GPU instance', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-70b-hf'
+        modelName: 'meta-llama/Llama-3.3-70B-Instruct'
     })
     const data = parseResponse(result)
 
-    // 70B model at float16 needs ~144GB — no single 24GB GPU can fit it
+    // 70B model at bfloat16 needs ~146GB — no single 24GB GPU can fit it
     // The top recommendation must use tensor parallelism
     const topRec = data.metadata.recommendations[0]
     assert.ok(topRec.tensorParallelism > 1,
@@ -146,20 +146,20 @@ await test('Llama-2-70B top recommendation is a multi-GPU instance', async () =>
 console.log('\ninstance-sizer: quantization\n')
 
 await test('AWQ quantization reduces VRAM estimate', async () => {
-    const resultFp16 = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf'
+    const resultBf16 = await handleGetInstanceRecommendation({
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct'
     })
-    const dataFp16 = parseResponse(resultFp16)
+    const dataBf16 = parseResponse(resultBf16)
 
     const resultAwq = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf',
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct',
         quantization: 'awq'
     })
     const dataAwq = parseResponse(resultAwq)
 
     assert.strictEqual(dataAwq.metadata.quantization, 'awq', 'metadata.quantization should be awq')
-    assert.ok(dataAwq.metadata.estimatedVramGb < dataFp16.metadata.estimatedVramGb,
-        `AWQ estimate (${dataAwq.metadata.estimatedVramGb}) should be less than fp16 estimate (${dataFp16.metadata.estimatedVramGb})`)
+    assert.ok(dataAwq.metadata.estimatedVramGb < dataBf16.metadata.estimatedVramGb,
+        `AWQ estimate (${dataAwq.metadata.estimatedVramGb}) should be less than bf16 estimate (${dataBf16.metadata.estimatedVramGb})`)
 })
 
 // ── Unknown model fallback ───────────────────────────────────────────────────
@@ -213,7 +213,7 @@ console.log('\ninstance-sizer: limit parameter\n')
 
 await test('limit=3 caps choices to at most 3', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf',
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct',
         limit: 3
     })
     const data = parseResponse(result)
@@ -228,7 +228,7 @@ console.log('\ninstance-sizer: response shape validation\n')
 
 await test('response matches MCP tool response format', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf'
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct'
     })
 
     // Top-level MCP response shape
@@ -251,15 +251,15 @@ await test('response matches MCP tool response format', async () => {
     assert.ok('source' in data.metadata, 'metadata should have source')
 })
 
-// ── Offline mode (no HuggingFace calls) ──────────────────────────────────────
+// ── Offline mode (catalog-only) ──────────────────────────────────────────────
 
 console.log('\ninstance-sizer: offline mode (catalog-only)\n')
 
 await test('catalog model resolves without network calls', async () => {
     // This test verifies that a known catalog model returns results
-    // without needing HuggingFace API (DISCOVER_MODE is off by default)
+    // from the catalog (no HuggingFace API needed for catalog models)
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf'
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct'
     })
     const data = parseResponse(result)
 

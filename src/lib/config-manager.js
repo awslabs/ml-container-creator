@@ -1631,7 +1631,7 @@ export default class ConfigManager {
         if (!mcpServerConfigs || !mcpServerConfigs[serverName]) return null;
 
         const smart = this.options.smart === true;
-        const discover = this.options.discover === true;
+        const discover = this.options.discover !== false;
         const serverConfig = mcpServerConfigs[serverName];
 
         // Build a custom McpClient that passes context through

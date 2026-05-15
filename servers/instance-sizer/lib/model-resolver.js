@@ -207,7 +207,7 @@ const isHuggingFacePattern = (modelName) => {
  * @returns {Promise<{ parameterCount: number, dtype: string, architecture: string, maxPositionEmbeddings: number, source: string } | null>}
  */
 const resolveModelMetadata = async (modelName, options = {}) => {
-    const { discover = false, catalogPath } = options
+    const { discover = true, catalogPath } = options
 
     // Tier 1: Catalog lookup
     const catalog = await loadCatalog(catalogPath)

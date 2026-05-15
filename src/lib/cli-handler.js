@@ -204,7 +204,7 @@ VALIDATION OPTIONS:
 
 MCP OPTIONS:
   --smart                     Enable Bedrock-powered smart mode on all MCP servers
-  --discover                  Enable live registry lookups (e.g. Docker Hub) on MCP servers that support it
+  --no-discover               Disable live registry lookups (HuggingFace API, quota checks) — catalog-only mode
 
 REGISTRY SYSTEM:
   The generator includes built-in registries for frameworks, models, and instance types:

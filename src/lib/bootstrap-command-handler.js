@@ -199,6 +199,9 @@ export default class BootstrapCommandHandler {
             if (stackOutputs.BatchS3BucketName) {
                 profileData.batchS3Bucket = stackOutputs.BatchS3BucketName;
             }
+            if (stackOutputs.AdapterS3BucketName) {
+                profileData.adapterS3Bucket = stackOutputs.AdapterS3BucketName;
+            }
             if (stackOutputs.BenchmarkS3BucketName) {
                 profileData.benchmarkS3Bucket = stackOutputs.BenchmarkS3BucketName;
             }
@@ -389,6 +392,9 @@ export default class BootstrapCommandHandler {
                 }
                 if (outputs.BatchS3BucketName) {
                     console.log(`  ✅ S3 bucket (batch): ${outputs.BatchS3BucketName}`);
+                }
+                if (outputs.AdapterS3BucketName) {
+                    console.log(`  ✅ S3 bucket (adapters): ${outputs.AdapterS3BucketName}`);
                 }
                 if (outputs.BenchmarkS3BucketName) {
                     console.log(`  ✅ S3 bucket (benchmark): ${outputs.BenchmarkS3BucketName}`);

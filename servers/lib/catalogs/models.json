@@ -1,4 +1,510 @@
 {
+    "meta-llama/Llama-3.2-1B-Instruct": {
+        "family": "llama-3",
+        "parameterCount": 1235814400,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-3",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "notes": "Llama 3.2 1B Instruct. Lightweight model suitable for single-GPU deployment",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "meta-llama/Llama-3.2-3B-Instruct": {
+        "family": "llama-3",
+        "parameterCount": 3212749824,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-3",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "notes": "Llama 3.2 3B Instruct. Compact model with strong performance for its size",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "meta-llama/Llama-3.1-8B-Instruct": {
+        "family": "llama-3",
+        "parameterCount": 8030261248,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-3",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "notes": "Llama 3.1 8B Instruct with 128K context window",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "meta-llama/Llama-3.3-70B-Instruct": {
+        "family": "llama-3",
+        "parameterCount": 70553706496,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-3",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "notes": "Llama 3.3 70B Instruct. Requires multi-GPU tensor parallelism",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen3-0.6B": {
+        "family": "qwen3",
+        "parameterCount": 600000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 32768,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen3ForCausalLM",
+        "notes": "Qwen3 0.6B. Ultra-lightweight model for edge and low-resource deployments",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen3-1.7B": {
+        "family": "qwen3",
+        "parameterCount": 1700000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 32768,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen3ForCausalLM",
+        "notes": "Qwen3 1.7B. Lightweight model with strong reasoning capabilities",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen3-4B": {
+        "family": "qwen3",
+        "parameterCount": 4000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 32768,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen3ForCausalLM",
+        "notes": "Qwen3 4B. Balanced model for single-GPU inference",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen3-8B": {
+        "family": "qwen3",
+        "parameterCount": 8000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 32768,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen3ForCausalLM",
+        "notes": "Qwen3 8B. Strong general-purpose model for single-GPU deployment",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen3-14B": {
+        "family": "qwen3",
+        "parameterCount": 14000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 32768,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen3ForCausalLM",
+        "notes": "Qwen3 14B. High-quality model requiring larger GPU memory",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen3-32B": {
+        "family": "qwen3",
+        "parameterCount": 32000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 32768,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen3ForCausalLM",
+        "notes": "Qwen3 32B. Large model requiring multi-GPU or quantization",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen2.5-7B-Instruct": {
+        "family": "qwen2.5",
+        "parameterCount": 7721324544,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen2ForCausalLM",
+        "notes": "Qwen2.5 7B Instruct with 128K context window",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen2.5-14B-Instruct": {
+        "family": "qwen2.5",
+        "parameterCount": 14167134208,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen2ForCausalLM",
+        "notes": "Qwen2.5 14B Instruct with 128K context window",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen2.5-32B-Instruct": {
+        "family": "qwen2.5",
+        "parameterCount": 32000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen2ForCausalLM",
+        "notes": "Qwen2.5 32B Instruct with 128K context window. Requires multi-GPU or quantization",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen2.5-72B-Instruct": {
+        "family": "qwen2.5",
+        "parameterCount": 72710410240,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen",
+            "conversational"
+        ],
+        "architecture": "Qwen2ForCausalLM",
+        "notes": "Qwen2.5 72B Instruct with 128K context window. Requires multi-GPU tensor parallelism",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": {
+        "family": "deepseek-r1",
+        "parameterCount": 1500000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "deepseek",
+            "reasoning",
+            "conversational"
+        ],
+        "architecture": "Qwen2ForCausalLM",
+        "notes": "DeepSeek R1 Distill Qwen 1.5B. Reasoning-focused distilled model",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": {
+        "family": "deepseek-r1",
+        "parameterCount": 7000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "deepseek",
+            "reasoning",
+            "conversational"
+        ],
+        "architecture": "Qwen2ForCausalLM",
+        "notes": "DeepSeek R1 Distill Qwen 7B. Reasoning-focused distilled model",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": {
+        "family": "deepseek-r1",
+        "parameterCount": 14000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "deepseek",
+            "reasoning",
+            "conversational"
+        ],
+        "architecture": "Qwen2ForCausalLM",
+        "notes": "DeepSeek R1 Distill Qwen 14B. Reasoning-focused distilled model",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": {
+        "family": "deepseek-r1",
+        "parameterCount": 32000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "deepseek",
+            "reasoning",
+            "conversational"
+        ],
+        "architecture": "Qwen2ForCausalLM",
+        "notes": "DeepSeek R1 Distill Qwen 32B. Reasoning-focused distilled model. Requires multi-GPU or quantization",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Llama-8B": {
+        "family": "deepseek-r1",
+        "parameterCount": 8000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "deepseek",
+            "reasoning",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "notes": "DeepSeek R1 Distill Llama 8B. Reasoning-focused distilled model based on Llama architecture",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Llama-70B": {
+        "family": "deepseek-r1",
+        "parameterCount": 70000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 131072,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "deepseek",
+            "reasoning",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "notes": "DeepSeek R1 Distill Llama 70B. Reasoning-focused distilled model. Requires multi-GPU tensor parallelism",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "tested",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
     "openai/gpt-oss-20b": {
         "family": "gpt-oss",
         "parameterCount": 20000000000,
@@ -11,362 +517,39 @@
             "conversational"
         ],
         "architecture": "GPT2LMHeadModel",
-        "notes": "Open-source 20B parameter model. Requires significant GPU memory for inference",
+        "notes": "GPT-OSS 20B. Open-source 20B parameter model from OpenAI",
         "chatTemplate": "",
         "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
-        },
-        "validationLevel": "community-validated",
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-2-7b-chat-hf": {
-        "family": "llama-2",
-        "gated": true,
-        "tags": [
-            "text-generation",
-            "llama-2",
-            "conversational"
-        ],
-        "architecture": "LlamaForCausalLM",
-        "profiles": {
-            "7b": {
-                "displayName": "Llama-2 7B",
-                "envVars": {
-                    "MAX_MODEL_LEN": "4096",
-                    "GPU_MEMORY_UTILIZATION": "0.9"
-                }
-            }
-        },
-        "notes": "Llama-2 7B chat model with official chat template. Requires HuggingFace authentication for download",
-        "chatTemplate": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
         },
         "validationLevel": "tested",
         "modelType": "transformer",
-        "parameterCount": 6738415616,
-        "defaultDtype": "float16",
-        "maxPositionEmbeddings": 4096,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
         "tasks": [
             "text-generation"
         ]
     },
-    "meta-llama/Llama-2-13b-chat-hf": {
-        "family": "llama-2",
-        "gated": true,
-        "tags": [
-            "text-generation",
-            "llama-2",
-            "conversational"
-        ],
-        "architecture": "LlamaForCausalLM",
-        "profiles": {
-            "13b": {
-                "displayName": "Llama-2 13B",
-                "envVars": {
-                    "MAX_MODEL_LEN": "4096",
-                    "GPU_MEMORY_UTILIZATION": "0.9"
-                }
-            }
-        },
-        "notes": "Llama-2 13B chat model. Requires more GPU memory than 7B variant",
-        "chatTemplate": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
-        },
-        "validationLevel": "tested",
-        "modelType": "transformer",
-        "parameterCount": 13015864320,
-        "defaultDtype": "float16",
-        "maxPositionEmbeddings": 4096,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-2-70b-chat-hf": {
-        "family": "llama-2",
-        "parameterCount": 70000000000,
-        "defaultDtype": "float16",
-        "maxPositionEmbeddings": 4096,
-        "gated": true,
-        "tags": [
-            "text-generation",
-            "llama-2",
-            "conversational"
-        ],
-        "architecture": "LlamaForCausalLM",
-        "profiles": {
-            "70b-tp2": {
-                "displayName": "Llama-2 70B (2-GPU)",
-                "envVars": {
-                    "TENSOR_PARALLEL_SIZE": "2",
-                    "MAX_MODEL_LEN": "4096",
-                    "GPU_MEMORY_UTILIZATION": "0.95"
-                }
-            },
-            "70b-tp4": {
-                "displayName": "Llama-2 70B (4-GPU)",
-                "envVars": {
-                    "TENSOR_PARALLEL_SIZE": "4",
-                    "MAX_MODEL_LEN": "4096",
-                    "GPU_MEMORY_UTILIZATION": "0.9"
-                }
-            }
-        },
-        "notes": "Llama-2 70B requires tensor parallelism across multiple GPUs",
-        "chatTemplate": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
-        },
-        "validationLevel": "community-validated",
-        "modelType": "transformer",
-        "parameterCount": 68976648192,
-        "defaultDtype": "float16",
-        "maxPositionEmbeddings": 4096,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "mistralai/Mistral-7B-Instruct-v0.1": {
-        "family": "mistral",
+    "openai/gpt-oss-120b": {
+        "family": "gpt-oss",
+        "parameterCount": 120000000000,
+        "defaultDtype": "bfloat16",
+        "maxPositionEmbeddings": 8192,
         "gated": false,
         "tags": [
             "text-generation",
-            "mistral",
+            "openai",
             "conversational"
         ],
-        "architecture": "MistralForCausalLM",
-        "profiles": {
-            "7b": {
-                "displayName": "Mistral 7B Instruct",
-                "envVars": {
-                    "MAX_MODEL_LEN": "8192",
-                    "GPU_MEMORY_UTILIZATION": "0.9"
-                }
-            }
-        },
-        "notes": "Mistral 7B v0.1 with 8K context window",
-        "chatTemplate": "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
-        },
-        "validationLevel": "tested",
-        "modelType": "transformer",
-        "parameterCount": 7241732096,
-        "defaultDtype": "bfloat16",
-        "maxPositionEmbeddings": 32768,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "mistralai/Mistral-7B-Instruct-v0.2": {
-        "family": "mistral",
-        "gated": false,
-        "tags": [
-            "text-generation",
-            "mistral",
-            "conversational"
-        ],
-        "architecture": "MistralForCausalLM",
-        "profiles": {
-            "7b": {
-                "displayName": "Mistral 7B Instruct v0.2",
-                "envVars": {
-                    "MAX_MODEL_LEN": "32768",
-                    "GPU_MEMORY_UTILIZATION": "0.9"
-                }
-            }
-        },
-        "notes": "Mistral 7B v0.2 with extended 32K context window. Requires more memory for long contexts",
-        "chatTemplate": "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
-        },
-        "validationLevel": "tested",
-        "modelType": "transformer",
-        "parameterCount": 7241732096,
-        "defaultDtype": "bfloat16",
-        "maxPositionEmbeddings": 32768,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "mistralai/Mixtral-8x7B-Instruct-v0.1": {
-        "family": "mistral",
-        "gated": false,
-        "tags": [
-            "text-generation",
-            "mistral",
-            "mixture-of-experts"
-        ],
-        "architecture": "MixtralForCausalLM",
-        "profiles": {
-            "8x7b-tp2": {
-                "displayName": "Mixtral 8x7B (2-GPU)",
-                "envVars": {
-                    "TENSOR_PARALLEL_SIZE": "2",
-                    "MAX_MODEL_LEN": "32768",
-                    "GPU_MEMORY_UTILIZATION": "0.95"
-                }
-            }
-        },
-        "notes": "Mixtral 8x7B MoE model. Requires tensor parallelism for efficient inference",
-        "chatTemplate": "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
-        },
-        "validationLevel": "community-validated",
-        "modelType": "transformer",
-        "parameterCount": 46702792704,
-        "defaultDtype": "bfloat16",
-        "maxPositionEmbeddings": 32768,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-2-70b-hf": {
-        "family": "llama-2",
-        "parameterCount": 70000000000,
-        "defaultDtype": "float16",
-        "maxPositionEmbeddings": 4096,
-        "gated": true,
-        "tags": [
-            "text-generation",
-            "llama-2"
-        ],
-        "architecture": "LlamaForCausalLM",
-        "notes": "Llama-2 70B base model (non-chat). Requires multi-GPU for inference.",
+        "architecture": "GPT2LMHeadModel",
+        "notes": "GPT-OSS 120B. Large open-source model from OpenAI. Requires multi-GPU tensor parallelism",
         "chatTemplate": "",
         "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
         },
-        "validationLevel": "community-validated",
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-2-*": {
-        "family": "llama-2",
-        "gated": true,
-        "tags": [
-            "text-generation",
-            "llama-2"
-        ],
-        "architecture": null,
-        "notes": "Fallback configuration for Llama-2 models not explicitly listed. Uses standard Llama-2 chat template",
-        "chatTemplate": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
-        },
-        "validationLevel": "experimental",
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "mistralai/Mistral-*": {
-        "family": "mistral",
-        "gated": false,
-        "tags": [
-            "text-generation",
-            "mistral"
-        ],
-        "architecture": null,
-        "notes": "Fallback configuration for Mistral models not explicitly listed. Uses standard Mistral chat template",
-        "chatTemplate": "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0",
-            "sglang": ">=0.2.0"
-        },
-        "validationLevel": "experimental",
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "codellama/*": {
-        "family": "codellama",
-        "gated": false,
-        "tags": [
-            "text-generation",
-            "code",
-            "codellama"
-        ],
-        "architecture": null,
-        "notes": "CodeLlama models use Llama-2 chat template. Optimized for code generation",
-        "chatTemplate": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0"
-        },
-        "validationLevel": "experimental",
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "tiiuae/falcon-*": {
-        "family": "falcon",
-        "gated": false,
-        "tags": [
-            "text-generation",
-            "falcon"
-        ],
-        "architecture": null,
-        "notes": "Falcon models typically don't require chat templates for instruction following",
-        "chatTemplate": null,
-        "frameworkCompatibility": {
-            "vllm": ">=0.3.0",
-            "tensorrt-llm": ">=0.8.0"
-        },
-        "validationLevel": "experimental",
+        "validationLevel": "tested",
         "modelType": "transformer",
         "tasks": [
             "text-generation"
@@ -464,6 +647,91 @@
             "text-to-video"
         ]
     },
+    "meta-llama/Llama-3*": {
+        "family": "llama-3",
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-3"
+        ],
+        "architecture": null,
+        "notes": "Fallback configuration for Llama 3.x models not explicitly listed",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "experimental",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "Qwen/Qwen*": {
+        "family": "qwen",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "qwen"
+        ],
+        "architecture": null,
+        "notes": "Fallback configuration for Qwen models not explicitly listed",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "experimental",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "deepseek-ai/DeepSeek*": {
+        "family": "deepseek",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "deepseek",
+            "reasoning"
+        ],
+        "architecture": null,
+        "notes": "Fallback configuration for DeepSeek models not explicitly listed",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "experimental",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
+    "openai/gpt-oss*": {
+        "family": "gpt-oss",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "openai"
+        ],
+        "architecture": null,
+        "notes": "Fallback configuration for OpenAI GPT-OSS models not explicitly listed",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.5.0",
+            "tensorrt-llm": ">=0.9.0",
+            "sglang": ">=0.3.0"
+        },
+        "validationLevel": "experimental",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation"
+        ]
+    },
     "stabilityai/stable-diffusion-*": {
         "family": "stable-diffusion",
         "gated": false,
@@ -502,202 +770,6 @@
         "modelType": "diffusor",
         "tasks": [
             "text-to-image"
-        ]
-    },
-    "meta-llama/Meta-Llama-3-8B*": {
-        "parameterCount": 8030261248,
-        "defaultDtype": "bfloat16",
-        "architecture": "LlamaForCausalLM",
-        "maxPositionEmbeddings": 8192,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Meta-Llama-3-70B*": {
-        "parameterCount": 70553706496,
-        "defaultDtype": "bfloat16",
-        "architecture": "LlamaForCausalLM",
-        "maxPositionEmbeddings": 8192,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-3.1-8B*": {
-        "parameterCount": 8030261248,
-        "defaultDtype": "bfloat16",
-        "architecture": "LlamaForCausalLM",
-        "maxPositionEmbeddings": 131072,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-3.1-70B*": {
-        "parameterCount": 70553706496,
-        "defaultDtype": "bfloat16",
-        "architecture": "LlamaForCausalLM",
-        "maxPositionEmbeddings": 131072,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-3.1-405B*": {
-        "parameterCount": 405000000000,
-        "defaultDtype": "bfloat16",
-        "architecture": "LlamaForCausalLM",
-        "maxPositionEmbeddings": 131072,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq",
-            "fp8"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-3.2-1B*": {
-        "parameterCount": 1235814400,
-        "defaultDtype": "bfloat16",
-        "architecture": "LlamaForCausalLM",
-        "maxPositionEmbeddings": 131072,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "meta-llama/Llama-3.2-3B*": {
-        "parameterCount": 3212749824,
-        "defaultDtype": "bfloat16",
-        "architecture": "LlamaForCausalLM",
-        "maxPositionEmbeddings": 131072,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "Qwen/Qwen-7B*": {
-        "parameterCount": 7721324544,
-        "defaultDtype": "bfloat16",
-        "architecture": "QWenLMHeadModel",
-        "maxPositionEmbeddings": 8192,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "Qwen/Qwen2-7B*": {
-        "parameterCount": 7721324544,
-        "defaultDtype": "bfloat16",
-        "architecture": "Qwen2ForCausalLM",
-        "maxPositionEmbeddings": 32768,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "Qwen/Qwen-14B*": {
-        "parameterCount": 14167134208,
-        "defaultDtype": "bfloat16",
-        "architecture": "QWenLMHeadModel",
-        "maxPositionEmbeddings": 8192,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "Qwen/Qwen2-14B*": {
-        "parameterCount": 14167134208,
-        "defaultDtype": "bfloat16",
-        "architecture": "Qwen2ForCausalLM",
-        "maxPositionEmbeddings": 32768,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "Qwen/Qwen-72B*": {
-        "parameterCount": 72710410240,
-        "defaultDtype": "bfloat16",
-        "architecture": "QWenLMHeadModel",
-        "maxPositionEmbeddings": 32768,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "Qwen/Qwen2-72B*": {
-        "parameterCount": 72710410240,
-        "defaultDtype": "bfloat16",
-        "architecture": "Qwen2ForCausalLM",
-        "maxPositionEmbeddings": 32768,
-        "recommendedQuantizations": [
-            "awq",
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
-        ]
-    },
-    "EleutherAI/gpt-neox-20b*": {
-        "parameterCount": 20554568704,
-        "defaultDtype": "float16",
-        "architecture": "GPTNeoXForCausalLM",
-        "maxPositionEmbeddings": 2048,
-        "recommendedQuantizations": [
-            "gptq"
-        ],
-        "modelType": "transformer",
-        "tasks": [
-            "text-generation"
         ]
     }
 }

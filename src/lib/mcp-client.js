@@ -32,7 +32,7 @@ class McpClient {
         this.timeout = options.timeout || DEFAULT_TIMEOUT;
         this.parameterMatrix = options.parameterMatrix || {};
         this.smart = options.smart || false;
-        this.discover = options.discover || false;
+        this.discover = options.discover !== undefined ? options.discover : true;
         this._transport = null;
         this._client = null;
         this._diagnosticMessage = null;
@@ -98,10 +98,10 @@ class McpClient {
 
         // Build environment: merge process.env with server-specific env
         // When --smart flag is active, inject BEDROCK_SMART=true for this run
-        // When --discover flag is active, inject MCP_DISCOVER=true for this run
+        // Discover mode is now default; inject DISCOVER_MODE=false only when explicitly disabled
         // Always pass process.env so child processes inherit AWS credentials, profiles, etc.
         const smartEnv = this.smart ? { BEDROCK_SMART: 'true' } : {};
-        const discoverEnv = this.discover ? { MCP_DISCOVER: 'true' } : {};
+        const discoverEnv = this.discover === false ? { DISCOVER_MODE: 'false' } : {};
         const serverEnv = env && Object.keys(env).length > 0 ? env : {};
         const spawnEnv = { ...process.env, ...smartEnv, ...discoverEnv, ...serverEnv };
 
