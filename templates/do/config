@@ -13,6 +13,7 @@ export MODEL_SERVER="<%= modelServer %>"
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
 # LoRA adapter serving
 export ENABLE_LORA=true
+export ADAPTER_S3_BUCKET="mlcc-adapters-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
 <% } %>
 
 # AWS configuration
@@ -67,7 +68,7 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/nu
 <% if (asyncS3OutputPath) { %>
 export ASYNC_S3_OUTPUT_PATH="<%= asyncS3OutputPath %>"
 <% } else { %>
-export ASYNC_S3_OUTPUT_PATH="s3://ml-container-creator-async-${AWS_REGION}-${ACCOUNT_ID}/${PROJECT_NAME}/output/"
+export ASYNC_S3_OUTPUT_PATH="s3://mlcc-async-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/output/"
 <% } %>
 
 <% if (asyncSnsSuccessTopic) { %>
@@ -107,12 +108,12 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/nu
 <% if (batchInputPath) { %>
 export BATCH_INPUT_PATH="<%= batchInputPath %>"
 <% } else { %>
-export BATCH_INPUT_PATH="s3://ml-container-creator-batch-${AWS_REGION}-${ACCOUNT_ID}/${PROJECT_NAME}/input/"
+export BATCH_INPUT_PATH="s3://mlcc-batch-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/input/"
 <% } %>
 <% if (batchOutputPath) { %>
 export BATCH_OUTPUT_PATH="<%= batchOutputPath %>"
 <% } else { %>
-export BATCH_OUTPUT_PATH="s3://ml-container-creator-batch-${AWS_REGION}-${ACCOUNT_ID}/${PROJECT_NAME}/output/"
+export BATCH_OUTPUT_PATH="s3://mlcc-batch-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/output/"
 <% } %>
 export BATCH_INSTANCE_COUNT="<%= batchInstanceCount %>"
 export BATCH_SPLIT_TYPE="<%= batchSplitType %>"
@@ -223,7 +224,7 @@ export BENCHMARK_REQUEST_COUNT=""
 <% if (benchmarkS3OutputPath) { %>
 export BENCHMARK_S3_OUTPUT_PATH="<%= benchmarkS3OutputPath %>"
 <% } else { %>
-export BENCHMARK_S3_OUTPUT_PATH="s3://ml-container-creator-benchmark-${AWS_REGION}-$(aws sts get-caller-identity --query Account --output text)/${PROJECT_NAME}/"
+export BENCHMARK_S3_OUTPUT_PATH="s3://mlcc-benchmark-$(aws sts get-caller-identity --query Account --output text)-${AWS_REGION}/${PROJECT_NAME}/"
 <% } %>
 export BENCHMARK_JOB_NAME=""
 export BENCHMARK_WORKLOAD_CONFIG_NAME=""

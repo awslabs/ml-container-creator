@@ -1098,9 +1098,9 @@ export default class PromptRunner {
         if (!modelName || modelName === 'Custom (enter manually)') return;
 
         const smart = this.options.smart === true;
-        const discover = this.options.discover === true;
+        const discover = this.options.discover !== false;
 
-        const modeLabel = [smart && '[smart]', discover && '[discover]'].filter(Boolean).join(' ');
+        const modeLabel = [smart && '[smart]', !discover && '[no-discover]'].filter(Boolean).join(' ');
         console.log(`   🔍 Querying instance-sizer${modeLabel ? ` ${modeLabel}` : ''}...`);
 
         try {
@@ -1115,8 +1115,8 @@ export default class PromptRunner {
             const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
 
             const serverArgs = [...(serverConfig.args || [])];
-            if (discover && !serverArgs.includes('--discover')) {
-                serverArgs.push('--discover');
+            if (!discover && !serverArgs.includes('--no-discover')) {
+                serverArgs.push('--no-discover');
             }
 
             const transport = new StdioClientTransport({
@@ -1375,7 +1375,7 @@ export default class PromptRunner {
         if (!mcpServers.includes('base-image-picker')) return;
 
         const smart = this.options.smart === true;
-        const discover = this.options.discover === true;
+        const discover = this.options.discover !== false;
         const framework = frameworkAnswers.framework;
         const modelServer = frameworkAnswers.modelServer;
         const architecture = frameworkAnswers.architecture || frameworkAnswers.deploymentConfig?.split('-')[0];

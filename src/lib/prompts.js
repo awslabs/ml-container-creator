@@ -399,9 +399,33 @@ const modelFormatPrompts = [
                 ];
             }
             return [
-                'openai/gpt-oss-20b',
-                'meta-llama/Llama-3.2-3B-Instruct',
+                { type: 'separator', separator: '── Meta Llama ──' },
                 'meta-llama/Llama-3.2-1B-Instruct',
+                'meta-llama/Llama-3.2-3B-Instruct',
+                'meta-llama/Llama-3.1-8B-Instruct',
+                'meta-llama/Llama-3.3-70B-Instruct',
+                { type: 'separator', separator: '── Qwen (Alibaba) ──' },
+                'Qwen/Qwen3-0.6B',
+                'Qwen/Qwen3-1.7B',
+                'Qwen/Qwen3-4B',
+                'Qwen/Qwen3-8B',
+                'Qwen/Qwen3-14B',
+                'Qwen/Qwen3-32B',
+                'Qwen/Qwen2.5-7B-Instruct',
+                'Qwen/Qwen2.5-14B-Instruct',
+                'Qwen/Qwen2.5-32B-Instruct',
+                'Qwen/Qwen2.5-72B-Instruct',
+                { type: 'separator', separator: '── DeepSeek ──' },
+                'deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B',
+                'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B',
+                'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B',
+                'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B',
+                'deepseek-ai/DeepSeek-R1-Distill-Llama-8B',
+                'deepseek-ai/DeepSeek-R1-Distill-Llama-70B',
+                { type: 'separator', separator: '── OpenAI ──' },
+                'openai/gpt-oss-20b',
+                'openai/gpt-oss-120b',
+                { type: 'separator', separator: '──────────────' },
                 'Custom (enter manually)'
             ];
         },
@@ -413,7 +437,7 @@ const modelFormatPrompts = [
             if (architecture === 'diffusors') {
                 return 'stabilityai/stable-diffusion-3.5-medium';
             }
-            return 'openai/gpt-oss-20b';
+            return 'meta-llama/Llama-3.1-8B-Instruct';
         },
         when: answers => {
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
@@ -528,9 +552,11 @@ const modelProfilePrompts = [
  */
 // eslint-disable-next-line no-unused-vars -- reference list for future use
 const EXAMPLE_MODEL_IDS = [
-    'openai/gpt-oss-20b',
+    'meta-llama/Llama-3.1-8B-Instruct',
     'meta-llama/Llama-3.2-3B-Instruct',
-    'meta-llama/Llama-3.2-1B-Instruct'
+    'Qwen/Qwen3-8B',
+    'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B',
+    'openai/gpt-oss-20b'
 ];
 
 const hfTokenPrompts = [

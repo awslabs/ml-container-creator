@@ -162,12 +162,12 @@ describe('Feature: lora-adapter-lifecycle — --from-hub and search integration 
             );
         });
 
-        it('resolves S3 bucket from ASYNC_S3_BUCKET or account-based pattern', () => {
+        it('resolves S3 bucket from ADAPTER_S3_BUCKET or account-based pattern', () => {
             const section = getDownloadFromHubSection();
             assert.ok(
-                section.includes('ASYNC_S3_BUCKET') &&
-                section.includes('ml-container-creator-${account_id}-${AWS_REGION}'),
-                'Must resolve S3 bucket from ASYNC_S3_BUCKET or account pattern'
+                section.includes('ADAPTER_S3_BUCKET') &&
+                section.includes('mlcc-adapters-${account_id}-${AWS_REGION}'),
+                'Must resolve S3 bucket from ADAPTER_S3_BUCKET or account pattern'
             );
         });
 

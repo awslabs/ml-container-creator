@@ -48,7 +48,7 @@ console.log('\nquota-integration: full pipeline VRAM → quota → availability 
 
 await test('full pipeline: VRAM filtering narrows to compatible instances', async () => {
     // Step 1: Resolve model metadata (Llama-2-7B from catalog)
-    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-2-7b-chat-hf', {
+    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-3.1-8B-Instruct', {
         discover: false
     })
     assert.ok(modelMetadata, 'model metadata should resolve from catalog')
@@ -78,7 +78,7 @@ await test('full pipeline: VRAM filtering narrows to compatible instances', asyn
 
 await test('full pipeline: quota filtering removes zero-quota instances', async () => {
     // Simulate the pipeline with mock quota data
-    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-2-7b-chat-hf', {
+    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-3.1-8B-Instruct', {
         discover: false
     })
     const vramEstimate = estimateVram({
@@ -120,7 +120,7 @@ await test('full pipeline: quota filtering removes zero-quota instances', async 
 })
 
 await test('full pipeline: availability ranking reorders by reserved → FTP → on-demand', async () => {
-    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-2-7b-chat-hf', {
+    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-3.1-8B-Instruct', {
         discover: false
     })
     const vramEstimate = estimateVram({
@@ -172,7 +172,7 @@ await test('full pipeline: availability ranking reorders by reserved → FTP →
 })
 
 await test('full pipeline: annotations are correct after ranking', async () => {
-    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-2-7b-chat-hf', {
+    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-3.1-8B-Instruct', {
         discover: false
     })
     const vramEstimate = estimateVram({
@@ -231,47 +231,44 @@ await test('full pipeline: annotations are correct after ranking', async () => {
     }
 })
 
-// ── Test 2: Discover mode off = identical to current behavior ────────────────
+// ── Test 2: Discover mode on (default) — quota annotations present ───────────
 
-console.log('\nquota-integration: discover mode off produces identical results\n')
+console.log('\nquota-integration: discover mode on (default) — quota annotations may be present\n')
 
-await test('discover mode off: no quota/availability annotations in response', async () => {
-    // DISCOVER_MODE is off by default when running tests (no --discover flag)
+await test('discover mode on: recommendations have consistent structure', async () => {
+    // DISCOVER_MODE is now on by default — quota/availability annotations
+    // will be present when AWS credentials are available
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf',
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct',
         context: { architecture: 'transformers', backend: 'vllm' }
     })
     const data = parseResponse(result)
 
-    // Verify no quota-related annotations exist on recommendations
+    // Verify recommendations exist and have base required fields
+    assert.ok(data.metadata.recommendations.length > 0, 'should have recommendations')
     for (const rec of data.metadata.recommendations) {
-        assert.strictEqual(rec.capacityType, undefined,
-            `${rec.instanceType} should not have capacityType when discover mode is off`)
-        assert.strictEqual(rec.quotaStatus, undefined,
-            `${rec.instanceType} should not have quotaStatus when discover mode is off`)
-        assert.strictEqual(rec.reservationInfo, undefined,
-            `${rec.instanceType} should not have reservationInfo when discover mode is off`)
-        assert.strictEqual(rec.ftpInfo, undefined,
-            `${rec.instanceType} should not have ftpInfo when discover mode is off`)
-        assert.strictEqual(rec.quotaHeadroom, undefined,
-            `${rec.instanceType} should not have quotaHeadroom when discover mode is off`)
+        assert.ok(rec.instanceType, 'recommendation should have instanceType')
+        assert.ok(typeof rec.gpuCount === 'number', 'recommendation should have numeric gpuCount')
+        assert.ok(typeof rec.totalVramGb === 'number', 'recommendation should have numeric totalVramGb')
     }
 })
 
-await test('discover mode off: allFilteredByQuota is false', async () => {
+await test('allFilteredByQuota is false when quota headroom exists', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf',
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct',
         context: { architecture: 'transformers', backend: 'vllm' }
     })
     const data = parseResponse(result)
 
+    // When quota APIs succeed and at least one instance has headroom,
+    // allFilteredByQuota should be false (instances are available)
     assert.strictEqual(data.metadata.allFilteredByQuota, false,
-        'allFilteredByQuota should be false when discover mode is off')
+        'allFilteredByQuota should be false when instances are available')
 })
 
-await test('discover mode off: response structure matches pre-quota behavior', async () => {
+await test('response structure has all required fields', async () => {
     const result = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf',
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct',
         context: { architecture: 'transformers', backend: 'vllm' }
     })
     const data = parseResponse(result)
@@ -296,15 +293,15 @@ await test('discover mode off: response structure matches pre-quota behavior', a
     assert.ok(typeof rec.costTier === 'string', 'should have costTier')
 })
 
-await test('discover mode off: results are deterministic across calls', async () => {
+await test('results are deterministic across calls', async () => {
     const result1 = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf',
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct',
         context: { architecture: 'transformers', backend: 'vllm' }
     })
     const data1 = parseResponse(result1)
 
     const result2 = await handleGetInstanceRecommendation({
-        modelName: 'meta-llama/Llama-2-7b-chat-hf',
+        modelName: 'meta-llama/Llama-3.1-8B-Instruct',
         context: { architecture: 'transformers', backend: 'vllm' }
     })
     const data2 = parseResponse(result2)
@@ -323,7 +320,7 @@ await test('discover mode off: results are deterministic across calls', async ()
 console.log('\nquota-integration: full pipeline with large model (multi-GPU)\n')
 
 await test('full pipeline: large model (70B) with quota filtering', async () => {
-    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-2-70b-hf', {
+    const modelMetadata = await resolveModelMetadata('meta-llama/Llama-3.3-70B-Instruct', {
         discover: false
     })
     assert.ok(modelMetadata, 'should resolve 70B model from catalog')

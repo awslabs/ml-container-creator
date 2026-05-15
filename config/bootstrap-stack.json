@@ -7,7 +7,7 @@
       "Type": "String",
       "Default": "false",
       "AllowedValues": ["true", "false"],
-      "Description": "Whether to create S3 buckets for async inference and batch transform"
+      "Description": "Whether to create S3 buckets for async inference, batch transform, adapters, and benchmarks"
     },
     "UseExistingRoleArn": {
       "Type": "String",
@@ -134,8 +134,8 @@
                     "s3:ListBucket"
                   ],
                   "Resource": [
-                    "arn:aws:s3:::ml-container-creator-*",
-                    "arn:aws:s3:::ml-container-creator-*/*"
+                    "arn:aws:s3:::mlcc-*",
+                    "arn:aws:s3:::mlcc-*/*"
                   ]
                 },
                 {
@@ -209,7 +209,7 @@
       "DeletionPolicy": "Retain",
       "UpdateReplacePolicy": "Retain",
       "Properties": {
-        "BucketName": { "Fn::Sub": "${AWS::AccountId}-${AWS::Region}-ml-container-creator-async" },
+        "BucketName": { "Fn::Sub": "mlcc-async-${AWS::AccountId}-${AWS::Region}" },
         "VersioningConfiguration": { "Status": "Enabled" },
         "BucketEncryption": {
           "ServerSideEncryptionConfiguration": [
@@ -218,7 +218,8 @@
         },
         "Tags": [
           { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
-          { "Key": "mlcc:created-by", "Value": "bootstrap" }
+          { "Key": "mlcc:created-by", "Value": "bootstrap" },
+          { "Key": "mlcc:purpose", "Value": "async-inference-output" }
         ]
       }
     },
@@ -229,7 +230,7 @@
       "DeletionPolicy": "Retain",
       "UpdateReplacePolicy": "Retain",
       "Properties": {
-        "BucketName": { "Fn::Sub": "${AWS::AccountId}-${AWS::Region}-ml-container-creator-batch" },
+        "BucketName": { "Fn::Sub": "mlcc-batch-${AWS::AccountId}-${AWS::Region}" },
         "VersioningConfiguration": { "Status": "Enabled" },
         "BucketEncryption": {
           "ServerSideEncryptionConfiguration": [
@@ -238,17 +239,40 @@
         },
         "Tags": [
           { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
-          { "Key": "mlcc:created-by", "Value": "bootstrap" }
+          { "Key": "mlcc:created-by", "Value": "bootstrap" },
+          { "Key": "mlcc:purpose", "Value": "batch-transform-io" }
+        ]
+      }
+    },
+
+    "AdapterS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Condition": "ShouldCreateS3Buckets",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": { "Fn::Sub": "mlcc-adapters-${AWS::AccountId}-${AWS::Region}" },
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            { "ServerSideEncryptionByDefault": { "SSEAlgorithm": "AES256" } }
+          ]
+        },
+        "Tags": [
+          { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
+          { "Key": "mlcc:created-by", "Value": "bootstrap" },
+          { "Key": "mlcc:purpose", "Value": "lora-adapter-storage" }
         ]
       }
     },
 
     "BenchmarkS3Bucket": {
       "Type": "AWS::S3::Bucket",
+      "Condition": "ShouldCreateS3Buckets",
       "DeletionPolicy": "Retain",
       "UpdateReplacePolicy": "Retain",
       "Properties": {
-        "BucketName": { "Fn::Sub": "ml-container-creator-benchmark-${AWS::Region}-${AWS::AccountId}" },
+        "BucketName": { "Fn::Sub": "mlcc-benchmark-${AWS::AccountId}-${AWS::Region}" },
         "VersioningConfiguration": { "Status": "Enabled" },
         "BucketEncryption": {
           "ServerSideEncryptionConfiguration": [
@@ -257,7 +281,8 @@
         },
         "Tags": [
           { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
-          { "Key": "mlcc:created-by", "Value": "bootstrap" }
+          { "Key": "mlcc:created-by", "Value": "bootstrap" },
+          { "Key": "mlcc:purpose", "Value": "benchmark-results" }
         ]
       }
     }
@@ -292,7 +317,13 @@
       "Description": "S3 bucket for batch transform I/O",
       "Value": { "Ref": "BatchS3Bucket" }
     },
+    "AdapterS3BucketName": {
+      "Condition": "ShouldCreateS3Buckets",
+      "Description": "S3 bucket for LoRA adapter storage",
+      "Value": { "Ref": "AdapterS3Bucket" }
+    },
     "BenchmarkS3BucketName": {
+      "Condition": "ShouldCreateS3Buckets",
       "Description": "S3 bucket for benchmark results output",
       "Value": { "Ref": "BenchmarkS3Bucket" }
     },

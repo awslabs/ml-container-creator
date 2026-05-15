@@ -162,8 +162,8 @@ _download_from_hub() {
 
     # ── Resolve S3 bucket ─────────────────────────────────────────────────
     local s3_bucket=""
-    if [ -n "${ASYNC_S3_BUCKET:-}" ]; then
-        s3_bucket="${ASYNC_S3_BUCKET}"
+    if [ -n "${ADAPTER_S3_BUCKET:-}" ]; then
+        s3_bucket="${ADAPTER_S3_BUCKET}"
     else
         local account_id
         account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
@@ -172,14 +172,30 @@ _download_from_hub() {
             echo "   Ensure AWS credentials are configured."
             exit 1
         fi
-        s3_bucket="ml-container-creator-${account_id}-${AWS_REGION}"
+        s3_bucket="mlcc-adapters-${account_id}-${AWS_REGION}"
     fi
 
     # ── Create temp directory ─────────────────────────────────────────────
     mkdir -p "${tmp_dir}/adapter_files"
 
     # ── Download adapter files ────────────────────────────────────────────
-    if command -v huggingface-cli &>/dev/null; then
+    if command -v hf &>/dev/null; then
+        echo "   Using hf CLI to download..."
+        local hf_args=("download" "${hf_repo_id}" "--local-dir" "${tmp_dir}/adapter_files")
+        if [ -n "${HF_TOKEN:-}" ]; then
+            hf_args+=("--token" "${HF_TOKEN}")
+        fi
+        if ! hf "${hf_args[@]}" 2>/dev/null; then
+            echo "❌ Failed to download adapter from HuggingFace Hub: ${hf_repo_id}"
+            echo ""
+            echo "   Check that:"
+            echo "   • The repository exists: https://huggingface.co/${hf_repo_id}"
+            echo "   • For gated repos, set HF_TOKEN environment variable"
+            echo "   • You have network connectivity to huggingface.co"
+            rm -rf "${tmp_dir}"
+            exit 1
+        fi
+    elif command -v huggingface-cli &>/dev/null; then
         echo "   Using huggingface-cli to download..."
         local hf_args=("download" "${hf_repo_id}" "--local-dir" "${tmp_dir}/adapter_files")
         if [ -n "${HF_TOKEN:-}" ]; then
@@ -693,7 +709,7 @@ _adapter_list() {
 
     # ── Print table ───────────────────────────────────────────────────────
     printf '%-14s%-12s%s\n' "NAME" "STATUS" "WEIGHTS"
-    echo -e "${output_lines}" | head -n -1
+    echo -e "${output_lines}" | sed '$ { /^$/d; }'
 }
 
 _adapter_remove() {

@@ -23,7 +23,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
-const CATALOG_PATH = join(__dirname, '..', 'catalogs', 'model-sizes.json')
+const CATALOG_PATH = join(__dirname, '..', '..', 'lib', 'catalogs', 'model-sizes.json')
 
 let passed = 0
 let failed = 0
@@ -56,27 +56,27 @@ async function run() {
     console.log('\nmodel-resolver: glob pattern matching\n')
 
     test('exact match without wildcards', () => {
-        assert.strictEqual(globMatch('meta-llama/Llama-2-7b', 'meta-llama/Llama-2-7b'), true)
+        assert.strictEqual(globMatch('meta-llama/Llama-3.1-8B', 'meta-llama/Llama-3.1-8B'), true)
     })
 
     test('wildcard matches any suffix', () => {
-        assert.strictEqual(globMatch('meta-llama/Llama-2-7b*', 'meta-llama/Llama-2-7b-chat-hf'), true)
+        assert.strictEqual(globMatch('meta-llama/Llama-3.1-8B*', 'meta-llama/Llama-3.1-8B-Instruct'), true)
     })
 
     test('wildcard matches empty string', () => {
-        assert.strictEqual(globMatch('meta-llama/Llama-2-7b*', 'meta-llama/Llama-2-7b'), true)
+        assert.strictEqual(globMatch('meta-llama/Llama-3.1-8B*', 'meta-llama/Llama-3.1-8B'), true)
     })
 
     test('case-insensitive matching', () => {
-        assert.strictEqual(globMatch('meta-llama/Llama-2-7b*', 'meta-llama/llama-2-7b-chat-hf'), true)
+        assert.strictEqual(globMatch('meta-llama/Llama-3.1-8B*', 'meta-llama/llama-3.1-8b-instruct'), true)
     })
 
     test('non-matching pattern returns false', () => {
-        assert.strictEqual(globMatch('meta-llama/Llama-2-7b*', 'meta-llama/Llama-2-13b-chat-hf'), false)
+        assert.strictEqual(globMatch('meta-llama/Llama-3.1-8B*', 'meta-llama/Llama-3.2-3B-Instruct'), false)
     })
 
     test('wildcard in middle of pattern', () => {
-        assert.strictEqual(globMatch('meta-llama/*-7b*', 'meta-llama/Llama-2-7b-chat'), true)
+        assert.strictEqual(globMatch('meta-llama/*-8B*', 'meta-llama/Llama-3.1-8B-Instruct'), true)
     })
 
     test('special regex characters in pattern are escaped', () => {
@@ -104,27 +104,27 @@ async function run() {
 
     console.log('\nmodel-resolver: catalog lookup\n')
 
-    await test('finds Llama-2-7b by pattern match', async () => {
+    await test('finds Llama-3.1-8B by pattern match', async () => {
         const catalog = await loadCatalog(CATALOG_PATH)
-        const entry = catalogLookup('meta-llama/Llama-2-7b-chat-hf', catalog)
+        const entry = catalogLookup('meta-llama/Llama-3.1-8B-Instruct', catalog)
         assert.ok(entry !== null, 'should find entry')
-        assert.strictEqual(entry.parameterCount, 6738415616)
-        assert.strictEqual(entry.defaultDtype, 'float16')
+        assert.strictEqual(entry.parameterCount, 8030261248)
+        assert.strictEqual(entry.defaultDtype, 'bfloat16')
         assert.strictEqual(entry.architecture, 'LlamaForCausalLM')
     })
 
-    await test('finds Llama-2-70b by pattern match', async () => {
+    await test('finds Llama-3.3-70B by pattern match', async () => {
         const catalog = await loadCatalog(CATALOG_PATH)
-        const entry = catalogLookup('meta-llama/Llama-2-70b-chat-hf', catalog)
+        const entry = catalogLookup('meta-llama/Llama-3.3-70B-Instruct', catalog)
         assert.ok(entry !== null, 'should find entry')
-        assert.strictEqual(entry.parameterCount, 68976648192)
+        assert.strictEqual(entry.parameterCount, 70553706496)
     })
 
-    await test('finds Mistral-7B by pattern match', async () => {
+    await test('finds Qwen3-8B by pattern match', async () => {
         const catalog = await loadCatalog(CATALOG_PATH)
-        const entry = catalogLookup('mistralai/Mistral-7B-Instruct-v0.2', catalog)
+        const entry = catalogLookup('Qwen/Qwen3-8B', catalog)
         assert.ok(entry !== null, 'should find entry')
-        assert.strictEqual(entry.parameterCount, 7241732096)
+        assert.strictEqual(entry.parameterCount, 8000000000)
     })
 
     await test('returns null for unknown model', async () => {
@@ -134,12 +134,12 @@ async function run() {
     })
 
     await test('returns null when catalog is null', () => {
-        const entry = catalogLookup('meta-llama/Llama-2-7b-chat-hf', null)
+        const entry = catalogLookup('meta-llama/Llama-3.1-8B-Instruct', null)
         assert.strictEqual(entry, null)
     })
 
     await test('returns null when catalog has no models field', () => {
-        const entry = catalogLookup('meta-llama/Llama-2-7b-chat-hf', {})
+        const entry = catalogLookup('meta-llama/Llama-3.1-8B-Instruct', {})
         assert.strictEqual(entry, null)
     })
 
@@ -218,15 +218,15 @@ async function run() {
 
     console.log('\nmodel-resolver: full resolution\n')
 
-    await test('resolves Llama-2-7b from catalog', async () => {
-        const result = await resolveModelMetadata('meta-llama/Llama-2-7b-chat-hf', {
+    await test('resolves Llama-3.1-8B from catalog', async () => {
+        const result = await resolveModelMetadata('meta-llama/Llama-3.1-8B-Instruct', {
             catalogPath: CATALOG_PATH
         })
         assert.ok(result !== null, 'should resolve metadata')
-        assert.strictEqual(result.parameterCount, 6738415616)
-        assert.strictEqual(result.dtype, 'float16')
+        assert.strictEqual(result.parameterCount, 8030261248)
+        assert.strictEqual(result.dtype, 'bfloat16')
         assert.strictEqual(result.architecture, 'LlamaForCausalLM')
-        assert.strictEqual(result.maxPositionEmbeddings, 4096)
+        assert.strictEqual(result.maxPositionEmbeddings, 131072)
         assert.strictEqual(result.source, 'catalog')
     })
 
@@ -239,7 +239,7 @@ async function run() {
     })
 
     await test('catalog hit does not require discover mode', async () => {
-        const result = await resolveModelMetadata('meta-llama/Llama-2-70b-hf', {
+        const result = await resolveModelMetadata('meta-llama/Llama-3.3-70B-Instruct', {
             catalogPath: CATALOG_PATH,
             discover: false
         })
@@ -248,7 +248,7 @@ async function run() {
     })
 
     await test('resolves Qwen model from catalog', async () => {
-        const result = await resolveModelMetadata('Qwen/Qwen2-72B-Instruct', {
+        const result = await resolveModelMetadata('Qwen/Qwen2.5-72B-Instruct', {
             catalogPath: CATALOG_PATH
         })
         assert.ok(result !== null, 'should resolve metadata')
