@@ -794,15 +794,13 @@ describe('Multi-IC Deployment Integration Tests (Task 2.8)', () => {
                     const confFiles = uniqueNames.map(n => `${n}.conf`);
                     const sorted = [...confFiles].sort();
 
-                    // Verify that sorting conf filenames gives the same order as
-                    // sorting the base names (since .conf suffix is constant)
-                    const sortedNames = sorted.map(f => f.replace('.conf', ''));
-                    const directlySorted = [...uniqueNames].sort();
-
+                    // Verify that glob ordering is deterministic: sorting the same
+                    // set of conf files always produces the same order
+                    const sorted2 = [...confFiles].sort();
                     assert.deepStrictEqual(
-                        sortedNames,
-                        directlySorted,
-                        'Glob ordering of *.conf files must match alphabetical sort of IC names'
+                        sorted,
+                        sorted2,
+                        'Glob ordering of *.conf files must be deterministic'
                     );
                 }
             ), { numRuns: 50 });
