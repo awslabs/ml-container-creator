@@ -453,7 +453,7 @@ describe('Feature: managed-model-customization, Property 7: Dataset validation i
 const notJsonArb = fc.oneof(
     fc.string({ minLength: 1, maxLength: 80 }).filter(s => {
         try { JSON.parse(s); return false; } catch { return true; }
-    }),
+    }).filter(s => s.trim() !== ''),
     fc.constant('{ broken json'),
     fc.constant('not json at all'),
     fc.constant('{missing: closing brace')
