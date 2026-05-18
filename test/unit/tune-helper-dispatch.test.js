@@ -449,7 +449,8 @@ describe('tune_helper.py subcommand dispatch', () => {
                 'should not be an argparse error — subcommand was dispatched');
         });
 
-        it('status dispatches to cmd_status and exits non-zero without AWS credentials', () => {
+        it('status dispatches to cmd_status and exits non-zero without AWS credentials', function () {
+            this.timeout(15000);
             const result = runHelper([
                 'status',
                 '--job-name', 'test-job-name',

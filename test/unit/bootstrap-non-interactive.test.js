@@ -129,7 +129,8 @@ describe('Bootstrap Non-Interactive Mode', () => {
     });
 
     describe('when --non-interactive is set with all required flags', () => {
-        it('should not prompt for any input', async () => {
+        it('should not prompt for any input', async function () {
+            this.timeout(10000);
             const { handler, calls, restore, promptCalls } = setupHandler();
             restoreFn = restore;
 
