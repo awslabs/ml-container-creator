@@ -113,6 +113,12 @@ function setupHandler(_opts = {}) {
     // Mock _verifyCliV2 to skip real CLI version check in tests
     handler._verifyCliV2 = () => true;
 
+    // Mock _execAws to prevent real AWS CLI calls (e.g., cloudformation list-stacks)
+    handler._execAws = () => [];
+
+    // Mock _displayProgress to prevent output noise
+    handler._displayProgress = () => {};
+
     const restore = () => { console.log = origLog; };
 
     return { handler, calls, logs, restore, promptCalls, configPath };
@@ -129,7 +135,8 @@ describe('Bootstrap Non-Interactive Mode', () => {
     });
 
     describe('when --non-interactive is set with all required flags', () => {
-        it('should not prompt for any input', async () => {
+        it('should not prompt for any input', async function () {
+            this.timeout(10000);
             const { handler, calls, restore, promptCalls } = setupHandler();
             restoreFn = restore;
 

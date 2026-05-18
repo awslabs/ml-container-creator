@@ -62,6 +62,7 @@
                     "sagemaker:DescribeEndpointConfig",
                     "sagemaker:DescribeModel",
                     "sagemaker:DescribeInferenceComponent",
+                    "sagemaker:ListInferenceComponents",
                     "sagemaker:InvokeEndpoint",
                     "sagemaker:InvokeEndpointAsync"
                   ],
@@ -131,11 +132,14 @@
                   "Action": [
                     "s3:GetObject",
                     "s3:PutObject",
+                    "s3:AbortMultipartUpload",
                     "s3:ListBucket"
                   ],
                   "Resource": [
                     "arn:aws:s3:::mlcc-*",
-                    "arn:aws:s3:::mlcc-*/*"
+                    "arn:aws:s3:::mlcc-*/*",
+                    "arn:aws:s3:::ml-container-creator-*",
+                    "arn:aws:s3:::ml-container-creator-*/*"
                   ]
                 },
                 {
@@ -164,17 +168,54 @@
                   ]
                 },
                 {
+                  "Sid": "SNSPublish",
+                  "Effect": "Allow",
+                  "Action": "sns:Publish",
+                  "Resource": [
+                    { "Fn::Sub": "arn:aws:sns:*:${AWS::AccountId}:mlcc-*" },
+                    { "Fn::Sub": "arn:aws:sns:*:${AWS::AccountId}:ml-container-creator-*" }
+                  ]
+                },
+                {
                   "Sid": "QuotaAndAvailability",
                   "Effect": "Allow",
                   "Action": [
                     "service-quotas:GetServiceQuota",
                     "service-quotas:ListServiceQuotas",
-                    "ec2:DescribeCapacityReservations",
                     "sagemaker:ListTrainingPlans",
                     "sagemaker:DescribeTrainingPlan",
                     "sagemaker:ListEndpoints"
                   ],
                   "Resource": "*"
+                },
+                {
+                  "Sid": "SageMakerModelCustomization",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sagemaker:CreateTrainingJob",
+                    "sagemaker:DescribeTrainingJob",
+                    "sagemaker:ListTrainingJobs",
+                    "sagemaker:StopTrainingJob",
+                    "sagemaker:CreateModelPackage",
+                    "sagemaker:CreateModelPackageGroup",
+                    "sagemaker:DescribeModelPackage",
+                    "sagemaker:DescribeModelPackageGroup",
+                    "sagemaker:ListModelPackages",
+                    "sagemaker:CallMlflowAppApi"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "SageMakerMLflow",
+                  "Effect": "Allow",
+                  "Action": "sagemaker-mlflow:*",
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "LambdaInvokeForReward",
+                  "Effect": "Allow",
+                  "Action": "lambda:InvokeFunction",
+                  "Resource": { "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*" }
                 }
               ]
             }
@@ -285,6 +326,26 @@
           { "Key": "mlcc:purpose", "Value": "benchmark-results" }
         ]
       }
+    },
+
+    "TuneS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Condition": "ShouldCreateS3Buckets",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": { "Fn::Sub": "mlcc-tune-${AWS::AccountId}-${AWS::Region}" },
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            { "ServerSideEncryptionByDefault": { "SSEAlgorithm": "AES256" } }
+          ]
+        },
+        "Tags": [
+          { "Key": "mlcc:managed-by", "Value": "ml-container-creator" },
+          { "Key": "mlcc:purpose", "Value": "tune-datasets-and-output" }
+        ]
+      }
     }
   },
 
@@ -327,9 +388,14 @@
       "Description": "S3 bucket for benchmark results output",
       "Value": { "Ref": "BenchmarkS3Bucket" }
     },
+    "TuneS3BucketName": {
+      "Condition": "ShouldCreateS3Buckets",
+      "Description": "S3 bucket for tune datasets and output",
+      "Value": { "Ref": "TuneS3Bucket" }
+    },
     "StackVersion": {
       "Description": "Bootstrap stack template version for forward compatibility tracking",
-      "Value": "2026-05-04"
+      "Value": "2026-05-18"
     }
   }
 }

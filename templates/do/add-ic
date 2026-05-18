@@ -4,6 +4,10 @@
 #
 # Add a new inference component to this project.
 # Creates a new IC config file in do/ic/ and deploys it immediately.
+#
+# Usage:
+#   ./do/add-ic [name] [--from-tune] [--model-data <s3-uri>]
+#   ./do/add-ic --help
 
 set -e
 set -u
@@ -12,38 +16,157 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
+# ============================================================
+# Usage
+# ============================================================
+_usage() {
+    echo "Usage: ./do/add-ic [name] [options]"
+    echo ""
+    echo "Add a new inference component to this project."
+    echo ""
+    echo "Arguments:"
+    echo "  [name]                     IC name (optional, prompted if not provided)"
+    echo ""
+    echo "Options:"
+    echo "  --from-tune                Use model output from do/tune (reads TUNE_OUTPUT_PATH_LATEST)"
+    echo "  --model-data <s3-uri>      S3 URI to model data (tar.gz or model directory)"
+    echo "  --help, -h                 Show this help message"
+    echo ""
+    echo "Note: --from-tune and --model-data are mutually exclusive."
+    echo ""
+    echo "Examples:"
+    echo "  ./do/add-ic                                    # Interactive mode"
+    echo "  ./do/add-ic tuned-v1 --from-tune               # Use latest tune output"
+    echo "  ./do/add-ic tuned-v1 --model-data s3://bucket/model.tar.gz"
+    echo ""
+}
+
+# ============================================================
+# Parse arguments
+# ============================================================
+IC_NAME=""
+FROM_TUNE=""
+MODEL_DATA=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --from-tune)
+            FROM_TUNE="true"
+            shift
+            ;;
+        --model-data)
+            if [ -z "${2:-}" ]; then
+                echo "❌ --model-data requires an S3 URI argument"
+                echo "   Usage: ./do/add-ic <name> --model-data <s3-uri>"
+                exit 1
+            fi
+            MODEL_DATA="$2"
+            shift 2
+            ;;
+        --help|-h)
+            _usage
+            exit 0
+            ;;
+        -*)
+            echo "❌ Unknown option: $1"
+            _usage
+            exit 1
+            ;;
+        *)
+            if [ -z "${IC_NAME}" ]; then
+                IC_NAME="$1"
+            else
+                echo "❌ Unexpected argument: $1"
+                _usage
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+# ============================================================
+# Mutual exclusivity check
+# ============================================================
+if [ -n "${FROM_TUNE}" ] && [ -n "${MODEL_DATA}" ]; then
+    echo "❌ --from-tune and --model-data are mutually exclusive"
+    echo ""
+    echo "   Use one of:"
+    echo "   ./do/add-ic <name> --from-tune"
+    echo "   ./do/add-ic <name> --model-data <s3-uri>"
+    exit 1
+fi
+
+# ============================================================
+# Resolve --from-tune to MODEL_DATA
+# ============================================================
+if [ -n "${FROM_TUNE}" ]; then
+    if [ -z "${TUNE_OUTPUT_PATH_LATEST:-}" ]; then
+        echo "❌ No tune output found."
+        echo ""
+        echo "   TUNE_OUTPUT_PATH_LATEST is not set in do/config."
+        echo ""
+        echo "   Run a tune job first:"
+        echo "   ./do/tune --technique <technique> --dataset <source>"
+        exit 1
+    fi
+
+    MODEL_DATA="${TUNE_OUTPUT_PATH_LATEST}"
+    echo "📦 Using tune output: ${MODEL_DATA}"
+    echo ""
+fi
+
 echo "➕ Add New Inference Component"
 echo "   Project: ${PROJECT_NAME}"
+if [ -n "${MODEL_DATA}" ]; then
+    echo "   Model data: ${MODEL_DATA}"
+fi
 echo ""
 
 # ============================================================
-# Prompt for IC name
+# Prompt for IC name (if not provided as argument)
 # ============================================================
-while true; do
-    read -p "IC name (lowercase alphanumeric + hyphens): " IC_NAME
+if [ -z "${IC_NAME}" ]; then
+    while true; do
+        read -p "IC name (lowercase alphanumeric + hyphens): " IC_NAME
 
-    # Validate: non-empty
-    if [ -z "${IC_NAME}" ]; then
-        echo "   ❌ IC name cannot be empty."
-        continue
-    fi
+        # Validate: non-empty
+        if [ -z "${IC_NAME}" ]; then
+            echo "   ❌ IC name cannot be empty."
+            continue
+        fi
 
-    # Validate: lowercase alphanumeric + hyphens only
+        # Validate: lowercase alphanumeric + hyphens only
+        if ! echo "${IC_NAME}" | grep -qE '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'; then
+            echo "   ❌ IC name must be lowercase alphanumeric with hyphens (e.g., 'llama-70b')."
+            echo "      Must start and end with a letter or number."
+            continue
+        fi
+
+        # Validate: no collision with existing config
+        if [ -f "${SCRIPT_DIR}/ic/${IC_NAME}.conf" ]; then
+            echo "   ❌ IC config already exists: do/ic/${IC_NAME}.conf"
+            echo "      Choose a different name or edit the existing config."
+            continue
+        fi
+
+        break
+    done
+else
+    # Validate provided IC name
     if ! echo "${IC_NAME}" | grep -qE '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'; then
-        echo "   ❌ IC name must be lowercase alphanumeric with hyphens (e.g., 'llama-70b')."
-        echo "      Must start and end with a letter or number."
-        continue
+        echo "❌ Invalid IC name: ${IC_NAME}"
+        echo "   IC name must be lowercase alphanumeric with hyphens (e.g., 'llama-70b')."
+        echo "   Must start and end with a letter or number."
+        exit 1
     fi
 
-    # Validate: no collision with existing config
     if [ -f "${SCRIPT_DIR}/ic/${IC_NAME}.conf" ]; then
-        echo "   ❌ IC config already exists: do/ic/${IC_NAME}.conf"
-        echo "      Choose a different name or edit the existing config."
-        continue
+        echo "❌ IC config already exists: do/ic/${IC_NAME}.conf"
+        echo "   Choose a different name or edit the existing config."
+        exit 1
     fi
-
-    break
-done
+fi
 
 # ============================================================
 # Prompt for image tag
@@ -107,6 +230,16 @@ export IC_GPU_COUNT=${IC_GPU_COUNT}
 export IC_COPY_COUNT=${IC_COPY_COUNT}
 export IC_MIN_MEMORY_MB=${IC_MIN_MEMORY_MB}
 export IC_STARTUP_TIMEOUT=900
+EOF
+
+# Add model data if provided (from --from-tune or --model-data)
+if [ -n "${MODEL_DATA}" ]; then
+    cat >> "${IC_CONF_PATH}" <<EOF
+export IC_MODEL_DATA="${MODEL_DATA}"
+EOF
+fi
+
+cat >> "${IC_CONF_PATH}" <<EOF
 
 # Optional overrides:
 # export IC_MODEL_NAME="my-model-v2"
@@ -120,6 +253,9 @@ echo "   Image tag:  ${IC_IMAGE_TAG}"
 echo "   GPU count:  ${IC_GPU_COUNT}"
 echo "   Copy count: ${IC_COPY_COUNT}"
 echo "   Memory MB:  ${IC_MIN_MEMORY_MB}"
+if [ -n "${MODEL_DATA}" ]; then
+    echo "   Model data: ${MODEL_DATA}"
+fi
 echo ""
 
 # ============================================================

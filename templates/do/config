@@ -188,6 +188,12 @@ export NGC_API_KEY_ARN="<%= ngcTokenArn %>"
 <% } else if (ngcApiKey) { %>
 export NGC_API_KEY="<%= ngcApiKey %>"
 <% } %>
+
+<% if (deploymentTarget !== 'batch-transform') { %>
+# Managed Model Customization (do/tune)
+export TUNE_SUPPORTED=<%= (typeof tuneSupported !== 'undefined' && tuneSupported) ? 'true' : 'false' %>
+export TUNE_S3_BUCKET="mlcc-tune-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
+<% } %>
 <% } %>
 
 <% if (framework === 'diffusors') { %>

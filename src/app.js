@@ -16,6 +16,7 @@ import CommentGenerator from './lib/comment-generator.js';
 import ConfigurationManager from './lib/configuration-manager.js';
 import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
+import { isTuneSupported } from './lib/tune-catalog-validator.js';
 import ejs from 'ejs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -350,6 +351,12 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/adapters/**');
     }
 
+    // Exclude tune files when framework is NOT transformers OR deploymentTarget is batch-transform
+    if (architecture !== 'transformers' || answers.deploymentTarget === 'batch-transform') {
+        ignorePatterns.push('**/do/tune');
+        ignorePatterns.push('**/do/.tune_helper.py');
+    }
+
     // Exclude do/test when hosted-model-endpoint is not selected
     const testTypes = answers.testTypes || [];
     if (!testTypes.includes('hosted-model-endpoint')) {
@@ -451,6 +458,13 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     _copyFile(path.join(LIB_DIR, 'manifest-cli.js'), path.join(doLibDir, 'manifest-cli.js'));
     _copyFile(path.join(LIB_DIR, 'asset-manager.js'), path.join(doLibDir, 'asset-manager.js'));
     _copyFile(path.join(LIB_DIR, 'bootstrap-config.js'), path.join(doLibDir, 'bootstrap-config.js'));
+
+    // Copy tune catalog to generated project when tune is included
+    if (architecture === 'transformers' && answers.deploymentTarget !== 'batch-transform') {
+        const tuneCatalogSrc = path.join(GENERATOR_ROOT, 'config', 'tune-catalog.json');
+        const tuneCatalogDest = path.join(destDir, 'do', '.tune_catalog.json');
+        _copyFile(tuneCatalogSrc, tuneCatalogDest);
+    }
 
     // Generate .gitignore with benchmarks/ when benchmarking is enabled
     if (answers.includeBenchmark) {
@@ -740,6 +754,19 @@ async function _ensureTemplateVariables(answers, registryConfigManager = null) {
             } catch {
                 // Silently continue — template fallback handles missing value
             }
+        }
+    }
+
+    // Determine tune support based on model presence in the tune catalog.
+    // Used by the do/config template to write TUNE_SUPPORTED=true|false.
+    if (answers.tuneSupported === undefined) {
+        try {
+            const tuneCatalogPath = path.resolve(__dirname, '..', 'config', 'tune-catalog.json');
+            const tuneCatalog = JSON.parse(fs.readFileSync(tuneCatalogPath, 'utf-8'));
+            const modelId = answers.modelName || '';
+            answers.tuneSupported = isTuneSupported(modelId, tuneCatalog);
+        } catch {
+            answers.tuneSupported = false;
         }
     }
 }
@@ -1083,7 +1110,8 @@ function _setExecutablePermissions(destDir) {
         'do/optimize',
         'do/status',
         'do/add-ic',
-        'do/adapter'
+        'do/adapter',
+        'do/tune'
     ];
 
     shellScripts.forEach(script => {

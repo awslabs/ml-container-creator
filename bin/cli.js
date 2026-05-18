@@ -102,6 +102,15 @@ program
     .addOption(new Option('--max-loras <n>', 'Maximum concurrent LoRA adapters in GPU memory (default: 30)'))
     .addOption(new Option('--max-lora-rank <n>', 'Maximum LoRA rank (default: 64)'))
 
+    // --- Benchmarking ---
+    .addOption(new Option('--include-benchmark', 'Include SageMaker AI Benchmarking (transformers/diffusors only)'))
+    .addOption(new Option('--benchmark-concurrency <n>', 'Benchmark concurrent requests (default: 10)'))
+    .addOption(new Option('--benchmark-input-tokens <n>', 'Benchmark mean input tokens (default: 550)'))
+    .addOption(new Option('--benchmark-output-tokens <n>', 'Benchmark mean output tokens (default: 150)'))
+    .addOption(new Option('--benchmark-streaming', 'Enable streaming in benchmark (default: true)'))
+    .addOption(new Option('--benchmark-request-count <n>', 'Total benchmark requests (optional)'))
+    .addOption(new Option('--benchmark-s3-output-path <path>', 'S3 path for benchmark results'))
+
     // --- MCP & Discovery ---
     .addOption(new Option('--smart', 'Enable Bedrock-powered smart mode on MCP servers'))
     .addOption(new Option('--discover', 'Enable live registry lookups via MCP discovery'))
