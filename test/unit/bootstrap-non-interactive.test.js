@@ -113,6 +113,12 @@ function setupHandler(_opts = {}) {
     // Mock _verifyCliV2 to skip real CLI version check in tests
     handler._verifyCliV2 = () => true;
 
+    // Mock _execAws to prevent real AWS CLI calls (e.g., cloudformation list-stacks)
+    handler._execAws = () => [];
+
+    // Mock _displayProgress to prevent output noise
+    handler._displayProgress = () => {};
+
     const restore = () => { console.log = origLog; };
 
     return { handler, calls, logs, restore, promptCalls, configPath };
