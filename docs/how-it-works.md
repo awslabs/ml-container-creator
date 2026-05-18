@@ -65,7 +65,7 @@ The target directory must be `/opt/ml/model/` for SageMaker compatibility.
 
 ### Generative Models
 
-Generative models (LLMs) are specified by HuggingFace model ID at generation time. MCC does not require a model format -- the serving framework handles downloading and loading the model into GPU memory.
+Generative models (LLMs) are specified by HuggingFace model ID at generation time. MCC does not require a model format -- the serving framework handles downloading and loading the model into GPU memory. For supported models, you can fine-tune with `do/tune` and deploy the resulting adapter or full model — see the [Fine-Tuning Guide](fine-tuning.md) for the full workflow.
 
 ```json
 {

@@ -29,6 +29,7 @@ _usage() {
     echo "Commands:"
     echo "  add <name> --weights <s3-uri>        Add a new LoRA adapter from S3"
     echo "  add <name> --from-hub <hf-repo-id>   Add a new LoRA adapter from HuggingFace Hub"
+    echo "  add <name> --from-tune [technique]   Add adapter from do/tune output"
     echo "  list                                  List all adapters on the endpoint"
     echo "  remove <name>                         Remove an adapter"
     echo "  update <name> --weights <new-s3-uri>  Update adapter weights from S3"
@@ -41,6 +42,8 @@ _usage() {
     echo "Examples:"
     echo "  ./do/adapter add ectsum --weights s3://my-bucket/adapters/ectsum/adapter.tar.gz"
     echo "  ./do/adapter add ectsum --from-hub predibase/llama-3.1-8b-ectsum"
+    echo "  ./do/adapter add tuned-sft --from-tune"
+    echo "  ./do/adapter add tuned-sft --from-tune sft"
     echo "  ./do/adapter list"
     echo "  ./do/adapter remove ectsum"
     echo "  ./do/adapter update ectsum --weights s3://my-bucket/adapters/ectsum-v2/adapter.tar.gz"
@@ -48,7 +51,7 @@ _usage() {
     echo ""
     echo "Adapter metadata is stored in do/adapters/<name>.conf"
     echo ""
-    echo "Note: --weights and --from-hub are mutually exclusive."
+    echo "Note: --weights, --from-hub, and --from-tune are mutually exclusive."
 }
 
 # ── Validate LoRA is enabled ──────────────────────────────────────────────────
@@ -357,6 +360,8 @@ _adapter_add() {
     local adapter_name=""
     local weights_uri=""
     local from_hub=""
+    local from_tune=""
+    local from_tune_technique=""
 
     # Parse add arguments
     shift  # remove 'add' from args
@@ -380,28 +385,45 @@ _adapter_add() {
                 from_hub="$2"
                 shift 2
                 ;;
+            --from-tune)
+                from_tune="true"
+                # Check if next argument is a technique (not another flag and not empty)
+                if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
+                    from_tune_technique="$2"
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
             --help|-h)
                 echo "Usage: ./do/adapter add <name> --weights <s3-uri>"
                 echo "       ./do/adapter add <name> --from-hub <hf-repo-id>"
+                echo "       ./do/adapter add <name> --from-tune [technique]"
                 echo ""
                 echo "Add a new LoRA adapter to the endpoint."
                 echo ""
                 echo "Arguments:"
-                echo "  <name>                    Adapter name (lowercase alphanumeric + hyphens, 1-50 chars)"
-                echo "  --weights <s3-uri>        S3 URI to adapter weights (.tar.gz)"
-                echo "  --from-hub <hf-repo-id>   Download adapter from HuggingFace Hub"
+                echo "  <name>                      Adapter name (lowercase alphanumeric + hyphens, 1-50 chars)"
+                echo "  --weights <s3-uri>          S3 URI to adapter weights (.tar.gz)"
+                echo "  --from-hub <hf-repo-id>     Download adapter from HuggingFace Hub"
+                echo "  --from-tune [technique]     Use adapter output from do/tune"
+                echo "                              Without technique: uses latest tune output"
+                echo "                              With technique (e.g., sft, dpo): uses technique-specific output"
                 echo ""
-                echo "Note: --weights and --from-hub are mutually exclusive."
+                echo "Note: --weights, --from-hub, and --from-tune are mutually exclusive."
                 echo ""
                 echo "Examples:"
                 echo "  ./do/adapter add ectsum --weights s3://bucket/adapters/ectsum/adapter.tar.gz"
                 echo "  ./do/adapter add ectsum --from-hub predibase/llama-3.1-8b-ectsum"
+                echo "  ./do/adapter add tuned-sft --from-tune"
+                echo "  ./do/adapter add tuned-sft --from-tune sft"
                 exit 0
                 ;;
             -*)
                 echo "❌ Unknown option: $1"
                 echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
                 echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
+                echo "          ./do/adapter add <name> --from-tune [technique]"
                 exit 1
                 ;;
             *)
@@ -411,6 +433,7 @@ _adapter_add() {
                     echo "❌ Unexpected argument: $1"
                     echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
                     echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
+                    echo "          ./do/adapter add <name> --from-tune [technique]"
                     exit 1
                 fi
                 shift
@@ -423,24 +446,83 @@ _adapter_add() {
         echo "❌ Adapter name is required"
         echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
         echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
+        echo "          ./do/adapter add <name> --from-tune [technique]"
         exit 1
     fi
 
     # ── Mutual exclusivity check ─────────────────────────────────────────
-    if [ -n "${weights_uri}" ] && [ -n "${from_hub}" ]; then
-        echo "❌ --weights and --from-hub are mutually exclusive"
+    local source_count=0
+    [ -n "${weights_uri}" ] && source_count=$((source_count + 1))
+    [ -n "${from_hub}" ] && source_count=$((source_count + 1))
+    [ -n "${from_tune}" ] && source_count=$((source_count + 1))
+
+    if [ "${source_count}" -gt 1 ]; then
+        echo "❌ --weights, --from-hub, and --from-tune are mutually exclusive"
         echo ""
-        echo "   Use one or the other:"
+        echo "   Use one of:"
         echo "   ./do/adapter add ${adapter_name} --weights <s3-uri>"
         echo "   ./do/adapter add ${adapter_name} --from-hub <hf-repo-id>"
+        echo "   ./do/adapter add ${adapter_name} --from-tune [technique]"
         exit 1
     fi
 
-    if [ -z "${weights_uri}" ] && [ -z "${from_hub}" ]; then
-        echo "❌ Either --weights or --from-hub is required"
+    if [ "${source_count}" -eq 0 ]; then
+        echo "❌ One of --weights, --from-hub, or --from-tune is required"
         echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
         echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
+        echo "          ./do/adapter add <name> --from-tune [technique]"
         exit 1
+    fi
+
+    # ── Resolve --from-tune to weights_uri ────────────────────────────────
+    if [ -n "${from_tune}" ]; then
+        if [ -n "${from_tune_technique}" ]; then
+            # Technique-specific: read TUNE_ADAPTER_PATH_<TECHNIQUE>
+            local technique_upper
+            technique_upper=$(echo "${from_tune_technique}" | tr '[:lower:]' '[:upper:]')
+            local tune_var="TUNE_ADAPTER_PATH_${technique_upper}"
+            local tune_path="${!tune_var:-}"
+
+            if [ -z "${tune_path}" ]; then
+                echo "❌ No adapter output found for technique: ${from_tune_technique}"
+                echo ""
+                echo "   ${tune_var} is not set in do/config."
+                echo ""
+                echo "   Run a tune job first:"
+                echo "   ./do/tune --technique ${from_tune_technique} --dataset <source>"
+                exit 1
+            fi
+
+            weights_uri="${tune_path}"
+            echo "📦 Using tune adapter output for technique '${from_tune_technique}': ${weights_uri}"
+        else
+            # No technique: read TUNE_OUTPUT_PATH_LATEST and verify type
+            if [ -z "${TUNE_OUTPUT_PATH_LATEST:-}" ]; then
+                echo "❌ No tune output found."
+                echo ""
+                echo "   TUNE_OUTPUT_PATH_LATEST is not set in do/config."
+                echo ""
+                echo "   Run a tune job first:"
+                echo "   ./do/tune --technique <technique> --dataset <source>"
+                exit 1
+            fi
+
+            # Verify output type is adapter (not full-model)
+            if [ "${TUNE_OUTPUT_TYPE_LATEST:-}" = "full-model" ]; then
+                echo "❌ Latest tune output is a full model, not an adapter."
+                echo ""
+                echo "   TUNE_OUTPUT_TYPE_LATEST=full-model"
+                echo ""
+                echo "   Full model outputs cannot be added as adapters."
+                echo "   Use do/add-ic instead:"
+                echo "   ./do/add-ic ${adapter_name} --from-tune"
+                exit 1
+            fi
+
+            weights_uri="${TUNE_OUTPUT_PATH_LATEST}"
+            echo "📦 Using latest tune adapter output: ${weights_uri}"
+        fi
+        echo ""
     fi
 
     # ── Validate HF repo ID format (if --from-hub) ───────────────────────
@@ -468,8 +550,8 @@ _adapter_add() {
         exit 1
     fi
 
-    # ── Validate S3 URI format (only when --weights is used) ─────────────
-    if [ -n "${weights_uri}" ]; then
+    # ── Validate S3 URI format (only when --weights is explicitly used) ──
+    if [ -n "${weights_uri}" ] && [ -z "${from_hub}" ] && [ -z "${from_tune}" ]; then
         if ! echo "${weights_uri}" | grep -qE '^s3://.*\.tar\.gz$'; then
             echo "❌ Invalid S3 URI: ${weights_uri}"
             echo ""
@@ -495,6 +577,9 @@ _adapter_add() {
     echo "🔌 Adding adapter: ${adapter_name}"
     if [ -n "${from_hub}" ]; then
         echo "   Source: HuggingFace Hub (${from_hub})"
+    elif [ -n "${from_tune}" ]; then
+        echo "   Source: do/tune output"
+        echo "   Weights: ${weights_uri}"
     else
         echo "   Weights: ${weights_uri}"
     fi
@@ -593,6 +678,14 @@ export ADAPTER_HF_REPO="${from_hub}"
 EOF
     fi
 
+    # Add tune-specific metadata if --from-tune was used
+    if [ -n "${from_tune}" ]; then
+        cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
+export ADAPTER_SOURCE="tune"
+export ADAPTER_TUNE_TECHNIQUE="${from_tune_technique:-latest}"
+EOF
+    fi
+
     echo ""
     echo "✅ Adapter added successfully!"
     echo ""
@@ -602,6 +695,8 @@ EOF
     echo "   Weights: ${weights_uri}"
     if [ -n "${from_hub}" ]; then
         echo "   Source: HuggingFace Hub (${from_hub})"
+    elif [ -n "${from_tune}" ]; then
+        echo "   Source: do/tune (${from_tune_technique:-latest})"
     fi
     echo "   Created: ${created_at}"
     echo ""

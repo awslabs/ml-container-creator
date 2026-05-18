@@ -182,37 +182,79 @@ export default class BootstrapCommandHandler {
         this._displayProgress('☁️', 'Deploying bootstrap infrastructure stack...');
         const stackName = `${STACK_NAME_PREFIX}-${profileName}`;
 
+        // Check for existing bootstrap stack in this account-region (resources are singletons)
         try {
-            const stackOutputs = this._deployStack(stackName, {
-                CreateS3Buckets: createS3Buckets ? 'true' : 'false',
-                UseExistingRoleArn: useExistingRoleArn
-            }, awsProfile, region);
+            const existingStacks = this._execAws(
+                `cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE --query "StackSummaries[?starts_with(StackName,'${STACK_NAME_PREFIX}-')].StackName" --output json`,
+                awsProfile
+            );
+            const stacks = Array.isArray(existingStacks) ? existingStacks : [];
+            const otherStack = stacks.find(s => s !== stackName);
+            if (otherStack) {
+                console.log(`  ℹ️  Bootstrap infrastructure already exists in ${accountId}/${region} (stack: ${otherStack})`);
+                console.log('     Reusing existing resources (IAM role, ECR repo are singletons per account-region).');
+                console.log('     Use `ml-container-creator bootstrap update` to apply latest permissions.\n');
 
-            // Read outputs into profile data
-            profileData.roleArn = stackOutputs.RoleArn;
-            profileData.ecrRepositoryName = stackOutputs.EcrRepositoryName;
-            profileData.stackName = stackName;
+                // Read outputs from existing stack
+                const outputs = this._execAws(
+                    `cloudformation describe-stacks --stack-name ${otherStack} --query "Stacks[0].Outputs" --output json`,
+                    awsProfile
+                );
+                const stackOutputs = {};
+                if (Array.isArray(outputs)) {
+                    for (const o of outputs) {
+                        stackOutputs[o.OutputKey] = o.OutputValue;
+                    }
+                }
 
-            if (stackOutputs.AsyncS3BucketName) {
-                profileData.asyncS3Bucket = stackOutputs.AsyncS3BucketName;
-            }
-            if (stackOutputs.BatchS3BucketName) {
-                profileData.batchS3Bucket = stackOutputs.BatchS3BucketName;
-            }
-            if (stackOutputs.AdapterS3BucketName) {
-                profileData.adapterS3Bucket = stackOutputs.AdapterS3BucketName;
-            }
-            if (stackOutputs.BenchmarkS3BucketName) {
-                profileData.benchmarkS3Bucket = stackOutputs.BenchmarkS3BucketName;
-            }
+                profileData.roleArn = stackOutputs.RoleArn;
+                profileData.ecrRepositoryName = stackOutputs.EcrRepositoryName;
+                profileData.stackName = otherStack;
+                if (stackOutputs.AsyncS3BucketName) profileData.asyncS3Bucket = stackOutputs.AsyncS3BucketName;
+                if (stackOutputs.BatchS3BucketName) profileData.batchS3Bucket = stackOutputs.BatchS3BucketName;
+                if (stackOutputs.AdapterS3BucketName) profileData.adapterS3Bucket = stackOutputs.AdapterS3BucketName;
+                if (stackOutputs.BenchmarkS3BucketName) profileData.benchmarkS3Bucket = stackOutputs.BenchmarkS3BucketName;
 
-            console.log('  ✅ Bootstrap stack deployed successfully');
-        } catch (error) {
-            console.log(`  ❌ Stack deployment failed: ${error.message}`);
-            console.log('  Check the CloudFormation console for details:');
-            console.log(`  https://console.aws.amazon.com/cloudformation/home?region=${region}#/stacks`);
-            return;
+                // Skip stack deployment, continue to CI setup and profile save
+                console.log('  ✅ Existing bootstrap infrastructure reused');
+            }
+        } catch (_) {
+            // If list-stacks fails, proceed with normal deployment
         }
+
+        if (!profileData.stackName) {
+            try {
+                const stackOutputs = this._deployStack(stackName, {
+                    CreateS3Buckets: createS3Buckets ? 'true' : 'false',
+                    UseExistingRoleArn: useExistingRoleArn
+                }, awsProfile, region);
+
+                // Read outputs into profile data
+                profileData.roleArn = stackOutputs.RoleArn;
+                profileData.ecrRepositoryName = stackOutputs.EcrRepositoryName;
+                profileData.stackName = stackName;
+
+                if (stackOutputs.AsyncS3BucketName) {
+                    profileData.asyncS3Bucket = stackOutputs.AsyncS3BucketName;
+                }
+                if (stackOutputs.BatchS3BucketName) {
+                    profileData.batchS3Bucket = stackOutputs.BatchS3BucketName;
+                }
+                if (stackOutputs.AdapterS3BucketName) {
+                    profileData.adapterS3Bucket = stackOutputs.AdapterS3BucketName;
+                }
+                if (stackOutputs.BenchmarkS3BucketName) {
+                    profileData.benchmarkS3Bucket = stackOutputs.BenchmarkS3BucketName;
+                }
+
+                console.log('  ✅ Bootstrap stack deployed successfully');
+            } catch (error) {
+                console.log(`  ❌ Stack deployment failed: ${error.message}`);
+                console.log('  Check the CloudFormation console for details:');
+                console.log(`  https://console.aws.amazon.com/cloudformation/home?region=${region}#/stacks`);
+                return;
+            }
+        } // end if (!profileData.stackName)
 
         // Step 5: CI Infrastructure setup (separate CDK stack — unchanged)
         this._displayProgress('🧪', 'CI Testing Infrastructure...');

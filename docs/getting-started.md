@@ -290,6 +290,7 @@ For full details, see the [CI Integration Guide](ci-integration.md).
 - [How It Works](how-it-works.md) — Understand the generator architecture and prompt flow
 - [Configuration](configuration.md) — CLI flags, environment variables, config files, and MCP servers
 - [Deployment & Inference](deployments.md) — All deployment targets and lifecycle scripts
+- [Fine-Tuning](fine-tuning.md) — Fine-tune supported models with `do/tune` and deploy adapters
 - [Examples](EXAMPLES.md) — Walkthroughs for other architectures (Triton, diffusors, async, batch transform)
 - [CI Integration](ci-integration.md) — Automated lifecycle testing for all deployment configurations
 - [Troubleshooting](TROUBLESHOOTING.md) — Common issues and solutions
