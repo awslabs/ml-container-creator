@@ -205,7 +205,7 @@ create_endpoint_config 2>/dev/null
         assert.strictEqual(variant.InstanceType, 'ml.g5.xlarge');
         assert.strictEqual(variant.InitialInstanceCount, 1);
         assert.ok(!('InstancePools' in variant), 'Must NOT have InstancePools when using single type');
-        assert.ok(!('RoutingConfig' in variant), 'Must NOT have RoutingConfig when using single type');
+        assert.deepStrictEqual(variant.RoutingConfig, { RoutingStrategy: 'LEAST_OUTSTANDING_REQUESTS' }, 'IC-based endpoints require RoutingConfig for scheduler placement');
         assert.ok(!('VariantInstanceProvisionTimeoutInSeconds' in variant), 'Must NOT have timeout when using single type');
     });
 

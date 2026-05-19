@@ -290,6 +290,7 @@ RUN chmod +x /usr/bin/serve_trtllm
 
 # Copy startup script
 COPY code/cuda_compat.sh /usr/bin/cuda_compat.sh
+COPY code/cw_log_forwarder.py /usr/bin/cw_log_forwarder.py
 COPY code/start_server.sh /usr/bin/start_server.sh
 RUN chmod +x /usr/bin/start_server.sh /usr/bin/cuda_compat.sh
 
@@ -307,6 +308,7 @@ COPY code/serving.properties /opt/ml/model/serving.properties
 # The container will automatically start DJL Serving with the configuration
 <% } else { %>
 COPY code/cuda_compat.sh /usr/bin/cuda_compat.sh
+COPY code/cw_log_forwarder.py /usr/bin/cw_log_forwarder.py
 COPY code/serve /usr/bin/serve
 RUN chmod 777 /usr/bin/serve /usr/bin/cuda_compat.sh
 

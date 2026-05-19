@@ -46,10 +46,14 @@ create_inference_component() {
 
     # Build container spec JSON
     local container_spec="{\"Image\":\"${ECR_REPOSITORY}:${IC_IMAGE_TAG:-${PROJECT_NAME}-latest}\""
+    # Always inject IC name for CW log forwarder
+    local ic_env="\"INFERENCE_COMPONENT_NAME\":\"${ic_name}\""
     if [ -n "${CONTAINER_ENV_JSON}${IC_CONTAINER_ENV_EXTRA:-}" ]; then
         local env_json="${CONTAINER_ENV_JSON}"
         [ -n "${IC_CONTAINER_ENV_EXTRA:-}" ] && env_json="${env_json:+${env_json},}${IC_CONTAINER_ENV_EXTRA}"
-        container_spec="${container_spec},\"Environment\":{${env_json}}"
+        container_spec="${container_spec},\"Environment\":{${ic_env},${env_json}}"
+    else
+        container_spec="${container_spec},\"Environment\":{${ic_env}}"
     fi
     container_spec="${container_spec}}"
 

@@ -107,7 +107,7 @@ create_endpoint_config 2>/dev/null
             const variant = extractJson(result.stdout);
             assert.strictEqual(variant[0].InstanceType, 'ml.g5.xlarge');
             assert.ok(!('InstancePools' in variant[0]), 'Single selection must NOT produce InstancePools');
-            assert.ok(!('RoutingConfig' in variant[0]), 'Single selection must NOT have RoutingConfig');
+            assert.deepStrictEqual(variant[0].RoutingConfig, { RoutingStrategy: 'LEAST_OUTSTANDING_REQUESTS' }, 'IC-based endpoints require RoutingConfig for scheduler placement');
         });
     });
 

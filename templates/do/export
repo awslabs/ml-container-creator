@@ -2,16 +2,33 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Export current configuration as a CLI command or JSON object
-# Usage: ./do/export [--json]
+# Export current configuration as a CLI command, JSON object, or Jupyter notebook
+# Usage: ./do/export [--json | --notebook]
 
 # Source configuration (suppress the summary output)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config" > /dev/null 2>&1
 
+# ── Notebook output mode ──────────────────────────────────────────────────────
+
+if [ "${1:-}" = "--notebook" ]; then
+    # Ensure not combined with --json
+    if [ "${2:-}" = "--json" ]; then
+        echo "Error: --notebook and --json are mutually exclusive" >&2
+        exit 1
+    fi
+    python3 "${SCRIPT_DIR}/../deploy_notebook_generator.py"
+    exit 0
+fi
+
 # ── JSON output mode ─────────────────────────────────────────────────────────
 
 if [ "${1:-}" = "--json" ]; then
+    # Ensure not combined with --notebook
+    if [ "${2:-}" = "--notebook" ]; then
+        echo "Error: --notebook and --json are mutually exclusive" >&2
+        exit 1
+    fi
     # Build a JSON object with all configuration parameters.
     # Uses ConfigManager camelCase keys so the output can be fed directly
     # back into the generator via --config=<file>.
