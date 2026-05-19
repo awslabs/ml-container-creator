@@ -19,7 +19,7 @@
  * Validates: Requirements 1.2, 1.3, 4.1, 6.1, 9.1, 9.4, 9.5, 10.1, 13.1, 13.7
  */
 
-import { describe, it, beforeEach, afterEach } from 'mocha';
+import { describe, it, afterEach } from 'mocha';
 import assert from 'node:assert';
 import ejs from 'ejs';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';

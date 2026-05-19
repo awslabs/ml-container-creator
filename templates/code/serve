@@ -2,6 +2,11 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# CloudWatch log forwarder — workaround for IC platform log routing gap
+exec > >(python3 /usr/bin/cw_log_forwarder.py) 2>&1
+
+echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') [serve] Container started — PID $$"
+
 # CUDA compatibility setup (required for newer SageMaker inference AMIs)
 source /usr/bin/cuda_compat.sh 2>/dev/null || true
 
