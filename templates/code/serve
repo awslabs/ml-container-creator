@@ -270,8 +270,14 @@ for var in "${env_vars[@]}"; do
     
     # Remove prefix, convert to lowercase, and replace underscores with dashes
     arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+
+    # Boolean handling: true = flag only, false = skip entirely
+    if [ "$value" = "false" ]; then
+        continue
+    fi
+
     SERVER_ARGS+=("${ARG_PREFIX}${arg_name}")
-    if [ -n "$value" ]; then
+    if [ -n "$value" ] && [ "$value" != "true" ]; then
         SERVER_ARGS+=("$value")
     fi
 done

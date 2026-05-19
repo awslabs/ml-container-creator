@@ -152,7 +152,9 @@ create_endpoint_config() {
         variant_json="${variant_json}}]"
     else
         # Standard path: single instance type
-        variant_json="[{\"VariantName\":\"AllTraffic\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1"
+        # RoutingConfig is required for IC-based endpoints — without it the IC scheduler
+        # cannot place containers and the IC stays in Creating with no logs.
+        variant_json="[{\"VariantName\":\"AllTraffic\",\"InstanceType\":\"${INSTANCE_TYPE}\",\"InitialInstanceCount\":1,\"RoutingConfig\":{\"RoutingStrategy\":\"LEAST_OUTSTANDING_REQUESTS\"}"
 
         # Optional: AMI version
         if [ -n "${INFERENCE_AMI_VERSION:-}" ]; then

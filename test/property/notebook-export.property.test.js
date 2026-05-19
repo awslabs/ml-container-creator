@@ -72,7 +72,7 @@ function renderTemplate(config) {
         ngcTokenArn: config.ngcTokenArn || '',
         ngcApiKey: config.ngcApiKey || '',
         inferenceAmiVersion: config.inferenceAmiVersion || '',
-        existingEndpointName: config.existingEndpointName || '',
+        existingEndpointName: config.existingEndpointName || ''
     };
     return ejs.render(TEMPLATE_CONTENT, vars);
 }
@@ -112,7 +112,7 @@ function executeScript(scriptContent, config) {
         HF_TOKEN: config.hfToken || '',
         NGC_API_KEY_ARN: config.ngcTokenArn || '',
         NGC_API_KEY: config.ngcApiKey || '',
-        INFERENCE_AMI_VERSION: config.inferenceAmiVersion || '',
+        INFERENCE_AMI_VERSION: config.inferenceAmiVersion || ''
     };
 
     try {
@@ -120,7 +120,7 @@ function executeScript(scriptContent, config) {
             encoding: 'utf8',
             timeout: 10000,
             env: envVars,
-            cwd: TMP_DIR,
+            cwd: TMP_DIR
         });
 
         const notebookContent = readFileSync(outputPath, 'utf8');
@@ -171,10 +171,10 @@ const arbConfig = fc.record({
     deploymentTarget: fc.constantFrom(...DEPLOYMENT_TARGETS),
     modelServer: fc.constantFrom(...MODEL_SERVERS),
     enableLora: fc.boolean(),
-    tuneSupported: fc.boolean(),
+    tuneSupported: fc.boolean()
 }).map(config => ({
     ...config,
-    framework: frameworkForServer(config.modelServer),
+    framework: frameworkForServer(config.modelServer)
 }));
 
 // ── Property 1: Valid JSON output ────────────────────────────────────────────
@@ -182,7 +182,7 @@ const arbConfig = fc.record({
 describe('Feature: notebook-export, Property 1: Valid JSON output for all config combos', function () {
     this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-    it('every (deploymentTarget × modelServer × enableLora × tuneSupported) combo produces valid JSON', function () {
+    it('every (deploymentTarget × modelServer × enableLora × tuneSupported) combo produces valid JSON', () => {
         /**
          * Validates: Requirements 1.2, 12.4, 12.5
          */
@@ -224,7 +224,7 @@ describe('Feature: notebook-export, Property 1: Valid JSON output for all config
 describe('Feature: notebook-export, Property 4: All code cells have valid Python syntax', function () {
     this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-    it('every code cell passes ast.parse()', function () {
+    it('every code cell passes ast.parse()', () => {
         /**
          * Validates: Requirements 1.3, 12.5
          */
@@ -248,13 +248,13 @@ describe('Feature: notebook-export, Property 4: All code cells have valid Python
                     try {
                         execSync(`python3 "${checkScript}"`, {
                             encoding: 'utf8',
-                            timeout: 5000,
+                            timeout: 5000
                         });
                     } catch (e) {
                         assert.fail(
                             `Code cell failed ast.parse() for config ${JSON.stringify({
                                 deploymentTarget: config.deploymentTarget,
-                                modelServer: config.modelServer,
+                                modelServer: config.modelServer
                             })}:\n${code.substring(0, 200)}...\nError: ${e.stderr || e.message}`
                         );
                     } finally {
@@ -273,7 +273,7 @@ describe('Feature: notebook-export, Property 4: All code cells have valid Python
 describe('Feature: notebook-export, Property 5: Section presence/absence matches branching matrix', function () {
     this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-    it('IC section only present for realtime-inference', function () {
+    it('IC section only present for realtime-inference', () => {
         /**
          * Validates: Requirements 6.1, 7.1
          */
@@ -304,7 +304,7 @@ describe('Feature: notebook-export, Property 5: Section presence/absence matches
         ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
     });
 
-    it('adapter section only present for realtime + enableLora', function () {
+    it('adapter section only present for realtime + enableLora', () => {
         /**
          * Validates: Requirements 9.1
          */
@@ -330,7 +330,7 @@ describe('Feature: notebook-export, Property 5: Section presence/absence matches
         ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
     });
 
-    it('tune section only present for realtime + tuneSupported', function () {
+    it('tune section only present for realtime + tuneSupported', () => {
         /**
          * Validates: Requirements 10.1
          */
@@ -356,7 +356,7 @@ describe('Feature: notebook-export, Property 5: Section presence/absence matches
         ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
     });
 
-    it('async config only present for async-inference', function () {
+    it('async config only present for async-inference', () => {
         /**
          * Validates: Requirements 6.1
          */
@@ -381,7 +381,7 @@ describe('Feature: notebook-export, Property 5: Section presence/absence matches
         ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
     });
 
-    it('transform job only present for batch-transform', function () {
+    it('transform job only present for batch-transform', () => {
         /**
          * Validates: Requirements 6.1
          */
@@ -412,7 +412,7 @@ describe('Feature: notebook-export, Property 5: Section presence/absence matches
 describe('Feature: notebook-export, Property 7: Adapter IC creation never contains ComputeResourceRequirements', function () {
     this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-    it('adapter IC uses BaseInferenceComponentName without ComputeResourceRequirements', function () {
+    it('adapter IC uses BaseInferenceComponentName without ComputeResourceRequirements', () => {
         /**
          * Validates: Requirements 9.5
          */
@@ -446,7 +446,7 @@ describe('Feature: notebook-export, Property 7: Adapter IC creation never contai
 describe('Feature: notebook-export, Property 8: Tune section uses ModelTrainer with model_id matching MODEL_NAME', function () {
     this.timeout(FAST_PROPERTY_CONFIG.timeout);
 
-    it('tune section references ModelTrainer with model_id=MODEL_NAME from env', function () {
+    it('tune section references ModelTrainer with model_id=MODEL_NAME from env', () => {
         /**
          * Validates: Requirements 10.4
          */
