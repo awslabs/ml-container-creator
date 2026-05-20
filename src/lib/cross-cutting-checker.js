@@ -450,7 +450,7 @@ export default class CrossCuttingChecker {
         // 1. Validate ARN format
         const modelPackageArn = config.modelPackageArn || config.MODEL_PACKAGE_ARN || '';
         if (modelPackageArn) {
-            const arnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9\-])*\/\d+$/;
+            const arnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9-])*\/\d+$/;
             if (!arnPattern.test(modelPackageArn)) {
                 findings.push({
                     service: 'cross-cutting',

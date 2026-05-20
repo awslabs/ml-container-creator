@@ -18,7 +18,6 @@
 
 import fc from 'fast-check';
 import { describe, it, afterEach } from 'mocha';
-import assert from 'assert';
 import { runGenerator } from '../helpers/run-generator.js';
 
 const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, seed: 42, verbose: false };

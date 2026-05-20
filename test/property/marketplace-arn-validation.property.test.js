@@ -176,7 +176,7 @@ function buildMarketplaceContext(modelPackageArn) {
 /**
  * The expected ARN pattern from the cross-cutting checker.
  */
-const VALID_ARN_PATTERN = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9\-])*\/\d+$/;
+const VALID_ARN_PATTERN = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9-])*\/\d+$/;
 
 // ── Property tests ───────────────────────────────────────────────────────────
 

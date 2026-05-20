@@ -48,8 +48,6 @@ const INSTANCE_TYPES = [
     'ml.p3.2xlarge', 'ml.c5.xlarge'
 ];
 
-const DEPLOYMENT_TARGETS = ['realtime-inference', 'async-inference', 'batch-transform'];
-
 /** Generate a valid model package ARN */
 const arbModelPackageArn = fc.tuple(
     fc.constantFrom(...AWS_REGIONS),
@@ -175,7 +173,7 @@ describe('Feature: marketplace-model-packages, Property 4: Deploy template uses 
                     // The template uses escaped quotes inside bash: {"ModelPackageName":"${MODEL_PACKAGE_ARN}"}
                     // In the rendered output this appears as: {\"ModelPackageName\":\"${MODEL_PACKAGE_ARN}\"}
                     assert.ok(
-                        rendered.includes('\\\"ModelPackageName\\\":\\\"${MODEL_PACKAGE_ARN}\\\"'),
+                        rendered.includes('\\"ModelPackageName\\":\\"${MODEL_PACKAGE_ARN}\\"'),
                         'Deploy script must reference MODEL_PACKAGE_ARN in the ModelPackageName field'
                     );
                 }

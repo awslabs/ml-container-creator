@@ -11,7 +11,7 @@
  * Validates: Requirements 8.5
  */
 
-import { describe, it, beforeEach, afterEach } from 'mocha';
+import { describe, it } from 'mocha';
 import { strict as assert } from 'node:assert';
 import { resolveModel } from '../../servers/model-picker/index.js';
 import { runGenerator } from '../helpers/run-generator.js';

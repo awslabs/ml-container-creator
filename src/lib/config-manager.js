@@ -1873,7 +1873,7 @@ export default class ConfigManager {
 
         // Validate model package ARN format if provided
         if (this.config.modelPackageArn) {
-            const modelPackageArnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9\-])*\/\d+$/;
+            const modelPackageArnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9-])*\/\d+$/;
             if (!modelPackageArnPattern.test(this.config.modelPackageArn)) {
                 errors.push('❌ Invalid model package ARN format. Expected: arn:aws:sagemaker:<region>:<account>:model-package/<name>/<version>');
             }
@@ -2395,7 +2395,7 @@ export default class ConfigManager {
 
         case 'modelPackageArn':
             if (value) {
-                const modelPackageArnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9\-])*\/\d+$/;
+                const modelPackageArnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9-])*\/\d+$/;
                 if (!modelPackageArnPattern.test(value)) {
                     throw new ValidationError(
                         '❌ Invalid model package ARN format. Expected: arn:aws:sagemaker:<region>:<account>:model-package/<name>/<version>',

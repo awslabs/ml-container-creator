@@ -12,7 +12,6 @@
  */
 
 import { describe, it } from 'mocha';
-import { strict as assert } from 'node:assert';
 import fc from 'fast-check';
 import { runGenerator } from '../helpers/run-generator.js';
 
