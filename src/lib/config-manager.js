@@ -1089,6 +1089,17 @@ export default class ConfigManager {
                 required: false,
                 default: 64,
                 valueSpace: 'bounded'
+            },
+            modelPackageArn: {
+                cliOption: 'model-package-arn',
+                envVar: null,
+                configFile: true,
+                packageJson: false,
+                mcp: true,
+                promptable: true,
+                required: false,
+                default: null,
+                valueSpace: 'unbounded'
             }
         };
     }
@@ -1860,6 +1871,14 @@ export default class ConfigManager {
             }
         }
 
+        // Validate model package ARN format if provided
+        if (this.config.modelPackageArn) {
+            const modelPackageArnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9\-])*\/\d+$/;
+            if (!modelPackageArnPattern.test(this.config.modelPackageArn)) {
+                errors.push('❌ Invalid model package ARN format. Expected: arn:aws:sagemaker:<region>:<account>:model-package/<name>/<version>');
+            }
+        }
+
         // Only validate required parameters if we're skipping prompts
         // If prompts are available, missing parameters can be collected later
         if (this.skipPrompts) {
@@ -1946,9 +1965,14 @@ export default class ConfigManager {
                 const value = finalConfig[param];
                 const isEmpty = value === null || value === undefined || value === '';
                 
-                // Special case: modelFormat is not required for transformers/triton/diffusors
-                if (param === 'modelFormat' && (finalConfig.architecture === 'transformers' || finalConfig.architecture === 'triton' || finalConfig.architecture === 'diffusors')) {
+                // Special case: modelFormat is not required for transformers/triton/diffusors/marketplace
+                if (param === 'modelFormat' && (finalConfig.architecture === 'transformers' || finalConfig.architecture === 'triton' || finalConfig.architecture === 'diffusors' || finalConfig.architecture === 'marketplace')) {
                     return; // Skip validation
+                }
+
+                // Special case: marketplace projects don't need container-related parameters
+                if (finalConfig.architecture === 'marketplace' && (param === 'includeSampleModel' || param === 'buildTarget')) {
+                    return; // Skip validation — marketplace has no container to build
                 }
                 
                 // Special case: instanceType is not required for hyperpod-eks
@@ -2362,6 +2386,19 @@ export default class ConfigManager {
                 if (!projectNamePattern.test(value)) {
                     throw new ValidationError(
                         `Invalid CodeBuild project name: ${value}. Project names must be 2-255 characters, start with a letter or number, and contain only letters, numbers, hyphens, and underscores.`,
+                        parameter,
+                        value
+                    );
+                }
+            }
+            break;
+
+        case 'modelPackageArn':
+            if (value) {
+                const modelPackageArnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9\-])*\/\d+$/;
+                if (!modelPackageArnPattern.test(value)) {
+                    throw new ValidationError(
+                        '❌ Invalid model package ARN format. Expected: arn:aws:sagemaker:<region>:<account>:model-package/<name>/<version>',
                         parameter,
                         value
                     );

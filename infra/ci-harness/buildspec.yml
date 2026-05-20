@@ -128,6 +128,10 @@ phases:
           echo "Skipping Build stage due to prior failure in $FIRST_FAILURE"
           BUILD_STATUS="skip"
           BUILD_DURATION=0
+        elif [ "$(cd /tmp/ci-project && source do/config && echo $DEPLOYMENT_CONFIG)" = "marketplace" ]; then
+          echo "Skipping Build stage — marketplace projects have no container to build"
+          BUILD_STATUS="skip"
+          BUILD_DURATION=0
         else
           (
             set -e

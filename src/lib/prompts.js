@@ -232,6 +232,12 @@ const deploymentConfigPrompts = [
                 name: 'Diffusors with vLLM Omni',
                 value: 'diffusors-vllm-omni',
                 short: 'diffusors-vllm-omni'
+            },
+            { type: 'separator', separator: '── AWS Marketplace ──' },
+            {
+                name: 'Marketplace Model Package',
+                value: 'marketplace',
+                short: 'marketplace'
             }
         ]
     }
@@ -469,9 +475,9 @@ const modelFormatPrompts = [
             if (!input || input.trim() === '') {
                 return 'Model name is required';
             }
-            // Basic validation - must contain a slash (org/model, hub/model, s3://path, etc.)
+            // Basic validation - must contain a slash (org/model, s3://path, etc.)
             if (!input.includes('/')) {
-                return 'Please use the full model path (e.g., microsoft/DialoGPT-medium, jumpstart-hub://my-hub/my-model)';
+                return 'Please use the full model path (e.g., microsoft/DialoGPT-medium, s3://bucket/model, registry://my-package)';
             }
             return true;
         },
@@ -583,7 +589,7 @@ const hfTokenPrompts = [
             }
             
             // Skip HF token prompt for non-HuggingFace model sources
-            // (S3, JumpStart, Private Hub, Registry models don't need HF auth)
+            // (S3, Registry models don't need HF auth)
             const modelSource = answers.modelSource;
             if (modelSource && modelSource !== 'huggingface') {
                 return false;

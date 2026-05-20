@@ -74,8 +74,19 @@ The `--deployment-config` flag bundles the architecture and model server into a 
 | `triton-vllm` | Triton | vLLM | LLM serving on Triton |
 | `triton-tensorrtllm` | Triton | TensorRT-LLM | LLM serving on Triton with TensorRT-LLM |
 | `triton-python` | Triton | Python | Custom Python models on Triton |
+| `marketplace` | Marketplace | -- | AWS Marketplace model packages (no container build) |
 
 For traditional ML configs (`http-flask`, `http-fastapi`), also specify `--engine` to set the ML engine (sklearn, xgboost, tensorflow).
+
+The `marketplace` config deploys pre-built vendor model packages from AWS Marketplace. No Dockerfile, no build/push — just deploy, test, and benchmark. Use the `marketplace://` prefix with `--model-name`:
+
+```bash
+ml-container-creator my-marketplace-model \
+  --deployment-config=marketplace \
+  --model-name='marketplace://arn:aws:sagemaker:us-east-1:aws:model-package/vendor-model/1' \
+  --instance-type=ml.g5.xlarge \
+  --region=us-east-1
+```
 
 ### Model Formats
 

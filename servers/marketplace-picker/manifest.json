@@ -1,0 +1,14 @@
+{
+    "name": "@amzn/ml-container-creator-marketplace-picker",
+    "version": "1.0.0",
+    "description": "Discovers active AWS Marketplace model package subscriptions for deployment.",
+    "modes": {
+        "static": false,
+        "smart": false,
+        "discover": true
+    },
+    "catalogs": {},
+    "tool": {
+        "name": "get_marketplace_subscriptions"
+    }
+}

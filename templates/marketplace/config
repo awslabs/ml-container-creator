@@ -1,0 +1,118 @@
+#!/bin/bash
+# do-framework configuration (marketplace)
+# This file is sourced by all do scripts
+
+# Project identification
+export PROJECT_NAME="<%= projectName %>"
+export DEPLOYMENT_CONFIG="marketplace"
+
+# Marketplace model package
+export MODEL_PACKAGE_ARN="<%= modelPackageArn %>"
+
+# AWS configuration
+export AWS_REGION="<%= awsRegion %>"
+
+# Deployment configuration
+export DEPLOYMENT_TARGET="<%= deploymentTarget %>"
+export INSTANCE_TYPE="<%= instanceType %>"
+
+<% if (roleArn) { %>
+export ROLE_ARN="<%= roleArn %>"
+<% } %>
+
+<% if (deploymentTarget === 'async-inference') { %>
+# Async-specific configuration
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "UNKNOWN")
+
+<% if (asyncS3OutputPath) { %>
+export ASYNC_S3_OUTPUT_PATH="<%= asyncS3OutputPath %>"
+<% } else { %>
+export ASYNC_S3_OUTPUT_PATH="s3://mlcc-async-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/output/"
+<% } %>
+
+<% if (asyncSnsSuccessTopic) { %>
+export ASYNC_SNS_SUCCESS_TOPIC="<%= asyncSnsSuccessTopic %>"
+<% } else { %>
+export ASYNC_SNS_SUCCESS_TOPIC="arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}:ml-container-creator-${PROJECT_NAME}-async-success"
+<% } %>
+
+<% if (asyncSnsErrorTopic) { %>
+export ASYNC_SNS_ERROR_TOPIC="<%= asyncSnsErrorTopic %>"
+<% } else { %>
+export ASYNC_SNS_ERROR_TOPIC="arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}:ml-container-creator-${PROJECT_NAME}-async-error"
+<% } %>
+
+<% if (asyncMaxConcurrentInvocations) { %>
+export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
+<% } %>
+<% } %>
+
+<% if (deploymentTarget === 'batch-transform') { %>
+# Batch Transform configuration
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "UNKNOWN")
+
+<% if (batchInputPath) { %>
+export BATCH_INPUT_PATH="<%= batchInputPath %>"
+<% } else { %>
+export BATCH_INPUT_PATH="s3://mlcc-batch-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/input/"
+<% } %>
+<% if (batchOutputPath) { %>
+export BATCH_OUTPUT_PATH="<%= batchOutputPath %>"
+<% } else { %>
+export BATCH_OUTPUT_PATH="s3://mlcc-batch-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/output/"
+<% } %>
+export BATCH_INSTANCE_COUNT="<%= batchInstanceCount %>"
+export BATCH_SPLIT_TYPE="<%= batchSplitType %>"
+export BATCH_STRATEGY="<%= batchStrategy %>"
+export BATCH_JOIN_SOURCE="<%= batchJoinSource || 'None' %>"
+<% if (batchMaxConcurrentTransforms) { %>
+export BATCH_MAX_CONCURRENT_TRANSFORMS="<%= batchMaxConcurrentTransforms %>"
+<% } %>
+<% if (batchMaxPayloadInMB) { %>
+export BATCH_MAX_PAYLOAD_IN_MB="<%= batchMaxPayloadInMB %>"
+<% } %>
+<% } %>
+
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+# SageMaker AI Benchmarking configuration
+export BENCHMARK_CONCURRENCY="<%= benchmarkConcurrency %>"
+export BENCHMARK_INPUT_TOKENS_MEAN="<%= benchmarkInputTokensMean %>"
+export BENCHMARK_OUTPUT_TOKENS_MEAN="<%= benchmarkOutputTokensMean %>"
+export BENCHMARK_STREAMING="<%= benchmarkStreaming %>"
+<% if (benchmarkRequestCount) { %>
+export BENCHMARK_REQUEST_COUNT="<%= benchmarkRequestCount %>"
+<% } else { %>
+export BENCHMARK_REQUEST_COUNT=""
+<% } %>
+<% if (benchmarkS3OutputPath) { %>
+export BENCHMARK_S3_OUTPUT_PATH="<%= benchmarkS3OutputPath %>"
+<% } else { %>
+export BENCHMARK_S3_OUTPUT_PATH="s3://mlcc-benchmark-$(aws sts get-caller-identity --query Account --output text)-${AWS_REGION}/${PROJECT_NAME}/"
+<% } %>
+export BENCHMARK_JOB_NAME=""
+export BENCHMARK_WORKLOAD_CONFIG_NAME=""
+<% } %>
+
+# Allow environment variable overrides
+export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
+export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
+
+# Print configuration summary
+echo "⚙️  Configuration loaded"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Config:  ${DEPLOYMENT_CONFIG}"
+echo "   Region:  ${AWS_REGION}"
+echo "   Model package: ${MODEL_PACKAGE_ARN}"
+echo "   Deployment target: ${DEPLOYMENT_TARGET}"
+echo "   Instance: ${INSTANCE_TYPE}"
+<% if (deploymentTarget === 'async-inference') { %>
+echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
+echo "   SNS success: ${ASYNC_SNS_SUCCESS_TOPIC}"
+echo "   SNS error: ${ASYNC_SNS_ERROR_TOPIC}"
+<% } else if (deploymentTarget === 'batch-transform') { %>
+echo "   Instance count: ${BATCH_INSTANCE_COUNT}"
+echo "   S3 input: ${BATCH_INPUT_PATH}"
+echo "   S3 output: ${BATCH_OUTPUT_PATH}"
+echo "   Split type: ${BATCH_SPLIT_TYPE}"
+echo "   Strategy: ${BATCH_STRATEGY}"
+<% } %>

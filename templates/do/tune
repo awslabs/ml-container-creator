@@ -67,7 +67,7 @@ _parse_args() {
                 ARG_TRAINING_TYPE="$2"; shift 2 ;;
             --model)
                 if [ -z "${2:-}" ]; then
-                    echo "❌ --model requires a JumpStart model ID"
+                    echo "❌ --model requires a model ID"
                     exit 1
                 fi
                 ARG_MODEL="$2"; shift 2 ;;
@@ -287,7 +287,7 @@ for family in sorted(families.keys()):
     for entry in entries:
         techniques = list(entry.get('techniques', {}).keys())
         print(f'    • {entry[\"displayName\"]}')
-        print(f'      ID: {entry[\"jumpStartModelId\"]}')
+        print(f'      ID: {entry[\"modelId\"]}')
         for t in techniques:
             tc = entry['techniques'][t]
             types = ', '.join(tc.get('trainingTypes', []))

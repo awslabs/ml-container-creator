@@ -9,21 +9,23 @@ describe('DeploymentConfigResolver', () => {
     });
 
     describe('getAllConfigs()', () => {
-        it('should return exactly 15 valid deployment-config strings', () => {
+        it('should return exactly 16 valid deployment-config strings', () => {
             const configs = resolver.getAllConfigs();
-            assert.equal(configs.length, 15);
+            assert.equal(configs.length, 16);
         });
 
-        it('should include 2 http, 5 transformers, 7 triton, and 1 diffusors configs', () => {
+        it('should include 2 http, 5 transformers, 7 triton, 1 diffusors, and 1 marketplace configs', () => {
             const configs = resolver.getAllConfigs();
             const http = configs.filter(c => c.startsWith('http-'));
             const transformers = configs.filter(c => c.startsWith('transformers-'));
             const triton = configs.filter(c => c.startsWith('triton-'));
             const diffusors = configs.filter(c => c.startsWith('diffusors-'));
+            const marketplace = configs.filter(c => c === 'marketplace');
             assert.equal(http.length, 2);
             assert.equal(transformers.length, 5);
             assert.equal(triton.length, 7);
             assert.equal(diffusors.length, 1);
+            assert.equal(marketplace.length, 1);
         });
     });
 
@@ -87,7 +89,7 @@ describe('DeploymentConfigResolver', () => {
     });
 
     describe('isValid()', () => {
-        it('should return true for all 15 canonical configs', () => {
+        it('should return true for all 16 canonical configs', () => {
             for (const dc of resolver.getAllConfigs()) {
                 assert.equal(resolver.isValid(dc), true, `Expected ${dc} to be valid`);
             }

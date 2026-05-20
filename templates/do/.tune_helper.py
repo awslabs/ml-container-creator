@@ -176,7 +176,7 @@ def cmd_submit(args):
             )
         elif "ValidationException" in error_msg and "license" in error_msg.lower():
             _error_exit(
-                f"Model license not accepted. Accept the license in JumpStart before "
+                f"Model license not accepted. Accept the model license before "
                 f"using this model for customization. Details: {error_msg}"
             )
         else:
@@ -660,7 +660,7 @@ def main():
 
     # ── submit ────────────────────────────────────────────────────────────────
     submit_parser = subparsers.add_parser("submit", help="Submit a customization job")
-    submit_parser.add_argument("--model-id", required=True, help="JumpStart model ID")
+    submit_parser.add_argument("--model-id", required=True, help="Model ID")
     submit_parser.add_argument("--technique", required=True,
                                choices=["sft", "dpo", "rlaif", "rlvr"],
                                help="Customization technique")

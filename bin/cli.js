@@ -37,7 +37,7 @@ program
     .addOption(new Option('--deployment-config <config>', 'Deployment configuration (e.g. http-flask, transformers-vllm, triton-fil)'))
     .addOption(new Option('--framework <framework>', 'ML framework — DEPRECATED: use --deployment-config').choices(['sklearn', 'xgboost', 'tensorflow', 'transformers']).hideHelp())
     .addOption(new Option('--model-format <format>', 'Model serialization format (pkl, joblib, json, model, ubj, keras, h5, SavedModel)'))
-    .addOption(new Option('--model-name <name>', 'Model identifier (HuggingFace ID, s3://, jumpstart://, registry://)'))
+    .addOption(new Option('--model-name <name>', 'Model identifier (<hf-org/model>, s3://..., registry://..., marketplace://...)'))
     .addOption(new Option('--model-server <server>', 'Model server — DEPRECATED: use --deployment-config').choices(['flask', 'fastapi', 'vllm', 'sglang']).hideHelp())
     .addOption(new Option('--base-image <image>', 'Base container image for Dockerfile'))
 

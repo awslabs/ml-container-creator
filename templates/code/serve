@@ -113,7 +113,7 @@ resolve_model() {
             echo "${!_MODEL_VAR}"
             return
             ;;
-        s3|jumpstart|jumpstart-hub|registry)
+        s3|registry)
             # Check for pre-mounted artifacts first
             if [ -d "$LOCAL_MODEL_PATH" ] && [ "$(ls -A $LOCAL_MODEL_PATH 2>/dev/null)" ]; then
                 echo "Using pre-mounted model artifacts at $LOCAL_MODEL_PATH" >&2
@@ -245,7 +245,7 @@ ARG_PREFIX="--"
 
 # Define environment variables to exclude (internal variables set by base images)
 <% if (modelServer === 'vllm') { %>
-EXCLUDE_VARS=("VLLM_USAGE_SOURCE")
+EXCLUDE_VARS=("VLLM_USAGE_SOURCE" "VLLM_ENABLE_CUDA_COMPATIBILITY")
 <% } else if (modelServer === 'sglang') { %>
 EXCLUDE_VARS=()
 <% } else if (modelServer === 'tensorrt-llm') { %>

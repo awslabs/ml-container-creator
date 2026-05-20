@@ -23,6 +23,7 @@ export default class CrossCuttingChecker {
         findings.push(...this.checkCudaCompatibility(context, instanceCatalog));
         findings.push(...this.checkModelTypeInstanceAlignment(context, instanceCatalog));
         findings.push(...this.checkKvCacheMemoryFit(context, instanceCatalog));
+        findings.push(...this.checkMarketplaceCompatibility(context));
 
         return findings;
     }
@@ -142,7 +143,7 @@ export default class CrossCuttingChecker {
     }
 
     /**
-     * Verify model source requirements (artifact URI, hub access config).
+     * Verify model source requirements (artifact URI).
      * @param {Object} context - ValidationContext
      * @returns {Array} Findings
      */
@@ -152,38 +153,8 @@ export default class CrossCuttingChecker {
 
         const modelSource = config.modelSource || config.MODEL_SOURCE || '';
 
-        // When modelSource is 'jumpstart-hub', verify HubAccessConfig.HubContentArn is present
-        if (modelSource === 'jumpstart-hub') {
-            const payloads = context.payloads || {};
-            let hubContentArnFound = false;
-
-            for (const payload of Object.values(payloads)) {
-                if (payload?.HubAccessConfig?.HubContentArn) {
-                    hubContentArnFound = true;
-                    break;
-                }
-            }
-
-            if (!hubContentArnFound && !config.HUB_CONTENT_ARN) {
-                findings.push({
-                    service: 'cross-cutting',
-                    operation: 'configuration',
-                    fieldPath: 'HubAccessConfig.HubContentArn',
-                    invalidValue: null,
-                    constraint: {
-                        type: 'conditional-required',
-                        condition: 'modelSource === jumpstart-hub'
-                    },
-                    severity: 'error',
-                    confidence: 'high',
-                    source: 'cross-cutting',
-                    remediationHint: 'When modelSource is "jumpstart-hub", HubAccessConfig.HubContentArn must be present in the payload.'
-                });
-            }
-        }
-
-        // When modelSource in {s3, jumpstart, jumpstart-hub, registry}, verify MODEL_ARTIFACT_URI is non-empty
-        const sourcesRequiringArtifact = ['s3', 'jumpstart', 'jumpstart-hub', 'registry'];
+        // When modelSource in {s3, registry}, verify MODEL_ARTIFACT_URI is non-empty
+        const sourcesRequiringArtifact = ['s3', 'registry'];
         if (sourcesRequiringArtifact.includes(modelSource)) {
             const artifactUri = config.MODEL_ARTIFACT_URI || '';
             if (!artifactUri || artifactUri.trim() === '') {
@@ -452,6 +423,148 @@ export default class CrossCuttingChecker {
                 confidence: 'medium',
                 source: 'cross-cutting',
                 remediationHint: `Estimated VRAM needed: ${estimatedTotalGb.toFixed(1)}GB (weights: ${weightsGb.toFixed(1)}GB + KV cache: ${kvCacheGb.toFixed(1)}GB at seq_len=${seqLen}) exceeds instance capacity (${totalVramGb}GB). Reduce VLLM_MAX_MODEL_LEN, use quantization, or select a larger instance.`
+            });
+        }
+
+        return findings;
+    }
+
+    /**
+     * Validate marketplace model package compatibility.
+     * Checks ARN format, subscription status, instance type support,
+     * deployment target support, LoRA incompatibility, and adapter operations.
+     *
+     * For live AWS API checks (DescribeModelPackage), gracefully skips
+     * when credentials are unavailable — only format checks are enforced.
+     *
+     * @param {Object} context - ValidationContext
+     * @returns {Array} Findings
+     */
+    checkMarketplaceCompatibility(context) {
+        const findings = [];
+        const config = context.config || {};
+
+        const architecture = config.architecture || config.DEPLOYMENT_CONFIG || '';
+        if (architecture !== 'marketplace') return findings;
+
+        // 1. Validate ARN format
+        const modelPackageArn = config.modelPackageArn || config.MODEL_PACKAGE_ARN || '';
+        if (modelPackageArn) {
+            const arnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9\-])*\/\d+$/;
+            if (!arnPattern.test(modelPackageArn)) {
+                findings.push({
+                    service: 'cross-cutting',
+                    operation: 'configuration',
+                    fieldPath: 'MODEL_PACKAGE_ARN',
+                    invalidValue: modelPackageArn,
+                    constraint: {
+                        type: 'arn-format',
+                        pattern: 'arn:aws:sagemaker:<region>:<account>:model-package/<name>/<version>'
+                    },
+                    severity: 'error',
+                    confidence: 'high',
+                    source: 'cross-cutting',
+                    remediationHint: '❌ Invalid model package ARN format. Expected: arn:aws:sagemaker:<region>:<account>:model-package/<name>/<version>'
+                });
+            }
+        }
+
+        // 2. Verify subscription is active (when package metadata is available)
+        const packageStatus = config._marketplacePackageStatus || config.marketplacePackageStatus || '';
+        if (packageStatus && packageStatus !== 'Active' && packageStatus !== 'Completed') {
+            findings.push({
+                service: 'cross-cutting',
+                operation: 'configuration',
+                fieldPath: 'MODEL_PACKAGE_ARN',
+                invalidValue: modelPackageArn,
+                constraint: {
+                    type: 'subscription-status',
+                    status: packageStatus
+                },
+                severity: 'error',
+                confidence: 'high',
+                source: 'cross-cutting',
+                remediationHint: `❌ Marketplace subscription is not active (status: ${packageStatus}). Renew at AWS Marketplace.`
+            });
+        }
+
+        // 3. Verify instance type is in package's supported list
+        const instanceType = config.INSTANCE_TYPE || config.instanceType || '';
+        const supportedInstanceTypes = config._supportedInstanceTypes || config.supportedInstanceTypes || [];
+        if (instanceType && supportedInstanceTypes.length > 0) {
+            if (!supportedInstanceTypes.includes(instanceType)) {
+                findings.push({
+                    service: 'cross-cutting',
+                    operation: 'configuration',
+                    fieldPath: 'INSTANCE_TYPE',
+                    invalidValue: instanceType,
+                    constraint: {
+                        type: 'marketplace-instance-type',
+                        supportedInstanceTypes
+                    },
+                    severity: 'error',
+                    confidence: 'high',
+                    source: 'cross-cutting',
+                    remediationHint: `❌ Instance type ${instanceType} is not supported by this model package. Supported: ${supportedInstanceTypes.join(', ')}`
+                });
+            }
+        }
+
+        // 4. Verify deployment target is supported by the package
+        const deploymentTarget = context.deploymentTarget || config.deploymentTarget || config.DEPLOYMENT_TARGET || '';
+        const supportedDeploymentTargets = config._supportedDeploymentTargets || config.supportedDeploymentTargets || [];
+        if (deploymentTarget && supportedDeploymentTargets.length > 0) {
+            if (!supportedDeploymentTargets.includes(deploymentTarget)) {
+                findings.push({
+                    service: 'cross-cutting',
+                    operation: 'configuration',
+                    fieldPath: 'DEPLOYMENT_TARGET',
+                    invalidValue: deploymentTarget,
+                    constraint: {
+                        type: 'marketplace-deployment-target',
+                        supportedDeploymentTargets
+                    },
+                    severity: 'error',
+                    confidence: 'high',
+                    source: 'cross-cutting',
+                    remediationHint: `❌ Deployment target ${deploymentTarget} is not supported by this model package.`
+                });
+            }
+        }
+
+        // 5. Reject LoRA with marketplace
+        const enableLora = config.enableLora || config.ENABLE_LORA || false;
+        if (enableLora === true || enableLora === 'true') {
+            findings.push({
+                service: 'cross-cutting',
+                operation: 'configuration',
+                fieldPath: 'enableLora',
+                invalidValue: true,
+                constraint: {
+                    type: 'marketplace-lora-incompatible'
+                },
+                severity: 'error',
+                confidence: 'high',
+                source: 'cross-cutting',
+                remediationHint: '❌ LoRA adapters are not supported for Marketplace model packages (vendor controls the model).'
+            });
+        }
+
+        // 6. Reject adapter operations on marketplace projects
+        const operation = config._operation || config.operation || '';
+        if (operation === 'adapter' || operation === 'do/adapter') {
+            findings.push({
+                service: 'cross-cutting',
+                operation: 'configuration',
+                fieldPath: 'operation',
+                invalidValue: operation,
+                constraint: {
+                    type: 'marketplace-adapter-incompatible'
+                },
+                severity: 'error',
+                confidence: 'high',
+                source: 'cross-cutting',
+                remediationHint: '❌ Adapter operations are not available for Marketplace projects.'
             });
         }
 
