@@ -643,7 +643,7 @@ describe('Functional Parity Checklist', function () {
     describe('6.14 Warnings/annotations — warning messages', () => {
         it('jumpstart-hub model source produces a warning', () => {
             const tempDir = createTempDir('mlcc-warn-');
-            const { stdout } = runCliSafe([
+            const { stdout, stderr } = runCliSafe([
                 '--deployment-config=transformers-vllm',
                 '--model-name=jumpstart-hub://my-model',
                 '--region=us-east-1',
@@ -654,9 +654,10 @@ describe('Functional Parity Checklist', function () {
             // Clean up
             try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_e) { /* cleanup */ }
 
+            const output = stdout + stderr;
             assert.ok(
-                stdout.includes('⚠️') || stdout.includes('not yet fully supported') || stdout.includes('JumpStart'),
-                'Should display a warning for jumpstart-hub model source'
+                output.includes('⚠️') || output.includes('no longer supported') || output.includes('JumpStart'),
+                'Should display a warning/error for jumpstart-hub model source'
             );
         });
     });

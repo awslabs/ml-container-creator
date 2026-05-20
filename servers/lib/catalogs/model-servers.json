@@ -30,7 +30,7 @@
                     "max": "12.9"
                 }
             },
-            "validationLevel": "community",
+            "validationLevel": "community-validated",
             "profiles": {
                 "low-latency": {
                     "displayName": "Low Latency",
