@@ -1531,18 +1531,25 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
     let values = {}
     let message = null
 
+    // Reject deprecated JumpStart prefixes
+    if (model_id.startsWith('jumpstart://') || model_id.startsWith('jumpstart-hub://')) {
+        const bareId = model_id.replace(/^jumpstart(-hub)?:\/\//, '')
+        message = `JumpStart is no longer supported. Use the HuggingFace model ID directly: ${bareId}`
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({ values: {}, choices: {}, message })
+            }]
+        }
+    }
+
     if (mode === 'static') {
         // Static mode: use StaticCatalogResolver only
-        // For jumpstart:// prefixed IDs, resolve from JumpStart static catalog
         const metadata = await staticResolver.fetchModelMetadata(model_id, { fields })
         if (metadata) {
             values = { ...metadata }
         } else {
-            if (model_id.startsWith('jumpstart://')) {
-                message = `Model not found in JumpStart static catalog: ${model_id}`
-            } else {
-                message = `Model not found in static catalog: ${model_id}`
-            }
+            message = `Model not found in static catalog: ${model_id}`
         }
     } else {
         // Discover mode: use ResolverRegistry for live data, merge with static
@@ -1564,11 +1571,7 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
             values = { ...merged }
             // If the resolver failed but we got data from static catalog, note the fallback
             if (resolverFailed && !liveData && staticData) {
-                if (model_id.startsWith('jumpstart://')) {
-                    message = '[jumpstart] SageMaker API unreachable. Using static catalog fallback.'
-                } else if (model_id.startsWith('jumpstart-hub://')) {
-                    message = '[jumpstart-hub] SageMaker API unreachable. Using static catalog fallback.'
-                } else if (model_id.startsWith('registry://')) {
+                if (model_id.startsWith('registry://')) {
                     message = '[registry] SageMaker API unreachable. Using static catalog fallback.'
                 } else if (model_id.startsWith('s3://')) {
                     message = '[s3] S3 API unreachable. Using static catalog fallback.'
@@ -1577,11 +1580,7 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
         } else {
             // No data from either source
             if (resolverFailed) {
-                if (model_id.startsWith('jumpstart://')) {
-                    message = `[jumpstart] Resolver could not fetch data for: ${model_id}`
-                } else if (model_id.startsWith('jumpstart-hub://')) {
-                    message = `[jumpstart-hub] Resolver could not fetch data for: ${model_id}`
-                } else if (model_id.startsWith('registry://')) {
+                if (model_id.startsWith('registry://')) {
                     message = `[registry] Resolver could not fetch data for: ${model_id}`
                 } else if (model_id.startsWith('s3://')) {
                     message = `[s3] Resolver could not fetch data for: ${model_id}`
@@ -1611,6 +1610,18 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
             }
         }
         values = filtered
+    }
+
+    // Exclude jumpstart:// prefixed results from output
+    const resolvedModelId = values.modelId || model_id
+    if (resolvedModelId.startsWith('jumpstart://') || resolvedModelId.startsWith('jumpstart-hub://')) {
+        const bareId = resolvedModelId.replace(/^jumpstart(-hub)?:\/\//, '')
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({ values: {}, choices: {}, message: `JumpStart is no longer supported. Use the HuggingFace model ID directly: ${bareId}` })
+            }]
+        }
     }
 
     // Build choices with provider prefix labels

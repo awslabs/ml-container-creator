@@ -178,7 +178,7 @@ CLI OPTIONS:
   --project-name=<name>       Project name
   --project-dir=<dir>         Output directory path
   --framework=<framework>     ML framework (sklearn|xgboost|tensorflow|transformers)
-  --model-name=<name>         HuggingFace model name (for transformers framework)
+  --model-name=<name>         Model identifier (<hf-org/model>, s3://..., registry://..., marketplace://...)
   --model-server=<server>     Model server (flask|fastapi|vllm|sglang|tensorrt-llm|lmi|djl)
   --model-format=<format>     Model format (depends on framework)
   --include-sample            Include sample model code

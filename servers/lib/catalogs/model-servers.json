@@ -1,6 +1,86 @@
 {
     "vllm": [
         {
+            "image": "vllm/vllm-openai:v0.20.2",
+            "tag": "v0.20.2",
+            "architecture": "amd64",
+            "created": "2026-05-10T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.9",
+                "python_version": "3.12",
+                "framework_version": "0.20.2"
+            },
+            "registry": "dockerhub",
+            "repository": "vllm/vllm-openai",
+            "defaults": {
+                "envVars": {
+                    "VLLM_TENSOR_PARALLEL_SIZE": "1",
+                    "VLLM_GPU_MEMORY_UTILIZATION": "0.9",
+                    "VLLM_MAX_NUM_SEQS": "256",
+                    "VLLM_MAX_MODEL_LEN": "4096",
+                    "VLLM_ENABLE_PREFIX_CACHING": "true"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.9",
+                "versionRange": {
+                    "min": "12.4",
+                    "max": "12.9"
+                }
+            },
+            "validationLevel": "community-validated",
+            "profiles": {
+                "low-latency": {
+                    "displayName": "Low Latency",
+                    "description": "Optimized for single-request latency with prefix caching",
+                    "envVars": {
+                        "VLLM_MAX_NUM_SEQS": "32",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.85",
+                        "VLLM_ENABLE_PREFIX_CACHING": "true"
+                    },
+                    "notes": "Prefix caching improves latency for repeated prompts"
+                },
+                "high-throughput": {
+                    "displayName": "High Throughput",
+                    "description": "Optimized for batch processing with continuous batching",
+                    "envVars": {
+                        "VLLM_MAX_NUM_SEQS": "512",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.95",
+                        "VLLM_MAX_MODEL_LEN": "2048",
+                        "VLLM_ENABLE_PREFIX_CACHING": "false"
+                    },
+                    "notes": "Continuous batching maximizes GPU utilization"
+                },
+                "multi-gpu": {
+                    "displayName": "Multi-GPU",
+                    "description": "Tensor parallel across multiple GPUs for large models",
+                    "envVars": {
+                        "VLLM_TENSOR_PARALLEL_SIZE": "4",
+                        "VLLM_GPU_MEMORY_UTILIZATION": "0.9",
+                        "VLLM_MAX_NUM_SEQS": "256"
+                    },
+                    "notes": "Requires instance with 4+ GPUs. Set TENSOR_PARALLEL_SIZE to match GPU count"
+                }
+            },
+            "notes": "vLLM 0.20.2 adds Gemma 4 support, CUDA 12.9, improved multi-GPU. Requires CUDA compat on drivers < 570.",
+            "supportedModelTypes": [
+                "gemma",
+                "gemma2",
+                "gemma3",
+                "llama",
+                "mistral",
+                "mixtral",
+                "qwen2",
+                "qwen3",
+                "qwen3_moe",
+                "deepseek_v3",
+                "phi3",
+                "command-r"
+            ]
+        },
+        {
             "image": "vllm/vllm-openai:v0.10.1",
             "tag": "v0.10.1",
             "architecture": "amd64",

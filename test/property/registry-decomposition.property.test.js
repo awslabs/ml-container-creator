@@ -24,7 +24,7 @@ const FAST_PROPERTY_CONFIG = {
     verbose: false
 };
 
-const VALID_ARCHITECTURES = ['http', 'transformers', 'triton', 'diffusors'];
+const VALID_ARCHITECTURES = ['http', 'transformers', 'triton', 'diffusors', 'marketplace'];
 
 const resolver = new DeploymentConfigResolver();
 const ALL_CONFIGS = resolver.getAllConfigs();
@@ -63,8 +63,10 @@ describe('Feature: deployment-registry, Property 18: Deployment config decomposi
                     `Architecture "${parts.architecture}" should be one of ${VALID_ARCHITECTURES.join(', ')}`
                 );
                 assert.ok(
-                    typeof parts.backend === 'string' && parts.backend.length > 0,
-                    `Backend should be a non-empty string, got "${parts.backend}"`
+                    parts.architecture === 'marketplace'
+                        ? parts.backend === null
+                        : (typeof parts.backend === 'string' && parts.backend.length > 0),
+                    `Backend should be a non-empty string (or null for marketplace), got "${parts.backend}"`
                 );
 
                 return true;

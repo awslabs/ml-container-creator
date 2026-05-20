@@ -1,0 +1,453 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# ============================================================
+# Marketplace Model Package Testing
+# ============================================================
+# This test script invokes the deployed marketplace endpoint.
+# Local-mode testing is NOT available for marketplace model packages
+# because there is no local container to run — the vendor provides
+# the container image via AWS Marketplace.
+# ============================================================
+
+# Parse arguments
+show_help() {
+    echo "Usage: ./do/test [options]"
+    echo ""
+    echo "Test the deployed marketplace model package endpoint."
+    echo ""
+    echo "Options:"
+    echo "  --help     Show this help message"
+    echo ""
+    echo "⚠️  Local mode is NOT available for marketplace model packages."
+    echo "   Marketplace models run on AWS infrastructure using the vendor's"
+    echo "   container image. There is no local container to test against."
+    echo "   Deploy first with ./do/deploy, then run ./do/test to invoke the endpoint."
+    echo ""
+}
+
+for arg in "$@"; do
+    case "${arg}" in
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        --local|-l)
+            echo "❌ Local mode is NOT available for marketplace model packages."
+            echo ""
+            echo "   Marketplace models use the vendor's container image hosted on AWS."
+            echo "   There is no local container to build or run."
+            echo ""
+            echo "   To test your deployment:"
+            echo "   1. Deploy the model:  ./do/deploy"
+            echo "   2. Test the endpoint: ./do/test"
+            echo ""
+            exit 1
+            ;;
+    esac
+done
+
+<% if (deploymentTarget === 'realtime-inference') { %>
+# ============================================================
+# Real-Time Inference Testing
+# ============================================================
+
+echo "🧪 Testing marketplace endpoint"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Model package: ${MODEL_PACKAGE_ARN}"
+echo "   Region: ${AWS_REGION}"
+echo ""
+
+# Verify endpoint exists and is InService
+ENDPOINT_NAME="${ENDPOINT_NAME:-${PROJECT_NAME}}"
+
+echo "🔍 Test 1: Endpoint health check"
+echo "   Checking endpoint status..."
+
+if ! ENDPOINT_STATUS=$(aws sagemaker describe-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}" \
+    --query 'EndpointStatus' \
+    --output text 2>&1); then
+    echo "❌ Endpoint not found or not accessible"
+    echo "   Error: ${ENDPOINT_STATUS}"
+    echo ""
+    echo "   Make sure you have deployed first: ./do/deploy"
+    exit 1
+fi
+
+if [ "${ENDPOINT_STATUS}" = "InService" ]; then
+    echo "✅ Endpoint is InService"
+else
+    echo "❌ Endpoint is not InService (Status: ${ENDPOINT_STATUS})"
+    exit 1
+fi
+
+echo ""
+
+# Test 2: Inference request
+echo "🔍 Test 2: Inference request"
+
+# Determine content type and sample payload based on model package content types
+<% if (typeof supportedContentTypes !== 'undefined' && supportedContentTypes && supportedContentTypes.length > 0) { %>
+CONTENT_TYPE="<%= supportedContentTypes[0] %>"
+<% } else { %>
+CONTENT_TYPE="application/json"
+<% } %>
+
+# Create sample payload based on content type
+case "${CONTENT_TYPE}" in
+    application/json)
+        TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50}}'
+        echo "   Content-Type: ${CONTENT_TYPE}"
+        echo "   Payload: Sample JSON inference request"
+        ;;
+    text/csv)
+        TEST_PAYLOAD='1.0,2.0,3.0,4.0'
+        echo "   Content-Type: ${CONTENT_TYPE}"
+        echo "   Payload: Sample CSV data"
+        ;;
+    *)
+        TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50}}'
+        echo "   Content-Type: ${CONTENT_TYPE}"
+        echo "   Payload: Sample inference request"
+        ;;
+esac
+
+echo "   Invoking SageMaker endpoint..."
+
+# Create temporary file for payload
+TEMP_PAYLOAD=$(mktemp)
+echo "${TEST_PAYLOAD}" > "${TEMP_PAYLOAD}"
+
+# Create temporary file for response
+TEMP_RESPONSE=$(mktemp)
+
+INVOKE_ERROR=$(mktemp)
+if ! aws sagemaker-runtime invoke-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}" \
+    --content-type "${CONTENT_TYPE}" \
+    --body "fileb://${TEMP_PAYLOAD}" \
+    "${TEMP_RESPONSE}" 2>"${INVOKE_ERROR}"; then
+    echo "❌ Inference request failed"
+    echo "   Error: $(cat "${INVOKE_ERROR}")"
+    rm -f "${TEMP_PAYLOAD}" "${TEMP_RESPONSE}" "${INVOKE_ERROR}"
+    exit 1
+fi
+rm -f "${INVOKE_ERROR}"
+
+# Read response
+RESPONSE_BODY=$(cat "${TEMP_RESPONSE}")
+
+# Clean up temp files
+rm -f "${TEMP_PAYLOAD}" "${TEMP_RESPONSE}"
+
+echo "✅ Inference request successful"
+echo "   Response preview: ${RESPONSE_BODY:0:200}"
+if [ ${#RESPONSE_BODY} -gt 200 ]; then
+    echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+fi
+
+echo ""
+echo "✅ All tests passed!"
+echo ""
+echo "📋 What's next?"
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+echo "   • Benchmark performance:      ./do/benchmark"
+<% } %>
+echo "   • Register this deployment:   ./do/register"
+echo "   • View logs:                  ./do/logs"
+echo "   • Clean up resources:         ./do/clean"
+
+<% } else if (deploymentTarget === 'async-inference') { %>
+# ============================================================
+# Async Inference Testing
+# ============================================================
+
+echo "🧪 Testing marketplace async endpoint"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Model package: ${MODEL_PACKAGE_ARN}"
+echo "   Region: ${AWS_REGION}"
+echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
+echo ""
+
+# Verify endpoint exists and is InService
+ENDPOINT_NAME="${ENDPOINT_NAME:-${PROJECT_NAME}}"
+
+echo "🔍 Test 1: Endpoint health check"
+echo "   Checking endpoint status..."
+
+if ! ENDPOINT_STATUS=$(aws sagemaker describe-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}" \
+    --query 'EndpointStatus' \
+    --output text 2>&1); then
+    echo "❌ Endpoint not found or not accessible"
+    echo "   Error: ${ENDPOINT_STATUS}"
+    echo ""
+    echo "   Make sure you have deployed first: ./do/deploy"
+    exit 1
+fi
+
+if [ "${ENDPOINT_STATUS}" = "InService" ]; then
+    echo "✅ Endpoint is InService"
+else
+    echo "❌ Endpoint is not InService (Status: ${ENDPOINT_STATUS})"
+    exit 1
+fi
+
+echo ""
+
+# Test 2: Async inference request
+echo "🔍 Test 2: Async inference request"
+
+# Determine content type and sample payload based on model package content types
+<% if (typeof supportedContentTypes !== 'undefined' && supportedContentTypes && supportedContentTypes.length > 0) { %>
+CONTENT_TYPE="<%= supportedContentTypes[0] %>"
+<% } else { %>
+CONTENT_TYPE="application/json"
+<% } %>
+
+# Create sample payload based on content type
+case "${CONTENT_TYPE}" in
+    application/json)
+        TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50}}'
+        echo "   Content-Type: ${CONTENT_TYPE}"
+        echo "   Payload: Sample JSON inference request"
+        ;;
+    text/csv)
+        TEST_PAYLOAD='1.0,2.0,3.0,4.0'
+        echo "   Content-Type: ${CONTENT_TYPE}"
+        echo "   Payload: Sample CSV data"
+        ;;
+    *)
+        TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50}}'
+        echo "   Content-Type: ${CONTENT_TYPE}"
+        echo "   Payload: Sample inference request"
+        ;;
+esac
+
+echo "   Uploading test payload to S3..."
+
+# Create temporary file for payload
+TEMP_PAYLOAD=$(mktemp)
+echo "${TEST_PAYLOAD}" > "${TEMP_PAYLOAD}"
+
+# Upload payload to S3 input location
+ASYNC_INPUT_KEY="${PROJECT_NAME}/input/test-payload-$(date +%s).json"
+ASYNC_S3_BUCKET=$(echo "${ASYNC_S3_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
+S3_INPUT_LOCATION="s3://${ASYNC_S3_BUCKET}/${ASYNC_INPUT_KEY}"
+
+if ! aws s3 cp "${TEMP_PAYLOAD}" "${S3_INPUT_LOCATION}" --region "${AWS_REGION}" &> /dev/null; then
+    echo "❌ Failed to upload test payload to S3"
+    echo "   Location: ${S3_INPUT_LOCATION}"
+    echo "   Check that your IAM credentials have s3:PutObject permission"
+    rm -f "${TEMP_PAYLOAD}"
+    exit 1
+fi
+rm -f "${TEMP_PAYLOAD}"
+echo "✅ Test payload uploaded to: ${S3_INPUT_LOCATION}"
+
+# Invoke endpoint asynchronously
+echo "   Invoking async endpoint..."
+
+INVOKE_ARGS=(
+    --endpoint-name "${ENDPOINT_NAME}"
+    --input-location "${S3_INPUT_LOCATION}"
+    --region "${AWS_REGION}"
+    --content-type "${CONTENT_TYPE}"
+)
+
+if ! INVOKE_RESULT=$(aws sagemaker-runtime invoke-endpoint-async \
+    "${INVOKE_ARGS[@]}" 2>&1); then
+    echo "❌ Async invocation failed"
+    echo "   Error: ${INVOKE_RESULT}"
+    exit 1
+fi
+
+# Extract output location from response
+OUTPUT_LOCATION=$(echo "${INVOKE_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('OutputLocation',''))" 2>/dev/null || echo "")
+
+if [ -z "${OUTPUT_LOCATION}" ]; then
+    echo "⚠️  Async invocation accepted but no output location returned"
+    echo "   Check the S3 output path for results: ${ASYNC_S3_OUTPUT_PATH}"
+    echo ""
+    echo "✅ Async invocation submitted successfully"
+else
+    echo "✅ Async invocation accepted"
+    echo "   Output location: ${OUTPUT_LOCATION}"
+
+    # Poll S3 output location for result
+    POLL_TIMEOUT=300
+    POLL_INTERVAL=10
+    ELAPSED=0
+
+    echo "⏳ Polling for async result (timeout: ${POLL_TIMEOUT}s)..."
+
+    while [ ${ELAPSED} -lt ${POLL_TIMEOUT} ]; do
+        if aws s3 ls "${OUTPUT_LOCATION}" --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ Async inference result available"
+
+            # Download and display result
+            TEMP_RESULT=$(mktemp)
+            if aws s3 cp "${OUTPUT_LOCATION}" "${TEMP_RESULT}" --region "${AWS_REGION}" &> /dev/null; then
+                RESPONSE_BODY=$(cat "${TEMP_RESULT}")
+                rm -f "${TEMP_RESULT}"
+
+                echo "   Response preview: ${RESPONSE_BODY:0:200}"
+                if [ ${#RESPONSE_BODY} -gt 200 ]; then
+                    echo "   (truncated, full response is ${#RESPONSE_BODY} characters)"
+                fi
+            else
+                rm -f "${TEMP_RESULT}"
+                echo "⚠️  Result exists but could not be downloaded"
+            fi
+            break
+        fi
+
+        sleep ${POLL_INTERVAL}
+        ELAPSED=$((ELAPSED + POLL_INTERVAL))
+        echo "   ⏳ Waiting... (${ELAPSED}s / ${POLL_TIMEOUT}s)"
+    done
+
+    if [ ${ELAPSED} -ge ${POLL_TIMEOUT} ]; then
+        echo "❌ Async inference timed out after ${POLL_TIMEOUT}s"
+        echo ""
+        echo "   The request may still be processing. Check:"
+        echo "   • S3 output path: ${OUTPUT_LOCATION}"
+        echo "   • CloudWatch Logs: /aws/sagemaker/Endpoints/${ENDPOINT_NAME}"
+        echo "   • Endpoint status: aws sagemaker describe-endpoint --endpoint-name ${ENDPOINT_NAME} --region ${AWS_REGION}"
+        exit 1
+    fi
+fi
+
+echo ""
+echo "✅ All tests passed!"
+echo ""
+echo "📋 What's next?"
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+echo "   • Benchmark performance:      ./do/benchmark"
+<% } %>
+echo "   • Check async output:         aws s3 ls ${ASYNC_S3_OUTPUT_PATH}"
+echo "   • Register this deployment:   ./do/register"
+echo "   • View logs:                  ./do/logs"
+echo "   • Clean up resources:         ./do/clean"
+
+<% } else if (deploymentTarget === 'batch-transform') { %>
+# ============================================================
+# Batch Transform Testing
+# ============================================================
+
+echo "🧪 Checking marketplace batch transform job status"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Model package: ${MODEL_PACKAGE_ARN}"
+echo "   Region: ${AWS_REGION}"
+echo "   S3 input: ${BATCH_INPUT_PATH}"
+echo "   S3 output: ${BATCH_OUTPUT_PATH}"
+echo ""
+
+# Get transform job name from config
+TRANSFORM_JOB_NAME="${TRANSFORM_JOB_NAME:-}"
+if [ -z "${TRANSFORM_JOB_NAME}" ]; then
+    echo "❌ No transform job name found"
+    echo "   Run ./do/deploy first to create a transform job"
+    exit 1
+fi
+
+echo "🔍 Checking transform job: ${TRANSFORM_JOB_NAME}"
+
+if ! JOB_STATUS_JSON=$(aws sagemaker describe-transform-job \
+    --transform-job-name "${TRANSFORM_JOB_NAME}" \
+    --region "${AWS_REGION}" 2>&1); then
+    echo "❌ Failed to describe transform job"
+    echo "   Error: ${JOB_STATUS_JSON}"
+    exit 1
+fi
+
+JOB_STATUS=$(echo "${JOB_STATUS_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('TransformJobStatus','Unknown'))" 2>/dev/null || echo "Unknown")
+
+case "${JOB_STATUS}" in
+    Completed)
+        echo "✅ Transform job completed successfully"
+        echo ""
+
+        # Download results locally
+        LOCAL_OUTPUT_DIR="${SCRIPT_DIR}/../batch-output"
+        mkdir -p "${LOCAL_OUTPUT_DIR}"
+        echo "📥 Downloading results to ${LOCAL_OUTPUT_DIR}/"
+        if aws s3 sync "${BATCH_OUTPUT_PATH}" "${LOCAL_OUTPUT_DIR}/" --region "${AWS_REGION}"; then
+            DOWNLOADED=$(ls -1 "${LOCAL_OUTPUT_DIR}" 2>/dev/null | wc -l | tr -d ' ')
+            echo "✅ Downloaded ${DOWNLOADED} file(s) to ${LOCAL_OUTPUT_DIR}/"
+            echo ""
+
+            # Display first output file preview
+            FIRST_FILE=$(ls -1 "${LOCAL_OUTPUT_DIR}" 2>/dev/null | head -1)
+            if [ -n "${FIRST_FILE}" ]; then
+                echo "📄 Sample output (${FIRST_FILE}):"
+                head -5 "${LOCAL_OUTPUT_DIR}/${FIRST_FILE}"
+                LINES=$(wc -l < "${LOCAL_OUTPUT_DIR}/${FIRST_FILE}" | tr -d ' ')
+                if [ "${LINES}" -gt 5 ]; then
+                    echo "   ... (${LINES} total lines)"
+                fi
+            fi
+        else
+            echo "⚠️  Could not download output files"
+        fi
+
+        echo ""
+        echo "✅ All tests passed!"
+        echo ""
+        echo "📋 What's next?"
+        echo "   • View results:               cat batch-output/"
+        echo "   • Register this deployment:   ./do/register"
+        echo "   • View logs:                  ./do/logs"
+        echo "   • Clean up resources:         ./do/clean"
+        ;;
+    InProgress)
+        echo "⏳ Transform job is still in progress"
+
+        # Extract progress details
+        CREATION_TIME=$(echo "${JOB_STATUS_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('CreationTime','Unknown'))" 2>/dev/null || echo "Unknown")
+        echo "   Started: ${CREATION_TIME}"
+        echo "   Status: InProgress"
+        echo ""
+        echo "   The job is still running. Check again later:"
+        echo "   ./do/test"
+        echo ""
+        echo "   View logs:"
+        echo "   ./do/logs"
+        ;;
+    Failed)
+        echo "❌ Transform job failed"
+
+        FAILURE_REASON=$(echo "${JOB_STATUS_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('FailureReason','Unknown'))" 2>/dev/null || echo "Unknown")
+        echo "   Reason: ${FAILURE_REASON}"
+        echo ""
+        echo "   View logs for more details:"
+        echo "   ./do/logs"
+        exit 1
+        ;;
+    Stopped)
+        echo "⚠️  Transform job was stopped"
+        echo "   The job was manually stopped before completion"
+        echo ""
+        echo "   To start a new job, run:"
+        echo "   ./do/deploy"
+        ;;
+    *)
+        echo "⚠️  Transform job status: ${JOB_STATUS}"
+        echo "   Check again later: ./do/test"
+        ;;
+esac
+
+<% } %>

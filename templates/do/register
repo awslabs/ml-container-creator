@@ -191,8 +191,14 @@ fi
 # ============================================================
 
 # DEPLOYMENT_CONFIG format: <architecture>-<backend> (e.g., transformers-vllm, http-flask, triton-fil)
-ARCHITECTURE="${DEPLOYMENT_CONFIG%%-*}"
-BACKEND="${DEPLOYMENT_CONFIG#*-}"
+# Special case: marketplace has no backend
+if [ "${DEPLOYMENT_CONFIG}" = "marketplace" ]; then
+    ARCHITECTURE="marketplace"
+    BACKEND=""
+else
+    ARCHITECTURE="${DEPLOYMENT_CONFIG%%-*}"
+    BACKEND="${DEPLOYMENT_CONFIG#*-}"
+fi
 
 echo "📋 Registering deployment to registry"
 echo "   Project: ${PROJECT_NAME}"

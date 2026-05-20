@@ -110,7 +110,7 @@ const arbTpModelServer = fc.constantFrom('vllm', 'sglang', 'vLLM', 'SGLang');
 /**
  * Generate a model source that requires artifact URI.
  */
-const arbArtifactModelSource = fc.constantFrom('s3', 'jumpstart', 'jumpstart-hub', 'registry');
+const arbArtifactModelSource = fc.constantFrom('s3', 'registry');
 
 /**
  * Build a minimal instance catalog for testing.

@@ -81,7 +81,8 @@ describe('McpClient Unit Tests', () => {
             assert.ok(names.includes('asyncSnsErrorTopic'));
             assert.ok(names.includes('batchInputPath'));
             assert.ok(names.includes('batchOutputPath'));
-            assert.strictEqual(names.length, 10);
+            assert.ok(names.includes('modelPackageArn'));
+            assert.strictEqual(names.length, 11);
         });
 
         it('should not include bounded parameters', () => {

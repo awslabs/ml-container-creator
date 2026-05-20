@@ -36,7 +36,7 @@ const FAST_PROPERTY_CONFIG = {
 const DIFFUSORS_IGNORE_PATTERN = '**/diffusors/**';
 
 /** Non-diffusors architecture values */
-const NON_DIFFUSORS_ARCHITECTURES = ['http', 'transformers', 'triton'];
+const NON_DIFFUSORS_ARCHITECTURES = ['http', 'transformers', 'triton', 'marketplace'];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

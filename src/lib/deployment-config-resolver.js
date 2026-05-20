@@ -12,7 +12,7 @@
 
 /**
  * Canonical mapping from deployment-config strings to structured parts.
- * 2 http + 5 transformers + 7 triton + 1 diffusors = 15 total configs.
+ * 2 http + 5 transformers + 7 triton + 1 diffusors + 1 marketplace = 16 total configs.
  */
 const CANONICAL_CONFIGS = new Map([
     // HTTP architecture (2)
@@ -36,7 +36,10 @@ const CANONICAL_CONFIGS = new Map([
     ['triton-python',           { architecture: 'triton',       backend: 'python',        engine: null }],
 
     // Diffusors architecture (1)
-    ['diffusors-vllm-omni',     { architecture: 'diffusors',    backend: 'vllm-omni',     engine: null }]
+    ['diffusors-vllm-omni',     { architecture: 'diffusors',    backend: 'vllm-omni',     engine: null }],
+
+    // Marketplace architecture (1) — no backend, vendor controls the container
+    ['marketplace',             { architecture: 'marketplace',  backend: null,            engine: null }]
 ]);
 
 export default class DeploymentConfigResolver {
@@ -62,15 +65,18 @@ export default class DeploymentConfigResolver {
      * Compose a deployment-config string from structured parts.
      * Inverse of decompose().
      *
-     * @param {{ architecture: string, backend: string, engine?: string }} parts
+     * @param {{ architecture: string, backend: string|null, engine?: string }} parts
      * @returns {string}
      */
     compose(parts) {
+        if (!parts.backend) {
+            return parts.architecture;
+        }
         return `${parts.architecture}-${parts.backend}`;
     }
 
     /**
-     * Get all 15 valid deployment-config strings.
+     * Get all 16 valid deployment-config strings.
      *
      * @returns {string[]}
      */

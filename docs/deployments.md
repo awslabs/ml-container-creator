@@ -94,3 +94,58 @@ The `./do/deploy --dry-run` flag also runs schema validation as part of its pre-
 For transformer and diffusor architectures, MCC can generate a `do/benchmark` script that measures endpoint performance using the SageMaker AI Benchmarking service (NVIDIA AIPerf). Enable it with `--include-benchmark` during project generation.
 
 See the dedicated [Benchmarking](benchmarking.md) guide for prerequisites, parameter tuning, and interpreting results.
+
+## AWS Marketplace Model Packages
+
+For pre-built models from AWS Marketplace vendors (AI21, Cohere, etc.), MCC generates a thin project with only lifecycle scripts — no Dockerfile, no `code/` directory, no build/push steps.
+
+### How It Works
+
+Marketplace model packages include the vendor's container image and model weights. MCC deploys them using the SageMaker `CreateModel` API with `ModelPackageName` instead of a custom ECR image:
+
+```bash
+ml-container-creator my-marketplace-model \
+  --deployment-config=marketplace \
+  --model-name='marketplace://arn:aws:sagemaker:us-east-1:aws:model-package/vendor-model/1' \
+  --instance-type=ml.g5.xlarge \
+  --region=us-east-1
+```
+
+### Generated Project Structure
+
+```
+my-marketplace-model/
+├── do/
+│   ├── config          ← MODEL_PACKAGE_ARN, instance type, region
+│   ├── deploy          ← CreateModel(ModelPackageName=ARN) → endpoint
+│   ├── test            ← invoke endpoint
+│   ├── benchmark       ← benchmark endpoint (same as BYOC)
+│   ├── logs            ← CloudWatch logs
+│   ├── clean           ← delete model + endpoint
+│   ├── status          ← endpoint status
+│   └── register        ← register deployment
+├── (NO Dockerfile)
+├── (NO code/)
+├── (NO do/build, do/push, do/submit)
+```
+
+### What Doesn't Apply
+
+- No Dockerfile (vendor provides the container)
+- No `do/build`, `do/push`, `do/submit` (nothing to build)
+- No LoRA adapters (can't modify vendor's model)
+- No `do/tune` (can't fine-tune proprietary weights)
+- No local testing (no container to run locally)
+
+### What Still Works
+
+- `do/deploy` / `do/test` / `do/clean` lifecycle
+- `do/benchmark` (benchmarks the endpoint regardless of who built the container)
+- `do/status` / `do/logs` / `do/register`
+- Async inference and batch transform (if supported by the model package)
+
+### Prerequisites
+
+1. Subscribe to a model on [AWS Marketplace](https://aws.amazon.com/marketplace/solutions/machine-learning)
+2. Note the Model Package ARN from your subscription
+3. Ensure your IAM role has permission to deploy the model package

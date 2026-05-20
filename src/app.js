@@ -142,28 +142,25 @@ export async function run(projectName, options) {
         // Infer modelSource from model name prefix if not set
         const modelName = answers.modelName;
         if (!answers.modelSource && modelName) {
+            // Reject deprecated JumpStart prefixes with migration message
+            if (modelName.startsWith('jumpstart://') || modelName.startsWith('jumpstart-hub://')) {
+                const bareId = modelName.replace(/^jumpstart(-hub)?:\/\//, '');
+                console.error(`\n   ⚠️  JumpStart is no longer supported. Use the HuggingFace model ID directly: ${bareId}`);
+                console.error('   JumpStart model sources have been removed. Use one of:');
+                console.error('     • HuggingFace model ID (e.g., meta-llama/Llama-2-7b-hf)');
+                console.error('     • s3://bucket/path/model.tar.gz');
+                console.error('     • registry://model-package-name');
+                console.error('     • marketplace://arn:aws:sagemaker:...\n');
+                process.exit(1);
+            }
             if (modelName.startsWith('s3://')) {
                 answers.modelSource = 's3';
                 if (!answers.artifactUri) {
                     answers.artifactUri = modelName;
                 }
-            } else if (modelName.startsWith('jumpstart://')) {
-                answers.modelSource = 'jumpstart';
-            } else if (modelName.startsWith('jumpstart-hub://')) {
-                answers.modelSource = 'jumpstart-hub';
             } else if (modelName.startsWith('registry://')) {
                 answers.modelSource = 'registry';
             }
-        }
-
-        // Warn about unsupported model sources
-        if (answers.modelSource === 'jumpstart-hub') {
-            console.log('\n   ⚠️  JumpStart Private Hub models are not yet fully supported.');
-            console.log('   The generated project will not be able to download model artifacts at runtime.');
-            console.log('   This feature is tracked for a future release.');
-            console.log('   Falling back to HuggingFace source.\n');
-            answers.modelSource = 'huggingface';
-            delete answers.artifactUri;
         }
 
         // Note about registry model requirements
@@ -363,9 +360,50 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/test');
     }
 
-    // Always exclude triton and diffusors source directories
-    ignorePatterns.push('**/triton/**');
-    ignorePatterns.push('**/diffusors/**');
+    // Marketplace projects: exclude everything container-related
+    if (architecture === 'marketplace') {
+        ignorePatterns.push('**/Dockerfile');
+        ignorePatterns.push('**/code/**');
+        ignorePatterns.push('**/do/build');
+        ignorePatterns.push('**/do/push');
+        ignorePatterns.push('**/do/submit');
+        ignorePatterns.push('**/do/adapter');
+        ignorePatterns.push('**/do/adapters/**');
+        ignorePatterns.push('**/do/tune');
+        ignorePatterns.push('**/do/.tune_helper.py');
+        ignorePatterns.push('**/do/add-ic');
+        ignorePatterns.push('**/do/run');
+        ignorePatterns.push('**/sample_model/**');
+        ignorePatterns.push('**/requirements.txt');
+        ignorePatterns.push('**/nginx-*.conf');
+        ignorePatterns.push('**/triton/**');
+        ignorePatterns.push('**/diffusors/**');
+        ignorePatterns.push('**/hyperpod/**');
+        ignorePatterns.push('**/MIGRATION.md');
+        ignorePatterns.push('**/TEMPLATE_SYSTEM.md');
+        ignorePatterns.push('**/IAM_PERMISSIONS.md');
+        ignorePatterns.push('**/PROJECT_README.md');
+        ignorePatterns.push('**/deploy_notebook_generator.py');
+        ignorePatterns.push('**/buildspec.yml');
+        ignorePatterns.push('**/test/**');
+        // Exclude templates that reference container-specific variables (framework, modelServer)
+        // Marketplace overlays its own config, deploy, and test templates
+        ignorePatterns.push('**/do/config');
+        ignorePatterns.push('**/do/deploy');
+        ignorePatterns.push('**/do/test');
+        ignorePatterns.push('**/do/README.md');
+        ignorePatterns.push('**/do/export');
+        ignorePatterns.push('**/do/validate');
+        ignorePatterns.push('**/do/ic/**');
+    }
+
+    // Always exclude architecture-specific source directories from main copy
+    // (they are overlaid separately for their respective architectures)
+    ignorePatterns.push('**/marketplace/**');
+    if (architecture !== 'marketplace') {
+        ignorePatterns.push('**/triton/**');
+        ignorePatterns.push('**/diffusors/**');
+    }
 
     // For triton and diffusors, exclude the default Dockerfile
     if (architecture === 'triton' || architecture === 'diffusors') {
@@ -431,6 +469,14 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         _copyFile(path.join(templateDir, 'diffusors/patch_image_api.py'), path.join(destDir, 'code/patch_image_api.py'));
         break;
 
+    case 'marketplace':
+        // Marketplace projects: overlay marketplace-specific templates
+        // These replace the default do/config, do/deploy, and do/test with marketplace versions
+        _renderTemplate(path.join(templateDir, 'marketplace/config'), path.join(destDir, 'do/config'), templateVars);
+        _renderTemplate(path.join(templateDir, 'marketplace/deploy'), path.join(destDir, 'do/deploy'), templateVars);
+        _renderTemplate(path.join(templateDir, 'marketplace/test'), path.join(destDir, 'do/test'), templateVars);
+        break;
+
     default:
         // Fallback to HTTP behavior
         _unlinkIfExists(path.join(destDir, 'code/chat_template.jinja'));
@@ -450,7 +496,10 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     }
 
     // Copy PROJECT_README.md as README.md (overwriting the template README)
-    _renderTemplate(path.join(templateDir, 'PROJECT_README.md'), path.join(destDir, 'README.md'), templateVars);
+    // Marketplace projects don't use the standard README (no container/framework info)
+    if (architecture !== 'marketplace') {
+        _renderTemplate(path.join(templateDir, 'PROJECT_README.md'), path.join(destDir, 'README.md'), templateVars);
+    }
 
     // Copy do/lib/ Node.js modules (plain copy, no EJS)
     const doLibDir = path.join(destDir, 'do', 'lib');
@@ -491,7 +540,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
  */
 export async function postGenerate(destDir, answers, tritonBackends = {}) {
     // Set executable permissions on shell scripts
-    _setExecutablePermissions(destDir);
+    _setExecutablePermissions(destDir, answers);
 
     // Run sample model training if requested
     const architecture = answers.architecture;
@@ -1092,8 +1141,25 @@ function _unlinkIfExists(filePath) {
  *
  * @param {string} destDir - Path to the generated project directory
  */
-function _setExecutablePermissions(destDir) {
-    const shellScripts = [
+function _setExecutablePermissions(destDir, answers = {}) {
+    const architecture = answers.architecture;
+
+    // Marketplace projects have a reduced set of scripts
+    const marketplaceScripts = [
+        'do/config',
+        'do/deploy',
+        'do/test',
+        'do/logs',
+        'do/clean',
+        'do/register',
+        'do/ci',
+        'do/manifest',
+        'do/benchmark',
+        'do/optimize',
+        'do/status'
+    ];
+
+    const defaultScripts = [
         'do/config',
         'do/build',
         'do/push',
@@ -1113,6 +1179,8 @@ function _setExecutablePermissions(destDir) {
         'do/adapter',
         'do/tune'
     ];
+
+    const shellScripts = architecture === 'marketplace' ? marketplaceScripts : defaultScripts;
 
     shellScripts.forEach(script => {
         const scriptPath = path.join(destDir, script);

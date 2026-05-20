@@ -13,7 +13,7 @@
 
 /**
  * Look up a model entry in the catalog by model ID.
- * @param {string} modelId - The JumpStart model ID to look up
+ * @param {string} modelId - The model ID to look up
  * @param {Object} catalog - The tune catalog object with a `models` map
  * @returns {Object|null} The catalog entry for the model, or null if not found
  */
@@ -29,7 +29,7 @@ export function lookupModel(modelId, catalog) {
 
 /**
  * Check whether a model ID is present in the Supported Model Catalog.
- * @param {string} modelId - The JumpStart model ID to check
+ * @param {string} modelId - The model ID to check
  * @param {Object} catalog - The tune catalog object with a `models` map
  * @returns {boolean} True if the model is in the catalog
  */
@@ -41,7 +41,7 @@ export function isTuneSupported(modelId, catalog) {
  * Validate that a model ID exists in the catalog.
  * Returns a descriptive error when the model is not supported, including
  * the model name, supported families, and a reference to `do/train`.
- * @param {string} modelId - The JumpStart model ID to validate
+ * @param {string} modelId - The model ID to validate
  * @param {Object} catalog - The tune catalog object with a `models` map
  * @returns {{ valid: boolean, error?: string }}
  */
@@ -65,7 +65,7 @@ export function validateModel(modelId, catalog) {
  * Validate that a technique is supported for the given model.
  * Returns a descriptive error listing the supported techniques when
  * the requested technique is not available.
- * @param {string} modelId - The JumpStart model ID
+ * @param {string} modelId - The model ID
  * @param {string} technique - The technique to validate (e.g., 'sft', 'dpo')
  * @param {Object} catalog - The tune catalog object with a `models` map
  * @returns {{ valid: boolean, error?: string }}
@@ -92,7 +92,7 @@ export function validateTechnique(modelId, technique, catalog) {
  * Validate that a training type is supported for the given model and technique.
  * Returns a descriptive error listing the supported training types when
  * the requested type is not available.
- * @param {string} modelId - The JumpStart model ID
+ * @param {string} modelId - The model ID
  * @param {string} technique - The technique (e.g., 'sft', 'dpo')
  * @param {string} trainingType - The training type to validate (e.g., 'lora', 'full-rank')
  * @param {Object} catalog - The tune catalog object with a `models` map

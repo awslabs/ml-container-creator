@@ -103,9 +103,9 @@ case "${FRAMEWORK}" in
         case "${MODEL_SERVER}" in
             vllm|sglang)
                 # OpenAI-compatible chat completions format
-                # For S3/JumpStart models, vLLM registers the model under the local path
+                # For S3/registry models, vLLM registers the model under the local path
                 VLLM_MODEL_NAME="${MODEL_NAME}"
-                if [[ "${MODEL_NAME}" == jumpstart://* ]] || [[ "${MODEL_NAME}" == jumpstart-hub://* ]] || [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                if [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
                     VLLM_MODEL_NAME="/opt/ml/model"
                 fi
                 TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
@@ -431,7 +431,7 @@ case "${FRAMEWORK}" in
         case "${MODEL_SERVER}" in
             vllm|sglang)
                 VLLM_MODEL_NAME="${MODEL_NAME}"
-                if [[ "${MODEL_NAME}" == jumpstart://* ]] || [[ "${MODEL_NAME}" == jumpstart-hub://* ]] || [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                if [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
                     VLLM_MODEL_NAME="/opt/ml/model"
                 fi
                 TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
@@ -808,7 +808,7 @@ case "${FRAMEWORK}" in
             vllm|sglang)
                 # OpenAI-compatible chat completions format
                 VLLM_MODEL_NAME="${MODEL_NAME}"
-                if [[ "${MODEL_NAME}" == jumpstart://* ]] || [[ "${MODEL_NAME}" == jumpstart-hub://* ]] || [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                if [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
                     VLLM_MODEL_NAME="/opt/ml/model"
                 fi
                 TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
@@ -1095,7 +1095,7 @@ case "${FRAMEWORK}" in
         case "${MODEL_SERVER}" in
             vllm|sglang)
                 VLLM_MODEL_NAME="${MODEL_NAME}"
-                if [[ "${MODEL_NAME}" == jumpstart://* ]] || [[ "${MODEL_NAME}" == jumpstart-hub://* ]] || [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                if [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
                     VLLM_MODEL_NAME="/opt/ml/model"
                 fi
                 TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
