@@ -50,6 +50,20 @@ const __pr_filename = fileURLToPath(import.meta.url);
 const __pr_dirname = path.dirname(__pr_filename);
 const GENERATOR_ROOT = path.resolve(__pr_dirname, '..', '..');
 
+/**
+ * Resolve MCP server args — converts relative paths to absolute using GENERATOR_ROOT.
+ * @param {string[]} args - The args array from mcp.json serverConfig
+ * @returns {string[]} Args with relative paths resolved
+ */
+function resolveMcpArgs(args) {
+    return (args || []).map(arg => {
+        if (arg && !path.isAbsolute(arg) && !arg.startsWith('-')) {
+            return path.resolve(GENERATOR_ROOT, arg);
+        }
+        return arg;
+    });
+}
+
 export default class PromptRunner {
     constructor({ configManager, options, registryConfigManager, baseConfig, promptFn }) {
         this.configManager = configManager;
@@ -1384,7 +1398,7 @@ export default class PromptRunner {
             const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
             const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
 
-            const serverArgs = [...(serverConfig.args || [])];
+            const serverArgs = [...resolveMcpArgs(serverConfig.args)];
             if (!discover && !serverArgs.includes('--no-discover')) {
                 serverArgs.push('--no-discover');
             }
@@ -1939,7 +1953,7 @@ export default class PromptRunner {
 
                             const transport = new StdioClientTransport({
                                 command: serverConfig.command,
-                                args: serverConfig.args || [],
+                                args: resolveMcpArgs(serverConfig.args),
                                 env: { ...process.env, ...(serverConfig.env || {}) },
                                 stderr: 'pipe'
                             });

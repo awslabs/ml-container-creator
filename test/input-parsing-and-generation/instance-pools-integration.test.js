@@ -171,23 +171,37 @@ create_endpoint_config 2>/dev/null
     // E2E: Pool generation filter excludes cross-AMI instances
     // ================================================================
     describe('E2E: Pool generation filter excludes cross-AMI instances', () => {
-        it('filterByCudaGeneration removes cross-generation instances from selection', () => {
-            // Simulate MCP sizer returning mixed-generation results
+        it('filterByCudaGeneration keeps all instances when none are in catalog (unknown generation)', () => {
+            // Simulate MCP sizer returning instances not in the trimmed catalog
+            // Since g6e, g6, g4dn, p5 are all NOT in the catalog, first instance
+            // returns null generation, so all are kept (can't determine generation)
             const mcpChoices = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.g4dn.xlarge', 'ml.p5.48xlarge'];
 
             const result = filterByCudaGeneration(mcpChoices);
 
-            // g6e is Hopper, g6 is Ada/Hopper, p5 is Hopper, g4dn is Turing
-            // First instance (g6e) sets the generation; g4dn should be removed
-            assert.ok(!result.filtered.includes('ml.g4dn.xlarge'),
-                'g4dn (Turing) must be excluded when first instance is Hopper generation');
-            assert.ok(result.removed.includes('ml.g4dn.xlarge'),
-                'g4dn must appear in removed list');
+            // First instance (g6e) is not in catalog → generation is null → all kept
+            assert.strictEqual(result.generation, null);
+            assert.deepStrictEqual(result.filtered, mcpChoices);
+            assert.deepStrictEqual(result.removed, []);
+        });
+
+        it('filterByCudaGeneration removes unknown instances when first instance IS in catalog', () => {
+            // When first instance is in catalog (g5 = Ampere), unknown instances are kept
+            // but instances with a DIFFERENT known generation would be removed.
+            // Since only g5 is in catalog, unknown instances get null and are kept.
+            const mcpChoices = ['ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.g4dn.xlarge'];
+            const result = filterByCudaGeneration(mcpChoices);
+
+            // g5.xlarge sets generation to Ampere; g4dn is unknown (null) so it's kept
+            assert.strictEqual(result.generation, 'Ampere');
+            assert.ok(result.filtered.includes('ml.g5.xlarge'));
+            assert.ok(result.filtered.includes('ml.g5.2xlarge'));
+            assert.ok(result.filtered.includes('ml.g4dn.xlarge'), 'Unknown instances are kept');
         });
 
         it('filtered instances can be used directly as INSTANCE_POOLS without validation failure', () => {
-            // After filtering, remaining instances should pass pool validation
-            const mcpChoices = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.g4dn.xlarge'];
+            // Use only g5 instances that are in the catalog and same generation
+            const mcpChoices = ['ml.g5.12xlarge', 'ml.g5.48xlarge'];
             const { filtered } = filterByCudaGeneration(mcpChoices);
 
             // Build pools from filtered results
@@ -382,13 +396,13 @@ create_endpoint_config
     // ================================================================
     describe('E2E: Complete flow from selection to deployment config', () => {
         it('full flow: filter selections, validate pool, generate endpoint config + multi-spec IC', () => {
-            // Step 1: Simulate MCP sizer returning ranked instances
-            const mcpChoices = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.g4dn.xlarge'];
+            // Step 1: Simulate MCP sizer returning ranked instances (all g5, in catalog)
+            const mcpChoices = ['ml.g5.48xlarge', 'ml.g5.12xlarge', 'ml.g5.24xlarge'];
 
-            // Step 2: Filter by CUDA generation
+            // Step 2: Filter by CUDA generation (all same generation, all kept)
             const { filtered } = filterByCudaGeneration(mcpChoices);
             assert.ok(filtered.length >= 2, 'Should have at least 2 compatible instances');
-            assert.ok(!filtered.includes('ml.g4dn.xlarge'), 'g4dn should be filtered out');
+            assert.strictEqual(filtered.length, 3, 'All g5 instances should be kept');
 
             // Step 3: Build INSTANCE_POOLS from filtered selections
             const pools = filtered.map((type, idx) => ({

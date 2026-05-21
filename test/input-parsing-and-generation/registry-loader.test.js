@@ -222,11 +222,10 @@ describe('Registry Loader', () => {
             assert.ok(typeof registry === 'object' && registry !== null);
             assert.ok(Object.keys(registry).length > 0, 'Model registry should be non-empty');
 
-            // Verify known model IDs are present (from transformers + diffusors)
+            // Verify known model IDs are present (from transformers catalog)
             const expectedModels = [
                 'meta-llama/Llama-2-7b-chat-hf',
-                'stabilityai/stable-diffusion-3.5-medium',
-                'black-forest-labs/FLUX.1-dev'
+                'mistralai/Mistral-7B-Instruct-v0.1'
             ];
             for (const modelId of expectedModels) {
                 assert.ok(registry[modelId], `Expected model '${modelId}' to be present`);
@@ -247,8 +246,8 @@ describe('Registry Loader', () => {
             assert.ok(typeof mapping === 'object' && mapping !== null);
             assert.ok(Object.keys(mapping).length > 0, 'Instance mapping should be non-empty');
 
-            // Verify known instance types are present
-            const expectedInstances = ['ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.c5.xlarge'];
+            // Verify known instance types are present (g5-only catalog)
+            const expectedInstances = ['ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.g5.48xlarge'];
             for (const inst of expectedInstances) {
                 assert.ok(mapping[inst], `Expected instance type '${inst}' to be present`);
             }

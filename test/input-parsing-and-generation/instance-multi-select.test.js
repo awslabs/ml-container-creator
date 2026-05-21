@@ -148,12 +148,13 @@ describe('Instance Multi-Select (Task 5.5)', () => {
             assert.deepStrictEqual(result.removed, []);
         });
 
-        it('removes instances from different generation', () => {
-            // g5 = Ampere, g4dn = Turing
+        it('keeps instances not in catalog (unknown generation treated as compatible)', () => {
+            // g5 = Ampere, g4dn = not in trimmed catalog (unknown)
+            // Unknown instances are kept (not filtered out)
             const result = filterByCudaGeneration(['ml.g5.xlarge', 'ml.g4dn.xlarge', 'ml.g5.2xlarge']);
-            assert.deepStrictEqual(result.filtered, ['ml.g5.xlarge', 'ml.g5.2xlarge']);
+            assert.deepStrictEqual(result.filtered, ['ml.g5.xlarge', 'ml.g4dn.xlarge', 'ml.g5.2xlarge']);
             assert.strictEqual(result.generation, 'Ampere');
-            assert.deepStrictEqual(result.removed, ['ml.g4dn.xlarge']);
+            assert.deepStrictEqual(result.removed, []);
         });
 
         it('keeps unknown instances (not in catalog)', () => {
@@ -174,22 +175,24 @@ describe('Instance Multi-Select (Task 5.5)', () => {
             assert.strictEqual(result.generation, null);
         });
 
-        it('allows same-generation instances (g6e + p4d both Ampere)', () => {
-            // Both g5 and p4d are Ampere generation
-            const result = filterByCudaGeneration(['ml.g5.xlarge', 'ml.p4d.24xlarge']);
-            assert.deepStrictEqual(result.filtered, ['ml.g5.xlarge', 'ml.p4d.24xlarge']);
+        it('allows same-generation instances (all g5 are Ampere)', () => {
+            // All g5 instances are Ampere generation
+            const result = filterByCudaGeneration(['ml.g5.xlarge', 'ml.g5.48xlarge']);
+            assert.deepStrictEqual(result.filtered, ['ml.g5.xlarge', 'ml.g5.48xlarge']);
             assert.strictEqual(result.generation, 'Ampere');
         });
     });
 
     describe('getInstanceCudaGeneration', () => {
         it('returns correct generation for known GPU instances', () => {
-            assert.strictEqual(getInstanceCudaGeneration('ml.g4dn.xlarge'), 'Turing');
             assert.strictEqual(getInstanceCudaGeneration('ml.g5.xlarge'), 'Ampere');
-            assert.strictEqual(getInstanceCudaGeneration('ml.p5.48xlarge'), 'Hopper');
+            assert.strictEqual(getInstanceCudaGeneration('ml.g5.12xlarge'), 'Ampere');
+            assert.strictEqual(getInstanceCudaGeneration('ml.g5.48xlarge'), 'Ampere');
         });
 
-        it('returns null for CPU instances', () => {
+        it('returns null for instances not in catalog', () => {
+            assert.strictEqual(getInstanceCudaGeneration('ml.g4dn.xlarge'), null);
+            assert.strictEqual(getInstanceCudaGeneration('ml.p5.48xlarge'), null);
             assert.strictEqual(getInstanceCudaGeneration('ml.m5.xlarge'), null);
         });
 

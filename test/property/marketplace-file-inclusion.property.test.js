@@ -97,8 +97,8 @@ const arbProjectName = fc.constantFrom(
 
 // Valid instance types
 const arbInstanceType = fc.constantFrom(
-    'ml.m5.xlarge', 'ml.m5.2xlarge', 'ml.g4dn.xlarge', 'ml.g5.xlarge',
-    'ml.g5.2xlarge', 'ml.p3.2xlarge', 'ml.c5.xlarge'
+    'ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.g5.4xlarge', 'ml.g5.8xlarge',
+    'ml.g5.12xlarge', 'ml.g5.16xlarge', 'ml.g5.24xlarge', 'ml.g5.48xlarge'
 );
 
 // Valid deployment targets
@@ -160,7 +160,7 @@ function getDoLibFiles(projectDir) {
 }
 
 /**
- * Lists all subdirectories in the do/ directory.
+ * Lists all subdirectories in the do/ directory (excluding __pycache__).
  */
 function getDoSubdirs(projectDir) {
     const doDir = path.join(projectDir, 'do');
@@ -170,7 +170,7 @@ function getDoSubdirs(projectDir) {
     return fs.readdirSync(doDir)
         .filter(entry => {
             const fullPath = path.join(doDir, entry);
-            return fs.statSync(fullPath).isDirectory();
+            return fs.statSync(fullPath).isDirectory() && entry !== '__pycache__';
         });
 }
 

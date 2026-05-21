@@ -231,6 +231,7 @@
         }
     },
     "recommendations": {
+        "cpu": [],
         "gpu": [
             "ml.g5.xlarge",
             "ml.g5.2xlarge",

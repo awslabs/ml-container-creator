@@ -91,8 +91,12 @@ export default class McpCommandHandler {
             const installed = await this._installBundledDependencies(resolved.serverDir, name);
             if (!installed) return;
 
+            // Store path relative to package root for portability
+            const packageRoot = path.resolve(__dirname, '../..');
+            const relativePath = path.relative(packageRoot, resolved.entryPoint);
+
             command = 'node';
-            commandArgs = [resolved.entryPoint];
+            commandArgs = [relativePath];
         } else {
             // Find the '--' separator to split name from command
             const separatorIndex = positionalArgs.indexOf('--');
@@ -195,9 +199,13 @@ export default class McpCommandHandler {
             const installed = await this._installBundledDependencies(resolved.serverDir, server.name);
             if (!installed) continue;
 
+            // Store path relative to package root for portability across machines
+            const packageRoot = path.resolve(__dirname, '../..');
+            const relativePath = path.relative(packageRoot, resolved.entryPoint);
+
             config.mcpServers[server.name] = {
                 command: 'node',
-                args: [resolved.entryPoint]
+                args: [relativePath]
             };
             added++;
         }

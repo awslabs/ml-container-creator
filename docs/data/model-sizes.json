@@ -6,198 +6,319 @@
             "defaultDtype": "bfloat16",
             "architecture": "LlamaForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 5,
-            "recommendedInstances": ["ml.g5.xlarge", "ml.g6.xlarge"]
+            "recommendedInstances": [
+                "ml.g5.xlarge"
+            ]
         },
         "meta-llama/Llama-3.2-3B*": {
             "parameterCount": 3212749824,
             "defaultDtype": "bfloat16",
             "architecture": "LlamaForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 9,
-            "recommendedInstances": ["ml.g5.xlarge", "ml.g6.xlarge"]
+            "recommendedInstances": [
+                "ml.g5.xlarge"
+            ]
         },
         "meta-llama/Llama-3.1-8B*": {
             "parameterCount": 8030261248,
             "defaultDtype": "bfloat16",
             "architecture": "LlamaForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 20,
-            "recommendedInstances": ["ml.g5.2xlarge", "ml.g6.2xlarge"]
+            "recommendedInstances": [
+                "ml.g5.2xlarge"
+            ]
         },
         "meta-llama/Llama-3.3-70B*": {
             "parameterCount": 70553706496,
             "defaultDtype": "bfloat16",
             "architecture": "LlamaForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq", "fp8"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq",
+                "fp8"
+            ],
             "minVramGb": 184,
-            "recommendedInstances": ["ml.g5.48xlarge", "ml.p4d.24xlarge", "ml.g6e.48xlarge"]
+            "recommendedInstances": [
+                "ml.g5.48xlarge"
+            ]
         },
         "Qwen/Qwen3-0.6B*": {
             "parameterCount": 600000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen3ForCausalLM",
             "maxPositionEmbeddings": 32768,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 3,
-            "recommendedInstances": ["ml.g5.xlarge", "ml.g6.xlarge"]
+            "recommendedInstances": [
+                "ml.g5.xlarge"
+            ]
         },
         "Qwen/Qwen3-1.7B*": {
             "parameterCount": 1700000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen3ForCausalLM",
             "maxPositionEmbeddings": 32768,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 6,
-            "recommendedInstances": ["ml.g5.xlarge", "ml.g6.xlarge"]
+            "recommendedInstances": [
+                "ml.g5.xlarge"
+            ]
         },
         "Qwen/Qwen3-4B*": {
             "parameterCount": 4000000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen3ForCausalLM",
             "maxPositionEmbeddings": 32768,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 11,
-            "recommendedInstances": ["ml.g5.xlarge", "ml.g6.xlarge"]
+            "recommendedInstances": [
+                "ml.g5.xlarge"
+            ]
         },
         "Qwen/Qwen3-8B*": {
             "parameterCount": 8000000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen3ForCausalLM",
             "maxPositionEmbeddings": 32768,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 20,
-            "recommendedInstances": ["ml.g5.2xlarge", "ml.g6.2xlarge"]
+            "recommendedInstances": [
+                "ml.g5.2xlarge"
+            ]
         },
         "Qwen/Qwen3-14B*": {
             "parameterCount": 14000000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen3ForCausalLM",
             "maxPositionEmbeddings": 32768,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 37,
-            "recommendedInstances": ["ml.g5.4xlarge", "ml.g5.12xlarge"]
+            "recommendedInstances": [
+                "ml.g5.4xlarge",
+                "ml.g5.12xlarge"
+            ]
         },
         "Qwen/Qwen3-32B*": {
             "parameterCount": 32000000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen3ForCausalLM",
             "maxPositionEmbeddings": 32768,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 84,
-            "recommendedInstances": ["ml.g5.12xlarge", "ml.g5.48xlarge"]
+            "recommendedInstances": [
+                "ml.g5.12xlarge",
+                "ml.g5.48xlarge"
+            ]
         },
         "Qwen/Qwen2.5-7B*": {
             "parameterCount": 7721324544,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen2ForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 20,
-            "recommendedInstances": ["ml.g5.2xlarge", "ml.g6.2xlarge"]
+            "recommendedInstances": [
+                "ml.g5.2xlarge"
+            ]
         },
         "Qwen/Qwen2.5-14B*": {
             "parameterCount": 14167134208,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen2ForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 37,
-            "recommendedInstances": ["ml.g5.4xlarge", "ml.g5.12xlarge"]
+            "recommendedInstances": [
+                "ml.g5.4xlarge",
+                "ml.g5.12xlarge"
+            ]
         },
         "Qwen/Qwen2.5-32B*": {
             "parameterCount": 32000000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen2ForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 84,
-            "recommendedInstances": ["ml.g5.12xlarge", "ml.g5.48xlarge"]
+            "recommendedInstances": [
+                "ml.g5.12xlarge",
+                "ml.g5.48xlarge"
+            ]
         },
         "Qwen/Qwen2.5-72B*": {
             "parameterCount": 72710410240,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen2ForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq", "fp8"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq",
+                "fp8"
+            ],
             "minVramGb": 190,
-            "recommendedInstances": ["ml.g5.48xlarge", "ml.p4d.24xlarge", "ml.g6e.48xlarge"]
+            "recommendedInstances": [
+                "ml.g5.48xlarge"
+            ]
         },
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B*": {
             "parameterCount": 1500000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen2ForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 5,
-            "recommendedInstances": ["ml.g5.xlarge", "ml.g6.xlarge"]
+            "recommendedInstances": [
+                "ml.g5.xlarge"
+            ]
         },
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B*": {
             "parameterCount": 7000000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen2ForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 18,
-            "recommendedInstances": ["ml.g5.2xlarge", "ml.g6.2xlarge"]
+            "recommendedInstances": [
+                "ml.g5.2xlarge"
+            ]
         },
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B*": {
             "parameterCount": 14000000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen2ForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 37,
-            "recommendedInstances": ["ml.g5.4xlarge", "ml.g5.12xlarge"]
+            "recommendedInstances": [
+                "ml.g5.4xlarge",
+                "ml.g5.12xlarge"
+            ]
         },
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B*": {
             "parameterCount": 32000000000,
             "defaultDtype": "bfloat16",
             "architecture": "Qwen2ForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 84,
-            "recommendedInstances": ["ml.g5.12xlarge", "ml.g5.48xlarge"]
+            "recommendedInstances": [
+                "ml.g5.12xlarge",
+                "ml.g5.48xlarge"
+            ]
         },
         "deepseek-ai/DeepSeek-R1-Distill-Llama-8B*": {
             "parameterCount": 8000000000,
             "defaultDtype": "bfloat16",
             "architecture": "LlamaForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 20,
-            "recommendedInstances": ["ml.g5.2xlarge", "ml.g6.2xlarge"]
+            "recommendedInstances": [
+                "ml.g5.2xlarge"
+            ]
         },
         "deepseek-ai/DeepSeek-R1-Distill-Llama-70B*": {
             "parameterCount": 70000000000,
             "defaultDtype": "bfloat16",
             "architecture": "LlamaForCausalLM",
             "maxPositionEmbeddings": 131072,
-            "recommendedQuantizations": ["awq", "gptq", "fp8"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq",
+                "fp8"
+            ],
             "minVramGb": 184,
-            "recommendedInstances": ["ml.g5.48xlarge", "ml.p4d.24xlarge", "ml.g6e.48xlarge"]
+            "recommendedInstances": [
+                "ml.g5.48xlarge"
+            ]
         },
         "openai/gpt-oss-20b*": {
             "parameterCount": 20000000000,
             "defaultDtype": "bfloat16",
             "architecture": "GPT2LMHeadModel",
             "maxPositionEmbeddings": 8192,
-            "recommendedQuantizations": ["awq", "gptq"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq"
+            ],
             "minVramGb": 52,
-            "recommendedInstances": ["ml.g5.12xlarge", "ml.g5.48xlarge"]
+            "recommendedInstances": [
+                "ml.g5.12xlarge",
+                "ml.g5.48xlarge"
+            ]
         },
         "openai/gpt-oss-120b*": {
             "parameterCount": 120000000000,
             "defaultDtype": "bfloat16",
             "architecture": "GPT2LMHeadModel",
             "maxPositionEmbeddings": 8192,
-            "recommendedQuantizations": ["awq", "gptq", "fp8"],
+            "recommendedQuantizations": [
+                "awq",
+                "gptq",
+                "fp8"
+            ],
             "minVramGb": 312,
-            "recommendedInstances": ["ml.p4d.24xlarge", "ml.p5.48xlarge"]
+            "recommendedInstances": [
+                "ml.g5.48xlarge"
+            ]
         }
     }
 }
