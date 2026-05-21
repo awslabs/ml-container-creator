@@ -1,0 +1,245 @@
+{
+    "catalog": {
+        "ml.g5.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). Good for small to medium models",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA A10G",
+            "costTier": "medium"
+        },
+        "ml.g5.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). Better CPU/memory for preprocessing",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA A10G",
+            "costTier": "medium"
+        },
+        "ml.g5.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 64,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "large",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). High CPU/memory for complex preprocessing",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA A10G",
+            "costTier": "medium"
+        },
+        "ml.g5.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 128,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). Maximum CPU/memory for single GPU",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA A10G",
+            "costTier": "medium"
+        },
+        "ml.g5.12xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 48,
+            "memGb": 192,
+            "accelerator": "4x A10G 96GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "large",
+                "a10g",
+                "parallel",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "4x NVIDIA A10G GPUs (96GB total). Good for tensor parallelism",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA A10G",
+            "costTier": "medium"
+        },
+        "ml.g5.16xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 64,
+            "memGb": 256,
+            "accelerator": "A10G 24GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "1x NVIDIA A10G GPU (24GB). Very high CPU/memory ratio",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA A10G",
+            "costTier": "medium"
+        },
+        "ml.g5.24xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 96,
+            "memGb": 384,
+            "accelerator": "4x A10G 96GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "4x NVIDIA A10G GPUs (96GB total). High CPU/memory with multi-GPU",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA A10G",
+            "costTier": "medium"
+        },
+        "ml.g5.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 768,
+            "accelerator": "8x A10G 192GB",
+            "cudaVersions": [
+                "11.8",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "a10g",
+                "cuda-11",
+                "cuda-12"
+            ],
+            "family": "g5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A10G",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "8x NVIDIA A10G GPUs (192GB total). Maximum multi-GPU configuration",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA A10G",
+            "costTier": "medium"
+        }
+    },
+    "recommendations": {
+        "gpu": [
+            "ml.g5.xlarge",
+            "ml.g5.2xlarge",
+            "ml.g5.4xlarge",
+            "ml.g5.8xlarge",
+            "ml.g5.12xlarge",
+            "ml.g5.16xlarge",
+            "ml.g5.24xlarge",
+            "ml.g5.48xlarge"
+        ]
+    }
+}

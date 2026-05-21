@@ -273,8 +273,8 @@ describe('Registry Data - Unit Tests', () => {
             
             const instanceTypes = Object.keys(instanceMapping);
             
-            // Check for major instance families
-            const requiredFamilies = ['g5', 'g4dn', 'p3', 'inf2', 'trn1'];
+            // Check for instance families present in the trimmed catalog (g5-only)
+            const requiredFamilies = ['g5'];
             
             for (const family of requiredFamilies) {
                 const hasFamily = instanceTypes.some(type => type.includes(`.${family}.`));

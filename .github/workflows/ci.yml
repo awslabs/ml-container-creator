@@ -51,6 +51,10 @@ jobs:
         if: matrix.node-version == '24.x'
         run: node scripts/validate-namespaces.js
 
+      - name: Check command generator sync
+        if: matrix.node-version == '24.x'
+        run: node scripts/sync-command-generator.js --check
+
   integration:
     name: Integration
     runs-on: ubuntu-latest

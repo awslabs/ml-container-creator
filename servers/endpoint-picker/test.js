@@ -128,13 +128,13 @@ console.log('\nendpoint-picker: getGpusForInstance\n')
 
 // --- GPU lookup tests ---
 test('known GPU instance returns correct GPU count', () => {
-    const gpus = getGpusForInstance('ml.g4dn.12xlarge')
+    const gpus = getGpusForInstance('ml.g5.12xlarge')
     assert.strictEqual(gpus, 4)
 })
 
-test('known CPU instance returns 0 GPUs', () => {
-    const gpus = getGpusForInstance('ml.c5.2xlarge')
-    assert.strictEqual(gpus, 0)
+test('known single-GPU instance returns 1 GPU', () => {
+    const gpus = getGpusForInstance('ml.g5.xlarge')
+    assert.strictEqual(gpus, 1)
 })
 
 test('unknown instance type returns null', () => {

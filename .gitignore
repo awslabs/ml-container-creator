@@ -15,6 +15,12 @@ coverage/
 # Local MCP config (contains absolute paths)
 config/mcp.json
 
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+config/mcp.json
+
 # MkDocs build output
 site/
 

@@ -14,6 +14,12 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __mcp_filename = fileURLToPath(import.meta.url);
+const __mcp_dirname = path.dirname(__mcp_filename);
+const PACKAGE_ROOT = path.resolve(__mcp_dirname, '../..');
 
 const DEFAULT_TOOL_NAME = 'get_ml_config';
 const DEFAULT_LIMIT = 10;
@@ -96,6 +102,15 @@ class McpClient {
     async _executeQuery() {
         const { command, args = [], env } = this.serverConfig;
 
+        // Resolve relative paths in args against the package root
+        const resolvedArgs = args.map(arg => {
+            if (arg && !path.isAbsolute(arg) && !arg.startsWith('-')) {
+                const resolved = path.resolve(PACKAGE_ROOT, arg);
+                return resolved;
+            }
+            return arg;
+        });
+
         // Build environment: merge process.env with server-specific env
         // When --smart flag is active, inject BEDROCK_SMART=true for this run
         // Discover mode is now default; inject DISCOVER_MODE=false only when explicitly disabled
@@ -108,7 +123,7 @@ class McpClient {
         // Create stdio transport — spawns the server process
         this._transport = new StdioClientTransport({
             command,
-            args,
+            args: resolvedArgs,
             env: spawnEnv,
             stderr: 'pipe'
         });

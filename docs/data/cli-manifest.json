@@ -1,0 +1,998 @@
+{
+  "generatedAt": "2026-05-21T16:11:18.071Z",
+  "version": "0.8.0",
+  "cliOptions": [
+    {
+      "flag": "--skip-prompts",
+      "argName": null,
+      "description": "Skip interactive prompts and use configuration from other sources"
+    },
+    {
+      "flag": "--auto-prompt",
+      "argName": null,
+      "description": "Fill defaults, prompt only for missing required values"
+    },
+    {
+      "flag": "--config",
+      "argName": "path",
+      "description": "Path to JSON configuration file"
+    },
+    {
+      "flag": "--project-name",
+      "argName": "name",
+      "description": "Project name"
+    },
+    {
+      "flag": "--project-dir",
+      "argName": "dir",
+      "description": "Output directory path"
+    },
+    {
+      "flag": "--force",
+      "argName": null,
+      "description": "Overwrite existing output directory without prompting"
+    },
+    {
+      "flag": "--deployment-config",
+      "argName": "config",
+      "description": "Deployment configuration (e.g. http-flask, transformers-vllm, triton-fil)"
+    },
+    {
+      "flag": "--framework",
+      "argName": "framework",
+      "description": "ML framework — DEPRECATED: use --deployment-config"
+    },
+    {
+      "flag": "--model-format",
+      "argName": "format",
+      "description": "Model serialization format (pkl, joblib, json, model, ubj, keras, h5, SavedModel)"
+    },
+    {
+      "flag": "--model-name",
+      "argName": "name",
+      "description": "Model identifier (<hf-org/model>, s3://..., registry://..., marketplace://...)"
+    },
+    {
+      "flag": "--model-server",
+      "argName": "server",
+      "description": "Model server — DEPRECATED: use --deployment-config"
+    },
+    {
+      "flag": "--base-image",
+      "argName": "image",
+      "description": "Base container image for Dockerfile"
+    },
+    {
+      "flag": "--deployment-target",
+      "argName": "target",
+      "description": "Deployment target (realtime-inference, async-inference, batch-transform, hyperpod-eks)"
+    },
+    {
+      "flag": "--instance-type",
+      "argName": "type",
+      "description": "SageMaker instance type (e.g. ml.g5.xlarge, ml.m5.large)"
+    },
+    {
+      "flag": "--region",
+      "argName": "region",
+      "description": "AWS region"
+    },
+    {
+      "flag": "--role-arn",
+      "argName": "arn",
+      "description": "IAM role ARN for SageMaker execution"
+    },
+    {
+      "flag": "--build-target",
+      "argName": "target",
+      "description": "Build target (codebuild)"
+    },
+    {
+      "flag": "--codebuild-compute-type",
+      "argName": "type",
+      "description": "CodeBuild compute type (SMALL, MEDIUM, LARGE)"
+    },
+    {
+      "flag": "--endpoint-initial-instance-count",
+      "argName": "n",
+      "description": "Number of instances for the endpoint (default: 1)"
+    },
+    {
+      "flag": "--endpoint-data-capture-percent",
+      "argName": "pct",
+      "description": "Data capture percentage for monitoring, 0-100 (default: 0)"
+    },
+    {
+      "flag": "--endpoint-variant-name",
+      "argName": "name",
+      "description": "Production variant name (default: AllTraffic)"
+    },
+    {
+      "flag": "--endpoint-volume-size",
+      "argName": "gb",
+      "description": "ML storage volume size in GB"
+    },
+    {
+      "flag": "--ic-cpu-count",
+      "argName": "n",
+      "description": "vCPUs allocated to the inference component"
+    },
+    {
+      "flag": "--ic-memory-size",
+      "argName": "mb",
+      "description": "Memory in MB for the inference component"
+    },
+    {
+      "flag": "--ic-gpu-count",
+      "argName": "n",
+      "description": "GPUs allocated to the inference component"
+    },
+    {
+      "flag": "--ic-copy-count",
+      "argName": "n",
+      "description": "Number of inference component copies (default: 1)"
+    },
+    {
+      "flag": "--ic-model-weight",
+      "argName": "weight",
+      "description": "Traffic routing weight, 0-1 (default: 1.0)"
+    },
+    {
+      "flag": "--async-s3-output-path",
+      "argName": "path",
+      "description": "S3 output path for async results"
+    },
+    {
+      "flag": "--async-sns-success-topic",
+      "argName": "arn",
+      "description": "SNS topic ARN for success notifications"
+    },
+    {
+      "flag": "--async-sns-error-topic",
+      "argName": "arn",
+      "description": "SNS topic ARN for error notifications"
+    },
+    {
+      "flag": "--async-max-concurrent",
+      "argName": "n",
+      "description": "Max concurrent invocations per instance (default: 1)"
+    },
+    {
+      "flag": "--batch-input-path",
+      "argName": "path",
+      "description": "S3 input path for batch data"
+    },
+    {
+      "flag": "--batch-output-path",
+      "argName": "path",
+      "description": "S3 output path for batch results"
+    },
+    {
+      "flag": "--batch-instance-count",
+      "argName": "n",
+      "description": "Number of instances (default: 1)"
+    },
+    {
+      "flag": "--batch-split-type",
+      "argName": "type",
+      "description": "Input split type: Line, RecordIO, None (default: Line)"
+    },
+    {
+      "flag": "--batch-strategy",
+      "argName": "strategy",
+      "description": "Batch strategy: MultiRecord, SingleRecord (default: MultiRecord)"
+    },
+    {
+      "flag": "--batch-join-source",
+      "argName": "source",
+      "description": "Join source: Input, None (default: None)"
+    },
+    {
+      "flag": "--batch-max-concurrent",
+      "argName": "n",
+      "description": "Max concurrent transforms per instance (default: 1)"
+    },
+    {
+      "flag": "--batch-max-payload",
+      "argName": "mb",
+      "description": "Max payload size in MB, 0-100 (default: 6)"
+    },
+    {
+      "flag": "--hyperpod-cluster",
+      "argName": "name",
+      "description": "HyperPod EKS cluster name"
+    },
+    {
+      "flag": "--hyperpod-namespace",
+      "argName": "ns",
+      "description": "Kubernetes namespace (default: default)"
+    },
+    {
+      "flag": "--hyperpod-replicas",
+      "argName": "count",
+      "description": "Number of replicas (default: 1)"
+    },
+    {
+      "flag": "--fsx-volume-handle",
+      "argName": "handle",
+      "description": "FSx for Lustre volume handle"
+    },
+    {
+      "flag": "--model-env",
+      "argName": "KEY=VALUE",
+      "description": "Model env var, repeatable (e.g. VLLM_TENSOR_PARALLEL_SIZE=4)"
+    },
+    {
+      "flag": "--server-env",
+      "argName": "KEY=VALUE",
+      "description": "Server env var, repeatable (e.g. SGLANG_MEM_FRACTION=0.9)"
+    },
+    {
+      "flag": "--hf-token",
+      "argName": "token",
+      "description": "HuggingFace token (or \"$HF_TOKEN\" for env var reference)"
+    },
+    {
+      "flag": "--hf-token-arn",
+      "argName": "arn",
+      "description": "HuggingFace token ARN from Secrets Manager"
+    },
+    {
+      "flag": "--ngc-token",
+      "argName": "token",
+      "description": "NVIDIA NGC token (or \"$NGC_API_KEY\" for env var reference)"
+    },
+    {
+      "flag": "--ngc-token-arn",
+      "argName": "arn",
+      "description": "NVIDIA NGC token ARN from Secrets Manager"
+    },
+    {
+      "flag": "--include-sample",
+      "argName": null,
+      "description": "Include sample model code"
+    },
+    {
+      "flag": "--include-testing",
+      "argName": null,
+      "description": "Include test suite"
+    },
+    {
+      "flag": "--test-types",
+      "argName": "types",
+      "description": "Comma-separated test types"
+    },
+    {
+      "flag": "--enable-lora",
+      "argName": null,
+      "description": "Enable LoRA adapter serving (transformers with vllm/sglang/djl-lmi only)"
+    },
+    {
+      "flag": "--max-loras",
+      "argName": "n",
+      "description": "Maximum concurrent LoRA adapters in GPU memory (default: 30)"
+    },
+    {
+      "flag": "--max-lora-rank",
+      "argName": "n",
+      "description": "Maximum LoRA rank (default: 64)"
+    },
+    {
+      "flag": "--include-benchmark",
+      "argName": null,
+      "description": "Include SageMaker AI Benchmarking (transformers/diffusors only)"
+    },
+    {
+      "flag": "--benchmark-concurrency",
+      "argName": "n",
+      "description": "Benchmark concurrent requests (default: 10)"
+    },
+    {
+      "flag": "--benchmark-input-tokens",
+      "argName": "n",
+      "description": "Benchmark mean input tokens (default: 550)"
+    },
+    {
+      "flag": "--benchmark-output-tokens",
+      "argName": "n",
+      "description": "Benchmark mean output tokens (default: 150)"
+    },
+    {
+      "flag": "--benchmark-streaming",
+      "argName": null,
+      "description": "Enable streaming in benchmark (default: true)"
+    },
+    {
+      "flag": "--benchmark-request-count",
+      "argName": "n",
+      "description": "Total benchmark requests (optional)"
+    },
+    {
+      "flag": "--benchmark-s3-output-path",
+      "argName": "path",
+      "description": "S3 path for benchmark results"
+    },
+    {
+      "flag": "--smart",
+      "argName": null,
+      "description": "Enable Bedrock-powered smart mode on MCP servers"
+    },
+    {
+      "flag": "--discover",
+      "argName": null,
+      "description": "Enable live registry lookups via MCP discovery"
+    },
+    {
+      "flag": "--no-validate",
+      "argName": null,
+      "description": "Skip schema-driven validation at generation time"
+    },
+    {
+      "flag": "--validate-env-vars",
+      "argName": null,
+      "description": "Enable environment variable validation (default: true)"
+    },
+    {
+      "flag": "--validate-with-docker",
+      "argName": null,
+      "description": "Enable Docker introspection validation (opt-in)"
+    },
+    {
+      "flag": "--offline",
+      "argName": null,
+      "description": "Disable HuggingFace API lookups"
+    }
+  ],
+  "deploymentConfigs": [
+    {
+      "id": "transformers-vllm",
+      "serverKey": "vllm",
+      "versions": [
+        {
+          "tag": "v0.20.2",
+          "cuda": "12.9",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": [
+            "gemma",
+            "gemma2",
+            "gemma3",
+            "llama",
+            "mistral",
+            "mixtral",
+            "qwen2",
+            "qwen3",
+            "qwen3_moe",
+            "deepseek_v3",
+            "phi3",
+            "command-r"
+          ]
+        },
+        {
+          "tag": "v0.10.1",
+          "cuda": "12.4",
+          "validationLevel": "tested",
+          "supportedModelTypes": [
+            "arcee",
+            "arctic",
+            "aria",
+            "aya_vision",
+            "baichuan",
+            "bailing_moe",
+            "bamba",
+            "bart",
+            "bert",
+            "bert_with_rope",
+            "blip2",
+            "bloom",
+            "chameleon",
+            "chatglm",
+            "cohere2_vision",
+            "commandr",
+            "dbrx",
+            "deepseek",
+            "deepseek_mtp",
+            "deepseek_v2",
+            "deepseek_vl2",
+            "dots1",
+            "ernie45",
+            "ernie45_moe",
+            "exaone",
+            "exaone4",
+            "fairseq2_llama",
+            "falcon",
+            "falcon_h1",
+            "florence2",
+            "fuyu",
+            "gemma",
+            "gemma2",
+            "gemma3",
+            "gemma3_mm",
+            "gemma3n",
+            "gemma3n_mm",
+            "glm",
+            "glm4",
+            "glm4_1v",
+            "glm4_moe",
+            "glm4_moe_mtp",
+            "glm4v",
+            "gpt2",
+            "gpt_bigcode",
+            "gpt_j",
+            "gpt_neox",
+            "gpt_oss",
+            "granite",
+            "granite_speech",
+            "granitemoe",
+            "granitemoehybrid",
+            "granitemoeshared",
+            "gritlm",
+            "grok1",
+            "h2ovl",
+            "hunyuan_v1",
+            "hyperclovax_vision",
+            "idefics3",
+            "internlm2",
+            "internlm2_ve",
+            "interns1",
+            "internvl",
+            "jais",
+            "jamba",
+            "jina_vl",
+            "keye",
+            "kimi_vl",
+            "llama",
+            "llama4",
+            "llama4_eagle",
+            "llama_eagle",
+            "llama_eagle3",
+            "llava",
+            "llava_next",
+            "llava_next_video",
+            "llava_onevision",
+            "mamba",
+            "mamba2",
+            "medusa",
+            "mimo",
+            "mimo_mtp",
+            "minicpm",
+            "minicpm3",
+            "minicpm_eagle",
+            "minicpmo",
+            "minicpmv",
+            "minimax_text_01",
+            "minimax_vl_01",
+            "mistral3",
+            "mixtral",
+            "mixtral_quant",
+            "mllama",
+            "mllama4",
+            "mlp_speculator",
+            "modernbert",
+            "molmo",
+            "mpt",
+            "nemotron",
+            "nemotron_h",
+            "nemotron_nas",
+            "nemotron_vl",
+            "nvlm_d",
+            "olmo",
+            "olmo2",
+            "olmoe",
+            "opt",
+            "orion",
+            "ovis",
+            "paligemma",
+            "persimmon",
+            "phi",
+            "phi3",
+            "phi3v",
+            "phi4_multimodal",
+            "phi4flash",
+            "phi4mm",
+            "phimoe",
+            "pixtral",
+            "plamo2",
+            "prithvi_geospatial_mae",
+            "qwen",
+            "qwen2",
+            "qwen2_5_omni_thinker",
+            "qwen2_5_vl",
+            "qwen2_audio",
+            "qwen2_moe",
+            "qwen2_rm",
+            "qwen2_vl",
+            "qwen3",
+            "qwen3_moe",
+            "qwen_vl",
+            "roberta",
+            "skyworkr1v",
+            "smolvlm",
+            "solar",
+            "stablelm",
+            "starcoder2",
+            "step3_text",
+            "step3_vl",
+            "tarsier",
+            "telechat2",
+            "teleflm",
+            "transformers",
+            "ultravox",
+            "voxtral",
+            "whisper",
+            "zamba2"
+          ]
+        },
+        {
+          "tag": "v0.9.1",
+          "cuda": "12.1",
+          "validationLevel": "tested",
+          "supportedModelTypes": [
+            "arctic",
+            "aria",
+            "aya_vision",
+            "baichuan",
+            "bamba",
+            "bart",
+            "bert",
+            "bert_with_rope",
+            "blip2",
+            "bloom",
+            "chameleon",
+            "chatglm",
+            "commandr",
+            "dbrx",
+            "deepseek",
+            "deepseek_mtp",
+            "deepseek_v2",
+            "deepseek_vl2",
+            "eagle",
+            "exaone",
+            "fairseq2_llama",
+            "falcon",
+            "falcon_h1",
+            "florence2",
+            "fuyu",
+            "gemma",
+            "gemma2",
+            "gemma3",
+            "gemma3_mm",
+            "glm",
+            "glm4",
+            "glm4v",
+            "gpt2",
+            "gpt_bigcode",
+            "gpt_j",
+            "gpt_neox",
+            "granite",
+            "granite_speech",
+            "granitemoe",
+            "granitemoehybrid",
+            "granitemoeshared",
+            "gritlm",
+            "grok1",
+            "h2ovl",
+            "idefics3",
+            "internlm2",
+            "internlm2_ve",
+            "internvl",
+            "jais",
+            "jamba",
+            "kimi_vl",
+            "llama",
+            "llama_eagle",
+            "llama_eagle3",
+            "llava",
+            "llava_next",
+            "llava_next_video",
+            "llava_onevision",
+            "mamba",
+            "mamba2",
+            "medusa",
+            "mimo",
+            "mimo_mtp",
+            "minicpm",
+            "minicpm3",
+            "minicpm_eagle",
+            "minicpmo",
+            "minicpmv",
+            "minimax_text_01",
+            "minimax_vl_01",
+            "mistral3",
+            "mixtral",
+            "mixtral_quant",
+            "mllama",
+            "mllama4",
+            "mlp_speculator",
+            "modernbert",
+            "molmo",
+            "mpt",
+            "nemotron",
+            "nemotron_h",
+            "nemotron_nas",
+            "nvlm_d",
+            "olmo",
+            "olmo2",
+            "olmoe",
+            "opt",
+            "orion",
+            "ovis",
+            "paligemma",
+            "persimmon",
+            "phi",
+            "phi3",
+            "phi3_small",
+            "phi3v",
+            "phi4mm",
+            "phimoe",
+            "pixtral",
+            "plamo2",
+            "prithvi_geospatial_mae",
+            "qwen",
+            "qwen2",
+            "qwen2_5_omni_thinker",
+            "qwen2_5_vl",
+            "qwen2_audio",
+            "qwen2_moe",
+            "qwen2_rm",
+            "qwen2_vl",
+            "qwen3",
+            "qwen3_moe",
+            "qwen_vl",
+            "roberta",
+            "skyworkr1v",
+            "smolvlm",
+            "solar",
+            "stablelm",
+            "starcoder2",
+            "tarsier",
+            "telechat2",
+            "teleflm",
+            "transformers",
+            "ultravox",
+            "whisper",
+            "zamba2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "transformers-sglang",
+      "serverKey": "sglang",
+      "versions": [
+        {
+          "tag": "v0.5.4.post1-cu121",
+          "cuda": "12.1",
+          "validationLevel": "experimental",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.4.6-cu121",
+          "cuda": "12.1",
+          "validationLevel": "experimental",
+          "supportedModelTypes": []
+        }
+      ]
+    },
+    {
+      "id": "transformers-tensorrt-llm",
+      "serverKey": "tensorrt-llm",
+      "versions": [
+        {
+          "tag": "1.2.0rc8",
+          "cuda": "12.4",
+          "validationLevel": "tested",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "1.1.0",
+          "cuda": "12.1",
+          "validationLevel": "tested",
+          "supportedModelTypes": []
+        }
+      ]
+    },
+    {
+      "id": "transformers-lmi",
+      "serverKey": "lmi",
+      "versions": [
+        {
+          "tag": "0.32.0-lmi14.0.0-cu126",
+          "cuda": "12.6",
+          "validationLevel": "tested",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "0.31.0-lmi13.0.0-cu124",
+          "cuda": "12.4",
+          "validationLevel": "tested",
+          "supportedModelTypes": []
+        }
+      ]
+    },
+    {
+      "id": "transformers-djl",
+      "serverKey": "djl",
+      "versions": [
+        {
+          "tag": "0.36.0-pytorch-gpu",
+          "cuda": "12.6",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "0.35.0-pytorch-gpu",
+          "cuda": "12.4",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        }
+      ]
+    },
+    {
+      "id": "diffusors-vllm-omni",
+      "serverKey": "vllm-omni",
+      "versions": [
+        {
+          "tag": "v0.16.0",
+          "cuda": "12.4",
+          "validationLevel": "experimental",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.14.0",
+          "cuda": "12.4",
+          "validationLevel": "experimental",
+          "supportedModelTypes": []
+        }
+      ]
+    },
+    {
+      "id": "http-flask",
+      "serverKey": "flask",
+      "versions": []
+    },
+    {
+      "id": "http-fastapi",
+      "serverKey": "fastapi",
+      "versions": []
+    }
+  ],
+  "gpuInstances": {
+    "ml.g5.xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA A10G",
+      "gpuMemoryGb": 24,
+      "vcpus": 4,
+      "memGb": 16,
+      "family": "g5",
+      "costTier": "medium"
+    },
+    "ml.g5.2xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA A10G",
+      "gpuMemoryGb": 24,
+      "vcpus": 8,
+      "memGb": 32,
+      "family": "g5",
+      "costTier": "medium"
+    },
+    "ml.g5.4xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA A10G",
+      "gpuMemoryGb": 24,
+      "vcpus": 16,
+      "memGb": 64,
+      "family": "g5",
+      "costTier": "medium"
+    },
+    "ml.g5.8xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA A10G",
+      "gpuMemoryGb": 24,
+      "vcpus": 32,
+      "memGb": 128,
+      "family": "g5",
+      "costTier": "medium"
+    },
+    "ml.g5.12xlarge": {
+      "gpus": 4,
+      "gpuType": "NVIDIA A10G",
+      "gpuMemoryGb": 24,
+      "vcpus": 48,
+      "memGb": 192,
+      "family": "g5",
+      "costTier": "medium"
+    },
+    "ml.g5.16xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA A10G",
+      "gpuMemoryGb": 24,
+      "vcpus": 64,
+      "memGb": 256,
+      "family": "g5",
+      "costTier": "medium"
+    },
+    "ml.g5.24xlarge": {
+      "gpus": 4,
+      "gpuType": "NVIDIA A10G",
+      "gpuMemoryGb": 24,
+      "vcpus": 96,
+      "memGb": 384,
+      "family": "g5",
+      "costTier": "medium"
+    },
+    "ml.g5.48xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA A10G",
+      "gpuMemoryGb": 24,
+      "vcpus": 192,
+      "memGb": 768,
+      "family": "g5",
+      "costTier": "medium"
+    }
+  },
+  "deploymentTargets": [
+    {
+      "id": "managed-inference",
+      "label": "Managed Inference (Real-Time)"
+    },
+    {
+      "id": "async-inference",
+      "label": "Async Inference"
+    },
+    {
+      "id": "batch-transform",
+      "label": "Batch Transform"
+    },
+    {
+      "id": "hyperpod-eks",
+      "label": "HyperPod EKS"
+    }
+  ],
+  "serverEnvVars": {
+    "vllm": [
+      "VLLM_ENABLE_PREFIX_CACHING",
+      "VLLM_GPU_MEMORY_UTILIZATION",
+      "VLLM_MAX_MODEL_LEN",
+      "VLLM_MAX_NUM_SEQS",
+      "VLLM_TENSOR_PARALLEL_SIZE"
+    ],
+    "sglang": [
+      "SGLANG_CONTEXT_LENGTH",
+      "SGLANG_ENABLE_RADIX_CACHE",
+      "SGLANG_MAX_RUNNING_REQUESTS",
+      "SGLANG_MEM_FRACTION",
+      "SGLANG_TENSOR_PARALLEL_SIZE"
+    ],
+    "tensorrt-llm": [
+      "TRTLLM_DTYPE",
+      "TRTLLM_ENABLE_CHUNKED_CONTEXT",
+      "TRTLLM_MAX_BATCH_SIZE",
+      "TRTLLM_MAX_INPUT_LEN",
+      "TRTLLM_MAX_OUTPUT_LEN",
+      "TRTLLM_PIPELINE_PARALLEL_SIZE",
+      "TRTLLM_TENSOR_PARALLEL_SIZE",
+      "TRTLLM_USE_WEIGHT_ONLY",
+      "TRTLLM_WEIGHT_ONLY_PRECISION",
+      "UCX_MEMTYPE_CACHE"
+    ],
+    "lmi": [
+      "OPTION_DTYPE",
+      "OPTION_MAX_ROLLING_BATCH_SIZE",
+      "OPTION_ROLLING_BATCH",
+      "OPTION_TENSOR_PARALLEL_DEGREE",
+      "SERVING_PORT"
+    ],
+    "djl": [
+      "BATCH_SIZE",
+      "ENGINE",
+      "OPTION_DEVICE_MAP",
+      "OPTION_TENSOR_PARALLEL_DEGREE",
+      "SERVING_PORT"
+    ],
+    "vllm-omni": [
+      "HF_TOKEN",
+      "VLLM_WORKER_MULTIPROC_METHOD"
+    ],
+    "triton-fil": [
+      "TRITON_MODEL_REPOSITORY"
+    ],
+    "triton-onnxruntime": [
+      "TRITON_MODEL_REPOSITORY"
+    ],
+    "triton-tensorflow": [
+      "TRITON_MODEL_REPOSITORY"
+    ],
+    "triton-pytorch": [
+      "TRITON_MODEL_REPOSITORY"
+    ],
+    "triton-vllm": [
+      "TRITON_MODEL_REPOSITORY"
+    ],
+    "triton-tensorrtllm": [
+      "TRITON_MODEL_REPOSITORY"
+    ],
+    "triton-python": [
+      "TRITON_MODEL_REPOSITORY"
+    ]
+  },
+  "icVars": [
+    "IC_CONTAINER_ENV_EXTRA",
+    "IC_COPY_COUNT",
+    "IC_GPU_COUNT",
+    "IC_IMAGE_TAG",
+    "IC_MIN_MEMORY_MB",
+    "IC_MODEL_NAME",
+    "IC_MULTI_SPEC",
+    "IC_SPEC_",
+    "IC_SPEC_COUNT",
+    "IC_STARTUP_TIMEOUT"
+  ],
+  "adapterCommands": [
+    {
+      "name": "add",
+      "flags": [
+        {
+          "flag": "--weights",
+          "argName": "s3-uri"
+        },
+        {
+          "flag": "--from-hub",
+          "argName": "hf-repo-id"
+        },
+        {
+          "flag": "--from-tune",
+          "argName": null
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "flags": []
+    },
+    {
+      "name": "remove",
+      "flags": [
+        {
+          "flag": "--weights",
+          "argName": "new-s3-uri"
+        }
+      ]
+    },
+    {
+      "name": "update",
+      "flags": [
+        {
+          "flag": "--weights",
+          "argName": "new-s3-uri"
+        },
+        {
+          "flag": "--from-hub",
+          "argName": "hf-repo-id"
+        },
+        {
+          "flag": "--limit",
+          "argName": null
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "flags": [
+        {
+          "flag": "--limit",
+          "argName": null
+        }
+      ]
+    }
+  ],
+  "serveExcludeVars": {
+    "vllm": [
+      "VLLM_USAGE_SOURCE",
+      "VLLM_ENABLE_CUDA_COMPATIBILITY"
+    ],
+    "sglang": [],
+    "tensorrt-llm": [
+      "TRTLLM_MODEL"
+    ]
+  }
+}

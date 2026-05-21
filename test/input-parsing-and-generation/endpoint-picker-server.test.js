@@ -12,7 +12,7 @@
 
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import { fetchEndpoints, buildResponse, _ensureSdkLoaded } from '../../servers/endpoint-picker/index.js';
+import { fetchEndpoints, buildResponse, _ensureSdkLoaded, _loadInstanceCatalog } from '../../servers/endpoint-picker/index.js';
 
 /**
  * Create a mock SageMaker client that returns controlled responses.
@@ -105,6 +105,8 @@ describe('Endpoint Picker Server — fetchEndpoints()', () => {
         console.log('🔧 Configuration: Mock AWS SDK responses\n');
         // Ensure SDK command constructors are loaded
         await _ensureSdkLoaded();
+        // Ensure instance catalog is loaded (needed for GPU capacity estimation)
+        _loadInstanceCatalog();
     });
 
     describe('InService filtering', () => {
@@ -146,7 +148,7 @@ describe('Endpoint Picker Server — fetchEndpoints()', () => {
                     'gpu-endpoint': {
                         ProductionVariants: [{
                             VariantName: 'AllTraffic',
-                            InstanceType: 'ml.g6e.48xlarge', // 8 GPUs
+                            InstanceType: 'ml.g5.48xlarge', // 8 GPUs
                             CurrentInstanceCount: 1
                         }]
                     }
@@ -192,14 +194,14 @@ describe('Endpoint Picker Server — fetchEndpoints()', () => {
                     'full-endpoint': {
                         ProductionVariants: [{
                             VariantName: 'AllTraffic',
-                            InstanceType: 'ml.g6e.48xlarge', // 8 GPUs
+                            InstanceType: 'ml.g5.48xlarge', // 8 GPUs
                             CurrentInstanceCount: 1
                         }]
                     },
                     'free-endpoint': {
                         ProductionVariants: [{
                             VariantName: 'AllTraffic',
-                            InstanceType: 'ml.g6e.48xlarge', // 8 GPUs
+                            InstanceType: 'ml.g5.48xlarge', // 8 GPUs
                             CurrentInstanceCount: 1
                         }]
                     }
@@ -249,14 +251,14 @@ describe('Endpoint Picker Server — fetchEndpoints()', () => {
                     'full-endpoint': {
                         ProductionVariants: [{
                             VariantName: 'AllTraffic',
-                            InstanceType: 'ml.g6e.48xlarge', // 8 GPUs
+                            InstanceType: 'ml.g5.48xlarge', // 8 GPUs
                             CurrentInstanceCount: 1
                         }]
                     },
                     'free-endpoint': {
                         ProductionVariants: [{
                             VariantName: 'AllTraffic',
-                            InstanceType: 'ml.g6e.48xlarge', // 8 GPUs
+                            InstanceType: 'ml.g5.48xlarge', // 8 GPUs
                             CurrentInstanceCount: 1
                         }]
                     }
@@ -486,7 +488,7 @@ describe('Endpoint Picker Server — MCP tool parameter gating', () => {
             {
                 endpointName: 'my-ep',
                 variantName: 'AllTraffic',
-                instanceType: 'ml.g6e.48xlarge',
+                instanceType: 'ml.g5.48xlarge',
                 instanceCount: 1,
                 icCount: 2,
                 availableGpus: 4,
