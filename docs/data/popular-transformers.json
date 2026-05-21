@@ -1,0 +1,259 @@
+{
+    "openai/gpt-oss-20b": {
+        "family": "gpt-oss",
+        "chat_template": "",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "openai",
+            "conversational"
+        ],
+        "architecture": "GPT2LMHeadModel",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "community-validated",
+        "notes": "Open-source 20B parameter model. Requires significant GPU memory for inference"
+    },
+    "meta-llama/Llama-2-7b-chat-hf": {
+        "family": "llama-2",
+        "chat_template": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-2",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "tested",
+        "profiles": {
+            "7b": {
+                "displayName": "Llama-2 7B",
+                "envVars": {
+                    "MAX_MODEL_LEN": "4096",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                }
+            }
+        },
+        "notes": "Llama-2 7B chat model with official chat template. Requires HuggingFace authentication for download"
+    },
+    "meta-llama/Llama-2-13b-chat-hf": {
+        "family": "llama-2",
+        "chat_template": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-2",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "tested",
+        "profiles": {
+            "13b": {
+                "displayName": "Llama-2 13B",
+                "envVars": {
+                    "MAX_MODEL_LEN": "4096",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                }
+            }
+        },
+        "notes": "Llama-2 13B chat model. Requires more GPU memory than 7B variant"
+    },
+    "meta-llama/Llama-2-70b-chat-hf": {
+        "family": "llama-2",
+        "chat_template": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-2",
+            "conversational"
+        ],
+        "architecture": "LlamaForCausalLM",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "community-validated",
+        "profiles": {
+            "70b-tp2": {
+                "displayName": "Llama-2 70B (2-GPU)",
+                "envVars": {
+                    "TENSOR_PARALLEL_SIZE": "2",
+                    "MAX_MODEL_LEN": "4096",
+                    "GPU_MEMORY_UTILIZATION": "0.95"
+                }
+            },
+            "70b-tp4": {
+                "displayName": "Llama-2 70B (4-GPU)",
+                "envVars": {
+                    "TENSOR_PARALLEL_SIZE": "4",
+                    "MAX_MODEL_LEN": "4096",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                }
+            }
+        },
+        "notes": "Llama-2 70B requires tensor parallelism across multiple GPUs"
+    },
+    "mistralai/Mistral-7B-Instruct-v0.1": {
+        "family": "mistral",
+        "chat_template": "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "mistral",
+            "conversational"
+        ],
+        "architecture": "MistralForCausalLM",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "tested",
+        "profiles": {
+            "7b": {
+                "displayName": "Mistral 7B Instruct",
+                "envVars": {
+                    "MAX_MODEL_LEN": "8192",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                }
+            }
+        },
+        "notes": "Mistral 7B v0.1 with 8K context window"
+    },
+    "mistralai/Mistral-7B-Instruct-v0.2": {
+        "family": "mistral",
+        "chat_template": "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "mistral",
+            "conversational"
+        ],
+        "architecture": "MistralForCausalLM",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "tested",
+        "profiles": {
+            "7b": {
+                "displayName": "Mistral 7B Instruct v0.2",
+                "envVars": {
+                    "MAX_MODEL_LEN": "32768",
+                    "GPU_MEMORY_UTILIZATION": "0.9"
+                }
+            }
+        },
+        "notes": "Mistral 7B v0.2 with extended 32K context window. Requires more memory for long contexts"
+    },
+    "mistralai/Mixtral-8x7B-Instruct-v0.1": {
+        "family": "mistral",
+        "chat_template": "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "mistral",
+            "mixture-of-experts"
+        ],
+        "architecture": "MixtralForCausalLM",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "community-validated",
+        "profiles": {
+            "8x7b-tp2": {
+                "displayName": "Mixtral 8x7B (2-GPU)",
+                "envVars": {
+                    "TENSOR_PARALLEL_SIZE": "2",
+                    "MAX_MODEL_LEN": "32768",
+                    "GPU_MEMORY_UTILIZATION": "0.95"
+                }
+            }
+        },
+        "notes": "Mixtral 8x7B MoE model. Requires tensor parallelism for efficient inference"
+    },
+    "meta-llama/Llama-2-*": {
+        "family": "llama-2",
+        "chat_template": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
+        "gated": true,
+        "tags": [
+            "text-generation",
+            "llama-2"
+        ],
+        "architecture": null,
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "experimental",
+        "notes": "Fallback configuration for Llama-2 models not explicitly listed. Uses standard Llama-2 chat template"
+    },
+    "mistralai/Mistral-*": {
+        "family": "mistral",
+        "chat_template": "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "mistral"
+        ],
+        "architecture": null,
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0",
+            "sglang": ">=0.2.0"
+        },
+        "validation_level": "experimental",
+        "notes": "Fallback configuration for Mistral models not explicitly listed. Uses standard Mistral chat template"
+    },
+    "codellama/*": {
+        "family": "codellama",
+        "chat_template": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '[INST] <<SYS>>\\n' + message['content'] + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'] + ' ' }}{% endif %}{% endfor %}",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "code",
+            "codellama"
+        ],
+        "architecture": null,
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0"
+        },
+        "validation_level": "experimental",
+        "notes": "CodeLlama models use Llama-2 chat template. Optimized for code generation"
+    },
+    "tiiuae/falcon-*": {
+        "family": "falcon",
+        "chat_template": null,
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "falcon"
+        ],
+        "architecture": null,
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "tensorrt-llm": ">=0.8.0"
+        },
+        "validation_level": "experimental",
+        "notes": "Falcon models typically don't require chat templates for instruction following"
+    }
+}

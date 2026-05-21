@@ -1,0 +1,140 @@
+# do/training/config.yaml — Bespoke Training Job Configuration
+# Edit this file to configure your custom SageMaker training job.
+# Run with: ./do/train
+#
+# This file is read by do/train to construct a CreateTrainingJob request.
+# Required fields are marked with [REQUIRED]. All other fields are optional.
+
+# ─── Container Image [REQUIRED] ──────────────────────────────────────────────
+# ECR image URI for the training container.
+# This defaults to your project's own container image (built via do/build + do/push).
+# You can also use a SageMaker pre-built training image or any custom ECR image.
+#
+# Example: 123456789012.dkr.ecr.us-east-1.amazonaws.com/ml-container-creator:latest
+image: "<%= '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:latest' %>"
+
+# ─── Training Script [REQUIRED] ──────────────────────────────────────────────
+# Path to your training script relative to the project root.
+# SageMaker copies this into the container at /opt/ml/code/ and executes it.
+#
+# Example: do/training/train.py
+script: "do/training/train.py"
+
+# ─── Instance Configuration [REQUIRED] ───────────────────────────────────────
+# SageMaker ML instance type for training.
+# Use GPU instances (ml.g5.*, ml.p4d.*) for deep learning workloads.
+# Use CPU instances (ml.m5.*) for traditional ML or preprocessing.
+#
+# Examples:
+#   ml.g5.xlarge    — 1 GPU (24GB A10G), 4 vCPU, 16 GB RAM
+#   ml.g5.2xlarge   — 1 GPU (24GB A10G), 8 vCPU, 32 GB RAM
+#   ml.p4d.24xlarge — 8 GPUs (40GB A100), 96 vCPU, 1152 GB RAM
+#   ml.m5.xlarge    — CPU only, 4 vCPU, 16 GB RAM
+instance_type: "ml.g5.xlarge"
+
+# Number of training instances. Set > 1 for distributed training.
+# NOTE: When instance_count > 1, your training script must be distribution-aware
+# (e.g., using PyTorch DDP, Horovod, or similar). SageMaker handles inter-node
+# communication setup automatically.
+#
+# Example: 2
+instance_count: 1
+
+# ─── Data Configuration [REQUIRED] ───────────────────────────────────────────
+# S3 URI for the input training dataset.
+# SageMaker downloads this to /opt/ml/input/data/training/ in the container.
+#
+# Examples:
+#   s3://my-bucket/datasets/train/
+#   s3://my-bucket/datasets/train.jsonl
+dataset: ""
+
+# S3 URI for training output artifacts. [REQUIRED]
+# SageMaker uploads the contents of /opt/ml/model/ to this location after training.
+#
+# Example: s3://my-bucket/training-output/
+output_path: ""
+
+# ─── Hyperparameters (optional) ──────────────────────────────────────────────
+# Key-value pairs passed to your training script as command-line arguments.
+# All values must be strings. SageMaker passes these as string arguments to
+# the training script entry point.
+#
+# Example:
+#   hyperparameters:
+#     epochs: "10"
+#     batch_size: "32"
+#     learning_rate: "5e-5"
+#     warmup_steps: "100"
+#     weight_decay: "0.01"
+hyperparameters:
+  epochs: "10"
+  batch_size: "32"
+  learning_rate: "5e-5"
+
+# ─── Resource Limits (optional) ──────────────────────────────────────────────
+# Maximum training duration in seconds. Job is stopped if it exceeds this limit.
+# Default: 86400 (24 hours)
+#
+# Example: 43200  (12 hours)
+max_runtime_seconds: 86400
+
+# EBS volume size in GB attached to each training instance.
+# Must be large enough to hold your dataset, model, and intermediate artifacts.
+# Default: 50
+#
+# Example: 100
+volume_size_gb: 50
+
+# ─── Managed Spot Training (optional) ────────────────────────────────────────
+# Use EC2 Spot Instances for training at up to 90% cost savings.
+# When enabled, SageMaker handles interruptions and resumes from checkpoints.
+# Your training script should save checkpoints to /opt/ml/checkpoints/ periodically.
+#
+# IMPORTANT: When enable_spot is true, you must also set max_wait_seconds.
+# The max_wait_seconds value must be >= max_runtime_seconds.
+enable_spot: false
+
+# Maximum total time (seconds) to wait for spot capacity + training completion.
+# Only used when enable_spot is true. Must be >= max_runtime_seconds.
+# Default: 172800 (48 hours)
+#
+# Example: 172800
+max_wait_seconds: 172800
+
+# ─── Metric Definitions (optional) ───────────────────────────────────────────
+# Custom regex patterns to extract training metrics from container logs.
+# SageMaker uses these to publish metrics to CloudWatch for monitoring.
+# Each entry needs a name and a regex with exactly one capture group.
+#
+# Example:
+#   metric_definitions:
+#     - name: "train:loss"
+#       regex: "loss: ([0-9\\.]+)"
+#     - name: "train:epoch"
+#       regex: "epoch: ([0-9\\.]+)"
+#     - name: "eval:accuracy"
+#       regex: "eval_accuracy: ([0-9\\.]+)"
+metric_definitions: []
+
+# ─── Environment Variables (optional) ────────────────────────────────────────
+# Additional environment variables set in the training container.
+# Use for configuration that doesn't fit as hyperparameters.
+#
+# Example:
+#   environment:
+#     NCCL_DEBUG: "INFO"
+#     CUDA_VISIBLE_DEVICES: "0,1"
+#     TRANSFORMERS_CACHE: "/opt/ml/input/data/cache"
+environment: {}
+
+# ─── Tags (optional) ─────────────────────────────────────────────────────────
+# AWS resource tags applied to the training job.
+# Useful for cost allocation, team tracking, and resource organization.
+#
+# Example:
+#   tags:
+#     team: "ml-platform"
+#     project: "fine-tuning-experiment-1"
+#     environment: "development"
+tags: {}

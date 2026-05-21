@@ -5,9 +5,9 @@
   "name": "@amzn/ml-container-creator-hyperpod-cluster-picker@1.0.0",
   "documentNamespace": "http://spdx.org/spdxdocs/@amzn%2fml-container-creator-hyperpod-cluster-picker-1.0.0-***",
   "creationInfo": {
-    "created": "2026-05-07T16:25:56.126Z",
+    "created": "2026-05-21T16:11:58.221Z",
     "creators": [
-      "Tool: npm/cli-11.6.3"
+      "Tool: npm/cli-11.6.2"
     ]
   },
   "documentDescribes": [
@@ -2482,7 +2482,7 @@
       "versionInfo": "8.3.1",
       "packageFileName": "node_modules/express-rate-limit",
       "description": "Basic IP rate-limiting middleware for Express. Use to limit repeated requests to public APIs and/or endpoints such as password reset.",
-      "downloadLocation": "https://registry.npmjs.org/express-rate-limit/-/express-rate-limit-8.3.1.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/express-rate-limit/express-rate-limit",
       "licenseDeclared": "MIT",
@@ -2491,12 +2491,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/express-rate-limit@8.3.1"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "0f574a37e726c8f5aebc1f86d92444403ccf6356a0a4121c4daf6c27138f30235e1f7830ce1a894435825d6de0834cbfffe2d0ffc8f9d896cc44e5b2aca74c77"
         }
       ]
     },
@@ -2530,7 +2524,7 @@
       "versionInfo": "3.1.0",
       "packageFileName": "node_modules/fast-uri",
       "description": "Dependency-free RFC 3986 URI toolbox",
-      "downloadLocation": "https://registry.npmjs.org/fast-uri/-/fast-uri-3.1.0.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/fastify/fast-uri",
       "licenseDeclared": "BSD-3-Clause",
@@ -2539,12 +2533,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/fast-uri@3.1.0"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "88f79e0ca25259fe0810e6ac555ae49d7a5a055d08029cff829ed2d9b6fb6782e58db976306251a889d9894ad0c15d7a729cf0fc3dd2e63e49ba58ff813e7600"
         }
       ]
     },
@@ -2896,7 +2884,7 @@
       "versionInfo": "10.1.0",
       "packageFileName": "node_modules/ip-address",
       "description": "A library for parsing IPv4 and IPv6 IP addresses in node and the browser.",
-      "downloadLocation": "https://registry.npmjs.org/ip-address/-/ip-address-10.1.0.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "NOASSERTION",
       "licenseDeclared": "MIT",
@@ -2905,12 +2893,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/ip-address@10.1.0"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "5d70031f15e6bd3f7e091c615e0e7a2c9a2f13e6e65a711607bf0b07cdd5653a6b29399a0b941faee5e8731cd36762a5d033702ae05d9488632fc2de63c49ff1"
         }
       ]
     },

@@ -74,10 +74,10 @@ await test('Llama-2-7B top recommendation is a GPU instance with sufficient VRAM
     const data = parseResponse(result)
 
     const topInstance = data.values.instanceType
-    // The ranker prefers cost-efficient instances — g4dn (T4 16GB) or g5/g6 (A10G/L4 24GB)
-    const isGpuInstance = topInstance.includes('.g4dn.') || topInstance.includes('.g5.') || topInstance.includes('.g6.')
+    // The ranker prefers cost-efficient instances — g5 (A10G 24GB) only in trimmed catalog
+    const isGpuInstance = topInstance.includes('.g5.')
     assert.ok(isGpuInstance,
-        `top recommendation should be a g4dn, g5, or g6 instance, got: ${topInstance}`)
+        `top recommendation should be a g5 instance, got: ${topInstance}`)
 
     // Verify the recommended instance has enough VRAM for the model
     const topRec = data.metadata.recommendations[0]
@@ -109,11 +109,8 @@ await test('Llama-2-70B top recommendation is ml.g5.48xlarge or similar multi-GP
     const data = parseResponse(result)
 
     const topInstance = data.values.instanceType
-    // 70B at fp16 needs ~144GB — only 8-GPU instances (g5.48xlarge, p3.16xlarge, etc.) can fit
-    const multiGpuInstances = ['ml.g5.48xlarge', 'ml.g5.12xlarge', 'ml.g5.24xlarge',
-        'ml.p3.16xlarge', 'ml.p3.8xlarge', 'ml.p4d.24xlarge',
-        'ml.g4dn.12xlarge', 'ml.inf2.24xlarge', 'ml.inf2.48xlarge',
-        'ml.trn1.32xlarge']
+    // 70B at fp16 needs ~144GB — only multi-GPU g5 instances can fit
+    const multiGpuInstances = ['ml.g5.48xlarge', 'ml.g5.12xlarge', 'ml.g5.24xlarge']
     assert.ok(multiGpuInstances.includes(topInstance),
         `top recommendation should be a multi-GPU instance, got: ${topInstance}`)
 })

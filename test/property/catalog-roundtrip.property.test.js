@@ -218,7 +218,7 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
             const recommendations = instancesCatalog.parsed.recommendations;
 
             fc.assert(fc.property(
-                fc.constantFrom('cpu', 'gpu'),
+                fc.constantFrom(...Object.keys(recommendations)),
                 (category) => {
                     const original = recommendations[category];
                     const serialized = JSON.stringify(original);

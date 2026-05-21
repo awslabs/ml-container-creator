@@ -94,6 +94,8 @@
     "docs:serve": "mkdocs serve",
     "docs:build": "mkdocs build",
     "docs:deploy": "mkdocs gh-deploy",
+    "docs:sync": "node scripts/sync-command-generator.js",
+    "docs:check": "node scripts/sync-command-generator.js --check",
     "_sbom": "npm sbom --sbom-format spdx > sbom.json && for dir in servers/*/; do [ -f \"$dir/package.json\" ] && (cd \"$dir\" && npm sbom --sbom-format spdx > sbom.json); done",
     "_licenses:review": "license-checker --production --exclude MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD && for dir in servers/*/; do [ -f \"$dir/package.json\" ] && echo \"\\nChecking $dir\" && (cd \"$dir\" && npx license-checker --production --exclude MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD); done",
     "_licenses:csv": "license-checker --csv --out ./licenses.csv && for dir in servers/*/; do [ -f \"$dir/package.json\" ] && (cd \"$dir\" && npx license-checker --csv --out licenses.csv); done && cat servers/*/licenses.csv >> licenses.csv",

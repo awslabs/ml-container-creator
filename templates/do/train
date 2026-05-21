@@ -1,0 +1,786 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# do/train — SageMaker Bespoke Training Job
+# Wraps CreateTrainingJob for custom training where you provide your own
+# training script, container, dataset, and hyperparameters.
+# Configuration is read from do/training/config.yaml.
+#
+# Project: <%= projectName %>
+
+set -e
+set -u
+set -o pipefail
+
+# ── Source project configuration ──────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+CONFIG_FILE="${SCRIPT_DIR}/training/config.yaml"
+POLL_INTERVAL=60
+
+# ── CLI Variables (set by _parse_args) ────────────────────────────────────────
+ARG_FORCE=false
+ARG_STATUS=false
+ARG_DRY_RUN=false
+ARG_NO_WAIT=false
+ARG_HELP=false
+
+# ── Job Variables (set by _build_job_request) ─────────────────────────────────
+JOB_NAME=""
+JOB_REQUEST_FILE=""
+
+# ── Training Config Variables (set by _parse_config) ──────────────────────────
+TRAIN_IMAGE=""
+TRAIN_SCRIPT=""
+TRAIN_INSTANCE_TYPE=""
+TRAIN_INSTANCE_COUNT=""
+TRAIN_DATASET=""
+TRAIN_OUTPUT_PATH=""
+TRAIN_HYPERPARAMS=""
+TRAIN_MAX_RUNTIME=""
+TRAIN_VOLUME_SIZE=""
+TRAIN_ENABLE_SPOT=""
+TRAIN_MAX_WAIT=""
+TRAIN_CHECKPOINT_PATH=""
+TRAIN_METRIC_DEFINITIONS=""
+TRAIN_ENVIRONMENT=""
+TRAIN_TAGS=""
+
+# ── SIGINT Trap ───────────────────────────────────────────────────────────────
+trap '_handle_interrupt' INT
+
+_handle_interrupt() {
+    echo ""
+    echo ""
+    echo "⚠️  Interrupted — training job continues in background."
+    echo "   The job will keep running in SageMaker."
+    echo "   Re-run ./do/train to resume polling, or ./do/train --status to check progress."
+    exit 130
+}
+
+# ── _parse_args() ─────────────────────────────────────────────────────────────
+# Parse CLI flags into variables.
+_parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force) ARG_FORCE=true; shift ;;
+            --status) ARG_STATUS=true; shift ;;
+            --dry-run) ARG_DRY_RUN=true; shift ;;
+            --no-wait) ARG_NO_WAIT=true; shift ;;
+            --help|-h) ARG_HELP=true; shift ;;
+            *)
+                echo "❌ Unknown option: $1"
+                echo "   Run ./do/train --help for usage."
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# ── _show_help() ──────────────────────────────────────────────────────────────
+_show_help() {
+    echo "Usage: ./do/train [OPTIONS]"
+    echo "       ./do/train --status"
+    echo "       ./do/train --help"
+    echo ""
+    echo "SageMaker Bespoke Training — submit custom training jobs using your own"
+    echo "training script, container, dataset, and hyperparameters."
+    echo ""
+    echo "Configuration is read from do/training/config.yaml"
+    echo ""
+    echo "Options:"
+    echo "  --force       Create a new job even if a previous job exists"
+    echo "  --status      Show current job status without submitting"
+    echo "  --dry-run     Validate inputs and show the CreateTrainingJob request without submitting"
+    echo "  --no-wait     Submit job and exit without polling for completion"
+    echo "  --help, -h    Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  ./do/train                  # Submit a training job"
+    echo "  ./do/train --status         # Check status of current job"
+    echo "  ./do/train --dry-run        # Validate and preview request"
+    echo "  ./do/train --force          # Force a new job after failure"
+    exit 0
+}
+
+# ── _parse_config() ───────────────────────────────────────────────────────────
+# Read and parse do/training/config.yaml into bash variables.
+# Uses yq if available, falls back to python3 YAML parsing.
+_parse_config() {
+    if [ ! -f "${CONFIG_FILE}" ]; then
+        echo "❌ Configuration file not found: ${CONFIG_FILE}"
+        echo "   Expected at: do/training/config.yaml"
+        echo ""
+        echo "   Create it with the required fields (image, script, instance_type, dataset, output_path)."
+        exit 1
+    fi
+
+    if command -v yq &>/dev/null; then
+        _parse_config_yq
+    elif command -v python3 &>/dev/null; then
+        _parse_config_python
+    else
+        echo "❌ Neither yq nor python3 found."
+        echo "   Install yq (https://github.com/mikefarah/yq) or ensure python3 is available."
+        exit 1
+    fi
+}
+
+# ── _parse_config_yq() ───────────────────────────────────────────────────────
+# Parse config.yaml using yq.
+_parse_config_yq() {
+    TRAIN_IMAGE=$(yq -r '.image // ""' "${CONFIG_FILE}")
+    TRAIN_SCRIPT=$(yq -r '.script // ""' "${CONFIG_FILE}")
+    TRAIN_INSTANCE_TYPE=$(yq -r '.instance_type // ""' "${CONFIG_FILE}")
+    TRAIN_INSTANCE_COUNT=$(yq -r '.instance_count // "1"' "${CONFIG_FILE}")
+    TRAIN_DATASET=$(yq -r '.dataset // ""' "${CONFIG_FILE}")
+    TRAIN_OUTPUT_PATH=$(yq -r '.output_path // ""' "${CONFIG_FILE}")
+    TRAIN_MAX_RUNTIME=$(yq -r '.max_runtime_seconds // "86400"' "${CONFIG_FILE}")
+    TRAIN_VOLUME_SIZE=$(yq -r '.volume_size_gb // "50"' "${CONFIG_FILE}")
+    TRAIN_ENABLE_SPOT=$(yq -r '.enable_spot // "false"' "${CONFIG_FILE}")
+    TRAIN_MAX_WAIT=$(yq -r '.max_wait_seconds // "172800"' "${CONFIG_FILE}")
+    TRAIN_CHECKPOINT_PATH=$(yq -r '.checkpoint_path // ""' "${CONFIG_FILE}")
+
+    # Hyperparameters: convert map to JSON string
+    local hp_raw
+    hp_raw=$(yq -r '.hyperparameters // {}' -o=json "${CONFIG_FILE}")
+    if [ "${hp_raw}" = "{}" ] || [ "${hp_raw}" = "null" ]; then
+        TRAIN_HYPERPARAMS="{}"
+    else
+        TRAIN_HYPERPARAMS="${hp_raw}"
+    fi
+
+    # Metric definitions: convert list to JSON string
+    local md_raw
+    md_raw=$(yq -r '.metric_definitions // []' -o=json "${CONFIG_FILE}")
+    if [ "${md_raw}" = "[]" ] || [ "${md_raw}" = "null" ]; then
+        TRAIN_METRIC_DEFINITIONS="[]"
+    else
+        TRAIN_METRIC_DEFINITIONS="${md_raw}"
+    fi
+
+    # Environment: convert map to JSON string
+    local env_raw
+    env_raw=$(yq -r '.environment // {}' -o=json "${CONFIG_FILE}")
+    if [ "${env_raw}" = "{}" ] || [ "${env_raw}" = "null" ]; then
+        TRAIN_ENVIRONMENT="{}"
+    else
+        TRAIN_ENVIRONMENT="${env_raw}"
+    fi
+
+    # Tags: convert map to JSON string
+    local tags_raw
+    tags_raw=$(yq -r '.tags // {}' -o=json "${CONFIG_FILE}")
+    if [ "${tags_raw}" = "{}" ] || [ "${tags_raw}" = "null" ]; then
+        TRAIN_TAGS="{}"
+    else
+        TRAIN_TAGS="${tags_raw}"
+    fi
+}
+
+# ── _parse_config_python() ───────────────────────────────────────────────────
+# Parse config.yaml using python3 as fallback when yq is not available.
+_parse_config_python() {
+    local parse_output
+    parse_output=$(python3 -c "
+import yaml, json, sys
+
+with open('${CONFIG_FILE}', 'r') as f:
+    cfg = yaml.safe_load(f) or {}
+
+def s(val, default=''):
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return 'true' if val else 'false'
+    return str(val)
+
+print(s(cfg.get('image'), ''))
+print(s(cfg.get('script'), ''))
+print(s(cfg.get('instance_type'), ''))
+print(s(cfg.get('instance_count'), '1'))
+print(s(cfg.get('dataset'), ''))
+print(s(cfg.get('output_path'), ''))
+print(s(cfg.get('max_runtime_seconds'), '86400'))
+print(s(cfg.get('volume_size_gb'), '50'))
+print(s(cfg.get('enable_spot'), 'false'))
+print(s(cfg.get('max_wait_seconds'), '172800'))
+print(s(cfg.get('checkpoint_path'), ''))
+print(json.dumps(cfg.get('hyperparameters') or {}))
+print(json.dumps(cfg.get('metric_definitions') or []))
+print(json.dumps(cfg.get('environment') or {}))
+print(json.dumps(cfg.get('tags') or {}))
+" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        echo "❌ Failed to parse ${CONFIG_FILE}"
+        echo "   ${parse_output}"
+        echo ""
+        echo "   Ensure the file is valid YAML syntax."
+        exit 1
+    fi
+
+    # Read each line into the corresponding variable
+    local i=0
+    while IFS= read -r line; do
+        case $i in
+            0) TRAIN_IMAGE="${line}" ;;
+            1) TRAIN_SCRIPT="${line}" ;;
+            2) TRAIN_INSTANCE_TYPE="${line}" ;;
+            3) TRAIN_INSTANCE_COUNT="${line}" ;;
+            4) TRAIN_DATASET="${line}" ;;
+            5) TRAIN_OUTPUT_PATH="${line}" ;;
+            6) TRAIN_MAX_RUNTIME="${line}" ;;
+            7) TRAIN_VOLUME_SIZE="${line}" ;;
+            8) TRAIN_ENABLE_SPOT="${line}" ;;
+            9) TRAIN_MAX_WAIT="${line}" ;;
+            10) TRAIN_CHECKPOINT_PATH="${line}" ;;
+            11) TRAIN_HYPERPARAMS="${line}" ;;
+            12) TRAIN_METRIC_DEFINITIONS="${line}" ;;
+            13) TRAIN_ENVIRONMENT="${line}" ;;
+            14) TRAIN_TAGS="${line}" ;;
+        esac
+        i=$((i + 1))
+    done <<< "${parse_output}"
+
+    # Apply defaults for any empty optional fields
+    TRAIN_INSTANCE_COUNT="${TRAIN_INSTANCE_COUNT:-1}"
+    TRAIN_MAX_RUNTIME="${TRAIN_MAX_RUNTIME:-86400}"
+    TRAIN_VOLUME_SIZE="${TRAIN_VOLUME_SIZE:-50}"
+    TRAIN_ENABLE_SPOT="${TRAIN_ENABLE_SPOT:-false}"
+    TRAIN_MAX_WAIT="${TRAIN_MAX_WAIT:-172800}"
+    local empty_obj='{}'
+    local empty_arr='[]'
+    TRAIN_HYPERPARAMS="${TRAIN_HYPERPARAMS:-$empty_obj}"
+    TRAIN_METRIC_DEFINITIONS="${TRAIN_METRIC_DEFINITIONS:-$empty_arr}"
+    TRAIN_ENVIRONMENT="${TRAIN_ENVIRONMENT:-$empty_obj}"
+    TRAIN_TAGS="${TRAIN_TAGS:-$empty_obj}"
+}
+
+# ── _validate_config() ────────────────────────────────────────────────────────
+# Check that all required fields are present and valid.
+_validate_config() {
+    local has_error=false
+
+    if [ -z "${TRAIN_IMAGE}" ]; then
+        echo "❌ Missing required field: image"
+        echo "   The container image URI is required in do/training/config.yaml"
+        echo ""
+        echo "   Expected format: image: \"123456789012.dkr.ecr.us-east-1.amazonaws.com/my-training:latest\""
+        echo ""
+        has_error=true
+    fi
+
+    if [ -z "${TRAIN_SCRIPT}" ]; then
+        echo "❌ Missing required field: script"
+        echo "   The training script S3 path is required in do/training/config.yaml"
+        echo ""
+        echo "   Expected format: script: \"s3://my-bucket/scripts/train.py\""
+        echo ""
+        has_error=true
+    fi
+
+    if [ -z "${TRAIN_INSTANCE_TYPE}" ]; then
+        echo "❌ Missing required field: instance_type"
+        echo "   The SageMaker instance type is required in do/training/config.yaml"
+        echo ""
+        echo "   Expected format: instance_type: \"ml.g5.xlarge\""
+        echo ""
+        has_error=true
+    fi
+
+    if [ -z "${TRAIN_DATASET}" ]; then
+        echo "❌ Missing required field: dataset"
+        echo "   The S3 dataset path is required in do/training/config.yaml"
+        echo ""
+        echo "   Expected format: dataset: \"s3://my-bucket/data/train/\""
+        echo ""
+        has_error=true
+    fi
+
+    if [ -z "${TRAIN_OUTPUT_PATH}" ]; then
+        echo "❌ Missing required field: output_path"
+        echo "   The S3 output path is required in do/training/config.yaml"
+        echo ""
+        echo "   Expected format: output_path: \"s3://my-bucket/output/\""
+        echo ""
+        has_error=true
+    fi
+
+    # Spot training requires a checkpoint path for resumption
+    if [ "${TRAIN_ENABLE_SPOT}" = "true" ] && [ -z "${TRAIN_CHECKPOINT_PATH}" ]; then
+        echo "❌ Checkpoint path required for spot training"
+        echo "   When enable_spot is true, a checkpoint S3 path must be specified"
+        echo "   so training can resume after spot interruptions."
+        echo ""
+        echo "   Add to do/training/config.yaml:"
+        echo "     checkpoint_path: \"s3://my-bucket/checkpoints/\""
+        echo ""
+        has_error=true
+    fi
+
+    if [ "${has_error}" = true ]; then
+        exit 1
+    fi
+}
+
+# ── _check_idempotency() ─────────────────────────────────────────────────────
+# Check TRAIN_JOB_NAME in config, query status if exists.
+# If --force is set, skip check entirely and proceed to new job submission.
+# If an existing job is found, handle based on its current status:
+#   InProgress → poll until completion
+#   Completed  → display results and exit 0
+#   Failed     → display failure reason, suggest --force, exit 2
+#   Stopped    → display stopped message, suggest --force, exit 2
+_check_idempotency() {
+    # If --force is set, skip idempotency check entirely
+    if [ "${ARG_FORCE}" = true ]; then
+        return 0
+    fi
+
+    # Check if TRAIN_JOB_NAME is set and non-empty (sourced from do/config)
+    if [ -z "${TRAIN_JOB_NAME:-}" ]; then
+        return 0
+    fi
+
+    echo "🔍 Found existing training job: ${TRAIN_JOB_NAME}"
+    echo "   Checking status..."
+    echo ""
+
+    # Call DescribeTrainingJob to get current status
+    local describe_output
+    local describe_exit_code
+    describe_output=$(aws sagemaker describe-training-job \
+        --training-job-name "${TRAIN_JOB_NAME}" 2>&1) || describe_exit_code=$?
+    describe_exit_code=${describe_exit_code:-0}
+
+    if [ ${describe_exit_code} -ne 0 ]; then
+        # If describe fails (e.g., job was deleted), proceed to new job
+        echo "⚠️  Could not describe existing job: ${TRAIN_JOB_NAME}"
+        echo "   ${describe_output}"
+        echo "   Proceeding to create a new job."
+        echo ""
+        return 0
+    fi
+
+    # Extract status from the JSON response using python3
+    local job_status
+    job_status=$(echo "${describe_output}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+print(resp.get('TrainingJobStatus', 'Unknown'))
+" 2>/dev/null) || job_status="Unknown"
+
+    case "${job_status}" in
+        InProgress)
+            echo "⏳ Training job is still running: ${TRAIN_JOB_NAME}"
+            echo "   Resuming polling..."
+            echo ""
+            _poll_job
+            _handle_completion
+            exit 0
+            ;;
+        Completed)
+            echo "✅ Training job already completed: ${TRAIN_JOB_NAME}"
+            echo ""
+            # Pass the describe output to _handle_completion via a temp file
+            local describe_file="/tmp/train-describe-${TRAIN_JOB_NAME}.json"
+            echo "${describe_output}" > "${describe_file}"
+            _handle_completion
+            exit 0
+            ;;
+        Failed)
+            local failure_reason
+            failure_reason=$(echo "${describe_output}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+print(resp.get('FailureReason', 'No failure reason provided'))
+" 2>/dev/null) || failure_reason="No failure reason provided"
+
+            echo "❌ Previous training job failed: ${TRAIN_JOB_NAME}"
+            echo "   Reason: ${failure_reason}"
+            echo ""
+            echo "   To submit a new job, re-run with --force:"
+            echo "     ./do/train --force"
+            exit 2
+            ;;
+        Stopped)
+            echo "⏹️  Previous training job was stopped: ${TRAIN_JOB_NAME}"
+            echo ""
+            echo "   To submit a new job, re-run with --force:"
+            echo "     ./do/train --force"
+            exit 2
+            ;;
+        *)
+            echo "⚠️  Unexpected job status: ${job_status} for ${TRAIN_JOB_NAME}"
+            echo "   To submit a new job, re-run with --force:"
+            echo "     ./do/train --force"
+            exit 2
+            ;;
+    esac
+}
+
+# ── _build_job_request() ──────────────────────────────────────────────────────
+# Construct the CreateTrainingJob JSON request body.
+# Sets JOB_NAME and JOB_REQUEST_FILE for use by _submit_job.
+_build_job_request() {
+    # Generate job name with timestamp
+    local timestamp
+    timestamp=$(date +%Y%m%d-%H%M%S)
+    JOB_NAME="${PROJECT_NAME}-train-${timestamp}"
+
+    # Construct the JSON request file using python3
+    JOB_REQUEST_FILE="/tmp/train-request-${JOB_NAME}.json"
+
+    python3 "${SCRIPT_DIR}/.train_build_request.py" \
+        --job-name "${JOB_NAME}" \
+        --role-arn "${ROLE_ARN}" \
+        --image "${TRAIN_IMAGE}" \
+        --instance-type "${TRAIN_INSTANCE_TYPE}" \
+        --instance-count "${TRAIN_INSTANCE_COUNT}" \
+        --volume-size "${TRAIN_VOLUME_SIZE}" \
+        --dataset "${TRAIN_DATASET}" \
+        --output-path "${TRAIN_OUTPUT_PATH}" \
+        --max-runtime "${TRAIN_MAX_RUNTIME}" \
+        --hyperparams "${TRAIN_HYPERPARAMS}" \
+        --enable-spot "${TRAIN_ENABLE_SPOT}" \
+        --max-wait "${TRAIN_MAX_WAIT}" \
+        --checkpoint-path "${TRAIN_CHECKPOINT_PATH}" \
+        --metric-definitions "${TRAIN_METRIC_DEFINITIONS}" \
+        --environment "${TRAIN_ENVIRONMENT}" \
+        --tags "${TRAIN_TAGS}" \
+        --output-file "${JOB_REQUEST_FILE}"
+
+    if [ $? -ne 0 ]; then
+        echo "❌ Failed to construct CreateTrainingJob request"
+        exit 1
+    fi
+
+    echo "📋 Training Job: ${JOB_NAME}"
+    echo "   Image:     ${TRAIN_IMAGE}"
+    echo "   Instance:  ${TRAIN_INSTANCE_TYPE} x ${TRAIN_INSTANCE_COUNT}"
+    echo "   Dataset:   ${TRAIN_DATASET}"
+    echo "   Output:    ${TRAIN_OUTPUT_PATH}"
+    if [ "${TRAIN_ENABLE_SPOT}" = "true" ]; then
+        echo "   Spot:      enabled (max wait ${TRAIN_MAX_WAIT}s)"
+    fi
+}
+
+# ── _submit_job() ─────────────────────────────────────────────────────────────
+# Call aws sagemaker create-training-job with the constructed JSON.
+# Handles --dry-run, AccessDenied detection, and config persistence.
+_submit_job() {
+    # Handle --dry-run: print the request JSON and exit without submitting
+    if [ "${ARG_DRY_RUN}" = true ]; then
+        echo ""
+        echo "🔍 Dry run — CreateTrainingJob request:"
+        echo ""
+        cat "${JOB_REQUEST_FILE}"
+        echo ""
+        rm -f "${JOB_REQUEST_FILE}"
+        exit 0
+    fi
+
+    echo ""
+    echo "🚀 Submitting training job..."
+
+    # Submit the job via AWS CLI
+    local submit_output
+    local submit_exit_code
+    submit_output=$(aws sagemaker create-training-job \
+        --cli-input-json "file://${JOB_REQUEST_FILE}" 2>&1) || submit_exit_code=$?
+    submit_exit_code=${submit_exit_code:-0}
+
+    # Clean up the temporary request file
+    rm -f "${JOB_REQUEST_FILE}"
+
+    if [ ${submit_exit_code} -eq 0 ]; then
+        # Success — persist job name to do/config
+        _update_config_var "TRAIN_JOB_NAME" "${JOB_NAME}"
+        echo "   ✅ Job submitted successfully: ${JOB_NAME}"
+        echo ""
+    else
+        # Failure — detect error type and provide remediation
+        if echo "${submit_output}" | grep -q "AccessDeniedException"; then
+            # Extract the permission or action from the error message
+            local missing_permission
+            missing_permission=$(echo "${submit_output}" | grep -oP '(?<=performing: )[^ ]+' || echo "")
+            if [ -z "${missing_permission}" ]; then
+                missing_permission=$(echo "${submit_output}" | grep -oP '(?<=action: )[^ ]+' || echo "")
+            fi
+            if [ -z "${missing_permission}" ]; then
+                missing_permission="sagemaker:CreateTrainingJob"
+            fi
+
+            echo "❌ Access denied: ${missing_permission}"
+            echo "   ${submit_output}"
+            echo ""
+            echo "   Remediation:"
+            echo "     Ensure your IAM role or user has the '${missing_permission}' permission."
+            echo "     If using the bootstrap stack, re-run ./do/bootstrap to update permissions."
+            echo "     Otherwise, attach a policy granting '${missing_permission}' to your role."
+            exit 1
+        else
+            echo "❌ Failed to submit training job"
+            echo "   ${submit_output}"
+            echo ""
+            echo "   Check the error above and verify your configuration in do/training/config.yaml."
+            exit 1
+        fi
+    fi
+}
+
+# ── _poll_job() ───────────────────────────────────────────────────────────────
+# Poll DescribeTrainingJob every POLL_INTERVAL seconds until terminal state.
+# Displays: job status, secondary status, elapsed time, and training metrics.
+# On Completed: breaks loop and returns (caller handles completion).
+# On Failed: displays FailureReason and exits 2.
+# On Stopped: displays stopped message and exits 2.
+# On spot interruption: explains auto-resume from checkpoint.
+_poll_job() {
+    local job_name="${JOB_NAME:-$TRAIN_JOB_NAME}"
+
+    echo "⏳ Polling training job: ${job_name}"
+    echo "   (Ctrl+C to stop polling — job continues in background)"
+    echo ""
+
+    while true; do
+        # Call DescribeTrainingJob
+        local describe_output
+        local describe_exit_code
+        describe_output=$(aws sagemaker describe-training-job \
+            --training-job-name "${job_name}" 2>&1) || describe_exit_code=$?
+        describe_exit_code=${describe_exit_code:-0}
+
+        if [ ${describe_exit_code} -ne 0 ]; then
+            echo "⚠️  Failed to describe job (will retry): ${describe_output}"
+            sleep "${POLL_INTERVAL}"
+            continue
+        fi
+
+        # Parse the response using python3 helper
+        local poll_result
+        poll_result=$(echo "${describe_output}" | python3 "${SCRIPT_DIR}/.train_poll_parser.py" 2>&1)
+        local parse_exit_code=$?
+
+        if [ ${parse_exit_code} -ne 0 ]; then
+            echo "⚠️  Failed to parse job status (will retry): ${poll_result}"
+            sleep "${POLL_INTERVAL}"
+            continue
+        fi
+
+        # The parser outputs structured lines:
+        #   STATUS=<status>
+        #   SECONDARY=<secondary_status>
+        #   ELAPSED=<elapsed_string>
+        #   METRICS=<metrics_string>
+        #   FAILURE_REASON=<reason>
+        #   DISPLAY=<formatted display text>
+        local job_status=""
+        local secondary_status=""
+        local display_text=""
+        local failure_reason=""
+
+        job_status=$(echo "${poll_result}" | grep '^STATUS=' | cut -d= -f2-)
+        secondary_status=$(echo "${poll_result}" | grep '^SECONDARY=' | cut -d= -f2-)
+        failure_reason=$(echo "${poll_result}" | grep '^FAILURE_REASON=' | cut -d= -f2-)
+        display_text=$(echo "${poll_result}" | grep '^DISPLAY=' | cut -d= -f2-)
+
+        # Print the formatted status line
+        echo "${display_text}"
+
+        # Handle terminal states
+        case "${job_status}" in
+            Completed)
+                echo ""
+                echo "✅ Training job completed: ${job_name}"
+                break
+                ;;
+            Failed)
+                echo ""
+                echo "❌ Training job failed: ${job_name}"
+                if [ -n "${failure_reason}" ]; then
+                    echo "   Reason: ${failure_reason}"
+                fi
+                echo ""
+                echo "   To investigate: check CloudWatch logs for /aws/sagemaker/TrainingJobs/${job_name}"
+                echo "   To retry: ./do/train --force"
+                exit 2
+                ;;
+            Stopped)
+                echo ""
+                echo "⏹️  Training job was stopped: ${job_name}"
+                echo ""
+                echo "   To submit a new job: ./do/train --force"
+                exit 2
+                ;;
+        esac
+
+        # Handle spot interruption (job still InProgress but interrupted)
+        if echo "${secondary_status}" | grep -qi "interrupted"; then
+            echo ""
+            echo "   ℹ️  Spot instance interrupted. The job will automatically resume"
+            echo "      from the last checkpoint. Continuing to poll..."
+            echo ""
+        fi
+
+        # Wait before next poll
+        sleep "${POLL_INTERVAL}"
+    done
+}
+
+# ── _handle_completion() ──────────────────────────────────────────────────────
+# Store output paths and invoke feedback loop.
+# Extracts model artifacts path, detects output type, and prints next steps.
+_handle_completion() {
+    local job_name="${JOB_NAME:-$TRAIN_JOB_NAME}"
+
+    # Get the full DescribeTrainingJob response
+    local describe_output
+    local describe_exit_code
+    describe_output=$(aws sagemaker describe-training-job \
+        --training-job-name "${job_name}" 2>&1) || describe_exit_code=$?
+    describe_exit_code=${describe_exit_code:-0}
+
+    if [ ${describe_exit_code} -ne 0 ]; then
+        echo "⚠️  Failed to describe completed job: ${job_name}"
+        echo "   ${describe_output}"
+        return 1
+    fi
+
+    # Extract ModelArtifacts.S3ModelArtifacts from the response
+    local output_path
+    output_path=$(echo "${describe_output}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+artifacts = resp.get('ModelArtifacts', {})
+print(artifacts.get('S3ModelArtifacts', ''))
+" 2>/dev/null)
+
+    if [ -z "${output_path}" ]; then
+        echo "⚠️  No model artifacts found in job response."
+        echo "   The job may not have produced output artifacts."
+        return 1
+    fi
+
+    # Write TRAIN_OUTPUT_PATH to do/config
+    _update_config_var "TRAIN_OUTPUT_PATH" "${output_path}"
+
+    # Detect output type: check for adapter_config.json in output path
+    local output_type="full-model"
+    if aws s3 ls "${output_path}/adapter_config.json" &>/dev/null; then
+        output_type="adapter"
+    fi
+
+    # Source feedback.sh and call print_completion_feedback
+    source "${SCRIPT_DIR}/lib/feedback.sh"
+    print_completion_feedback "${output_path}" "${output_type}" "${job_name}"
+
+    # If spot training was enabled, display cost savings
+    if [ "${TRAIN_ENABLE_SPOT:-false}" = "true" ]; then
+        local billable_seconds training_seconds savings_pct
+        billable_seconds=$(echo "${describe_output}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+print(resp.get('BillableTimeInSeconds', 0))
+" 2>/dev/null)
+        training_seconds=$(echo "${describe_output}" | python3 -c "
+import sys, json
+resp = json.load(sys.stdin)
+print(resp.get('TrainingTimeInSeconds', 0))
+" 2>/dev/null)
+
+        if [ "${training_seconds:-0}" -gt 0 ] && [ "${billable_seconds:-0}" -gt 0 ]; then
+            savings_pct=$(python3 -c "
+billable = ${billable_seconds}
+training = ${training_seconds}
+if training > 0:
+    savings = ((training - billable) / training) * 100
+    print(f'{savings:.0f}')
+else:
+    print('0')
+")
+            echo "   💰 Spot training savings:"
+            echo "      Training time:  ${training_seconds}s"
+            echo "      Billed time:    ${billable_seconds}s"
+            echo "      Estimated savings: ~${savings_pct}%"
+            echo ""
+        fi
+    fi
+}
+
+# ── _update_config_var() ──────────────────────────────────────────────────────
+# Write or update a variable in do/config.
+# Usage: _update_config_var VAR_NAME "value"
+_update_config_var() {
+    local var_name="$1"
+    local var_value="$2"
+    local config_file="${SCRIPT_DIR}/config"
+
+    if grep -q "^export ${var_name}=" "${config_file}" 2>/dev/null; then
+        sed -i.bak "s|^export ${var_name}=.*|export ${var_name}=\"${var_value}\"|" "${config_file}"
+        rm -f "${config_file}.bak"
+    else
+        echo "export ${var_name}=\"${var_value}\"" >> "${config_file}"
+    fi
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+_parse_args "$@"
+
+if [ "${ARG_HELP}" = true ]; then
+    _show_help
+fi
+
+if [ "${ARG_STATUS}" = true ]; then
+    # Show status of current tracked job without submitting
+    if [ -z "${TRAIN_JOB_NAME:-}" ]; then
+        echo "📊 No training job tracked."
+        echo "   Run ./do/train to submit a training job."
+        exit 0
+    fi
+
+    echo "📊 Training Job Status"
+    echo "   Job: ${TRAIN_JOB_NAME}"
+
+    # Call DescribeTrainingJob and parse the response
+    STATUS_JSON=$(aws sagemaker describe-training-job \
+        --training-job-name "${TRAIN_JOB_NAME}" \
+        --region "${AWS_REGION}" 2>&1) || {
+        echo ""
+        echo "❌ Failed to describe training job: ${TRAIN_JOB_NAME}"
+        echo "   ${STATUS_JSON}"
+        echo ""
+        echo "   The job may have been deleted or the name is incorrect."
+        echo "   Run ./do/train --force to start a new job."
+        exit 1
+    }
+
+    # Parse and display the status using the helper script
+    echo "${STATUS_JSON}" | python3 "${SCRIPT_DIR}/.train_status_parser.py"
+    exit 0
+fi
+
+# Parse and validate configuration
+_parse_config
+_validate_config
+
+# Check idempotency (existing job handling)
+_check_idempotency
+
+# Build and submit the job
+_build_job_request
+_submit_job
+
+# Poll for completion (unless --no-wait)
+if [ "${ARG_NO_WAIT}" = true ]; then
+    echo "   --no-wait specified. Job submitted, exiting without polling."
+    echo "   Re-run ./do/train --status to check progress."
+    exit 0
+fi
+
+_poll_job
+_handle_completion

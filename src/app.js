@@ -349,9 +349,25 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     }
 
     // Exclude tune files when framework is NOT transformers OR deploymentTarget is batch-transform
-    if (architecture !== 'transformers' || answers.deploymentTarget === 'batch-transform') {
+    const tuneIncluded = architecture === 'transformers' && answers.deploymentTarget !== 'batch-transform';
+    if (!tuneIncluded) {
         ignorePatterns.push('**/do/tune');
         ignorePatterns.push('**/do/.tune_helper.py');
+    }
+
+    // Exclude train files when deploymentTarget is batch-transform
+    const trainIncluded = answers.deploymentTarget !== 'batch-transform';
+    if (!trainIncluded) {
+        ignorePatterns.push('**/do/train');
+        ignorePatterns.push('**/do/.train_build_request.py');
+        ignorePatterns.push('**/do/.train_status_parser.py');
+        ignorePatterns.push('**/do/.train_poll_parser.py');
+        ignorePatterns.push('**/do/training/**');
+    }
+
+    // Exclude feedback.sh when neither tune nor train is included
+    if (!tuneIncluded && !trainIncluded) {
+        ignorePatterns.push('**/do/lib/feedback.sh');
     }
 
     // Exclude do/test when hosted-model-endpoint is not selected
@@ -371,6 +387,11 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/adapters/**');
         ignorePatterns.push('**/do/tune');
         ignorePatterns.push('**/do/.tune_helper.py');
+        ignorePatterns.push('**/do/train');
+        ignorePatterns.push('**/do/.train_build_request.py');
+        ignorePatterns.push('**/do/.train_status_parser.py');
+        ignorePatterns.push('**/do/.train_poll_parser.py');
+        ignorePatterns.push('**/do/training/**');
         ignorePatterns.push('**/do/add-ic');
         ignorePatterns.push('**/do/run');
         ignorePatterns.push('**/sample_model/**');
@@ -1177,7 +1198,8 @@ function _setExecutablePermissions(destDir, answers = {}) {
         'do/status',
         'do/add-ic',
         'do/adapter',
-        'do/tune'
+        'do/tune',
+        'do/train'
     ];
 
     const shellScripts = architecture === 'marketplace' ? marketplaceScripts : defaultScripts;
