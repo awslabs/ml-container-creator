@@ -26,6 +26,7 @@ import DeploymentConfigResolver from './deployment-config-resolver.js';
 import BootstrapConfig from './bootstrap-config.js';
 import { parseKeyValue } from './key-value-parser.js';
 import ParameterSchemaValidator from './parameter-schema-validator.js';
+import { validationRules } from './generated/validation-rules.js';
 
 const __configMgrFilename = fileURLToPath(import.meta.url);
 const __configMgrDir = dirname(__configMgrFilename);
@@ -2261,6 +2262,22 @@ export default class ConfigManager {
      * @private
      */
     _validateParameterValue(parameter, value, context = {}) {
+        // First pass: schema-derived validation rules (type, range, pattern, enum)
+        // Skip deprecated params — they have relaxed validation handled by the switch below
+        const schemaRule = validationRules[parameter];
+        if (schemaRule && value !== null && value !== undefined) {
+            // Don't apply strict enum validation to internally-derived values
+            // The switch statement below handles context-dependent validation
+            const skipSchemaValidation = ['framework', 'modelServer', 'deploymentConfig'].includes(parameter);
+            if (!skipSchemaValidation) {
+                const error = schemaRule(value);
+                if (error) {
+                    throw new ValidationError(error, parameter, value);
+                }
+            }
+        }
+
+        // Second pass: context-dependent validations that require runtime state
         const supportedOptions = this._getSupportedOptions();
         
         switch (parameter) {

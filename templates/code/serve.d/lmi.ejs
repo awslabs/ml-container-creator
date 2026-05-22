@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# LMI / DJL Server Configuration
+# ---------------------------------------------------------------------------
+# Config: /opt/ml/model/serving.properties
+# Entrypoint: DJL Serving (built into base image)
+# Port: 8080 (configured in serving.properties)
+# ---------------------------------------------------------------------------
+
+# LMI/DJL containers use serving.properties for configuration
+if [ ! -f /opt/ml/model/serving.properties ]; then
+    echo "Error: serving.properties not found at /opt/ml/model/serving.properties"
+    exit 1
+fi
+
+echo "Using configuration from /opt/ml/model/serving.properties"
+cat /opt/ml/model/serving.properties
+
+# DJL Serving is already configured in the base image entrypoint
+exit 0

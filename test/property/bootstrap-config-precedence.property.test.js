@@ -26,7 +26,7 @@ import ConfigManager from '../../src/lib/config-manager.js';
 import { createMockGenerator, createMockGeneratorWithOptions, cleanupEnvVars } from '../helpers/mock-generator.js';
 
 const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
     timeout: 60000,
     verbose: false
 };

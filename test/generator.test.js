@@ -268,62 +268,42 @@ describe('@aws/ml-container-creator:app', () => {
     });
 
     describe('transformers project with jumpstart:// model name', () => {
-        let result;
-
-        beforeEach(function () {
+        it('should reject jumpstart:// model names', function () {
             this.timeout(60000);
-            result = runGenerator({
-                'project-name': 'test-jumpstart-project',
-                'deployment-config': 'transformers-vllm',
-                'model-name': 'jumpstart://huggingface-reasoning-qwen3-14b',
-                'build-target': 'codebuild',
-                'instance-type': 'ml.g5.xlarge',
-                'region': 'us-east-1'
-            });
-        });
-
-        afterEach(() => {
-            if (result) {
-                result.cleanup();
+            try {
+                runGenerator({
+                    'project-name': 'test-jumpstart-project',
+                    'deployment-config': 'transformers-vllm',
+                    'model-name': 'jumpstart://huggingface-reasoning-qwen3-14b',
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.g5.xlarge',
+                    'region': 'us-east-1'
+                });
+                assert.fail('Should have rejected jumpstart:// model name');
+            } catch (error) {
+                assert.ok(error.stderr.includes('JumpStart') || error.exitCode !== 0,
+                    'jumpstart:// model names should be rejected');
             }
-        });
-
-        it('Dockerfile sets VLLM_MODEL to the jumpstart URI', () => {
-            result.assertFileContent('Dockerfile', 'VLLM_MODEL="jumpstart://huggingface-reasoning-qwen3-14b"');
-        });
-
-        it('serve script uses source-aware model resolution at runtime', () => {
-            result.assertFileContent('code/serve', 'MODEL_SOURCE');
-            result.assertFileContent('code/serve', 'resolve_model');
-            result.assertFileContent('code/serve', '/opt/ml/model');
         });
     });
 
     describe('transformers project with sglang and jumpstart:// model name', () => {
-        let result;
-
-        beforeEach(function () {
+        it('should reject jumpstart:// model names', function () {
             this.timeout(60000);
-            result = runGenerator({
-                'project-name': 'test-sglang-jumpstart',
-                'deployment-config': 'transformers-sglang',
-                'model-name': 'jumpstart://huggingface-reasoning-qwen3-14b',
-                'build-target': 'codebuild',
-                'instance-type': 'ml.g5.xlarge',
-                'region': 'us-east-1'
-            });
-        });
-
-        afterEach(() => {
-            if (result) {
-                result.cleanup();
+            try {
+                runGenerator({
+                    'project-name': 'test-sglang-jumpstart',
+                    'deployment-config': 'transformers-sglang',
+                    'model-name': 'jumpstart://huggingface-reasoning-qwen3-14b',
+                    'build-target': 'codebuild',
+                    'instance-type': 'ml.g5.xlarge',
+                    'region': 'us-east-1'
+                });
+                assert.fail('Should have rejected jumpstart:// model name');
+            } catch (error) {
+                assert.ok(error.stderr.includes('JumpStart') || error.exitCode !== 0,
+                    'jumpstart:// model names should be rejected');
             }
-        });
-
-        it('serve script uses source-aware model resolution for SGLang', () => {
-            result.assertFileContent('code/serve', 'SGLANG_MODEL_PATH');
-            result.assertFileContent('code/serve', 'resolve_model');
-            result.assertFileContent('code/serve', '/opt/ml/model');
         });
     });
 });

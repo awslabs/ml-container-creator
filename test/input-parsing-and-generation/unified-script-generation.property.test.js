@@ -40,8 +40,8 @@ const testTemplate = readFileSync(path.join(templatesDir, 'test'), 'utf8');
 /**
  * Render a template with the given variables.
  */
-function renderTemplate(template, vars) {
-    return ejs.render(template, vars);
+function renderTemplate(template, vars, templateName) {
+    return ejs.render(template, vars, { filename: path.join(templatesDir, templateName || 'unknown') });
 }
 
 /** Arbitrary for a base config shared by both deployment targets */
@@ -92,7 +92,7 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Rendering should succeed and produce a single script
-                const output = renderTemplate(deployTemplate, vars);
+                const output = renderTemplate(deployTemplate, vars, 'deploy');
 
                 // Output must be a valid bash script
                 assert.ok(
@@ -135,7 +135,7 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Rendering should succeed and produce a single script
-                const output = renderTemplate(deployTemplate, vars);
+                const output = renderTemplate(deployTemplate, vars, 'deploy');
 
                 // Output must be a valid bash script
                 assert.ok(
@@ -181,7 +181,7 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Rendering should succeed and produce a single script
-                const output = renderTemplate(cleanTemplate, vars);
+                const output = renderTemplate(cleanTemplate, vars, 'clean');
 
                 // Output must be a valid bash script
                 assert.ok(
@@ -224,7 +224,7 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Rendering should succeed and produce a single script
-                const output = renderTemplate(cleanTemplate, vars);
+                const output = renderTemplate(cleanTemplate, vars, 'clean');
 
                 // Output must be a valid bash script
                 assert.ok(
@@ -270,7 +270,7 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Rendering should succeed and produce a single script
-                const output = renderTemplate(logsTemplate, vars);
+                const output = renderTemplate(logsTemplate, vars, 'logs');
 
                 // Output must be a valid bash script
                 assert.ok(
@@ -313,7 +313,7 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Rendering should succeed and produce a single script
-                const output = renderTemplate(logsTemplate, vars);
+                const output = renderTemplate(logsTemplate, vars, 'logs');
 
                 // Output must be a valid bash script
                 assert.ok(
@@ -359,7 +359,7 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Rendering should succeed and produce a single script
-                const output = renderTemplate(testTemplate, vars);
+                const output = renderTemplate(testTemplate, vars, 'test');
 
                 // Output must be a valid bash script
                 assert.ok(
@@ -402,7 +402,7 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Rendering should succeed and produce a single script
-                const output = renderTemplate(testTemplate, vars);
+                const output = renderTemplate(testTemplate, vars, 'test');
 
                 // Output must be a valid bash script
                 assert.ok(
@@ -451,10 +451,10 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // All four templates should render without error
-                const deployOutput = renderTemplate(deployTemplate, vars);
-                const cleanOutput = renderTemplate(cleanTemplate, vars);
-                const logsOutput = renderTemplate(logsTemplate, vars);
-                const testOutput = renderTemplate(testTemplate, vars);
+                const deployOutput = renderTemplate(deployTemplate, vars, 'deploy');
+                const cleanOutput = renderTemplate(cleanTemplate, vars, 'clean');
+                const logsOutput = renderTemplate(logsTemplate, vars, 'logs');
+                const testOutput = renderTemplate(testTemplate, vars, 'test');
 
                 // All outputs should be valid bash scripts
                 assert.ok(deployOutput.startsWith('#!/bin/bash'), 'do/deploy must be valid bash');
@@ -496,10 +496,10 @@ describe('Property 6: Unified Script Generation', () => {
                 };
 
                 // Render all templates
-                const deployOutput = renderTemplate(deployTemplate, vars);
-                const cleanOutput = renderTemplate(cleanTemplate, vars);
-                const logsOutput = renderTemplate(logsTemplate, vars);
-                const testOutput = renderTemplate(testTemplate, vars);
+                const deployOutput = renderTemplate(deployTemplate, vars, 'deploy');
+                const cleanOutput = renderTemplate(cleanTemplate, vars, 'clean');
+                const logsOutput = renderTemplate(logsTemplate, vars, 'logs');
+                const testOutput = renderTemplate(testTemplate, vars, 'test');
 
                 // Scripts should NOT reference other deployment-target-specific scripts
                 // (e.g., no ./do/deploy-hyperpod or ./do/clean-sagemaker)

@@ -37,7 +37,7 @@ function renderServe(overrides = {}) {
         modelLoadStrategy: 'runtime',
         ...overrides
     };
-    return ejs.render(SERVE_TEMPLATE, vars);
+    return ejs.render(SERVE_TEMPLATE, vars, { filename: SERVE_TEMPLATE_PATH });
 }
 
 // ── download_model_from_s3 tests ─────────────────────────────────────────────

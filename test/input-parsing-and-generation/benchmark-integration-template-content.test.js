@@ -23,7 +23,8 @@ const __dirname = path.dirname(__filename);
 
 // Load templates
 const configTemplate = readFileSync(path.join(__dirname, '../../templates/do/config'), 'utf8');
-const cleanTemplate = readFileSync(path.join(__dirname, '../../templates/do/clean'), 'utf8');
+const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean');
+const cleanTemplate = readFileSync(cleanTemplatePath, 'utf8');
 const benchmarkTemplatePath = path.join(__dirname, '../../templates/do/benchmark');
 
 /** Base template variables for benchmark rendering */
@@ -160,7 +161,7 @@ describe('Benchmark Integration: Generated template content', function () {
     // ================================================================
     describe('do/clean with includeBenchmark === true', () => {
         it('should contain benchmark) case statement', () => {
-            const output = ejs.render(cleanTemplate, baseVars());
+            const output = ejs.render(cleanTemplate, baseVars(), { filename: cleanTemplatePath });
             assert.ok(
                 output.includes('benchmark)'),
                 'must contain benchmark) case'

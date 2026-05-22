@@ -25,7 +25,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false, seed: 42 };
+const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false, seed: 42 };
 
 // ── Load the actual marketplace config template ──────────────────────────────
 

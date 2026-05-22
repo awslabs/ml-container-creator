@@ -1,0 +1,1151 @@
+{
+  "generatedAt": "2026-05-21T22:50:37.900Z",
+  "generatedBy": "scripts/codegen-widget.js",
+  "source": "config/parameter-schema-v2.json",
+  "version": "0.9.0",
+  "schemaVersion": "2.0.0",
+  "widgetSections": {
+    "model-server": [
+      {
+        "key": "projectName",
+        "cliFlag": "--project-name",
+        "type": "string",
+        "description": "Name for the generated project",
+        "inputType": "text",
+        "placeholder": "my-project",
+        "datalist": null,
+        "default": null,
+        "validation": {
+          "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+          "minLength": 2,
+          "maxLength": 63
+        },
+        "group": "project",
+        "appliesTo": {
+          "deploymentTargets": [
+            "*"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "deploymentConfig",
+        "cliFlag": "--deployment-config",
+        "type": "enum",
+        "description": "Deployment configuration (e.g. http-flask, transformers-vllm, triton-fil)",
+        "inputType": "select",
+        "placeholder": null,
+        "datalist": null,
+        "default": null,
+        "validation": {
+          "enum": [
+            "http-flask",
+            "http-fastapi",
+            "transformers-vllm",
+            "transformers-sglang",
+            "transformers-tensorrt-llm",
+            "transformers-lmi",
+            "transformers-djl",
+            "triton-fil",
+            "triton-onnxruntime",
+            "triton-tensorflow",
+            "triton-pytorch",
+            "triton-vllm",
+            "triton-tensorrtllm",
+            "triton-python",
+            "diffusors-vllm-omni",
+            "marketplace"
+          ]
+        },
+        "group": "model",
+        "appliesTo": {
+          "deploymentTargets": [
+            "*"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "modelName",
+        "cliFlag": "--model-name",
+        "type": "string",
+        "description": "Model identifier (hf-org/model, s3://..., registry://..., marketplace://...)",
+        "inputType": "text",
+        "placeholder": "e.g. meta-llama/Llama-3.1-8B-Instruct",
+        "datalist": "models",
+        "default": null,
+        "validation": {
+          "minLength": 1
+        },
+        "group": "model",
+        "appliesTo": {
+          "deploymentTargets": [
+            "*"
+          ],
+          "architectures": [
+            "transformers",
+            "diffusors"
+          ]
+        }
+      }
+    ],
+    "infrastructure": [
+      {
+        "key": "deploymentTarget",
+        "cliFlag": "--deployment-target",
+        "type": "enum",
+        "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)",
+        "inputType": "select",
+        "placeholder": null,
+        "datalist": null,
+        "default": "managed-inference",
+        "validation": {
+          "enum": [
+            "managed-inference",
+            "realtime-inference",
+            "async-inference",
+            "batch-transform",
+            "hyperpod-eks"
+          ]
+        },
+        "group": "infrastructure",
+        "appliesTo": {
+          "deploymentTargets": [
+            "*"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "instanceType",
+        "cliFlag": "--instance-type",
+        "type": "string",
+        "description": "SageMaker instance type (e.g. ml.g5.xlarge, ml.m5.large)",
+        "inputType": "text",
+        "placeholder": "e.g. ml.g5.2xlarge",
+        "datalist": "instances",
+        "default": null,
+        "validation": {
+          "pattern": "^ml\\.[a-z0-9]+\\.[a-z0-9]+$"
+        },
+        "group": "infrastructure",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference",
+            "async-inference",
+            "batch-transform"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "icGpuCount",
+        "cliFlag": "--ic-gpu-count",
+        "type": "integer",
+        "description": "GPUs allocated to the inference component",
+        "inputType": "number",
+        "placeholder": "auto",
+        "datalist": null,
+        "default": null,
+        "validation": {
+          "min": 0,
+          "max": 8
+        },
+        "group": "inference-component",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "icCopyCount",
+        "cliFlag": "--ic-copy-count",
+        "type": "integer",
+        "description": "Number of inference component copies",
+        "inputType": "number",
+        "placeholder": "1",
+        "datalist": null,
+        "default": 1,
+        "validation": {
+          "min": 0,
+          "max": 100
+        },
+        "group": "inference-component",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "icMemorySize",
+        "cliFlag": "--ic-memory-size",
+        "type": "integer",
+        "description": "Memory in MB for the inference component",
+        "inputType": "number",
+        "placeholder": "1024",
+        "datalist": null,
+        "default": 1024,
+        "validation": {
+          "min": 128,
+          "max": 3145728
+        },
+        "group": "inference-component",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      }
+    ],
+    "features": [
+      {
+        "key": "enableLora",
+        "cliFlag": "--enable-lora",
+        "type": "boolean",
+        "description": "Enable LoRA adapter serving",
+        "inputType": "checkbox",
+        "placeholder": null,
+        "datalist": null,
+        "default": false,
+        "validation": {},
+        "group": "lora",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "transformers"
+          ]
+        }
+      },
+      {
+        "key": "maxLoras",
+        "cliFlag": "--max-loras",
+        "type": "integer",
+        "description": "Maximum concurrent LoRA adapters in GPU memory",
+        "inputType": "number",
+        "placeholder": "30",
+        "datalist": null,
+        "default": 30,
+        "validation": {
+          "min": 1,
+          "max": 256
+        },
+        "group": "lora",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "transformers"
+          ]
+        }
+      },
+      {
+        "key": "maxLoraRank",
+        "cliFlag": "--max-lora-rank",
+        "type": "integer",
+        "description": "Maximum LoRA rank",
+        "inputType": "number",
+        "placeholder": "64",
+        "datalist": null,
+        "default": 64,
+        "validation": {
+          "min": 8,
+          "max": 512
+        },
+        "group": "lora",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "transformers"
+          ]
+        }
+      },
+      {
+        "key": "includeBenchmark",
+        "cliFlag": "--include-benchmark",
+        "type": "boolean",
+        "description": "Include SageMaker AI Benchmarking",
+        "inputType": "checkbox",
+        "placeholder": null,
+        "datalist": null,
+        "default": false,
+        "validation": {},
+        "group": "benchmark",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "transformers",
+            "diffusors"
+          ]
+        }
+      },
+      {
+        "key": "benchmarkConcurrency",
+        "cliFlag": "--benchmark-concurrency",
+        "type": "integer",
+        "description": "Benchmark concurrent requests",
+        "inputType": "number",
+        "placeholder": "10",
+        "datalist": null,
+        "default": 10,
+        "validation": {
+          "min": 1,
+          "max": 1000
+        },
+        "group": "benchmark",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "transformers",
+            "diffusors"
+          ]
+        }
+      },
+      {
+        "key": "benchmarkInputTokens",
+        "cliFlag": "--benchmark-input-tokens",
+        "type": "integer",
+        "description": "Benchmark mean input tokens",
+        "inputType": "number",
+        "placeholder": "550",
+        "datalist": null,
+        "default": 550,
+        "validation": {
+          "min": 1,
+          "max": 128000
+        },
+        "group": "benchmark",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "transformers",
+            "diffusors"
+          ]
+        }
+      },
+      {
+        "key": "benchmarkOutputTokens",
+        "cliFlag": "--benchmark-output-tokens",
+        "type": "integer",
+        "description": "Benchmark mean output tokens",
+        "inputType": "number",
+        "placeholder": "150",
+        "datalist": null,
+        "default": 150,
+        "validation": {
+          "min": 1,
+          "max": 128000
+        },
+        "group": "benchmark",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "transformers",
+            "diffusors"
+          ]
+        }
+      },
+      {
+        "key": "benchmarkStreaming",
+        "cliFlag": "--benchmark-streaming",
+        "type": "boolean",
+        "description": "Enable streaming in benchmark",
+        "inputType": "checkbox",
+        "placeholder": null,
+        "datalist": null,
+        "default": true,
+        "validation": {},
+        "group": "benchmark",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
+          ],
+          "architectures": [
+            "transformers",
+            "diffusors"
+          ]
+        }
+      }
+    ],
+    "env-vars": [
+      {
+        "key": "modelEnv",
+        "cliFlag": "--model-env",
+        "type": "string",
+        "description": "Model env var, repeatable (e.g. VLLM_TENSOR_PARALLEL_SIZE=4)",
+        "inputType": "repeatable-kv",
+        "placeholder": null,
+        "datalist": null,
+        "default": [],
+        "validation": {},
+        "group": "model",
+        "appliesTo": {
+          "deploymentTargets": [
+            "*"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "serverEnv",
+        "cliFlag": "--server-env",
+        "type": "string",
+        "description": "Server env var, repeatable (e.g. SGLANG_MEM_FRACTION=0.9)",
+        "inputType": "repeatable-kv",
+        "placeholder": null,
+        "datalist": null,
+        "default": [],
+        "validation": {},
+        "group": "model",
+        "appliesTo": {
+          "deploymentTargets": [
+            "*"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      }
+    ]
+  },
+  "allParameters": [
+    {
+      "key": "projectName",
+      "cliFlag": "--project-name",
+      "description": "Name for the generated project",
+      "type": "string",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "deploymentConfig",
+      "cliFlag": "--deployment-config",
+      "description": "Deployment configuration (e.g. http-flask, transformers-vllm, triton-fil)",
+      "type": "enum",
+      "group": "model",
+      "phase": "model",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "modelName",
+      "cliFlag": "--model-name",
+      "description": "Model identifier (hf-org/model, s3://..., registry://..., marketplace://...)",
+      "type": "string",
+      "group": "model",
+      "phase": "model",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "deploymentTarget",
+      "cliFlag": "--deployment-target",
+      "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)",
+      "type": "enum",
+      "group": "infrastructure",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "instanceType",
+      "cliFlag": "--instance-type",
+      "description": "SageMaker instance type (e.g. ml.g5.xlarge, ml.m5.large)",
+      "type": "string",
+      "group": "infrastructure",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "icGpuCount",
+      "cliFlag": "--ic-gpu-count",
+      "description": "GPUs allocated to the inference component",
+      "type": "integer",
+      "group": "inference-component",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "icCopyCount",
+      "cliFlag": "--ic-copy-count",
+      "description": "Number of inference component copies",
+      "type": "integer",
+      "group": "inference-component",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "icMemorySize",
+      "cliFlag": "--ic-memory-size",
+      "description": "Memory in MB for the inference component",
+      "type": "integer",
+      "group": "inference-component",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "enableLora",
+      "cliFlag": "--enable-lora",
+      "description": "Enable LoRA adapter serving",
+      "type": "boolean",
+      "group": "lora",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "maxLoras",
+      "cliFlag": "--max-loras",
+      "description": "Maximum concurrent LoRA adapters in GPU memory",
+      "type": "integer",
+      "group": "lora",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "maxLoraRank",
+      "cliFlag": "--max-lora-rank",
+      "description": "Maximum LoRA rank",
+      "type": "integer",
+      "group": "lora",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "includeBenchmark",
+      "cliFlag": "--include-benchmark",
+      "description": "Include SageMaker AI Benchmarking",
+      "type": "boolean",
+      "group": "benchmark",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "benchmarkConcurrency",
+      "cliFlag": "--benchmark-concurrency",
+      "description": "Benchmark concurrent requests",
+      "type": "integer",
+      "group": "benchmark",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "benchmarkInputTokens",
+      "cliFlag": "--benchmark-input-tokens",
+      "description": "Benchmark mean input tokens",
+      "type": "integer",
+      "group": "benchmark",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "benchmarkOutputTokens",
+      "cliFlag": "--benchmark-output-tokens",
+      "description": "Benchmark mean output tokens",
+      "type": "integer",
+      "group": "benchmark",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "benchmarkStreaming",
+      "cliFlag": "--benchmark-streaming",
+      "description": "Enable streaming in benchmark",
+      "type": "boolean",
+      "group": "benchmark",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "benchmarkRequestCount",
+      "cliFlag": "--benchmark-request-count",
+      "description": "Total number of benchmark requests to send",
+      "type": "integer",
+      "group": "benchmark",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "benchmarkS3OutputPath",
+      "cliFlag": "--benchmark-s3-output-path",
+      "description": "S3 URI for benchmark results output",
+      "type": "string",
+      "group": "benchmark",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "skipPrompts",
+      "cliFlag": "--skip-prompts",
+      "description": "Skip interactive prompts and use configuration from other sources",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "autoPrompt",
+      "cliFlag": "--auto-prompt",
+      "description": "Fill defaults, prompt only for missing required values",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "config",
+      "cliFlag": "--config",
+      "description": "Path to JSON configuration file",
+      "type": "string",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "projectDir",
+      "cliFlag": "--project-dir",
+      "description": "Output directory path",
+      "type": "string",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "force",
+      "cliFlag": "--force",
+      "description": "Overwrite existing output directory without prompting",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "framework",
+      "cliFlag": "--framework",
+      "description": "ML framework",
+      "type": "enum",
+      "group": "model",
+      "phase": "model",
+      "deprecated": true,
+      "hasWidget": false
+    },
+    {
+      "key": "modelFormat",
+      "cliFlag": "--model-format",
+      "description": "Model serialization format (pkl, joblib, json, model, ubj, keras, h5, SavedModel)",
+      "type": "string",
+      "group": "model",
+      "phase": "model",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "modelServer",
+      "cliFlag": "--model-server",
+      "description": "Model server",
+      "type": "enum",
+      "group": "model",
+      "phase": "model",
+      "deprecated": true,
+      "hasWidget": false
+    },
+    {
+      "key": "baseImage",
+      "cliFlag": "--base-image",
+      "description": "Base container image for Dockerfile",
+      "type": "string",
+      "group": "build",
+      "phase": "build",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "region",
+      "cliFlag": "--region",
+      "description": "AWS region",
+      "type": "string",
+      "group": "infrastructure",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "roleArn",
+      "cliFlag": "--role-arn",
+      "description": "IAM role ARN for SageMaker execution",
+      "type": "string",
+      "group": "infrastructure",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "buildTarget",
+      "cliFlag": "--build-target",
+      "description": "Build target (codebuild)",
+      "type": "string",
+      "group": "build",
+      "phase": "build",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "codebuildComputeType",
+      "cliFlag": "--codebuild-compute-type",
+      "description": "CodeBuild compute type (SMALL, MEDIUM, LARGE)",
+      "type": "string",
+      "group": "build",
+      "phase": "build",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hfToken",
+      "cliFlag": "--hf-token",
+      "description": "HuggingFace token (or $HF_TOKEN for env var reference)",
+      "type": "string",
+      "group": "auth",
+      "phase": "auth",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hfTokenArn",
+      "cliFlag": "--hf-token-arn",
+      "description": "HuggingFace token ARN from Secrets Manager",
+      "type": "string",
+      "group": "auth",
+      "phase": "auth",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "ngcToken",
+      "cliFlag": "--ngc-token",
+      "description": "NVIDIA NGC token (or $NGC_API_KEY for env var reference)",
+      "type": "string",
+      "group": "auth",
+      "phase": "auth",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "ngcTokenArn",
+      "cliFlag": "--ngc-token-arn",
+      "description": "NVIDIA NGC token ARN from Secrets Manager",
+      "type": "string",
+      "group": "auth",
+      "phase": "auth",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "endpointInitialInstanceCount",
+      "cliFlag": "--endpoint-initial-instance-count",
+      "description": "Number of instances for the endpoint",
+      "type": "integer",
+      "group": "endpoint",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "endpointDataCapturePercent",
+      "cliFlag": "--endpoint-data-capture-percent",
+      "description": "Data capture percentage for monitoring, 0-100",
+      "type": "integer",
+      "group": "endpoint",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "endpointVariantName",
+      "cliFlag": "--endpoint-variant-name",
+      "description": "Production variant name",
+      "type": "string",
+      "group": "endpoint",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "endpointVolumeSize",
+      "cliFlag": "--endpoint-volume-size",
+      "description": "ML storage volume size in GB",
+      "type": "integer",
+      "group": "endpoint",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "icCpuCount",
+      "cliFlag": "--ic-cpu-count",
+      "description": "vCPUs allocated to the inference component",
+      "type": "number",
+      "group": "inference-component",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "icModelWeight",
+      "cliFlag": "--ic-model-weight",
+      "description": "Traffic routing weight, 0-1",
+      "type": "number",
+      "group": "inference-component",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "asyncS3OutputPath",
+      "cliFlag": "--async-s3-output-path",
+      "description": "S3 output path for async results",
+      "type": "string",
+      "group": "async",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "asyncSnsSuccessTopic",
+      "cliFlag": "--async-sns-success-topic",
+      "description": "SNS topic ARN for success notifications",
+      "type": "string",
+      "group": "async",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "asyncSnsErrorTopic",
+      "cliFlag": "--async-sns-error-topic",
+      "description": "SNS topic ARN for error notifications",
+      "type": "string",
+      "group": "async",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "asyncMaxConcurrent",
+      "cliFlag": "--async-max-concurrent",
+      "description": "Max concurrent invocations per instance",
+      "type": "integer",
+      "group": "async",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "batchInputPath",
+      "cliFlag": "--batch-input-path",
+      "description": "S3 input path for batch data",
+      "type": "string",
+      "group": "batch",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "batchOutputPath",
+      "cliFlag": "--batch-output-path",
+      "description": "S3 output path for batch results",
+      "type": "string",
+      "group": "batch",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "batchInstanceCount",
+      "cliFlag": "--batch-instance-count",
+      "description": "Number of batch instances",
+      "type": "integer",
+      "group": "batch",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "batchSplitType",
+      "cliFlag": "--batch-split-type",
+      "description": "Input split type: Line, RecordIO, None",
+      "type": "enum",
+      "group": "batch",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "batchStrategy",
+      "cliFlag": "--batch-strategy",
+      "description": "Batch strategy: MultiRecord, SingleRecord",
+      "type": "enum",
+      "group": "batch",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "batchJoinSource",
+      "cliFlag": "--batch-join-source",
+      "description": "Join source: Input, None",
+      "type": "enum",
+      "group": "batch",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "batchMaxConcurrent",
+      "cliFlag": "--batch-max-concurrent",
+      "description": "Max concurrent transforms per instance",
+      "type": "integer",
+      "group": "batch",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "batchMaxPayload",
+      "cliFlag": "--batch-max-payload",
+      "description": "Max payload size in MB, 0-100",
+      "type": "integer",
+      "group": "batch",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hyperpodCluster",
+      "cliFlag": "--hyperpod-cluster",
+      "description": "HyperPod EKS cluster name",
+      "type": "string",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hyperpodNamespace",
+      "cliFlag": "--hyperpod-namespace",
+      "description": "Kubernetes namespace",
+      "type": "string",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hyperpodReplicas",
+      "cliFlag": "--hyperpod-replicas",
+      "description": "Number of replicas",
+      "type": "integer",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "fsxVolumeHandle",
+      "cliFlag": "--fsx-volume-handle",
+      "description": "FSx for Lustre volume handle",
+      "type": "string",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "modelEnv",
+      "cliFlag": "--model-env",
+      "description": "Model env var, repeatable (e.g. VLLM_TENSOR_PARALLEL_SIZE=4)",
+      "type": "string",
+      "group": "model",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "serverEnv",
+      "cliFlag": "--server-env",
+      "description": "Server env var, repeatable (e.g. SGLANG_MEM_FRACTION=0.9)",
+      "type": "string",
+      "group": "model",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "includeSample",
+      "cliFlag": "--include-sample",
+      "description": "Include sample model code",
+      "type": "boolean",
+      "group": "testing",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "includeTesting",
+      "cliFlag": "--include-testing",
+      "description": "Include test suite",
+      "type": "boolean",
+      "group": "testing",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "testTypes",
+      "cliFlag": "--test-types",
+      "description": "Comma-separated test types",
+      "type": "string",
+      "group": "testing",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "smart",
+      "cliFlag": "--smart",
+      "description": "Enable smart mode (live AWS API calls for MCP servers)",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "discover",
+      "cliFlag": "--discover",
+      "description": "Enable discovery mode for MCP servers",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "noValidate",
+      "cliFlag": "--no-validate",
+      "description": "Skip parameter validation",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "validateEnvVars",
+      "cliFlag": "--validate-env-vars",
+      "description": "Validate environment variables against schema",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "validateWithDocker",
+      "cliFlag": "--validate-with-docker",
+      "description": "Validate Dockerfile builds successfully",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "offline",
+      "cliFlag": "--offline",
+      "description": "Run in offline mode (no network calls)",
+      "type": "boolean",
+      "group": "project",
+      "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    }
+  ],
+  "deploymentConfigs": [
+    "http-flask",
+    "http-fastapi",
+    "transformers-vllm",
+    "transformers-sglang",
+    "transformers-tensorrt-llm",
+    "transformers-lmi",
+    "transformers-djl",
+    "triton-fil",
+    "triton-onnxruntime",
+    "triton-tensorflow",
+    "triton-pytorch",
+    "triton-vllm",
+    "triton-tensorrtllm",
+    "triton-python",
+    "diffusors-vllm-omni",
+    "marketplace"
+  ],
+  "deploymentTargets": [
+    "managed-inference",
+    "realtime-inference",
+    "async-inference",
+    "batch-transform",
+    "hyperpod-eks"
+  ]
+}

@@ -48,7 +48,7 @@ function renderTest(vars) {
 
 /** Render do/clean template */
 function renderClean(vars) {
-    return ejs.render(cleanTemplateContent, vars);
+    return ejs.render(cleanTemplateContent, vars, { filename: cleanTemplatePath });
 }
 
 /** Base template variables for realtime-inference */

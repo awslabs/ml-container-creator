@@ -24,7 +24,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load templates
-const deployTemplate = readFileSync(path.join(__dirname, '../../templates/do/deploy'), 'utf8');
+const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy');
+const deployTemplate = readFileSync(deployTemplatePath, 'utf8');
 const testTemplate = readFileSync(path.join(__dirname, '../../templates/do/test'), 'utf8');
 
 /** Base template variables for realtime-inference rendering */
@@ -153,7 +154,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
 
         before(() => {
             const vars = realtimeVars({ includeBenchmark: true, enableLora: true });
-            deployOutput = ejs.render(deployTemplate, vars);
+            deployOutput = ejs.render(deployTemplate, vars, { filename: deployTemplatePath });
             testOutput = ejs.render(testTemplate, vars);
         });
 
@@ -202,7 +203,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
 
         before(() => {
             const vars = realtimeVars({ includeBenchmark: false, enableLora: false });
-            deployOutput = ejs.render(deployTemplate, vars);
+            deployOutput = ejs.render(deployTemplate, vars, { filename: deployTemplatePath });
             testOutput = ejs.render(testTemplate, vars);
         });
 
@@ -278,7 +279,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
 
         before(() => {
             const vars = asyncVars();
-            deployOutput = ejs.render(deployTemplate, vars);
+            deployOutput = ejs.render(deployTemplate, vars, { filename: deployTemplatePath });
             testOutput = ejs.render(testTemplate, vars);
         });
 
@@ -315,7 +316,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
 
         before(() => {
             const vars = realtimeVars({ existingEndpointName: 'my-external-ep' });
-            deployOutput = ejs.render(deployTemplate, vars);
+            deployOutput = ejs.render(deployTemplate, vars, { filename: deployTemplatePath });
         });
 
         it('do/deploy should NOT show clean endpoint suggestion', () => {
@@ -349,7 +350,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
 
         before(() => {
             const vars = hyperpodVars();
-            deployOutput = ejs.render(deployTemplate, vars);
+            deployOutput = ejs.render(deployTemplate, vars, { filename: deployTemplatePath });
             testOutput = ejs.render(testTemplate, vars);
         });
 

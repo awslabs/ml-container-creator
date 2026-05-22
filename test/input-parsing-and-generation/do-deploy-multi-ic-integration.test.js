@@ -59,7 +59,7 @@ function renderRealtimeDeploy(overrides = {}) {
         fsxVolumeHandle: undefined,
         ...overrides
     };
-    return ejs.render(deployTemplateContent, vars);
+    return ejs.render(deployTemplateContent, vars, { filename: deployTemplatePath });
 }
 
 /**

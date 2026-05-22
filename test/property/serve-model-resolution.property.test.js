@@ -27,7 +27,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
+const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
 
 // ── Load the actual serve template ───────────────────────────────────────────
 
@@ -60,7 +60,7 @@ function renderServe(modelSource, modelServer, modelName, artifactUri) {
         modelName: modelName || 'test-model',
         artifactUri: artifactUri || '',
         modelLoadStrategy: 'runtime'
-    });
+    }, { filename: SERVE_TEMPLATE_PATH });
 }
 
 // ── Property tests ───────────────────────────────────────────────────────────

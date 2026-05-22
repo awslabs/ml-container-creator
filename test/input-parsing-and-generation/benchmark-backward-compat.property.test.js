@@ -27,7 +27,8 @@ const __dirname = path.dirname(__filename);
 // Load templates
 const templatesDir = path.join(__dirname, '../../templates/do');
 const configTemplate = readFileSync(path.join(templatesDir, 'config'), 'utf8');
-const cleanTemplate = readFileSync(path.join(templatesDir, 'clean'), 'utf8');
+const cleanTemplatePath = path.join(templatesDir, 'clean');
+const cleanTemplate = readFileSync(cleanTemplatePath, 'utf8');
 const deployTemplate = readFileSync(path.join(templatesDir, 'deploy'), 'utf8');
 const logsTemplate = readFileSync(path.join(templatesDir, 'logs'), 'utf8');
 
@@ -147,7 +148,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property: Backward compatibility w
             disabledBenchmarkArb,
             (baseConfig, includeBenchmark) => {
                 const vars = buildVars(baseConfig, includeBenchmark);
-                const output = ejs.render(cleanTemplate, vars);
+                const output = ejs.render(cleanTemplate, vars, { filename: cleanTemplatePath });
 
                 assert.ok(
                     !output.includes('benchmark)'),
@@ -175,8 +176,8 @@ describe('Feature: sagemaker-ai-benchmarking, Property: Backward compatibility w
                 const varsWithBenchmark = buildVars(baseConfig, true);
                 const varsWithoutBenchmark = buildVars(baseConfig, false);
 
-                const outputWith = ejs.render(deployTemplate, varsWithBenchmark);
-                const outputWithout = ejs.render(deployTemplate, varsWithoutBenchmark);
+                const outputWith = ejs.render(deployTemplate, varsWithBenchmark, { filename: path.join(templatesDir, 'deploy') });
+                const outputWithout = ejs.render(deployTemplate, varsWithoutBenchmark, { filename: path.join(templatesDir, 'deploy') });
 
                 assert.ok(
                     outputWith.includes('./do/benchmark'),

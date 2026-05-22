@@ -177,7 +177,7 @@ describe('Manifest Generation Integration Tests', function () {
     // ================================================================
     describe('do/deploy manifest integration', () => {
         it('should contain ./do/manifest add calls for realtime-inference', () => {
-            const output = ejs.render(deployTemplate, managedInferenceVars());
+            const output = ejs.render(deployTemplate, managedInferenceVars(), { filename: path.join(templatesDir, 'do/deploy') });
 
             assert.ok(
                 output.includes('./do/manifest add'),
@@ -247,7 +247,8 @@ describe('Manifest Generation Integration Tests', function () {
     // ================================================================
     describe('do/clean manifest integration', () => {
         it('should contain ./do/manifest delete calls', () => {
-            const content = readFileSync(path.join(templatesDir, 'do/clean'), 'utf8');
+            // clean is now a dispatcher; check the managed-inference partial
+            const content = readFileSync(path.join(templatesDir, 'do/clean.d/managed-inference.ejs'), 'utf8');
 
             assert.ok(
                 content.includes('./do/manifest delete'),
@@ -256,7 +257,7 @@ describe('Manifest Generation Integration Tests', function () {
         });
 
         it('should mark endpoint resources as deleted', () => {
-            const content = readFileSync(path.join(templatesDir, 'do/clean'), 'utf8');
+            const content = readFileSync(path.join(templatesDir, 'do/clean.d/managed-inference.ejs'), 'utf8');
 
             // Verify delete calls reference the expected resource types via ARN patterns
             assert.ok(

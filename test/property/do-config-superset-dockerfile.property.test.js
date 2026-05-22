@@ -20,7 +20,7 @@ import { describe, it } from 'mocha';
 import assert from 'assert';
 import { resolvePrefixedEnvVars } from '../../src/lib/engine-prefix-resolver.js';
 
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
+const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
 
 // ── Engines with defined prefixes ────────────────────────────────────────────
 

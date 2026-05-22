@@ -1,0 +1,726 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Parse flags
+FORCE_NEW=false
+FORCE_IC=false
+IC_TARGET=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --force) FORCE_NEW=true; shift ;;
+        --force-ic)
+            FORCE_IC=true
+            shift
+            # Optional name argument: --force-ic <name>
+            if [ $# -gt 0 ] && [[ ! "$1" == --* ]]; then
+                IC_TARGET="$1"
+                shift
+            fi
+            ;;
+        --ic)
+            if [ -z "${2:-}" ]; then
+                echo "❌ --ic requires a name argument"
+                echo "   Usage: ./do/deploy --ic <name>"
+                exit 1
+            fi
+            IC_TARGET="$2"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: ./do/deploy [--force] [--force-ic [<name>]] [--ic <name>]"
+            echo ""
+            echo "Options:"
+            echo "  --force            Create a new endpoint and IC, even if one already exists."
+            echo "  --force-ic         Recreate ALL inference components on the existing endpoint."
+            echo "  --force-ic <name>  Recreate only the named IC on the existing endpoint."
+            echo "  --ic <name>        Deploy only the named IC (from do/ic/<name>.conf)."
+            echo ""
+            echo "Without flags, deploy resumes from the last run."
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown option: $1"
+            echo "   Run ./do/deploy --help for usage."
+            exit 1
+            ;;
+    esac
+done
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+echo "🚀 Deploying to AWS"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
+echo "   Region: ${AWS_REGION}"
+echo "   Build target: ${BUILD_TARGET}"
+echo "   Deployment target: ${DEPLOYMENT_TARGET}"
+if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
+    echo "   Endpoint: ${ENDPOINT_NAME} (external)"
+else
+    echo "   Instance type: ${INSTANCE_TYPE}"
+fi
+
+# Check AWS credentials
+echo "🔍 Validating AWS credentials..."
+if ! aws sts get-caller-identity &> /dev/null; then
+    echo "❌ AWS credentials not configured"
+    echo "   Run: aws configure"
+    echo "   Or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
+    exit 4
+fi
+
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
+
+# Construct ECR repository URL
+ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
+
+# ============================================================
+# Shared: Verify ECR image exists
+# ============================================================
+echo "🔍 Verifying ECR image exists..."
+if ! aws ecr describe-images \
+    --repository-name "${ECR_REPOSITORY_NAME}" \
+    --image-ids imageTag="${PROJECT_NAME}-latest" \
+    --region "${AWS_REGION}" &> /dev/null; then
+    
+    echo "❌ ECR image not found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+    echo ""
+    echo "Please build and push your image first:"
+    echo "  ./do/submit"
+    echo ""
+    echo "After the build completes successfully, run this deploy script again."
+    exit 4
+fi
+
+echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+IMAGE_TAG="${PROJECT_NAME}-latest"
+
+# ============================================================
+# Shared: Resolve secrets for container environment
+# ============================================================
+CONTAINER_ENV_JSON=""
+
+if [ -n "${HF_TOKEN_ARN:-}" ]; then
+    echo "🔐 Resolving HuggingFace token from Secrets Manager..."
+    RESOLVED_HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text --region "${AWS_REGION}") || {
+        echo "❌ Failed to resolve HuggingFace token from Secrets Manager"
+        exit 3
+    }
+    CONTAINER_ENV_JSON="\"HF_TOKEN\":\"${RESOLVED_HF_TOKEN}\""
+elif [ -n "${HF_TOKEN:-}" ]; then
+    CONTAINER_ENV_JSON="\"HF_TOKEN\":\"${HF_TOKEN}\""
+fi
+
+if [ -n "${NGC_API_KEY_ARN:-}" ]; then
+    echo "🔐 Resolving NGC API key from Secrets Manager..."
+    RESOLVED_NGC_KEY=$(aws secretsmanager get-secret-value --secret-id "${NGC_API_KEY_ARN}" --query SecretString --output text --region "${AWS_REGION}") || {
+        echo "❌ Failed to resolve NGC API key from Secrets Manager"
+        exit 3
+    }
+    if [ -n "${CONTAINER_ENV_JSON}" ]; then
+        CONTAINER_ENV_JSON="${CONTAINER_ENV_JSON},\"NGC_API_KEY\":\"${RESOLVED_NGC_KEY}\""
+    else
+        CONTAINER_ENV_JSON="\"NGC_API_KEY\":\"${RESOLVED_NGC_KEY}\""
+    fi
+elif [ -n "${NGC_API_KEY:-}" ]; then
+    if [ -n "${CONTAINER_ENV_JSON}" ]; then
+        CONTAINER_ENV_JSON="${CONTAINER_ENV_JSON},\"NGC_API_KEY\":\"${NGC_API_KEY}\""
+    else
+        CONTAINER_ENV_JSON="\"NGC_API_KEY\":\"${NGC_API_KEY}\""
+    fi
+fi
+
+# ============================================================
+# SageMaker Real-Time Inference Deployment (Inference Components)
+# ============================================================
+
+# Source shared helpers
+source "${SCRIPT_DIR}/lib/secrets.sh"
+source "${SCRIPT_DIR}/lib/wait.sh"
+source "${SCRIPT_DIR}/lib/endpoint-config.sh"
+source "${SCRIPT_DIR}/lib/inference-component.sh"
+
+# Validate execution role ARN
+if [ -z "${ROLE_ARN:-}" ]; then
+    echo "❌ Execution role ARN not provided"
+    echo ""
+    echo "Usage:"
+    echo "  export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE"
+    echo "  ./do/deploy"
+    echo ""
+    echo "Or set ROLE_ARN in do/config"
+    echo ""
+    echo "The execution role must have permissions for:"
+    echo "  • SageMaker endpoint and inference component management"
+    echo "  • ECR image access"
+    echo "  • S3 access (if using model artifacts)"
+    echo "  • CloudWatch Logs"
+    exit 3
+fi
+
+echo "   Using execution role: ${ROLE_ARN}"
+
+# Validate --ic argument if specified (set by --ic <name> or --force-ic <name>)
+if [ -n "${IC_TARGET}" ]; then
+    if [ ! -d "${SCRIPT_DIR}/ic" ]; then
+        echo "❌ IC name specified but no do/ic/ directory found"
+        echo "   This project does not use multi-IC configuration."
+        echo "   Remove --ic/--force-ic <name> to deploy using the legacy single-IC path."
+        exit 1
+    fi
+    if [ ! -f "${SCRIPT_DIR}/ic/${IC_TARGET}.conf" ]; then
+        echo "❌ IC config not found: do/ic/${IC_TARGET}.conf"
+        echo ""
+        echo "   Available ICs:"
+        for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+            [ -f "${conf}" ] || continue
+            echo "     • $(basename "${conf}" .conf)"
+        done
+        echo ""
+        echo "   Usage: ./do/deploy --ic <name>"
+        exit 1
+    fi
+fi
+
+# Resolve container secrets (HF_TOKEN, NGC_API_KEY)
+resolve_secrets
+
+# ============================================================
+# Idempotency: check for existing deployment from a previous run
+# ============================================================
+SKIP_TO=""
+
+if [ "${FORCE_NEW}" = true ]; then
+    echo "🔄 --force: ignoring previous deployment, creating new resources."
+elif [ "${FORCE_IC}" = true ] && [ -n "${ENDPOINT_NAME:-}" ]; then
+    EP_STATUS=$(_get_endpoint_status "${ENDPOINT_NAME}")
+    if [ "${EP_STATUS}" = "InService" ]; then
+        if [ -n "${IC_TARGET}" ]; then
+            echo "🔄 --force-ic: recreating IC '${IC_TARGET}' on existing endpoint: ${ENDPOINT_NAME}"
+        else
+            echo "🔄 --force-ic: recreating ALL inference components on existing endpoint: ${ENDPOINT_NAME}"
+        fi
+        SKIP_TO="create_ic"
+    else
+        echo "⚠️  --force-ic requires an InService endpoint, but ${ENDPOINT_NAME} is: ${EP_STATUS:-not found}"
+        echo "   Use --force to create a new endpoint, or wait for the current one."
+        exit 4
+    fi
+elif [ -n "${ENDPOINT_NAME:-}" ]; then
+    echo "🔍 Checking for existing deployment: ${ENDPOINT_NAME}"
+
+    EP_STATUS=$(_get_endpoint_status "${ENDPOINT_NAME}")
+
+    case "${EP_STATUS}" in
+        InService)
+            echo "✅ Endpoint already InService: ${ENDPOINT_NAME}"
+
+            # Check inference component
+            if [ -n "${INFERENCE_COMPONENT_NAME:-}" ]; then
+                IC_STATUS=$(_get_ic_status "${INFERENCE_COMPONENT_NAME}")
+
+                case "${IC_STATUS}" in
+                    InService)
+                        echo "✅ Inference component already InService: ${INFERENCE_COMPONENT_NAME}"
+                        echo ""
+                        echo "📋 Deployment is already live. Nothing to do."
+                        echo "   Endpoint: ${ENDPOINT_NAME}"
+                        echo "   Inference Component: ${INFERENCE_COMPONENT_NAME}"
+                        echo ""
+                        echo "🧪 Test your endpoint:"
+                        echo "   ./do/test"
+                        echo ""
+                        echo "🧹 Clean up when done:"
+                        echo "   ./do/clean endpoint"
+                        exit 0
+                        ;;
+                    Creating)
+                        echo "⏳ Inference component still creating: ${INFERENCE_COMPONENT_NAME}"
+                        SKIP_TO="wait_ic"
+                        IC_DEPLOYED_NAME="${INFERENCE_COMPONENT_NAME}"
+                        ;;
+                    Failed)
+                        echo "⚠️  Inference component failed: ${INFERENCE_COMPONENT_NAME}"
+                        echo "   Will create a new inference component on the existing endpoint."
+                        SKIP_TO="create_ic"
+                        ;;
+                    *)
+                        # Stored IC not found — check if a different IC is running on this endpoint
+                        if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
+                            # External endpoint: never adopt ICs we didn't create
+                            echo "   Stored IC not found on external endpoint. Will create a new one."
+                            SKIP_TO="create_ic"
+                        else
+                            LIVE_IC=$(_find_active_ic_on_endpoint "${ENDPOINT_NAME}")
+                            if [ -n "${LIVE_IC}" ] && [ "${LIVE_IC}" != "None" ]; then
+                                echo "✅ Found running inference component on endpoint: ${LIVE_IC}"
+                                echo "   (config had stale reference: ${INFERENCE_COMPONENT_NAME})"
+                                _update_config_var "INFERENCE_COMPONENT_NAME" "${LIVE_IC}"
+                                echo ""
+                                echo "📋 Deployment is already live. Nothing to do."
+                                echo "   Endpoint: ${ENDPOINT_NAME}"
+                                echo "   Inference Component: ${LIVE_IC}"
+                                echo ""
+                                echo "🧪 Test your endpoint:"
+                                echo "   ./do/test"
+                                echo ""
+                                echo "🧹 Clean up when done:"
+                                echo "   ./do/clean endpoint"
+                                exit 0
+                            else
+                                echo "   No existing inference component found on endpoint. Will create one."
+                                SKIP_TO="create_ic"
+                            fi
+                        fi
+                        ;;
+                esac
+            else
+                # No IC name in config — check if one is already running on the endpoint
+                if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
+                    # External endpoint: never adopt ICs we didn't create
+                    echo "   No previous IC deployed by this project. Will create a new one."
+                    SKIP_TO="create_ic"
+                else
+                    LIVE_IC=$(_find_active_ic_on_endpoint "${ENDPOINT_NAME}")
+                    if [ -n "${LIVE_IC}" ] && [ "${LIVE_IC}" != "None" ]; then
+                        echo "✅ Found running inference component on endpoint: ${LIVE_IC}"
+                        _update_config_var "INFERENCE_COMPONENT_NAME" "${LIVE_IC}"
+                        echo ""
+                        echo "📋 Deployment is already live. Nothing to do."
+                        echo "   Endpoint: ${ENDPOINT_NAME}"
+                        echo "   Inference Component: ${LIVE_IC}"
+                        echo ""
+                        echo "🧪 Test your endpoint:"
+                        echo "   ./do/test"
+                        echo ""
+                        echo "🧹 Clean up when done:"
+                        echo "   ./do/clean endpoint"
+                        exit 0
+                    else
+                        SKIP_TO="create_ic"
+                    fi
+                fi
+            fi
+            ;;
+        Creating|Updating)
+            echo "⏳ Endpoint still ${EP_STATUS}: ${ENDPOINT_NAME}"
+            SKIP_TO="wait_endpoint"
+            ;;
+        Failed)
+            echo "⚠️  Previous endpoint failed: ${ENDPOINT_NAME}"
+            echo "   Creating a new deployment. Clean up the failed endpoint with:"
+            echo "   ./do/clean endpoint"
+            echo ""
+            # Fall through to create new resources
+            ;;
+        "")
+            echo "   Previous endpoint not found (may have been cleaned up). Creating new deployment."
+            ;;
+        *)
+            echo "   Endpoint in unexpected state: ${EP_STATUS}. Creating new deployment."
+            ;;
+    esac
+fi
+
+# ============================================================
+# Step 1: Create endpoint configuration and endpoint (skip if resuming)
+# ============================================================
+if [ -z "${SKIP_TO}" ]; then
+    if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
+        # External endpoint: validate it still exists and is InService
+        echo "🔗 Using external endpoint: ${ENDPOINT_NAME}"
+        echo "   Validating endpoint status..."
+
+        EP_STATUS=$(_get_endpoint_status "${ENDPOINT_NAME}")
+
+        if [ -z "${EP_STATUS}" ]; then
+            echo "❌ External endpoint not found: ${ENDPOINT_NAME}"
+            echo "   The endpoint may have been deleted. Update ENDPOINT_NAME in do/config"
+            echo "   or remove ENDPOINT_EXTERNAL=true to create a new endpoint."
+            exit 4
+        fi
+
+        if [ "${EP_STATUS}" != "InService" ]; then
+            echo "❌ External endpoint not InService: ${ENDPOINT_NAME} (status: ${EP_STATUS})"
+            echo "   The endpoint must be InService before attaching inference components."
+            echo "   Wait for the endpoint to become InService, or update do/config."
+            exit 4
+        fi
+
+        echo "✅ External endpoint is InService: ${ENDPOINT_NAME}"
+        # Skip directly to IC creation — no endpoint config, no endpoint creation, no wait
+        SKIP_TO="create_ic"
+    else
+        TIMESTAMP=$(date +%s)
+        ENDPOINT_NAME="${PROJECT_NAME}-endpoint-${TIMESTAMP}"
+
+        _update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
+
+        # Create endpoint configuration via shared helper
+        create_endpoint_config
+
+        _update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
+
+        # Record endpoint config in manifest (non-blocking)
+        ENDPOINT_CONFIG_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint-config/${ENDPOINT_CONFIG_NAME}"
+        ./do/manifest add \
+            --type sagemaker-endpoint-config \
+            --id "${ENDPOINT_CONFIG_ARN}" \
+            --project "${PROJECT_NAME}" \
+            --meta "{\"endpointConfigName\":\"${ENDPOINT_CONFIG_NAME}\",\"instanceType\":\"${INSTANCE_TYPE}\",\"region\":\"${AWS_REGION}\"}" \
+            2>/dev/null || true
+
+        # Step 2: Create endpoint
+        echo "🚀 Creating endpoint: ${ENDPOINT_NAME}"
+        if ! aws sagemaker create-endpoint \
+            --endpoint-name "${ENDPOINT_NAME}" \
+            --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+            --region "${AWS_REGION}"; then
+
+            echo "❌ Failed to create endpoint"
+            echo "   Check that:"
+            echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
+            echo "   • You have sufficient service quota in region: ${AWS_REGION}"
+            exit 4
+        fi
+
+        echo "✅ Endpoint creation initiated: ${ENDPOINT_NAME}"
+
+        # Record endpoint in manifest (non-blocking)
+        ENDPOINT_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint/${ENDPOINT_NAME}"
+        ./do/manifest add \
+            --type sagemaker-endpoint \
+            --id "${ENDPOINT_ARN}" \
+            --project "${PROJECT_NAME}" \
+            --meta "{\"endpointName\":\"${ENDPOINT_NAME}\",\"instanceType\":\"${INSTANCE_TYPE}\",\"region\":\"${AWS_REGION}\"}" \
+            2>/dev/null || true
+    fi
+fi
+
+# ============================================================
+# Wait for endpoint (skip if already InService or external)
+# ============================================================
+if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
+    echo "⏳ Waiting for endpoint to reach InService status..."
+    echo "   This may take a few minutes..."
+    echo "   If this times out, re-run ./do/deploy to resume."
+
+    wait_endpoint "${ENDPOINT_NAME}"
+
+    echo "✅ Endpoint is InService: ${ENDPOINT_NAME}"
+fi
+
+# ============================================================
+# Step 3: Deploy inference components (skip if resuming from wait_ic)
+# ============================================================
+if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "create_ic" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
+
+    if [ -d "${SCRIPT_DIR}/ic" ]; then
+        # _check_gpu_capacity
+        #   Best-effort capacity guardrail: sums IC_GPU_COUNT across all do/ic/*.conf
+        #   and compares against known GPU count for the instance type.
+        #   Warns (does not error) if total exceeds instance capacity.
+        #   Skips check if instance type is not in the known map.
+        _check_gpu_capacity() {
+            # Skip check if no INSTANCE_TYPE (external endpoints)
+            if [ -z "${INSTANCE_TYPE:-}" ]; then
+                return 0
+            fi
+
+            # Best-effort capacity guardrail: sums GPU requirements from base ICs only.
+            # NOTE: Only do/ic/*.conf files are counted. Adapter ICs (do/adapters/*.conf)
+            # share the base IC's GPU resources and have no ComputeResourceRequirements,
+            # so they are intentionally excluded from this capacity check.
+            #
+            # Hardcoded GPU counts for common SageMaker GPU instance types
+            local instance_gpus=""
+            case "${INSTANCE_TYPE}" in
+                ml.g4dn.xlarge)     instance_gpus=1 ;;
+                ml.g4dn.12xlarge)   instance_gpus=4 ;;
+                ml.g5.xlarge)       instance_gpus=1 ;;
+                ml.g5.2xlarge)      instance_gpus=1 ;;
+                ml.g5.4xlarge)      instance_gpus=1 ;;
+                ml.g5.8xlarge)      instance_gpus=1 ;;
+                ml.g5.12xlarge)     instance_gpus=4 ;;
+                ml.g5.48xlarge)     instance_gpus=8 ;;
+                ml.g6.xlarge)       instance_gpus=1 ;;
+                ml.g6.12xlarge)     instance_gpus=4 ;;
+                ml.g6.48xlarge)     instance_gpus=8 ;;
+                ml.g6e.xlarge)      instance_gpus=1 ;;
+                ml.g6e.2xlarge)     instance_gpus=1 ;;
+                ml.g6e.4xlarge)     instance_gpus=1 ;;
+                ml.g6e.8xlarge)     instance_gpus=1 ;;
+                ml.g6e.12xlarge)    instance_gpus=4 ;;
+                ml.g6e.48xlarge)    instance_gpus=8 ;;
+                ml.g7e.xlarge)      instance_gpus=1 ;;
+                ml.g7e.2xlarge)     instance_gpus=1 ;;
+                ml.g7e.4xlarge)     instance_gpus=1 ;;
+                ml.g7e.8xlarge)     instance_gpus=1 ;;
+                ml.g7e.12xlarge)    instance_gpus=4 ;;
+                ml.g7e.48xlarge)    instance_gpus=8 ;;
+                ml.p3.2xlarge)      instance_gpus=1 ;;
+                ml.p3.8xlarge)      instance_gpus=4 ;;
+                ml.p3.16xlarge)     instance_gpus=8 ;;
+                ml.p4d.24xlarge)    instance_gpus=8 ;;
+                ml.p4de.24xlarge)   instance_gpus=8 ;;
+                ml.p5.48xlarge)     instance_gpus=8 ;;
+                *)                  instance_gpus="" ;;
+            esac
+
+            # Skip check if instance type not in map
+            if [ -z "${instance_gpus}" ]; then
+                return 0
+            fi
+
+            # Sum IC_GPU_COUNT across all IC config files
+            local total_gpu_requested=0
+            for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                [ -f "${conf}" ] || continue
+                local ic_gpus
+                ic_gpus=$(grep "^export IC_GPU_COUNT=" "${conf}" 2>/dev/null | sed 's/^export IC_GPU_COUNT=//' | tr -d '"' || echo "1")
+                if [ -z "${ic_gpus}" ]; then
+                    ic_gpus=1
+                fi
+                total_gpu_requested=$(( total_gpu_requested + ic_gpus ))
+            done
+
+            if [ "${total_gpu_requested}" -gt "${instance_gpus}" ]; then
+                echo ""
+                echo "⚠️  GPU capacity warning: ICs request ${total_gpu_requested} GPUs total, but ${INSTANCE_TYPE} has ${instance_gpus} GPUs."
+                echo "   SageMaker will likely reject IC creation if capacity is exceeded."
+                echo "   Consider reducing IC_GPU_COUNT values or using a larger instance type."
+                echo ""
+            fi
+        }
+
+        # Run capacity guardrail before deploying ICs
+        _check_gpu_capacity
+
+        # _delete_and_wait_ic <ic_name>
+        #   Deletes an inference component and waits for deletion to complete.
+        #   Polls until the IC is no longer found (avoids name conflicts on recreate).
+        _delete_and_wait_ic() {
+            local ic_name="$1"
+            local delete_timeout=600  # 10 minutes max wait for deletion
+
+            echo "🗑️  Deleting inference component: ${ic_name}"
+            if ! aws sagemaker delete-inference-component \
+                --inference-component-name "${ic_name}" \
+                --region "${AWS_REGION}" 2>/dev/null; then
+                echo "   ⚠️  Delete call failed (IC may already be gone). Continuing..."
+                return 0
+            fi
+
+            echo "   Waiting for deletion to complete..."
+            local delete_start
+            delete_start=$(date +%s)
+
+            while true; do
+                local ic_status
+                ic_status=$(_get_ic_status "${ic_name}")
+
+                if [ -z "${ic_status}" ]; then
+                    echo "   ✅ Inference component deleted: ${ic_name}"
+                    break
+                fi
+
+                local elapsed=$(( $(date +%s) - delete_start ))
+                if [ "${elapsed}" -ge "${delete_timeout}" ]; then
+                    echo "   ⚠️  Deletion timed out after ${delete_timeout}s. IC status: ${ic_status}"
+                    echo "   Proceeding anyway — SageMaker may reject the new IC if name conflicts."
+                    break
+                fi
+
+                echo "   $(date +%H:%M:%S) Deleting... (${ic_status}, ${elapsed}s elapsed)"
+                sleep 15
+            done
+        }
+
+        # _deploy_single_ic <conf_file>
+        #   Deploys a single IC with per-IC idempotency:
+        #   - If FORCE_IC is true: delete existing IC, clear state, create fresh
+        #   - If IC_DEPLOYED_NAME is set and InService → skip
+        #   - If IC_DEPLOYED_NAME is set and Creating → wait for it
+        #   - If IC_DEPLOYED_NAME is set and Failed → recreate with new timestamp
+        #   - If IC_DEPLOYED_NAME is not set → create new IC
+        #   Fail-fast: exits immediately on failure.
+        _deploy_single_ic() {
+            local ic_conf="$1"
+            local ic_basename
+            ic_basename=$(basename "${ic_conf}" .conf)
+
+            # Source the IC config to check IC_DEPLOYED_NAME
+            # Use a subshell-safe approach: read the variable without polluting scope
+            local existing_ic_name=""
+            if grep -q "^export IC_DEPLOYED_NAME=" "${ic_conf}" 2>/dev/null; then
+                existing_ic_name=$(grep "^export IC_DEPLOYED_NAME=" "${ic_conf}" | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//')
+            fi
+
+            # --force-ic: delete existing IC before recreating
+            if [ "${FORCE_IC}" = true ] && [ -n "${existing_ic_name}" ]; then
+                echo "🔄 --force-ic: recreating IC '${ic_basename}'"
+                _delete_and_wait_ic "${existing_ic_name}"
+
+                # Clear deployed state from config before recreating
+                _update_config_var "IC_DEPLOYED_NAME" "" "${ic_conf}"
+                _update_config_var "IC_DEPLOYED_AT" "" "${ic_conf}"
+                existing_ic_name=""
+            fi
+
+            if [ "${FORCE_IC}" = true ] && [ -z "${existing_ic_name}" ]; then
+                # Force mode with no existing IC — just create new
+                create_inference_component "${ic_conf}"
+            elif [ -n "${existing_ic_name}" ]; then
+                # IC was previously deployed — check its current status
+                local ic_status
+                ic_status=$(_get_ic_status "${existing_ic_name}")
+
+                case "${ic_status}" in
+                    InService)
+                        echo "✅ IC '${ic_basename}' already InService: ${existing_ic_name} — skipping"
+                        IC_DEPLOYED_NAME="${existing_ic_name}"
+                        return 0
+                        ;;
+                    Creating)
+                        echo "⏳ IC '${ic_basename}' is still Creating: ${existing_ic_name} — waiting..."
+                        IC_DEPLOYED_NAME="${existing_ic_name}"
+                        wait_ic "${IC_DEPLOYED_NAME}"
+                        echo "✅ Inference component is InService: ${IC_DEPLOYED_NAME}"
+                        return 0
+                        ;;
+                    Failed)
+                        echo "⚠️  IC '${ic_basename}' previously Failed: ${existing_ic_name} — recreating..."
+                        create_inference_component "${ic_conf}"
+                        ;;
+                    *)
+                        echo "   IC '${ic_basename}' has unknown/missing status for ${existing_ic_name} — creating new..."
+                        create_inference_component "${ic_conf}"
+                        ;;
+                esac
+            else
+                # No previous deployment — create new IC
+                create_inference_component "${ic_conf}"
+            fi
+
+            echo "⏳ Waiting for inference component to reach InService status..."
+            echo "   This may take 5-10 minutes..."
+
+            wait_ic "${IC_DEPLOYED_NAME}"
+
+            echo "✅ Inference component is InService: ${IC_DEPLOYED_NAME}"
+
+            # Record inference component in manifest (non-blocking)
+            local ic_arn="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${IC_DEPLOYED_NAME}"
+            ./do/manifest add \
+                --type sagemaker-inference-component \
+                --id "${ic_arn}" \
+                --project "${PROJECT_NAME}" \
+                --meta "{\"inferenceComponentName\":\"${IC_DEPLOYED_NAME}\",\"endpointName\":\"${ENDPOINT_NAME}\",\"instanceType\":\"${INSTANCE_TYPE:-external}\",\"region\":\"${AWS_REGION}\"}" \
+                2>/dev/null || true
+        }
+
+        if [ -n "${IC_TARGET}" ]; then
+            # Single IC path: deploy only the named IC
+            echo ""
+            echo "── Deploying IC: ${IC_TARGET} ──"
+            _deploy_single_ic "${SCRIPT_DIR}/ic/${IC_TARGET}.conf"
+        else
+            # Multi-IC path: iterate all IC config files (alphabetical order)
+            IC_SUMMARY=""
+            IC_DEPLOY_FAILED=false
+
+            for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                [ -f "${conf}" ] || continue
+                local_ic_basename=$(basename "${conf}" .conf)
+                echo ""
+                echo "── Deploying IC: ${local_ic_basename} ──"
+
+                if ! _deploy_single_ic "${conf}"; then
+                    echo "❌ IC '${local_ic_basename}' failed to deploy. Stopping."
+                    IC_SUMMARY="${IC_SUMMARY}   ${local_ic_basename}: FAILED\n"
+                    IC_DEPLOY_FAILED=true
+                    break
+                fi
+
+                IC_SUMMARY="${IC_SUMMARY}   ${local_ic_basename}: ${IC_DEPLOYED_NAME} [InService]\n"
+            done
+
+            # Print summary
+            echo ""
+            echo "📋 IC Deployment Summary:"
+            echo -e "${IC_SUMMARY}"
+
+            if [ "${IC_DEPLOY_FAILED}" = true ]; then
+                echo "❌ Deployment stopped due to IC failure. Fix the issue and re-run ./do/deploy to resume."
+                exit 4
+            fi
+        fi
+    else
+        # Legacy single-IC path: no do/ic/ directory
+        create_inference_component_legacy
+
+        echo "⏳ Waiting for inference component to reach InService status..."
+        echo "   This may take 5-10 minutes..."
+        echo "   If this times out, re-run ./do/deploy to resume."
+
+        wait_ic "${IC_DEPLOYED_NAME}"
+
+        echo "✅ Inference component is InService: ${IC_DEPLOYED_NAME}"
+
+        # Record inference component in manifest (non-blocking)
+        IC_ARN="arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${IC_DEPLOYED_NAME}"
+        ./do/manifest add \
+            --type sagemaker-inference-component \
+            --id "${IC_ARN}" \
+            --project "${PROJECT_NAME}" \
+            --meta "{\"inferenceComponentName\":\"${IC_DEPLOYED_NAME}\",\"endpointName\":\"${ENDPOINT_NAME}\",\"instanceType\":\"${INSTANCE_TYPE:-external}\",\"region\":\"${AWS_REGION}\"}" \
+            2>/dev/null || true
+    fi
+
+elif [ "${SKIP_TO}" = "wait_ic" ]; then
+    # Resuming: just wait for the IC that was already being created
+    echo "⏳ Waiting for inference component to reach InService status..."
+    echo "   This may take 5-10 minutes..."
+    echo "   If this times out, re-run ./do/deploy to resume."
+
+    wait_ic "${IC_DEPLOYED_NAME}"
+
+    echo "✅ Inference component is InService: ${IC_DEPLOYED_NAME}"
+fi
+
+echo "✅ Deployment complete!"
+echo ""
+echo "📋 Deployment Details:"
+echo "   Endpoint: ${ENDPOINT_NAME}"
+if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
+    echo "   Endpoint Config: (external — not managed by this project)"
+    echo "   Region: ${AWS_REGION}"
+else
+    echo "   Endpoint Config: ${ENDPOINT_CONFIG_NAME:-N/A}"
+    echo "   Region: ${AWS_REGION}"
+    echo "   Instance Type: ${INSTANCE_TYPE}"
+fi
+echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"
+echo ""
+echo "📋 What's next?"
+echo "   • Test your endpoint:         ./do/test"
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+echo "   • Benchmark performance:      ./do/benchmark"
+<% } %>
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+echo "   • Add a LoRA adapter:         ./do/adapter add <name> --weights s3://..."
+<% } %>
+echo "   • View endpoint status:       ./do/status"
+echo "   • Register this deployment:   ./do/register"
+echo "   • View logs:                  ./do/logs"
+<% if (!(typeof existingEndpointName !== 'undefined' && existingEndpointName)) { %>
+echo "   • Clean up when done:         ./do/clean endpoint"
+<% } %>

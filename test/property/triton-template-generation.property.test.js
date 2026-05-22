@@ -24,7 +24,7 @@ const tritonBackendsCatalogPath = resolve(__testDir, '../../servers/lib/catalogs
 const tritonBackends = JSON.parse(readFileSync(tritonBackendsCatalogPath, 'utf8'));
 
 const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
     timeout: 30000,
     verbose: false
 };

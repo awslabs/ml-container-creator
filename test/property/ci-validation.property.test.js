@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { validateServer } from '../../scripts/validate-servers.js';
 
 const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
     timeout: 30000,
     verbose: false
 };

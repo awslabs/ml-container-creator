@@ -19,7 +19,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
+const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
 
 // ── Constants (from do/register template) ────────────────────────────────────
 

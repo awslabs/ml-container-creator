@@ -20,7 +20,7 @@ import { describe, it } from 'mocha';
 import assert from 'assert';
 import CrossCuttingChecker from '../../src/lib/cross-cutting-checker.js';
 
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false, seed: 42 };
+const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false, seed: 42 };
 
 // ── Arbitrary generators ─────────────────────────────────────────────────────
 
