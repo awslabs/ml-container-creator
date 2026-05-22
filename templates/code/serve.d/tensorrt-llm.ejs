@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# TensorRT-LLM Server Configuration
+# ---------------------------------------------------------------------------
+# Env prefix: TRTLLM_
+# Entrypoint: trtllm-serve serve MODEL [OPTIONS]
+# Port: 8081 (nginx proxies to 8080 for SageMaker)
+# ---------------------------------------------------------------------------
+
+PREFIX="TRTLLM_"
+ARG_PREFIX="--"
+
+# TRTLLM_MODEL is used as the positional argument, not a --flag
+EXCLUDE_VARS=("TRTLLM_MODEL")
+
+# Declare and populate array of matching environment variables
+mapfile -t env_vars < <(env | grep "^${PREFIX}")
+
+# Convert TRTLLM_ env vars to CLI arguments
+for var in "${env_vars[@]}"; do
+    IFS='=' read -r key value <<< "$var"
+
+    # Skip excluded variables
+    skip=false
+    for exclude in "${EXCLUDE_VARS[@]}"; do
+        if [ "$key" = "$exclude" ]; then
+            skip=true
+            break
+        fi
+    done
+    if [ "$skip" = true ]; then continue; fi
+
+    # Remove prefix, convert to lowercase, replace underscores with dashes
+    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+
+    # Boolean handling: true = flag only, false = skip entirely
+    if [ "$value" = "false" ]; then continue; fi
+
+    SERVER_ARGS+=("${ARG_PREFIX}${arg_name}")
+    if [ -n "$value" ] && [ "$value" != "true" ]; then
+        SERVER_ARGS+=("$value")
+    fi
+done
+
+echo "-------------------------------------------------------------------"
+echo "TensorRT-LLM engine args: [${SERVER_ARGS[@]}]"
+echo "-------------------------------------------------------------------"
+
+# TensorRT-LLM requires the model as a positional argument
+if [ -z "$TRTLLM_MODEL" ]; then
+    echo "Error: TRTLLM_MODEL environment variable is not set"
+    exit 1
+fi
+exec trtllm-serve serve "$TRTLLM_MODEL" "${SERVER_ARGS[@]}"

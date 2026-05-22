@@ -55,6 +55,10 @@ jobs:
         if: matrix.node-version == '24.x'
         run: node scripts/sync-command-generator.js --check
 
+      - name: Validate parameter schema coverage
+        if: matrix.node-version == '24.x'
+        run: node scripts/validate-schema-v2.js
+
   integration:
     name: Integration
     runs-on: ubuntu-latest

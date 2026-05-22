@@ -14,7 +14,7 @@ import { describe, it } from 'mocha';
 import assert from 'assert';
 
 const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
     verbose: false
 };
 

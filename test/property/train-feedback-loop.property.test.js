@@ -22,7 +22,7 @@ import assert from 'node:assert';
 
 import { generateCompletionFeedback } from '../../src/lib/train-feedback.js';
 
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, verbose: false };
+const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
 
 // ── Generators ───────────────────────────────────────────────────────────────
 

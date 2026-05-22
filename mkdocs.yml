@@ -65,6 +65,7 @@ nav:
   - Developer Guide:
       - Contributing: CONTRIBUTING.md
       - Generator Architecture: dev/generator-architecture.md
+      - Schema-Driven Architecture: dev/schema-driven-architecture.md
       - Template System: dev/template-system.md
       - MCP Server Development: dev/mcp-server-development.md
       - Registries and Catalogs: dev/registries-and-catalogs.md

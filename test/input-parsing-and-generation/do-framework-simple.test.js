@@ -62,7 +62,8 @@ describe('DO Framework - Simplified Tests', () => {
     
     describe('Script Content Validation', () => {
         it('should have shebang in all do scripts', () => {
-            const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean', 'do/submit'];
+            // deploy and clean are now EJS dispatchers that include target-specific partials
+            const scripts = ['do/build', 'do/push', 'do/run', 'do/test', 'do/submit'];
             
             scripts.forEach(script => {
                 const content = readFileSync(path.join(templatesDir, script), 'utf8');
@@ -74,7 +75,7 @@ describe('DO Framework - Simplified Tests', () => {
         });
         
         it('should have set -e in all do scripts', () => {
-            const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean', 'do/submit'];
+            const scripts = ['do/build', 'do/push', 'do/run', 'do/test', 'do/submit'];
             
             scripts.forEach(script => {
                 const content = readFileSync(path.join(templatesDir, script), 'utf8');
@@ -86,7 +87,7 @@ describe('DO Framework - Simplified Tests', () => {
         });
         
         it('should source config in operational scripts', () => {
-            const scripts = ['do/build', 'do/push', 'do/deploy', 'do/run', 'do/test', 'do/clean'];
+            const scripts = ['do/build', 'do/push', 'do/run', 'do/test'];
             
             scripts.forEach(script => {
                 const content = readFileSync(path.join(templatesDir, script), 'utf8');

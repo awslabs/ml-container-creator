@@ -19,7 +19,7 @@ import assert from 'node:assert';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 
 const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
     timeout: 30000,
     verbose: false
 };

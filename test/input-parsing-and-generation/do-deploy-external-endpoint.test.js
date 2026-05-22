@@ -34,7 +34,7 @@ const templateContent = readFileSync(templatePath, 'utf8');
  * Render the do/deploy template with the given variables.
  */
 function renderDeploy(vars) {
-    return ejs.render(templateContent, vars);
+    return ejs.render(templateContent, vars, { filename: templatePath });
 }
 
 /** Base config for realtime-inference deployment */

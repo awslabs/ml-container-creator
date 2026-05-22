@@ -22,9 +22,11 @@ const __dirname = path.dirname(__filename);
 
 // Load all five do/ templates
 const configTemplate = readFileSync(path.join(__dirname, '../../templates/do/config'), 'utf8');
-const deployTemplate = readFileSync(path.join(__dirname, '../../templates/do/deploy'), 'utf8');
+const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy');
+const deployTemplate = readFileSync(deployTemplatePath, 'utf8');
 const testTemplate = readFileSync(path.join(__dirname, '../../templates/do/test'), 'utf8');
-const cleanTemplate = readFileSync(path.join(__dirname, '../../templates/do/clean'), 'utf8');
+const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean');
+const cleanTemplate = readFileSync(cleanTemplatePath, 'utf8');
 const logsTemplate = readFileSync(path.join(__dirname, '../../templates/do/logs'), 'utf8');
 
 /** Base template variables for async-inference rendering */
@@ -97,7 +99,7 @@ describe('Async Integration: Generated template content', function () {
     // ================================================================
     describe('do/deploy with async-inference', () => {
         it('should contain async inference config elements (default bootstrap)', () => {
-            const output = ejs.render(deployTemplate, baseVars());
+            const output = ejs.render(deployTemplate, baseVars(), { filename: deployTemplatePath });
 
             assert.ok(output.includes('async-inference-config'), 'must contain --async-inference-config CLI flag');
             assert.ok(
@@ -112,7 +114,7 @@ describe('Async Integration: Generated template content', function () {
         });
 
         it('should include bootstrap blocks when using defaults (empty paths)', () => {
-            const output = ejs.render(deployTemplate, baseVars());
+            const output = ejs.render(deployTemplate, baseVars(), { filename: deployTemplatePath });
 
             // Default = empty string → bootstrap (check-and-create) blocks appear
             assert.ok(output.includes('create-bucket'), 'must contain S3 bucket bootstrap (create-bucket)');
@@ -124,7 +126,7 @@ describe('Async Integration: Generated template content', function () {
                 asyncS3OutputPath: 's3://custom-bucket/output/',
                 asyncSnsSuccessTopic: 'arn:aws:sns:us-east-1:123456789012:custom-success',
                 asyncSnsErrorTopic: 'arn:aws:sns:us-east-1:123456789012:custom-error'
-            }));
+            }), { filename: deployTemplatePath });
 
             assert.ok(output.includes('Using custom S3 output path'), 'must skip S3 bucket creation');
             assert.ok(output.includes('Using custom SNS success topic'), 'must skip SNS success topic creation');
@@ -157,7 +159,7 @@ describe('Async Integration: Generated template content', function () {
     // ================================================================
     describe('do/clean with async-inference', () => {
         it('should contain endpoint cleanup functions and case target', () => {
-            const output = ejs.render(cleanTemplate, baseVars());
+            const output = ejs.render(cleanTemplate, baseVars(), { filename: cleanTemplatePath });
 
             assert.ok(output.includes('endpoint)'), 'must contain endpoint) case statement target');
             assert.ok(output.includes('clean_endpoint'), 'must contain clean_endpoint function');

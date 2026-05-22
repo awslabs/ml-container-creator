@@ -15,12 +15,9 @@
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import RegistryLoader from '../../src/lib/registry-loader.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 describe('Registry Loader', () => {
     let loader;
@@ -290,13 +287,10 @@ describe('Registry Loader', () => {
             console.log('\n  🧪 Testing malformed JSON handling...');
             
             // Create a temporary malformed catalog file
-            const tempDir = path.join(__dirname, '../../.kiro/tmp');
+            const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mlcc-test-'));
             const tempFile = path.join(tempDir, 'temp-malformed.json');
             
             try {
-                // Ensure temp directory exists
-                fs.mkdirSync(tempDir, { recursive: true });
-                
                 // Write malformed content
                 fs.writeFileSync(tempFile, '{ invalid json }');
                 

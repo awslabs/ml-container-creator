@@ -65,7 +65,7 @@ describe('CodeBuild Feature', () => {
                     if (!(error instanceof ValidationError)) {
                         throw new Error(`Expected ValidationError, got: ${error.constructor.name}`);
                     }
-                    if (!error.message.includes('Unsupported build target')) {
+                    if (!error.message.includes('Unsupported build target') && !error.message.includes('Invalid value')) {
                         throw new Error(`Error message should mention unsupported build target: ${error.message}`);
                     }
                 }
@@ -105,7 +105,7 @@ describe('CodeBuild Feature', () => {
                     if (!(error instanceof ValidationError)) {
                         throw new Error(`Expected ValidationError, got: ${error.constructor.name}`);
                     }
-                    if (!error.message.includes('Unsupported CodeBuild compute type')) {
+                    if (!error.message.includes('Unsupported CodeBuild compute type') && !error.message.includes('Invalid value')) {
                         throw new Error(`Error message should mention unsupported compute type: ${error.message}`);
                     }
                 }

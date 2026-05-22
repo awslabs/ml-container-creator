@@ -38,7 +38,7 @@ const logsTemplate = readFileSync(path.join(templatesDir, 'logs'), 'utf8');
  * Render a template with the given variables.
  */
 function renderTemplate(template, vars) {
-    return ejs.render(template, { orderedEnvVars: [], baseImage: '', ...vars });
+    return ejs.render(template, { orderedEnvVars: [], baseImage: '', ...vars }, { filename: path.join(templatesDir, 'deploy') });
 }
 
 /** Arbitrary for a realtime-inference configuration with async vars set to undefined */

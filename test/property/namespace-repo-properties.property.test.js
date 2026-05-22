@@ -173,7 +173,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
 
         it('detects naming violations when package.json name does not follow convention', function () {
@@ -205,7 +205,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
 
         // ── Property: manifest.json name matches package.json name ───────
@@ -246,7 +246,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
 
         it('detects manifest name mismatch with package.json', function () {
@@ -285,7 +285,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
     });
 
@@ -397,7 +397,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
 
         // ── Property: mismatching names are detected as inconsistent ─────
@@ -446,7 +446,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
     });
 
@@ -620,7 +620,7 @@ describe('Repository-Level Namespace Property Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
 
         // ── Property: scanner detects bare yo invocation in generated content ──
@@ -643,7 +643,7 @@ describe('Repository-Level Namespace Property Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
 
         // ── Property: scanner finds nothing in clean content ─────────────
@@ -665,7 +665,7 @@ describe('Repository-Level Namespace Property Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
     });
 
@@ -811,7 +811,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
 
         // ── Property: directories without SDK dependency are excluded ─────
@@ -848,7 +848,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
 
         // ── Property: multiple servers with varying names all resolve by directory ──
@@ -908,7 +908,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: 100 });
+            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
         });
     });
 });

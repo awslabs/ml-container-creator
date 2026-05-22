@@ -1,0 +1,1043 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# Parse arguments
+CLEANUP_TARGET=""
+CLEANUP_ARG=""
+FORCE_CLEAN=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE_CLEAN=true ;;
+        -*) ;; # ignore other flags
+        *)
+            if [ -z "${CLEANUP_TARGET}" ]; then
+                CLEANUP_TARGET="$arg"
+            elif [ -z "${CLEANUP_ARG}" ]; then
+                CLEANUP_ARG="$arg"
+            fi
+            ;;
+    esac
+done
+
+# Function to display usage
+show_usage() {
+    echo "Usage: ./do/clean [local|ecr|endpoint|ic <name>|<% if (typeof enableLora !== 'undefined' && enableLora) { %>adapter <name>|adapters|<% } %>codebuild|all]"
+    echo ""
+    echo "Cleanup targets:"
+    echo "  local     - Remove local Docker images"
+    echo "  ecr       - Remove images from Amazon ECR"
+    echo "  endpoint  - Delete SageMaker endpoint, configuration, and inference components"
+    echo "  ic <name> - Delete a single inference component (does not touch the endpoint)"
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    echo "  adapter <name> - Delete a single LoRA adapter (synonym for do/adapter remove)"
+    echo "  adapters       - Remove ALL LoRA adapters (keeps base IC and endpoint running)"
+<% } %>
+    echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
+    echo "  all       - Perform all cleanup operations"
+    echo ""
+    echo "Examples:"
+    echo "  ./do/clean local      # Remove local Docker images only"
+    echo "  ./do/clean endpoint   # Delete SageMaker resources only"
+    echo "  ./do/clean ic llama   # Delete a single inference component"
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    echo "  ./do/clean adapter ectsum  # Delete a single LoRA adapter"
+    echo "  ./do/clean adapters        # Remove all LoRA adapters"
+<% } %>
+    echo "  ./do/clean codebuild  # Delete CodeBuild project and rebuild fresh"
+    echo "  ./do/clean all        # Clean up everything"
+}
+
+# Function to confirm action (skipped when --force is set)
+confirm_action() {
+    local message="$1"
+    if [ "${FORCE_CLEAN}" = true ]; then
+        return 0
+    fi
+    echo ""
+    echo "⚠️  ${message}"
+    read -p "   Are you sure? (yes/no): " -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+        echo "❌ Operation cancelled"
+        return 1
+    fi
+    return 0
+}
+
+# Function to clean local Docker images
+clean_local() {
+    echo "🧹 Cleaning local Docker images"
+    echo "   Project: ${PROJECT_NAME}"
+    
+    # Build list of image patterns to clean
+    LOCAL_PATTERN="^${PROJECT_NAME}:"
+    ECR_PATTERN="\.dkr\.ecr\..*\.amazonaws\.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-"
+
+    # Check if any matching images exist
+    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -qE "${LOCAL_PATTERN}|${ECR_PATTERN}"; then
+        echo "ℹ️  No local images found for ${PROJECT_NAME}"
+        return 0
+    fi
+    
+    # List images to be removed
+    echo ""
+    echo "Images to be removed:"
+    docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "${LOCAL_PATTERN}|${ECR_PATTERN}" | while read -r image; do
+        echo "   ${image}"
+    done
+    
+    if ! confirm_action "This will remove all local Docker images for ${PROJECT_NAME}"; then
+        return 1
+    fi
+    
+    # Remove images
+    echo "🗑️  Removing local images..."
+    docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "${LOCAL_PATTERN}|${ECR_PATTERN}" | while read -r image; do
+        echo "   Removing: ${image}"
+        docker rmi "${image}" || echo "   ⚠️  Failed to remove ${image}"
+    done
+    
+    echo "✅ Local images cleaned"
+}
+
+# Function to clean ECR images
+clean_ecr() {
+    echo "🧹 Cleaning ECR images"
+    echo "   Repository: ${ECR_REPOSITORY_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+    
+    # Get AWS account ID
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    
+    # Check if repository exists
+    if ! aws ecr describe-repositories \
+        --repository-names "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "ℹ️  ECR repository ${ECR_REPOSITORY_NAME} does not exist"
+        return 0
+    fi
+    
+    # List images in repository
+    echo ""
+    echo "Checking for images in repository..."
+    
+    if ! IMAGE_IDS=$(aws ecr list-images \
+        --repository-name "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "imageIds[?starts_with(imageTag, '${PROJECT_NAME}-')].[imageTag]" \
+        --output text 2>&1); then
+        echo "ℹ️  No images found for project: ${PROJECT_NAME}"
+        return 0
+    fi
+    
+    if [ -z "${IMAGE_IDS}" ] || [ "${IMAGE_IDS}" = "None" ]; then
+        echo "ℹ️  No images found for project: ${PROJECT_NAME}"
+        return 0
+    fi
+    
+    # Display images
+    echo "Images for project ${PROJECT_NAME}:"
+    echo "${IMAGE_IDS}" | while read -r tag; do
+        if [ -n "${tag}" ] && [ "${tag}" != "None" ]; then
+            echo "   - ${tag}"
+        fi
+    done
+    
+    if ! confirm_action "This will remove all images from ECR repository ${ECR_REPOSITORY_NAME}"; then
+        return 1
+    fi
+    
+    # Remove images
+    echo "🗑️  Removing ECR images..."
+    
+    IMAGE_IDS_JSON=$(aws ecr list-images \
+        --repository-name "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "imageIds[?starts_with(imageTag, '${PROJECT_NAME}-')]" \
+        --output json)
+    
+    if [ "${IMAGE_IDS_JSON}" != "[]" ] && [ -n "${IMAGE_IDS_JSON}" ]; then
+        if aws ecr batch-delete-image \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --region "${AWS_REGION}" \
+            --image-ids "${IMAGE_IDS_JSON}" &> /dev/null; then
+            echo "✅ ECR images removed for project: ${PROJECT_NAME}"
+        else
+            echo "❌ Failed to remove some ECR images"
+            return 1
+        fi
+    else
+        echo "ℹ️  No images to remove for project: ${PROJECT_NAME}"
+    fi
+}
+
+# Function to clean SageMaker endpoint and inference components
+clean_endpoint() {
+    echo "🧹 Cleaning SageMaker resources"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    
+    # Use names from config (set by do/deploy) or argument
+    local EP_NAME="${ENDPOINT_NAME:-}"
+    local IC_NAME="${INFERENCE_COMPONENT_NAME:-}"
+    local EPC_NAME="${ENDPOINT_CONFIG_NAME:-}"
+
+    if [ -z "${EP_NAME}" ]; then
+        echo "❌ No endpoint name found"
+        echo "   Run ./do/deploy first, or set ENDPOINT_NAME in do/config"
+        return 1
+    fi
+
+    # External endpoint: only remove inference components, not the endpoint itself
+    if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
+        echo ""
+        echo "⚠️  Endpoint is external — only removing inference components"
+        echo "   Endpoint ${EP_NAME} will NOT be deleted (managed externally)."
+        echo ""
+
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+        # Delete adapter ICs first (adapters depend on base ICs)
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            local ADAPTER_COUNT=0
+            for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${adapter_conf}" ] || continue
+                ADAPTER_COUNT=$((ADAPTER_COUNT + 1))
+            done
+
+            if [ "${ADAPTER_COUNT}" -gt 0 ]; then
+                echo "🔌 Deleting ${ADAPTER_COUNT} LoRA adapter(s) first..."
+                for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                    [ -f "${adapter_conf}" ] || continue
+                    local adapter_ic_name=""
+                    adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${adapter_conf}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+                    local adapter_display_name
+                    adapter_display_name=$(basename "${adapter_conf}" .conf)
+
+                    if [ -n "${adapter_ic_name}" ]; then
+                        echo "🗑️  Deleting adapter: ${adapter_display_name} (${adapter_ic_name})"
+                        if aws sagemaker delete-inference-component \
+                            --inference-component-name "${adapter_ic_name}" \
+                            --region "${AWS_REGION}" 2>/dev/null; then
+                            echo "⏳ Waiting for adapter deletion..."
+                            aws sagemaker wait inference-component-deleted \
+                                --inference-component-name "${adapter_ic_name}" \
+                                --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                            echo "✅ Adapter deleted: ${adapter_display_name}"
+
+                            # Mark adapter IC as deleted in manifest (non-blocking)
+                            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${adapter_ic_name}" 2>/dev/null || true
+                        else
+                            echo "⚠️  Failed to delete adapter IC: ${adapter_ic_name} (may already be gone)"
+                        fi
+                    fi
+
+                    # Remove adapter conf file
+                    rm -f "${adapter_conf}"
+                done
+                echo "✅ All adapters deleted"
+                echo ""
+            fi
+        fi
+
+<% } %>
+        # Iterate do/ic/*.conf and delete each IC owned by this project
+        local IC_DELETED=0
+        if [ -d "${SCRIPT_DIR}/ic" ]; then
+            for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                [ -f "${conf}" ] || continue
+                local ic_deployed_name=""
+                if grep -q "^export IC_DEPLOYED_NAME=" "${conf}" 2>/dev/null; then
+                    ic_deployed_name=$(grep "^export IC_DEPLOYED_NAME=" "${conf}" | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//')
+                fi
+                if [ -n "${ic_deployed_name}" ]; then
+                    echo "🗑️  Deleting inference component: ${ic_deployed_name}"
+                    if aws sagemaker delete-inference-component \
+                        --inference-component-name "${ic_deployed_name}" \
+                        --region "${AWS_REGION}" 2>/dev/null; then
+                        echo "⏳ Waiting for inference component deletion..."
+                        aws sagemaker wait inference-component-deleted \
+                            --inference-component-name "${ic_deployed_name}" \
+                            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                        echo "✅ Inference component deleted: ${ic_deployed_name}"
+
+                        # Mark inference component as deleted in manifest (non-blocking)
+                        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${ic_deployed_name}" 2>/dev/null || true
+
+                        # Clear deployed state from config
+                        sed -i.bak '/^export IC_DEPLOYED_NAME=/d;/^export IC_DEPLOYED_AT=/d' "${conf}"
+                        rm -f "${conf}.bak"
+                    else
+                        echo "⚠️  Failed to delete inference component: ${ic_deployed_name}"
+                    fi
+                    IC_DELETED=$((IC_DELETED + 1))
+                fi
+            done
+        fi
+
+        # Also handle legacy single IC from config
+        if [ -n "${IC_NAME}" ]; then
+            if aws sagemaker describe-inference-component \
+                --inference-component-name "${IC_NAME}" \
+                --region "${AWS_REGION}" &> /dev/null; then
+                echo "🗑️  Deleting inference component: ${IC_NAME}"
+                if aws sagemaker delete-inference-component \
+                    --inference-component-name "${IC_NAME}" \
+                    --region "${AWS_REGION}" 2>/dev/null; then
+                    echo "⏳ Waiting for inference component deletion..."
+                    aws sagemaker wait inference-component-deleted \
+                        --inference-component-name "${IC_NAME}" \
+                        --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                    echo "✅ Inference component deleted: ${IC_NAME}"
+
+                    # Mark inference component as deleted in manifest (non-blocking)
+                    ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${IC_NAME}" 2>/dev/null || true
+                fi
+                IC_DELETED=$((IC_DELETED + 1))
+            fi
+        fi
+
+        if [ "${IC_DELETED}" -eq 0 ]; then
+            echo "ℹ️  No deployed inference components found to clean"
+        fi
+
+        echo "✅ External endpoint cleanup complete (endpoint preserved)"
+        return 0
+    fi
+
+    echo ""
+    echo "Checking for SageMaker resources..."
+
+    local ENDPOINT_EXISTS=false
+
+    if aws sagemaker describe-endpoint \
+        --endpoint-name "${EP_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        ENDPOINT_EXISTS=true
+        echo "   ✓ Endpoint: ${EP_NAME}"
+    else
+        echo "ℹ️  Endpoint not found: ${EP_NAME}"
+        return 0
+    fi
+
+    # Count ICs to be deleted (multi-IC path)
+    local IC_COUNT=0
+    local IC_NAMES_TO_DELETE=()
+    local IC_CONFS_TO_CLEAN=()
+
+    if [ -d "${SCRIPT_DIR}/ic" ]; then
+        for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+            [ -f "${conf}" ] || continue
+            local ic_deployed_name=""
+            if grep -q "^export IC_DEPLOYED_NAME=" "${conf}" 2>/dev/null; then
+                ic_deployed_name=$(grep "^export IC_DEPLOYED_NAME=" "${conf}" | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//')
+            fi
+            if [ -n "${ic_deployed_name}" ]; then
+                IC_NAMES_TO_DELETE+=("${ic_deployed_name}")
+                IC_CONFS_TO_CLEAN+=("${conf}")
+                IC_COUNT=$((IC_COUNT + 1))
+                echo "   ✓ Inference component: ${ic_deployed_name}"
+            fi
+        done
+    fi
+
+    # Legacy: check single IC from config (no do/ic/ directory)
+    local IC_EXISTS=false
+    if [ "${IC_COUNT}" -eq 0 ] && [ -n "${IC_NAME}" ]; then
+        if aws sagemaker describe-inference-component \
+            --inference-component-name "${IC_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            IC_EXISTS=true
+            IC_COUNT=1
+            echo "   ✓ Inference component: ${IC_NAME}"
+        fi
+    fi
+
+    # Confirmation with IC count
+    local confirm_msg="Delete ${IC_COUNT} inference component"
+    if [ "${IC_COUNT}" -ne 1 ]; then
+        confirm_msg="${confirm_msg}s"
+    fi
+    confirm_msg="${confirm_msg} and endpoint?"
+
+    if ! confirm_action "${confirm_msg}"; then
+        return 1
+    fi
+
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    # Delete adapter ICs first (adapters depend on base ICs)
+    if [ -d "${SCRIPT_DIR}/adapters" ]; then
+        local ADAPTER_COUNT=0
+        for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+            [ -f "${adapter_conf}" ] || continue
+            ADAPTER_COUNT=$((ADAPTER_COUNT + 1))
+        done
+
+        if [ "${ADAPTER_COUNT}" -gt 0 ]; then
+            echo ""
+            echo "🔌 Deleting ${ADAPTER_COUNT} LoRA adapter(s) first..."
+            for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${adapter_conf}" ] || continue
+                local adapter_ic_name=""
+                adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${adapter_conf}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+                local adapter_display_name
+                adapter_display_name=$(basename "${adapter_conf}" .conf)
+
+                if [ -n "${adapter_ic_name}" ]; then
+                    echo "🗑️  Deleting adapter: ${adapter_display_name} (${adapter_ic_name})"
+                    if aws sagemaker delete-inference-component \
+                        --inference-component-name "${adapter_ic_name}" \
+                        --region "${AWS_REGION}" 2>/dev/null; then
+                        echo "⏳ Waiting for adapter deletion..."
+                        aws sagemaker wait inference-component-deleted \
+                            --inference-component-name "${adapter_ic_name}" \
+                            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                        echo "✅ Adapter deleted: ${adapter_display_name}"
+
+                        # Mark adapter IC as deleted in manifest (non-blocking)
+                        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${adapter_ic_name}" 2>/dev/null || true
+                    else
+                        echo "⚠️  Failed to delete adapter IC: ${adapter_ic_name} (may already be gone)"
+                    fi
+                fi
+
+                # Remove adapter conf file
+                rm -f "${adapter_conf}"
+            done
+            echo "✅ All adapters deleted"
+            echo ""
+        fi
+    fi
+
+<% } %>
+    # Delete inference components first (must be deleted before endpoint)
+    if [ ${#IC_NAMES_TO_DELETE[@]} -gt 0 ]; then
+        # Multi-IC path: iterate do/ic/*.conf
+        local idx=0
+        for ic_deployed_name in "${IC_NAMES_TO_DELETE[@]}"; do
+            local conf="${IC_CONFS_TO_CLEAN[$idx]}"
+            echo "🗑️  Deleting inference component: ${ic_deployed_name}"
+            if aws sagemaker delete-inference-component \
+                --inference-component-name "${ic_deployed_name}" \
+                --region "${AWS_REGION}" 2>/dev/null; then
+                echo "⏳ Waiting for inference component deletion..."
+                aws sagemaker wait inference-component-deleted \
+                    --inference-component-name "${ic_deployed_name}" \
+                    --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                echo "✅ Inference component deleted: ${ic_deployed_name}"
+
+                # Mark inference component as deleted in manifest (non-blocking)
+                ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${ic_deployed_name}" 2>/dev/null || true
+
+                # Clear deployed state from config
+                sed -i.bak '/^export IC_DEPLOYED_NAME=/d;/^export IC_DEPLOYED_AT=/d' "${conf}"
+                rm -f "${conf}.bak"
+            else
+                echo "❌ Failed to delete inference component: ${ic_deployed_name}"
+            fi
+            idx=$((idx + 1))
+        done
+    elif [ "${IC_EXISTS}" = true ]; then
+        # Legacy single IC path
+        echo "🗑️  Deleting inference component: ${IC_NAME}"
+        if aws sagemaker delete-inference-component \
+            --inference-component-name "${IC_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "⏳ Waiting for inference component deletion..."
+            aws sagemaker wait inference-component-deleted \
+                --inference-component-name "${IC_NAME}" \
+                --region "${AWS_REGION}" 2>/dev/null || sleep 15
+            echo "✅ Inference component deleted"
+
+            # Mark inference component as deleted in manifest (non-blocking)
+            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${IC_NAME}" 2>/dev/null || true
+        else
+            echo "❌ Failed to delete inference component"
+        fi
+    fi
+
+    # Delete endpoint
+    echo "🗑️  Deleting endpoint: ${EP_NAME}"
+    if aws sagemaker delete-endpoint \
+        --endpoint-name "${EP_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "✅ Endpoint deleted"
+        echo "⏳ Waiting for endpoint deletion..."
+        aws sagemaker wait endpoint-deleted \
+            --endpoint-name "${EP_NAME}" \
+            --region "${AWS_REGION}" 2>/dev/null || sleep 10
+
+        # Mark endpoint as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint/${EP_NAME}" 2>/dev/null || true
+    else
+        echo "❌ Failed to delete endpoint"
+    fi
+
+    # Delete endpoint configuration
+    if [ -n "${EPC_NAME}" ]; then
+        echo "🗑️  Deleting endpoint configuration: ${EPC_NAME}"
+        if aws sagemaker delete-endpoint-config \
+            --endpoint-config-name "${EPC_NAME}" \
+            --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ Endpoint configuration deleted"
+
+            # Mark endpoint config as deleted in manifest (non-blocking)
+            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:endpoint-config/${EPC_NAME}" 2>/dev/null || true
+        else
+            echo "❌ Failed to delete endpoint configuration"
+        fi
+    fi
+
+    # Remove saved names from config
+    if grep -q "^export ENDPOINT_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
+        sed -i.bak '/^# Last deployed resources/d;/^export ENDPOINT_NAME=/d;/^export ENDPOINT_CONFIG_NAME=/d;/^export INFERENCE_COMPONENT_NAME=/d' "${SCRIPT_DIR}/config"
+        rm -f "${SCRIPT_DIR}/config.bak"
+    fi
+    
+    echo "✅ SageMaker resources cleaned"
+}
+
+# Function to clean a single inference component by name
+clean_ic() {
+    local ic_name="$1"
+    echo "🧹 Cleaning inference component: ${ic_name}"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+
+    # Validate IC name argument
+    if [ -z "${ic_name}" ]; then
+        echo "❌ IC name required"
+        echo "   Usage: ./do/clean ic <name>"
+        return 1
+    fi
+
+    # Check that the IC config file exists
+    local ic_conf="${SCRIPT_DIR}/ic/${ic_name}.conf"
+    if [ ! -f "${ic_conf}" ]; then
+        echo "❌ IC config not found: do/ic/${ic_name}.conf"
+        echo "   Available ICs:"
+        if [ -d "${SCRIPT_DIR}/ic" ]; then
+            for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                [ -f "${conf}" ] || continue
+                echo "     - $(basename "${conf}" .conf)"
+            done
+        else
+            echo "     (none)"
+        fi
+        return 1
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Look up IC_DEPLOYED_NAME from the config file
+    local ic_deployed_name=""
+    if grep -q "^export IC_DEPLOYED_NAME=" "${ic_conf}" 2>/dev/null; then
+        ic_deployed_name=$(grep "^export IC_DEPLOYED_NAME=" "${ic_conf}" | sed 's/^export IC_DEPLOYED_NAME="//' | sed 's/"$//')
+    fi
+
+    if [ -z "${ic_deployed_name}" ]; then
+        echo "ℹ️  IC '${ic_name}' has not been deployed (no IC_DEPLOYED_NAME in config)"
+        return 0
+    fi
+
+    echo "   Deployed as: ${ic_deployed_name}"
+
+    if ! confirm_action "This will delete inference component '${ic_deployed_name}'"; then
+        return 1
+    fi
+
+    # Delete the inference component
+    echo "🗑️  Deleting inference component: ${ic_deployed_name}"
+    if aws sagemaker delete-inference-component \
+        --inference-component-name "${ic_deployed_name}" \
+        --region "${AWS_REGION}" 2>/dev/null; then
+        echo "⏳ Waiting for inference component deletion..."
+        aws sagemaker wait inference-component-deleted \
+            --inference-component-name "${ic_deployed_name}" \
+            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+        echo "✅ Inference component deleted: ${ic_deployed_name}"
+
+        # Mark inference component as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${ic_deployed_name}" 2>/dev/null || true
+
+        # Clear deployed state from config
+        sed -i.bak '/^export IC_DEPLOYED_NAME=/d;/^export IC_DEPLOYED_AT=/d' "${ic_conf}"
+        rm -f "${ic_conf}.bak"
+    else
+        echo "❌ Failed to delete inference component: ${ic_deployed_name}"
+        return 1
+    fi
+
+    echo "✅ Inference component '${ic_name}' cleaned"
+}
+
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+# Function to clean a single LoRA adapter by name (synonym for do/adapter remove)
+clean_adapter() {
+    local adapter_name="$1"
+    echo "🧹 Cleaning LoRA adapter: ${adapter_name}"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+
+    # Validate adapter name argument
+    if [ -z "${adapter_name}" ]; then
+        echo "❌ Adapter name required"
+        echo "   Usage: ./do/clean adapter <name>"
+        return 1
+    fi
+
+    # Check that the adapter config file exists
+    local adapter_conf="${SCRIPT_DIR}/adapters/${adapter_name}.conf"
+    if [ ! -f "${adapter_conf}" ]; then
+        echo "❌ Adapter config not found: do/adapters/${adapter_name}.conf"
+        echo "   Available adapters:"
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${conf}" ] || continue
+                echo "     - $(basename "${conf}" .conf)"
+            done
+        else
+            echo "     (none)"
+        fi
+        return 1
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Read ADAPTER_IC_NAME from the config file
+    local adapter_ic_name=""
+    adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${adapter_conf}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//')
+
+    if [ -z "${adapter_ic_name}" ]; then
+        echo "⚠️  No ADAPTER_IC_NAME found in do/adapters/${adapter_name}.conf"
+        echo "   Removing local config file."
+        rm -f "${adapter_conf}"
+        return 0
+    fi
+
+    echo "   Adapter IC: ${adapter_ic_name}"
+
+    if ! confirm_action "This will delete LoRA adapter '${adapter_name}' (IC: ${adapter_ic_name})"; then
+        return 1
+    fi
+
+    # Delete the adapter inference component
+    echo "🗑️  Deleting adapter inference component: ${adapter_ic_name}"
+    if aws sagemaker delete-inference-component \
+        --inference-component-name "${adapter_ic_name}" \
+        --region "${AWS_REGION}" 2>/dev/null; then
+        echo "⏳ Waiting for adapter IC deletion..."
+        aws sagemaker wait inference-component-deleted \
+            --inference-component-name "${adapter_ic_name}" \
+            --region "${AWS_REGION}" 2>/dev/null || sleep 15
+        echo "✅ Adapter IC deleted: ${adapter_ic_name}"
+
+        # Mark adapter IC as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${adapter_ic_name}" 2>/dev/null || true
+    else
+        echo "⚠️  Failed to delete adapter IC: ${adapter_ic_name} (may already be gone)"
+    fi
+
+    # Remove local conf file
+    rm -f "${adapter_conf}"
+    echo "✅ Removed: do/adapters/${adapter_name}.conf"
+
+    echo "✅ Adapter '${adapter_name}' cleaned"
+}
+
+# Function to clean ALL LoRA adapters (keeps base IC and endpoint running)
+clean_adapters() {
+    echo "🧹 Cleaning all LoRA adapters"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+
+    # Check if adapters directory exists and has conf files
+    if [ ! -d "${SCRIPT_DIR}/adapters" ]; then
+        echo "ℹ️  No adapters directory found"
+        return 0
+    fi
+
+    local ADAPTER_COUNT=0
+    local ADAPTER_NAMES=()
+    for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+        [ -f "${conf}" ] || continue
+        ADAPTER_COUNT=$((ADAPTER_COUNT + 1))
+        ADAPTER_NAMES+=("$(basename "${conf}" .conf)")
+    done
+
+    if [ "${ADAPTER_COUNT}" -eq 0 ]; then
+        echo "ℹ️  No adapters found to clean"
+        return 0
+    fi
+
+    echo ""
+    echo "Adapters to be removed (${ADAPTER_COUNT}):"
+    for name in "${ADAPTER_NAMES[@]}"; do
+        echo "   • ${name}"
+    done
+
+    if ! confirm_action "This will delete ${ADAPTER_COUNT} LoRA adapter(s). Base IC and endpoint will remain running."; then
+        return 1
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Delete each adapter
+    local DELETED=0
+    for adapter_conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+        [ -f "${adapter_conf}" ] || continue
+        local adapter_ic_name=""
+        adapter_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${adapter_conf}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+        local adapter_display_name
+        adapter_display_name=$(basename "${adapter_conf}" .conf)
+
+        if [ -n "${adapter_ic_name}" ]; then
+            echo "🗑️  Deleting adapter: ${adapter_display_name} (${adapter_ic_name})"
+            if aws sagemaker delete-inference-component \
+                --inference-component-name "${adapter_ic_name}" \
+                --region "${AWS_REGION}" 2>/dev/null; then
+                echo "⏳ Waiting for adapter deletion..."
+                aws sagemaker wait inference-component-deleted \
+                    --inference-component-name "${adapter_ic_name}" \
+                    --region "${AWS_REGION}" 2>/dev/null || sleep 15
+                echo "✅ Adapter deleted: ${adapter_display_name}"
+
+                # Mark adapter IC as deleted in manifest (non-blocking)
+                ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-component/${adapter_ic_name}" 2>/dev/null || true
+            else
+                echo "⚠️  Failed to delete adapter IC: ${adapter_ic_name} (may already be gone)"
+            fi
+        fi
+
+        # Remove adapter conf file
+        rm -f "${adapter_conf}"
+        DELETED=$((DELETED + 1))
+    done
+
+    echo ""
+    echo "✅ All adapters cleaned (${DELETED} removed)"
+    echo "   Base IC and endpoint remain running."
+}
+<% } %>
+
+# Function to clean CodeBuild project and related resources
+clean_codebuild() {
+    echo "🧹 Cleaning CodeBuild resources"
+    echo "   Project: ${CODEBUILD_PROJECT_NAME:-not set}"
+    echo "   Region: ${AWS_REGION}"
+
+    if [ -z "${CODEBUILD_PROJECT_NAME:-}" ]; then
+        echo "ℹ️  No CodeBuild project name configured (build target may not be codebuild)"
+        return 0
+    fi
+
+    # Validate AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    # Check if project exists
+    PROJECT_CHECK=$(aws codebuild batch-get-projects \
+        --names "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'projects[0].name' \
+        --output text 2>/dev/null)
+
+    if [ "$PROJECT_CHECK" = "None" ] || [ -z "$PROJECT_CHECK" ] || [ "$PROJECT_CHECK" = "null" ]; then
+        echo "ℹ️  CodeBuild project not found: ${CODEBUILD_PROJECT_NAME}"
+        return 0
+    fi
+
+    echo ""
+    echo "Resources to be removed:"
+    echo "   • CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+
+    # Check for service role
+    ROLE_NAME="${CODEBUILD_PROJECT_NAME}-service-role"
+    ROLE_EXISTS=false
+    if aws iam get-role --role-name "${ROLE_NAME}" &> /dev/null; then
+        ROLE_EXISTS=true
+        echo "   • IAM service role: ${ROLE_NAME}"
+    fi
+
+    # Check for S3 source bucket
+    S3_BUCKET="codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+    S3_PREFIX="${PROJECT_NAME}/"
+    S3_EXISTS=false
+    if aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" &> /dev/null; then
+        S3_COUNT=$(aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX" --region "${AWS_REGION}" 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$S3_COUNT" -gt 0 ]; then
+            S3_EXISTS=true
+            echo "   • S3 source artifacts: s3://$S3_BUCKET/$S3_PREFIX ($S3_COUNT objects)"
+        fi
+    fi
+
+    if ! confirm_action "This will delete the CodeBuild project and associated resources"; then
+        return 1
+    fi
+
+    # Delete CodeBuild project
+    echo "🗑️  Deleting CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+    if aws codebuild delete-project \
+        --name "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "✅ CodeBuild project deleted"
+
+        # Mark CodeBuild project as deleted in manifest (non-blocking)
+        ./do/manifest delete --id "arn:aws:codebuild:${AWS_REGION}:${AWS_ACCOUNT_ID}:project/${CODEBUILD_PROJECT_NAME}" 2>/dev/null || true
+    else
+        echo "❌ Failed to delete CodeBuild project"
+    fi
+
+    # Delete IAM service role
+    if [ "$ROLE_EXISTS" = true ]; then
+        echo "🗑️  Deleting IAM service role: ${ROLE_NAME}"
+        # Remove inline policies first
+        POLICIES=$(aws iam list-role-policies --role-name "${ROLE_NAME}" --query 'PolicyNames' --output text 2>/dev/null || echo "")
+        for policy in $POLICIES; do
+            aws iam delete-role-policy --role-name "${ROLE_NAME}" --policy-name "$policy" 2>/dev/null || true
+        done
+        if aws iam delete-role --role-name "${ROLE_NAME}" &> /dev/null; then
+            echo "✅ IAM service role deleted"
+
+            # Mark IAM role as deleted in manifest (non-blocking)
+            ./do/manifest delete --id "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}" 2>/dev/null || true
+        else
+            echo "❌ Failed to delete IAM service role"
+        fi
+    fi
+
+    # Delete S3 source artifacts
+    if [ "$S3_EXISTS" = true ]; then
+        echo "🗑️  Deleting S3 source artifacts: s3://$S3_BUCKET/$S3_PREFIX"
+        if aws s3 rm "s3://$S3_BUCKET/$S3_PREFIX" --recursive --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ S3 source artifacts deleted"
+        else
+            echo "❌ Failed to delete S3 source artifacts"
+        fi
+    fi
+
+    echo "✅ CodeBuild resources cleaned"
+}
+
+# Main script logic
+echo "🧹 Cleanup script for ${PROJECT_NAME}"
+echo ""
+
+if [ -z "${CLEANUP_TARGET}" ]; then
+    show_usage
+    exit 0
+fi
+
+case "${CLEANUP_TARGET}" in
+    local)
+        clean_local
+        ;;
+    ecr)
+        clean_ecr
+        ;;
+    endpoint)
+        clean_endpoint
+        ;;
+    ic)
+        clean_ic "${CLEANUP_ARG}"
+        ;;
+<% if (typeof enableLora !== 'undefined' && enableLora) { %>
+    adapter)
+        clean_adapter "${CLEANUP_ARG}"
+        ;;
+    adapters)
+        clean_adapters
+        ;;
+<% } %>
+    codebuild)
+        clean_codebuild
+        ;;
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+    benchmark)
+        echo "🧹 Cleaning benchmark resources..."
+        WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config"
+
+        # Delete workload config if exists
+        if aws sagemaker describe-ai-workload-config \
+            --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+            --region "$AWS_REGION" 2>/dev/null; then
+            aws sagemaker delete-ai-workload-config \
+                --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted workload config: $WORKLOAD_CONFIG_NAME"
+        fi
+
+        # Delete terminal benchmark jobs matching project prefix
+        aws sagemaker list-ai-benchmark-jobs \
+            --name-contains "${PROJECT_NAME}-benchmark-" \
+            --region "$AWS_REGION" \
+            --query 'AIBenchmarkJobs[?AIBenchmarkJobStatus!=`InProgress`].AIBenchmarkJobName' \
+            --output text | tr '\t' '\n' | while read -r job; do
+            [ -z "$job" ] && continue
+            aws sagemaker delete-ai-benchmark-job \
+                --ai-benchmark-job-name "$job" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted benchmark job: $job"
+        done
+
+        # Delete local benchmark results
+        if [ -d "${SCRIPT_DIR}/../benchmarks" ]; then
+            read -p "Delete local benchmark results? (Y/n) " CONFIRM_DELETE
+            CONFIRM_DELETE="${CONFIRM_DELETE:-Y}"
+            if [[ "${CONFIRM_DELETE}" =~ ^[Yy]$ ]]; then
+                rm -rf "${SCRIPT_DIR}/../benchmarks"
+                echo "   ✓ Deleted local benchmarks/ directory"
+            else
+                echo "   ⏭ Skipped local benchmarks/ deletion"
+            fi
+        fi
+
+        echo "✅ Benchmark cleanup complete"
+        ;;
+<% } %>
+    all)
+        echo "🧹 Performing complete cleanup"
+        echo ""
+        
+        # Track what was cleaned
+        CLEANED_ITEMS=()
+        
+        # Clean local images
+        if clean_local; then
+            CLEANED_ITEMS+=("Local Docker images")
+        fi
+        
+        echo ""
+        
+        # Clean ECR images
+        if clean_ecr; then
+            CLEANED_ITEMS+=("ECR images")
+        fi
+        
+        echo ""
+        
+        # Clean SageMaker resources
+        if clean_endpoint; then
+            CLEANED_ITEMS+=("SageMaker resources")
+        fi
+        
+        echo ""
+        
+        # Clean CodeBuild resources
+        if clean_codebuild; then
+            CLEANED_ITEMS+=("CodeBuild resources")
+        fi
+        
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+        echo ""
+        
+        # Clean benchmark resources
+        WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config"
+
+        # Delete workload config if exists
+        if aws sagemaker describe-ai-workload-config \
+            --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+            --region "$AWS_REGION" 2>/dev/null; then
+            aws sagemaker delete-ai-workload-config \
+                --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted workload config: $WORKLOAD_CONFIG_NAME"
+        fi
+
+        # Delete terminal benchmark jobs matching project prefix
+        aws sagemaker list-ai-benchmark-jobs \
+            --name-contains "${PROJECT_NAME}-benchmark-" \
+            --region "$AWS_REGION" \
+            --query 'AIBenchmarkJobs[?AIBenchmarkJobStatus!=`InProgress`].AIBenchmarkJobName' \
+            --output text | tr '\t' '\n' | while read -r job; do
+            [ -z "$job" ] && continue
+            aws sagemaker delete-ai-benchmark-job \
+                --ai-benchmark-job-name "$job" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted benchmark job: $job"
+        done
+
+        # Delete local benchmark results
+        if [ -d "${SCRIPT_DIR}/../benchmarks" ]; then
+            read -p "Delete local benchmark results? (Y/n) " CONFIRM_DELETE
+            CONFIRM_DELETE="${CONFIRM_DELETE:-Y}"
+            if [[ "${CONFIRM_DELETE}" =~ ^[Yy]$ ]]; then
+                rm -rf "${SCRIPT_DIR}/../benchmarks"
+                echo "   ✓ Deleted local benchmarks/ directory"
+            else
+                echo "   ⏭ Skipped local benchmarks/ deletion"
+            fi
+        fi
+
+        CLEANED_ITEMS+=("Benchmark resources")
+<% } %>
+        # Display summary
+        echo ""
+        echo "✅ Cleanup complete!"
+        echo ""
+        echo "Summary of cleaned resources:"
+        for item in "${CLEANED_ITEMS[@]}"; do
+            echo "  ✓ ${item}"
+        done
+        ;;
+    *)
+        echo "❌ Unknown cleanup target: ${CLEANUP_TARGET}"
+        echo ""
+        show_usage
+        exit 1
+        ;;
+esac
+
+echo ""
+echo "Cleanup finished!"

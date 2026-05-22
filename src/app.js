@@ -296,6 +296,11 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     // Build ignore patterns
     const ignorePatterns = [];
 
+    // EJS partials — included by templates at render time, not copied to output
+    ignorePatterns.push('**/serve.d/**');
+    ignorePatterns.push('**/deploy.d/**');
+    ignorePatterns.push('**/clean.d/**');
+
     if (answers.deploymentTarget !== 'hyperpod-eks') {
         ignorePatterns.push('**/hyperpod/**');
     }

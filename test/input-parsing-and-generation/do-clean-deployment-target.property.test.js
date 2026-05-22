@@ -36,7 +36,7 @@ const templateContent = readFileSync(templatePath, 'utf8');
  * Render the do/clean template with the given variables.
  */
 function renderClean(vars) {
-    return ejs.render(templateContent, vars);
+    return ejs.render(templateContent, vars, { filename: templatePath });
 }
 
 /** Arbitrary for a base config shared by both deployment targets */

@@ -20,7 +20,7 @@ import fc from 'fast-check';
 import { describe, it, afterEach } from 'mocha';
 import { runGenerator } from '../helpers/run-generator.js';
 
-const PROPERTY_CONFIG = { numRuns: 100, timeout: 30000, seed: 42, verbose: false };
+const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, seed: 42, verbose: false };
 
 // Mocha timeout must be longer than fast-check's interruptAfterTimeLimit
 // to allow fast-check to complete gracefully

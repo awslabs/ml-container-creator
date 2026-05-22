@@ -21,7 +21,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
     verbose: false
 };
 
@@ -311,7 +311,7 @@ describe('Feature: e2e-validation-runner, Property 10: Markdown summary contains
                     );
                 }
             }
-        ), { numRuns: 100, verbose: false });
+        ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), verbose: false });
     });
 });
 
@@ -1161,7 +1161,7 @@ describe('Feature: e2e-validation-runner, Property 8: Lifecycle steps execute in
                     await rm(workspaceRoot, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: 100 });
+        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
     });
 
     it('arbitrary step names are executed without runner knowing them in advance', function () {
@@ -1204,7 +1204,7 @@ describe('Feature: e2e-validation-runner, Property 8: Lifecycle steps execute in
                     await rm(workspaceRoot, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: 100 });
+        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
     });
 });
 
@@ -1281,7 +1281,7 @@ describe('Feature: e2e-validation-runner, Property 5: Clean always executes rega
                     await rm(tmpBase, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: 100 });
+        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
     });
 
     it('clean is always the last step in results when a step fails', async function () {
@@ -1347,7 +1347,7 @@ describe('Feature: e2e-validation-runner, Property 5: Clean always executes rega
                     await rm(tmpBase, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: 100 });
+        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
     });
 
     it('clean step is present exactly once in results', async function () {
@@ -1410,7 +1410,7 @@ describe('Feature: e2e-validation-runner, Property 5: Clean always executes rega
                     await rm(tmpBase, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: 100 });
+        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
     });
 });
 
@@ -1459,7 +1459,7 @@ describe('Feature: e2e-validation-runner, Property 4: Bounded parallelism never 
                 assert.ok(maxActive <= C,
                     `Max active (${maxActive}) should never exceed concurrency limit (${C}) with ${N} tasks`);
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: 100 });
+        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
     });
 
     it('all tasks complete despite concurrency limiting', async function () {
@@ -1484,7 +1484,7 @@ describe('Feature: e2e-validation-runner, Property 4: Bounded parallelism never 
                 assert.strictEqual(completedCount, N,
                     `All ${N} tasks should complete, but only ${completedCount} did`);
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: 100 });
+        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
     });
 
     it('concurrency of 1 serializes execution (max active is always 1)', async function () {
@@ -1511,7 +1511,7 @@ describe('Feature: e2e-validation-runner, Property 4: Bounded parallelism never 
                 assert.strictEqual(maxActive, 1,
                     `With concurrency 1, max active should be exactly 1, got ${maxActive}`);
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: 100 });
+        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
     });
 });
 

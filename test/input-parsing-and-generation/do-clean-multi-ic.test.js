@@ -26,7 +26,7 @@ const templatePath = path.join(__dirname, '../../templates/do/clean');
 const templateContent = readFileSync(templatePath, 'utf8');
 
 function renderClean(vars) {
-    return ejs.render(templateContent, vars);
+    return ejs.render(templateContent, vars, { filename: templatePath });
 }
 
 const baseVars = {

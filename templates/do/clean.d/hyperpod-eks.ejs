@@ -1,0 +1,481 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# Parse arguments
+CLEANUP_TARGET=""
+CLEANUP_ARG=""
+FORCE_CLEAN=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE_CLEAN=true ;;
+        -*) ;; # ignore other flags
+        *)
+            if [ -z "${CLEANUP_TARGET}" ]; then
+                CLEANUP_TARGET="$arg"
+            elif [ -z "${CLEANUP_ARG}" ]; then
+                CLEANUP_ARG="$arg"
+            fi
+            ;;
+    esac
+done
+
+# Function to display usage
+show_usage() {
+    echo "Usage: ./do/clean [local|ecr|hyperpod|codebuild|all]"
+    echo ""
+    echo "Cleanup targets:"
+    echo "  local     - Remove local Docker images"
+    echo "  ecr       - Remove images from Amazon ECR"
+    echo "  hyperpod  - Delete HyperPod EKS deployment and services"
+    echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
+    echo "  all       - Perform all cleanup operations"
+    echo ""
+    echo "Examples:"
+    echo "  ./do/clean local      # Remove local Docker images only"
+    echo "  ./do/clean hyperpod   # Delete HyperPod EKS resources only"
+    echo "  ./do/clean codebuild  # Delete CodeBuild project and rebuild fresh"
+    echo "  ./do/clean all        # Clean up everything"
+}
+
+# Function to confirm action (skipped when --force is set)
+confirm_action() {
+    local message="$1"
+    if [ "${FORCE_CLEAN}" = true ]; then
+        return 0
+    fi
+    echo ""
+    echo "⚠️  ${message}"
+    read -p "   Are you sure? (yes/no): " -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+        echo "❌ Operation cancelled"
+        return 1
+    fi
+    return 0
+}
+
+# Function to clean local Docker images
+clean_local() {
+    echo "🧹 Cleaning local Docker images"
+    echo "   Project: ${PROJECT_NAME}"
+    
+    LOCAL_PATTERN="^${PROJECT_NAME}:"
+    ECR_PATTERN="\.dkr\.ecr\..*\.amazonaws\.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-"
+
+    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -qE "${LOCAL_PATTERN}|${ECR_PATTERN}"; then
+        echo "ℹ️  No local images found for ${PROJECT_NAME}"
+        return 0
+    fi
+    
+    echo ""
+    echo "Images to be removed:"
+    docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "${LOCAL_PATTERN}|${ECR_PATTERN}" | while read -r image; do
+        echo "   ${image}"
+    done
+    
+    if ! confirm_action "This will remove all local Docker images for ${PROJECT_NAME}"; then
+        return 1
+    fi
+    
+    echo "🗑️  Removing local images..."
+    docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "${LOCAL_PATTERN}|${ECR_PATTERN}" | while read -r image; do
+        echo "   Removing: ${image}"
+        docker rmi "${image}" || echo "   ⚠️  Failed to remove ${image}"
+    done
+    
+    echo "✅ Local images cleaned"
+}
+
+# Function to clean ECR images
+clean_ecr() {
+    echo "🧹 Cleaning ECR images"
+    echo "   Repository: ${ECR_REPOSITORY_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+    
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    
+    if ! aws ecr describe-repositories \
+        --repository-names "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "ℹ️  ECR repository ${ECR_REPOSITORY_NAME} does not exist"
+        return 0
+    fi
+    
+    echo ""
+    echo "Checking for images in repository..."
+    
+    if ! IMAGE_IDS=$(aws ecr list-images \
+        --repository-name "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "imageIds[?starts_with(imageTag, '${PROJECT_NAME}-')].[imageTag]" \
+        --output text 2>&1); then
+        echo "ℹ️  No images found for project: ${PROJECT_NAME}"
+        return 0
+    fi
+    
+    if [ -z "${IMAGE_IDS}" ] || [ "${IMAGE_IDS}" = "None" ]; then
+        echo "ℹ️  No images found for project: ${PROJECT_NAME}"
+        return 0
+    fi
+    
+    echo "Images for project ${PROJECT_NAME}:"
+    echo "${IMAGE_IDS}" | while read -r tag; do
+        if [ -n "${tag}" ] && [ "${tag}" != "None" ]; then
+            echo "   - ${tag}"
+        fi
+    done
+    
+    if ! confirm_action "This will remove all images from ECR repository ${ECR_REPOSITORY_NAME}"; then
+        return 1
+    fi
+    
+    echo "🗑️  Removing ECR images..."
+    
+    IMAGE_IDS_JSON=$(aws ecr list-images \
+        --repository-name "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "imageIds[?starts_with(imageTag, '${PROJECT_NAME}-')]" \
+        --output json)
+    
+    if [ "${IMAGE_IDS_JSON}" != "[]" ] && [ -n "${IMAGE_IDS_JSON}" ]; then
+        if aws ecr batch-delete-image \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --region "${AWS_REGION}" \
+            --image-ids "${IMAGE_IDS_JSON}" &> /dev/null; then
+            echo "✅ ECR images removed for project: ${PROJECT_NAME}"
+        else
+            echo "❌ Failed to remove some ECR images"
+            return 1
+        fi
+    else
+        echo "ℹ️  No images to remove for project: ${PROJECT_NAME}"
+    fi
+}
+
+# Function to clean HyperPod EKS deployment
+clean_hyperpod() {
+    echo "🧹 Cleaning HyperPod EKS resources"
+    echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
+    echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+    
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    # Get kubeconfig for HyperPod cluster
+    echo "🔑 Configuring kubectl for HyperPod cluster..."
+    KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+
+    EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+        --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "Orchestrator.Eks.ClusterArn" \
+        --output text 2>&1) || {
+        echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+        echo "   Check that the cluster exists and you have permission to access it"
+        return 1
+    }
+
+    EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+
+    if ! aws eks update-kubeconfig \
+        --name "${EKS_CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+        echo "❌ Failed to configure kubectl for EKS cluster: ${EKS_CLUSTER_NAME}"
+        return 1
+    fi
+
+    export KUBECONFIG="${KUBECONFIG_PATH}"
+    
+    if ! confirm_action "This will delete the HyperPod deployment in namespace ${HYPERPOD_NAMESPACE}"; then
+        return 1
+    fi
+    
+    # Delete Kubernetes resources
+    echo "🗑️  Deleting Kubernetes resources..."
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    export AWS_ACCOUNT_ID
+    DELETE_FAILED=false
+    for manifest in hyperpod/*.yaml; do
+        # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
+        RENDERED=$(envsubst < "${manifest}")
+        if echo "${RENDERED}" | grep -q '^kind:'; then
+            if ! echo "${RENDERED}" | kubectl delete -n "${HYPERPOD_NAMESPACE}" --ignore-not-found -f - 2>&1; then
+                DELETE_FAILED=true
+            fi
+        fi
+    done
+    if [ "${DELETE_FAILED}" = true ]; then
+        echo "❌ Failed to delete some Kubernetes resources"
+        echo "   You may need to manually clean up:"
+        echo "   kubectl get all -n ${HYPERPOD_NAMESPACE}"
+        return 1
+    fi
+
+    # Mark k8s resources as deleted in manifest (non-blocking)
+    ./do/manifest delete --id "${HYPERPOD_NAMESPACE}/${PROJECT_NAME}" 2>/dev/null || true
+    
+    echo "✅ HyperPod EKS resources cleaned"
+}
+
+# Function to clean CodeBuild project and related resources
+clean_codebuild() {
+    echo "🧹 Cleaning CodeBuild resources"
+    echo "   Project: ${CODEBUILD_PROJECT_NAME:-not set}"
+    echo "   Region: ${AWS_REGION}"
+
+    if [ -z "${CODEBUILD_PROJECT_NAME:-}" ]; then
+        echo "ℹ️  No CodeBuild project name configured (build target may not be codebuild)"
+        return 0
+    fi
+
+    if ! aws sts get-caller-identity &> /dev/null; then
+        echo "❌ AWS credentials not configured"
+        echo "   Run: aws configure"
+        exit 4
+    fi
+
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+    PROJECT_CHECK=$(aws codebuild batch-get-projects \
+        --names "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'projects[0].name' \
+        --output text 2>/dev/null)
+
+    if [ "$PROJECT_CHECK" = "None" ] || [ -z "$PROJECT_CHECK" ] || [ "$PROJECT_CHECK" = "null" ]; then
+        echo "ℹ️  CodeBuild project not found: ${CODEBUILD_PROJECT_NAME}"
+        return 0
+    fi
+
+    echo ""
+    echo "Resources to be removed:"
+    echo "   • CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+
+    ROLE_NAME="${CODEBUILD_PROJECT_NAME}-service-role"
+    ROLE_EXISTS=false
+    if aws iam get-role --role-name "${ROLE_NAME}" &> /dev/null; then
+        ROLE_EXISTS=true
+        echo "   • IAM service role: ${ROLE_NAME}"
+    fi
+
+    S3_BUCKET="codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+    S3_PREFIX="${PROJECT_NAME}/"
+    S3_EXISTS=false
+    if aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" &> /dev/null; then
+        S3_COUNT=$(aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX" --region "${AWS_REGION}" 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$S3_COUNT" -gt 0 ]; then
+            S3_EXISTS=true
+            echo "   • S3 source artifacts: s3://$S3_BUCKET/$S3_PREFIX ($S3_COUNT objects)"
+        fi
+    fi
+
+    if ! confirm_action "This will delete the CodeBuild project and associated resources"; then
+        return 1
+    fi
+
+    echo "🗑️  Deleting CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+    if aws codebuild delete-project \
+        --name "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "✅ CodeBuild project deleted"
+
+        ./do/manifest delete --id "arn:aws:codebuild:${AWS_REGION}:${AWS_ACCOUNT_ID}:project/${CODEBUILD_PROJECT_NAME}" 2>/dev/null || true
+    else
+        echo "❌ Failed to delete CodeBuild project"
+    fi
+
+    if [ "$ROLE_EXISTS" = true ]; then
+        echo "🗑️  Deleting IAM service role: ${ROLE_NAME}"
+        POLICIES=$(aws iam list-role-policies --role-name "${ROLE_NAME}" --query 'PolicyNames' --output text 2>/dev/null || echo "")
+        for policy in $POLICIES; do
+            aws iam delete-role-policy --role-name "${ROLE_NAME}" --policy-name "$policy" 2>/dev/null || true
+        done
+        if aws iam delete-role --role-name "${ROLE_NAME}" &> /dev/null; then
+            echo "✅ IAM service role deleted"
+
+            ./do/manifest delete --id "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}" 2>/dev/null || true
+        else
+            echo "❌ Failed to delete IAM service role"
+        fi
+    fi
+
+    if [ "$S3_EXISTS" = true ]; then
+        echo "🗑️  Deleting S3 source artifacts: s3://$S3_BUCKET/$S3_PREFIX"
+        if aws s3 rm "s3://$S3_BUCKET/$S3_PREFIX" --recursive --region "${AWS_REGION}" &> /dev/null; then
+            echo "✅ S3 source artifacts deleted"
+        else
+            echo "❌ Failed to delete S3 source artifacts"
+        fi
+    fi
+
+    echo "✅ CodeBuild resources cleaned"
+}
+
+# Main script logic
+echo "🧹 Cleanup script for ${PROJECT_NAME}"
+echo ""
+
+if [ -z "${CLEANUP_TARGET}" ]; then
+    show_usage
+    exit 0
+fi
+
+case "${CLEANUP_TARGET}" in
+    local)
+        clean_local
+        ;;
+    ecr)
+        clean_ecr
+        ;;
+    hyperpod)
+        clean_hyperpod
+        ;;
+    codebuild)
+        clean_codebuild
+        ;;
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+    benchmark)
+        echo "🧹 Cleaning benchmark resources..."
+        WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config"
+
+        if aws sagemaker describe-ai-workload-config \
+            --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+            --region "$AWS_REGION" 2>/dev/null; then
+            aws sagemaker delete-ai-workload-config \
+                --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted workload config: $WORKLOAD_CONFIG_NAME"
+        fi
+
+        aws sagemaker list-ai-benchmark-jobs \
+            --name-contains "${PROJECT_NAME}-benchmark-" \
+            --region "$AWS_REGION" \
+            --query 'AIBenchmarkJobs[?AIBenchmarkJobStatus!=`InProgress`].AIBenchmarkJobName' \
+            --output text | tr '\t' '\n' | while read -r job; do
+            [ -z "$job" ] && continue
+            aws sagemaker delete-ai-benchmark-job \
+                --ai-benchmark-job-name "$job" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted benchmark job: $job"
+        done
+
+        if [ -d "${SCRIPT_DIR}/../benchmarks" ]; then
+            read -p "Delete local benchmark results? (Y/n) " CONFIRM_DELETE
+            CONFIRM_DELETE="${CONFIRM_DELETE:-Y}"
+            if [[ "${CONFIRM_DELETE}" =~ ^[Yy]$ ]]; then
+                rm -rf "${SCRIPT_DIR}/../benchmarks"
+                echo "   ✓ Deleted local benchmarks/ directory"
+            else
+                echo "   ⏭ Skipped local benchmarks/ deletion"
+            fi
+        fi
+
+        echo "✅ Benchmark cleanup complete"
+        ;;
+<% } %>
+    all)
+        echo "🧹 Performing complete cleanup"
+        echo ""
+        
+        CLEANED_ITEMS=()
+        
+        if clean_local; then
+            CLEANED_ITEMS+=("Local Docker images")
+        fi
+        
+        echo ""
+        
+        if clean_ecr; then
+            CLEANED_ITEMS+=("ECR images")
+        fi
+        
+        echo ""
+        
+        # Clean HyperPod EKS resources
+        if clean_hyperpod; then
+            CLEANED_ITEMS+=("HyperPod EKS resources")
+        fi
+        
+        echo ""
+        
+        if clean_codebuild; then
+            CLEANED_ITEMS+=("CodeBuild resources")
+        fi
+        
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+        echo ""
+        
+        WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config"
+
+        if aws sagemaker describe-ai-workload-config \
+            --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+            --region "$AWS_REGION" 2>/dev/null; then
+            aws sagemaker delete-ai-workload-config \
+                --ai-workload-config-name "$WORKLOAD_CONFIG_NAME" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted workload config: $WORKLOAD_CONFIG_NAME"
+        fi
+
+        aws sagemaker list-ai-benchmark-jobs \
+            --name-contains "${PROJECT_NAME}-benchmark-" \
+            --region "$AWS_REGION" \
+            --query 'AIBenchmarkJobs[?AIBenchmarkJobStatus!=`InProgress`].AIBenchmarkJobName' \
+            --output text | tr '\t' '\n' | while read -r job; do
+            [ -z "$job" ] && continue
+            aws sagemaker delete-ai-benchmark-job \
+                --ai-benchmark-job-name "$job" \
+                --region "$AWS_REGION"
+            echo "   ✓ Deleted benchmark job: $job"
+        done
+
+        if [ -d "${SCRIPT_DIR}/../benchmarks" ]; then
+            read -p "Delete local benchmark results? (Y/n) " CONFIRM_DELETE
+            CONFIRM_DELETE="${CONFIRM_DELETE:-Y}"
+            if [[ "${CONFIRM_DELETE}" =~ ^[Yy]$ ]]; then
+                rm -rf "${SCRIPT_DIR}/../benchmarks"
+                echo "   ✓ Deleted local benchmarks/ directory"
+            else
+                echo "   ⏭ Skipped local benchmarks/ deletion"
+            fi
+        fi
+
+        CLEANED_ITEMS+=("Benchmark resources")
+<% } %>
+        echo ""
+        echo "✅ Cleanup complete!"
+        echo ""
+        echo "Summary of cleaned resources:"
+        for item in "${CLEANED_ITEMS[@]}"; do
+            echo "  ✓ ${item}"
+        done
+        ;;
+    *)
+        echo "❌ Unknown cleanup target: ${CLEANUP_TARGET}"
+        echo ""
+        show_usage
+        exit 1
+        ;;
+esac
+
+echo ""
+echo "Cleanup finished!"

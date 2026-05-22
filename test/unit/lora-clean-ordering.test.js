@@ -37,7 +37,7 @@ function renderClean(overrides = {}) {
         includeBenchmark: false,
         ...overrides
     };
-    return ejs.render(CLEAN_TEMPLATE, vars);
+    return ejs.render(CLEAN_TEMPLATE, vars, { filename: CLEAN_TEMPLATE_PATH });
 }
 
 /**

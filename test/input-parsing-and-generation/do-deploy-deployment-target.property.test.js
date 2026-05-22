@@ -45,7 +45,7 @@ const libEndpointConfigContent = readFileSync(libEndpointConfigPath, 'utf8');
  * Render the do/deploy template with the given variables.
  */
 function renderDeploy(vars) {
-    return ejs.render(templateContent, vars);
+    return ejs.render(templateContent, vars, { filename: templatePath });
 }
 
 /** Arbitrary for a base config shared by both deployment targets */
