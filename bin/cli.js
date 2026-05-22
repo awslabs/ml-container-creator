@@ -39,17 +39,17 @@ for (const opt of cliOptions) {
 }
 
 program.action((projectNameArgs, options) => {
-        // Mutual exclusion validation: plaintext token and ARN flags cannot both be provided
-        if (options.hfToken && options.hfTokenArn) {
-            console.error('❌ Cannot specify both --hf-token and --hf-token-arn. Use one or the other.');
-            process.exit(1);
-        }
-        if (options.ngcToken && options.ngcTokenArn) {
-            console.error('❌ Cannot specify both --ngc-token and --ngc-token-arn. Use one or the other.');
-            process.exit(1);
-        }
-        return run(projectNameArgs?.[0] || null, options);
-    });
+    // Mutual exclusion validation: plaintext token and ARN flags cannot both be provided
+    if (options.hfToken && options.hfTokenArn) {
+        console.error('❌ Cannot specify both --hf-token and --hf-token-arn. Use one or the other.');
+        process.exit(1);
+    }
+    if (options.ngcToken && options.ngcTokenArn) {
+        console.error('❌ Cannot specify both --ngc-token and --ngc-token-arn. Use one or the other.');
+        process.exit(1);
+    }
+    return run(projectNameArgs?.[0] || null, options);
+});
 
 // Custom help formatting — group options into logical sections (root command only)
 program.configureHelp({
