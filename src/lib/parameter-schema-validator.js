@@ -99,7 +99,7 @@ export default class ParameterSchemaValidator {
      * @param {string} [deploymentTarget] - Deployment target (unused in v2, kept for API compat)
      * @returns {Object|null} Constraint object or null if not found
      */
-    _resolveConstraint(parameterName, deploymentTarget) {
+    _resolveConstraint(parameterName, _deploymentTarget) {
         const schemaKey = PARAMETER_NAME_MAP[parameterName];
         if (!schemaKey) {
             return null;

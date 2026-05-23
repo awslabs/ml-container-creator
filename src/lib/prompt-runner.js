@@ -29,9 +29,7 @@ import {
     infraBuildPrompts,
     projectPrompts,
     destinationPrompts,
-    baseImageSearchPrompts,
     baseImagePrompts,
-    formatImageChoices,
     filterByCudaGeneration,
     instanceCatalogRaw
 } from './prompts/index.js';

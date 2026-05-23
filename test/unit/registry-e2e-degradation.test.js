@@ -158,8 +158,7 @@ describe('Registry CLI E2E Status Graceful Degradation', () => {
             handler._fetchE2eStatus = async () => null;
 
             // Override the list method to use mock entries directly
-            const originalHandleList = handler._handleList.bind(handler);
-            handler._handleList = async function(options) {
+            handler._handleList = async function(_options) {
                 // Simulate the list logic with mock data
                 const e2eStatusMap = await this._fetchE2eStatus(mockEntries);
 

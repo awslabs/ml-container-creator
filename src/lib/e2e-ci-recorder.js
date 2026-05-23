@@ -9,14 +9,14 @@
  * all recording calls become no-ops.
  */
 
-import { computeConfigId } from './ci-register-helpers.js'
-import BootstrapConfig from './bootstrap-config.js'
+import { computeConfigId } from './ci-register-helpers.js';
+import BootstrapConfig from './bootstrap-config.js';
 
 export class E2ECIRecorder {
     constructor() {
-        this.config = new BootstrapConfig()
-        this.client = null
-        this.tableName = null
+        this.config = new BootstrapConfig();
+        this.client = null;
+        this.tableName = null;
     }
 
     /**
@@ -27,15 +27,15 @@ export class E2ECIRecorder {
      * @returns {Promise<boolean>} true if ready to record, false otherwise
      */
     async init() {
-        const profile = this.config.getActiveProfileWithDefaults()
+        const profile = this.config.getActiveProfileWithDefaults();
         if (!profile || !profile.config.ciInfraProvisioned) {
-            console.warn('⚠️  CI table not provisioned — skipping result recording')
-            return false
+            console.warn('⚠️  CI table not provisioned — skipping result recording');
+            return false;
         }
-        this.tableName = profile.config.ciTableName
-        const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb')
-        this.client = new DynamoDBClient({ region: profile.config.awsRegion })
-        return true
+        this.tableName = profile.config.ciTableName;
+        const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
+        this.client = new DynamoDBClient({ region: profile.config.awsRegion });
+        return true;
     }
 
     /**
@@ -46,9 +46,9 @@ export class E2ECIRecorder {
      * @param {object} configResult - The result of running the config
      */
     async recordConfigResult(catalogEntry, configResult) {
-        if (!this.client) return
+        if (!this.client) return;
 
-        const configId = this.deriveConfigId(catalogEntry)
+        const configId = this.deriveConfigId(catalogEntry);
         const item = {
             configId,
             schemaVersion: 2,
@@ -62,17 +62,17 @@ export class E2ECIRecorder {
             e2eCatalogId: catalogEntry.id,
             tier: catalogEntry.tier,
             duration: configResult.duration
-        }
+        };
 
         try {
-            const { PutItemCommand } = await import('@aws-sdk/client-dynamodb')
-            const { marshall } = await import('@aws-sdk/util-dynamodb')
+            const { PutItemCommand } = await import('@aws-sdk/client-dynamodb');
+            const { marshall } = await import('@aws-sdk/util-dynamodb');
             await this.client.send(new PutItemCommand({
                 TableName: this.tableName,
                 Item: marshall(item, { removeUndefinedValues: true })
-            }))
+            }));
         } catch (err) {
-            console.warn(`⚠️  Failed to record ${catalogEntry.id} to CI table: ${err.message}`)
+            console.warn(`⚠️  Failed to record ${catalogEntry.id} to CI table: ${err.message}`);
         }
     }
 
@@ -88,16 +88,16 @@ export class E2ECIRecorder {
             catalogEntry.args.split(/\s+/)
                 .filter(a => a.startsWith('--'))
                 .map(a => a.replace(/^--/, '').split('='))
-        )
+        );
         const deploymentTarget = catalogEntry.track === 'realtime'
             ? 'realtime-inference'
-            : catalogEntry.track
+            : catalogEntry.track;
         return computeConfigId(
             args['deployment-config'] || '',
             args['model-name'] || 'none',
             args['instance-type'] || '',
             args['region'] || 'us-west-2',
             deploymentTarget
-        )
+        );
     }
 }

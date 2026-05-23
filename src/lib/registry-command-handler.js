@@ -815,7 +815,6 @@ EXAMPLES:
             if (configIds.length === 0) return null;
 
             // Spawn the MCP server and call get_e2e_status
-            const { McpClient } = await import('./mcp-client.js');
             const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
             const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
 

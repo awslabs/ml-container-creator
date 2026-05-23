@@ -16,7 +16,6 @@
  * 9. Prompting (fallback)
  */
 
-import fs from 'fs';
 import path from 'path';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

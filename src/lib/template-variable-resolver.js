@@ -364,7 +364,7 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
     // Populate icGpuCount from instance catalog when not explicitly set.
     // The deploy template uses IC_GPU_COUNT unconditionally for NumberOfAcceleratorDevicesRequired,
     // so it must always have a value for GPU deployments.
-    if (answers.icGpuCount == null && answers.instanceType) {
+    if ((answers.icGpuCount === null || answers.icGpuCount === undefined) && answers.instanceType) {
         // Use gpuCount from instance-sizer recommendation if available
         if (answers.gpuCount) {
             answers.icGpuCount = answers.gpuCount;

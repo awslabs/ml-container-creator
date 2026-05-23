@@ -13,17 +13,16 @@
 import { describe, it, before, after } from 'mocha';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { readFile, rm, stat } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateCatalog, validateTuneCatalogReferences } from '../../src/lib/e2e-catalog-validator.js';
 import {
     resolveStepCommandWithConfig,
-    getStepTimeout,
-    runConfig
+    getStepTimeout
 } from '../../scripts/e2e-runner.js';
 import { E2ECIRecorder } from '../../src/lib/e2e-ci-recorder.js';
-import { saveArtifacts, formatJSON, formatMarkdown } from '../../scripts/e2e-summary.js';
+import { saveArtifacts } from '../../scripts/e2e-summary.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,44 +30,44 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 
 // ─── 10.1: Catalog Validation Integration ────────────────────────────────────
 
-describe('10.1 — Catalog Validation (22-entry catalog)', function () {
+describe('10.1 — Catalog Validation (22-entry catalog)', () => {
     let catalog;
     const catalogPath = path.resolve(PROJECT_ROOT, 'scripts/e2e-catalog.json');
     const tuneCatalogPath = path.resolve(PROJECT_ROOT, 'config/tune-catalog.json');
 
-    before(function () {
+    before(() => {
         const raw = readFileSync(catalogPath, 'utf8');
         catalog = JSON.parse(raw);
     });
 
-    it('catalog contains exactly 22 entries', function () {
+    it('catalog contains exactly 22 entries', () => {
         assert.strictEqual(catalog.configs.length, 22);
     });
 
-    it('all 22 entries pass schema validation', function () {
+    it('all 22 entries pass schema validation', () => {
         const result = validateCatalog(catalog, { tuneCatalogPath });
         assert.strictEqual(result.valid, true, `Validation errors: ${JSON.stringify(result.errors, null, 2)}`);
     });
 
-    it('all entries pass cross-reference checks against tune-catalog.json', function () {
+    it('all entries pass cross-reference checks against tune-catalog.json', () => {
         const errors = validateTuneCatalogReferences(catalog, tuneCatalogPath);
         assert.strictEqual(errors.length, 0, `Cross-reference errors: ${JSON.stringify(errors, null, 2)}`);
     });
 
-    it('all entries have the expected lifecycle', function () {
+    it('all entries have the expected lifecycle', () => {
         const expectedLifecycle = ['build', 'push', 'deploy', 'test', 'tune-sft', 'adapter-add', 'test-adapter', 'clean'];
         for (const entry of catalog.configs) {
             assert.deepStrictEqual(entry.lifecycle, expectedLifecycle, `Entry ${entry.id} has unexpected lifecycle`);
         }
     });
 
-    it('all entries include --enable-lora in args', function () {
+    it('all entries include --enable-lora in args', () => {
         for (const entry of catalog.configs) {
             assert.ok(entry.args.includes('--enable-lora'), `Entry ${entry.id} missing --enable-lora`);
         }
     });
 
-    it('tier distribution is correct (11 ci, 7 nightly, 4 weekly)', function () {
+    it('tier distribution is correct (11 ci, 7 nightly, 4 weekly)', () => {
         const ci = catalog.configs.filter(c => c.tier === 'ci');
         const nightly = catalog.configs.filter(c => c.tier === 'nightly');
         const weekly = catalog.configs.filter(c => c.tier === 'weekly');
@@ -77,7 +76,7 @@ describe('10.1 — Catalog Validation (22-entry catalog)', function () {
         assert.strictEqual(weekly.length, 4);
     });
 
-    it('all entry IDs are unique', function () {
+    it('all entry IDs are unique', () => {
         const ids = catalog.configs.map(c => c.id);
         const unique = new Set(ids);
         assert.strictEqual(unique.size, ids.length, 'Duplicate IDs found');
@@ -86,7 +85,7 @@ describe('10.1 — Catalog Validation (22-entry catalog)', function () {
 
 // ─── 10.2: resolveStepCommandWithConfig Integration ──────────────────────────
 
-describe('10.2 — resolveStepCommandWithConfig (all lifecycle steps)', function () {
+describe('10.2 — resolveStepCommandWithConfig (all lifecycle steps)', () => {
     const representativeEntry = {
         id: 'rt-qwen3-06b',
         tier: 'ci',
@@ -103,57 +102,57 @@ describe('10.2 — resolveStepCommandWithConfig (all lifecycle steps)', function
         }
     };
 
-    it('resolves "build" to "./do/build"', function () {
+    it('resolves "build" to "./do/build"', () => {
         const cmd = resolveStepCommandWithConfig('build', representativeEntry);
         assert.strictEqual(cmd, './do/build');
     });
 
-    it('resolves "push" to "./do/push"', function () {
+    it('resolves "push" to "./do/push"', () => {
         const cmd = resolveStepCommandWithConfig('push', representativeEntry);
         assert.strictEqual(cmd, './do/push');
     });
 
-    it('resolves "deploy" to "./do/deploy"', function () {
+    it('resolves "deploy" to "./do/deploy"', () => {
         const cmd = resolveStepCommandWithConfig('deploy', representativeEntry);
         assert.strictEqual(cmd, './do/deploy');
     });
 
-    it('resolves "test" to "./do/test"', function () {
+    it('resolves "test" to "./do/test"', () => {
         const cmd = resolveStepCommandWithConfig('test', representativeEntry);
         assert.strictEqual(cmd, './do/test');
     });
 
-    it('resolves "tune-sft" with tuneConfig parameters', function () {
+    it('resolves "tune-sft" with tuneConfig parameters', () => {
         const cmd = resolveStepCommandWithConfig('tune-sft', representativeEntry);
         assert.strictEqual(cmd, './do/tune --technique sft --dataset s3://mlcc-e2e-datasets/sft-small/train.jsonl --training-type lora');
     });
 
-    it('resolves "adapter-add" to "./do/adapter add tuned-sft --from-tune sft"', function () {
+    it('resolves "adapter-add" to "./do/adapter add tuned-sft --from-tune sft"', () => {
         const cmd = resolveStepCommandWithConfig('adapter-add', representativeEntry);
         assert.strictEqual(cmd, './do/adapter add tuned-sft --from-tune sft');
     });
 
-    it('resolves "test-adapter" to "./do/test --adapter"', function () {
+    it('resolves "test-adapter" to "./do/test --adapter"', () => {
         const cmd = resolveStepCommandWithConfig('test-adapter', representativeEntry);
         assert.strictEqual(cmd, './do/test --adapter');
     });
 
-    it('resolves "clean" to "./do/clean all"', function () {
+    it('resolves "clean" to "./do/clean all"', () => {
         const cmd = resolveStepCommandWithConfig('clean', representativeEntry);
         assert.strictEqual(cmd, './do/clean all');
     });
 
-    it('getStepTimeout returns tuneTimeout for tune-prefixed steps', function () {
+    it('getStepTimeout returns tuneTimeout for tune-prefixed steps', () => {
         assert.strictEqual(getStepTimeout('tune-sft', representativeEntry), 3600);
     });
 
-    it('getStepTimeout returns timeout for non-tune steps', function () {
+    it('getStepTimeout returns timeout for non-tune steps', () => {
         assert.strictEqual(getStepTimeout('build', representativeEntry), 1800);
         assert.strictEqual(getStepTimeout('deploy', representativeEntry), 1800);
         assert.strictEqual(getStepTimeout('clean', representativeEntry), 1800);
     });
 
-    it('getStepTimeout falls back to timeout when tuneTimeout is absent', function () {
+    it('getStepTimeout falls back to timeout when tuneTimeout is absent', () => {
         const entryNoTuneTimeout = { ...representativeEntry, tuneTimeout: undefined };
         assert.strictEqual(getStepTimeout('tune-sft', entryNoTuneTimeout), 1800);
     });
@@ -167,7 +166,7 @@ describe('10.3 — Fail-fast flow (tune-sft failure)', function () {
     let result;
     let tempDir;
 
-    before(async function () {
+    before(async () => {
         // Create a temporary workspace with a mock project that has
         // do/ scripts: tune-sft fails, others pass, clean always runs
         const { mkdtemp, mkdir, writeFile, chmod } = await import('node:fs/promises');
@@ -251,41 +250,41 @@ describe('10.3 — Fail-fast flow (tune-sft failure)', function () {
         result.duration = Date.now() - startTime;
     });
 
-    after(async function () {
+    after(async () => {
         if (tempDir) {
             await rm(tempDir, { recursive: true, force: true });
         }
     });
 
-    it('overall status is "fail"', function () {
+    it('overall status is "fail"', () => {
         assert.strictEqual(result.status, 'fail');
     });
 
-    it('tune-sft step is marked as "fail"', function () {
+    it('tune-sft step is marked as "fail"', () => {
         const tuneStep = result.steps.find(s => s.name === 'tune-sft');
         assert.ok(tuneStep, 'tune-sft step not found');
         assert.strictEqual(tuneStep.status, 'fail');
     });
 
-    it('adapter-add is marked as "skipped"', function () {
+    it('adapter-add is marked as "skipped"', () => {
         const adapterStep = result.steps.find(s => s.name === 'adapter-add');
         assert.ok(adapterStep, 'adapter-add step not found');
         assert.strictEqual(adapterStep.status, 'skipped');
     });
 
-    it('test-adapter is marked as "skipped"', function () {
+    it('test-adapter is marked as "skipped"', () => {
         const testAdapterStep = result.steps.find(s => s.name === 'test-adapter');
         assert.ok(testAdapterStep, 'test-adapter step not found');
         assert.strictEqual(testAdapterStep.status, 'skipped');
     });
 
-    it('clean step still executes and passes', function () {
+    it('clean step still executes and passes', () => {
         const cleanStep = result.steps.find(s => s.name === 'clean');
         assert.ok(cleanStep, 'clean step not found');
         assert.strictEqual(cleanStep.status, 'pass');
     });
 
-    it('steps before tune-sft all pass', function () {
+    it('steps before tune-sft all pass', () => {
         const pretuneSteps = ['build', 'push', 'deploy', 'test'];
         for (const name of pretuneSteps) {
             const step = result.steps.find(s => s.name === name);
@@ -297,8 +296,8 @@ describe('10.3 — Fail-fast flow (tune-sft failure)', function () {
 
 // ─── 10.4: E2ECIRecorder Integration (mocked DynamoDB) ──────────────────────
 
-describe('10.4 — E2ECIRecorder (mocked DynamoDB client)', function () {
-    it('records item with correct schema matching CI harness format', async function () {
+describe('10.4 — E2ECIRecorder (mocked DynamoDB client)', () => {
+    it('records item with correct schema matching CI harness format', async () => {
         // The recorder uses dynamic imports for @aws-sdk/client-dynamodb inside recordConfigResult.
         // Since the SDK may not be installed in dev, we test the item construction logic directly
         // by verifying the recorder builds the correct item structure before sending.
@@ -363,9 +362,8 @@ describe('10.4 — E2ECIRecorder (mocked DynamoDB client)', function () {
         assert.deepStrictEqual(item.stageResults.clean, { status: 'pass', duration: 500, error: '' });
     });
 
-    it('records fail status with failing stage name', function () {
-        const recorder = new E2ECIRecorder();
-
+    it('records fail status with failing stage name', () => {
+        // Verify the testStatus derivation logic used by E2ECIRecorder
         const configResult = {
             id: 'rt-qwen3-06b',
             status: 'fail',
@@ -386,7 +384,7 @@ describe('10.4 — E2ECIRecorder (mocked DynamoDB client)', function () {
         assert.strictEqual(testStatus, 'fail-deploy');
     });
 
-    it('gracefully degrades when client is null (init not called)', async function () {
+    it('gracefully degrades when client is null (init not called)', async () => {
         const recorder = new E2ECIRecorder();
         // client is null by default — recordConfigResult should be a no-op
 
@@ -408,7 +406,7 @@ describe('10.4 — E2ECIRecorder (mocked DynamoDB client)', function () {
         await recorder.recordConfigResult(catalogEntry, configResult);
     });
 
-    it('handles PutItem failure gracefully (logs warning, does not throw)', async function () {
+    it('handles PutItem failure gracefully (logs warning, does not throw)', async () => {
         const recorder = new E2ECIRecorder();
         recorder.tableName = 'test-ci-table';
         recorder.client = {
@@ -435,7 +433,7 @@ describe('10.4 — E2ECIRecorder (mocked DynamoDB client)', function () {
         await recorder.recordConfigResult(catalogEntry, configResult);
     });
 
-    it('derives a deterministic 16-char hex configId', function () {
+    it('derives a deterministic 16-char hex configId', () => {
         const recorder = new E2ECIRecorder();
         const catalogEntry = {
             id: 'rt-qwen3-06b',
@@ -453,7 +451,7 @@ describe('10.4 — E2ECIRecorder (mocked DynamoDB client)', function () {
         assert.strictEqual(configId, configId2);
     });
 
-    it('configId matches computeConfigId from ci-register-helpers', async function () {
+    it('configId matches computeConfigId from ci-register-helpers', async () => {
         const { computeConfigId } = await import('../../src/lib/ci-register-helpers.js');
         const recorder = new E2ECIRecorder();
 
@@ -526,7 +524,7 @@ describe('10.5 — Artifact saving (--save-local)', function () {
         ]
     };
 
-    before(async function () {
+    before(async () => {
         const { mkdtemp } = await import('node:fs/promises');
         const os = await import('node:os');
         tempDir = await mkdtemp(path.join(os.default.tmpdir(), 'e2e-artifacts-'));
@@ -537,13 +535,13 @@ describe('10.5 — Artifact saving (--save-local)', function () {
         });
     });
 
-    after(async function () {
+    after(async () => {
         if (tempDir) {
             await rm(tempDir, { recursive: true, force: true });
         }
     });
 
-    it('saves results.json with correct structure', async function () {
+    it('saves results.json with correct structure', async () => {
         const resultsPath = path.join(saveResult.local, 'results.json');
         const raw = await readFile(resultsPath, 'utf8');
         const parsed = JSON.parse(raw);
@@ -556,7 +554,7 @@ describe('10.5 — Artifact saving (--save-local)', function () {
         assert.strictEqual(parsed.duration, 120000);
     });
 
-    it('saves summary.md with correct content', async function () {
+    it('saves summary.md with correct content', async () => {
         const mdPath = path.join(saveResult.local, 'summary.md');
         const content = await readFile(mdPath, 'utf8');
 
@@ -572,7 +570,7 @@ describe('10.5 — Artifact saving (--save-local)', function () {
         assert.ok(content.includes('Timeout after 1800s'), 'Missing error message');
     });
 
-    it('results.json per-config results include per-step details', async function () {
+    it('results.json per-config results include per-step details', async () => {
         const resultsPath = path.join(saveResult.local, 'results.json');
         const raw = await readFile(resultsPath, 'utf8');
         const parsed = JSON.parse(raw);
@@ -588,7 +586,7 @@ describe('10.5 — Artifact saving (--save-local)', function () {
         assert.strictEqual(deployStep.error, 'Timeout after 1800s');
     });
 
-    it('saveResult indicates local save path', function () {
+    it('saveResult indicates local save path', () => {
         assert.ok(saveResult.local, 'local path should be set');
         assert.ok(saveResult.local.includes('ci'), 'path should include tier');
         assert.ok(saveResult.local.includes('test-run-2025-01-01'), 'path should include runId');
