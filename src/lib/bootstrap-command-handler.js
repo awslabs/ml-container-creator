@@ -44,6 +44,15 @@ export default class BootstrapCommandHandler {
         this.provisioners = new BootstrapProvisioners(this);
     }
 
+    // ── Provisioner delegations (backward compat for tests) ─────────
+
+    _buildResourceTags() { return this.provisioners._buildResourceTags(); }
+    _setupEcrRepository() { return this.provisioners._setupEcrRepository(); }
+    _setupIamRole(options) { return this.provisioners._setupIamRole(options); }
+    _setupS3Buckets() { return this.provisioners._setupS3Buckets(); }
+    _createS3Bucket(name, tags) { return this.provisioners._createS3Bucket(name, tags); }
+    _verifyCliV2() { return this.provisioners._verifyCliV2(); }
+
     /**
      * Dispatch bootstrap subcommands.
      * @param {string[]} args - Remaining positional args after 'bootstrap'

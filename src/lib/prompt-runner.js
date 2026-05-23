@@ -62,6 +62,26 @@ export default class PromptRunner {
         this.marketplaceFlow = new MarketplaceFlow(this);
     }
 
+    // ── Sub-object delegations (backward compat for tests) ──────────
+
+    _queryMcpForBaseImage(...args) { return this.mcpQueryRunner._queryMcpForBaseImage(...args); }
+    _queryMcpForModels(...args) { return this.mcpQueryRunner._queryMcpForModels(...args); }
+    _queryMcpForRegion(...args) { return this.mcpQueryRunner._queryMcpForRegion(...args); }
+    _queryMcpForInstance(...args) { return this.mcpQueryRunner._queryMcpForInstance(...args); }
+    _queryMcpForInstanceSizing(...args) { return this.mcpQueryRunner._queryMcpForInstanceSizing(...args); }
+    _queryMcpForEndpoints(...args) { return this.mcpQueryRunner._queryMcpForEndpoints(...args); }
+    _queryMcpForHyperPod(...args) { return this.mcpQueryRunner._queryMcpForHyperPod(...args); }
+    _fetchAndDisplayModelInfo(...args) { return this.mcpQueryRunner._fetchAndDisplayModelInfo(...args); }
+    _validateAndDisplayInstanceType(...args) { return this.mcpQueryRunner._validateAndDisplayInstanceType(...args); }
+    _runSecretPrompts(...args) { return this.secretsPromptRunner._runSecretPrompts(...args); }
+    _secretStagesApply(...args) { return this.secretsPromptRunner._secretStagesApply(...args); }
+    _getArnConfigKey(...args) { return this.secretsPromptRunner._getArnConfigKey(...args); }
+    _getPlaintextConfigKey(...args) { return this.secretsPromptRunner._getPlaintextConfigKey(...args); }
+    _promptSecretSelection(...args) { return this.secretsPromptRunner._promptSecretSelection(...args); }
+    _promptPlaintextEntry(...args) { return this.secretsPromptRunner._promptPlaintextEntry(...args); }
+    _promptPlaintextFallback(...args) { return this.secretsPromptRunner._promptPlaintextFallback(...args); }
+    _promptCudaVersion(...args) { return this.cudaResolver._promptCudaVersion(...args); }
+
     /**
      * Runs all prompting phases and returns combined answers
      * 
