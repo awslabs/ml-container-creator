@@ -1,0 +1,14 @@
+{
+    "name": "@amzn/ml-container-creator-e2e-status",
+    "version": "1.0.0",
+    "description": "Optional MCP server that surfaces E2E validation status from the DynamoDB CI table.",
+    "modes": {
+        "static": false,
+        "smart": false,
+        "discover": true
+    },
+    "catalogs": {},
+    "tool": {
+        "name": "get_e2e_status"
+    }
+}

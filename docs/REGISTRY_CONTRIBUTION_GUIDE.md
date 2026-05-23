@@ -47,7 +47,7 @@ The Framework Registry stores framework-specific configurations indexed by frame
       "envVars": {                        // Environment variables
         "VAR_NAME": "value"
       },
-      "inferenceAmiVersion": "string",    // SageMaker AMI version
+      "inferenceAmiVersion": "string",    // SageMaker AI AMI version
       "recommendedInstanceTypes": ["string"],  // Recommended instance types
       "validationLevel": "tested" | "community-validated" | "experimental" | "unknown",
       "profiles": {                       // Optional optimization profiles
@@ -71,13 +71,13 @@ The Framework Registry stores framework-specific configurations indexed by frame
 - `accelerator.type` - Accelerator type (cuda, neuron, cpu, rocm)
 - `accelerator.version` - Required accelerator version (null for CPU)
 - `envVars` - Environment variables (can be empty object)
-- `inferenceAmiVersion` - SageMaker AMI version
+- `inferenceAmiVersion` - SageMaker AI AMI version
 - `recommendedInstanceTypes` - Array of recommended instance types
 - `validationLevel` - Validation level (see [Validation Levels](#validation-levels))
 
 ### Valid `inferenceAmiVersion` Values
 
-The `inferenceAmiVersion` field must be one of the following valid AWS SageMaker AMI versions:
+The `inferenceAmiVersion` field must be one of the following valid AWS SageMaker AI AMI versions:
 
 | AMI Version | Accelerator | Notes |
 |---|---|---|
@@ -422,7 +422,7 @@ The Instance Accelerator Mapping stores hardware specifications for AWS instance
 Validation levels indicate how well-tested a configuration is:
 
 ### Tested
-- **Criteria**: Successfully deployed and validated on AWS SageMaker
+- **Criteria**: Successfully deployed and validated on AWS SageMaker AI
 - **Requirements**:
   - Passes all automated tests (syntax, schema validation)
   - Passes Docker build tests
@@ -471,7 +471,7 @@ docker build -t test-image .
 # Test locally
 docker run -p 8080:8080 test-image
 
-# Deploy to SageMaker (optional but recommended)
+# Deploy to SageMaker AI (optional but recommended)
 ./deploy/deploy.sh your-sagemaker-role-arn
 ```
 
@@ -552,7 +552,7 @@ docker build -t test-image .
 docker run -p 8080:8080 test-image
 curl http://localhost:8080/ping  # Should return 200
 
-# 6. Deploy to SageMaker (optional)
+# 6. Deploy to SageMaker AI (optional)
 ./deploy/deploy.sh your-sagemaker-role-arn
 ```
 

@@ -17,8 +17,8 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import TemplateManager from '../src/lib/template-manager.js';
-import ConfigManager from '../src/lib/config-manager.js';
+import TemplateManager from '../../src/lib/template-manager.js';
+import ConfigManager from '../../src/lib/config-manager.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

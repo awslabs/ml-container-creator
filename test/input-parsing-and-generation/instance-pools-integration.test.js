@@ -26,7 +26,7 @@ import { fileURLToPath } from 'url';
 import {
     filterByCudaGeneration,
     instanceCatalogRaw
-} from '../../src/lib/prompts.js';
+} from '../../src/lib/prompts/index.js';
 
 const __filename2 = fileURLToPath(import.meta.url);
 const __dirname2 = path.dirname(__filename2);

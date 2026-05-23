@@ -59,6 +59,10 @@ jobs:
         if: matrix.node-version == '24.x'
         run: node scripts/validate-schema-v2.js
 
+      - name: Validate template coverage
+        if: matrix.node-version == '24.x'
+        run: node scripts/schema-template-coverage.js --strict
+
   integration:
     name: Integration
     runs-on: ubuntu-latest

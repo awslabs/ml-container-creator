@@ -32,7 +32,7 @@ Only parameters with unbounded value spaces are eligible for MCP:
 
 | Parameter | MCP Eligible | Reason |
 |-----------|:---:|--------|
-| `instanceType` | yes | Open-ended set of SageMaker instance types |
+| `instanceType` | yes | Open-ended set of SageMaker AI instance types |
 | `awsRegion` | yes | AWS adds new regions over time |
 | `awsRoleArn` | yes | Arbitrary IAM role ARNs |
 | `framework` | no | Fixed set: sklearn, xgboost, tensorflow, transformers |
@@ -121,7 +121,7 @@ When multiple servers are configured, they are queried in order. Later servers t
 
 ### instance-sizer
 
-The single authority for all instance-related recommendations. Estimates VRAM requirements from model metadata, performs search/tag-based filtering, and returns filtered, ranked SageMaker instance recommendations. Supports both VRAM-driven sizing (when a model name is provided) and tag-based search (when an `instanceSearch` query is provided).
+The single authority for all instance-related recommendations. Estimates VRAM requirements from model metadata, performs search/tag-based filtering, and returns filtered, ranked SageMaker AI instance recommendations. Supports both VRAM-driven sizing (when a model name is provided) and tag-based search (when an `instanceSearch` query is provided).
 
 ```bash
 ml-container-creator mcp add instance-sizer --bundled
@@ -131,7 +131,7 @@ The instance-sizer accepts optional context including CUDA version constraints (
 
 ### region-picker
 
-Suggests AWS regions based on a search term. Set `REGION_SEARCH` to filter by region code or location name (e.g., "europe", "tokyo", "us-west"). Without a search term, returns popular SageMaker regions.
+Suggests AWS regions based on a search term. Set `REGION_SEARCH` to filter by region code or location name (e.g., "europe", "tokyo", "us-west"). Without a search term, returns popular SageMaker AI regions.
 
 ```bash
 ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
@@ -139,7 +139,7 @@ ml-container-creator mcp add region-picker --bundled -e REGION_SEARCH=europe
 
 ### model-picker
 
-Discovers and resolves model metadata from multiple sources (HuggingFace Hub, JumpStart, S3, SageMaker Model Registry). Returns model configuration including architecture, parameter count, and framework compatibility.
+Discovers and resolves model metadata from multiple sources (HuggingFace Hub, JumpStart, S3, SageMaker AI Model Registry). Returns model configuration including architecture, parameter count, and framework compatibility.
 
 ```bash
 ml-container-creator mcp add model-picker --bundled

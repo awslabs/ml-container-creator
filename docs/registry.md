@@ -21,7 +21,7 @@ For each framework version, the registry defines:
 - **Base Docker image** - Pre-built images with framework dependencies
 - **Accelerator requirements** - CUDA version, compute capability, etc.
 - **Environment variables** - Optimized runtime settings
-- **SageMaker AMI version** - Compatible inference AMI
+- **SageMaker AI AMI version** - Compatible inference AMI
 - **Recommended instance types** - Cost-effective instance recommendations
 - **Validation level** - Testing status (tested, community-validated, experimental)
 - **Profiles** - Pre-configured optimization profiles (low-latency, high-throughput, etc.)
@@ -147,7 +147,7 @@ If a model doesn't have a template in the registry, MCC attempts to fetch it fro
 
 ## Instance Accelerator Mapping
 
-Maps AWS SageMaker instance types to their accelerator capabilities:
+Maps AWS SageMaker AI instance types to their accelerator capabilities:
 
 ```javascript
 "ml.g5.xlarge": {

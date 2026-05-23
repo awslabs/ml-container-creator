@@ -4,7 +4,7 @@ This guide describes how ML Container Creator (MCC) works: what decisions it cap
 
 ## The Three Decisions
 
-Deploying a model to SageMaker requires three interrelated decisions:
+Deploying a model to SageMaker AI requires three interrelated decisions:
 
 1. **Model selection** -- Where does the model come from and in what format?
 2. **Model serving** -- Which framework handles inference requests?
@@ -20,9 +20,11 @@ MCC collects configuration, validates it, and generates a project directory with
 flowchart LR
     A[Collect config] --> B[Validate]
     B --> C[Generate project]
-    C --> D[do/build]
-    D --> E[do/push]
-    E --> F[do/deploy]
+    C --> D[do/build → push]
+    D --> E[do/deploy]
+    E --> F[do/test]
+    F --> G[do/tune]
+    G --> H[do/adapter → test]
 ```
 
 Configuration can come from interactive prompts, CLI flags, environment variables, config files, or MCP servers. These sources are merged in a strict precedence order -- see the [Configuration Guide](configuration.md) for the full precedence chain.
@@ -30,6 +32,9 @@ Configuration can come from interactive prompts, CLI flags, environment variable
 In interactive mode, the generator walks through five phases: model selection (deployment config + model name), serving configuration (target, profile, base image), infrastructure (region, instance type — derived from model via the instance-sizer), details (framework version, modules), and project settings (name, destination). The instance type is a derived value — once the model and base image are known, the instance-sizer computes VRAM requirements and recommends compatible instances automatically. In non-interactive mode (`--skip-prompts`), all values come from CLI flags or config files.
 
 The [Getting Started Guide](getting-started.md) has complete walkthroughs for both a predictive model (sklearn + Flask) and an LLM (SGLang), including the exact CLI commands and generated project structures.
+
+!!! tip "Supported Models"
+    MCC validates 22 model + instance combinations end-to-end through the full lifecycle (build → deploy → test → tune → adapter → test). If your model is in the [Supported Models](supported-models.md) catalog, you're on a tested, proven path.
 
 ## Models
 
@@ -59,7 +64,7 @@ Predictive models are small models for classification, regression, and similar t
 # COPY your_model_files /opt/ml/model/
 ```
 
-The target directory must be `/opt/ml/model/` for SageMaker compatibility.
+The target directory must be `/opt/ml/model/` for SageMaker AI compatibility.
 
 **Sample model.** For testing without a real model, MCC can train a sample model on the [Abalone dataset](https://archive.ics.uci.edu/dataset/1/abalone) using the selected framework. The sample model is automatically copied into the container. This is for validating the build and deployment pipeline, not for production use.
 
@@ -104,7 +109,7 @@ MCC generates different container architectures depending on the serving framewo
 
 ### HTTP servers (predictive models)
 
-Predictive models need an HTTP layer to expose the SageMaker-required `/ping` and `/invocations` endpoints on port 8080. MCC generates a model handler (`model_handler.py`) for inference logic and pairs it with a web server and Nginx reverse proxy.
+Predictive models need an HTTP layer to expose the SageMaker AI-required `/ping` and `/invocations` endpoints on port 8080. MCC generates a model handler (`model_handler.py`) for inference logic and pairs it with a web server and Nginx reverse proxy.
 
 | Web Server | Description |
 |------------|-------------|
@@ -113,7 +118,7 @@ Predictive models need an HTTP layer to expose the SageMaker-required `/ping` an
 
 ### LLM servers (generative models)
 
-LLM serving frameworks handle both model loading and HTTP serving. Some require an Nginx reverse proxy for SageMaker compatibility.
+LLM serving frameworks handle both model loading and HTTP serving. Some require an Nginx reverse proxy for SageMaker AI compatibility.
 
 --8<-- "ai-frameworks-table.md"
 
@@ -139,8 +144,8 @@ For CI/CD workflows, `./do/submit` creates a CodeBuild project that builds the i
 
 Once a container is built and pushed to ECR, `./do/deploy` provisions the deployment target. MCC supports two targets:
 
-- **Managed Inference** (`managed-inference`): SageMaker real-time endpoints via the Inference Components API. This is the default.
-- **HyperPod EKS** (`hyperpod-eks`): Kubernetes deployment on existing SageMaker HyperPod clusters.
+- **Managed Inference** (`managed-inference`): SageMaker AI real-time endpoints via the Inference Components API. This is the default.
+- **HyperPod EKS** (`hyperpod-eks`): Kubernetes deployment on existing SageMaker AI HyperPod clusters.
 
 After deployment, `./do/test` validates the endpoint, `./do/logs` tails logs, and `./do/clean` tears down resources.
 
@@ -178,7 +183,7 @@ flowchart TB
     end
 
     subgraph deploy["Deployment"]
-        endpoint["SageMaker Endpoint<br/>port 8080<br/>GET /ping<br/>POST /invocations"]
+        endpoint["SageMaker AI Endpoint<br/>port 8080<br/>GET /ping<br/>POST /invocations"]
         clients["Client Applications"]
     end
 

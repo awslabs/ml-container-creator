@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide covers installation and two end-to-end walkthroughs: deploying a predictive model (sklearn + Flask) and deploying an LLM (SGLang). Both deploy to a SageMaker managed inference endpoint.
+This guide covers installation and two end-to-end walkthroughs: deploying a predictive model (sklearn + Flask) and deploying an LLM (SGLang). Both deploy to a SageMaker AI managed inference endpoint.
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ This guide covers installation and two end-to-end walkthroughs: deploying a pred
 | [Docker](https://docs.docker.com/get-docker/) | 20+ | Local container builds |
 | [AWS CLI](https://aws.amazon.com/cli/) | 2+ | AWS resource management |
 
-You also need an AWS IAM role with permissions for ECR, SageMaker, and (optionally) CodeBuild. Verify your setup:
+You also need an AWS IAM role with permissions for ECR, SageMaker AI, and (optionally) CodeBuild. Verify your setup:
 
 ```bash
 node --version
@@ -51,7 +51,7 @@ ml-container-creator --version
 
 ## Example 1: Predictive Model (sklearn + Flask)
 
-This walkthrough generates a project that serves a scikit-learn model behind Flask on a SageMaker real-time endpoint. It uses the built-in Abalone sample model so you can follow along without providing your own model file.
+This walkthrough generates a project that serves a scikit-learn model behind Flask on a SageMaker AI real-time endpoint. It uses the built-in Abalone sample model so you can follow along without providing your own model file.
 
 ### Generate the project
 
@@ -93,7 +93,7 @@ sklearn-demo/
 │   ├── build                     # Build Docker image
 │   ├── push                      # Push to ECR
 │   ├── submit                    # Submit build to CodeBuild
-│   ├── deploy                    # Deploy to SageMaker
+│   ├── deploy                    # Deploy to SageMaker AI
 │   ├── validate                  # Validate config against AWS service models
 │   ├── test                      # Test local or deployed endpoint
 │   ├── clean                     # Tear down resources
@@ -123,10 +123,10 @@ ml-container-creator bootstrap sync-schemas
 ./do/build        # Build the Docker image
 ./do/push         # Push to Amazon ECR
 ./do/validate     # Validate config against AWS service models (optional)
-./do/deploy       # Deploy to SageMaker (requires IAM role ARN)
+./do/deploy       # Deploy to SageMaker AI (requires IAM role ARN)
 ```
 
-`./do/deploy` creates a SageMaker endpoint configuration, endpoint, and inference component. It waits for the endpoint to reach `InService` status.
+`./do/deploy` creates a SageMaker AI endpoint configuration, endpoint, and inference component. It waits for the endpoint to reach `InService` status.
 
 ### Test
 
@@ -138,7 +138,7 @@ ml-container-creator bootstrap sync-schemas
 Output:
 
 ```
-🧪 Testing SageMaker endpoint: sklearn-demo-endpoint-<TIMESTAMP>
+🧪 Testing SageMaker AI endpoint: sklearn-demo-endpoint-<TIMESTAMP>
 
 🔍 Test 1: Health check
    Checking endpoint status...
@@ -146,7 +146,7 @@ Output:
 
 🔍 Test 2: Inference request
    Payload: Sample feature vector
-   Invoking SageMaker endpoint...
+   Invoking SageMaker AI endpoint...
 ✅ Inference request successful
    Response preview: {"predictions": [12.86]}
 
@@ -172,7 +172,7 @@ COPY path/to/your/model.pkl /opt/ml/model/
 
 ## Example 2: LLM (SGLang)
 
-This walkthrough deploys an LLM to a SageMaker endpoint using SGLang. LLM containers are large and GPU-dependent — this example uses CodeBuild for the image build.
+This walkthrough deploys an LLM to a SageMaker AI endpoint using SGLang. LLM containers are large and GPU-dependent — this example uses CodeBuild for the image build.
 
 ### Generate the project
 
@@ -225,14 +225,14 @@ This creates a CodeBuild project, uploads the source, builds the Docker image, a
 ### Deploy and test
 
 ```bash
-./do/deploy       # Deploy to SageMaker (GPU endpoint, may take 5-10 minutes)
+./do/deploy       # Deploy to SageMaker AI (GPU endpoint, may take 5-10 minutes)
 ./do/test         # Test with an OpenAI-compatible chat completion request
 ```
 
 Output:
 
 ```
-🧪 Testing SageMaker endpoint: sglang-demo-endpoint-<TIMESTAMP>
+🧪 Testing SageMaker AI endpoint: sglang-demo-endpoint-<TIMESTAMP>
 
 🔍 Test 1: Health check
    Checking endpoint status...
@@ -240,7 +240,7 @@ Output:
 
 🔍 Test 2: Inference request
    Payload: OpenAI-compatible chat completion request
-   Invoking SageMaker endpoint...
+   Invoking SageMaker AI endpoint...
 ✅ Inference request successful
    Response preview: {"choices": [{"message": {"content": "I'm doing great—thanks for asking!..."}}]}
 
@@ -252,7 +252,7 @@ Output:
 Tear down deployed resources to stop incurring charges:
 
 ```bash
-./do/clean endpoint   # Delete SageMaker endpoint, config, and inference component
+./do/clean endpoint   # Delete SageMaker AI endpoint, config, and inference component
 ./do/clean ecr        # Delete ECR images
 ./do/clean codebuild  # Delete CodeBuild project and IAM role (if applicable)
 ./do/clean all        # All of the above

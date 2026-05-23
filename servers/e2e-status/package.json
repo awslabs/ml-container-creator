@@ -1,0 +1,15 @@
+{
+    "name": "@amzn/ml-container-creator-e2e-status",
+    "private": true,
+    "version": "1.0.0",
+    "description": "Optional MCP server that surfaces E2E validation status from the DynamoDB CI table.",
+    "type": "module",
+    "main": "index.js",
+    "license": "Apache-2.0",
+    "dependencies": {
+        "@aws-sdk/client-dynamodb": "^3.700.0",
+        "@aws-sdk/util-dynamodb": "^3.700.0",
+        "@modelcontextprotocol/sdk": "^1.0.0",
+        "zod": "^3.22.0"
+    }
+}

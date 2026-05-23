@@ -37,7 +37,7 @@ const FAST_PROPERTY_CONFIG = {
 
 // ── Schema loading ───────────────────────────────────────────────────────────
 
-const schemaPath = resolve(__dirname, '../../config/parameter-schema.json');
+const schemaPath = resolve(__dirname, '../../config/parameter-schema-v2.json');
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
 // ── Parameter definitions ────────────────────────────────────────────────────
@@ -50,37 +50,37 @@ const INTEGER_PARAMS = [
         name: 'endpointInitialInstanceCount',
         min: 1,
         max: 100,
-        apiReference: 'CreateEndpointConfig.ProductionVariants.InitialInstanceCount'
+        apiReference: 'parameter-schema-v2.json#endpointInitialInstanceCount'
     },
     {
         name: 'endpointDataCapturePercent',
         min: 0,
         max: 100,
-        apiReference: 'CreateEndpointConfig.DataCaptureConfig.InitialSamplingPercentage'
+        apiReference: 'parameter-schema-v2.json#endpointDataCapturePercent'
     },
     {
         name: 'endpointVolumeSize',
         min: 1,
         max: 16384,
-        apiReference: 'CreateEndpointConfig.ProductionVariants.VolumeSizeInGB'
+        apiReference: 'parameter-schema-v2.json#endpointVolumeSize'
     },
     {
         name: 'icMemorySize',
         min: 128,
         max: 3145728,
-        apiReference: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.MinMemoryRequiredInMb'
+        apiReference: 'parameter-schema-v2.json#icMemorySize'
     },
     {
         name: 'icGpuCount',
         min: 0,
         max: 8,
-        apiReference: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.NumberOfAcceleratorDevicesRequired'
+        apiReference: 'parameter-schema-v2.json#icGpuCount'
     },
     {
         name: 'icCopyCount',
         min: 0,
         max: 100,
-        apiReference: 'CreateInferenceComponent.RuntimeConfig.CopyCount'
+        apiReference: 'parameter-schema-v2.json#icCopyCount'
     }
 ];
 
@@ -92,13 +92,13 @@ const NUMBER_PARAMS = [
         name: 'icCpuCount',
         min: 0.25,
         max: 768,
-        apiReference: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.NumberOfCpuCoresRequired'
+        apiReference: 'parameter-schema-v2.json#icCpuCount'
     },
     {
         name: 'icModelWeight',
         min: 0,
         max: 1,
-        apiReference: 'UpdateEndpointWeightsAndCapacities.DesiredWeightsAndCapacities.DesiredWeight'
+        apiReference: 'parameter-schema-v2.json#icModelWeight'
     }
 ];
 
@@ -109,7 +109,7 @@ const STRING_PARAMS = [
     {
         name: 'endpointVariantName',
         pattern: '^[a-zA-Z0-9]([\\w-]{0,62}[a-zA-Z0-9])?$',
-        apiReference: 'CreateEndpointConfig.ProductionVariants.VariantName'
+        apiReference: 'parameter-schema-v2.json#endpointVariantName'
     }
 ];
 

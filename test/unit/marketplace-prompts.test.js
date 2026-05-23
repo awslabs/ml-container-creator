@@ -18,7 +18,7 @@ import { describe, it, beforeEach } from 'mocha';
 import { strict as assert } from 'node:assert';
 import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.js';
 import PromptRunner from '../../src/lib/prompt-runner.js';
-import { deploymentConfigPrompts } from '../../src/lib/prompts.js';
+import { deploymentConfigPrompts } from '../../src/lib/prompts/index.js';
 import { runGenerator } from '../helpers/run-generator.js';
 
 describe('Marketplace Prompt Flow', () => {

@@ -74,10 +74,10 @@ Each configuration is expressed as an `architecture-backend` string (e.g., `tran
 
 | Target | Description |
 |---|---|
-| `managed-inference` | Real-time SageMaker endpoints |
+| `managed-inference` | Real-time SageMaker AI endpoints |
 | `async-inference` | Asynchronous endpoints with S3 input/output |
 | `batch-transform` | Batch processing of datasets in S3 |
-| `hyperpod-eks` | Kubernetes deployment on SageMaker HyperPod EKS clusters |
+| `hyperpod-eks` | Kubernetes deployment on SageMaker AI HyperPod EKS clusters |
 
 ## Generator Lifecycle
 
@@ -100,7 +100,7 @@ project-name/
 │   ├── build               # Build Docker image
 │   ├── push                # Push to ECR
 │   ├── submit              # Submit to CodeBuild
-│   ├── deploy              # Deploy to SageMaker
+│   ├── deploy              # Deploy to SageMaker AI
 │   ├── test                # Run inference tests
 │   ├── clean               # Tear down resources
 │   ├── register            # Log to deployment registry

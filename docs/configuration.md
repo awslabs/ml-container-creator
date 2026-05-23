@@ -131,7 +131,7 @@ Set infrastructure parameters via the shell environment:
 ```bash
 export ML_INSTANCE_TYPE="ml.g5.2xlarge"
 export AWS_REGION="us-west-2"
-export AWS_ROLE="arn:aws:iam::123456789012:role/SageMakerRole"
+export AWS_ROLE="arn:aws:iam::123456789012:role/SageMaker AIRole"
 
 ml-container-creator --deployment-config=transformers-vllm --skip-prompts
 ```
@@ -162,7 +162,7 @@ ml-container-creator --config=production.json --skip-prompts
   "buildTarget": "codebuild",
   "instanceType": "ml.m5.large",
   "awsRegion": "us-east-1",
-  "awsRoleArn": "arn:aws:iam::123456789012:role/SageMakerRole"
+  "awsRoleArn": "arn:aws:iam::123456789012:role/SageMaker AIRole"
 }
 ```
 
@@ -298,7 +298,7 @@ Download the AWS service models into your local schema registry:
 ml-container-creator bootstrap sync-schemas
 ```
 
-This downloads service models for SageMaker, IAM, ECR, and S3 from the AWS SDK source and stores them at `~/.ml-container-creator/schemas/`. Re-run periodically to pick up new enum values and API changes.
+This downloads service models for SageMaker AI, IAM, ECR, and S3 from the AWS SDK source and stores them at `~/.ml-container-creator/schemas/`. Re-run periodically to pick up new enum values and API changes.
 
 #### When Validation Runs
 
@@ -359,7 +359,7 @@ Validate that catalog entries use valid AWS enum values:
 npm run validate:catalogs
 ```
 
-This checks fields like `inferenceAmiVersion` in `model-servers.json` against the SageMaker service model's enum set. Run this as a CI gate when updating catalog files.
+This checks fields like `inferenceAmiVersion` in `model-servers.json` against the SageMaker AI service model's enum set. Run this as a CI gate when updating catalog files.
 
 #### Skipping Validation
 

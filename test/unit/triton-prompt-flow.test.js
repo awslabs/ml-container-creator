@@ -21,7 +21,7 @@ import {
     modelFormatPrompts,
     hfTokenPrompts,
     ngcApiKeyPrompts
-} from '../../src/lib/prompts.js';
+} from '../../src/lib/prompts/index.js';
 import PromptRunner from '../../src/lib/prompt-runner.js';
 
 describe('Triton Prompt Flow', () => {

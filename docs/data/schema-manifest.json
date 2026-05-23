@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-05-21T22:50:37.900Z",
+  "generatedAt": "2026-05-23T12:02:19.664Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -102,7 +102,7 @@
         "inputType": "select",
         "placeholder": null,
         "datalist": null,
-        "default": "managed-inference",
+        "default": "realtime-inference",
         "validation": {
           "enum": [
             "managed-inference",

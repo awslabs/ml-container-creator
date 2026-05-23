@@ -197,7 +197,7 @@ Then deploy and benchmark:
 ```bash
 cd my-benchmark-project
 ./do/submit          # Build via CodeBuild
-./do/deploy          # Deploy to SageMaker
+./do/deploy          # Deploy to SageMaker AI
 ./do/benchmark       # Run the benchmark
 ./do/benchmark --clean  # Run again and clean up after
 ```

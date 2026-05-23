@@ -19,12 +19,15 @@ import { fileURLToPath } from 'node:url';
 import { mkdir, writeFile, chmod, rm } from 'node:fs/promises';
 import {
     resolveStepCommand,
+    resolveStepCommandWithConfig,
+    getStepTimeout,
     executeStep,
     runConfig,
     parseArgs,
     runE2E
 } from '../../scripts/e2e-runner.js';
 import { parseInstanceType } from '../../src/lib/e2e-quota-validator.js';
+import { filterByConfig } from '../../src/lib/e2e-catalog-validator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -93,6 +96,79 @@ describe('E2E Runner — resolveStepCommand', () => {
     it('maps "test-ic" to "./do/test --ic"', () => {
         const result = resolveStepCommand('test-ic', '/tmp/project');
         assert.strictEqual(result, './do/test --ic');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// resolveStepCommandWithConfig
+// Validates: Requirements 3.1, 3.2, 3.3, 3.4
+// ---------------------------------------------------------------------------
+
+describe('E2E Runner — resolveStepCommandWithConfig', () => {
+
+    const sampleConfig = {
+        id: 'rt-qwen3-4b',
+        tier: 'ci',
+        track: 'realtime',
+        args: '--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora',
+        lifecycle: ['build', 'push', 'deploy', 'test', 'tune-sft', 'adapter-add', 'test-adapter', 'clean'],
+        timeout: 1800,
+        tuneTimeout: 3600,
+        tuneConfig: {
+            tuneId: 'qwen3-4b',
+            technique: 'sft',
+            trainingType: 'lora',
+            dataset: 's3://mlcc-e2e-datasets/sft-small/train.jsonl'
+        }
+    };
+
+    it('maps "tune-sft" to ./do/tune with technique, dataset, and training-type from tuneConfig', () => {
+        const result = resolveStepCommandWithConfig('tune-sft', sampleConfig);
+        assert.strictEqual(result, './do/tune --technique sft --dataset s3://mlcc-e2e-datasets/sft-small/train.jsonl --training-type lora');
+    });
+
+    it('maps "tune-dpo" to ./do/tune with technique dpo', () => {
+        const dpoConfig = {
+            ...sampleConfig,
+            tuneConfig: {
+                tuneId: 'qwen3-4b',
+                technique: 'dpo',
+                trainingType: 'full-rank',
+                dataset: 's3://mlcc-e2e-datasets/dpo-small/train.jsonl'
+            }
+        };
+        const result = resolveStepCommandWithConfig('tune-dpo', dpoConfig);
+        assert.strictEqual(result, './do/tune --technique dpo --dataset s3://mlcc-e2e-datasets/dpo-small/train.jsonl --training-type full-rank');
+    });
+
+    it('maps "adapter-add" to ./do/adapter add tuned-sft --from-tune sft', () => {
+        const result = resolveStepCommandWithConfig('adapter-add', sampleConfig);
+        assert.strictEqual(result, './do/adapter add tuned-sft --from-tune sft');
+    });
+
+    it('maps "test-adapter" to ./do/test --adapter', () => {
+        const result = resolveStepCommandWithConfig('test-adapter', sampleConfig);
+        assert.strictEqual(result, './do/test --adapter');
+    });
+
+    it('delegates "build" to resolveStepCommand', () => {
+        const result = resolveStepCommandWithConfig('build', sampleConfig);
+        assert.strictEqual(result, './do/build');
+    });
+
+    it('delegates "clean" to resolveStepCommand', () => {
+        const result = resolveStepCommandWithConfig('clean', sampleConfig);
+        assert.strictEqual(result, './do/clean all');
+    });
+
+    it('delegates "deploy" to resolveStepCommand', () => {
+        const result = resolveStepCommandWithConfig('deploy', sampleConfig);
+        assert.strictEqual(result, './do/deploy');
+    });
+
+    it('delegates "test" to resolveStepCommand', () => {
+        const result = resolveStepCommandWithConfig('test', sampleConfig);
+        assert.strictEqual(result, './do/test');
     });
 });
 
@@ -448,6 +524,61 @@ describe('E2E Runner — parseArgs', () => {
         assert.strictEqual(result.snsTopicArn, 'arn:aws:sns:us-west-2:123:topic');
         assert.strictEqual(result.workspaceRoot, '/tmp/e2e');
     });
+
+    it('parses --config flag with space separator', () => {
+        const result = parseArgs(['--tier', 'ci', '--config', 'rt-qwen3-06b']);
+        assert.strictEqual(result.configId, 'rt-qwen3-06b');
+    });
+
+    it('parses --config flag with equals separator', () => {
+        const result = parseArgs(['--config=rt-llama-32-1b']);
+        assert.strictEqual(result.configId, 'rt-llama-32-1b');
+    });
+
+    it('defaults configId to undefined when not specified', () => {
+        const result = parseArgs(['--tier', 'ci']);
+        assert.strictEqual(result.configId, undefined);
+    });
+
+    it('parses --verbose flag', () => {
+        const result = parseArgs(['--tier', 'ci', '--verbose']);
+        assert.strictEqual(result.verbose, true);
+    });
+
+    it('defaults verbose to false when not specified', () => {
+        const result = parseArgs(['--tier', 'ci']);
+        assert.strictEqual(result.verbose, false);
+    });
+
+    it('parses --save-local flag with space separator', () => {
+        const result = parseArgs(['--tier', 'ci', '--save-local', '/tmp/results']);
+        assert.strictEqual(result.saveLocal, '/tmp/results');
+    });
+
+    it('parses --save-local flag with equals separator', () => {
+        const result = parseArgs(['--save-local=./my-results']);
+        assert.strictEqual(result.saveLocal, './my-results');
+    });
+
+    it('defaults saveLocal to undefined when not specified', () => {
+        const result = parseArgs(['--tier', 'ci']);
+        assert.strictEqual(result.saveLocal, undefined);
+    });
+
+    it('parses all new flags together with existing flags', () => {
+        const result = parseArgs([
+            '--tier', 'ci',
+            '--config', 'rt-qwen3-06b',
+            '--verbose',
+            '--save-local', '/tmp/artifacts',
+            '--dry-run'
+        ]);
+        assert.strictEqual(result.tier, 'ci');
+        assert.strictEqual(result.configId, 'rt-qwen3-06b');
+        assert.strictEqual(result.verbose, true);
+        assert.strictEqual(result.saveLocal, '/tmp/artifacts');
+        assert.strictEqual(result.dryRun, true);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -627,5 +758,538 @@ describe('E2E Runner — SNS publish behavior', () => {
         // Should complete without error — SNS only publishes on failure
         assert.ok(result, 'should complete without throwing');
         assert.strictEqual(result.failed, 0);
+    });
+});
+
+
+// ---------------------------------------------------------------------------
+// filterByConfig — config id filtering logic
+// Validates: Requirements 3.7
+// ---------------------------------------------------------------------------
+
+describe('E2E Runner — filterByConfig', () => {
+
+    const catalog = {
+        configs: [
+            { id: 'rt-qwen3-06b', tier: 'ci', track: 'realtime' },
+            { id: 'rt-qwen3-17b', tier: 'ci', track: 'realtime' },
+            { id: 'rt-qwen3-14b', tier: 'nightly', track: 'realtime' },
+            { id: 'rt-llama-33-70b', tier: 'weekly', track: 'realtime' }
+        ]
+    };
+
+    it('returns all configs when configId is undefined', () => {
+        const ciConfigs = catalog.configs.filter(c => c.tier === 'ci');
+        const result = filterByConfig(ciConfigs, catalog, undefined);
+        assert.strictEqual(result.length, 2);
+    });
+
+    it('returns all configs when configId is empty string', () => {
+        const ciConfigs = catalog.configs.filter(c => c.tier === 'ci');
+        const result = filterByConfig(ciConfigs, catalog, '');
+        assert.strictEqual(result.length, 2);
+    });
+
+    it('finds config within the tier-filtered set', () => {
+        const ciConfigs = catalog.configs.filter(c => c.tier === 'ci');
+        const result = filterByConfig(ciConfigs, catalog, 'rt-qwen3-06b');
+        assert.strictEqual(result.length, 1);
+        assert.strictEqual(result[0].id, 'rt-qwen3-06b');
+    });
+
+    it('falls back to full catalog when config not in tier', () => {
+        const ciConfigs = catalog.configs.filter(c => c.tier === 'ci');
+        // rt-qwen3-14b is in nightly tier, not ci
+        const result = filterByConfig(ciConfigs, catalog, 'rt-qwen3-14b');
+        assert.strictEqual(result.length, 1);
+        assert.strictEqual(result[0].id, 'rt-qwen3-14b');
+        assert.strictEqual(result[0].tier, 'nightly');
+    });
+
+    it('returns empty array when config id not found anywhere', () => {
+        const ciConfigs = catalog.configs.filter(c => c.tier === 'ci');
+        const result = filterByConfig(ciConfigs, catalog, 'nonexistent-config');
+        assert.strictEqual(result.length, 0);
+    });
+
+    it('handles empty configs array', () => {
+        const result = filterByConfig([], catalog, 'rt-qwen3-06b');
+        assert.strictEqual(result.length, 1);
+        assert.strictEqual(result[0].id, 'rt-qwen3-06b');
+    });
+
+    it('handles null catalog gracefully', () => {
+        const ciConfigs = [{ id: 'rt-qwen3-06b', tier: 'ci' }];
+        const result = filterByConfig(ciConfigs, null, 'nonexistent');
+        assert.strictEqual(result.length, 0);
+    });
+
+    it('handles catalog without configs array gracefully', () => {
+        const ciConfigs = [{ id: 'rt-qwen3-06b', tier: 'ci' }];
+        const result = filterByConfig(ciConfigs, {}, 'nonexistent');
+        assert.strictEqual(result.length, 0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// --config flag integration with runE2E
+// Validates: Requirements 3.7
+// ---------------------------------------------------------------------------
+
+describe('E2E Runner — --config flag integration', () => {
+
+    it('filters to a single config in dry-run mode', async function () {
+        this.timeout(10000);
+
+        const catalogPath = path.resolve(__dirname, '../../scripts/e2e-catalog.json');
+        const result = await runE2E({
+            tier: 'ci',
+            configId: 'rt-qwen3-06b',
+            dryRun: true,
+            catalogPath
+        });
+
+        assert.ok(result, 'should return a result');
+        assert.strictEqual(result.tier, 'ci');
+        assert.strictEqual(result.duration, 0);
+    });
+
+    it('returns gracefully when config id not found', async function () {
+        this.timeout(10000);
+
+        const catalogPath = path.resolve(__dirname, '../../scripts/e2e-catalog.json');
+        const result = await runE2E({
+            tier: 'ci',
+            configId: 'nonexistent-config-xyz',
+            dryRun: true,
+            catalogPath
+        });
+
+        // Should return gracefully with empty results, not throw
+        assert.ok(result, 'should return a result');
+        assert.strictEqual(result.passed, 0);
+        assert.strictEqual(result.failed, 0);
+        assert.deepStrictEqual(result.results, []);
+    });
+
+    it('finds config from different tier (fallback behavior)', async function () {
+        this.timeout(10000);
+
+        const catalogPath = path.resolve(__dirname, '../../scripts/e2e-catalog.json');
+        // rt-qwen3-14b is in nightly tier, but we specify --tier ci
+        const result = await runE2E({
+            tier: 'ci',
+            configId: 'rt-qwen3-14b',
+            dryRun: true,
+            catalogPath
+        });
+
+        // Should find it via fallback to full catalog and return successfully
+        assert.ok(result, 'should return a result');
+        assert.strictEqual(result.tier, 'ci');
+        assert.strictEqual(result.duration, 0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// executeStep — verbose mode
+// Validates: Requirements 3.8
+// ---------------------------------------------------------------------------
+
+describe('E2E Runner — executeStep verbose mode', () => {
+
+    const tmpDir = path.join('/tmp', `e2e-test-verbose-${Date.now()}`);
+
+    before(async () => {
+        await mkdir(path.join(tmpDir, 'do'), { recursive: true });
+    });
+
+    after(async () => {
+        await rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it('returns pass status in verbose mode when command succeeds', async () => {
+        const scriptPath = path.join(tmpDir, 'do', 'build');
+        await writeFile(scriptPath, '#!/bin/bash\necho "building..."\nexit 0\n');
+        await chmod(scriptPath, 0o755);
+
+        const result = await executeStep('build', tmpDir, 30, true);
+
+        assert.strictEqual(result.name, 'build');
+        assert.strictEqual(result.status, 'pass');
+        assert.ok(result.duration >= 0);
+        assert.strictEqual(result.error, undefined);
+    });
+
+    it('returns fail status in verbose mode when command exits non-zero', async () => {
+        const scriptPath = path.join(tmpDir, 'do', 'deploy');
+        await writeFile(scriptPath, '#!/bin/bash\necho "deploy failed" >&2\nexit 1\n');
+        await chmod(scriptPath, 0o755);
+
+        const result = await executeStep('deploy', tmpDir, 30, true);
+
+        assert.strictEqual(result.name, 'deploy');
+        assert.strictEqual(result.status, 'fail');
+        assert.ok(result.duration >= 0);
+        assert.ok(result.error.includes('exited with code 1'));
+    });
+
+    it('returns timeout error in verbose mode when command exceeds timeout', async function () {
+        this.timeout(10000);
+
+        const scriptPath = path.join(tmpDir, 'do', 'test');
+        await writeFile(scriptPath, '#!/bin/bash\nsleep 30\n');
+        await chmod(scriptPath, 0o755);
+
+        const result = await executeStep('test', tmpDir, 1, true);
+
+        assert.strictEqual(result.name, 'test');
+        assert.strictEqual(result.status, 'fail');
+        assert.ok(result.error.includes('Timeout after 1s'));
+    });
+
+    it('defaults to non-verbose (buffered) when verbose parameter is omitted', async () => {
+        const scriptPath = path.join(tmpDir, 'do', 'push');
+        await writeFile(scriptPath, '#!/bin/bash\necho "pushing..." >&2\nexit 1\n');
+        await chmod(scriptPath, 0o755);
+
+        const result = await executeStep('push', tmpDir, 30);
+
+        assert.strictEqual(result.status, 'fail');
+        // Non-verbose captures stderr
+        assert.ok(result.error.includes('pushing...'));
+    });
+
+    it('defaults to non-verbose when verbose is explicitly false', async () => {
+        const scriptPath = path.join(tmpDir, 'do', 'push');
+        await writeFile(scriptPath, '#!/bin/bash\necho "push error" >&2\nexit 1\n');
+        await chmod(scriptPath, 0o755);
+
+        const result = await executeStep('push', tmpDir, 30, false);
+
+        assert.strictEqual(result.status, 'fail');
+        // Non-verbose captures stderr
+        assert.ok(result.error.includes('push error'));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// getStepTimeout — timeout selection for lifecycle steps
+// Validates: Requirements 4.2
+// ---------------------------------------------------------------------------
+
+describe('E2E Runner — getStepTimeout', () => {
+
+    it('returns tuneTimeout for tune-prefixed step when tuneTimeout is set', () => {
+        const config = { timeout: 1800, tuneTimeout: 3600 };
+        const result = getStepTimeout('tune-sft', config);
+        assert.strictEqual(result, 3600);
+    });
+
+    it('falls back to timeout for tune-prefixed step when tuneTimeout is not set', () => {
+        const config = { timeout: 1800 };
+        const result = getStepTimeout('tune-sft', config);
+        assert.strictEqual(result, 1800);
+    });
+
+    it('returns timeout for non-tune step regardless of tuneTimeout', () => {
+        const config = { timeout: 1800, tuneTimeout: 3600 };
+        const result = getStepTimeout('build', config);
+        assert.strictEqual(result, 1800);
+    });
+
+    it('returns timeout for "deploy" step', () => {
+        const config = { timeout: 2700, tuneTimeout: 5400 };
+        const result = getStepTimeout('deploy', config);
+        assert.strictEqual(result, 2700);
+    });
+
+    it('returns timeout for "test" step', () => {
+        const config = { timeout: 1800, tuneTimeout: 3600 };
+        const result = getStepTimeout('test', config);
+        assert.strictEqual(result, 1800);
+    });
+
+    it('returns timeout for "clean" step', () => {
+        const config = { timeout: 1800, tuneTimeout: 3600 };
+        const result = getStepTimeout('clean', config);
+        assert.strictEqual(result, 1800);
+    });
+
+    it('returns tuneTimeout for "tune-dpo" step', () => {
+        const config = { timeout: 2700, tuneTimeout: 5400 };
+        const result = getStepTimeout('tune-dpo', config);
+        assert.strictEqual(result, 5400);
+    });
+
+    it('returns tuneTimeout for "tune-rlaif" step', () => {
+        const config = { timeout: 3600, tuneTimeout: 10800 };
+        const result = getStepTimeout('tune-rlaif', config);
+        assert.strictEqual(result, 10800);
+    });
+
+    it('returns timeout for "adapter-add" step (not tune-prefixed)', () => {
+        const config = { timeout: 1800, tuneTimeout: 3600 };
+        const result = getStepTimeout('adapter-add', config);
+        assert.strictEqual(result, 1800);
+    });
+
+    it('returns timeout for "test-adapter" step (not tune-prefixed)', () => {
+        const config = { timeout: 1800, tuneTimeout: 3600 };
+        const result = getStepTimeout('test-adapter', config);
+        assert.strictEqual(result, 1800);
+    });
+
+    it('falls back to timeout when tuneTimeout is 0 (falsy)', () => {
+        const config = { timeout: 1800, tuneTimeout: 0 };
+        const result = getStepTimeout('tune-sft', config);
+        assert.strictEqual(result, 1800);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// runConfig — tune-group fail-fast behavior
+// Validates: Requirements 3.5 (Correctness Property 3)
+// ---------------------------------------------------------------------------
+
+describe('E2E Runner — runConfig tune-group fail-fast', () => {
+
+    const tmpWorkspace = path.join('/tmp', `e2e-test-tunefailfast-${Date.now()}`);
+
+    after(async () => {
+        await rm(tmpWorkspace, { recursive: true, force: true });
+    });
+
+    it('skips adapter-add and test-adapter when tune-sft fails, then runs clean', async function () {
+        this.timeout(15000);
+
+        const configId = 'test-tune-fail';
+        const projectDir = path.join(tmpWorkspace, configId);
+        await mkdir(path.join(projectDir, 'do'), { recursive: true });
+
+        // build, push, deploy, test pass; tune-sft fails
+        await writeFile(path.join(projectDir, 'do', 'build'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'build'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'push'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'push'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'deploy'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'deploy'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'test'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'test'), 0o755);
+        // tune-sft fails (resolves to ./do/tune via resolveStepCommand for now)
+        await writeFile(path.join(projectDir, 'do', 'tune'), '#!/bin/bash\necho "tune failed" >&2\nexit 1\n');
+        await chmod(path.join(projectDir, 'do', 'tune'), 0o755);
+        // adapter and test-adapter should NOT be called
+        await writeFile(path.join(projectDir, 'do', 'adapter'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'adapter'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'clean'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'clean'), 0o755);
+
+        // Use a no-op repo root (project already exists)
+        const fakeRepo = path.join(tmpWorkspace, 'fake-repo-tune');
+        await mkdir(path.join(fakeRepo, 'bin'), { recursive: true });
+        await writeFile(path.join(fakeRepo, 'bin', 'cli.js'), '#!/usr/bin/env node\n// no-op\n');
+
+        const config = {
+            id: configId,
+            tier: 'ci',
+            track: 'realtime',
+            args: '--enable-lora',
+            lifecycle: ['build', 'push', 'deploy', 'test', 'tune-sft', 'adapter-add', 'test-adapter', 'clean'],
+            timeout: 30,
+            tuneTimeout: 60,
+            tuneConfig: {
+                tuneId: 'test-model',
+                technique: 'sft',
+                trainingType: 'lora',
+                dataset: 's3://test/train.jsonl'
+            }
+        };
+
+        const result = await runConfig(config, tmpWorkspace, fakeRepo);
+
+        assert.strictEqual(result.status, 'fail');
+        assert.ok(result.error.includes('tune failed'));
+
+        // Steps: build(pass), push(pass), deploy(pass), test(pass), tune-sft(fail), adapter-add(skipped), test-adapter(skipped), clean(pass)
+        assert.strictEqual(result.steps.length, 8);
+        assert.strictEqual(result.steps[0].name, 'build');
+        assert.strictEqual(result.steps[0].status, 'pass');
+        assert.strictEqual(result.steps[1].name, 'push');
+        assert.strictEqual(result.steps[1].status, 'pass');
+        assert.strictEqual(result.steps[2].name, 'deploy');
+        assert.strictEqual(result.steps[2].status, 'pass');
+        assert.strictEqual(result.steps[3].name, 'test');
+        assert.strictEqual(result.steps[3].status, 'pass');
+        assert.strictEqual(result.steps[4].name, 'tune-sft');
+        assert.strictEqual(result.steps[4].status, 'fail');
+        assert.strictEqual(result.steps[5].name, 'adapter-add');
+        assert.strictEqual(result.steps[5].status, 'skipped');
+        assert.strictEqual(result.steps[5].duration, 0);
+        assert.strictEqual(result.steps[6].name, 'test-adapter');
+        assert.strictEqual(result.steps[6].status, 'skipped');
+        assert.strictEqual(result.steps[6].duration, 0);
+        assert.strictEqual(result.steps[7].name, 'clean');
+        assert.strictEqual(result.steps[7].status, 'pass');
+    });
+
+    it('breaks immediately on non-tune step failure (existing behavior preserved)', async function () {
+        this.timeout(15000);
+
+        const configId = 'test-nontune-fail';
+        const projectDir = path.join(tmpWorkspace, configId);
+        await mkdir(path.join(projectDir, 'do'), { recursive: true });
+
+        // build passes, deploy fails — test and tune steps should not run
+        await writeFile(path.join(projectDir, 'do', 'build'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'build'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'deploy'), '#!/bin/bash\necho "deploy error" >&2\nexit 1\n');
+        await chmod(path.join(projectDir, 'do', 'deploy'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'test'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'test'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'tune'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'tune'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'adapter'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'adapter'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'clean'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'clean'), 0o755);
+
+        const fakeRepo = path.join(tmpWorkspace, 'fake-repo-nontune');
+        await mkdir(path.join(fakeRepo, 'bin'), { recursive: true });
+        await writeFile(path.join(fakeRepo, 'bin', 'cli.js'), '#!/usr/bin/env node\n// no-op\n');
+
+        const config = {
+            id: configId,
+            tier: 'ci',
+            track: 'realtime',
+            args: '--enable-lora',
+            lifecycle: ['build', 'deploy', 'test', 'tune-sft', 'adapter-add', 'test-adapter', 'clean'],
+            timeout: 30,
+            tuneTimeout: 60,
+            tuneConfig: {
+                tuneId: 'test-model',
+                technique: 'sft',
+                trainingType: 'lora',
+                dataset: 's3://test/train.jsonl'
+            }
+        };
+
+        const result = await runConfig(config, tmpWorkspace, fakeRepo);
+
+        assert.strictEqual(result.status, 'fail');
+        assert.ok(result.error.includes('deploy error'));
+
+        // Steps: build(pass), deploy(fail), clean(pass) — test, tune, adapter steps NOT reached
+        assert.strictEqual(result.steps.length, 3);
+        assert.strictEqual(result.steps[0].name, 'build');
+        assert.strictEqual(result.steps[0].status, 'pass');
+        assert.strictEqual(result.steps[1].name, 'deploy');
+        assert.strictEqual(result.steps[1].status, 'fail');
+        assert.strictEqual(result.steps[2].name, 'clean');
+        assert.strictEqual(result.steps[2].status, 'pass');
+    });
+
+    it('uses getStepTimeout for tune steps (tuneTimeout)', async function () {
+        this.timeout(15000);
+
+        const configId = 'test-tune-timeout';
+        const projectDir = path.join(tmpWorkspace, configId);
+        await mkdir(path.join(projectDir, 'do'), { recursive: true });
+
+        // tune-sft passes (verifies tuneTimeout is used, not regular timeout)
+        // We set timeout to 1s (would fail) and tuneTimeout to 30s (should pass)
+        await writeFile(path.join(projectDir, 'do', 'build'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'build'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'tune'), '#!/bin/bash\nsleep 0.5\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'tune'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'adapter'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'adapter'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'test'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'test'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'clean'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'clean'), 0o755);
+
+        const fakeRepo = path.join(tmpWorkspace, 'fake-repo-timeout');
+        await mkdir(path.join(fakeRepo, 'bin'), { recursive: true });
+        await writeFile(path.join(fakeRepo, 'bin', 'cli.js'), '#!/usr/bin/env node\n// no-op\n');
+
+        const config = {
+            id: configId,
+            tier: 'ci',
+            track: 'realtime',
+            args: '--enable-lora',
+            lifecycle: ['build', 'tune-sft', 'adapter-add', 'test-adapter', 'clean'],
+            timeout: 1,       // 1 second — would timeout tune if used
+            tuneTimeout: 30,  // 30 seconds — tune should pass
+            tuneConfig: {
+                tuneId: 'test-model',
+                technique: 'sft',
+                trainingType: 'lora',
+                dataset: 's3://test/train.jsonl'
+            }
+        };
+
+        const result = await runConfig(config, tmpWorkspace, fakeRepo);
+
+        // tune-sft should pass because tuneTimeout (30s) is used, not timeout (1s)
+        const tuneSftStep = result.steps.find(s => s.name === 'tune-sft');
+        assert.strictEqual(tuneSftStep.status, 'pass');
+    });
+
+    it('runs all lifecycle steps including tune group when all pass', async function () {
+        this.timeout(15000);
+
+        const configId = 'test-tune-allpass';
+        const projectDir = path.join(tmpWorkspace, configId);
+        await mkdir(path.join(projectDir, 'do'), { recursive: true });
+
+        await writeFile(path.join(projectDir, 'do', 'build'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'build'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'test'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'test'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'tune'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'tune'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'adapter'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'adapter'), 0o755);
+        await writeFile(path.join(projectDir, 'do', 'clean'), '#!/bin/bash\nexit 0\n');
+        await chmod(path.join(projectDir, 'do', 'clean'), 0o755);
+
+        const fakeRepo = path.join(tmpWorkspace, 'fake-repo-allpass');
+        await mkdir(path.join(fakeRepo, 'bin'), { recursive: true });
+        await writeFile(path.join(fakeRepo, 'bin', 'cli.js'), '#!/usr/bin/env node\n// no-op\n');
+
+        const config = {
+            id: configId,
+            tier: 'ci',
+            track: 'realtime',
+            args: '--enable-lora',
+            lifecycle: ['build', 'test', 'tune-sft', 'adapter-add', 'test-adapter', 'clean'],
+            timeout: 30,
+            tuneTimeout: 60,
+            tuneConfig: {
+                tuneId: 'test-model',
+                technique: 'sft',
+                trainingType: 'lora',
+                dataset: 's3://test/train.jsonl'
+            }
+        };
+
+        const result = await runConfig(config, tmpWorkspace, fakeRepo);
+
+        assert.strictEqual(result.status, 'pass');
+        // Steps: build(pass), test(pass), tune-sft(pass), adapter-add(pass), test-adapter(pass), clean(pass)
+        assert.strictEqual(result.steps.length, 6);
+        assert.strictEqual(result.steps[0].name, 'build');
+        assert.strictEqual(result.steps[0].status, 'pass');
+        assert.strictEqual(result.steps[1].name, 'test');
+        assert.strictEqual(result.steps[1].status, 'pass');
+        assert.strictEqual(result.steps[2].name, 'tune-sft');
+        assert.strictEqual(result.steps[2].status, 'pass');
+        assert.strictEqual(result.steps[3].name, 'adapter-add');
+        assert.strictEqual(result.steps[3].status, 'pass');
+        assert.strictEqual(result.steps[4].name, 'test-adapter');
+        assert.strictEqual(result.steps[4].status, 'pass');
+        assert.strictEqual(result.steps[5].name, 'clean');
+        assert.strictEqual(result.steps[5].status, 'pass');
     });
 });

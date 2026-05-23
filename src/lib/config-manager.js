@@ -21,12 +21,12 @@ import path from 'path';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { McpClient } from './mcp-client.js';
 import DeploymentConfigResolver from './deployment-config-resolver.js';
-import BootstrapConfig from './bootstrap-config.js';
-import { parseKeyValue } from './key-value-parser.js';
 import ParameterSchemaValidator from './parameter-schema-validator.js';
-import { validationRules } from './generated/validation-rules.js';
+import ConfigLoader from './config-loader.js';
+import ConfigMcpClient from './config-mcp-client.js';
+import ConfigValidator from './config-validator.js';
+import { parameterMatrix } from './generated/parameter-matrix.js';
 
 const __configMgrFilename = fileURLToPath(import.meta.url);
 const __configMgrDir = dirname(__configMgrFilename);
@@ -86,6 +86,17 @@ export default class ConfigManager {
         this.mcpSources = {};
         this.mcpChoices = {};
         this._sourceManifest = [];
+        this.GENERATOR_ROOT = GENERATOR_ROOT;
+
+        // Delegate modules
+        this._loader = new ConfigLoader(this);
+        this._mcpClient = new ConfigMcpClient(this);
+        this._validator = new ConfigValidator(this);
+    }
+
+    /** Delegate to config-loader for backward compatibility with tests */
+    _applyJsonConfig(config) {
+        return this._loader._applyJsonConfig(config);
     }
 
     /**
@@ -438,671 +449,11 @@ export default class ConfigManager {
     }
 
     /**
-     * Gets the parameter matrix configuration
+     * Gets the parameter matrix configuration (generated from schema)
      * @private
      */
     _getParameterMatrix() {
-        return {
-            deploymentConfig: {
-                cliOption: 'deployment-config',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: true,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            architecture: {
-                cliOption: null,
-                envVar: null,
-                configFile: false,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            backend: {
-                cliOption: null,
-                envVar: null,
-                configFile: false,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            engine: {
-                cliOption: 'engine',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            modelFormat: {
-                cliOption: 'model-format',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: true,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            modelName: {
-                cliOption: 'model-name',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 'openai/gpt-oss-20b',
-                valueSpace: 'bounded'
-            },
-            includeSampleModel: {
-                cliOption: 'include-sample',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: true,
-                default: false,
-                valueSpace: 'bounded'
-            },
-            includeTesting: {
-                cliOption: 'include-testing',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: true,
-                valueSpace: 'bounded'
-            },
-            instanceType: {
-                cliOption: 'instance-type',
-                envVar: 'ML_INSTANCE_TYPE',
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: true,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            awsRegion: {
-                cliOption: 'region',
-                envVar: 'AWS_REGION',
-                ambientEnvVar: true, // AWS_REGION is commonly set in shells; treat as default, not explicit override
-                configFile: true,
-                packageJson: true,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: 'us-east-1',
-                valueSpace: 'unbounded'
-            },
-            awsRoleArn: {
-                cliOption: 'role-arn',
-                envVar: 'AWS_ROLE',
-                configFile: true,
-                packageJson: true,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            configFile: {
-                cliOption: 'config',
-                envVar: 'ML_CONTAINER_CREATOR_CONFIG',
-                configFile: false,
-                packageJson: true,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            skipPrompts: {
-                cliOption: 'skip-prompts',
-                envVar: null,
-                configFile: false,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: false,
-                valueSpace: 'bounded'
-            },
-            projectName: {
-                cliOption: 'project-name',
-                envVar: null,
-                configFile: true,
-                packageJson: true,
-                mcp: false,
-                promptable: false,
-                required: true,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            destinationDir: {
-                cliOption: 'project-dir',
-                envVar: null,
-                configFile: true,
-                packageJson: true,
-                mcp: false,
-                promptable: false,
-                required: true,
-                default: '.',
-                valueSpace: 'bounded'
-            },
-            buildTarget: {
-                cliOption: 'build-target',
-                envVar: 'ML_BUILD_TARGET',
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: true,
-                default: 'codebuild',
-                valueSpace: 'bounded'
-            },
-            codebuildComputeType: {
-                cliOption: 'codebuild-compute-type',
-                envVar: 'ML_CODEBUILD_COMPUTE_TYPE',
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 'BUILD_GENERAL1_MEDIUM',
-                valueSpace: 'bounded'
-            },
-            codebuildProjectName: {
-                cliOption: null,
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            hfToken: {
-                cliOption: 'hf-token',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            hfTokenArn: {
-                cliOption: 'hf-token-arn',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            ngcTokenArn: {
-                cliOption: 'ngc-token-arn',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            deploymentTarget: {
-                cliOption: 'deployment-target',
-                envVar: 'ML_DEPLOYMENT_TARGET',
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: true,
-                default: 'realtime-inference',
-                valueSpace: 'bounded'
-            },
-            hyperPodCluster: {
-                cliOption: 'hyperpod-cluster',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            hyperPodNamespace: {
-                cliOption: 'hyperpod-namespace',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 'default',
-                valueSpace: 'bounded'
-            },
-            hyperPodReplicas: {
-                cliOption: 'hyperpod-replicas',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 1,
-                valueSpace: 'bounded'
-            },
-            fsxVolumeHandle: {
-                cliOption: 'fsx-volume-handle',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            baseImage: {
-                cliOption: 'base-image',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            asyncS3OutputPath: {
-                cliOption: 'async-s3-output-path',
-                envVar: 'ML_ASYNC_S3_OUTPUT_PATH',
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            asyncSnsSuccessTopic: {
-                cliOption: 'async-sns-success-topic',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            asyncSnsErrorTopic: {
-                cliOption: 'async-sns-error-topic',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            asyncMaxConcurrentInvocations: {
-                cliOption: 'async-max-concurrent',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 1,
-                valueSpace: 'bounded'
-            },
-            batchInputPath: {
-                cliOption: 'batch-input-path',
-                envVar: 'ML_BATCH_INPUT_PATH',
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            batchOutputPath: {
-                cliOption: 'batch-output-path',
-                envVar: 'ML_BATCH_OUTPUT_PATH',
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            },
-            batchInstanceCount: {
-                cliOption: 'batch-instance-count',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 1,
-                valueSpace: 'bounded'
-            },
-            batchSplitType: {
-                cliOption: 'batch-split-type',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 'Line',
-                valueSpace: 'bounded'
-            },
-            batchStrategy: {
-                cliOption: 'batch-strategy',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 'MultiRecord',
-                valueSpace: 'bounded'
-            },
-            batchJoinSource: {
-                cliOption: 'batch-join-source',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 'None',
-                valueSpace: 'bounded'
-            },
-            batchMaxConcurrentTransforms: {
-                cliOption: 'batch-max-concurrent',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 1,
-                valueSpace: 'bounded'
-            },
-            batchMaxPayloadInMB: {
-                cliOption: 'batch-max-payload',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 6,
-                valueSpace: 'bounded'
-            },
-            endpointInitialInstanceCount: {
-                cliOption: 'endpoint-initial-instance-count',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: 1,
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            endpointDataCapturePercent: {
-                cliOption: 'endpoint-data-capture-percent',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: 0,
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            endpointVariantName: {
-                cliOption: 'endpoint-variant-name',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: 'AllTraffic',
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            endpointVolumeSize: {
-                cliOption: 'endpoint-volume-size',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            icCpuCount: {
-                cliOption: 'ic-cpu-count',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            icMemorySize: {
-                cliOption: 'ic-memory-size',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            icGpuCount: {
-                cliOption: 'ic-gpu-count',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: null,
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            icCopyCount: {
-                cliOption: 'ic-copy-count',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: 1,
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            icModelWeight: {
-                cliOption: 'ic-model-weight',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: false,
-                required: false,
-                default: 1.0,
-                valueSpace: 'bounded',
-                schemaValidated: true
-            },
-            includeBenchmark: {
-                cliOption: 'include-benchmark',
-                envVar: 'ML_INCLUDE_BENCHMARK',
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: false,
-                valueSpace: 'bounded'
-            },
-            benchmarkConcurrency: {
-                cliOption: 'benchmark-concurrency',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 10,
-                valueSpace: 'bounded'
-            },
-            benchmarkInputTokensMean: {
-                cliOption: 'benchmark-input-tokens',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 550,
-                valueSpace: 'bounded'
-            },
-            benchmarkOutputTokensMean: {
-                cliOption: 'benchmark-output-tokens',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 150,
-                valueSpace: 'bounded'
-            },
-            benchmarkStreaming: {
-                cliOption: 'benchmark-streaming',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: true,
-                valueSpace: 'bounded'
-            },
-            benchmarkRequestCount: {
-                cliOption: 'benchmark-request-count',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            benchmarkS3OutputPath: {
-                cliOption: 'benchmark-s3-output-path',
-                envVar: 'ML_BENCHMARK_S3_OUTPUT_PATH',
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'bounded'
-            },
-            enableLora: {
-                cliOption: 'enable-lora',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: false,
-                valueSpace: 'bounded'
-            },
-            maxLoras: {
-                cliOption: 'max-loras',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 30,
-                valueSpace: 'bounded'
-            },
-            maxLoraRank: {
-                cliOption: 'max-lora-rank',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: false,
-                promptable: true,
-                required: false,
-                default: 64,
-                valueSpace: 'bounded'
-            },
-            modelPackageArn: {
-                cliOption: 'model-package-arn',
-                envVar: null,
-                configFile: true,
-                packageJson: false,
-                mcp: true,
-                promptable: true,
-                required: false,
-                default: null,
-                valueSpace: 'unbounded'
-            }
-        };
+        return parameterMatrix;
     }
 
     /**
@@ -1199,30 +550,7 @@ export default class ConfigManager {
      * @private
      */
     async _loadBootstrapConfig() {
-        try {
-            const bootstrapConfig = new BootstrapConfig();
-            const activeProfile = bootstrapConfig.getActiveProfile();
-            if (!activeProfile) {
-                return;
-            }
-
-            const profileConfig = activeProfile.config;
-            const mapped = {};
-
-            if (profileConfig.roleArn) {
-                mapped.awsRoleArn = profileConfig.roleArn;
-            }
-            if (profileConfig.awsRegion) {
-                mapped.awsRegion = profileConfig.awsRegion;
-            }
-            if (profileConfig.awsProfile) {
-                mapped.awsProfile = profileConfig.awsProfile;
-            }
-
-            this._mergeConfig(mapped);
-        } catch (error) {
-            // Ignore errors — config file may not exist or may be malformed
-        }
+        return this._loader._loadBootstrapConfig();
     }
 
     /**
@@ -1230,25 +558,7 @@ export default class ConfigManager {
      * @private
      */
     async _loadPackageJsonConfig() {
-        try {
-            const packageJsonPath = path.resolve(process.cwd(), 'package.json');
-            if (fs.existsSync(packageJsonPath)) {
-                const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-                const generatorConfig = packageJson['ml-container-creator'];
-                if (generatorConfig) {
-                    // Filter config to only include parameters supported in package.json
-                    const filteredConfig = {};
-                    Object.entries(generatorConfig).forEach(([key, value]) => {
-                        if (this._isSourceSupported(key, 'packageJson')) {
-                            filteredConfig[key] = this._parseValue(key, value);
-                        }
-                    });
-                    this._mergeConfig(filteredConfig);
-                }
-            }
-        } catch (error) {
-            // Ignore errors - this is optional
-        }
+        return this._loader._loadPackageJsonConfig();
     }
 
     /**
@@ -1256,215 +566,15 @@ export default class ConfigManager {
      * @private
      */
     async _loadCustomConfigFile() {
-        try {
-            const configPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
-            if (fs.existsSync(configPath)) {
-                const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                this._mergeConfig(config);
-            }
-        } catch (error) {
-            // Ignore errors - this is optional
-        }
+        return this._loader._loadCustomConfigFile();
     }
 
     /**
      * Load from CLI --config file or --config-json inline string.
-     *
-     * --config-json accepts either:
-     *   1. An inline JSON string: --config-json='{"deploymentConfig":"transformers-vllm"}'
-     *   2. A path to a JSON file: --config-json=config.json
-     *
-     * When both --config and --config-json are provided, --config-json wins
-     * (it is applied second, so its values override --config values).
-     *
-     * Also checks the ML_CONTAINER_CREATOR_CONFIG environment variable as a
-     * fallback for --config.
-     *
      * @private
      */
     async _loadCliConfigFile() {
-        let configFile = this.options.config;
-        
-        // Check environment variable if CLI option not provided
-        if (!configFile && process.env.ML_CONTAINER_CREATOR_CONFIG) {
-            configFile = process.env.ML_CONTAINER_CREATOR_CONFIG;
-        }
-        
-        if (configFile) {
-            this._loadConfigFromFile(configFile);
-        }
-
-        // --config-json: inline JSON string or path to a JSON file
-        const configJson = this.options['config-json'];
-        if (configJson) {
-            this._loadConfigFromJson(configJson);
-        }
-    }
-
-    /**
-     * Load configuration from a JSON file path.
-     * @param {string} configFile - Path to the JSON config file
-     * @private
-     */
-    _loadConfigFromFile(configFile) {
-        try {
-            const configPath = path.resolve(configFile);
-            if (!fs.existsSync(configPath)) {
-                throw new ConfigurationError(
-                    `Config file not found: ${configPath}`,
-                    'configFile',
-                    'cli'
-                );
-            }
-            
-            // Check if file is readable
-            try {
-                fs.accessSync(configPath, fs.constants.R_OK);
-            } catch (accessError) {
-                throw new ConfigurationError(
-                    `Config file is not readable: ${configPath}`,
-                    'configFile',
-                    'cli'
-                );
-            }
-            
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            this._applyJsonConfig(config);
-        } catch (error) {
-            if (error instanceof ConfigurationError) {
-                throw error;
-            } else {
-                throw new ConfigurationError(
-                    `Failed to load config file ${configFile}: ${error.message}`,
-                    'configFile',
-                    'cli'
-                );
-            }
-        }
-    }
-
-    /**
-     * Load configuration from an inline JSON string or a JSON file path.
-     * Tries to parse as JSON first; if that fails and the value looks like
-     * a file path, reads and parses the file instead.
-     *
-     * @param {string} configJson - Inline JSON string or path to a JSON file
-     * @private
-     */
-    _loadConfigFromJson(configJson) {
-        let config;
-        try {
-            config = JSON.parse(configJson);
-        } catch {
-            // Not valid JSON — try as a file path
-            try {
-                const configPath = path.resolve(configJson);
-                if (!fs.existsSync(configPath)) {
-                    throw new ConfigurationError(
-                        `--config-json value is not valid JSON and file not found: ${configJson}`,
-                        'configJson',
-                        'cli'
-                    );
-                }
-                config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            } catch (error) {
-                if (error instanceof ConfigurationError) {
-                    throw error;
-                }
-                throw new ConfigurationError(
-                    `Failed to parse --config-json: ${error.message}`,
-                    'configJson',
-                    'cli'
-                );
-            }
-        }
-        this._applyJsonConfig(config);
-    }
-
-    /**
-     * Apply a parsed JSON config object, filtering to supported parameters.
-     * Handles nested objects for endpoint, iC, and env var configuration.
-     * @param {Object} config - Parsed JSON config object
-     * @private
-     */
-    _applyJsonConfig(config) {
-        const filteredConfig = {};
-        Object.entries(config).forEach(([key, value]) => {
-            // Handle nested endpointConfig object
-            if (key === 'endpointConfig' && typeof value === 'object' && value !== null) {
-                const endpointMapping = {
-                    initialInstanceCount: 'endpointInitialInstanceCount',
-                    dataCapturePercent: 'endpointDataCapturePercent',
-                    variantName: 'endpointVariantName',
-                    volumeSize: 'endpointVolumeSize'
-                };
-                Object.entries(value).forEach(([nestedKey, nestedValue]) => {
-                    const flatKey = endpointMapping[nestedKey];
-                    if (flatKey && this._isSourceSupported(flatKey, 'configFile')) {
-                        filteredConfig[flatKey] = nestedValue;
-                        this._recordSource(flatKey, nestedValue, 'config-file');
-                    }
-                });
-                return;
-            }
-
-            // Handle nested icConfig object
-            if (key === 'icConfig' && typeof value === 'object' && value !== null) {
-                const icMapping = {
-                    cpuCount: 'icCpuCount',
-                    memorySize: 'icMemorySize',
-                    gpuCount: 'icGpuCount',
-                    copyCount: 'icCopyCount',
-                    modelWeight: 'icModelWeight'
-                };
-                Object.entries(value).forEach(([nestedKey, nestedValue]) => {
-                    const flatKey = icMapping[nestedKey];
-                    if (flatKey && this._isSourceSupported(flatKey, 'configFile')) {
-                        filteredConfig[flatKey] = nestedValue;
-                        this._recordSource(flatKey, nestedValue, 'config-file');
-                    }
-                });
-                return;
-            }
-
-            // Handle modelEnvVars object (merge with CLI, CLI takes precedence)
-            if (key === 'modelEnvVars' && typeof value === 'object' && value !== null) {
-                if (!this.config.modelEnvVars) {
-                    this.config.modelEnvVars = {};
-                }
-                // Only set keys not already provided by CLI (CLI has higher precedence)
-                const cliModelEnvVars = (this.explicitConfig && this.explicitConfig.modelEnvVars) || {};
-                Object.entries(value).forEach(([envKey, envValue]) => {
-                    if (!(envKey in cliModelEnvVars)) {
-                        this.config.modelEnvVars[envKey] = envValue;
-                        this._recordSource(`modelEnvVars.${envKey}`, envValue, 'config-file');
-                    }
-                });
-                return;
-            }
-
-            // Handle serverEnvVars object (merge with CLI, CLI takes precedence)
-            if (key === 'serverEnvVars' && typeof value === 'object' && value !== null) {
-                if (!this.config.serverEnvVars) {
-                    this.config.serverEnvVars = {};
-                }
-                // Only set keys not already provided by CLI (CLI has higher precedence)
-                const cliServerEnvVars = (this.explicitConfig && this.explicitConfig.serverEnvVars) || {};
-                Object.entries(value).forEach(([envKey, envValue]) => {
-                    if (!(envKey in cliServerEnvVars)) {
-                        this.config.serverEnvVars[envKey] = envValue;
-                        this._recordSource(`serverEnvVars.${envKey}`, envValue, 'config-file');
-                    }
-                });
-                return;
-            }
-
-            if (this._isSourceSupported(key, 'configFile')) {
-                filteredConfig[key] = this._parseValue(key, value);
-                this._recordSource(key, this._parseValue(key, value), 'config-file');
-            }
-        });
-        this._mergeConfig(filteredConfig);
+        return this._loader._loadCliConfigFile();
     }
 
     /**
@@ -1472,29 +582,7 @@ export default class ConfigManager {
      * @private
      */
     async _loadEnvironmentVariables() {
-        // Build environment variable mapping from parameter matrix
-        const envMapping = {};
-        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
-            if (config.envVar) {
-                envMapping[config.envVar] = { param, ambient: config.ambientEnvVar === true };
-            }
-        });
-
-        Object.entries(envMapping).forEach(([envVar, { param: configKey, ambient }]) => {
-            const value = process.env[envVar];
-            if (value !== undefined && value !== '' && this._isSourceSupported(configKey, 'envVar')) {
-                this.config[configKey] = this._parseValue(configKey, value);
-                this._recordSource(configKey, this._parseValue(configKey, value), 'env-var');
-                // Track as explicit configuration — unless the env var is ambient
-                // (e.g. AWS_REGION is commonly set in shells as a default, not an override)
-                if (!ambient) {
-                    if (!this.explicitConfig) {
-                        this.explicitConfig = {};
-                    }
-                    this.explicitConfig[configKey] = this._parseValue(configKey, value);
-                }
-            }
-        });
+        return this._loader._loadEnvironmentVariables();
     }
 
     /**
@@ -1502,17 +590,7 @@ export default class ConfigManager {
      * @private
      */
     async _loadCliArguments() {
-        // First positional argument is project name
-        if (this.args && this.args.length > 0) {
-            this.config.projectName = this.args[0];
-            // Track as explicit configuration
-            if (!this.explicitConfig) {
-                this.explicitConfig = {};
-            }
-            this.explicitConfig.projectName = this.args[0];
-            // Track that project name came from positional argument (for subdirectory creation)
-            this.projectNameFromArgument = true;
-        }
+        return this._loader._loadCliArguments();
     }
 
     /**
@@ -1520,95 +598,25 @@ export default class ConfigManager {
      * @private
      */
     async _loadCliOptions() {
-        const options = this.options;
-        
-        // Build CLI option mapping from parameter matrix
-        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
-            if (config.cliOption && options[config.cliOption] !== undefined) {
-                this.config[param] = this._parseValue(param, options[config.cliOption]);
-                this._recordSource(param, this._parseValue(param, options[config.cliOption]), 'cli');
-                // Track as explicit configuration
-                if (!this.explicitConfig) {
-                    this.explicitConfig = {};
-                }
-                this.explicitConfig[param] = this._parseValue(param, options[config.cliOption]);
-            }
-        });
-
-        // Parse --model-env KEY=VALUE pairs
-        this._parseEnvVarOptions('model-env', 'modelEnvVars');
-
-        // Parse --server-env KEY=VALUE pairs
-        this._parseEnvVarOptions('server-env', 'serverEnvVars');
+        return this._loader._loadCliOptions();
     }
 
     /**
      * Normalizes deprecated parameter values to their canonical equivalents.
-     * Prints a deprecation warning when a deprecated value is encountered.
      * @private
      */
     _normalizeDeprecatedValues() {
-        const DEPRECATED_VALUES = {
-            deploymentTarget: {
-                'managed-inference': {
-                    canonical: 'realtime-inference',
-                    message: '--deployment-target=managed-inference is deprecated, use realtime-inference instead'
-                }
-            }
-        };
-
-        for (const [param, aliases] of Object.entries(DEPRECATED_VALUES)) {
-            const currentValue = this.config[param];
-            if (currentValue && aliases[currentValue]) {
-                const { canonical, message } = aliases[currentValue];
-                console.log(`\n⚠️  Deprecation: ${message}`);
-                this.config[param] = canonical;
-                // Also update explicit config if it was set there
-                if (this.explicitConfig && this.explicitConfig[param] === currentValue) {
-                    this.explicitConfig[param] = canonical;
-                }
-            }
-        }
+        return this._loader._normalizeDeprecatedValues();
     }
 
     /**
      * Parse --model-env or --server-env CLI options into env var collections.
-     * Supports both array (multiple flags) and single string values.
-     * Performs eager format validation at parse time.
-     * @param {string} optionName - CLI option name (e.g., 'model-env')
-     * @param {string} configKey - Config key to store results (e.g., 'modelEnvVars')
+     * @param {string} optionName - CLI option name
+     * @param {string} configKey - Config key to store results
      * @private
      */
     _parseEnvVarOptions(optionName, configKey) {
-        const rawValue = this.options[optionName];
-        if (rawValue === undefined || rawValue === null) {
-            return;
-        }
-
-        // Normalize to array (may receive a single string or an array)
-        const values = Array.isArray(rawValue) ? rawValue : [rawValue];
-
-        // Initialize collection if not already present
-        if (!this.config[configKey] || typeof this.config[configKey] !== 'object') {
-            this.config[configKey] = {};
-        }
-
-        for (const entry of values) {
-            if (typeof entry !== 'string' || entry.trim() === '') {
-                continue;
-            }
-            const { key, value } = parseKeyValue(entry);
-            this.config[configKey][key] = value;
-            this._recordSource(`${configKey}.${key}`, value, 'cli');
-        }
-
-        // Track as explicit configuration
-        if (Object.keys(this.config[configKey]).length > 0) {
-            if (!this.explicitConfig) {
-                this.explicitConfig = {};
-            }
-            this.explicitConfig[configKey] = { ...this.config[configKey] };
-        }
+        return this._loader._parseEnvVarOptions(optionName, configKey);
     }
 
     /**
@@ -1618,8 +626,7 @@ export default class ConfigManager {
      * @private
      */
     async _queryMcpServers() {
-        // No-op: MCP queries now happen on-demand during prompting
-        // via queryMcpServer(). This method is kept for backward compatibility.
+        return this._mcpClient._queryMcpServers();
     }
 
     /**
@@ -1630,70 +637,7 @@ export default class ConfigManager {
      * @returns {Promise<{ values: object, choices: object } | null>}
      */
     async queryMcpServer(serverName, context = {}) {
-        let mcpServerConfigs;
-        try {
-            const configPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
-            if (!fs.existsSync(configPath)) return null;
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            mcpServerConfigs = config.mcpServers;
-        } catch {
-            return null;
-        }
-
-        if (!mcpServerConfigs || !mcpServerConfigs[serverName]) return null;
-
-        const smart = this.options.smart === true;
-        const discover = this.options.discover !== false;
-        const serverConfig = mcpServerConfigs[serverName];
-
-        // Build a custom McpClient that passes context through
-        const client = new McpClient(serverConfig, {
-            timeout: 15000,
-            parameterMatrix: this.parameterMatrix,
-            smart,
-            discover
-        });
-
-        // Override the _buildContext to merge our search context
-        const origBuildContext = client._buildContext.bind(client);
-        client._buildContext = () => ({ ...origBuildContext(), ...context });
-
-        try {
-            const result = await client.query();
-            await client.close();
-
-            if (!result) {
-                const diag = client.getDiagnosticMessage();
-                if (diag) console.log(`   ⚠️  ${serverName}: ${diag}`);
-                return null;
-            }
-
-            // Store values
-            for (const [param, value] of Object.entries(result.values || {})) {
-                const paramConfig = this.parameterMatrix[param];
-                if (paramConfig && paramConfig.valueSpace === 'unbounded' && paramConfig.mcp === true) {
-                    this.mcpSources[param] = {
-                        server: serverName,
-                        value,
-                        timestamp: new Date().toISOString()
-                    };
-                }
-            }
-
-            // Store choices
-            for (const [param, choices] of Object.entries(result.choices || {})) {
-                const paramConfig = this.parameterMatrix[param];
-                if (paramConfig && paramConfig.valueSpace === 'unbounded' && paramConfig.mcp === true && Array.isArray(choices)) {
-                    this.mcpChoices[param] = choices;
-                }
-            }
-
-            return result;
-        } catch (err) {
-            await client.close().catch(() => {});
-            console.log(`   ⚠️  ${serverName}: ${err.message}`);
-            return null;
-        }
+        return this._mcpClient.queryMcpServer(serverName, context);
     }
 
     /**
@@ -1701,14 +645,7 @@ export default class ConfigManager {
      * @returns {string[]}
      */
     getMcpServerNames() {
-        try {
-            const configPath = path.join(GENERATOR_ROOT, 'config', 'mcp.json');
-            if (!fs.existsSync(configPath)) return [];
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            return Object.keys(config.mcpServers || {});
-        } catch {
-            return [];
-        }
+        return this._mcpClient.getMcpServerNames();
     }
 
     /**
@@ -1774,369 +711,40 @@ export default class ConfigManager {
 
     /**
      * Validates the current configuration against the parameter matrix
-     * Only reports errors for parameters that cannot be resolved through prompting or auto-generation
      * @returns {Array} Array of validation errors
      */
     validateConfiguration() {
-        const errors = [];
-
-        // Old-format deployment-config migration messages
-        const oldFormatMigration = {
-            'sklearn-flask': 'Use --deployment-config=http-flask --engine=sklearn instead',
-            'sklearn-fastapi': 'Use --deployment-config=http-fastapi --engine=sklearn instead',
-            'xgboost-flask': 'Use --deployment-config=http-flask --engine=xgboost instead',
-            'xgboost-fastapi': 'Use --deployment-config=http-fastapi --engine=xgboost instead',
-            'tensorflow-flask': 'Use --deployment-config=http-flask --engine=tensorflow instead',
-            'tensorflow-fastapi': 'Use --deployment-config=http-fastapi --engine=tensorflow instead'
-        };
-
-        // Validate deployment-config
-        if (this.config.deploymentConfig) {
-            const migrationMsg = oldFormatMigration[this.config.deploymentConfig];
-            if (migrationMsg) {
-                errors.push(`Unsupported deployment-config: ${this.config.deploymentConfig}. This value has been replaced. ${migrationMsg}`);
-            } else if (!this.deploymentConfigResolver.isValid(this.config.deploymentConfig)) {
-                const valid = this.deploymentConfigResolver.getAllConfigs().join(', ');
-                errors.push(`Unsupported deployment-config: ${this.config.deploymentConfig}. Valid configs: ${valid}`);
-            }
-        }
-
-        // Validate engine (only valid for http architecture)
-        if (this.config.engine) {
-            const validEngines = ['sklearn', 'xgboost', 'tensorflow'];
-            if (!validEngines.includes(this.config.engine)) {
-                errors.push(`Unsupported engine: ${this.config.engine}. Supported: ${validEngines.join(', ')}`);
-            }
-        }
-
-        // Validate model format based on architecture/engine
-        if (this.config.modelFormat && this.config.deploymentConfig) {
-            try {
-                const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig);
-                if (parts.architecture === 'http') {
-                    const engine = this.config.engine || parts.engine;
-                    if (engine) {
-                        const supportedOptions = this._getSupportedOptions();
-                        const validFormats = supportedOptions.modelFormats[engine] || [];
-                        if (validFormats.length > 0 && !validFormats.includes(this.config.modelFormat)) {
-                            errors.push(`Unsupported model format '${this.config.modelFormat}' for engine '${engine}'. Supported: ${validFormats.join(', ')}`);
-                        }
-                    }
-                }
-            } catch {
-                // deploymentConfig already flagged as invalid above
-            }
-        }
-
-        // Validate mutual exclusion: plaintext token and ARN cannot both be set
-        if (this.config.hfToken && this.config.hfTokenArn) {
-            errors.push('Cannot specify both --hf-token and --hf-token-arn. Use one or the other.');
-        }
-        if (this.config.ngcTokenArn) {
-            // Check ngcToken from CLI options (Commander converts --ngc-token to ngcToken)
-            const ngcTokenFromCli = this.options['ngc-token'];
-            if (ngcTokenFromCli) {
-                errors.push('Cannot specify both --ngc-token and --ngc-token-arn. Use one or the other.');
-            }
-        }
-
-        // Validate AWS Role ARN format if provided
-        if (this.config.awsRoleArn) {
-            try {
-                this._isValidArn(this.config.awsRoleArn);
-            } catch (error) {
-                if (error instanceof ValidationError) {
-                    errors.push(error.message);
-                } else {
-                    errors.push(`Invalid AWS Role ARN format: ${this.config.awsRoleArn}. Expected format: arn:aws:iam::123456789012:role/RoleName`);
-                }
-            }
-        }
-
-        // Validate build target (renamed from deployTarget)
-        const buildTarget = this.config.buildTarget || this.config.deployTarget;
-        if (buildTarget && !this._getSupportedOptions().buildTargets.includes(buildTarget)) {
-            errors.push(`Unsupported build target: ${buildTarget}. Supported targets: ${this._getSupportedOptions().buildTargets.join(', ')}`);
-        }
-
-        // Validate CodeBuild compute type
-        if (this.config.codebuildComputeType && !this._getSupportedOptions().codebuildComputeTypes.includes(this.config.codebuildComputeType)) {
-            errors.push(`Unsupported CodeBuild compute type: ${this.config.codebuildComputeType}. Supported types: ${this._getSupportedOptions().codebuildComputeTypes.join(', ')}`);
-        }
-
-        // Validate CodeBuild project name format
-        if (this.config.codebuildProjectName) {
-            const projectNamePattern = /^[a-zA-Z0-9][a-zA-Z0-9\-_]{1,254}$/;
-            if (!projectNamePattern.test(this.config.codebuildProjectName)) {
-                errors.push(`Invalid CodeBuild project name: ${this.config.codebuildProjectName}. Project names must be 2-255 characters, start with a letter or number, and contain only letters, numbers, hyphens, and underscores.`);
-            }
-        }
-
-        // Validate model package ARN format if provided
-        if (this.config.modelPackageArn) {
-            const modelPackageArnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9-])*\/\d+$/;
-            if (!modelPackageArnPattern.test(this.config.modelPackageArn)) {
-                errors.push('❌ Invalid model package ARN format. Expected: arn:aws:sagemaker:<region>:<account>:model-package/<name>/<version>');
-            }
-        }
-
-        // Only validate required parameters if we're skipping prompts
-        // If prompts are available, missing parameters can be collected later
-        if (this.skipPrompts) {
-            Object.entries(this.parameterMatrix).forEach(([param, config]) => {
-                if (config.required && 
-                    (this.config[param] === null || this.config[param] === undefined)) {
-                    
-                    // Special case: modelFormat is not required for transformers/triton/diffusors
-                    if (param === 'modelFormat') {
-                        try {
-                            const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig);
-                            if (parts.architecture === 'transformers' || parts.architecture === 'triton' || parts.architecture === 'diffusors') {
-                                return;
-                            }
-                        } catch {
-                            // If deploymentConfig is invalid, skip this check
-                            return;
-                        }
-                    }
-                    
-                    // Only error for promptable required parameters that have no default and can't be auto-generated
-                    if (config.promptable && config.default === null && !this._canAutoGenerate(param)) {
-                        errors.push(`Required parameter '${param}' is missing and prompts are disabled`);
-                    }
-                }
-            });
-
-            // Validate that modelName is provided for diffusors architecture
-            if (this.config.deploymentConfig) {
-                try {
-                    const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig);
-                    if (parts.architecture === 'diffusors') {
-                        const explicitModelName = this.explicitConfig && this.explicitConfig.modelName;
-                        if (!explicitModelName) {
-                            errors.push('Model name is required for diffusors architecture. Use --model-name to specify a HuggingFace diffusion model.');
-                        }
-                    }
-                } catch {
-                    // deploymentConfig already flagged as invalid above
-                }
-            }
-        }
-
-        // Validate schema-validated parameters (endpoint, iC)
-        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
-            if (config.schemaValidated && this.config[param] !== null && this.config[param] !== undefined) {
-                const result = this.schemaValidator.validate(param, this.config[param], this.config.deploymentTarget);
-                if (!result.valid) {
-                    errors.push(result.error);
-                }
-            }
-        });
-
-        return errors;
+        return this._validator.validateConfiguration();
     }
 
     /**
      * Validates required parameters before file generation
-     * This is called after all configuration sources have been processed and prompting is complete
      * @param {Object} finalConfig - The complete configuration object
      * @returns {Array} Array of validation errors for missing required parameters
      */
     validateRequiredParameters(finalConfig) {
-        const errors = [];
-        
-        // First, validate individual parameter values
-        Object.entries(finalConfig).forEach(([param, value]) => {
-            if (value !== null && value !== undefined && value !== '') {
-                try {
-                    this._validateParameterValue(param, value, finalConfig);
-                } catch (error) {
-                    if (error instanceof ValidationError) {
-                        errors.push(error.message);
-                    } else {
-                        errors.push(`Invalid value for parameter '${param}': ${error.message}`);
-                    }
-                }
-            }
-        });
-        
-        // Then, validate required parameters are present
-        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
-            if (config.required) {
-                const value = finalConfig[param];
-                const isEmpty = value === null || value === undefined || value === '';
-                
-                // Special case: modelFormat is not required for transformers/triton/diffusors/marketplace
-                if (param === 'modelFormat' && (finalConfig.architecture === 'transformers' || finalConfig.architecture === 'triton' || finalConfig.architecture === 'diffusors' || finalConfig.architecture === 'marketplace')) {
-                    return; // Skip validation
-                }
-
-                // Special case: marketplace projects don't need container-related parameters
-                if (finalConfig.architecture === 'marketplace' && (param === 'includeSampleModel' || param === 'buildTarget')) {
-                    return; // Skip validation — marketplace has no container to build
-                }
-                
-                // Special case: instanceType is not required for hyperpod-eks
-                // when not provided (backward compatibility) — but it IS prompted now
-                // so it should normally be present
-                if (param === 'instanceType' && finalConfig.deploymentTarget === 'hyperpod-eks' && !finalConfig.instanceType) {
-                    return; // Skip validation only if truly missing for backward compat
-                }
-
-                // Special case: instanceType is not required when attaching to an existing endpoint
-                // The instance type is inherited from the existing endpoint configuration
-                if (param === 'instanceType' && finalConfig.existingEndpointName) {
-                    return; // Skip validation — instance is inherited from existing endpoint
-                }
-                
-                if (isEmpty) {
-                    if (config.promptable) {
-                        // Promptable required parameter is missing - this should not happen after prompting
-                        errors.push(`Required parameter '${param}' is missing. This parameter is required for ${finalConfig.architecture || 'the selected'} architecture.`);
-                    } else {
-                        // Non-promptable required parameter is missing - this is a configuration error
-                        errors.push(`Required non-promptable parameter '${param}' is missing. This parameter must be provided through CLI options, environment variables, or configuration files.`);
-                    }
-                }
-            }
-        });
-
-        // Finally, validate parameter combinations and dependencies
-        const combinationErrors = this._validateParameterCombinations(finalConfig);
-        errors.push(...combinationErrors);
-
-        return errors;
+        return this._validator.validateRequiredParameters(finalConfig);
     }
 
     /**
-     * Validates parameter combinations and dependencies
-     * @param {Object} config - The configuration object to validate
-     * @returns {Array} Array of validation errors for invalid combinations
      * @private
      */
     _validateParameterCombinations(config) {
-        const errors = [];
-
-        // Additional combination validations that aren't covered by individual parameter validation
-        // For example, complex business rules that involve multiple parameters
-        
-        // Validate that transformers architecture has sample model disabled
-        if (config.architecture === 'transformers' && config.includeSampleModel === true) {
-            errors.push(`Architecture '${config.architecture}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
-        }
-        // Validate that diffusors architecture has sample model disabled
-        if (config.architecture === 'diffusors' && config.includeSampleModel === true) {
-            errors.push(`Architecture '${config.architecture}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
-        }
-        // Validate that ineligible Triton backends have sample model disabled
-        if (config.architecture === 'triton' && config.includeSampleModel === true) {
-            const backendMeta = tritonBackends[config.backend];
-            if (!backendMeta || !backendMeta.supportsSampleModel) {
-                errors.push(`Triton backend '${config.backend}' does not support sample models. The 'includeSampleModel' parameter will be automatically set to false.`);
-            }
-        }
-
-        return errors;
+        return this._validator._validateParameterCombinations(config);
     }
 
     /**
-     * Checks if a parameter can be auto-generated when missing
-     * @param {string} param - Parameter name
-     * @returns {boolean} True if parameter can be auto-generated
      * @private
      */
     _canAutoGenerate(param) {
-        // Parameters that can be auto-generated even when missing
-        const autoGeneratable = [
-            'modelFormat',        // Can be inferred from engine
-            'includeSampleModel', // Has default
-            'includeTesting',     // Has default
-            'instanceType'        // Has default
-        ];
-        
-        return autoGeneratable.includes(param);
+        return this._validator._canAutoGenerate(param);
     }
 
     /**
-     * Fills auto-prompt defaults for parameters that have sensible defaults
-     * or can be inferred from the current config. Promotes these into
-     * explicitConfig so the wizard skips them.
-     * 
-     * Only fills parameters that:
-     * - Have a non-null default in the parameter matrix, OR
-     * - Can be auto-generated (instanceType, modelFormat, etc.)
-     * 
-     * Does NOT fill parameters that are truly ambiguous and need user input
-     * (e.g., deploymentConfig when not provided).
      * @private
      */
     _fillAutoPromptDefaults() {
-        if (!this.explicitConfig) {
-            this.explicitConfig = {};
-        }
-
-        // Derive architecture from deploymentConfig if available
-        let architecture = this.config.architecture;
-        if (!architecture && this.config.deploymentConfig) {
-            try {
-                const parts = this.deploymentConfigResolver.decompose(this.config.deploymentConfig);
-                architecture = parts.architecture;
-                this.config.architecture = parts.architecture;
-                this.config.backend = parts.backend;
-                this.config.engine = parts.engine;
-            } catch {
-                // Invalid deploymentConfig — will be caught by validation
-            }
-        }
-
-        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
-            // Skip if already explicitly set
-            if (this.explicitConfig[param] !== undefined && this.explicitConfig[param] !== null) {
-                return;
-            }
-
-            // For optional parameters: mark them as explicit (with null) so the wizard skips them.
-            // The downstream template logic handles defaults for optional params.
-            if (!config.required) {
-                // Don't override if there's already a value in config
-                if (this.config[param] !== undefined && this.config[param] !== null) {
-                    this.explicitConfig[param] = this.config[param];
-                } else if (config.default !== null && config.default !== undefined) {
-                    this.config[param] = config.default;
-                    this.explicitConfig[param] = config.default;
-                }
-                return;
-            }
-
-            // For required parameters: fill auto-generatable values
-            if (this.config[param] === undefined || this.config[param] === null) {
-                if (param === 'instanceType') {
-                    // If instance-sizer is configured and model is known, defer to sizer
-                    // The sizer query happens in PromptRunner after model is selected
-                    // For now, set a heuristic default that may be overridden by the sizer
-                    const arch = architecture || 'http';
-                    this.config[param] = arch === 'http' ? 'ml.m5.large' : 'ml.g5.xlarge';
-                } else if (param === 'modelFormat') {
-                    if (architecture === 'transformers' || architecture === 'triton' || architecture === 'diffusors') {
-                        return; // Not needed for these architectures
-                    }
-                    const engine = this.config.engine || 'sklearn';
-                    const formatMap = { sklearn: 'pkl', xgboost: 'json', tensorflow: 'keras' };
-                    this.config[param] = formatMap[engine] || 'pkl';
-                } else if (param === 'projectName') {
-                    this.config[param] = this._generateProjectName(architecture);
-                } else {
-                    return; // Can't fill — leave for prompting
-                }
-            }
-
-            // Promote non-null values to explicitConfig so the wizard skips them
-            if (this.config[param] !== undefined && this.config[param] !== null) {
-                if (config.default !== null || this._canAutoGenerate(param)) {
-                    this.explicitConfig[param] = this.config[param];
-                }
-            }
-        });
+        return this._validator._fillAutoPromptDefaults();
     }
 
     /**
@@ -2144,49 +752,15 @@ export default class ConfigManager {
      * @returns {boolean}
      */
     isAutoPrompt() {
-        return this.autoPrompt;
+        return this._validator.isAutoPrompt();
     }
 
     /**
-     * Gets the list of required parameters that are truly missing and cannot be
-     * auto-generated or defaulted. Used by auto-prompt mode to determine which
-     * specific prompts to show.
-     * 
+     * Gets the list of required parameters that are truly missing.
      * @returns {string[]} Array of parameter names that need prompting
      */
     getMissingRequiredParameters() {
-        const missing = [];
-
-        Object.entries(this.parameterMatrix).forEach(([param, config]) => {
-            if (!config.required || !config.promptable) return;
-
-            const value = this.config[param];
-            const hasValue = value !== undefined && value !== null;
-
-            if (hasValue) return;
-
-            // Special case: modelFormat is not required for transformers/triton/diffusors
-            if (param === 'modelFormat') {
-                const architecture = this.config.architecture;
-                if (architecture === 'transformers' || architecture === 'triton' || architecture === 'diffusors') {
-                    return;
-                }
-                // Can be inferred from engine
-                if (this.config.engine || this.config.deploymentConfig) {
-                    return;
-                }
-            }
-
-            // Skip params that can be auto-generated
-            if (this._canAutoGenerate(param)) return;
-
-            // Skip params that have a non-null default
-            if (config.default !== null && config.default !== undefined) return;
-
-            missing.push(param);
-        });
-
-        return missing;
+        return this._validator.getMissingRequiredParameters();
     }
 
     /**
@@ -2254,243 +828,31 @@ export default class ConfigManager {
     }
 
     /**
-     * Validates a single parameter value
-     * @param {string} parameter - Parameter name
-     * @param {*} value - Parameter value
-     * @param {Object} context - Additional context (e.g., other parameter values)
-     * @throws {ValidationError} If parameter value is invalid
      * @private
      */
     _validateParameterValue(parameter, value, context = {}) {
-        // First pass: schema-derived validation rules (type, range, pattern, enum)
-        // Skip deprecated params — they have relaxed validation handled by the switch below
-        const schemaRule = validationRules[parameter];
-        if (schemaRule && value !== null && value !== undefined) {
-            // Don't apply strict enum validation to internally-derived values
-            // The switch statement below handles context-dependent validation
-            const skipSchemaValidation = ['framework', 'modelServer', 'deploymentConfig'].includes(parameter);
-            if (!skipSchemaValidation) {
-                const error = schemaRule(value);
-                if (error) {
-                    throw new ValidationError(error, parameter, value);
-                }
-            }
-        }
-
-        // Second pass: context-dependent validations that require runtime state
-        const supportedOptions = this._getSupportedOptions();
-        
-        switch (parameter) {
-        case 'deploymentConfig':
-            if (value) {
-                // Check for old-format configs with migration messages
-                const oldFormatMigration = {
-                    'sklearn-flask': 'Use --deployment-config=http-flask --engine=sklearn instead',
-                    'sklearn-fastapi': 'Use --deployment-config=http-fastapi --engine=sklearn instead',
-                    'xgboost-flask': 'Use --deployment-config=http-flask --engine=xgboost instead',
-                    'xgboost-fastapi': 'Use --deployment-config=http-fastapi --engine=xgboost instead',
-                    'tensorflow-flask': 'Use --deployment-config=http-flask --engine=tensorflow instead',
-                    'tensorflow-fastapi': 'Use --deployment-config=http-fastapi --engine=tensorflow instead'
-                };
-                const migrationMsg = oldFormatMigration[value];
-                if (migrationMsg) {
-                    throw new ValidationError(
-                        `Unsupported deployment-config: ${value}. This value has been replaced. ${migrationMsg}`,
-                        parameter,
-                        value
-                    );
-                }
-                if (!this.deploymentConfigResolver.isValid(value)) {
-                    const valid = this.deploymentConfigResolver.getAllConfigs().join(', ');
-                    throw new ValidationError(
-                        `Unsupported deployment-config: ${value}. Valid configs: ${valid}`,
-                        parameter,
-                        value
-                    );
-                }
-            }
-            break;
-
-        case 'engine':
-            if (value) {
-                const validEngines = ['sklearn', 'xgboost', 'tensorflow'];
-                if (!validEngines.includes(value)) {
-                    throw new ValidationError(
-                        `Unsupported engine: ${value}. Supported: ${validEngines.join(', ')}`,
-                        parameter,
-                        value
-                    );
-                }
-            }
-            break;
-                
-        case 'modelFormat':
-            if (value && context.architecture === 'http' && context.engine) {
-                const validFormats = supportedOptions.modelFormats[context.engine] || [];
-                if (validFormats.length > 0 && !validFormats.includes(value)) {
-                    throw new ValidationError(
-                        `Model format '${value}' is not compatible with engine '${context.engine}'. Compatible formats: ${validFormats.join(', ')}`,
-                        parameter,
-                        value
-                    );
-                }
-            }
-            break;
-                
-        case 'instanceType':
-            if (value) {
-                // Validate AWS SageMaker instance type format
-                const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
-                if (!instancePattern.test(value)) {
-                    throw new ValidationError(
-                        `Invalid instance type format: ${value}. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g4dn.xlarge)`,
-                        parameter,
-                        value
-                    );
-                }
-                // Warn about CPU instances for transformers/triton (but don't block)
-                if (context.architecture === 'transformers' || context.architecture === 'triton') {
-                    const cpuFamilies = ['t2', 't3', 't3a', 't4g', 'm4', 'm5', 'm5a', 'm5ad', 'm5d', 'm5dn', 'm5n', 'm5zn', 'm6a', 'm6g', 'm6gd', 'm6i', 'm6id', 'm6idn', 'm6in', 'c4', 'c5', 'c5a', 'c5ad', 'c5d', 'c5n', 'c6a', 'c6g', 'c6gd', 'c6gn', 'c6i', 'c6id', 'c6in', 'r4', 'r5', 'r5a', 'r5ad', 'r5b', 'r5d', 'r5dn', 'r5n', 'r6a', 'r6g', 'r6gd', 'r6i', 'r6id', 'r6idn', 'r6in'];
-                    const instanceFamily = value.split('.')[1];
-                    if (cpuFamilies.includes(instanceFamily)) {
-                        console.warn(`⚠️  Warning: Using CPU instance ${value} with ${context.architecture} architecture. GPU instances are recommended for better performance.`);
-                    }
-                }
-            }
-            break;
-            
-        case 'awsRegion':
-            if (value && !supportedOptions.awsRegions.includes(value)) {
-                throw new ValidationError(
-                    `Unsupported AWS region: ${value}. Supported regions: ${supportedOptions.awsRegions.join(', ')}`,
-                    parameter,
-                    value
-                );
-            }
-            break;
-                
-        case 'awsRoleArn':
-            if (value) {
-                this._isValidArn(value);
-            }
-            break;
-            
-        case 'buildTarget':
-        case 'deployTarget':
-            if (value && !supportedOptions.buildTargets.includes(value)) {
-                throw new ValidationError(
-                    `Unsupported build target: ${value}. Supported targets: ${supportedOptions.buildTargets.join(', ')}`,
-                    parameter,
-                    value
-                );
-            }
-            break;
-            
-        case 'codebuildComputeType':
-            if (value && !supportedOptions.codebuildComputeTypes.includes(value)) {
-                throw new ValidationError(
-                    `Unsupported CodeBuild compute type: ${value}. Supported types: ${supportedOptions.codebuildComputeTypes.join(', ')}`,
-                    parameter,
-                    value
-                );
-            }
-            break;
-            
-        case 'codebuildProjectName':
-            if (value) {
-                // AWS CodeBuild project names must follow specific naming rules
-                const projectNamePattern = /^[a-zA-Z0-9][a-zA-Z0-9\-_]{1,254}$/;
-                if (!projectNamePattern.test(value)) {
-                    throw new ValidationError(
-                        `Invalid CodeBuild project name: ${value}. Project names must be 2-255 characters, start with a letter or number, and contain only letters, numbers, hyphens, and underscores.`,
-                        parameter,
-                        value
-                    );
-                }
-            }
-            break;
-
-        case 'modelPackageArn':
-            if (value) {
-                const modelPackageArnPattern = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:model-package\/[a-zA-Z0-9]([a-zA-Z0-9-])*\/\d+$/;
-                if (!modelPackageArnPattern.test(value)) {
-                    throw new ValidationError(
-                        '❌ Invalid model package ARN format. Expected: arn:aws:sagemaker:<region>:<account>:model-package/<name>/<version>',
-                        parameter,
-                        value
-                    );
-                }
-            }
-            break;
-        }
+        return this._validator._validateParameterValue(parameter, value, context);
     }
 
     /**
-     * Resolves HF_TOKEN references to actual token values
-     * @param {string} tokenValue - The token value or "$HF_TOKEN" reference
-     * @returns {string|null} Resolved token value
      * @private
      */
     _resolveHfToken(tokenValue) {
-        if (!tokenValue || tokenValue.trim() === '') {
-            return null;
-        }
-        
-        // Check if it's an environment variable reference
-        if (tokenValue.trim() === '$HF_TOKEN') {
-            const envToken = process.env.HF_TOKEN;
-            if (!envToken) {
-                console.warn('⚠️  Warning: $HF_TOKEN specified but HF_TOKEN environment variable is not set');
-                console.warn('   The container will be built without authentication.');
-                return null;
-            }
-            return envToken;
-        }
-        
-        // Direct token value
-        return tokenValue;
+        return this._validator._resolveHfToken(tokenValue);
     }
 
     /**
-     * Validates AWS Role ARN format
-     * @param {string} arn - The ARN to validate
-     * @throws {ValidationError} If ARN format is invalid
      * @private
      */
     _isValidArn(arn) {
-        const arnPattern = /^arn:aws:iam::\d{12}:role\/[\w+=,.@-]+$/;
-        if (!arnPattern.test(arn)) {
-            throw new ValidationError(
-                `Invalid AWS Role ARN format: ${arn}. Expected format: arn:aws:iam::123456789012:role/RoleName`,
-                'awsRoleArn',
-                arn
-            );
-        }
-        return true;
+        return this._validator._isValidArn(arn);
     }
 
     /**
-     * Gets supported options for validation
      * @private
      */
     _getSupportedOptions() {
-        return {
-            deploymentConfigs: this.deploymentConfigResolver.getAllConfigs(),
-            engines: ['sklearn', 'xgboost', 'tensorflow'],
-            modelFormats: {
-                'sklearn': ['pkl', 'joblib'],
-                'xgboost': ['json', 'model', 'ubj'],
-                'tensorflow': ['keras', 'h5', 'SavedModel']
-            },
-            buildTargets: ['codebuild'],
-            codebuildComputeTypes: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'],
-            awsRegions: [
-                'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
-                'eu-west-1', 'eu-west-2', 'eu-central-1', 'eu-north-1',
-                'ap-southeast-1', 'ap-southeast-2', 'ap-northeast-1',
-                'ca-central-1', 'sa-east-1'
-            ]
-        };
+        return this._validator._getSupportedOptions();
     }
 }
 

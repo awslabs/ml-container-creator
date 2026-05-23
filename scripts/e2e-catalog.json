@@ -4,33 +4,331 @@
             "id": "rt-qwen3-06b",
             "tier": "ci",
             "track": "realtime",
-            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-0.6B --instance-type=ml.g5.xlarge --region=us-west-2",
-            "lifecycle": ["build", "push", "deploy", "test", "clean"],
-            "timeout": 1800
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-0.6B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "qwen3-0-6b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-qwen3-17b",
+            "tier": "ci",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-1.7B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "qwen3-1-7b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
         },
         {
             "id": "rt-qwen3-4b",
             "tier": "ci",
             "track": "realtime",
-            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2",
-            "lifecycle": ["build", "push", "deploy", "test", "clean"],
-            "timeout": 1800
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "qwen3-4b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
         },
         {
-            "id": "rt-llama-3-2-1b",
+            "id": "rt-llama-32-1b",
             "tier": "ci",
             "track": "realtime",
-            "args": "--deployment-config=transformers-vllm --model-name=meta-llama/Llama-3.2-1B-Instruct --instance-type=ml.g5.xlarge --region=us-west-2",
-            "lifecycle": ["build", "push", "deploy", "test", "clean"],
-            "timeout": 1800
+            "args": "--deployment-config=transformers-vllm --model-name=meta-llama/Llama-3.2-1B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "meta-textgeneration-llama-3-2-1b-instruct",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
         },
         {
-            "id": "rt-ds-r1-qwen-1-5b",
+            "id": "rt-llama-32-3b",
             "tier": "ci",
             "track": "realtime",
-            "args": "--deployment-config=transformers-vllm --model-name=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --instance-type=ml.g5.xlarge --region=us-west-2",
-            "lifecycle": ["build", "push", "deploy", "test", "clean"],
-            "timeout": 1800
+            "args": "--deployment-config=transformers-vllm --model-name=meta-llama/Llama-3.2-3B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "meta-textgeneration-llama-3-2-3b-instruct",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-dsr1-qwen-15b",
+            "tier": "ci",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "deepseek-r1-distill-qwen-1-5b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-dsr1-qwen-7b",
+            "tier": "ci",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "deepseek-r1-distill-qwen-7b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-qwen25-7b",
+            "tier": "ci",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen2.5-7B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "qwen2-5-7b-instruct",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-dsr1-llama-8b",
+            "tier": "ci",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=deepseek-ai/DeepSeek-R1-Distill-Llama-8B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "deepseek-r1-distill-llama-8b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-qwen3-8b",
+            "tier": "ci",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-8B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "qwen3-8b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-llama-31-8b",
+            "tier": "ci",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=meta-llama/Llama-3.1-8B --instance-type=ml.g5.xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 1800,
+            "tuneTimeout": 3600,
+            "tuneConfig": {
+                "tuneId": "meta-textgeneration-llama-3-1-8b-instruct",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-qwen3-14b",
+            "tier": "nightly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-14B --instance-type=ml.g5.2xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 2700,
+            "tuneTimeout": 5400,
+            "tuneConfig": {
+                "tuneId": "qwen3-14b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-qwen25-14b",
+            "tier": "nightly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen2.5-14B-Instruct --instance-type=ml.g5.2xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 2700,
+            "tuneTimeout": 5400,
+            "tuneConfig": {
+                "tuneId": "qwen2-5-14b-instruct",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-dsr1-qwen-14b",
+            "tier": "nightly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=deepseek-ai/DeepSeek-R1-Distill-Qwen-14B --instance-type=ml.g5.2xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 2700,
+            "tuneTimeout": 5400,
+            "tuneConfig": {
+                "tuneId": "deepseek-r1-distill-qwen-14b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-gpt-oss-20b",
+            "tier": "nightly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=gpt-oss/GPT-OSS-20B --instance-type=ml.g5.12xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 2700,
+            "tuneTimeout": 5400,
+            "tuneConfig": {
+                "tuneId": "openai-gpt-oss-20b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-qwen3-32b",
+            "tier": "nightly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-32B --instance-type=ml.g5.12xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 2700,
+            "tuneTimeout": 5400,
+            "tuneConfig": {
+                "tuneId": "qwen3-32b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-qwen25-32b",
+            "tier": "nightly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen2.5-32B-Instruct --instance-type=ml.g5.12xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 2700,
+            "tuneTimeout": 5400,
+            "tuneConfig": {
+                "tuneId": "qwen2-5-32b-instruct",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-dsr1-qwen-32b",
+            "tier": "nightly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B --instance-type=ml.g5.12xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 2700,
+            "tuneTimeout": 5400,
+            "tuneConfig": {
+                "tuneId": "deepseek-r1-distill-qwen-32b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-llama-33-70b",
+            "tier": "weekly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=meta-llama/Llama-3.3-70B --instance-type=ml.g5.48xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 3600,
+            "tuneTimeout": 10800,
+            "tuneConfig": {
+                "tuneId": "meta-textgeneration-llama-3-3-70b-instruct",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-large/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-qwen25-72b",
+            "tier": "weekly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen2.5-72B --instance-type=ml.g5.48xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 3600,
+            "tuneTimeout": 10800,
+            "tuneConfig": {
+                "tuneId": "qwen2-5-72b-instruct",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-large/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-dsr1-llama-70b",
+            "tier": "weekly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=deepseek-ai/DeepSeek-R1-Distill-Llama-70B --instance-type=ml.g5.48xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 3600,
+            "tuneTimeout": 10800,
+            "tuneConfig": {
+                "tuneId": "deepseek-r1-distill-llama-70b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-large/train.jsonl"
+            }
+        },
+        {
+            "id": "rt-gpt-oss-120b",
+            "tier": "weekly",
+            "track": "realtime",
+            "args": "--deployment-config=transformers-vllm --model-name=gpt-oss/GPT-OSS-120B --instance-type=ml.g5.48xlarge --region=us-west-2 --enable-lora",
+            "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
+            "timeout": 3600,
+            "tuneTimeout": 10800,
+            "tuneConfig": {
+                "tuneId": "openai-gpt-oss-120b",
+                "technique": "sft",
+                "trainingType": "lora",
+                "dataset": "s3://mlcc-e2e-datasets/sft-large/train.jsonl"
+            }
         }
     ]
 }

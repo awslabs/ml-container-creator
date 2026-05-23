@@ -4,63 +4,148 @@
         "family": "falcon",
         "framework": "huggingface",
         "provider": "jumpstart",
-        "tags": ["text-generation", "llm"],
-        "description": "Falcon 7B via JumpStart"
+        "tags": [
+            "text-generation",
+            "llm"
+        ],
+        "description": "Falcon 7B via JumpStart",
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0"
+        },
+        "chat_template": "",
+        "gated": false,
+        "architecture": null
     },
     "jumpstart://huggingface-llm-falcon-40b": {
         "modelId": "jumpstart://huggingface-llm-falcon-40b",
         "family": "falcon",
         "framework": "huggingface",
         "provider": "jumpstart",
-        "tags": ["text-generation", "llm"],
-        "description": "Falcon 40B via JumpStart"
+        "tags": [
+            "text-generation",
+            "llm"
+        ],
+        "description": "Falcon 40B via JumpStart",
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0"
+        },
+        "chat_template": "",
+        "gated": false,
+        "architecture": null
     },
     "jumpstart://meta-textgeneration-llama-2-7b": {
         "modelId": "jumpstart://meta-textgeneration-llama-2-7b",
         "family": "llama-2",
         "framework": "huggingface",
         "provider": "jumpstart",
-        "tags": ["text-generation", "llm", "llama-2"],
-        "description": "Llama 2 7B via JumpStart"
+        "tags": [
+            "text-generation",
+            "llm",
+            "llama-2"
+        ],
+        "description": "Llama 2 7B via JumpStart",
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0"
+        },
+        "chat_template": "",
+        "gated": false,
+        "architecture": null
     },
     "jumpstart://meta-textgeneration-llama-2-13b": {
         "modelId": "jumpstart://meta-textgeneration-llama-2-13b",
         "family": "llama-2",
         "framework": "huggingface",
         "provider": "jumpstart",
-        "tags": ["text-generation", "llm", "llama-2"],
-        "description": "Llama 2 13B via JumpStart"
+        "tags": [
+            "text-generation",
+            "llm",
+            "llama-2"
+        ],
+        "description": "Llama 2 13B via JumpStart",
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0"
+        },
+        "chat_template": "",
+        "gated": false,
+        "architecture": null
     },
     "jumpstart://meta-textgeneration-llama-2-70b": {
         "modelId": "jumpstart://meta-textgeneration-llama-2-70b",
         "family": "llama-2",
         "framework": "huggingface",
         "provider": "jumpstart",
-        "tags": ["text-generation", "llm", "llama-2"],
-        "description": "Llama 2 70B via JumpStart"
+        "tags": [
+            "text-generation",
+            "llm",
+            "llama-2"
+        ],
+        "description": "Llama 2 70B via JumpStart",
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0"
+        },
+        "chat_template": "",
+        "gated": false,
+        "architecture": null
     },
     "jumpstart://model-txt2img-stabilityai-stable-diffusion-v2-1-base": {
         "modelId": "jumpstart://model-txt2img-stabilityai-stable-diffusion-v2-1-base",
         "family": "stable-diffusion",
         "framework": "huggingface",
         "provider": "jumpstart",
-        "tags": ["image-generation", "diffusion", "stable-diffusion"],
-        "description": "Stable Diffusion v2.1 Base via JumpStart"
+        "tags": [
+            "image-generation",
+            "diffusion",
+            "stable-diffusion"
+        ],
+        "description": "Stable Diffusion v2.1 Base via JumpStart",
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0"
+        },
+        "chat_template": "",
+        "gated": false,
+        "architecture": null
     },
     "jumpstart://huggingface-text2text-flan-t5-xl": {
         "modelId": "jumpstart://huggingface-text2text-flan-t5-xl",
         "family": "flan-t5",
         "framework": "huggingface",
         "provider": "jumpstart",
-        "tags": ["text-generation", "text2text", "flan-t5"],
-        "description": "Flan-T5 XL via JumpStart"
+        "tags": [
+            "text-generation",
+            "text2text",
+            "flan-t5"
+        ],
+        "description": "Flan-T5 XL via JumpStart",
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0"
+        },
+        "chat_template": "",
+        "gated": false,
+        "architecture": null
     },
     "jumpstart://huggingface-textembedding-gpt-j-6b": {
         "modelId": "jumpstart://huggingface-textembedding-gpt-j-6b",
         "family": "gpt-j",
         "framework": "huggingface",
         "provider": "jumpstart",
-        "tags": ["text-embedding", "gpt-j"],
-        "description": "GPT-J 6B Embedding via JumpStart"
+        "tags": [
+            "text-embedding",
+            "gpt-j"
+        ],
+        "description": "GPT-J 6B Embedding via JumpStart",
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0"
+        },
+        "chat_template": "",
+        "gated": false,
+        "architecture": null
     }
 }

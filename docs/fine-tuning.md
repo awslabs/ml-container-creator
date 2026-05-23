@@ -1,6 +1,6 @@
 # Fine-Tuning & Customization
 
-ML Container Creator includes a `do/tune` command that wraps SageMaker AI Managed Model Customization — a serverless fine-tuning capability that eliminates instance selection and container management. You provide a dataset and technique; SageMaker handles infrastructure, optimization, and produces a deployable model artifact that feeds directly back into your project's deployment lifecycle.
+ML Container Creator includes a `do/tune` command that wraps SageMaker AI Managed Model Customization — a serverless fine-tuning capability that eliminates instance selection and container management. You provide a dataset and technique; SageMaker AI handles infrastructure, optimization, and produces a deployable model artifact that feeds directly back into your project's deployment lifecycle.
 
 ## Prerequisites
 
@@ -274,7 +274,7 @@ ML Container Creator offers two paths for model customization:
 | | `do/tune` (Managed Serverless) | `do/train` (Bespoke Training) |
 |---|---|---|
 | **Status** | Available now | Coming in a future release |
-| **Infrastructure** | Fully managed by SageMaker | You choose instance types and containers |
+| **Infrastructure** | Fully managed by SageMaker AI | You choose instance types and containers |
 | **Supported models** | Models in the Supported Model Catalog | Any model |
 | **Techniques** | SFT, DPO, RLAIF, RLVR | Any training script |
 | **Configuration** | Minimal — dataset + technique | Full control over training code |
@@ -402,13 +402,13 @@ Use `--force` to explicitly start a new job, overriding the previous one for tha
 
 ## MLflow Integration
 
-When an MLflow tracking server is configured in your SageMaker domain, customization jobs automatically log training metrics, hyperparameters, and model artifacts to MLflow. The script displays the MLflow experiment URL after job submission.
+When an MLflow tracking server is configured in your SageMaker AI domain, customization jobs automatically log training metrics, hyperparameters, and model artifacts to MLflow. The script displays the MLflow experiment URL after job submission.
 
 If no MLflow server is configured, the script proceeds without tracking and prints a note suggesting MLflow setup for experiment comparison.
 
 ## Future: Bedrock Custom Model Import
 
-The output artifacts from managed customization are compatible with [Amazon Bedrock Custom Model Import](https://docs.aws.amazon.com/bedrock/latest/userguide/model-customization-import-model.html). This deployment path — importing your fine-tuned model into Bedrock for serverless inference — is planned for a future release. The current workflow deploys via SageMaker endpoints using `do/adapter add` or `do/add-ic`.
+The output artifacts from managed customization are compatible with [Amazon Bedrock Custom Model Import](https://docs.aws.amazon.com/bedrock/latest/userguide/model-customization-import-model.html). This deployment path — importing your fine-tuned model into Bedrock for serverless inference — is planned for a future release. The current workflow deploys via SageMaker AI endpoints using `do/adapter add` or `do/add-ic`.
 
 ## Troubleshooting
 
@@ -432,7 +432,7 @@ Not all models support all techniques. Run `./do/tune --list-models` to see whic
 
 ### Job fails with AccessDenied
 
-Run `ml-container-creator bootstrap` to provision the required IAM permissions. The bootstrap stack adds SageMaker training, model package, and MLflow permissions.
+Run `ml-container-creator bootstrap` to provision the required IAM permissions. The bootstrap stack adds SageMaker AI training, model package, and MLflow permissions.
 
 ### Python SDK not installed
 

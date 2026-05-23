@@ -15,7 +15,7 @@
 import fc from 'fast-check'
 import { describe, it } from 'mocha'
 import assert from 'assert'
-import PromptRunner from '../src/lib/prompt-runner.js'
+import PromptRunner from '../../src/lib/prompt-runner.js'
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

@@ -15,7 +15,7 @@
 
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
-import { infraExistingEndpointPrompts } from '../../src/lib/prompts.js';
+import { infraExistingEndpointPrompts } from '../../src/lib/prompts/index.js';
 
 describe('Endpoint Picker Prompt Definitions', () => {
     before(() => {
