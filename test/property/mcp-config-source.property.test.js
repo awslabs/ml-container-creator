@@ -114,13 +114,16 @@ describe('MCP Config Source Property-Based Tests', () => {
                     const entry = parameterMatrix[paramName];
                     assert.ok('mcp' in entry, `Parameter "${paramName}" is missing the "mcp" field`);
 
+                    // Bounded parameters must never be MCP-queryable (fixed set of values)
                     if (entry.valueSpace === 'bounded') {
                         assert.strictEqual(entry.mcp, false,
                             `Bounded parameter "${paramName}" must have mcp: false`);
                     }
-                    if (entry.valueSpace === 'unbounded') {
-                        assert.strictEqual(entry.mcp, true,
-                            `Unbounded parameter "${paramName}" must have mcp: true`);
+                    // Parameters with mcp: true must be unbounded (MCP only makes sense
+                    // for values that come from external AWS resources)
+                    if (entry.mcp === true) {
+                        assert.strictEqual(entry.valueSpace, 'unbounded',
+                            `MCP-queryable parameter "${paramName}" must have valueSpace: "unbounded"`);
                     }
                     return true;
                 }

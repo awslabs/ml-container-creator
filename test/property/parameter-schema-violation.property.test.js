@@ -44,72 +44,75 @@ const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
 /**
  * Integer parameters with their schema constraints and API references.
+ * API references match the AWS API action paths used by ParameterSchemaValidator.
  */
 const INTEGER_PARAMS = [
     {
         name: 'endpointInitialInstanceCount',
         min: 1,
         max: 100,
-        apiReference: 'parameter-schema-v2.json#endpointInitialInstanceCount'
+        apiReference: 'CreateEndpointConfig.ProductionVariants.InitialInstanceCount'
     },
     {
         name: 'endpointDataCapturePercent',
         min: 0,
         max: 100,
-        apiReference: 'parameter-schema-v2.json#endpointDataCapturePercent'
+        apiReference: 'CreateEndpointConfig.DataCaptureConfig.InitialSamplingPercentage'
     },
     {
         name: 'endpointVolumeSize',
         min: 1,
         max: 16384,
-        apiReference: 'parameter-schema-v2.json#endpointVolumeSize'
+        apiReference: 'CreateEndpointConfig.ProductionVariants.VolumeSizeInGB'
     },
     {
         name: 'icMemorySize',
         min: 128,
         max: 3145728,
-        apiReference: 'parameter-schema-v2.json#icMemorySize'
+        apiReference: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.MinMemoryRequiredInMb'
     },
     {
         name: 'icGpuCount',
         min: 0,
         max: 8,
-        apiReference: 'parameter-schema-v2.json#icGpuCount'
+        apiReference: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.NumberOfAcceleratorDevicesRequired'
     },
     {
         name: 'icCopyCount',
         min: 0,
         max: 100,
-        apiReference: 'parameter-schema-v2.json#icCopyCount'
+        apiReference: 'CreateInferenceComponent.RuntimeConfig.CopyCount'
     }
 ];
 
 /**
  * Number (float) parameters with their schema constraints and API references.
+ * API references match the AWS API action paths used by ParameterSchemaValidator.
  */
 const NUMBER_PARAMS = [
     {
         name: 'icCpuCount',
         min: 0.25,
         max: 768,
-        apiReference: 'parameter-schema-v2.json#icCpuCount'
+        apiReference: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.NumberOfCpuCoresRequired'
     },
     {
         name: 'icModelWeight',
         min: 0,
         max: 1,
-        apiReference: 'parameter-schema-v2.json#icModelWeight'
+        apiReference: 'CreateInferenceComponent.RuntimeConfig.ModelWeight'
     }
 ];
 
 /**
  * String parameters with pattern constraints.
+ * API references match the AWS API action paths used by ParameterSchemaValidator.
  */
 const STRING_PARAMS = [
     {
         name: 'endpointVariantName',
         pattern: '^[a-zA-Z0-9]([\\w-]{0,62}[a-zA-Z0-9])?$',
-        apiReference: 'parameter-schema-v2.json#endpointVariantName'
+        apiReference: 'CreateEndpointConfig.ProductionVariants.VariantName'
     }
 ];
 

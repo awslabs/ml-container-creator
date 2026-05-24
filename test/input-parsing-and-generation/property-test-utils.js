@@ -85,7 +85,7 @@ export const PARAMETER_MATRIX = {
         packageJson: false,
         promptable: true,
         required: false,
-        default: 'BUILD_GENERAL1_MEDIUM',
+        default: 'BUILD_GENERAL1_LARGE',
         values: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE']
     },
     
@@ -107,7 +107,7 @@ export const PARAMETER_MATRIX = {
         packageJson: false,
         promptable: true,
         required: true,
-        default: false,
+        default: true,
         values: [true, false]
     },
     
@@ -173,7 +173,7 @@ export const PARAMETER_MATRIX = {
         packageJson: true,
         promptable: false,
         required: true,
-        default: '.',
+        default: null,
         values: ['.', './output', '/tmp/test']
     },
     
