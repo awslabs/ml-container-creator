@@ -32,8 +32,10 @@ const templateFiles = globSync('**/*', {
     dot: true
 });
 
-// Also check src/app.js (uses templateVars in _ensureTemplateVariables and writeProject)
+// Also check src/ directory (uses templateVars programmatically in various modules)
 const appJs = fs.readFileSync(path.join(ROOT, 'src', 'app.js'), 'utf8');
+const srcFiles = globSync('**/*.js', { cwd: path.join(ROOT, 'src'), onlyFiles: true });
+const allSrcContent = srcFiles.map(f => fs.readFileSync(path.join(ROOT, 'src', f), 'utf8')).join('\n');
 
 // Build a map of all template content
 const templateContent = {};
@@ -65,11 +67,11 @@ for (const [key, param] of Object.entries(schema.parameters)) {
     const tv = param.templateVar;
 
     if (PROGRAMMATIC_VARS.has(tv)) {
-        // Verify it's used in app.js at least
-        if (appJs.includes(tv)) {
+        // Verify it's used in src/ at least
+        if (allSrcContent.includes(tv)) {
             results.programmatic.push(tv);
         } else {
-            results.uncovered.push({ key, templateVar: tv, reason: 'marked programmatic but not found in app.js' });
+            results.uncovered.push({ key, templateVar: tv, reason: 'marked programmatic but not found in src/' });
         }
         continue;
     }
