@@ -6,15 +6,18 @@
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| Largest source file | 2,650 lines (prompt-runner.js) | 2,650 lines (unchanged, Phase 4) | — |
+| Largest source file | 2,650 lines (prompt-runner.js) | 1,169 lines (prompt-runner.js) | -56% |
 | CLI option definitions | 68 hand-written .addOption() calls | 7-line loop + generated file | -98% boilerplate |
 | Validation rules | Hardcoded switch statement (140 lines) | 43 auto-generated from schema | Schema-driven |
+| Parameter matrix | 726-line hand-written method | Generated from schema (7-line method) | -99% |
+| config-manager.js | 2,496 lines | 858 lines | -66% |
 | Template max file size | 1,766 lines (deploy) | 726 lines (managed-inference.ejs) | -59% |
 | EJS conditionals in deploy | 54 | 0 in dispatcher, ~10 per target file | -80% per file |
 | EJS conditionals in serve | 17 | 3 (dispatcher only) | -82% |
 | Parameter sources of truth | 7 independent locations | 1 (parameter-schema-v2.json) | Single source |
 | Time to add a new CLI parameter | Touch 7 files | Edit 1 file + `npm run codegen` | -86% effort |
-| CI drift detection | None | 3-layer (schema → manifest → coverage) | Full coverage |
+| CI drift detection | None | 4-layer (schema → codegen → template → widget) | Full coverage |
+| Test suite (CI) | 16 min | ~12 min | -25% |
 
 ## What Was Done
 
@@ -73,6 +76,21 @@
 
 - **322 lines, 127 EJS conditionals** — high density but short file
 - Deferred: already fits in AI context window, ROI of splitting is low
+
+### Source Code Decomposition (Phase 3c)
+
+- **`prompt-runner.js`** (2,650 → 1,169): Extracted `mcp-query-runner.js` (768), `secrets-prompt-runner.js` (247), `cuda-resolver.js` (140), `marketplace-flow.js` (276)
+- **`config-manager.js`** (2,496 → 858): Extracted `config-loader.js` (401), `config-mcp-client.js` (118), `config-validator.js` (624). Parameter matrix replaced with schema-generated import.
+- **`bootstrap-command-handler.js`** (1,921 → 899): Extracted `bootstrap-provisioners.js` (421), `bootstrap-profile-manager.js` (634)
+- **`src/app.js`** (1,288 → 900): Extracted `template-variable-resolver.js` (398)
+- **`prompts.js`** (1,451 → split): `model-prompts.js` (552), `infrastructure-prompts.js` (690), `feature-prompts.js` (172), `project-prompts.js` (70)
+
+### Parameter Matrix Replacement
+
+- **Before:** 726-line hand-written `_getParameterMatrix()` method duplicating schema data
+- **After:** `scripts/codegen-parameter-matrix.js` generates `src/lib/generated/parameter-matrix.js` from schema
+- **config-manager.js** reduced from 1,512 → 858 lines
+- **Result:** Adding a parameter to the schema automatically updates the matrix — no manual sync needed
 
 ## Command Generator Widget
 

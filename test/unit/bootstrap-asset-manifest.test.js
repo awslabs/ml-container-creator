@@ -138,8 +138,8 @@ describe('Bootstrap Asset Manifest Extensions', () => {
         };
 
         // Override AssetManager construction to use temp dir
-        // We monkey-patch the handler methods to inject configDir
-        const origHandleStatus = handler._handleStatus.bind(handler);
+        // We monkey-patch the handler to add _handleStatus/_handleStatusVerify/_handleScan/_handleRemove
+        // These methods are normally on profileManager but tests call them directly on handler
         handler._handleStatus = async function(options = {}) {
             // Temporarily patch AssetManager to use our configDir
             const OrigAssetManager = AssetManager;
@@ -208,6 +208,13 @@ describe('Bootstrap Asset Manifest Extensions', () => {
                 await this._handleStatusVerify(profile, assetManager);
             }
         };
+
+        // Delegate _handleStatusVerify and _handleScan to profileManager
+        // (tests call these directly on handler)
+        handler._handleStatusVerify = handler.profileManager._handleStatusVerify.bind(handler.profileManager);
+        handler._handleScan = handler.profileManager._handleScan
+            ? handler.profileManager._handleScan.bind(handler.profileManager)
+            : async () => { console.log('_handleScan not available'); };
 
         return handler;
     }
@@ -478,7 +485,6 @@ describe('Bootstrap Asset Manifest Extensions', () => {
             };
 
             // Patch AssetManager to use temp dir by overriding _handleScan
-            const origScan = handler._handleScan.bind(handler);
             handler._handleScan = async function() {
                 const profile = this.config.getActiveProfile();
                 if (!profile) {
@@ -627,7 +633,6 @@ describe('Bootstrap Asset Manifest Extensions', () => {
             };
 
             // Patch _handleScan to use temp configDir (same pattern as above)
-            const origScan = handler._handleScan;
             handler._handleScan = async function() {
                 const profile = this.config.getActiveProfile();
                 if (!profile) { console.log('No active bootstrap profile found.'); return; }

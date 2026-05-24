@@ -17,7 +17,7 @@ import { strict as assert } from 'node:assert';
 import {
     infraAsyncPrompts,
     infraHyperPodPrompts
-} from '../../src/lib/prompts.js';
+} from '../../src/lib/prompts/index.js';
 
 describe('Async Prompt Visibility', () => {
 

@@ -19,7 +19,7 @@ import {
     infraBatchTransformPrompts,
     infraHyperPodPrompts,
     infraAsyncPrompts
-} from '../../src/lib/prompts.js';
+} from '../../src/lib/prompts/index.js';
 
 describe('Batch Transform Prompt Visibility', () => {
 

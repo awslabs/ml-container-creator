@@ -10,7 +10,7 @@
  * Requirements: 4.1, 5.1, 6.1, 7.1, 13.1, 14.1, 14.2, 15.1
  */
 
-import { runGenerator } from './helpers/run-generator.js';
+import { runGenerator } from '../helpers/run-generator.js';
 
 describe('batch-transform integration: generated template content', function () {
     this.timeout(60000);

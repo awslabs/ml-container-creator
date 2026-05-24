@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import assert from 'assert';
-import TemplateManager from '../src/lib/template-manager.js';
+import TemplateManager from '../../src/lib/template-manager.js';
 
 describe('TemplateManager', () => {
     // Note: getIgnorePatterns() method has been removed as part of do-framework integration.

@@ -1,5 +1,5 @@
 site_name: ML Container Creator
-site_description: Simplify your machine learning deployments on AWS SageMaker
+site_description: The BYOC toolkit for Amazon SageMaker AI — generate, deploy, tune, and operate ML containers
 site_url: https://awslabs.github.io/ml-container-creator/
 repo_url: https://github.com/awslabs/ml-container-creator
 repo_name: awslabs/ml-container-creator
@@ -51,6 +51,7 @@ exclude_docs: |
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Supported Models: supported-models.md
   - User Guide:
       - How It Works: how-it-works.md
       - Configuration: configuration.md
@@ -124,4 +125,4 @@ extra:
     provider: mike
   generator: false
 
-copyright: Copyright &copy; 2024 Amazon.com, Inc. or its affiliates
+copyright: Copyright &copy; 2024-2026 Amazon.com, Inc. or its affiliates

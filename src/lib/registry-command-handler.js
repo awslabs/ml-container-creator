@@ -20,12 +20,14 @@
 
 import os from 'node:os';
 import path from 'node:path';
+import fs from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import DeploymentRegistry, { reconstructReplayFlags } from './deployment-registry.js';
 import { syncArchitectures } from './architecture-sync.js';
 import HuggingFaceClient from './huggingface-client.js';
+import { computeConfigId } from './ci-register-helpers.js';
 
 const PERSONAL_REGISTRY_PATH = path.join(os.homedir(), '.ml-container-creator', 'registry.json');
 const PROJECT_REGISTRY_PATH = path.join(process.cwd(), '.ml-container-creator', 'registry.json');
@@ -53,7 +55,7 @@ export default class RegistryCommandHandler {
             await this._handleLog(options);
             break;
         case 'list':
-            this._handleList(options);
+            await this._handleList(options);
             break;
         case 'get':
             this._handleGet(args[1]);
@@ -177,10 +179,11 @@ export default class RegistryCommandHandler {
      *
      * Displays entries from both personal and project-level registries.
      * Supports filtering by backend, architecture, model, instance-type, and status.
+     * When the e2e-status MCP server is reachable, enriches output with E2E status.
      *
      * @param {object} options - Parsed CLI options
      */
-    _handleList(options) {
+    async _handleList(options) {
         const filters = this._extractFilters(options);
 
         const personalRegistry = new DeploymentRegistry(PERSONAL_REGISTRY_PATH);
@@ -197,6 +200,9 @@ export default class RegistryCommandHandler {
             return;
         }
 
+        // Attempt to fetch E2E status from the MCP server (silently degrades if unavailable)
+        const e2eStatusMap = await this._fetchE2eStatus(allEntries);
+
         console.log('\nDeployment Registry Entries:\n');
         for (const entry of allEntries) {
             const id = entry.id || '(no id)';
@@ -206,7 +212,16 @@ export default class RegistryCommandHandler {
             const it = entry.infrastructure?.instanceType || '(none)';
             const st = entry.status || '(none)';
             const src = entry._source === 'project' ? ' [project]' : '';
-            console.log(`  ${id}  ${ts}  ${dc}  ${mn}  ${it}  ${st}${src}`);
+
+            // Append E2E status column only when MCP server provided data
+            let e2eCol = '';
+            if (e2eStatusMap) {
+                const configId = this._deriveConfigIdFromEntry(entry);
+                const e2e = configId ? e2eStatusMap.get(configId) : null;
+                e2eCol = e2e ? `  [E2E: ${e2e.testStatus}]` : '  [E2E: untested]';
+            }
+
+            console.log(`  ${id}  ${ts}  ${dc}  ${mn}  ${it}  ${st}${src}${e2eCol}`);
         }
         console.log('');
     }
@@ -763,5 +778,122 @@ EXAMPLES:
 
         const projectRegistry = new DeploymentRegistry(PROJECT_REGISTRY_PATH);
         return projectRegistry.get(id);
+    }
+
+    /**
+     * Attempt to fetch E2E status from the e2e-status MCP server.
+     * Silently returns null if the server is unreachable, disabled, or returns an error.
+     * No error is shown to the user in any failure case.
+     *
+     * @param {Array} entries - Registry entries to fetch status for
+     * @returns {Promise<Map<string, object>|null>} Map of configId → status, or null if unavailable
+     */
+    async _fetchE2eStatus(entries) {
+        try {
+            // Load MCP config to check if e2e-status server is configured
+            const __fn = fileURLToPath(import.meta.url);
+            const generatorRoot = path.resolve(path.dirname(__fn), '..', '..');
+            const mcpConfigPath = path.join(generatorRoot, 'config', 'mcp.json');
+
+            if (!fs.existsSync(mcpConfigPath)) return null;
+
+            const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'));
+            const serverConfig = mcpConfig.mcpServers?.['e2e-status'];
+
+            if (!serverConfig) return null;
+
+            // Respect disabled flag if present
+            if (serverConfig.disabled === true) return null;
+
+            // Derive configIds from entries
+            const configIds = [];
+            for (const entry of entries) {
+                const configId = this._deriveConfigIdFromEntry(entry);
+                if (configId) configIds.push(configId);
+            }
+
+            if (configIds.length === 0) return null;
+
+            // Spawn the MCP server and call get_e2e_status
+            const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+            const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+
+            const resolvedArgs = (serverConfig.args || []).map(arg => {
+                if (arg && !path.isAbsolute(arg) && !arg.startsWith('-')) {
+                    return path.resolve(generatorRoot, arg);
+                }
+                return arg;
+            });
+
+            const transport = new StdioClientTransport({
+                command: serverConfig.command,
+                args: resolvedArgs,
+                env: { ...process.env, ...(serverConfig.env || {}) },
+                stderr: 'pipe'
+            });
+
+            const client = new Client(
+                { name: 'ml-container-creator', version: '1.0.0' },
+                { capabilities: {} }
+            );
+
+            // Use a short timeout to avoid blocking the CLI
+            const timeoutMs = 5000;
+            const result = await Promise.race([
+                (async () => {
+                    await client.connect(transport);
+                    const response = await client.callTool({
+                        name: 'get_e2e_status',
+                        arguments: { configIds }
+                    });
+                    await client.close();
+                    return response;
+                })(),
+                new Promise(resolve => setTimeout(() => resolve(null), timeoutMs))
+            ]);
+
+            if (!result) return null;
+
+            // Parse the response
+            const textBlock = result.content?.find(b => b.type === 'text');
+            if (!textBlock) return null;
+
+            const parsed = JSON.parse(textBlock.text);
+            if (!parsed.results || !Array.isArray(parsed.results)) return null;
+
+            // Build a map of configId → status object
+            const statusMap = new Map();
+            for (const item of parsed.results) {
+                statusMap.set(item.configId, item);
+            }
+            return statusMap;
+        } catch {
+            // Silently degrade — no error shown to user
+            return null;
+        }
+    }
+
+    /**
+     * Derive a configId from a registry entry using the same hashing algorithm
+     * as do/register --ci. Returns null if the entry lacks sufficient data.
+     *
+     * @param {object} entry - A deployment registry entry
+     * @returns {string|null} 16-char hex configId, or null
+     */
+    _deriveConfigIdFromEntry(entry) {
+        try {
+            const deploymentConfig = entry.deployment?.deploymentConfig || '';
+            const modelName = entry.model?.modelName || 'none';
+            const instanceType = entry.infrastructure?.instanceType || '';
+            const region = entry.infrastructure?.region || 'us-west-2';
+            const deploymentTarget = entry.deployment?.deploymentTarget || 'realtime-inference';
+
+            // Need at least deploymentConfig and instanceType to produce a meaningful hash
+            if (!deploymentConfig && !instanceType) return null;
+
+            return computeConfigId(deploymentConfig, modelName, instanceType, region, deploymentTarget);
+        } catch {
+            return null;
+        }
     }
 }

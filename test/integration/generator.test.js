@@ -3,7 +3,7 @@
 
 import assert from 'node:assert';
 import fs from 'fs';
-import { runGenerator } from './helpers/run-generator.js';
+import { runGenerator } from '../helpers/run-generator.js';
 
 /**
  * Assert that a file does NOT contain the specified content.

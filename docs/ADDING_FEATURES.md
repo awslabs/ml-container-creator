@@ -872,4 +872,4 @@ Then create a Pull Request on GitHub with:
 
 - [EJS Documentation](https://ejs.co/)
 - [Mocha Testing Framework](https://mochajs.org/)
-- [SageMaker BYOC Guide](https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms.html)
+- [SageMaker AI BYOC Guide](https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms.html)

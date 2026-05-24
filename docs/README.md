@@ -15,7 +15,7 @@ docs/
 ├── template-system.md      # Template documentation
 ├── architecture.md         # Complete architecture guide
 ├── coding-standards.md     # Code style guide
-├── aws-sagemaker.md       # AWS/SageMaker context
+├── aws-sagemaker.md       # AWS/SageMaker AI context
 ├── DEPLOYMENT.md           # Deployment guide
 ├── logo.png               # Project logo
 └── stylesheets/

@@ -17,16 +17,17 @@
  */
 
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, unlinkSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import BootstrapConfig from './bootstrap-config.js';
 import AwsProfileParser from './aws-profile-parser.js';
-import AssetManager from './asset-manager.js';
 import McpCommandHandler from './mcp-command-handler.js';
 import RegistryCommandHandler from './registry-command-handler.js';
 import { runPrompts } from '../prompt-adapter.js';
+import BootstrapProfileManager from './bootstrap-profile-manager.js';
+import BootstrapProvisioners from './bootstrap-provisioners.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,7 +40,28 @@ export default class BootstrapCommandHandler {
         this.config = new BootstrapConfig();
         this.profileParser = new AwsProfileParser();
         this._promptFn = promptFn || runPrompts;
+        this.profileManager = new BootstrapProfileManager(this);
+        this.provisioners = new BootstrapProvisioners(this);
     }
+
+    // ── Provisioner delegations (backward compat for tests) ─────────
+
+    _buildResourceTags() { return this.provisioners._buildResourceTags(); }
+    _setupEcrRepository() { return this.provisioners._setupEcrRepository(); }
+    _setupIamRole(options) { return this.provisioners._setupIamRole(options); }
+    _setupS3Buckets() { return this.provisioners._setupS3Buckets(); }
+    _createS3Bucket(name, tags) { return this.provisioners._createS3Bucket(name, tags); }
+    _verifyCliV2() { return this.provisioners._verifyCliV2(); }
+
+    // ── ProfileManager delegations (backward compat for tests) ──────
+
+    _handleStatus(options) { return this.profileManager._handleStatus(options); }
+    _handleUse(profileName) { return this.profileManager._handleUse(profileName); }
+    _handleList() { return this.profileManager._handleList(); }
+    _handleRemove(profileName, options) { return this.profileManager._handleRemove(profileName, options); }
+    _handleScan() { return this.profileManager._handleScan(); }
+    _handlePrune() { return this.profileManager._handlePrune(); }
+    _handleSyncSchemas() { return this.profileManager._handleSyncSchemas(); }
 
     /**
      * Dispatch bootstrap subcommands.
@@ -117,7 +139,7 @@ export default class BootstrapCommandHandler {
         console.log('\n🚀 Bootstrap — Shared AWS Infrastructure Setup\n');
 
         // Verify AWS CLI v2 is installed
-        if (!this._verifyCliV2()) {
+        if (!this.provisioners._verifyCliV2()) {
             return;
         }
 
@@ -372,678 +394,6 @@ export default class BootstrapCommandHandler {
     }
 
     /**
-     * Display active bootstrap profile and resource state.
-     * @param {object} [options] - Parsed CLI options (e.g., --verify)
-     */
-    async _handleStatus(options = {}) {
-        const config = this.config.read();
-        if (!config) {
-            console.log('No bootstrap configuration found.');
-            console.log('Run `ml-container-creator bootstrap` to set up shared infrastructure.');
-            return;
-        }
-
-        const profile = this.config.getActiveProfile();
-        if (!profile) {
-            console.log('No active bootstrap profile found.');
-            console.log('Run `ml-container-creator bootstrap` to set up shared infrastructure.');
-            return;
-        }
-
-        const allProfiles = this.config.listProfiles();
-        console.log(`\n📋 Active Profile: ${profile.name} (${allProfiles.length} profile${allProfiles.length === 1 ? '' : 's'} total)`);
-        console.log('─'.repeat(40));
-
-        for (const [key, value] of Object.entries(profile.config)) {
-            console.log(`  ${key}: ${value}`);
-        }
-
-        console.log('─'.repeat(40));
-
-        // Validate bootstrap stack
-        console.log('\n🔍 Resource Validation:');
-
-        const stackName = profile.config.stackName || `${STACK_NAME_PREFIX}-${profile.name}`;
-
-        try {
-            const stackInfo = this._execAws(
-                `cloudformation describe-stacks --stack-name ${stackName} --region ${profile.config.awsRegion}`,
-                profile.config.awsProfile
-            );
-
-            const stack = stackInfo.Stacks && stackInfo.Stacks[0];
-            if (stack) {
-                const status = stack.StackStatus;
-                const statusIcon = status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE' ? '✅' : '⚠️';
-                console.log(`  ${statusIcon} Bootstrap stack: ${stackName} (${status})`);
-
-                // Show stack outputs
-                const outputs = {};
-                for (const output of (stack.Outputs || [])) {
-                    outputs[output.OutputKey] = output.OutputValue;
-                }
-
-                if (outputs.RoleArn) {
-                    console.log(`  ✅ IAM role: ${outputs.RoleArn.split('/').pop()}`);
-                }
-                if (outputs.EcrRepositoryName) {
-                    console.log(`  ✅ ECR repository: ${outputs.EcrRepositoryName}`);
-                }
-                if (outputs.AsyncS3BucketName) {
-                    console.log(`  ✅ S3 bucket (async): ${outputs.AsyncS3BucketName}`);
-                }
-                if (outputs.BatchS3BucketName) {
-                    console.log(`  ✅ S3 bucket (batch): ${outputs.BatchS3BucketName}`);
-                }
-                if (outputs.AdapterS3BucketName) {
-                    console.log(`  ✅ S3 bucket (adapters): ${outputs.AdapterS3BucketName}`);
-                }
-                if (outputs.BenchmarkS3BucketName) {
-                    console.log(`  ✅ S3 bucket (benchmark): ${outputs.BenchmarkS3BucketName}`);
-                }
-                if (outputs.StackVersion) {
-                    console.log(`  📋 Stack version: ${outputs.StackVersion}`);
-                }
-            }
-        } catch {
-            // Fall back to individual resource checks for profiles created before CloudFormation migration
-            console.log(`  ⚠️  Bootstrap stack "${stackName}" not found — checking resources individually`);
-
-            try {
-                const defaultRoleName = 'mlcc-sagemaker-execution-role';
-                let roleName = defaultRoleName;
-                if (profile.config.roleArn) {
-                    const arnParts = profile.config.roleArn.split('/');
-                    roleName = arnParts[arnParts.length - 1];
-                }
-
-                const roleExists = this._resourceExists(
-                    `iam get-role --role-name ${roleName}`,
-                    profile.config.awsProfile
-                );
-                if (roleExists) {
-                    console.log(`  ✅ IAM role: ${roleName}`);
-                } else {
-                    console.log(`  ⚠️  IAM role: ${roleName} — missing`);
-                }
-            } catch {
-                console.log('  ⚠️  IAM role: could not validate');
-            }
-
-            try {
-                const ecrExists = this._resourceExists(
-                    `ecr describe-repositories --repository-names ml-container-creator --region ${profile.config.awsRegion}`,
-                    profile.config.awsProfile
-                );
-                if (ecrExists) {
-                    console.log('  ✅ ECR repository: ml-container-creator');
-                } else {
-                    console.log('  ⚠️  ECR repository: ml-container-creator — missing');
-                }
-            } catch {
-                console.log('  ⚠️  ECR repository: could not validate');
-            }
-
-            if (profile.config.asyncS3Bucket) {
-                try {
-                    const asyncExists = this._resourceExists(
-                        `s3api head-bucket --bucket ${profile.config.asyncS3Bucket}`,
-                        profile.config.awsProfile
-                    );
-                    console.log(asyncExists
-                        ? `  ✅ S3 bucket: ${profile.config.asyncS3Bucket}`
-                        : `  ⚠️  S3 bucket: ${profile.config.asyncS3Bucket} — missing`);
-                } catch {
-                    console.log(`  ⚠️  S3 bucket: ${profile.config.asyncS3Bucket} — could not validate`);
-                }
-            }
-
-            if (profile.config.batchS3Bucket) {
-                try {
-                    const batchExists = this._resourceExists(
-                        `s3api head-bucket --bucket ${profile.config.batchS3Bucket}`,
-                        profile.config.awsProfile
-                    );
-                    console.log(batchExists
-                        ? `  ✅ S3 bucket: ${profile.config.batchS3Bucket}`
-                        : `  ⚠️  S3 bucket: ${profile.config.batchS3Bucket} — missing`);
-                } catch {
-                    console.log(`  ⚠️  S3 bucket: ${profile.config.batchS3Bucket} — could not validate`);
-                }
-            }
-
-            if (profile.config.benchmarkS3Bucket) {
-                try {
-                    const benchmarkExists = this._resourceExists(
-                        `s3api head-bucket --bucket ${profile.config.benchmarkS3Bucket}`,
-                        profile.config.awsProfile
-                    );
-                    console.log(benchmarkExists
-                        ? `  ✅ S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket}`
-                        : `  ⚠️  S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket} — missing`);
-                } catch {
-                    console.log(`  ⚠️  S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket} — could not validate`);
-                }
-            }
-        }
-
-        // Display deployed resources from manifest
-        console.log('\n📦 Deployed Resources:');
-
-        const assetManager = new AssetManager(profile.name);
-
-        if (!existsSync(assetManager.manifestPath)) {
-            console.log('  No deployment tracking data available.');
-            console.log('  Resources will be tracked after running deploy, push, or submit scripts.');
-            return;
-        }
-
-        const resourcesByProject = assetManager.getResourcesByProject();
-
-        if (resourcesByProject.size === 0) {
-            console.log('  No deployed resources tracked.');
-            return;
-        }
-
-        for (const [project, resources] of resourcesByProject) {
-            console.log(`\n  Project: ${project}`);
-            for (const resource of resources) {
-                const timestamp = resource.createdAt || resource.lastUpdatedAt;
-                console.log(`    ${resource.resourceType}  ${resource.resourceId}  [${resource.status}]  ${timestamp}`);
-            }
-        }
-
-        const counts = assetManager.getStatusCounts();
-        console.log(`\n  Summary: ${counts.active} active, ${counts.deleted} deleted, ${counts.unknown} unknown`);
-
-        // Drift detection if --verify flag is set
-        if (options.verify) {
-            await this._handleStatusVerify(profile, assetManager);
-        }
-    }
-
-    /**
-     * Perform drift detection for active resources.
-     * @param {object} profile - Active profile object with name and config
-     * @param {AssetManager} assetManager - AssetManager instance for the profile
-     */
-    async _handleStatusVerify(profile, assetManager) {
-        console.log('\n🔎 Drift Detection:');
-
-        const activeResources = assetManager.listResources({ status: 'active' });
-
-        if (activeResources.length === 0) {
-            console.log('  No active resources to verify.');
-            return;
-        }
-
-        let verified = 0;
-        let drifted = 0;
-        let unchecked = 0;
-
-        for (const resource of activeResources) {
-            const checkCommand = this._buildDriftCheckCommand(resource);
-
-            if (!checkCommand) {
-                unchecked++;
-                continue;
-            }
-
-            try {
-                const exists = this._resourceExists(checkCommand, profile.config.awsProfile);
-
-                if (exists) {
-                    verified++;
-                    console.log(`  ✅ ${resource.resourceType}: ${resource.resourceId}`);
-                } else {
-                    drifted++;
-                    assetManager.updateStatus(resource.resourceId, 'unknown');
-                    console.log(`  ⚠️  ${resource.resourceType}: ${resource.resourceId} — not found (status updated to unknown)`);
-                }
-            } catch {
-                unchecked++;
-                console.log(`  ⚠️  ${resource.resourceType}: ${resource.resourceId} — could not verify (credentials or API unavailable)`);
-            }
-        }
-
-        console.log(`\n  Drift Summary: ${verified} verified, ${drifted} drifted, ${unchecked} unchecked`);
-    }
-
-    /**
-     * Build the AWS CLI command to check if a resource still exists.
-     * @param {object} resource - Asset record
-     * @returns {string|null} AWS CLI command string, or null if resource type is not supported
-     */
-    _buildDriftCheckCommand(resource) {
-        const resourceId = resource.resourceId;
-
-        switch (resource.resourceType) {
-        case 'sagemaker-endpoint': {
-            const name = this._extractNameFromArn(resourceId);
-            return `sagemaker describe-endpoint --endpoint-name ${name}`;
-        }
-        case 'sagemaker-model': {
-            const name = this._extractNameFromArn(resourceId);
-            return `sagemaker describe-model --model-name ${name}`;
-        }
-        case 'sagemaker-inference-component': {
-            const name = this._extractNameFromArn(resourceId);
-            return `sagemaker describe-inference-component --inference-component-name ${name}`;
-        }
-        case 'ecr-image': {
-            // resourceId is a full image URI like 111111111111.dkr.ecr.us-east-1.amazonaws.com/repo:tag
-            const parts = resourceId.split('/');
-            const repoAndTag = parts[parts.length - 1];
-            const [repo, tag] = repoAndTag.split(':');
-            return `ecr describe-images --repository-name ${repo} --image-ids imageTag=${tag || 'latest'}`;
-        }
-        case 'codebuild-project': {
-            const name = this._extractNameFromArn(resourceId);
-            return `codebuild batch-get-projects --names ${name}`;
-        }
-        case 'iam-role': {
-            const name = this._extractNameFromArn(resourceId);
-            return `iam get-role --role-name ${name}`;
-        }
-        default:
-            return null;
-        }
-    }
-
-    /**
-     * Extract the resource name from an ARN.
-     * ARN format: arn:aws:service:region:account:resource-type/resource-name
-     * @param {string} arn - AWS ARN string
-     * @returns {string} The resource name portion
-     */
-    _extractNameFromArn(arn) {
-        // Handle ARN formats like:
-        // arn:aws:sagemaker:us-east-1:111111111111:endpoint/my-endpoint
-        // arn:aws:iam::111111111111:role/my-role
-        // arn:aws:codebuild:us-east-1:111111111111:project/my-project
-        const parts = arn.split('/');
-        return parts[parts.length - 1];
-    }
-
-    /**
-     * Switch the active bootstrap profile.
-     * @param {string} profileName - Profile name to activate
-     */
-    async _handleUse(profileName) {
-        if (!profileName) {
-            console.log('Usage: ml-container-creator bootstrap use <profile>');
-            console.log('       ml-container-creator bootstrap use none    (deactivate)');
-            return;
-        }
-
-        if (profileName === 'none') {
-            this.config.setActiveProfile(null);
-            console.log('Active profile cleared. No bootstrap profile is active.');
-            return;
-        }
-
-        const profile = this.config.getProfile(profileName);
-        if (!profile) {
-            const available = this.config.listProfiles();
-            console.log(`Profile "${profileName}" not found.`);
-            if (available.length > 0) {
-                console.log(`Available profiles: ${available.join(', ')}`);
-            } else {
-                console.log('No profiles configured. Run `ml-container-creator bootstrap` to create one.');
-            }
-            return;
-        }
-
-        this.config.setActiveProfile(profileName);
-        console.log(`Switched active profile to "${profileName}".`);
-    }
-
-    /**
-     * List all bootstrap profiles.
-     */
-    async _handleList() {
-        const profiles = this.config.listProfiles();
-
-        if (profiles.length === 0) {
-            console.log('No bootstrap profiles configured.');
-            console.log('Run `ml-container-creator bootstrap` to set up shared infrastructure.');
-            return;
-        }
-
-        const config = this.config.read();
-        const activeProfileName = config ? config.activeProfile : null;
-
-        console.log('\nBootstrap Profiles:');
-        for (const name of profiles) {
-            if (name === activeProfileName) {
-                console.log(`  * ${name} (active)`);
-            } else {
-                console.log(`    ${name}`);
-            }
-        }
-    }
-
-    /**
-     * Remove a bootstrap profile.
-     * @param {string} profileName - Profile name to remove
-     * @param {object} options - Parsed CLI options (e.g., --force)
-     */
-    async _handleRemove(profileName, options) {
-        if (!profileName) {
-            console.log('Usage: ml-container-creator bootstrap remove <profile> [--force]');
-            return;
-        }
-
-        const profile = this.config.getProfile(profileName);
-        if (!profile) {
-            console.log(`Profile "${profileName}" not found.`);
-            return;
-        }
-
-        // Check for manifest file with active resources
-        const assetManager = new AssetManager(profileName);
-        const hasManifest = existsSync(assetManager.manifestPath);
-
-        if (hasManifest) {
-            const counts = assetManager.getStatusCounts();
-            if (counts.active > 0 && !options.force) {
-                console.log(`⚠️  Profile "${profileName}" has ${counts.active} active resource${counts.active === 1 ? '' : 's'} in the deployment manifest.`);
-            }
-        }
-
-        // Check for CloudFormation stack
-        const stackName = profile.stackName || `${STACK_NAME_PREFIX}-${profileName}`;
-        let hasStack = false;
-        try {
-            hasStack = this._resourceExists(
-                `cloudformation describe-stacks --stack-name ${stackName} --region ${profile.awsRegion}`,
-                profile.awsProfile
-            );
-        } catch {
-            // ignore
-        }
-
-        if (hasStack && !options.force) {
-            console.log(`⚠️  Profile "${profileName}" has a CloudFormation stack: ${stackName}`);
-            console.log('   Use --delete-stack to also delete the AWS resources, or --force to remove the profile only.');
-        }
-
-        if (!options.force) {
-            const { confirm } = await this._promptFn([{
-                type: 'confirm',
-                name: 'confirm',
-                message: `Remove bootstrap profile "${profileName}"?`,
-                default: false
-            }]);
-
-            if (!confirm) {
-                console.log('Removal cancelled.');
-                return;
-            }
-        }
-
-        // Delete CloudFormation stack if requested
-        if (hasStack && options['delete-stack']) {
-            try {
-                console.log(`🗑️  Deleting CloudFormation stack: ${stackName}`);
-                execSync(
-                    `aws cloudformation delete-stack --stack-name ${stackName} --region ${profile.awsRegion} --profile ${profile.awsProfile}`,
-                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-                );
-                console.log('⏳ Waiting for stack deletion...');
-                execSync(
-                    `aws cloudformation wait stack-delete-complete --stack-name ${stackName} --region ${profile.awsRegion} --profile ${profile.awsProfile}`,
-                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-                );
-                console.log(`✅ Stack "${stackName}" deleted.`);
-            } catch (err) {
-                console.log(`⚠️  Could not delete stack "${stackName}": ${err.message}`);
-                console.log('   You may need to delete it manually from the CloudFormation console.');
-            }
-        } else if (hasStack) {
-            console.log(`Note: CloudFormation stack "${stackName}" was left in place.`);
-            console.log('   To delete AWS resources, re-run with --delete-stack');
-        }
-
-        // Delete manifest file if it exists
-        if (hasManifest) {
-            try {
-                unlinkSync(assetManager.manifestPath);
-                console.log(`Manifest file for "${profileName}" deleted.`);
-            } catch {
-                console.log(`⚠️  Could not delete manifest file for "${profileName}".`);
-            }
-        }
-
-        this.config.removeProfile(profileName);
-        console.log(`Profile "${profileName}" removed.`);
-    }
-
-    /**
-     * Scan AWS for pre-existing MLCC-managed resources and add them to the manifest.
-     */
-    async _handleScan() {
-        const profile = this.config.getActiveProfile();
-        if (!profile) {
-            console.log('No active bootstrap profile found.');
-            console.log('Run `ml-container-creator bootstrap` to set up shared infrastructure.');
-            return;
-        }
-
-        console.log(`\n🔍 Scanning for pre-existing resources in ${profile.config.awsRegion}...`);
-
-        const assetManager = new AssetManager(profile.name);
-        const now = new Date().toISOString();
-        let discovered = 0;
-        let added = 0;
-        let skipped = 0;
-
-        // 1. Query Resource Groups Tagging API for mlcc:managed-by tagged resources
-        try {
-            console.log('\n  Checking tagged resources...');
-            const tagResult = this._execAws(
-                `resourcegroupstaggingapi get-resources --tag-filters Key=mlcc:managed-by,Values=ml-container-creator --region ${profile.config.awsRegion}`,
-                profile.config.awsProfile
-            );
-
-            const taggedResources = tagResult.ResourceTagMappingList || [];
-            for (const tagged of taggedResources) {
-                discovered++;
-                const arn = tagged.ResourceARN;
-                const existing = assetManager.getResource(arn);
-                if (existing) {
-                    skipped++;
-                    continue;
-                }
-
-                const resourceType = this._inferResourceTypeFromArn(arn);
-                if (!resourceType) {
-                    skipped++;
-                    continue;
-                }
-
-                const project = this._inferProjectFromTags(tagged.Tags) || 'unknown';
-
-                try {
-                    assetManager.addResource({
-                        resourceId: arn,
-                        resourceType,
-                        createdAt: now,
-                        lastUpdatedAt: now,
-                        project,
-                        status: 'active',
-                        metadata: { discoveredBy: 'scan' }
-                    });
-                    added++;
-                } catch {
-                    skipped++;
-                }
-            }
-        } catch {
-            console.log('  ⚠️  Could not query tagged resources (credentials or API unavailable)');
-        }
-
-        // 2. Query ECR for images in ml-container-creator repository
-        try {
-            console.log('  Checking ECR images...');
-            const ecrResult = this._execAws(
-                `ecr describe-images --repository-name ml-container-creator --region ${profile.config.awsRegion}`,
-                profile.config.awsProfile
-            );
-
-            const images = ecrResult.imageDetails || [];
-            for (const image of images) {
-                const tags = image.imageTags || [];
-                for (const tag of tags) {
-                    discovered++;
-                    const imageUri = `${profile.config.accountId}.dkr.ecr.${profile.config.awsRegion}.amazonaws.com/ml-container-creator:${tag}`;
-                    const existing = assetManager.getResource(imageUri);
-                    if (existing) {
-                        skipped++;
-                        continue;
-                    }
-
-                    try {
-                        assetManager.addResource({
-                            resourceId: imageUri,
-                            resourceType: 'ecr-image',
-                            createdAt: now,
-                            lastUpdatedAt: now,
-                            project: this._inferProjectFromImageTag(tag),
-                            status: 'active',
-                            metadata: {
-                                repositoryName: 'ml-container-creator',
-                                imageTag: tag,
-                                region: profile.config.awsRegion,
-                                discoveredBy: 'scan'
-                            }
-                        });
-                        added++;
-                    } catch {
-                        skipped++;
-                    }
-                }
-            }
-        } catch {
-            console.log('  ⚠️  Could not query ECR images (credentials or API unavailable)');
-        }
-
-        // 3. Query CodeBuild for *-build-* projects
-        try {
-            console.log('  Checking CodeBuild projects...');
-            const cbResult = this._execAws(
-                `codebuild list-projects --region ${profile.config.awsRegion}`,
-                profile.config.awsProfile
-            );
-
-            const projects = (cbResult.projects || []).filter(name => name.includes('-build-'));
-            for (const projectName of projects) {
-                discovered++;
-                const arn = `arn:aws:codebuild:${profile.config.awsRegion}:${profile.config.accountId}:project/${projectName}`;
-                const existing = assetManager.getResource(arn);
-                if (existing) {
-                    skipped++;
-                    continue;
-                }
-
-                try {
-                    assetManager.addResource({
-                        resourceId: arn,
-                        resourceType: 'codebuild-project',
-                        createdAt: now,
-                        lastUpdatedAt: now,
-                        project: this._inferProjectFromCodeBuildName(projectName),
-                        status: 'active',
-                        metadata: {
-                            projectName,
-                            region: profile.config.awsRegion,
-                            discoveredBy: 'scan'
-                        }
-                    });
-                    added++;
-                } catch {
-                    skipped++;
-                }
-            }
-        } catch {
-            console.log('  ⚠️  Could not query CodeBuild projects (credentials or API unavailable)');
-        }
-
-        // Display summary
-        console.log(`\n  Scan complete: ${discovered} discovered, ${added} added, ${skipped} skipped (duplicates or unsupported)`);
-
-        if (discovered === 0) {
-            console.log('  No MLCC-managed resources were discovered.');
-        }
-    }
-
-    /**
-     * Prune stale records from the manifest — removes entries with status
-     * 'deleted' or 'unknown' that are no longer useful.
-     */
-    async _handlePrune() {
-        const profile = this.config.getActiveProfile();
-        if (!profile) {
-            console.log('No active bootstrap profile found.');
-            return;
-        }
-
-        const assetManager = new AssetManager(profile.name);
-
-        if (!existsSync(assetManager.manifestPath)) {
-            console.log('No deployment tracking data to prune.');
-            return;
-        }
-
-        const before = assetManager.listResources();
-        const toRemove = before.filter(r => r.status === 'deleted' || r.status === 'unknown');
-
-        if (toRemove.length === 0) {
-            console.log('Nothing to prune — no deleted or unknown records found.');
-            return;
-        }
-
-        console.log(`\n🧹 Pruning ${toRemove.length} stale record${toRemove.length === 1 ? '' : 's'}:\n`);
-
-        for (const resource of toRemove) {
-            assetManager.removeResource(resource.resourceId);
-            console.log(`  🗑️  [${resource.status}] ${resource.resourceType}: ${resource.resourceId}`);
-        }
-
-        const after = assetManager.listResources();
-        console.log(`\n  Done. ${toRemove.length} removed, ${after.length} remaining.`);
-    }
-
-    /**
-     * Handle sync-schemas subcommand: download service models and verify AWS CLI.
-     */
-    async _handleSyncSchemas() {
-        console.log('\n📦 Schema Sync — Downloading AWS service models...\n');
-
-        // Verify AWS CLI is installed
-        try {
-            const version = execSync('aws --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-            console.log(`  AWS CLI: ${version}`);
-        } catch {
-            console.log('  ⚠️  AWS CLI not found.');
-            console.log('  Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html');
-            console.log('  Continuing without AWS CLI verification...\n');
-        }
-
-        // Dynamic import to avoid circular dependencies
-        const { syncSchemas } = await import('./schema-sync.js');
-        const result = await syncSchemas();
-
-        if (result.success) {
-            console.log('\n  ✅ Schema sync complete.');
-        } else {
-            console.log('\n  ⚠️  Schema sync completed with errors (some services may be unavailable).');
-        }
-
-        console.log(`  Manifest written: lastSynced = ${result.manifest.lastSynced}\n`);
-    }
-
-    /**
      * Re-deploy bootstrap infrastructure using the active profile.
      * No prompts — reads all config from the existing profile and re-applies
      * the CloudFormation stack and optionally the CI CDK stack.
@@ -1204,6 +554,56 @@ export default class BootstrapCommandHandler {
     }
 
     /**
+     * Build the AWS CLI command to check if a resource still exists.
+     * @param {object} resource - Asset record
+     * @returns {string|null} AWS CLI command string, or null if resource type is not supported
+     */
+    _buildDriftCheckCommand(resource) {
+        const resourceId = resource.resourceId;
+
+        switch (resource.resourceType) {
+        case 'sagemaker-endpoint': {
+            const name = this._extractNameFromArn(resourceId);
+            return `sagemaker describe-endpoint --endpoint-name ${name}`;
+        }
+        case 'sagemaker-model': {
+            const name = this._extractNameFromArn(resourceId);
+            return `sagemaker describe-model --model-name ${name}`;
+        }
+        case 'sagemaker-inference-component': {
+            const name = this._extractNameFromArn(resourceId);
+            return `sagemaker describe-inference-component --inference-component-name ${name}`;
+        }
+        case 'ecr-image': {
+            const parts = resourceId.split('/');
+            const repoAndTag = parts[parts.length - 1];
+            const [repo, tag] = repoAndTag.split(':');
+            return `ecr describe-images --repository-name ${repo} --image-ids imageTag=${tag || 'latest'}`;
+        }
+        case 'codebuild-project': {
+            const name = this._extractNameFromArn(resourceId);
+            return `codebuild batch-get-projects --names ${name}`;
+        }
+        case 'iam-role': {
+            const name = this._extractNameFromArn(resourceId);
+            return `iam get-role --role-name ${name}`;
+        }
+        default:
+            return null;
+        }
+    }
+
+    /**
+     * Extract the resource name from an ARN.
+     * @param {string} arn - AWS ARN string
+     * @returns {string} The resource name portion
+     */
+    _extractNameFromArn(arn) {
+        const parts = arn.split('/');
+        return parts[parts.length - 1];
+    }
+
+    /**
      * Infer the resource type from an ARN.
      * @param {string} arn - AWS ARN
      * @returns {string|null} Resource type or null if not recognized
@@ -1307,395 +707,8 @@ export default class BootstrapCommandHandler {
         return { accountId, region };
     }
 
-    /**
-     * Create or reuse the SageMaker execution IAM role.
-     * @param {object} options - Parsed CLI options
-     * @returns {Promise<string>} Role ARN
-     */
-    async _setupIamRole(_options) {
-        const roleName = 'mlcc-sagemaker-execution-role';
-
-        // Define trust policy for SageMaker
-        const trustPolicy = {
-            Version: '2012-10-17',
-            Statement: [
-                {
-                    Effect: 'Allow',
-                    Principal: {
-                        Service: 'sagemaker.amazonaws.com'
-                    },
-                    Action: 'sts:AssumeRole'
-                }
-            ]
-        };
-
-        // Define execution policy with least-privilege permissions
-        const executionPolicy = {
-            Version: '2012-10-17',
-            Statement: [
-                {
-                    Sid: 'SageMakerEndpoints',
-                    Effect: 'Allow',
-                    Action: [
-                        'sagemaker:CreateEndpoint',
-                        'sagemaker:CreateEndpointConfig',
-                        'sagemaker:CreateModel',
-                        'sagemaker:CreateInferenceComponent',
-                        'sagemaker:UpdateEndpoint',
-                        'sagemaker:UpdateEndpointWeightsAndCapacities',
-                        'sagemaker:UpdateInferenceComponent',
-                        'sagemaker:DeleteEndpoint',
-                        'sagemaker:DeleteEndpointConfig',
-                        'sagemaker:DeleteModel',
-                        'sagemaker:DeleteInferenceComponent',
-                        'sagemaker:DescribeEndpoint',
-                        'sagemaker:DescribeEndpointConfig',
-                        'sagemaker:DescribeModel',
-                        'sagemaker:DescribeInferenceComponent',
-                        'sagemaker:ListInferenceComponents',
-                        'sagemaker:InvokeEndpoint',
-                        'sagemaker:InvokeEndpointAsync'
-                    ],
-                    Resource: '*'
-                },
-                {
-                    Sid: 'SageMakerBenchmarking',
-                    Effect: 'Allow',
-                    Action: [
-                        'sagemaker:CreateAIBenchmarkJob',
-                        'sagemaker:DescribeAIBenchmarkJob',
-                        'sagemaker:ListAIBenchmarkJobs',
-                        'sagemaker:StopAIBenchmarkJob',
-                        'sagemaker:DeleteAIBenchmarkJob',
-                        'sagemaker:CreateAIWorkloadConfig',
-                        'sagemaker:DescribeAIWorkloadConfig',
-                        'sagemaker:ListAIWorkloadConfigs',
-                        'sagemaker:DeleteAIWorkloadConfig'
-                    ],
-                    Resource: '*'
-                },
-                {
-                    Sid: 'ECRPull',
-                    Effect: 'Allow',
-                    Action: [
-                        'ecr:GetAuthorizationToken',
-                        'ecr:BatchCheckLayerAvailability',
-                        'ecr:GetDownloadUrlForLayer',
-                        'ecr:BatchGetImage'
-                    ],
-                    Resource: 'arn:aws:ecr:*:*:repository/ml-container-creator'
-                },
-                {
-                    Sid: 'ECRAuth',
-                    Effect: 'Allow',
-                    Action: 'ecr:GetAuthorizationToken',
-                    Resource: '*'
-                },
-                {
-                    Sid: 'CloudWatchLogs',
-                    Effect: 'Allow',
-                    Action: [
-                        'logs:CreateLogGroup',
-                        'logs:CreateLogStream',
-                        'logs:PutLogEvents'
-                    ],
-                    Resource: 'arn:aws:logs:*:*:*'
-                },
-                {
-                    Sid: 'S3ModelRead',
-                    Effect: 'Allow',
-                    Action: [
-                        's3:GetObject',
-                        's3:PutObject',
-                        's3:AbortMultipartUpload',
-                        's3:ListBucket'
-                    ],
-                    Resource: [
-                        'arn:aws:s3:::ml-container-creator-*',
-                        'arn:aws:s3:::ml-container-creator-*/*'
-                    ]
-                },
-                {
-                    Sid: 'SNSPublish',
-                    Effect: 'Allow',
-                    Action: 'sns:Publish',
-                    Resource: 'arn:aws:sns:*:*:ml-container-creator-*'
-                },
-                {
-                    Sid: 'SecretsManagerBenchmark',
-                    Effect: 'Allow',
-                    Action: [
-                        'secretsmanager:CreateSecret',
-                        'secretsmanager:PutSecretValue',
-                        'secretsmanager:GetSecretValue',
-                        'secretsmanager:DescribeSecret'
-                    ],
-                    Resource: 'arn:aws:secretsmanager:*:*:secret:ml-container-creator/*'
-                },
-                {
-                    Sid: 'QuotaAndAvailability',
-                    Effect: 'Allow',
-                    Action: [
-                        'service-quotas:GetServiceQuota',
-                        'service-quotas:ListServiceQuotas',
-                        'sagemaker:ListTrainingPlans',
-                        'sagemaker:DescribeTrainingPlan',
-                        'sagemaker:ListEndpoints'
-                    ],
-                    Resource: '*'
-                }
-            ]
-        };
-
-        // Check if role already exists
-        const roleExists = this._resourceExists(
-            `iam get-role --role-name ${roleName}`,
-            this._currentProfile
-        );
-
-        if (roleExists) {
-            const existingRole = this._execAws(
-                `iam get-role --role-name ${roleName}`,
-                this._currentProfile
-            );
-            const roleArn = existingRole.Role.Arn;
-            console.log(`  ✅ IAM role "${roleName}" already exists — reused`);
-
-            // Always update the inline policy and tags to ensure they're current
-            try {
-                const execPolicyFile = this._writeJsonTempFile(executionPolicy, 'exec-policy');
-                this._execAws(
-                    `iam put-role-policy --role-name ${roleName} --policy-name mlcc-execution-policy --policy-document ${execPolicyFile}`,
-                    this._currentProfile
-                );
-                console.log('  ✅ IAM policy "mlcc-execution-policy" — updated');
-            } catch (err) {
-                console.log(`  ⚠️  Could not update inline policy: ${err.message}`);
-            }
-
-            try {
-                const tags = this._buildResourceTags();
-                this._execAws(
-                    `iam tag-role --role-name ${roleName} --tags ${this._formatTagsForCli(tags)}`,
-                    this._currentProfile
-                );
-                console.log('  ✅ IAM role tags — updated');
-            } catch (err) {
-                console.log(`  ⚠️  Could not update role tags: ${err.message}`);
-            }
-
-            return roleArn;
-        }
-
-        // Display policies to user before creation
-        console.log('\n  Trust Policy:');
-        console.log(JSON.stringify(trustPolicy, null, 2));
-        console.log('\n  Execution Policy:');
-        console.log(JSON.stringify(executionPolicy, null, 2));
-        console.log('');
-
-        try {
-            // Create the IAM role — write policy to temp file to avoid shell escaping issues
-            const trustPolicyFile = this._writeJsonTempFile(trustPolicy, 'trust-policy');
-            const createRoleResult = this._execAws(
-                `iam create-role --role-name ${roleName} --assume-role-policy-document ${trustPolicyFile}`,
-                this._currentProfile
-            );
-            const roleArn = createRoleResult.Role.Arn;
-
-            // Attach inline execution policy
-            const execPolicyFile = this._writeJsonTempFile(executionPolicy, 'exec-policy');
-            this._execAws(
-                `iam put-role-policy --role-name ${roleName} --policy-name mlcc-execution-policy --policy-document ${execPolicyFile}`,
-                this._currentProfile
-            );
-
-            // Apply resource tags
-            const tags = this._buildResourceTags();
-            this._execAws(
-                `iam tag-role --role-name ${roleName} --tags ${this._formatTagsForCli(tags)}`,
-                this._currentProfile
-            );
-
-            console.log(`  ✅ IAM role "${roleName}" — created`);
-            return roleArn;
-        } catch (error) {
-            const errorMessage = error.message || '';
-            if (errorMessage.includes('AccessDenied') || errorMessage.includes('UnauthorizedAccess')) {
-                console.log('  ⚠️  Permission denied for iam:CreateRole. Please provide an existing role ARN.');
-                const { roleArn } = await this._promptFn([{
-                    type: 'input',
-                    name: 'roleArn',
-                    message: 'Enter an existing IAM role ARN for SageMaker execution:'
-                }]);
-                return roleArn;
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * Create or reuse the ECR repository.
-     * @returns {Promise<string>} ECR repository name
-     */
-    async _setupEcrRepository() {
-        const repoName = 'ml-container-creator';
-
-        // Check if repository already exists
-        const repoExists = this._resourceExists(
-            `ecr describe-repositories --repository-names ${repoName} --region ${this._currentRegion}`,
-            this._currentProfile
-        );
-
-        if (repoExists) {
-            console.log(`  ✅ ECR repository "${repoName}" already exists — reused`);
-            return repoName;
-        }
-
-        // Build resource tags
-        const tags = this._buildResourceTags();
-
-        // Create the ECR repository with image scanning and AES256 encryption
-        this._execAws(
-            `ecr create-repository --repository-name ${repoName} --image-scanning-configuration scanOnPush=true --encryption-configuration encryptionType=AES256 --region ${this._currentRegion} --tags ${this._formatTagsForCli(tags)}`,
-            this._currentProfile
-        );
-
-        // Apply lifecycle policy to expire untagged images after 30 days
-        const lifecyclePolicy = {
-            rules: [
-                {
-                    rulePriority: 1,
-                    description: 'Expire untagged images after 30 days',
-                    selection: {
-                        tagStatus: 'untagged',
-                        countType: 'sinceImagePushed',
-                        countUnit: 'days',
-                        countNumber: 30
-                    },
-                    action: {
-                        type: 'expire'
-                    }
-                }
-            ]
-        };
-
-        const lifecyclePolicyFile = this._writeJsonTempFile(lifecyclePolicy, 'ecr-lifecycle');
-        this._execAws(
-            `ecr put-lifecycle-policy --repository-name ${repoName} --lifecycle-policy-text ${lifecyclePolicyFile} --region ${this._currentRegion}`,
-            this._currentProfile
-        );
-
-        console.log(`  ✅ ECR repository "${repoName}" — created`);
-        return repoName;
-    }
-
-    /**
-     * Optionally create S3 buckets for async/batch deployments.
-     * Always creates the benchmark S3 bucket (unconditional).
-     * @returns {Promise<object|null>} Bucket names or null if skipped
-     */
-    async _setupS3Buckets() {
-        // Always create benchmark bucket (unconditional — avoids re-bootstrap when benchmarking is enabled later)
-        const benchmarkBucketName = `ml-container-creator-benchmark-${this._currentRegion}-${this._currentAccountId}`;
-        const tags = this._buildResourceTags();
-        const benchmarkS3Bucket = await this._createS3Bucket(benchmarkBucketName, tags);
-
-        const { useS3 } = await this._promptFn([{
-            type: 'confirm',
-            name: 'useS3',
-            message: 'Will you use async inference or batch transform?',
-            default: false
-        }]);
-
-        if (!useS3) {
-            return { benchmarkS3Bucket };
-        }
-
-        const asyncBucketName = `ml-container-creator-async-${this._currentRegion}-${this._currentAccountId}`;
-        const batchBucketName = `ml-container-creator-batch-${this._currentRegion}-${this._currentAccountId}`;
-
-        const asyncS3Bucket = await this._createS3Bucket(asyncBucketName, tags);
-        const batchS3Bucket = await this._createS3Bucket(batchBucketName, tags);
-
-        return { asyncS3Bucket, batchS3Bucket, benchmarkS3Bucket };
-    }
-
-    /**
-     * Create or reuse a single S3 bucket with versioning, encryption, and tags.
-     * @param {string} bucketName - S3 bucket name
-     * @param {Array<{Key: string, Value: string}>} tags - Resource tags
-     * @returns {Promise<string>} Bucket name
-     */
-    async _createS3Bucket(bucketName, tags) {
-        // Check if bucket already exists
-        const bucketExists = this._resourceExists(
-            `s3api head-bucket --bucket ${bucketName}`,
-            this._currentProfile
-        );
-
-        if (bucketExists) {
-            console.log(`  ✅ S3 bucket "${bucketName}" already exists — reused`);
-            return bucketName;
-        }
-
-        // Build create-bucket command with region-appropriate configuration
-        let createCommand = `s3api create-bucket --bucket ${bucketName} --region ${this._currentRegion}`;
-        if (this._currentRegion !== 'us-east-1') {
-            createCommand += ` --create-bucket-configuration LocationConstraint=${this._currentRegion}`;
-        }
-
-        this._execAws(createCommand, this._currentProfile);
-
-        // Enable versioning
-        this._execAws(
-            `s3api put-bucket-versioning --bucket ${bucketName} --versioning-configuration Status=Enabled`,
-            this._currentProfile
-        );
-
-        // Enable AES256 server-side encryption
-        const encryptionConfig = { Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }] };
-        const encryptionFile = this._writeJsonTempFile(encryptionConfig, 's3-encryption');
-        this._execAws(
-            `s3api put-bucket-encryption --bucket ${bucketName} --server-side-encryption-configuration ${encryptionFile}`,
-            this._currentProfile
-        );
-
-        // Apply resource tags
-        const tagging = { TagSet: tags };
-        const taggingFile = this._writeJsonTempFile(tagging, 's3-tagging');
-        this._execAws(
-            `s3api put-bucket-tagging --bucket ${bucketName} --tagging ${taggingFile}`,
-            this._currentProfile
-        );
-
-        console.log(`  ✅ S3 bucket "${bucketName}" — created`);
-        return bucketName;
-    }
 
     // ── AWS CLI helpers ─────────────────────────────────────────────
-
-    /**
-     * Verify AWS CLI v2 is installed. Returns true if v2 is detected, false otherwise.
-     * Extracted as a method so tests can override it.
-     * @returns {boolean}
-     */
-    _verifyCliV2() {
-        try {
-            const versionOutput = execSync('aws --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-            if (!versionOutput.includes('aws-cli/2')) {
-                console.log(`  ❌ AWS CLI v2 is required. Detected: ${versionOutput.split(' ')[0]}`);
-                console.log('  Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html');
-                console.log('  Some features (benchmarking, newer SageMaker APIs) require CLI v2.\n');
-                return false;
-            }
-            return true;
-        } catch {
-            console.log('  ❌ AWS CLI not found.');
-            console.log('  Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html\n');
-            return false;
-        }
-    }
 
     /**
      * Execute an AWS CLI command and return parsed JSON output.
@@ -1806,22 +819,6 @@ export default class BootstrapCommandHandler {
         } catch {
             return false;
         }
-    }
-
-    // ── Tag helpers ─────────────────────────────────────────────────
-
-    /**
-     * Build the standard resource tag set.
-     * @returns {Array<{Key: string, Value: string}>} Tag array
-     */
-    _buildResourceTags() {
-        const packageJsonPath = path.resolve(__dirname, '../../package.json');
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-        return [
-            { Key: 'mlcc:managed-by', Value: 'ml-container-creator' },
-            { Key: 'mlcc:created-by', Value: 'bootstrap' },
-            { Key: 'mlcc:version', Value: packageJson.version }
-        ];
     }
 
     /**

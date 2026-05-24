@@ -17,7 +17,7 @@
 
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import { modelLoadStrategyPrompts } from '../../src/lib/prompts.js';
+import { modelLoadStrategyPrompts } from '../../src/lib/prompts/index.js';
 
 // ── Helper: simulate _ensureTemplateVariables defaults logic ─────────────────
 // This mirrors the defaults object from index.js _ensureTemplateVariables()

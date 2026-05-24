@@ -15,7 +15,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { formatImageChoices } from '../../src/lib/prompts.js';
+import { formatImageChoices } from '../../src/lib/prompts/index.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),

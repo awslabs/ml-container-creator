@@ -15,7 +15,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { benchmarkPrompts, modulePrompts } from '../../src/lib/prompts.js';
+import { benchmarkPrompts, modulePrompts } from '../../src/lib/prompts/index.js';
 
 describe('Benchmark Prompt Visibility', () => {
 

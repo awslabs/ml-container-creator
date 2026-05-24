@@ -46,13 +46,13 @@ templates/
 │   └── start_server.py     # Server startup script (traditional ML)
 ├── deploy/                 # Deployment scripts
 │   ├── build_and_push.sh   # Build Docker image and push to ECR
-│   ├── deploy.sh           # Deploy to SageMaker endpoint
+│   ├── deploy.sh           # Deploy to SageMaker AI endpoint
 │   └── upload_to_s3.sh     # Upload model to S3 (transformers only)
 ├── sample_model/           # Optional sample training code
 │   ├── train_abalone.py    # Sample model training
 │   └── test_inference.py   # Sample inference testing
 ├── test/                   # Optional test suite
-│   ├── test_endpoint.sh    # Test hosted SageMaker endpoint
+│   ├── test_endpoint.sh    # Test hosted SageMaker AI endpoint
 │   ├── test_local_image.sh # Test local Docker container
 │   └── test_model_handler.py # Unit tests for model handler
 ├── Dockerfile              # Container definition
@@ -232,4 +232,4 @@ See `test/` directory for generator tests that verify template generation.
 - [EJS Documentation](https://ejs.co/)
 - [Project Architecture](architecture.md)
 - [Coding Standards](coding-standards.md)
-- [AWS/SageMaker Guide](aws-sagemaker.md)
+- [AWS/SageMaker AI Guide](aws-sagemaker.md)

@@ -19,9 +19,23 @@
             },
             "phase": "project",
             "group": "project",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
-            "widget": { "section": "model-server", "inputType": "text", "placeholder": "my-project" },
-            "prompt": { "message": "Project name?", "type": "input" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "model-server",
+                "inputType": "text",
+                "placeholder": "my-project"
+            },
+            "prompt": {
+                "message": "Project name?",
+                "type": "input"
+            },
             "deprecated": false,
             "since": "0.1.0"
         },
@@ -36,18 +50,42 @@
             "default": null,
             "validation": {
                 "enum": [
-                    "http-flask", "http-fastapi",
-                    "transformers-vllm", "transformers-sglang", "transformers-tensorrt-llm", "transformers-lmi", "transformers-djl",
-                    "triton-fil", "triton-onnxruntime", "triton-tensorflow", "triton-pytorch", "triton-vllm", "triton-tensorrtllm", "triton-python",
+                    "http-flask",
+                    "http-fastapi",
+                    "transformers-vllm",
+                    "transformers-sglang",
+                    "transformers-tensorrt-llm",
+                    "transformers-lmi",
+                    "transformers-djl",
+                    "triton-fil",
+                    "triton-onnxruntime",
+                    "triton-tensorflow",
+                    "triton-pytorch",
+                    "triton-vllm",
+                    "triton-tensorrtllm",
+                    "triton-python",
                     "diffusors-vllm-omni",
                     "marketplace"
                 ]
             },
             "phase": "model",
             "group": "model",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
-            "widget": { "section": "model-server", "inputType": "select" },
-            "prompt": { "message": "Deployment configuration?", "type": "list" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "model-server",
+                "inputType": "select"
+            },
+            "prompt": {
+                "message": "Deployment configuration?",
+                "type": "list"
+            },
             "deprecated": false,
             "since": "0.5.0"
         },
@@ -60,12 +98,30 @@
             "templateVar": "modelName",
             "configKey": "modelName",
             "default": null,
-            "validation": { "minLength": 1 },
+            "validation": {
+                "minLength": 1
+            },
             "phase": "model",
             "group": "model",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["transformers", "diffusors"] },
-            "widget": { "section": "model-server", "inputType": "text", "datalist": "models", "placeholder": "e.g. meta-llama/Llama-3.1-8B-Instruct" },
-            "prompt": { "message": "Model name or path?", "type": "input" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
+            "widget": {
+                "section": "model-server",
+                "inputType": "text",
+                "datalist": "models",
+                "placeholder": "e.g. meta-llama/Llama-3.1-8B-Instruct"
+            },
+            "prompt": {
+                "message": "Model name or path?",
+                "type": "input"
+            },
             "deprecated": false,
             "since": "0.3.0"
         },
@@ -77,15 +133,34 @@
             "envVar": "ML_DEPLOYMENT_TARGET",
             "templateVar": "deploymentTarget",
             "configKey": "deploymentTarget",
-            "default": "managed-inference",
+            "default": "realtime-inference",
             "validation": {
-                "enum": ["managed-inference", "realtime-inference", "async-inference", "batch-transform", "hyperpod-eks"]
+                "enum": [
+                    "managed-inference",
+                    "realtime-inference",
+                    "async-inference",
+                    "batch-transform",
+                    "hyperpod-eks"
+                ]
             },
             "phase": "infrastructure",
             "group": "infrastructure",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
-            "widget": { "section": "infrastructure", "inputType": "select" },
-            "prompt": { "message": "Deployment target?", "type": "list" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "infrastructure",
+                "inputType": "select"
+            },
+            "prompt": {
+                "message": "Deployment target?",
+                "type": "list"
+            },
             "deprecated": false,
             "since": "0.4.0"
         },
@@ -98,12 +173,32 @@
             "templateVar": "instanceType",
             "configKey": "instanceType",
             "default": null,
-            "validation": { "pattern": "^ml\\.[a-z0-9]+\\.[a-z0-9]+$" },
+            "validation": {
+                "pattern": "^ml\\.[a-z0-9]+\\.[a-z0-9]+$"
+            },
             "phase": "infrastructure",
             "group": "infrastructure",
-            "appliesTo": { "deploymentTargets": ["managed-inference", "async-inference", "batch-transform"], "architectures": ["*"] },
-            "widget": { "section": "infrastructure", "inputType": "text", "datalist": "instances", "placeholder": "e.g. ml.g5.2xlarge" },
-            "prompt": { "message": "Instance type?", "type": "input", "when": "deploymentTarget !== 'hyperpod-eks'" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference",
+                    "async-inference",
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "infrastructure",
+                "inputType": "text",
+                "datalist": "instances",
+                "placeholder": "e.g. ml.g5.2xlarge"
+            },
+            "prompt": {
+                "message": "Instance type?",
+                "type": "input",
+                "when": "deploymentTarget !== 'hyperpod-eks'"
+            },
             "deprecated": false,
             "since": "0.1.0"
         },
@@ -116,13 +211,29 @@
             "templateVar": "icGpuCount",
             "configKey": "icGpuCount",
             "default": null,
-            "validation": { "min": 0, "max": 8 },
+            "validation": {
+                "min": 0,
+                "max": 8
+            },
             "phase": "infrastructure",
             "group": "inference-component",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] },
-            "widget": { "section": "infrastructure", "inputType": "number", "placeholder": "auto" },
-            "prompt": { "message": "GPU count for inference component?", "type": "number", "when": "deploymentTarget === 'managed-inference'" },
-            "serverMapping": { "icConfVar": "IC_GPU_COUNT" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "infrastructure",
+                "inputType": "number",
+                "placeholder": "auto"
+            },
+            "prompt": null,
+            "serverMapping": {
+                "icConfVar": "IC_GPU_COUNT"
+            },
             "deprecated": false,
             "since": "0.4.0"
         },
@@ -135,13 +246,29 @@
             "templateVar": "icCopyCount",
             "configKey": "icCopyCount",
             "default": 1,
-            "validation": { "min": 0, "max": 100 },
+            "validation": {
+                "min": 0,
+                "max": 100
+            },
             "phase": "infrastructure",
             "group": "inference-component",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] },
-            "widget": { "section": "infrastructure", "inputType": "number", "placeholder": "1" },
-            "prompt": { "message": "IC copy count?", "type": "number", "when": "deploymentTarget === 'managed-inference'" },
-            "serverMapping": { "icConfVar": "IC_COPY_COUNT" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "infrastructure",
+                "inputType": "number",
+                "placeholder": "1"
+            },
+            "prompt": null,
+            "serverMapping": {
+                "icConfVar": "IC_COPY_COUNT"
+            },
             "deprecated": false,
             "since": "0.4.0"
         },
@@ -153,14 +280,30 @@
             "envVar": "ML_IC_MEMORY_SIZE",
             "templateVar": "icMemorySize",
             "configKey": "icMemorySize",
-            "default": 1024,
-            "validation": { "min": 128, "max": 3145728 },
+            "default": null,
+            "validation": {
+                "min": 128,
+                "max": 3145728
+            },
             "phase": "infrastructure",
             "group": "inference-component",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] },
-            "widget": { "section": "infrastructure", "inputType": "number", "placeholder": "1024" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "infrastructure",
+                "inputType": "number",
+                "placeholder": "1024"
+            },
             "prompt": null,
-            "serverMapping": { "icConfVar": "IC_MIN_MEMORY_MB" },
+            "serverMapping": {
+                "icConfVar": "IC_MIN_MEMORY_MB"
+            },
             "deprecated": false,
             "since": "0.4.0"
         },
@@ -176,10 +319,27 @@
             "validation": {},
             "phase": "features",
             "group": "lora",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers"] },
-            "widget": { "section": "features", "inputType": "checkbox" },
-            "prompt": { "message": "Enable LoRA adapter serving?", "type": "confirm", "when": "architecture === 'transformers' && ['vllm','sglang','djl'].includes(modelServer)" },
-            "serverMapping": { "envVar": "VLLM_ENABLE_LORA", "booleanFlag": true },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers"
+                ]
+            },
+            "widget": {
+                "section": "features",
+                "inputType": "checkbox"
+            },
+            "prompt": {
+                "message": "Enable LoRA adapter serving?",
+                "type": "confirm",
+                "when": "architecture === 'transformers' && ['vllm','sglang','djl'].includes(modelServer)"
+            },
+            "serverMapping": {
+                "envVar": "VLLM_ENABLE_LORA",
+                "booleanFlag": true
+            },
             "deprecated": false,
             "since": "0.5.0"
         },
@@ -192,13 +352,33 @@
             "templateVar": "maxLoras",
             "configKey": "maxLoras",
             "default": 30,
-            "validation": { "min": 1, "max": 256 },
+            "validation": {
+                "min": 1,
+                "max": 256
+            },
             "phase": "features",
             "group": "lora",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers"] },
-            "widget": { "section": "features", "inputType": "number", "placeholder": "30" },
-            "prompt": { "message": "Max concurrent LoRA adapters?", "type": "number", "when": "enableLora === true" },
-            "serverMapping": { "envVar": "VLLM_MAX_LORAS" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers"
+                ]
+            },
+            "widget": {
+                "section": "features",
+                "inputType": "number",
+                "placeholder": "30"
+            },
+            "prompt": {
+                "message": "Max concurrent LoRA adapters?",
+                "type": "number",
+                "when": "enableLora === true"
+            },
+            "serverMapping": {
+                "envVar": "VLLM_MAX_LORAS"
+            },
             "deprecated": false,
             "since": "0.5.0"
         },
@@ -211,13 +391,33 @@
             "templateVar": "maxLoraRank",
             "configKey": "maxLoraRank",
             "default": 64,
-            "validation": { "min": 8, "max": 512 },
+            "validation": {
+                "min": 8,
+                "max": 512
+            },
             "phase": "features",
             "group": "lora",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers"] },
-            "widget": { "section": "features", "inputType": "number", "placeholder": "64" },
-            "prompt": { "message": "Max LoRA rank?", "type": "number", "when": "enableLora === true" },
-            "serverMapping": { "envVar": "VLLM_MAX_LORA_RANK" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers"
+                ]
+            },
+            "widget": {
+                "section": "features",
+                "inputType": "number",
+                "placeholder": "64"
+            },
+            "prompt": {
+                "message": "Max LoRA rank?",
+                "type": "number",
+                "when": "enableLora === true"
+            },
+            "serverMapping": {
+                "envVar": "VLLM_MAX_LORA_RANK"
+            },
             "deprecated": false,
             "since": "0.5.0"
         },
@@ -233,9 +433,24 @@
             "validation": {},
             "phase": "features",
             "group": "benchmark",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers", "diffusors"] },
-            "widget": { "section": "features", "inputType": "checkbox" },
-            "prompt": { "message": "Include benchmarking?", "type": "confirm", "when": "['transformers','diffusors'].includes(architecture)" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
+            "widget": {
+                "section": "features",
+                "inputType": "checkbox"
+            },
+            "prompt": {
+                "message": "Include benchmarking?",
+                "type": "confirm",
+                "when": "['transformers','diffusors'].includes(architecture)"
+            },
             "deprecated": false,
             "since": "0.6.0"
         },
@@ -244,16 +459,35 @@
             "description": "Benchmark concurrent requests",
             "cliFlag": "--benchmark-concurrency",
             "cliArgName": "n",
-            "envVar": "ML_BENCHMARK_CONCURRENCY",
+            "envVar": null,
             "templateVar": "benchmarkConcurrency",
             "configKey": "benchmarkConcurrency",
             "default": 10,
-            "validation": { "min": 1, "max": 1000 },
+            "validation": {
+                "min": 1,
+                "max": 1000
+            },
             "phase": "features",
             "group": "benchmark",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers", "diffusors"] },
-            "widget": { "section": "features", "inputType": "number", "placeholder": "10" },
-            "prompt": { "message": "Benchmark concurrency?", "type": "number", "when": "includeBenchmark === true" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
+            "widget": {
+                "section": "features",
+                "inputType": "number",
+                "placeholder": "10"
+            },
+            "prompt": {
+                "message": "Benchmark concurrency?",
+                "type": "number",
+                "when": "includeBenchmark === true"
+            },
             "deprecated": false,
             "since": "0.6.0"
         },
@@ -262,16 +496,35 @@
             "description": "Benchmark mean input tokens",
             "cliFlag": "--benchmark-input-tokens",
             "cliArgName": "n",
-            "envVar": "ML_BENCHMARK_INPUT_TOKENS",
+            "envVar": null,
             "templateVar": "benchmarkInputTokensMean",
             "configKey": "benchmarkInputTokensMean",
             "default": 550,
-            "validation": { "min": 1, "max": 128000 },
+            "validation": {
+                "min": 1,
+                "max": 128000
+            },
             "phase": "features",
             "group": "benchmark",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers", "diffusors"] },
-            "widget": { "section": "features", "inputType": "number", "placeholder": "550" },
-            "prompt": { "message": "Mean input tokens?", "type": "number", "when": "includeBenchmark === true" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
+            "widget": {
+                "section": "features",
+                "inputType": "number",
+                "placeholder": "550"
+            },
+            "prompt": {
+                "message": "Mean input tokens?",
+                "type": "number",
+                "when": "includeBenchmark === true"
+            },
             "deprecated": false,
             "since": "0.6.0"
         },
@@ -280,16 +533,35 @@
             "description": "Benchmark mean output tokens",
             "cliFlag": "--benchmark-output-tokens",
             "cliArgName": "n",
-            "envVar": "ML_BENCHMARK_OUTPUT_TOKENS",
+            "envVar": null,
             "templateVar": "benchmarkOutputTokensMean",
             "configKey": "benchmarkOutputTokensMean",
             "default": 150,
-            "validation": { "min": 1, "max": 128000 },
+            "validation": {
+                "min": 1,
+                "max": 128000
+            },
             "phase": "features",
             "group": "benchmark",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers", "diffusors"] },
-            "widget": { "section": "features", "inputType": "number", "placeholder": "150" },
-            "prompt": { "message": "Mean output tokens?", "type": "number", "when": "includeBenchmark === true" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
+            "widget": {
+                "section": "features",
+                "inputType": "number",
+                "placeholder": "150"
+            },
+            "prompt": {
+                "message": "Mean output tokens?",
+                "type": "number",
+                "when": "includeBenchmark === true"
+            },
             "deprecated": false,
             "since": "0.6.0"
         },
@@ -298,16 +570,31 @@
             "description": "Enable streaming in benchmark",
             "cliFlag": "--benchmark-streaming",
             "cliArgName": null,
-            "envVar": "ML_BENCHMARK_STREAMING",
+            "envVar": null,
             "templateVar": "benchmarkStreaming",
             "configKey": "benchmarkStreaming",
             "default": true,
             "validation": {},
             "phase": "features",
             "group": "benchmark",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers", "diffusors"] },
-            "widget": { "section": "features", "inputType": "checkbox" },
-            "prompt": { "message": "Enable streaming in benchmark?", "type": "confirm", "when": "includeBenchmark === true" },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
+            "widget": {
+                "section": "features",
+                "inputType": "checkbox"
+            },
+            "prompt": {
+                "message": "Enable streaming in benchmark?",
+                "type": "confirm",
+                "when": "includeBenchmark === true"
+            },
             "deprecated": false,
             "since": "0.6.0"
         },
@@ -316,14 +603,24 @@
             "description": "Total number of benchmark requests to send",
             "cliFlag": "--benchmark-request-count",
             "cliArgName": "n",
-            "envVar": "ML_BENCHMARK_REQUEST_COUNT",
+            "envVar": null,
             "templateVar": "benchmarkRequestCount",
             "configKey": "benchmarkRequestCount",
             "default": null,
-            "validation": { "min": 1 },
+            "validation": {
+                "min": 1
+            },
             "phase": "features",
             "group": "benchmark",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers", "diffusors"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
@@ -338,10 +635,20 @@
             "templateVar": "benchmarkS3OutputPath",
             "configKey": "benchmarkS3OutputPath",
             "default": null,
-            "validation": { "pattern": "^s3://" },
+            "validation": {
+                "pattern": "^s3://"
+            },
             "phase": "features",
             "group": "benchmark",
-            "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["transformers", "diffusors"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
@@ -359,7 +666,14 @@
             "validation": {},
             "phase": "project",
             "group": "project",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "cliBehavior": true,
@@ -378,7 +692,14 @@
             "validation": {},
             "phase": "project",
             "group": "project",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "cliBehavior": true,
@@ -397,7 +718,14 @@
             "validation": {},
             "phase": "project",
             "group": "project",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "cliBehavior": true,
@@ -416,7 +744,14 @@
             "validation": {},
             "phase": "project",
             "group": "project",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
@@ -434,7 +769,14 @@
             "validation": {},
             "phase": "project",
             "group": "project",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "cliBehavior": true,
@@ -450,10 +792,24 @@
             "templateVar": "framework",
             "configKey": "framework",
             "default": null,
-            "validation": { "enum": ["sklearn", "xgboost", "tensorflow", "transformers"] },
+            "validation": {
+                "enum": [
+                    "sklearn",
+                    "xgboost",
+                    "tensorflow",
+                    "transformers"
+                ]
+            },
             "phase": "model",
             "group": "model",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": true,
@@ -469,12 +825,34 @@
             "templateVar": "modelFormat",
             "configKey": "modelFormat",
             "default": null,
-            "validation": { "enum": ["pkl", "joblib", "json", "model", "ubj", "keras", "h5", "SavedModel"] },
+            "validation": {
+                "enum": [
+                    "pkl",
+                    "joblib",
+                    "json",
+                    "model",
+                    "ubj",
+                    "keras",
+                    "h5",
+                    "SavedModel"
+                ]
+            },
             "phase": "model",
             "group": "model",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["http"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "http"
+                ]
+            },
             "widget": null,
-            "prompt": { "message": "Model format?", "type": "list", "when": "architecture === 'http'" },
+            "prompt": {
+                "message": "Model format?",
+                "type": "list",
+                "when": "architecture === 'http'"
+            },
             "deprecated": false,
             "since": "0.1.0"
         },
@@ -487,10 +865,24 @@
             "templateVar": "modelServer",
             "configKey": "modelServer",
             "default": null,
-            "validation": { "enum": ["flask", "fastapi", "vllm", "sglang"] },
+            "validation": {
+                "enum": [
+                    "flask",
+                    "fastapi",
+                    "vllm",
+                    "sglang"
+                ]
+            },
             "phase": "model",
             "group": "model",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": true,
@@ -509,7 +901,14 @@
             "validation": {},
             "phase": "build",
             "group": "build",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
@@ -524,12 +923,24 @@
             "templateVar": "awsRegion",
             "configKey": "region",
             "default": "us-east-1",
-            "validation": { "pattern": "^[a-z]{2}-[a-z]+-\\d+$" },
+            "validation": {
+                "pattern": "^[a-z]{2}-[a-z]+-\\d+$"
+            },
             "phase": "infrastructure",
             "group": "infrastructure",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
-            "prompt": { "message": "AWS region?", "type": "input" },
+            "prompt": {
+                "message": "AWS region?",
+                "type": "input"
+            },
             "deprecated": false,
             "since": "0.1.0"
         },
@@ -542,10 +953,19 @@
             "templateVar": "roleArn",
             "configKey": "roleArn",
             "default": null,
-            "validation": { "pattern": "^arn:aws:iam::" },
+            "validation": {
+                "pattern": "^arn:aws:iam::"
+            },
             "phase": "infrastructure",
             "group": "infrastructure",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
@@ -559,11 +979,22 @@
             "envVar": "ML_BUILD_TARGET",
             "templateVar": "buildTarget",
             "configKey": "buildTarget",
-            "default": null,
-            "validation": { "enum": ["codebuild"] },
+            "default": "codebuild",
+            "validation": {
+                "enum": [
+                    "codebuild"
+                ]
+            },
             "phase": "build",
             "group": "build",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
@@ -577,11 +1008,28 @@
             "envVar": "ML_CODEBUILD_COMPUTE_TYPE",
             "templateVar": "codebuildComputeType",
             "configKey": "codebuildComputeType",
-            "default": "LARGE",
-            "validation": { "enum": ["SMALL", "MEDIUM", "LARGE", "BUILD_GENERAL1_SMALL", "BUILD_GENERAL1_MEDIUM", "BUILD_GENERAL1_LARGE", "BUILD_GENERAL1_2XLARGE"] },
+            "default": "BUILD_GENERAL1_LARGE",
+            "validation": {
+                "enum": [
+                    "SMALL",
+                    "MEDIUM",
+                    "LARGE",
+                    "BUILD_GENERAL1_SMALL",
+                    "BUILD_GENERAL1_MEDIUM",
+                    "BUILD_GENERAL1_LARGE",
+                    "BUILD_GENERAL1_2XLARGE"
+                ]
+            },
             "phase": "build",
             "group": "build",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
@@ -599,7 +1047,15 @@
             "validation": {},
             "phase": "auth",
             "group": "auth",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["transformers", "diffusors"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "sensitive": true,
@@ -615,10 +1071,20 @@
             "templateVar": "hfTokenArn",
             "configKey": "hfTokenArn",
             "default": null,
-            "validation": { "pattern": "^arn:aws:secretsmanager:" },
+            "validation": {
+                "pattern": "^arn:aws:secretsmanager:"
+            },
             "phase": "auth",
             "group": "auth",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["transformers", "diffusors"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
@@ -636,7 +1102,14 @@
             "validation": {},
             "phase": "auth",
             "group": "auth",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["transformers"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "transformers"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "sensitive": true,
@@ -652,47 +1125,941 @@
             "templateVar": "ngcTokenArn",
             "configKey": "ngcTokenArn",
             "default": null,
-            "validation": { "pattern": "^arn:aws:secretsmanager:" },
+            "validation": {
+                "pattern": "^arn:aws:secretsmanager:"
+            },
             "phase": "auth",
             "group": "auth",
-            "appliesTo": { "deploymentTargets": ["*"], "architectures": ["transformers"] },
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "transformers"
+                ]
+            },
             "widget": null,
             "prompt": null,
             "deprecated": false,
             "since": "0.5.0"
         },
-        "endpointInitialInstanceCount": { "type": "integer", "description": "Number of instances for the endpoint", "cliFlag": "--endpoint-initial-instance-count", "cliArgName": "n", "envVar": "ML_ENDPOINT_INSTANCE_COUNT", "templateVar": "endpointInitialInstanceCount", "configKey": "endpointInitialInstanceCount", "default": 1, "validation": { "min": 1, "max": 100 }, "phase": "infrastructure", "group": "endpoint", "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "endpointDataCapturePercent": { "type": "integer", "description": "Data capture percentage for monitoring, 0-100", "cliFlag": "--endpoint-data-capture-percent", "cliArgName": "pct", "envVar": null, "templateVar": "endpointDataCapturePercent", "configKey": "endpointDataCapturePercent", "default": 0, "validation": { "min": 0, "max": 100 }, "phase": "infrastructure", "group": "endpoint", "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "endpointVariantName": { "type": "string", "description": "Production variant name", "cliFlag": "--endpoint-variant-name", "cliArgName": "name", "envVar": null, "templateVar": "endpointVariantName", "configKey": "endpointVariantName", "default": "AllTraffic", "validation": { "pattern": "^[a-zA-Z0-9]" }, "phase": "infrastructure", "group": "endpoint", "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "endpointVolumeSize": { "type": "integer", "description": "ML storage volume size in GB", "cliFlag": "--endpoint-volume-size", "cliArgName": "gb", "envVar": null, "templateVar": "endpointVolumeSize", "configKey": "endpointVolumeSize", "default": null, "validation": { "min": 1, "max": 16384 }, "phase": "infrastructure", "group": "endpoint", "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "icCpuCount": { "type": "number", "description": "vCPUs allocated to the inference component", "cliFlag": "--ic-cpu-count", "cliArgName": "n", "envVar": "ML_IC_CPU_COUNT", "templateVar": "icCpuCount", "configKey": "icCpuCount", "default": null, "validation": { "min": 0.25, "max": 768 }, "phase": "infrastructure", "group": "inference-component", "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "icModelWeight": { "type": "number", "description": "Traffic routing weight, 0-1", "cliFlag": "--ic-model-weight", "cliArgName": "weight", "envVar": null, "templateVar": "icModelWeight", "configKey": "icModelWeight", "default": 1.0, "validation": { "min": 0, "max": 1 }, "phase": "infrastructure", "group": "inference-component", "appliesTo": { "deploymentTargets": ["managed-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.5.0" },
-        "asyncS3OutputPath": { "type": "string", "description": "S3 output path for async results", "cliFlag": "--async-s3-output-path", "cliArgName": "path", "envVar": "ML_ASYNC_S3_OUTPUT_PATH", "templateVar": "asyncS3OutputPath", "configKey": "asyncS3OutputPath", "default": null, "validation": { "pattern": "^s3://" }, "phase": "infrastructure", "group": "async", "appliesTo": { "deploymentTargets": ["async-inference"], "architectures": ["*"] }, "widget": null, "prompt": { "message": "S3 output path for async results?", "type": "input", "when": "deploymentTarget === 'async-inference'" }, "deprecated": false, "since": "0.4.0" },
-        "asyncSnsSuccessTopic": { "type": "string", "description": "SNS topic ARN for success notifications", "cliFlag": "--async-sns-success-topic", "cliArgName": "arn", "envVar": null, "templateVar": "asyncSnsSuccessTopic", "configKey": "asyncSnsSuccessTopic", "default": null, "validation": { "pattern": "^arn:aws:sns:" }, "phase": "infrastructure", "group": "async", "appliesTo": { "deploymentTargets": ["async-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "asyncSnsErrorTopic": { "type": "string", "description": "SNS topic ARN for error notifications", "cliFlag": "--async-sns-error-topic", "cliArgName": "arn", "envVar": null, "templateVar": "asyncSnsErrorTopic", "configKey": "asyncSnsErrorTopic", "default": null, "validation": { "pattern": "^arn:aws:sns:" }, "phase": "infrastructure", "group": "async", "appliesTo": { "deploymentTargets": ["async-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "asyncMaxConcurrent": { "type": "integer", "description": "Max concurrent invocations per instance", "cliFlag": "--async-max-concurrent", "cliArgName": "n", "envVar": null, "templateVar": "asyncMaxConcurrent", "configKey": "asyncMaxConcurrent", "default": 1, "validation": { "min": 1, "max": 100 }, "phase": "infrastructure", "group": "async", "appliesTo": { "deploymentTargets": ["async-inference"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "batchInputPath": { "type": "string", "description": "S3 input path for batch data", "cliFlag": "--batch-input-path", "cliArgName": "path", "envVar": "ML_BATCH_INPUT_PATH", "templateVar": "batchInputPath", "configKey": "batchInputPath", "default": null, "validation": { "pattern": "^s3://" }, "phase": "infrastructure", "group": "batch", "appliesTo": { "deploymentTargets": ["batch-transform"], "architectures": ["*"] }, "widget": null, "prompt": { "message": "S3 input path?", "type": "input", "when": "deploymentTarget === 'batch-transform'" }, "deprecated": false, "since": "0.4.0" },
-        "batchOutputPath": { "type": "string", "description": "S3 output path for batch results", "cliFlag": "--batch-output-path", "cliArgName": "path", "envVar": "ML_BATCH_OUTPUT_PATH", "templateVar": "batchOutputPath", "configKey": "batchOutputPath", "default": null, "validation": { "pattern": "^s3://" }, "phase": "infrastructure", "group": "batch", "appliesTo": { "deploymentTargets": ["batch-transform"], "architectures": ["*"] }, "widget": null, "prompt": { "message": "S3 output path?", "type": "input", "when": "deploymentTarget === 'batch-transform'" }, "deprecated": false, "since": "0.4.0" },
-        "batchInstanceCount": { "type": "integer", "description": "Number of batch instances", "cliFlag": "--batch-instance-count", "cliArgName": "n", "envVar": null, "templateVar": "batchInstanceCount", "configKey": "batchInstanceCount", "default": 1, "validation": { "min": 1, "max": 100 }, "phase": "infrastructure", "group": "batch", "appliesTo": { "deploymentTargets": ["batch-transform"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "batchSplitType": { "type": "enum", "description": "Input split type: Line, RecordIO, None", "cliFlag": "--batch-split-type", "cliArgName": "type", "envVar": null, "templateVar": "batchSplitType", "configKey": "batchSplitType", "default": "Line", "validation": { "enum": ["Line", "RecordIO", "None"] }, "phase": "infrastructure", "group": "batch", "appliesTo": { "deploymentTargets": ["batch-transform"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "batchStrategy": { "type": "enum", "description": "Batch strategy: MultiRecord, SingleRecord", "cliFlag": "--batch-strategy", "cliArgName": "strategy", "envVar": null, "templateVar": "batchStrategy", "configKey": "batchStrategy", "default": "MultiRecord", "validation": { "enum": ["MultiRecord", "SingleRecord"] }, "phase": "infrastructure", "group": "batch", "appliesTo": { "deploymentTargets": ["batch-transform"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "batchJoinSource": { "type": "enum", "description": "Join source: Input, None", "cliFlag": "--batch-join-source", "cliArgName": "source", "envVar": null, "templateVar": "batchJoinSource", "configKey": "batchJoinSource", "default": "None", "validation": { "enum": ["Input", "None"] }, "phase": "infrastructure", "group": "batch", "appliesTo": { "deploymentTargets": ["batch-transform"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "batchMaxConcurrent": { "type": "integer", "description": "Max concurrent transforms per instance", "cliFlag": "--batch-max-concurrent", "cliArgName": "n", "envVar": null, "templateVar": "batchMaxConcurrent", "configKey": "batchMaxConcurrent", "default": 1, "validation": { "min": 1 }, "phase": "infrastructure", "group": "batch", "appliesTo": { "deploymentTargets": ["batch-transform"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "batchMaxPayload": { "type": "integer", "description": "Max payload size in MB, 0-100", "cliFlag": "--batch-max-payload", "cliArgName": "mb", "envVar": null, "templateVar": "batchMaxPayload", "configKey": "batchMaxPayload", "default": 6, "validation": { "min": 0, "max": 100 }, "phase": "infrastructure", "group": "batch", "appliesTo": { "deploymentTargets": ["batch-transform"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "hyperpodCluster": { "type": "string", "description": "HyperPod EKS cluster name", "cliFlag": "--hyperpod-cluster", "cliArgName": "name", "envVar": "ML_HYPERPOD_CLUSTER", "templateVar": "hyperpodCluster", "configKey": "hyperpodCluster", "default": null, "validation": {}, "phase": "infrastructure", "group": "hyperpod", "appliesTo": { "deploymentTargets": ["hyperpod-eks"], "architectures": ["*"] }, "widget": null, "prompt": { "message": "HyperPod cluster name?", "type": "input", "when": "deploymentTarget === 'hyperpod-eks'" }, "deprecated": false, "since": "0.4.0" },
-        "hyperpodNamespace": { "type": "string", "description": "Kubernetes namespace", "cliFlag": "--hyperpod-namespace", "cliArgName": "ns", "envVar": "ML_HYPERPOD_NAMESPACE", "templateVar": "hyperpodNamespace", "configKey": "hyperpodNamespace", "default": "default", "validation": {}, "phase": "infrastructure", "group": "hyperpod", "appliesTo": { "deploymentTargets": ["hyperpod-eks"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "hyperpodReplicas": { "type": "integer", "description": "Number of replicas", "cliFlag": "--hyperpod-replicas", "cliArgName": "count", "envVar": null, "templateVar": "hyperpodReplicas", "configKey": "hyperpodReplicas", "default": 1, "validation": { "min": 1 }, "phase": "infrastructure", "group": "hyperpod", "appliesTo": { "deploymentTargets": ["hyperpod-eks"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "fsxVolumeHandle": { "type": "string", "description": "FSx for Lustre volume handle", "cliFlag": "--fsx-volume-handle", "cliArgName": "handle", "envVar": "ML_FSX_VOLUME_HANDLE", "templateVar": "fsxVolumeHandle", "configKey": "fsxVolumeHandle", "default": null, "validation": {}, "phase": "infrastructure", "group": "hyperpod", "appliesTo": { "deploymentTargets": ["hyperpod-eks"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.4.0" },
-        "modelEnv": { "type": "string", "description": "Model env var, repeatable (e.g. VLLM_TENSOR_PARALLEL_SIZE=4)", "cliFlag": "--model-env", "cliArgName": "KEY=VALUE", "envVar": null, "templateVar": null, "configKey": "modelEnv", "default": [], "validation": {}, "phase": "features", "group": "model", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": { "section": "env-vars", "inputType": "repeatable-kv" }, "prompt": null, "repeatable": true, "deprecated": false, "since": "0.5.0" },
-        "serverEnv": { "type": "string", "description": "Server env var, repeatable (e.g. SGLANG_MEM_FRACTION=0.9)", "cliFlag": "--server-env", "cliArgName": "KEY=VALUE", "envVar": null, "templateVar": null, "configKey": "serverEnv", "default": [], "validation": {}, "phase": "features", "group": "model", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": { "section": "env-vars", "inputType": "repeatable-kv" }, "prompt": null, "repeatable": true, "deprecated": false, "since": "0.5.0" },
-        "includeSample": { "type": "boolean", "description": "Include sample model code", "cliFlag": "--include-sample", "cliArgName": null, "envVar": "ML_INCLUDE_SAMPLE", "templateVar": "includeSampleModel", "configKey": "includeSample", "default": true, "validation": {}, "phase": "features", "group": "testing", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["http"] }, "widget": null, "prompt": { "message": "Include sample model?", "type": "confirm", "when": "architecture === 'http'" }, "deprecated": false, "since": "0.1.0" },
-        "includeTesting": { "type": "boolean", "description": "Include test suite", "cliFlag": "--include-testing", "cliArgName": null, "envVar": "ML_INCLUDE_TESTING", "templateVar": "includeTesting", "configKey": "includeTesting", "default": true, "validation": {}, "phase": "features", "group": "testing", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": null, "prompt": { "message": "Include test suite?", "type": "confirm" }, "deprecated": false, "since": "0.1.0" },
-        "testTypes": { "type": "string", "description": "Comma-separated test types", "cliFlag": "--test-types", "cliArgName": "types", "envVar": "ML_TEST_TYPES", "templateVar": "testTypes", "configKey": "testTypes", "default": null, "validation": {}, "phase": "features", "group": "testing", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": null, "prompt": null, "deprecated": false, "since": "0.1.0" },
-        "smart": { "type": "boolean", "description": "Enable smart mode (live AWS API calls for MCP servers)", "cliFlag": "--smart", "cliArgName": null, "envVar": null, "templateVar": null, "configKey": "smart", "default": false, "validation": {}, "phase": "project", "group": "project", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": null, "prompt": null, "cliBehavior": true, "deprecated": false, "since": "0.5.0" },
-        "discover": { "type": "boolean", "description": "Enable discovery mode for MCP servers", "cliFlag": "--discover", "cliArgName": null, "envVar": null, "templateVar": null, "configKey": "discover", "default": false, "validation": {}, "phase": "project", "group": "project", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": null, "prompt": null, "cliBehavior": true, "deprecated": false, "since": "0.5.0" },
-        "noValidate": { "type": "boolean", "description": "Skip parameter validation", "cliFlag": "--no-validate", "cliArgName": null, "envVar": null, "templateVar": null, "configKey": "noValidate", "default": false, "validation": {}, "phase": "project", "group": "project", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": null, "prompt": null, "cliBehavior": true, "deprecated": false, "since": "0.5.0" },
-        "validateEnvVars": { "type": "boolean", "description": "Validate environment variables against schema", "cliFlag": "--validate-env-vars", "cliArgName": null, "envVar": null, "templateVar": null, "configKey": "validateEnvVars", "default": false, "validation": {}, "phase": "project", "group": "project", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": null, "prompt": null, "cliBehavior": true, "deprecated": false, "since": "0.6.0" },
-        "validateWithDocker": { "type": "boolean", "description": "Validate Dockerfile builds successfully", "cliFlag": "--validate-with-docker", "cliArgName": null, "envVar": null, "templateVar": null, "configKey": "validateWithDocker", "default": false, "validation": {}, "phase": "project", "group": "project", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": null, "prompt": null, "cliBehavior": true, "deprecated": false, "since": "0.6.0" },
-        "offline": { "type": "boolean", "description": "Run in offline mode (no network calls)", "cliFlag": "--offline", "cliArgName": null, "envVar": null, "templateVar": null, "configKey": "offline", "default": false, "validation": {}, "phase": "project", "group": "project", "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] }, "widget": null, "prompt": null, "cliBehavior": true, "deprecated": false, "since": "0.6.0" }
+        "endpointInitialInstanceCount": {
+            "type": "integer",
+            "description": "Number of instances for the endpoint",
+            "cliFlag": "--endpoint-initial-instance-count",
+            "cliArgName": "n",
+            "envVar": "ML_ENDPOINT_INSTANCE_COUNT",
+            "templateVar": "endpointInitialInstanceCount",
+            "configKey": "endpointInitialInstanceCount",
+            "default": 1,
+            "validation": {
+                "min": 1,
+                "max": 100
+            },
+            "phase": "infrastructure",
+            "group": "endpoint",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "endpointDataCapturePercent": {
+            "type": "integer",
+            "description": "Data capture percentage for monitoring, 0-100",
+            "cliFlag": "--endpoint-data-capture-percent",
+            "cliArgName": "pct",
+            "envVar": null,
+            "templateVar": "endpointDataCapturePercent",
+            "configKey": "endpointDataCapturePercent",
+            "default": 0,
+            "validation": {
+                "min": 0,
+                "max": 100
+            },
+            "phase": "infrastructure",
+            "group": "endpoint",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "endpointVariantName": {
+            "type": "string",
+            "description": "Production variant name",
+            "cliFlag": "--endpoint-variant-name",
+            "cliArgName": "name",
+            "envVar": null,
+            "templateVar": "endpointVariantName",
+            "configKey": "endpointVariantName",
+            "default": "AllTraffic",
+            "validation": {
+                "pattern": "^[a-zA-Z0-9]([\\w-]{0,62}[a-zA-Z0-9])?$"
+            },
+            "phase": "infrastructure",
+            "group": "endpoint",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "endpointVolumeSize": {
+            "type": "integer",
+            "description": "ML storage volume size in GB",
+            "cliFlag": "--endpoint-volume-size",
+            "cliArgName": "gb",
+            "envVar": null,
+            "templateVar": "endpointVolumeSize",
+            "configKey": "endpointVolumeSize",
+            "default": null,
+            "validation": {
+                "min": 1,
+                "max": 16384
+            },
+            "phase": "infrastructure",
+            "group": "endpoint",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "icCpuCount": {
+            "type": "number",
+            "description": "vCPUs allocated to the inference component",
+            "cliFlag": "--ic-cpu-count",
+            "cliArgName": "n",
+            "envVar": "ML_IC_CPU_COUNT",
+            "templateVar": "icCpuCount",
+            "configKey": "icCpuCount",
+            "default": null,
+            "validation": {
+                "min": 0.25,
+                "max": 768
+            },
+            "phase": "infrastructure",
+            "group": "inference-component",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "icModelWeight": {
+            "type": "number",
+            "description": "Traffic routing weight, 0-1",
+            "cliFlag": "--ic-model-weight",
+            "cliArgName": "weight",
+            "envVar": null,
+            "templateVar": "icModelWeight",
+            "configKey": "icModelWeight",
+            "default": 1,
+            "validation": {
+                "min": 0,
+                "max": 1
+            },
+            "phase": "infrastructure",
+            "group": "inference-component",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.5.0"
+        },
+        "asyncS3OutputPath": {
+            "type": "string",
+            "description": "S3 output path for async results",
+            "cliFlag": "--async-s3-output-path",
+            "cliArgName": "path",
+            "envVar": "ML_ASYNC_S3_OUTPUT_PATH",
+            "templateVar": "asyncS3OutputPath",
+            "configKey": "asyncS3OutputPath",
+            "default": null,
+            "validation": {
+                "pattern": "^s3://"
+            },
+            "phase": "infrastructure",
+            "group": "async",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "async-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": {
+                "message": "S3 output path for async results?",
+                "type": "input",
+                "when": "deploymentTarget === 'async-inference'"
+            },
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "asyncSnsSuccessTopic": {
+            "type": "string",
+            "description": "SNS topic ARN for success notifications",
+            "cliFlag": "--async-sns-success-topic",
+            "cliArgName": "arn",
+            "envVar": null,
+            "templateVar": "asyncSnsSuccessTopic",
+            "configKey": "asyncSnsSuccessTopic",
+            "default": null,
+            "validation": {
+                "pattern": "^arn:aws:sns:"
+            },
+            "phase": "infrastructure",
+            "group": "async",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "async-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "asyncSnsErrorTopic": {
+            "type": "string",
+            "description": "SNS topic ARN for error notifications",
+            "cliFlag": "--async-sns-error-topic",
+            "cliArgName": "arn",
+            "envVar": null,
+            "templateVar": "asyncSnsErrorTopic",
+            "configKey": "asyncSnsErrorTopic",
+            "default": null,
+            "validation": {
+                "pattern": "^arn:aws:sns:"
+            },
+            "phase": "infrastructure",
+            "group": "async",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "async-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "asyncMaxConcurrent": {
+            "type": "integer",
+            "description": "Max concurrent invocations per instance",
+            "cliFlag": "--async-max-concurrent",
+            "cliArgName": "n",
+            "envVar": null,
+            "templateVar": "asyncMaxConcurrent",
+            "configKey": "asyncMaxConcurrent",
+            "default": 1,
+            "validation": {
+                "min": 1,
+                "max": 100
+            },
+            "phase": "infrastructure",
+            "group": "async",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "async-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "batchInputPath": {
+            "type": "string",
+            "description": "S3 input path for batch data",
+            "cliFlag": "--batch-input-path",
+            "cliArgName": "path",
+            "envVar": "ML_BATCH_INPUT_PATH",
+            "templateVar": "batchInputPath",
+            "configKey": "batchInputPath",
+            "default": null,
+            "validation": {
+                "pattern": "^s3://"
+            },
+            "phase": "infrastructure",
+            "group": "batch",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": {
+                "message": "S3 input path?",
+                "type": "input",
+                "when": "deploymentTarget === 'batch-transform'"
+            },
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "batchOutputPath": {
+            "type": "string",
+            "description": "S3 output path for batch results",
+            "cliFlag": "--batch-output-path",
+            "cliArgName": "path",
+            "envVar": "ML_BATCH_OUTPUT_PATH",
+            "templateVar": "batchOutputPath",
+            "configKey": "batchOutputPath",
+            "default": null,
+            "validation": {
+                "pattern": "^s3://"
+            },
+            "phase": "infrastructure",
+            "group": "batch",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": {
+                "message": "S3 output path?",
+                "type": "input",
+                "when": "deploymentTarget === 'batch-transform'"
+            },
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "batchInstanceCount": {
+            "type": "integer",
+            "description": "Number of batch instances",
+            "cliFlag": "--batch-instance-count",
+            "cliArgName": "n",
+            "envVar": null,
+            "templateVar": "batchInstanceCount",
+            "configKey": "batchInstanceCount",
+            "default": 1,
+            "validation": {
+                "min": 1,
+                "max": 100
+            },
+            "phase": "infrastructure",
+            "group": "batch",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "batchSplitType": {
+            "type": "enum",
+            "description": "Input split type: Line, RecordIO, None",
+            "cliFlag": "--batch-split-type",
+            "cliArgName": "type",
+            "envVar": null,
+            "templateVar": "batchSplitType",
+            "configKey": "batchSplitType",
+            "default": "Line",
+            "validation": {
+                "enum": [
+                    "Line",
+                    "RecordIO",
+                    "None"
+                ]
+            },
+            "phase": "infrastructure",
+            "group": "batch",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "batchStrategy": {
+            "type": "enum",
+            "description": "Batch strategy: MultiRecord, SingleRecord",
+            "cliFlag": "--batch-strategy",
+            "cliArgName": "strategy",
+            "envVar": null,
+            "templateVar": "batchStrategy",
+            "configKey": "batchStrategy",
+            "default": "MultiRecord",
+            "validation": {
+                "enum": [
+                    "MultiRecord",
+                    "SingleRecord"
+                ]
+            },
+            "phase": "infrastructure",
+            "group": "batch",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "batchJoinSource": {
+            "type": "enum",
+            "description": "Join source: Input, None",
+            "cliFlag": "--batch-join-source",
+            "cliArgName": "source",
+            "envVar": null,
+            "templateVar": "batchJoinSource",
+            "configKey": "batchJoinSource",
+            "default": "None",
+            "validation": {
+                "enum": [
+                    "Input",
+                    "None"
+                ]
+            },
+            "phase": "infrastructure",
+            "group": "batch",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "batchMaxConcurrent": {
+            "type": "integer",
+            "description": "Max concurrent transforms per instance",
+            "cliFlag": "--batch-max-concurrent",
+            "cliArgName": "n",
+            "envVar": null,
+            "templateVar": "batchMaxConcurrent",
+            "configKey": "batchMaxConcurrent",
+            "default": 1,
+            "validation": {
+                "min": 1
+            },
+            "phase": "infrastructure",
+            "group": "batch",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "batchMaxPayload": {
+            "type": "integer",
+            "description": "Max payload size in MB, 0-100",
+            "cliFlag": "--batch-max-payload",
+            "cliArgName": "mb",
+            "envVar": null,
+            "templateVar": "batchMaxPayload",
+            "configKey": "batchMaxPayload",
+            "default": 6,
+            "validation": {
+                "min": 0,
+                "max": 100
+            },
+            "phase": "infrastructure",
+            "group": "batch",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "batch-transform"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "hyperpodCluster": {
+            "type": "string",
+            "description": "HyperPod EKS cluster name",
+            "cliFlag": "--hyperpod-cluster",
+            "cliArgName": "name",
+            "envVar": "ML_HYPERPOD_CLUSTER",
+            "templateVar": "hyperPodCluster",
+            "configKey": "hyperpodCluster",
+            "default": null,
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": {
+                "message": "HyperPod cluster name?",
+                "type": "input",
+                "when": "deploymentTarget === 'hyperpod-eks'"
+            },
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "hyperpodNamespace": {
+            "type": "string",
+            "description": "Kubernetes namespace",
+            "cliFlag": "--hyperpod-namespace",
+            "cliArgName": "ns",
+            "envVar": "ML_HYPERPOD_NAMESPACE",
+            "templateVar": "hyperPodNamespace",
+            "configKey": "hyperpodNamespace",
+            "default": "default",
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "hyperpodReplicas": {
+            "type": "integer",
+            "description": "Number of replicas",
+            "cliFlag": "--hyperpod-replicas",
+            "cliArgName": "count",
+            "envVar": null,
+            "templateVar": "hyperPodReplicas",
+            "configKey": "hyperpodReplicas",
+            "default": 1,
+            "validation": {
+                "min": 1
+            },
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "fsxVolumeHandle": {
+            "type": "string",
+            "description": "FSx for Lustre volume handle",
+            "cliFlag": "--fsx-volume-handle",
+            "cliArgName": "handle",
+            "envVar": "ML_FSX_VOLUME_HANDLE",
+            "templateVar": "fsxVolumeHandle",
+            "configKey": "fsxVolumeHandle",
+            "default": null,
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.4.0"
+        },
+        "modelEnv": {
+            "type": "string",
+            "description": "Model env var, repeatable (e.g. VLLM_TENSOR_PARALLEL_SIZE=4)",
+            "cliFlag": "--model-env",
+            "cliArgName": "KEY=VALUE",
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "modelEnv",
+            "default": [],
+            "validation": {},
+            "phase": "features",
+            "group": "model",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "env-vars",
+                "inputType": "repeatable-kv"
+            },
+            "prompt": null,
+            "repeatable": true,
+            "deprecated": false,
+            "since": "0.5.0"
+        },
+        "serverEnv": {
+            "type": "string",
+            "description": "Server env var, repeatable (e.g. SGLANG_MEM_FRACTION=0.9)",
+            "cliFlag": "--server-env",
+            "cliArgName": "KEY=VALUE",
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "serverEnv",
+            "default": [],
+            "validation": {},
+            "phase": "features",
+            "group": "model",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "env-vars",
+                "inputType": "repeatable-kv"
+            },
+            "prompt": null,
+            "repeatable": true,
+            "deprecated": false,
+            "since": "0.5.0"
+        },
+        "includeSample": {
+            "type": "boolean",
+            "description": "Include sample model code",
+            "cliFlag": "--include-sample",
+            "cliArgName": null,
+            "envVar": "ML_INCLUDE_SAMPLE",
+            "templateVar": "includeSampleModel",
+            "configKey": "includeSample",
+            "default": true,
+            "validation": {},
+            "phase": "features",
+            "group": "testing",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "http"
+                ]
+            },
+            "widget": null,
+            "prompt": {
+                "message": "Include sample model?",
+                "type": "confirm",
+                "when": "architecture === 'http'"
+            },
+            "deprecated": false,
+            "since": "0.1.0"
+        },
+        "includeTesting": {
+            "type": "boolean",
+            "description": "Include test suite",
+            "cliFlag": "--include-testing",
+            "cliArgName": null,
+            "envVar": "ML_INCLUDE_TESTING",
+            "templateVar": "includeTesting",
+            "configKey": "includeTesting",
+            "default": true,
+            "validation": {},
+            "phase": "features",
+            "group": "testing",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": {
+                "message": "Include test suite?",
+                "type": "confirm"
+            },
+            "deprecated": false,
+            "since": "0.1.0"
+        },
+        "testTypes": {
+            "type": "string",
+            "description": "Comma-separated test types",
+            "cliFlag": "--test-types",
+            "cliArgName": "types",
+            "envVar": "ML_TEST_TYPES",
+            "templateVar": "testTypes",
+            "configKey": "testTypes",
+            "default": null,
+            "validation": {},
+            "phase": "features",
+            "group": "testing",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.1.0"
+        },
+        "smart": {
+            "type": "boolean",
+            "description": "Enable smart mode (live AWS API calls for MCP servers)",
+            "cliFlag": "--smart",
+            "cliArgName": null,
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "smart",
+            "default": false,
+            "validation": {},
+            "phase": "project",
+            "group": "project",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "cliBehavior": true,
+            "deprecated": false,
+            "since": "0.5.0"
+        },
+        "discover": {
+            "type": "boolean",
+            "description": "Enable discovery mode for MCP servers",
+            "cliFlag": "--discover",
+            "cliArgName": null,
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "discover",
+            "default": false,
+            "validation": {},
+            "phase": "project",
+            "group": "project",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "cliBehavior": true,
+            "deprecated": false,
+            "since": "0.5.0"
+        },
+        "noValidate": {
+            "type": "boolean",
+            "description": "Skip parameter validation",
+            "cliFlag": "--no-validate",
+            "cliArgName": null,
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "noValidate",
+            "default": false,
+            "validation": {},
+            "phase": "project",
+            "group": "project",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "cliBehavior": true,
+            "deprecated": false,
+            "since": "0.5.0"
+        },
+        "validateEnvVars": {
+            "type": "boolean",
+            "description": "Validate environment variables against schema",
+            "cliFlag": "--validate-env-vars",
+            "cliArgName": null,
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "validateEnvVars",
+            "default": false,
+            "validation": {},
+            "phase": "project",
+            "group": "project",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "cliBehavior": true,
+            "deprecated": false,
+            "since": "0.6.0"
+        },
+        "validateWithDocker": {
+            "type": "boolean",
+            "description": "Validate Dockerfile builds successfully",
+            "cliFlag": "--validate-with-docker",
+            "cliArgName": null,
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "validateWithDocker",
+            "default": false,
+            "validation": {},
+            "phase": "project",
+            "group": "project",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "cliBehavior": true,
+            "deprecated": false,
+            "since": "0.6.0"
+        },
+        "offline": {
+            "type": "boolean",
+            "description": "Run in offline mode (no network calls)",
+            "cliFlag": "--offline",
+            "cliArgName": null,
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "offline",
+            "default": false,
+            "validation": {},
+            "phase": "project",
+            "group": "project",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "cliBehavior": true,
+            "deprecated": false,
+            "since": "0.6.0"
+        }
     }
 }

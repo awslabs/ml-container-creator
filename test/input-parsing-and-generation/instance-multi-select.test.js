@@ -23,7 +23,7 @@ import {
     filterByCudaGeneration,
     getInstanceCudaGeneration,
     instanceCatalogRaw
-} from '../../src/lib/prompts.js';
+} from '../../src/lib/prompts/index.js';
 
 describe('Instance Multi-Select (Task 5.5)', () => {
     setupTestHooks('Instance Multi-Select');

@@ -18,13 +18,14 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const BUNDLED_SCHEMA_PATH = path.resolve(__dirname, '..', '..', 'config', 'parameter-schema.json');
+const BUNDLED_SCHEMA_PATH = path.resolve(__dirname, '..', '..', 'config', 'parameter-schema-v2.json');
 
-const SUPPORTED_SCHEMA_VERSION = '1.0.0';
+const SUPPORTED_SCHEMA_VERSION = '2.0.0';
 
 /**
- * Maps ConfigManager parameter keys to schema lookup paths.
- * Format: 'deploymentTarget.category.schemaKey'
+ * Maps ConfigManager parameter keys to their schema paths in parameter-schema-v2.json.
+ * Format: 'deploymentTarget.group.shortName' for the old nested schema format.
+ * The validator resolves these paths against both old and new schema formats.
  */
 const PARAMETER_NAME_MAP = {
     endpointInitialInstanceCount: 'realtime-inference.endpoint.initialInstanceCount',
@@ -36,6 +37,21 @@ const PARAMETER_NAME_MAP = {
     icGpuCount: 'realtime-inference.inferenceComponent.gpuCount',
     icCopyCount: 'realtime-inference.inferenceComponent.copyCount',
     icModelWeight: 'realtime-inference.inferenceComponent.modelWeight'
+};
+
+/**
+ * Maps parameter keys to their AWS API references for error messages.
+ */
+const API_REFERENCE_MAP = {
+    endpointInitialInstanceCount: 'CreateEndpointConfig.ProductionVariants.InitialInstanceCount',
+    endpointDataCapturePercent: 'CreateEndpointConfig.DataCaptureConfig.InitialSamplingPercentage',
+    endpointVariantName: 'CreateEndpointConfig.ProductionVariants.VariantName',
+    endpointVolumeSize: 'CreateEndpointConfig.ProductionVariants.VolumeSizeInGB',
+    icCpuCount: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.NumberOfCpuCoresRequired',
+    icMemorySize: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.MinMemoryRequiredInMb',
+    icGpuCount: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.NumberOfAcceleratorDevicesRequired',
+    icCopyCount: 'CreateInferenceComponent.RuntimeConfig.CopyCount',
+    icModelWeight: 'CreateInferenceComponent.RuntimeConfig.ModelWeight'
 };
 
 export default class ParameterSchemaValidator {
@@ -88,15 +104,17 @@ export default class ParameterSchemaValidator {
      */
     _checkSchemaVersion() {
         const version = this.schema && this.schema.schemaVersion;
-        if (version && version !== SUPPORTED_SCHEMA_VERSION) {
-            console.warn(`Schema version ${version} is not supported by this generator version`);
+        if (version && version !== SUPPORTED_SCHEMA_VERSION && version !== '1.0.0') {
+            console.warn(`Schema version ${version} may not be fully compatible with this validator`);
         }
     }
 
     /**
      * Resolve a parameter name to its schema constraint object.
+     * Supports both the old nested format (deploymentTargets.{target}.{group}.{param})
+     * and the new flat format (parameters.{key}).
      * @param {string} parameterName - ConfigManager key (e.g., 'endpointVolumeSize')
-     * @param {string} [deploymentTarget] - Deployment target override (e.g., 'realtime-inference')
+     * @param {string} [deploymentTarget] - Deployment target override
      * @returns {Object|null} Constraint object or null if not found
      */
     _resolveConstraint(parameterName, deploymentTarget) {
@@ -105,22 +123,48 @@ export default class ParameterSchemaValidator {
             return null;
         }
 
-        const parts = schemaPath.split('.');
-        let target = parts[0];
-        const category = parts[1];
-        const key = parts[2];
+        // Try old nested format first: deploymentTargets.{target}.{group}.{param}
+        const deploymentTargets = this.schema && this.schema.deploymentTargets;
+        if (deploymentTargets) {
+            const parts = schemaPath.split('.');
+            const [defaultTarget, group, shortName] = parts;
+            const target = deploymentTarget || defaultTarget;
 
-        // Allow deployment target override
-        if (deploymentTarget) {
-            target = deploymentTarget;
+            const targetObj = deploymentTargets[target];
+            if (targetObj && targetObj[group] && targetObj[group][shortName]) {
+                const constraint = targetObj[group][shortName];
+                return {
+                    type: constraint.type,
+                    min: constraint.min,
+                    max: constraint.max,
+                    pattern: constraint.pattern,
+                    default: constraint.default,
+                    description: constraint.description,
+                    apiReference: constraint.apiReference || API_REFERENCE_MAP[parameterName] || `parameter-schema-v2.json#${parameterName}`
+                };
+            }
         }
 
-        const targets = this.schema && this.schema.deploymentTargets;
-        if (!targets || !targets[target] || !targets[target][category]) {
-            return null;
+        // Try new flat format: parameters.{key}
+        const params = this.schema && this.schema.parameters;
+        if (params && params[parameterName]) {
+            const param = params[parameterName];
+            if (!param.validation || Object.keys(param.validation).length === 0) {
+                return null;
+            }
+
+            return {
+                type: param.type,
+                min: param.validation.min,
+                max: param.validation.max,
+                pattern: param.validation.pattern,
+                default: param.default,
+                description: param.description,
+                apiReference: API_REFERENCE_MAP[parameterName] || `parameter-schema-v2.json#${parameterName}`
+            };
         }
 
-        return targets[target][category][key] || null;
+        return null;
     }
 
     /**

@@ -47,7 +47,7 @@ ml-container-creator
 **Step 5: Infrastructure Configuration**
 ```
 ? Deployment target?
-  ❯ SageMaker
+  ❯ SageMaker AI
     CodeBuild
 
 ? Instance type?
@@ -195,7 +195,7 @@ my-sklearn-model/
 │
 ├── deploy/
 │   ├── build_and_push.sh         # Build & push to ECR
-│   └── deploy.sh                 # Deploy to SageMaker
+│   └── deploy.sh                 # Deploy to SageMaker AI
 │
 ├── sample_model/
 │   ├── train_abalone.py          # Training script
@@ -215,7 +215,7 @@ After generation:
 1. **Review generated files** - Customize for your needs
 2. **Add your model** - Replace sample model with yours
 3. **Build container** - `./deploy/build_and_push.sh`
-4. **Deploy to SageMaker** - `./deploy/deploy.sh`
+4. **Deploy to SageMaker AI** - `./deploy/deploy.sh`
 5. **Test endpoint** - Run test suite
 
 See [Getting Started](getting-started.md) for detailed deployment instructions.

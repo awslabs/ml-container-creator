@@ -2,7 +2,7 @@
 
 This guide walks through generating a SageMaker-compatible container project using ML Container Creator, then modifying the generated assets to support [Multi-Model Endpoint](https://docs.aws.amazon.com/sagemaker/latest/dg/multi-model-endpoints.html) deployments.
 
-> **What is MME?** Multi-Model Endpoints let you host many models behind a single SageMaker endpoint. Models are loaded and unloaded dynamically from S3 as they're invoked, sharing the same fleet of instances. This reduces cost and deployment overhead when you have many models of similar size and framework.
+> **What is MME?** Multi-Model Endpoints let you host many models behind a single SageMaker AI endpoint. Models are loaded and unloaded dynamically from S3 as they're invoked, sharing the same fleet of instances. This reduces cost and deployment overhead when you have many models of similar size and framework.
 
 ## Prerequisites
 
@@ -101,14 +101,14 @@ Not all serving frameworks work with MME. Here's the compatibility matrix for im
 
 ### Step 1: Modify the Dockerfile
 
-Add the multi-model capability label so SageMaker knows this container supports MME:
+Add the multi-model capability label so SageMaker AI knows this container supports MME:
 
 ```dockerfile
 # Add after the FROM line
 LABEL com.amazonaws.sagemaker.capabilities.multi-models=true
 ```
 
-Change the model directory setup to support multiple models. SageMaker will mount model artifacts at `/opt/ml/models/<model_name>/model` (note the plural `models`):
+Change the model directory setup to support multiple models. SageMaker AI will mount model artifacts at `/opt/ml/models/<model_name>/model` (note the plural `models`):
 
 ```dockerfile
 # Replace:
@@ -161,8 +161,8 @@ Replace the inference component creation section in `do/deploy` with MME-specifi
 # Multi-Model Endpoint Deployment
 # ============================================================
 
-# Step 1: Create the SageMaker Model with MultiModel mode
-echo "📦 Creating SageMaker model: ${PROJECT_NAME}-model"
+# Step 1: Create the SageMaker AI Model with MultiModel mode
+echo "📦 Creating SageMaker AI model: ${PROJECT_NAME}-model"
 aws sagemaker create-model \
     --model-name "${PROJECT_NAME}-model-${TIMESTAMP}" \
     --execution-role-arn "${ROLE_ARN}" \
@@ -314,7 +314,7 @@ FROM nvcr.io/nvidia/tritonserver:24.08-py3
 
 LABEL com.amazonaws.sagemaker.capabilities.multi-models=true
 
-# SageMaker will set SAGEMAKER_MULTI_MODEL=true automatically
+# SageMaker AI will set SAGEMAKER_MULTI_MODEL=true automatically
 # Models are loaded to /opt/ml/models/{model_name}/model
 ENV TRITON_MODEL_REPOSITORY=/opt/ml/model/model_repository
 ```
@@ -332,7 +332,7 @@ ENV TRITON_MODEL_REPOSITORY=/opt/ml/model/model_repository
 
 ### Cold Starts
 
-The first invocation of a model has higher latency because SageMaker must download it from S3 and load it into the container. Subsequent calls to a cached model are fast. If a model takes longer than 60 seconds to load, you'll get a `ModelNotReadyException` — implement retry logic (the AWS SDKs handle this by default).
+The first invocation of a model has higher latency because SageMaker AI must download it from S3 and load it into the container. Subsequent calls to a cached model are fast. If a model takes longer than 60 seconds to load, you'll get a `ModelNotReadyException` — implement retry logic (the AWS SDKs handle this by default).
 
 ### Model Caching
 
@@ -401,7 +401,7 @@ aws sagemaker delete-model --model-name "${PROJECT_NAME}-model-${TIMESTAMP}"
 
 ## Further Reading
 
-- [SageMaker Multi-Model Endpoints](https://docs.aws.amazon.com/sagemaker/latest/dg/multi-model-endpoints.html)
+- [SageMaker AI Multi-Model Endpoints](https://docs.aws.amazon.com/sagemaker/latest/dg/multi-model-endpoints.html)
 - [Build Your Own Container for MME](https://docs.aws.amazon.com/sagemaker/latest/dg/build-multi-model-build-container.html)
 - [Custom Container Contract for MME](https://docs.aws.amazon.com/sagemaker/latest/dg/mms-container-apis.html)
 - [Supported Frameworks and Instances](https://docs.aws.amazon.com/sagemaker/latest/dg/multi-model-support.html)

@@ -271,7 +271,7 @@ ml-container-creator
 # Container logs
 docker logs <container-id>
 
-# SageMaker endpoint logs
+# SageMaker AI endpoint logs
 aws logs tail /aws/sagemaker/Endpoints/<endpoint-name> --follow
 
 # Generator debug output
@@ -280,4 +280,4 @@ DEBUG=* ml-container-creator
 
 - [GitHub Issues](https://github.com/awslabs/ml-container-creator/issues) -- report bugs
 - [GitHub Discussions](https://github.com/awslabs/ml-container-creator/discussions) -- ask questions
-- [SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/) -- AWS reference
+- [SageMaker AI Documentation](https://docs.aws.amazon.com/sagemaker/) -- AWS reference

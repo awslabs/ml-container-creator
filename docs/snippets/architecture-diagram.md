@@ -76,7 +76,7 @@
                                        │
                                        ▼
                     ┌─────────────────────────────────────┐
-                    │   SageMaker Endpoint (Running)      │
+                    │   SageMaker AI Endpoint (Running)      │
                     │                                     │
                     │   ┌─────────────────────────────┐   │
                     │   │  Container Instance         │   │

@@ -7,6 +7,7 @@
  *
  * Usage:
  *   node scripts/e2e-runner.js --tier ci [--concurrency 2] [--dry-run]
+ *     [--config <id>] [--verbose] [--save-local <dir>]
  *
  * Requirements: 2.1, 2.6
  */
@@ -14,10 +15,11 @@
 import { readFile, mkdir, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { validateCatalog, filterByTier } from '../src/lib/e2e-catalog-validator.js';
-import { aggregateResults, formatJSON } from './e2e-summary.js';
+import { validateCatalog, filterByTier, filterByConfig } from '../src/lib/e2e-catalog-validator.js';
+import { aggregateResults, formatJSON, formatMarkdown, saveArtifacts } from './e2e-summary.js';
+import { E2ECIRecorder } from '../src/lib/e2e-ci-recorder.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -76,7 +78,10 @@ export function parseArgs(argv) {
         workspaceRoot: undefined,
         s3Bucket: undefined,
         snsTopicArn: undefined,
-        dryRun: false
+        dryRun: false,
+        configId: undefined,
+        verbose: false,
+        saveLocal: undefined
     };
 
     for (let i = 0; i < argv.length; i++) {
@@ -108,6 +113,16 @@ export function parseArgs(argv) {
             options.snsTopicArn = arg.split('=')[1];
         } else if (arg === '--dry-run') {
             options.dryRun = true;
+        } else if (arg === '--config' && i + 1 < argv.length) {
+            options.configId = argv[++i];
+        } else if (arg.startsWith('--config=')) {
+            options.configId = arg.split('=')[1];
+        } else if (arg === '--verbose') {
+            options.verbose = true;
+        } else if (arg === '--save-local' && i + 1 < argv.length) {
+            options.saveLocal = argv[++i];
+        } else if (arg.startsWith('--save-local=')) {
+            options.saveLocal = arg.split('=')[1];
         }
     }
 
@@ -189,20 +204,127 @@ export function resolveStepCommand(step, _projectDir) {
 }
 
 /**
+ * Get the appropriate timeout for a lifecycle step.
+ * Tune-prefixed steps use tuneTimeout (with fallback to timeout).
+ * All other steps use the standard timeout.
+ *
+ * @param {string} step - Lifecycle step name
+ * @param {object} config - Catalog entry with timeout and optional tuneTimeout
+ * @returns {number} Timeout in seconds
+ */
+export function getStepTimeout(step, config) {
+    if (step.startsWith('tune-')) {
+        return config.tuneTimeout || config.timeout;
+    }
+    return config.timeout;
+}
+
+/**
+ * Resolve a lifecycle step to a shell command, using config context for tune steps.
+ *
+ * Tune steps require arguments from the catalog entry's tuneConfig object.
+ * Non-tune steps delegate to the existing resolveStepCommand.
+ *
+ * @param {string} step - Lifecycle step name
+ * @param {object} config - Full catalog entry (for tuneConfig access)
+ * @returns {string} Shell command
+ */
+export function resolveStepCommandWithConfig(step, config) {
+    // Tune steps: "tune-sft" → "./do/tune --technique sft --dataset <d> --training-type <t>"
+    if (step.startsWith('tune-')) {
+        const technique = step.split('-').slice(1).join('-');
+        const { dataset, trainingType } = config.tuneConfig;
+        return `./do/tune --technique ${technique} --dataset ${dataset} --training-type ${trainingType}`;
+    }
+
+    // adapter-add → "./do/adapter add tuned-sft --from-tune sft"
+    if (step === 'adapter-add') {
+        return './do/adapter add tuned-sft --from-tune sft';
+    }
+
+    // test-adapter → "./do/test --adapter"
+    if (step === 'test-adapter') {
+        return './do/test --adapter';
+    }
+
+    // Delegate to existing resolver for non-tune steps
+    return resolveStepCommand(step, null);
+}
+
+/**
  * Execute a single lifecycle step in the project directory.
  *
  * Spawns the step command via bash, captures stderr (last 500 chars),
  * and handles timeout kills.
  *
+ * When verbose is true, stdout/stderr stream to the console in real time
+ * using stdio: ['pipe', 'inherit', 'inherit']. When verbose is false (default),
+ * output is buffered and only displayed on failure.
+ *
+ * When config is provided, uses resolveStepCommandWithConfig to resolve
+ * tune steps with arguments from the catalog entry's tuneConfig.
+ *
  * @param {string} step - Lifecycle step name
  * @param {string} projectDir - Path to the generated project directory
  * @param {number} timeout - Timeout in seconds
+ * @param {boolean} [verbose=false] - Stream stdout/stderr in real time
+ * @param {object|null} [config=null] - Catalog entry for config-aware step resolution
  * @returns {Promise<object>} StepResult with name, status, duration, and optional error
  */
-export async function executeStep(step, projectDir, timeout) {
-    const command = resolveStepCommand(step, projectDir);
+export async function executeStep(step, projectDir, timeout, verbose = false, config = null) {
+    const command = config
+        ? resolveStepCommandWithConfig(step, config)
+        : resolveStepCommand(step, projectDir);
     const startTime = Date.now();
 
+    if (verbose) {
+        // Verbose mode: stream stdout/stderr to console in real time
+        return new Promise((resolve) => {
+            const child = spawn('bash', ['-c', command], {
+                cwd: projectDir,
+                stdio: ['pipe', 'inherit', 'inherit']
+            });
+
+            let killed = false;
+            const timer = setTimeout(() => {
+                killed = true;
+                child.kill('SIGTERM');
+            }, timeout * 1000);
+
+            child.on('close', (code) => {
+                clearTimeout(timer);
+                if (code === 0) {
+                    resolve({
+                        name: step,
+                        status: 'pass',
+                        duration: Date.now() - startTime
+                    });
+                } else {
+                    const error = killed
+                        ? `Timeout after ${timeout}s`
+                        : `Process exited with code ${code}`;
+                    resolve({
+                        name: step,
+                        status: 'fail',
+                        duration: Date.now() - startTime,
+                        error
+                    });
+                }
+            });
+
+            child.on('error', (err) => {
+                clearTimeout(timer);
+                resolve({
+                    name: step,
+                    status: 'fail',
+                    duration: Date.now() - startTime,
+                    error: err.message.slice(-500)
+                });
+            });
+        });
+    }
+
+    // Default (non-verbose): buffer output and only display on failure
     try {
         await execFileAsync('bash', ['-c', command], {
             cwd: projectDir,
@@ -257,33 +379,64 @@ async function generateProject(config, projectDir, repoRoot) {
 }
 
 /**
+ * Tune-group steps: if tune-sft fails, adapter-add and test-adapter are skipped.
+ * @type {string[]}
+ */
+const TUNE_GROUP = ['tune-sft', 'adapter-add', 'test-adapter'];
+
+/**
  * Run a single config through its full lifecycle.
  *
  * Generates the project, executes lifecycle steps sequentially with
  * fail-fast behavior, and always runs clean in a finally block.
  *
+ * Tune-group fail-fast: if a tune step (e.g. tune-sft) fails, subsequent
+ * tune-group steps (adapter-add, test-adapter) are marked as skipped rather
+ * than breaking the loop. Non-tune step failures break immediately.
+ * In all cases, clean executes in the finally block.
+ *
  * @param {object} config - Catalog config entry
  * @param {string} workspaceRoot - Root workspace directory
  * @param {string} repoRoot - Path to the repository root
+ * @param {object} [options] - Run options
+ * @param {boolean} [options.verbose=false] - Stream stdout/stderr in real time
  * @returns {Promise<object>} ConfigResult with id, status, duration, steps, and optional error
  */
-export async function runConfig(config, workspaceRoot, repoRoot) {
+export async function runConfig(config, workspaceRoot, repoRoot, options = {}) {
     const projectDir = path.join(workspaceRoot, config.id);
     const result = { id: config.id, steps: [], status: 'pass', duration: 0 };
     const startTime = Date.now();
+    const verbose = options.verbose || false;
 
     try {
         // Generate project
         await generateProject(config, projectDir, repoRoot);
 
-        // Execute lifecycle steps (fail-fast), excluding clean
+        // Execute lifecycle steps (fail-fast with tune-group awareness), excluding clean
+        let tuneGroupFailed = false;
+
         for (const step of config.lifecycle.filter(s => s !== 'clean')) {
-            const stepResult = await executeStep(step, projectDir, config.timeout);
+            // Skip adapter steps if tune failed
+            if (tuneGroupFailed && TUNE_GROUP.includes(step) && step !== 'tune-sft') {
+                result.steps.push({ name: step, status: 'skipped', duration: 0 });
+                continue;
+            }
+
+            const timeout = getStepTimeout(step, config);
+            const stepResult = await executeStep(step, projectDir, timeout, verbose, config);
             result.steps.push(stepResult);
+
             if (stepResult.status === 'fail') {
-                result.status = 'fail';
-                result.error = stepResult.error;
-                break;
+                if (step.startsWith('tune-')) {
+                    tuneGroupFailed = true;
+                    result.status = 'fail';
+                    result.error = stepResult.error;
+                    // Don't break — let adapter steps get skipped, then clean runs
+                } else {
+                    result.status = 'fail';
+                    result.error = stepResult.error;
+                    break;
+                }
             }
         }
     } catch (err) {
@@ -292,7 +445,7 @@ export async function runConfig(config, workspaceRoot, repoRoot) {
         result.error = (err.stderr || err.message || String(err)).slice(-500);
     } finally {
         // Clean always runs
-        const cleanResult = await executeStep('clean', projectDir, 300);
+        const cleanResult = await executeStep('clean', projectDir, 300, verbose);
         result.steps.push(cleanResult);
         result.duration = Date.now() - startTime;
     }
@@ -327,33 +480,6 @@ export function printDryRunPlan(configs, options) {
     console.log('═'.repeat(50));
     console.log('  (dry-run mode — no configs will be executed)');
     console.log('');
-}
-
-/**
- * Upload results JSON to S3.
- * Skips gracefully if S3 client is not available or upload fails.
- *
- * @param {string} bucket - S3 bucket name
- * @param {object} runResult - The run result object
- * @returns {Promise<void>}
- */
-async function uploadToS3(bucket, runResult) {
-    try {
-        const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
-        const client = new S3Client();
-        const key = `e2e-results/${runResult.tier}/${runResult.runId}.json`;
-
-        await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: key,
-            Body: formatJSON(runResult),
-            ContentType: 'application/json'
-        }));
-
-        console.log(`📤 Results uploaded to s3://${bucket}/${key}`);
-    } catch (err) {
-        console.warn(`⚠️  S3 upload skipped: ${err.message}`);
-    }
 }
 
 /**
@@ -427,7 +553,23 @@ export async function runE2E(options) {
     const catalog = await loadCatalog(catalogPath);
 
     // Filter by tier
-    const configs = filterByTier(catalog, tier);
+    let configs = filterByTier(catalog, tier);
+
+    // Filter by config id (--config flag)
+    if (options.configId) {
+        configs = filterByConfig(configs, catalog, options.configId);
+        if (configs.length === 0) {
+            console.warn(`⚠️  No config found with id "${options.configId}" in tier "${tier}" or full catalog`);
+            return {
+                runId: new Date().toISOString(),
+                tier,
+                duration: 0,
+                passed: 0,
+                failed: 0,
+                results: []
+            };
+        }
+    }
 
     if (configs.length === 0) {
         throw new Error(`No configs found for tier "${tier}"`);
@@ -455,6 +597,10 @@ export async function runE2E(options) {
         };
     }
 
+    // Initialize CI table recorder (gracefully degrades if not provisioned)
+    const recorder = new E2ECIRecorder();
+    await recorder.init();
+
     // Execute configs with bounded parallelism
     const startTime = Date.now();
     const semaphore = new Semaphore(concurrency);
@@ -462,7 +608,9 @@ export async function runE2E(options) {
     const promises = configs.map(async (config) => {
         await semaphore.acquire();
         try {
-            return await runConfig(config, workspaceRoot, REPO_ROOT);
+            const result = await runConfig(config, workspaceRoot, REPO_ROOT, { verbose: options.verbose });
+            await recorder.recordConfigResult(config, result);
+            return result;
         } finally {
             semaphore.release();
         }
@@ -493,10 +641,12 @@ export async function runE2E(options) {
     };
     const runResult = aggregateResults(results, meta);
 
-    // Upload to S3 if configured
-    if (s3Bucket) {
-        await uploadToS3(s3Bucket, runResult);
-    }
+    // Artifact saving via saveArtifacts (handles S3 + local fallback)
+    await saveArtifacts(runResult, {
+        s3Bucket: s3Bucket,
+        saveLocal: options.saveLocal,
+        workspaceRoot
+    });
 
     // Publish to SNS on failure if configured
     if (snsTopicArn && runResult.failed > 0) {

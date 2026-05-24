@@ -1,6 +1,6 @@
 # Deployment & Inference
 
-MCC supports two deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Generated projects include a `do/` directory with scripts for every stage of the container lifecycle: `build`, `push`, `run`, `test`, `deploy`, `clean`, `logs`, `export`, and optionally `submit` (for CodeBuild).
+MCC supports four deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Generated projects include a `do/` directory with scripts for the complete container lifecycle — from build through deployment, fine-tuning, and teardown.
 
 ## Build Paths
 
@@ -18,27 +18,27 @@ Local containers may produce `exec` errors when deployed to a different architec
 
 ## Deployment Targets
 
-MCC supports two deployment targets, selected during project generation via the `--deployment-target` option. The chosen target determines how `./do/deploy`, `./do/test`, `./do/clean`, and `./do/logs` behave.
+MCC supports four deployment targets, selected during project generation via the `--deployment-target` option. The chosen target determines how `./do/deploy`, `./do/test`, `./do/clean`, and `./do/logs` behave.
 
-### SageMaker Managed Inference (`managed-inference`)
+### SageMaker AI Managed Inference (`managed-inference`)
 
-The default deployment target. `./do/deploy` provisions resources using the SageMaker Inference Components API:
+The default deployment target. `./do/deploy` provisions resources using the SageMaker AI Inference Components API:
 
 1. **Create endpoint configuration** -- specifies the instance type and count
 2. **Create endpoint** -- provisions the compute infrastructure
 3. **Create inference component** -- associates the ECR container image with the endpoint
 
-The inference component model decouples compute provisioning from model deployment, allowing multiple models to share a single endpoint. Once the inference component reaches `InService` status, the endpoint is accessible via the SageMaker Runtime API for real-time inference requests.
+The inference component model decouples compute provisioning from model deployment, allowing multiple models to share a single endpoint. Once the inference component reaches `InService` status, the endpoint is accessible via the SageMaker AI Runtime API for real-time inference requests.
 
 The generated `do/config` file stores the `INSTANCE_TYPE` and optionally `INFERENCE_AMI_VERSION` for controlling the CUDA driver version on the instance.
 
 After deployment, `./do/test` validates the endpoint by invoking inference through the inference component, `./do/logs` tails CloudWatch logs, and `./do/clean endpoint` tears down the inference component, endpoint, and endpoint configuration.
 
-Only real-time endpoints are supported at this time.
+For real-time inference, async inference, and batch transform deployment patterns, see the target-specific sections below.
 
-### SageMaker HyperPod EKS (`hyperpod-eks`)
+### SageMaker AI HyperPod EKS (`hyperpod-eks`)
 
-For existing [SageMaker HyperPod](https://aws.amazon.com/sagemaker/hyperpod/) clusters running on Amazon EKS, MCC can deploy containers directly to Kubernetes:
+For existing [SageMaker AI HyperPod](https://aws.amazon.com/sagemaker/hyperpod/) clusters running on Amazon EKS, MCC can deploy containers directly to Kubernetes:
 
 - `./do/deploy` retrieves the underlying EKS cluster from the HyperPod cluster, configures `kubectl`, and applies Kubernetes manifests (Deployment, Service, ConfigMap, and optionally PVC for FSx storage) to the specified namespace.
 - `./do/test hyperpod` port-forwards the Kubernetes service and runs the same `/ping` and `/invocations` health checks used for managed inference.
@@ -49,10 +49,38 @@ The generated `do/config` file stores HyperPod-specific variables: `HYPERPOD_CLU
 
 Prerequisites:
 
-- An existing SageMaker HyperPod cluster with EKS orchestrator
+- An existing SageMaker AI HyperPod cluster with EKS orchestrator
 - `kubectl` installed locally
 - IAM permissions for `sagemaker:DescribeCluster` and `eks:DescribeCluster`
 - Sufficient node capacity (especially GPU nodes for LLM workloads)
+
+### Async Inference (`async-inference`)
+
+For workloads with large payloads or long processing times (> 60s). `./do/deploy` creates an async endpoint with an S3 output location:
+
+- Requests are submitted and return immediately with an output location
+- Results are written to S3 when processing completes
+- Optional SNS notifications on success/failure
+- Endpoint auto-scales to zero when idle (no cost when not in use)
+
+```bash
+ml-container-creator my-async-project \
+  --deployment-target=async-inference \
+  --async-output-s3=s3://my-bucket/async-output/ \
+  ...
+```
+
+### Batch Transform (`batch-transform`)
+
+For offline batch processing of large datasets. `./do/deploy` submits a SageMaker AI Transform Job:
+
+- Input: S3 path containing request payloads (one per file or line)
+- Output: S3 path where predictions are written
+- Compute is provisioned on-demand and released after the job completes
+- No persistent endpoint — pay only for processing time
+
+!!! note "Limitations"
+    Batch transform does not support `do/tune` or `do/adapter` (no running endpoint to attach adapters to).
 
 ## Lifecycle Scripts Reference
 
@@ -60,17 +88,24 @@ All generated projects include these `do/` scripts:
 
 | Command | Description |
 |---------|-------------|
-| `./do/config` | Centralized configuration for all scripts (sourced, not executed) |
 | `./do/build` | Build Docker image locally |
 | `./do/push` | Push image to Amazon ECR |
 | `./do/run` | Run container locally on port 8080 |
 | `./do/test` | Test local container or deployed endpoint |
 | `./do/validate` | Validate configuration against AWS service models (requires schema sync) |
 | `./do/deploy` | Deploy to the configured deployment target |
+| `./do/tune` | Fine-tune using SageMaker AI Managed Model Customization (serverless) |
+| `./do/train` | Custom training jobs with your own scripts and hyperparameters |
+| `./do/adapter` | LoRA adapter lifecycle (add, list, remove, update) |
+| `./do/add-ic` | Add an inference component to an existing endpoint |
+| `./do/benchmark` | Run latency and throughput benchmarks via SageMaker AI Benchmarking |
+| `./do/status` | Check endpoint and inference component status |
 | `./do/logs` | Tail logs (CloudWatch for managed-inference, kubectl for HyperPod) |
 | `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
+| `./do/config` | Centralized configuration for all scripts (sourced, not executed) |
 | `./do/export` | Export current configuration as a reproducible CLI command |
 | `./do/register` | Capture deployment to the deployment registry |
+| `./do/ci` | CI pipeline integration (report, status, trigger, dashboard) |
 | `./do/submit` | Submit build to AWS CodeBuild (CodeBuild build target only) |
 
 See the generated `do/README.md` for detailed documentation on each command.
@@ -101,7 +136,7 @@ For pre-built models from AWS Marketplace vendors (AI21, Cohere, etc.), MCC gene
 
 ### How It Works
 
-Marketplace model packages include the vendor's container image and model weights. MCC deploys them using the SageMaker `CreateModel` API with `ModelPackageName` instead of a custom ECR image:
+Marketplace model packages include the vendor's container image and model weights. MCC deploys them using the SageMaker AI `CreateModel` API with `ModelPackageName` instead of a custom ECR image:
 
 ```bash
 ml-container-creator my-marketplace-model \

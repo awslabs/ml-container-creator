@@ -212,12 +212,15 @@
             }
         },
 
-        "E2ECIHourlyRule": {
+        "E2ECIDailyRule": {
             "Type": "AWS::Events::Rule",
+            "Metadata": {
+                "MigrationNote": "Renamed from E2ECIHourlyRule to E2ECIDailyRule. Renaming the logical resource ID causes CloudFormation to delete the old rule and create a new one. This is intentional as the schedule changed from hourly to daily."
+            },
             "Properties": {
-                "Name": "e2e-ci-hourly",
-                "Description": "Triggers E2E CI tier validation every hour",
-                "ScheduleExpression": "rate(1 hour)",
+                "Name": "e2e-ci-daily",
+                "Description": "Triggers E2E CI tier validation daily at 6am UTC",
+                "ScheduleExpression": "cron(0 6 * * ? *)",
                 "State": "ENABLED",
                 "Targets": [
                     {

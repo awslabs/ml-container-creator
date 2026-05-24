@@ -36,6 +36,10 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
     const promptRunnerPath = path.join(__dirname, '../../src/lib/prompt-runner.js');
     const promptRunnerSource = fs.readFileSync(promptRunnerPath, 'utf8');
 
+    // Read the mcp-query-runner.js source for MCP-related checks
+    const mcpQueryRunnerPath = path.join(__dirname, '../../src/lib/mcp-query-runner.js');
+    const mcpQueryRunnerSource = fs.readFileSync(mcpQueryRunnerPath, 'utf8');
+
     /**
      * Helper to find the position of a pattern in the source code
      * Returns -1 if not found
@@ -43,6 +47,14 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
     function findPosition(pattern) {
         const match = promptRunnerSource.match(pattern);
         return match ? promptRunnerSource.indexOf(match[0]) : -1;
+    }
+
+    /**
+     * Helper to find position in the mcp-query-runner source
+     */
+    function findMcpPosition(pattern) {
+        const match = mcpQueryRunnerSource.match(pattern);
+        return match ? mcpQueryRunnerSource.indexOf(match[0]) : -1;
     }
 
     /**
@@ -390,9 +402,9 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
         it('should query hyperpod-cluster-picker MCP server', function() {
             this.timeout(10000);
 
-            // Check that the method references hyperpod-cluster-picker
+            // Check that the method references hyperpod-cluster-picker (in mcp-query-runner.js)
             const serverNamePattern = /hyperpod-cluster-picker/;
-            const serverNamePos = findPosition(serverNamePattern);
+            const serverNamePos = findMcpPosition(serverNamePattern);
 
             assert.ok(
                 serverNamePos !== -1,
@@ -401,7 +413,7 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
 
             // Check that queryMcpServer is called with hyperpod-cluster-picker
             const queryMcpPattern = /queryMcpServer\s*\(\s*['"]hyperpod-cluster-picker['"]/;
-            const queryMcpPos = findPosition(queryMcpPattern);
+            const queryMcpPos = findMcpPosition(queryMcpPattern);
 
             assert.ok(
                 queryMcpPos !== -1,
@@ -420,7 +432,8 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
             this.timeout(10000);
 
             const baseImageRunPhasePos = findPosition(/_runPhase\(\s*baseImagePrompts/);
-            const sizerQueryPos = findPosition(/_queryMcpForInstanceSizing/);
+            // Look for the actual call in run() with await keyword, not the delegation definition
+            const sizerQueryPos = findPosition(/await this\.mcpQueryRunner\._queryMcpForInstanceSizing/);
 
             assert.ok(
                 baseImageRunPhasePos !== -1,
@@ -445,7 +458,8 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
             this.timeout(10000);
 
             const modelFormatRunPhasePos = findPosition(/_runPhase\(\s*modelFormatPrompts/);
-            const sizerQueryPos = findPosition(/_queryMcpForInstanceSizing/);
+            // Look for the actual call in run() with await, not the delegation definition
+            const sizerQueryPos = findPosition(/await this\.mcpQueryRunner\._queryMcpForInstanceSizing/);
 
             assert.ok(
                 modelFormatRunPhasePos !== -1,

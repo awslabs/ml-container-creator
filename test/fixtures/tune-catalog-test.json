@@ -1,0 +1,45 @@
+{
+  "version": "2026-07-01",
+  "models": {
+    "qwen3-4b": {
+      "jumpStartModelId": "qwen3-4b",
+      "family": "qwen-3",
+      "provider": "alibaba",
+      "displayName": "Alibaba Qwen 3 4B",
+      "techniques": {
+        "sft": {
+          "trainingTypes": ["lora"],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": ["prompt", "completion"],
+            "types": { "prompt": "string", "completion": "string" }
+          }
+        },
+        "dpo": {
+          "trainingTypes": ["lora"],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": ["prompt", "chosen", "rejected"],
+            "types": { "prompt": "string", "chosen": "string", "rejected": "string" }
+          }
+        }
+      }
+    },
+    "qwen2-5-14b-instruct": {
+      "jumpStartModelId": "qwen2-5-14b-instruct",
+      "family": "qwen-2.5",
+      "provider": "alibaba",
+      "displayName": "Alibaba Qwen 2.5 14B Instruct",
+      "techniques": {
+        "sft": {
+          "trainingTypes": ["lora", "full-rank"],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": ["prompt", "completion"],
+            "types": { "prompt": "string", "completion": "string" }
+          }
+        }
+      }
+    }
+  }
+}

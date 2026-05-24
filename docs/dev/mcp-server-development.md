@@ -23,7 +23,7 @@ Five servers ship with the project:
 
 | Server | Catalogs | Purpose |
 |--------|----------|---------|
-| `instance-recommender` | `instances.json` | Suggests SageMaker instance types based on framework |
+| `instance-recommender` | `instances.json` | Suggests SageMaker AI instance types based on framework |
 | `region-picker` | `regions.json` | Filters AWS regions by search term |
 | `base-image-picker` | `model-servers.json`, `triton-backends.json`, `triton.json`, `python-slim.json` | Selects base Docker images per framework |
 | `model-picker` | `popular-transformers.json`, `popular-diffusors.json` | Resolves HuggingFace model metadata |
@@ -37,10 +37,10 @@ Catalogs are the single source of truth for configuration data. They live in `se
 |---------|--------|----------|
 | `base-image-picker/catalogs/model-servers.json` | `image-catalog.schema.json` | Framework base images, env vars, profiles, accelerator requirements |
 | `base-image-picker/catalogs/triton-backends.json` | `triton-backends.schema.json` | Triton backend metadata (supported model formats, sample model support) |
-| `instance-recommender/catalogs/instances.json` | `instances.schema.json` | SageMaker instance types, vCPUs, memory, GPU specs |
+| `instance-recommender/catalogs/instances.json` | `instances.schema.json` | SageMaker AI instance types, vCPUs, memory, GPU specs |
 | `model-picker/catalogs/popular-transformers.json` | `model-catalog.schema.json` | Popular transformer models, chat templates, framework compatibility |
 | `model-picker/catalogs/popular-diffusors.json` | `model-catalog.schema.json` | Popular diffusion models |
-| `region-picker/catalogs/regions.json` | `regions.schema.json` | AWS regions with SageMaker availability |
+| `region-picker/catalogs/regions.json` | `regions.schema.json` | AWS regions with SageMaker AI availability |
 
 `RegistryLoader` (in `generators/app/lib/`) reads these catalogs at generator startup and transforms them into the internal shapes used by `ConfigurationManager`, `PromptRunner`, and `ValidationEngine`. This is the adapter layer between catalog JSON and the generator's internal data model.
 

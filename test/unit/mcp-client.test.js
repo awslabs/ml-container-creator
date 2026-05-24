@@ -76,13 +76,14 @@ describe('McpClient Unit Tests', () => {
             assert.ok(names.includes('awsRegion'));
             assert.ok(names.includes('hyperPodCluster'));
             assert.ok(names.includes('baseImage'));
+            assert.ok(names.includes('modelName'));
             assert.ok(names.includes('asyncS3OutputPath'));
             assert.ok(names.includes('asyncSnsSuccessTopic'));
             assert.ok(names.includes('asyncSnsErrorTopic'));
             assert.ok(names.includes('batchInputPath'));
             assert.ok(names.includes('batchOutputPath'));
             assert.ok(names.includes('modelPackageArn'));
-            assert.strictEqual(names.length, 11);
+            assert.strictEqual(names.length, 12);
         });
 
         it('should not include bounded parameters', () => {

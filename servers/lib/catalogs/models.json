@@ -22,7 +22,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "meta-llama/Llama-3.2-3B-Instruct": {
         "family": "llama-3",
@@ -47,7 +53,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "meta-llama/Llama-3.1-8B-Instruct": {
         "family": "llama-3",
@@ -72,7 +84,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "meta-llama/Llama-3.3-70B-Instruct": {
         "family": "llama-3",
@@ -97,7 +115,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen3-0.6B": {
         "family": "qwen3",
@@ -122,7 +146,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen3-1.7B": {
         "family": "qwen3",
@@ -147,7 +177,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen3-4B": {
         "family": "qwen3",
@@ -172,7 +208,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen3-8B": {
         "family": "qwen3",
@@ -197,7 +239,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen3-14B": {
         "family": "qwen3",
@@ -222,7 +270,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen3-32B": {
         "family": "qwen3",
@@ -247,7 +301,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen2.5-7B-Instruct": {
         "family": "qwen2.5",
@@ -272,7 +332,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen2.5-14B-Instruct": {
         "family": "qwen2.5",
@@ -297,7 +363,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen2.5-32B-Instruct": {
         "family": "qwen2.5",
@@ -322,7 +394,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen2.5-72B-Instruct": {
         "family": "qwen2.5",
@@ -347,7 +425,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": {
         "family": "deepseek-r1",
@@ -373,7 +457,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": {
         "family": "deepseek-r1",
@@ -399,7 +489,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": {
         "family": "deepseek-r1",
@@ -425,7 +521,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": {
         "family": "deepseek-r1",
@@ -451,7 +553,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "deepseek-ai/DeepSeek-R1-Distill-Llama-8B": {
         "family": "deepseek-r1",
@@ -477,7 +585,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "deepseek-ai/DeepSeek-R1-Distill-Llama-70B": {
         "family": "deepseek-r1",
@@ -503,7 +617,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "openai/gpt-oss-20b": {
         "family": "gpt-oss",
@@ -528,7 +648,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "openai/gpt-oss-120b": {
         "family": "gpt-oss",
@@ -553,7 +679,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "meta-llama/Llama-3*": {
         "family": "llama-3",
@@ -574,7 +706,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "Qwen/Qwen*": {
         "family": "qwen",
@@ -595,7 +733,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "deepseek-ai/DeepSeek*": {
         "family": "deepseek",
@@ -617,7 +761,13 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     },
     "openai/gpt-oss*": {
         "family": "gpt-oss",
@@ -638,6 +788,12 @@
         "modelType": "transformer",
         "tasks": [
             "text-generation"
-        ]
+        ],
+        "validation_level": "community-validated",
+        "framework_compatibility": {
+            "vllm": ">=0.3.0",
+            "sglang": ">=0.2.0"
+        },
+        "chat_template": ""
     }
 }

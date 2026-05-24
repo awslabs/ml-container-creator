@@ -37,13 +37,14 @@ const FAST_PROPERTY_CONFIG = {
 
 // ── Schema loading ───────────────────────────────────────────────────────────
 
-const schemaPath = resolve(__dirname, '../../config/parameter-schema.json');
+const schemaPath = resolve(__dirname, '../../config/parameter-schema-v2.json');
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
 // ── Parameter definitions ────────────────────────────────────────────────────
 
 /**
  * Integer parameters with their schema constraints and API references.
+ * API references match the AWS API action paths used by ParameterSchemaValidator.
  */
 const INTEGER_PARAMS = [
     {
@@ -86,6 +87,7 @@ const INTEGER_PARAMS = [
 
 /**
  * Number (float) parameters with their schema constraints and API references.
+ * API references match the AWS API action paths used by ParameterSchemaValidator.
  */
 const NUMBER_PARAMS = [
     {
@@ -98,12 +100,13 @@ const NUMBER_PARAMS = [
         name: 'icModelWeight',
         min: 0,
         max: 1,
-        apiReference: 'UpdateEndpointWeightsAndCapacities.DesiredWeightsAndCapacities.DesiredWeight'
+        apiReference: 'CreateInferenceComponent.RuntimeConfig.ModelWeight'
     }
 ];
 
 /**
  * String parameters with pattern constraints.
+ * API references match the AWS API action paths used by ParameterSchemaValidator.
  */
 const STRING_PARAMS = [
     {

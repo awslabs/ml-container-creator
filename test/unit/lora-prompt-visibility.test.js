@@ -16,7 +16,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { loraPrompts } from '../../src/lib/prompts.js';
+import { loraPrompts } from '../../src/lib/prompts/index.js';
 
 describe('LoRA Prompt Visibility', () => {
 

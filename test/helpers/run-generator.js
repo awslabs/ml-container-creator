@@ -122,7 +122,7 @@ function optionsToFlags(options) {
         if (value === true) {
             flags.push(`--${flag}`);
         } else if (value === false) {
-            // Skip false booleans
+            // Skip false booleans - handled via env vars in runGenerator
             continue;
         } else if (Array.isArray(value)) {
             // Repeatable options: --flag=val1 --flag=val2
@@ -134,6 +134,30 @@ function optionsToFlags(options) {
         }
     }
     return flags;
+}
+
+/**
+ * Extracts boolean false options and maps them to environment variable overrides.
+ * Commander.js boolean flags don't support negation via CLI, so we use env vars.
+ */
+function getBooleanEnvOverrides(options) {
+    const envMap = {
+        'include-sample': 'ML_INCLUDE_SAMPLE',
+        'include-testing': 'ML_INCLUDE_TESTING',
+        'enable-lora': 'ML_ENABLE_LORA',
+        'include-benchmark': 'ML_INCLUDE_BENCHMARK',
+        'benchmark-streaming': 'ML_BENCHMARK_STREAMING'
+    };
+    const overrides = {};
+    for (const [key, value] of Object.entries(options)) {
+        if (value === false) {
+            const flag = key.replace(/([A-Z])/g, '-$1').toLowerCase();
+            if (envMap[flag]) {
+                overrides[envMap[flag]] = 'false';
+            }
+        }
+    }
+    return overrides;
 }
 
 /**
@@ -184,10 +208,12 @@ export function runGenerator(options = {}, execOptions = {}) {
 
     args.push(...optionsToFlags(mergedOptions));
 
-    // Build environment
+    // Build environment - include boolean false overrides as env vars
+    const boolEnvOverrides = getBooleanEnvOverrides(mergedOptions);
     const env = {
         ...process.env,
         VALIDATE_ENV_VARS: 'false',
+        ...boolEnvOverrides,
         ...extraEnv
     };
 

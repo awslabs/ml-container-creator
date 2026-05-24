@@ -8,7 +8,7 @@
 
 ### ML Container Creator
 
-**One CLI command → a complete, deployable SageMaker BYOC project.**
+**One CLI command → a complete, deployable SageMaker AI BYOC project.**
 
 ```bash
 npm install -g @aws/ml-container-creator
@@ -20,7 +20,7 @@ ml-container-creator
 - License: Apache-2.0
 
 > **Speaker Notes:**
-> - Open with: "How many of you have written a Dockerfile for a SageMaker endpoint from scratch? How long did it take?"
+> - Open with: "How many of you have written a Dockerfile for a SageMaker AI endpoint from scratch? How long did it take?"
 > - Emphasize: open-source, AWS Labs, Apache-2.0
 > - Transition: "Let me show you what that looks like with MCC."
 
@@ -123,7 +123,7 @@ cd my-llm && ./do/build
 ./do/run          # Start container locally
 ./do/test         # Run health check + inference test
 
-# 4. Deploy to SageMaker
+# 4. Deploy to SageMaker AI
 ./do/push         # Push to ECR
 ./do/deploy       # Create endpoint
 ./do/test --live  # Test the live endpoint
@@ -137,7 +137,7 @@ cd my-llm && ./do/build
 | `run` | Run container locally |
 | `test` | Test health + inference (local or live) |
 | `push` | Push image to ECR |
-| `deploy` | Deploy to SageMaker |
+| `deploy` | Deploy to SageMaker AI |
 | `clean` | Tear down endpoint + resources |
 | `status` | Check endpoint status |
 | `logs` | Stream CloudWatch logs |
@@ -171,7 +171,7 @@ cd my-llm && ./do/build
 | **base-image-picker** | `get_base_images` | Selects optimal base image for framework + CUDA version |
 | **model-picker** | `get_models` | Discovers models from HuggingFace, JumpStart, S3 |
 | **hyperpod-cluster-picker** | `get_hyperpod_clusters` | Lists available HyperPod EKS clusters |
-| **endpoint-picker** | `get_inference_endpoints` | Discovers existing SageMaker endpoints for attachment |
+| **endpoint-picker** | `get_inference_endpoints` | Discovers existing SageMaker AI endpoints for attachment |
 
 **Two modes:**
 - **Static mode** — Uses catalog data (no AWS credentials needed)
@@ -237,10 +237,10 @@ ml-container-creator my-model --skip-prompts
 
 | Target | Description | Key Feature |
 |--------|-------------|-------------|
-| **Managed Inference** | SageMaker real-time endpoints | Inference Components (multi-model), auto-scaling |
+| **Managed Inference** | SageMaker AI real-time endpoints | Inference Components (multi-model), auto-scaling |
 | **Async Inference** | S3-based async processing | SNS notifications, large payload support |
 | **Batch Transform** | S3-to-S3 dataset processing | Cost-efficient bulk inference |
-| **HyperPod EKS** | Kubernetes on SageMaker HyperPod | GPU scheduling, heterogeneous clusters |
+| **HyperPod EKS** | Kubernetes on SageMaker AI HyperPod | GPU scheduling, heterogeneous clusters |
 
 **Multi-IC Endpoints (new):**
 ```bash
@@ -269,7 +269,7 @@ ml-container-creator my-model --skip-prompts
 
 ```
 my-model/
-├── Dockerfile                    # Multi-stage, optimized for SageMaker
+├── Dockerfile                    # Multi-stage, optimized for SageMaker AI
 ├── requirements.txt              # Python dependencies
 ├── nginx-predictors.conf         # Reverse proxy config (HTTP arch)
 ├── code/
@@ -281,7 +281,7 @@ my-model/
 │   ├── run                       # Run locally
 │   ├── test                      # Test health + inference
 │   ├── push                      # Push to ECR
-│   ├── deploy                    # Deploy to SageMaker
+│   ├── deploy                    # Deploy to SageMaker AI
 │   ├── clean                     # Tear down resources
 │   ├── adapter                   # LoRA adapter management
 │   ├── benchmark                 # Performance testing

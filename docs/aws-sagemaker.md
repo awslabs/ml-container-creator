@@ -1,13 +1,13 @@
-# AWS SageMaker BYOC Context
+# AWS SageMaker AI BYOC Context
 
-## SageMaker Container Requirements
+## SageMaker AI Container Requirements
 
 ### Mandatory Endpoints
-All SageMaker inference containers must implement:
+All SageMaker AI inference containers must implement:
 
 1. **`/ping` (GET)** - Health check endpoint
    - Returns 200 if container is healthy
-   - Called periodically by SageMaker
+   - Called periodically by SageMaker AI
    - Should be lightweight and fast
 
 2. **`/invocations` (POST)** - Inference endpoint
@@ -17,12 +17,12 @@ All SageMaker inference containers must implement:
 
 ### Container Specifications
 - **Port**: Must listen on port 8080
-- **Model location**: `/opt/ml/model/` (SageMaker mounts model artifacts here)
+- **Model location**: `/opt/ml/model/` (SageMaker AI mounts model artifacts here)
 - **Timeout**: Respond to /ping within 2 seconds
 - **Memory**: Container should handle OOM gracefully
 
 ### Environment Variables
-SageMaker provides these environment variables:
+SageMaker AI provides these environment variables:
 ```bash
 SM_MODEL_DIR=/opt/ml/model          # Model artifacts location
 SM_NUM_GPUS=1                       # Number of GPUs available
@@ -43,7 +43,7 @@ SM_NETWORK_INTERFACE_NAME=eth0      # Network interface
    ├─> docker tag my-model:latest <ecr-url>
    └─> docker push <ecr-url>
 
-3. Create SageMaker Model
+3. Create SageMaker AI Model
    └─> aws sagemaker create-model
        ├─> ModelName
        ├─> ExecutionRoleArn
@@ -79,7 +79,7 @@ Then follow standard flow with ModelDataUrl pointing to S3
 
 ## IAM Permissions
 
-### Required SageMaker Execution Role Permissions
+### Required SageMaker AI Execution Role Permissions
 ```json
 {
   "Version": "2012-10-17",
@@ -165,7 +165,7 @@ ML Container Creator provides three instance type options:
 
 ### Custom Instance Types
 
-You can specify any AWS SageMaker instance type using the custom option:
+You can specify any AWS SageMaker AI instance type using the custom option:
 
 ```bash
 # CLI usage
@@ -352,7 +352,7 @@ curl -X POST http://localhost:8080/invocations \
   -d '{"instances": [[1.0, 2.0, 3.0]]}'
 ```
 
-### SageMaker Endpoint Testing
+### SageMaker AI Endpoint Testing
 ```bash
 # Using AWS CLI
 aws sagemaker-runtime invoke-endpoint \
@@ -423,7 +423,7 @@ aws ce get-cost-and-usage \
 {
   "Dimensions": {
     "Key": "SERVICE",
-    "Values": ["Amazon SageMaker"]
+    "Values": ["Amazon SageMaker AI"]
   }
 }
 ```
@@ -452,7 +452,7 @@ aws ce get-cost-and-usage \
 ## Regional Considerations
 
 ### Available Regions
-SageMaker is available in most AWS regions, but:
+SageMaker AI is available in most AWS regions, but:
 - Some instance types are region-specific
 - Pricing varies by region
 - Consider data residency requirements
