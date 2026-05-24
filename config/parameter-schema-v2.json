@@ -230,11 +230,7 @@
                 "inputType": "number",
                 "placeholder": "auto"
             },
-            "prompt": {
-                "message": "GPU count for inference component?",
-                "type": "number",
-                "when": "deploymentTarget === 'managed-inference'"
-            },
+            "prompt": null,
             "serverMapping": {
                 "icConfVar": "IC_GPU_COUNT"
             },
@@ -269,11 +265,7 @@
                 "inputType": "number",
                 "placeholder": "1"
             },
-            "prompt": {
-                "message": "IC copy count?",
-                "type": "number",
-                "when": "deploymentTarget === 'managed-inference'"
-            },
+            "prompt": null,
             "serverMapping": {
                 "icConfVar": "IC_COPY_COUNT"
             },
@@ -288,7 +280,7 @@
             "envVar": "ML_IC_MEMORY_SIZE",
             "templateVar": "icMemorySize",
             "configKey": "icMemorySize",
-            "default": 1024,
+            "default": null,
             "validation": {
                 "min": 128,
                 "max": 3145728
@@ -467,7 +459,7 @@
             "description": "Benchmark concurrent requests",
             "cliFlag": "--benchmark-concurrency",
             "cliArgName": "n",
-            "envVar": "ML_BENCHMARK_CONCURRENCY",
+            "envVar": null,
             "templateVar": "benchmarkConcurrency",
             "configKey": "benchmarkConcurrency",
             "default": 10,
@@ -504,7 +496,7 @@
             "description": "Benchmark mean input tokens",
             "cliFlag": "--benchmark-input-tokens",
             "cliArgName": "n",
-            "envVar": "ML_BENCHMARK_INPUT_TOKENS",
+            "envVar": null,
             "templateVar": "benchmarkInputTokensMean",
             "configKey": "benchmarkInputTokensMean",
             "default": 550,
@@ -541,7 +533,7 @@
             "description": "Benchmark mean output tokens",
             "cliFlag": "--benchmark-output-tokens",
             "cliArgName": "n",
-            "envVar": "ML_BENCHMARK_OUTPUT_TOKENS",
+            "envVar": null,
             "templateVar": "benchmarkOutputTokensMean",
             "configKey": "benchmarkOutputTokensMean",
             "default": 150,
@@ -578,7 +570,7 @@
             "description": "Enable streaming in benchmark",
             "cliFlag": "--benchmark-streaming",
             "cliArgName": null,
-            "envVar": "ML_BENCHMARK_STREAMING",
+            "envVar": null,
             "templateVar": "benchmarkStreaming",
             "configKey": "benchmarkStreaming",
             "default": true,
@@ -611,7 +603,7 @@
             "description": "Total number of benchmark requests to send",
             "cliFlag": "--benchmark-request-count",
             "cliArgName": "n",
-            "envVar": "ML_BENCHMARK_REQUEST_COUNT",
+            "envVar": null,
             "templateVar": "benchmarkRequestCount",
             "configKey": "benchmarkRequestCount",
             "default": null,
@@ -987,7 +979,7 @@
             "envVar": "ML_BUILD_TARGET",
             "templateVar": "buildTarget",
             "configKey": "buildTarget",
-            "default": null,
+            "default": "codebuild",
             "validation": {
                 "enum": [
                     "codebuild"

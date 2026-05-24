@@ -15,11 +15,11 @@ import assert from 'assert';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveBaseImage } from '../servers/base-image-picker/index.js';
-import { POPULAR_MODELS_CATALOG } from '../servers/model-picker/index.js';
+import { resolveBaseImage } from '../../servers/base-image-picker/index.js';
+import { POPULAR_MODELS_CATALOG } from '../../servers/model-picker/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CATALOGS_DIR = resolve(__dirname, '../servers/lib/catalogs');
+const CATALOGS_DIR = resolve(__dirname, '../../servers/lib/catalogs');
 
 /**
  * Recursively check that a key does not exist at any nesting level.

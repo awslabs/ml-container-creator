@@ -14,7 +14,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { searchInstancesByTag, filterByCudaVersion, INSTANCE_CATALOG } from '../servers/instance-sizer/index.js';
+import { searchInstancesByTag, filterByCudaVersion, INSTANCE_CATALOG } from '../../servers/instance-sizer/index.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 100,

@@ -16,7 +16,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-import { isHuggingFacePattern, PROTOCOL_PREFIXES } from '../servers/instance-sizer/lib/model-resolver.js';
+import { isHuggingFacePattern, PROTOCOL_PREFIXES } from '../../servers/instance-sizer/lib/model-resolver.js';
 
 const FAST_PROPERTY_CONFIG = {
     numRuns: 200,

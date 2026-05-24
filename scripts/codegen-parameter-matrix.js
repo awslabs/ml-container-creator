@@ -27,9 +27,13 @@ const REQUIRED_PARAMS = new Set([
 
 /**
  * Parameters that can be set via MCP server responses.
+ * Uses schema keys (not matrix keys) since the codegen iterates over schema entries.
  */
 const MCP_PARAMS = new Set([
-    'instanceType', 'awsRegion', 'baseImage', 'modelName'
+    'instanceType', 'region', 'baseImage', 'modelName',
+    'roleArn', 'hyperpodCluster',
+    'asyncS3OutputPath', 'asyncSnsSuccessTopic', 'asyncSnsErrorTopic',
+    'batchInputPath', 'batchOutputPath'
 ]);
 
 /**
@@ -45,6 +49,7 @@ const NON_PROMPTABLE = new Set([
  */
 const AMBIENT_ENV_VARS = {
     'awsRegion': 'AWS_REGION',
+    'awsRoleArn': 'AWS_ROLE',
     'hfToken': 'HF_TOKEN'
 };
 
@@ -64,10 +69,9 @@ const INTERNAL_PARAMS = {
     backend: { cliOption: null, envVar: null, configFile: false, packageJson: false, mcp: false, promptable: false, required: false, default: null, valueSpace: 'bounded' },
     engine: { cliOption: 'engine', envVar: null, configFile: true, packageJson: false, mcp: false, promptable: true, required: false, default: null, valueSpace: 'bounded' },
     destinationDir: { cliOption: 'project-dir', envVar: 'ML_PROJECT_DIR', configFile: false, packageJson: false, mcp: false, promptable: false, required: false, default: null, valueSpace: 'unbounded' },
-    modelPackageArn: { cliOption: null, envVar: null, configFile: true, packageJson: false, mcp: false, promptable: false, required: false, default: null, valueSpace: 'unbounded' },
+    modelPackageArn: { cliOption: null, envVar: null, configFile: true, packageJson: false, mcp: true, promptable: false, required: false, default: null, valueSpace: 'unbounded' },
     codebuildProjectName: { cliOption: null, envVar: null, configFile: true, packageJson: false, mcp: false, promptable: false, required: false, default: null, valueSpace: 'unbounded' },
     skipPrompts: { cliOption: 'skip-prompts', envVar: 'MCC_SKIP_PROMPTS', configFile: false, packageJson: false, mcp: false, promptable: false, required: false, default: false, valueSpace: 'bounded' },
-    asyncS3OutputPath: { cliOption: 'async-s3-output-path', envVar: 'ML_ASYNC_S3_OUTPUT_PATH', configFile: true, packageJson: false, mcp: false, promptable: true, required: false, default: null, valueSpace: 'unbounded' },
     configFile: { cliOption: 'config', envVar: null, configFile: false, packageJson: false, mcp: false, promptable: false, required: false, default: null, valueSpace: 'unbounded' }
 };
 

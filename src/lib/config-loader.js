@@ -278,7 +278,11 @@ export default class ConfigLoader {
         const envMapping = {};
         Object.entries(this.manager.parameterMatrix).forEach(([param, config]) => {
             if (config.envVar) {
-                envMapping[config.envVar] = { param, ambient: config.ambientEnvVar === true };
+                envMapping[config.envVar] = { param, ambient: false };
+            }
+            // Also check ambient env vars (e.g., AWS_REGION, AWS_ROLE, HF_TOKEN)
+            if (config.ambientEnvVar) {
+                envMapping[config.ambientEnvVar] = { param, ambient: true };
             }
         });
 

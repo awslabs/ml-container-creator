@@ -11,6 +11,7 @@
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import PromptRunner from '../../src/lib/prompt-runner.js';
+import { CUDA_AMI_MAP } from '../../src/lib/cuda-resolver.js';
 
 describe('CUDA auto-resolution', function () {
     this.timeout(10000);
@@ -110,7 +111,7 @@ describe('CUDA auto-resolution', function () {
 
             for (const [cuda, expectedAmi] of Object.entries(knownMappings)) {
                 assert.strictEqual(
-                    PromptRunner.CUDA_AMI_MAP[cuda],
+                    CUDA_AMI_MAP[cuda],
                     expectedAmi,
                     `CUDA ${cuda} should map to ${expectedAmi}`
                 );

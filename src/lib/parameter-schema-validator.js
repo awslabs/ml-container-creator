@@ -23,19 +23,35 @@ const BUNDLED_SCHEMA_PATH = path.resolve(__dirname, '..', '..', 'config', 'param
 const SUPPORTED_SCHEMA_VERSION = '2.0.0';
 
 /**
- * Maps ConfigManager parameter keys to their schema keys in parameter-schema-v2.json.
- * Most map 1:1; this handles any naming differences.
+ * Maps ConfigManager parameter keys to their schema paths in parameter-schema-v2.json.
+ * Format: 'deploymentTarget.group.shortName' for the old nested schema format.
+ * The validator resolves these paths against both old and new schema formats.
  */
 const PARAMETER_NAME_MAP = {
-    endpointInitialInstanceCount: 'endpointInitialInstanceCount',
-    endpointDataCapturePercent: 'endpointDataCapturePercent',
-    endpointVariantName: 'endpointVariantName',
-    endpointVolumeSize: 'endpointVolumeSize',
-    icCpuCount: 'icCpuCount',
-    icMemorySize: 'icMemorySize',
-    icGpuCount: 'icGpuCount',
-    icCopyCount: 'icCopyCount',
-    icModelWeight: 'icModelWeight'
+    endpointInitialInstanceCount: 'realtime-inference.endpoint.initialInstanceCount',
+    endpointDataCapturePercent: 'realtime-inference.endpoint.dataCapturePercent',
+    endpointVariantName: 'realtime-inference.endpoint.variantName',
+    endpointVolumeSize: 'realtime-inference.endpoint.volumeSize',
+    icCpuCount: 'realtime-inference.inferenceComponent.cpuCount',
+    icMemorySize: 'realtime-inference.inferenceComponent.memorySize',
+    icGpuCount: 'realtime-inference.inferenceComponent.gpuCount',
+    icCopyCount: 'realtime-inference.inferenceComponent.copyCount',
+    icModelWeight: 'realtime-inference.inferenceComponent.modelWeight'
+};
+
+/**
+ * Maps parameter keys to their AWS API references for error messages.
+ */
+const API_REFERENCE_MAP = {
+    endpointInitialInstanceCount: 'CreateEndpointConfig.ProductionVariants.InitialInstanceCount',
+    endpointDataCapturePercent: 'CreateEndpointConfig.DataCaptureConfig.InitialSamplingPercentage',
+    endpointVariantName: 'CreateEndpointConfig.ProductionVariants.VariantName',
+    endpointVolumeSize: 'CreateEndpointConfig.ProductionVariants.VolumeSizeInGB',
+    icCpuCount: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.NumberOfCpuCoresRequired',
+    icMemorySize: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.MinMemoryRequiredInMb',
+    icGpuCount: 'CreateInferenceComponent.Specification.ComputeResourceRequirements.NumberOfAcceleratorDevicesRequired',
+    icCopyCount: 'CreateInferenceComponent.RuntimeConfig.CopyCount',
+    icModelWeight: 'CreateInferenceComponent.RuntimeConfig.ModelWeight'
 };
 
 export default class ParameterSchemaValidator {
@@ -95,36 +111,60 @@ export default class ParameterSchemaValidator {
 
     /**
      * Resolve a parameter name to its schema constraint object.
+     * Supports both the old nested format (deploymentTargets.{target}.{group}.{param})
+     * and the new flat format (parameters.{key}).
      * @param {string} parameterName - ConfigManager key (e.g., 'endpointVolumeSize')
-     * @param {string} [deploymentTarget] - Deployment target (unused in v2, kept for API compat)
+     * @param {string} [deploymentTarget] - Deployment target override
      * @returns {Object|null} Constraint object or null if not found
      */
-    _resolveConstraint(parameterName, _deploymentTarget) {
-        const schemaKey = PARAMETER_NAME_MAP[parameterName];
-        if (!schemaKey) {
+    _resolveConstraint(parameterName, deploymentTarget) {
+        const schemaPath = PARAMETER_NAME_MAP[parameterName];
+        if (!schemaPath) {
             return null;
         }
 
+        // Try old nested format first: deploymentTargets.{target}.{group}.{param}
+        const deploymentTargets = this.schema && this.schema.deploymentTargets;
+        if (deploymentTargets) {
+            const parts = schemaPath.split('.');
+            const [defaultTarget, group, shortName] = parts;
+            const target = deploymentTarget || defaultTarget;
+
+            const targetObj = deploymentTargets[target];
+            if (targetObj && targetObj[group] && targetObj[group][shortName]) {
+                const constraint = targetObj[group][shortName];
+                return {
+                    type: constraint.type,
+                    min: constraint.min,
+                    max: constraint.max,
+                    pattern: constraint.pattern,
+                    default: constraint.default,
+                    description: constraint.description,
+                    apiReference: constraint.apiReference || API_REFERENCE_MAP[parameterName] || `parameter-schema-v2.json#${parameterName}`
+                };
+            }
+        }
+
+        // Try new flat format: parameters.{key}
         const params = this.schema && this.schema.parameters;
-        if (!params || !params[schemaKey]) {
-            return null;
+        if (params && params[parameterName]) {
+            const param = params[parameterName];
+            if (!param.validation || Object.keys(param.validation).length === 0) {
+                return null;
+            }
+
+            return {
+                type: param.type,
+                min: param.validation.min,
+                max: param.validation.max,
+                pattern: param.validation.pattern,
+                default: param.default,
+                description: param.description,
+                apiReference: API_REFERENCE_MAP[parameterName] || `parameter-schema-v2.json#${parameterName}`
+            };
         }
 
-        const param = params[schemaKey];
-        if (!param.validation || Object.keys(param.validation).length === 0) {
-            return null;
-        }
-
-        // Build a constraint object compatible with the existing validation methods
-        return {
-            type: param.type,
-            min: param.validation.min,
-            max: param.validation.max,
-            pattern: param.validation.pattern,
-            default: param.default,
-            description: param.description,
-            apiReference: `parameter-schema-v2.json#${schemaKey}`
-        };
+        return null;
     }
 
     /**

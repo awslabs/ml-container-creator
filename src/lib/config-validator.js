@@ -240,6 +240,16 @@ export default class ConfigValidator {
         const combinationErrors = this._validateParameterCombinations(finalConfig);
         errors.push(...combinationErrors);
 
+        // Architecture-specific required parameters
+        if (finalConfig.architecture === 'http') {
+            if (!finalConfig.engine) {
+                errors.push('Required parameter \'engine\' is missing. This parameter is required for http architecture.');
+            }
+            if (!finalConfig.modelFormat) {
+                errors.push('Required parameter \'modelFormat\' is missing. This parameter is required for http architecture.');
+            }
+        }
+
         return errors;
     }
 

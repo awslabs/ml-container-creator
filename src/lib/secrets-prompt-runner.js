@@ -99,6 +99,10 @@ export default class SecretsPromptRunner {
     }
 
     async _listManagedSecrets(secretType) {
+        // Allow test overrides on the parent runner
+        if (this.runner._listManagedSecrets && this.runner._listManagedSecrets !== this._listManagedSecrets) {
+            return this.runner._listManagedSecrets(secretType);
+        }
         try {
             const bootstrapConfig = new BootstrapConfig();
             const activeProfile = bootstrapConfig.getActiveProfile();

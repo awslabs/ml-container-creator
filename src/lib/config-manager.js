@@ -202,7 +202,16 @@ export default class ConfigManager {
             // For http architecture, engine comes from the --engine CLI option or prompt
             if (parts.architecture === 'http') {
                 if (!finalConfig.engine) {
-                    finalConfig.engine = parts.engine;
+                    // Infer engine from model format if possible
+                    const formatToEngine = {
+                        'pkl': 'sklearn',
+                        'joblib': 'sklearn',
+                        'json': 'xgboost',
+                        'keras': 'tensorflow',
+                        'h5': 'tensorflow',
+                        'savedmodel': 'tensorflow'
+                    };
+                    finalConfig.engine = (finalConfig.modelFormat && formatToEngine[finalConfig.modelFormat]) || 'sklearn';
                 }
             } else {
                 finalConfig.engine = parts.engine;
@@ -288,7 +297,7 @@ export default class ConfigManager {
         
         if (projectNameFromArgument && 
             !explicitDestination && 
-            finalConfig.destinationDir === '.') {
+            (!finalConfig.destinationDir || finalConfig.destinationDir === '.')) {
             finalConfig.destinationDir = `./${finalConfig.projectName}`;
         }
         
@@ -702,8 +711,12 @@ export default class ConfigManager {
             }
             return true;
         });
+
+        // Also require key parameters that are needed for generation
+        const essentialParams = ['projectName', 'instanceType'];
+        const allRequired = [...new Set([...requiredForConfig, ...essentialParams])];
         
-        return requiredForConfig.every(key => 
+        return allRequired.every(key => 
             this.config[key] !== undefined && this.config[key] !== null
         );
     }
