@@ -53,6 +53,16 @@ export default class BootstrapCommandHandler {
     _createS3Bucket(name, tags) { return this.provisioners._createS3Bucket(name, tags); }
     _verifyCliV2() { return this.provisioners._verifyCliV2(); }
 
+    // ── ProfileManager delegations (backward compat for tests) ──────
+
+    _handleStatus(options) { return this.profileManager._handleStatus(options); }
+    _handleUse(profileName) { return this.profileManager._handleUse(profileName); }
+    _handleList() { return this.profileManager._handleList(); }
+    _handleRemove(profileName, options) { return this.profileManager._handleRemove(profileName, options); }
+    _handleScan() { return this.profileManager._handleScan(); }
+    _handlePrune() { return this.profileManager._handlePrune(); }
+    _handleSyncSchemas() { return this.profileManager._handleSyncSchemas(); }
+
     /**
      * Dispatch bootstrap subcommands.
      * @param {string[]} args - Remaining positional args after 'bootstrap'
@@ -61,7 +71,7 @@ export default class BootstrapCommandHandler {
     async handle(args, options) {
         // Handle legacy --sync-schemas flag for backward compatibility
         if (options['sync-schemas']) {
-            await this.profileManager._handleSyncSchemas();
+            await this._handleSyncSchemas();
             if (args.length === 0) return;
         }
 
@@ -74,28 +84,28 @@ export default class BootstrapCommandHandler {
 
         switch (subcommand) {
         case 'status':
-            await this.profileManager._handleStatus(options);
+            await this._handleStatus(options);
             break;
         case 'use':
-            await this.profileManager._handleUse(args[1]);
+            await this._handleUse(args[1]);
             break;
         case 'list':
-            await this.profileManager._handleList();
+            await this._handleList();
             break;
         case 'remove':
-            await this.profileManager._handleRemove(args[1], options);
+            await this._handleRemove(args[1], options);
             break;
         case 'scan':
-            await this.profileManager._handleScan();
+            await this._handleScan();
             break;
         case 'prune':
-            await this.profileManager._handlePrune();
+            await this._handlePrune();
             break;
         case 'update':
             await this._handleUpdate(options);
             break;
         case 'sync-schemas':
-            await this.profileManager._handleSyncSchemas();
+            await this._handleSyncSchemas();
             break;
         default:
             console.log(`Unknown bootstrap subcommand: ${subcommand}`);
@@ -522,7 +532,7 @@ export default class BootstrapCommandHandler {
         // 3. Schema sync — download AWS service models
         console.log('\n📐 Syncing service schemas...');
         try {
-            await this.profileManager._handleSyncSchemas();
+            await this._handleSyncSchemas();
         } catch (error) {
             failures.push({ step: 'sync-schemas', error: error.message });
             console.log(`  ⚠️  sync-schemas failed: ${error.message}`);
