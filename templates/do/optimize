@@ -106,6 +106,30 @@ elif [ -n "${INSTANCE_POOLS:-}" ]; then
 elif [ -n "${INSTANCE_TYPE:-}" ]; then
     INSTANCE_TYPES="${INSTANCE_TYPE}"
     echo "   Instances (from INSTANCE_TYPE): ${INSTANCE_TYPES}"
+elif [ "${ENDPOINT_EXTERNAL:-}" = "true" ] && [ -n "${ENDPOINT_NAME:-}" ]; then
+    # External endpoint — query the live endpoint config for instance type
+    echo "   Discovering instance type from external endpoint: ${ENDPOINT_NAME}"
+    ENDPOINT_CONFIG_NAME=$(aws sagemaker describe-endpoint \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'EndpointConfigName' \
+        --output text 2>/dev/null) || ENDPOINT_CONFIG_NAME=""
+
+    if [ -n "${ENDPOINT_CONFIG_NAME}" ]; then
+        INSTANCE_TYPES=$(aws sagemaker describe-endpoint-config \
+            --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'ProductionVariants[0].InstanceType' \
+            --output text 2>/dev/null) || INSTANCE_TYPES=""
+    fi
+
+    if [ -n "${INSTANCE_TYPES}" ] && [ "${INSTANCE_TYPES}" != "None" ]; then
+        echo "   Instances (from endpoint): ${INSTANCE_TYPES}"
+    else
+        echo "❌ Could not discover instance type from endpoint: ${ENDPOINT_NAME}"
+        echo "   Provide --instances flag, or set INSTANCE_TYPE in do/config."
+        exit 1
+    fi
 else
     echo "❌ No instance types available."
     echo "   Provide --instances flag, or set INSTANCE_POOLS or INSTANCE_TYPE in do/config."
@@ -132,9 +156,9 @@ RESUME_EXISTING=false
 
 if [ "${FORCE}" = false ] && [ -n "${OPTIMIZE_JOB_NAME:-}" ]; then
     EXISTING_STATUS=$(aws sagemaker describe-ai-recommendation-job \
-        --job-name "${OPTIMIZE_JOB_NAME}" \
+        --ai-recommendation-job-name "${OPTIMIZE_JOB_NAME}" \
         --region "${AWS_REGION}" \
-        --query 'Status' \
+        --query 'AIRecommendationJobStatus' \
         --output text 2>/dev/null) || EXISTING_STATUS=""
 
     case "${EXISTING_STATUS}" in
@@ -154,7 +178,7 @@ if [ "${FORCE}" = false ] && [ -n "${OPTIMIZE_JOB_NAME:-}" ]; then
             ;;
         FAILED|STOPPED)
             FAILURE_REASON=$(aws sagemaker describe-ai-recommendation-job \
-                --job-name "${OPTIMIZE_JOB_NAME}" \
+                --ai-recommendation-job-name "${OPTIMIZE_JOB_NAME}" \
                 --region "${AWS_REGION}" \
                 --query 'FailureReason' \
                 --output text 2>/dev/null) || FAILURE_REASON="unknown"
@@ -174,44 +198,86 @@ fi
 # ── Create recommendation job ─────────────────────────────────────────────────
 if [ "${RESUME_EXISTING}" = false ]; then
     OPTIMIZE_JOB_NAME="${PROJECT_NAME}-optimize-$(date +%Y%m%d-%H%M%S)"
+    WORKLOAD_CONFIG_NAME="${OPTIMIZE_JOB_NAME}-workload"
 
     echo "🚀 Creating AI Recommendation Job: ${OPTIMIZE_JOB_NAME}"
 
-    # Build instance type list as JSON array
-    INSTANCE_TYPES_JSON="["
-    FIRST=true
+    # Step 1: Create workload config
+    echo "   Creating workload config: ${WORKLOAD_CONFIG_NAME}"
+
+    WORKLOAD_SPEC_INNER="{\"benchmark\": {\"type\": \"aiperf\"}, \"parameters\": {\"prompt_input_tokens_mean\": ${INPUT_TOKENS}, \"prompt_input_tokens_stddev\": 150, \"output_tokens_mean\": ${OUTPUT_TOKENS}, \"output_tokens_stddev\": 50, \"concurrency\": ${CONCURRENCY}, \"streaming\": true}}"
+    WORKLOAD_SPEC_OUTER="{\"WorkloadSpec\": {\"Inline\": $(python3 -c "import json; print(json.dumps('${WORKLOAD_SPEC_INNER}'))")}}"
+
+    if ! aws sagemaker create-ai-workload-config \
+        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
+        --ai-workload-configs "${WORKLOAD_SPEC_OUTER}" \
+        --region "${AWS_REGION}" 2>&1 | grep -q "AIWorkloadConfigArn"; then
+        echo "❌ Failed to create workload config: ${WORKLOAD_CONFIG_NAME}"
+        echo "   Check that the execution role has sagemaker:CreateAIWorkloadConfig permission."
+        # Show actual error
+        aws sagemaker create-ai-workload-config \
+            --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
+            --ai-workload-configs "${WORKLOAD_SPEC_OUTER}" \
+            --region "${AWS_REGION}" 2>&1 || true
+        exit 1
+    fi
+    echo "   ✅ Workload config created"
+
+    # Step 2: Build compute spec (instance types, max 3)
+    COMPUTE_SPEC_JSON=""
     IFS=',' read -ra TYPES <<< "${INSTANCE_TYPES}"
+    INSTANCE_LIST=""
+    COUNT=0
     for itype in "${TYPES[@]}"; do
         itype=$(echo "${itype}" | xargs)  # trim whitespace
-        if [ "${FIRST}" = true ]; then
-            INSTANCE_TYPES_JSON="${INSTANCE_TYPES_JSON}\"${itype}\""
-            FIRST=false
-        else
-            INSTANCE_TYPES_JSON="${INSTANCE_TYPES_JSON},\"${itype}\""
+        if [ ${COUNT} -ge 3 ]; then
+            echo "   ⚠️  Max 3 instance types supported — truncating"
+            break
         fi
+        if [ -n "${INSTANCE_LIST}" ]; then
+            INSTANCE_LIST="${INSTANCE_LIST},\"${itype}\""
+        else
+            INSTANCE_LIST="\"${itype}\""
+        fi
+        COUNT=$((COUNT + 1))
     done
-    INSTANCE_TYPES_JSON="${INSTANCE_TYPES_JSON}]"
+    COMPUTE_SPEC_JSON="InstanceTypes=[${INSTANCE_LIST}]"
 
-    # Build job input config
-    # The model is specified as either a HuggingFace model ID or S3 path
-    MODEL_SOURCE_JSON=""
+    # Step 3: Map goal to performance target metric
+    case "${GOAL}" in
+        latency) PERF_METRIC="ttft-ms" ;;
+        throughput) PERF_METRIC="throughput" ;;
+        cost) PERF_METRIC="cost" ;;
+    esac
+
+    # Step 4: Determine model source
+    # The recommendation API requires model artifacts as s3:// or https:// URI.
+    MODEL_SOURCE_ARG=""
     if [[ "${MODEL_NAME}" == s3://* ]]; then
-        MODEL_SOURCE_JSON="{\"S3DataSource\":{\"S3Uri\":\"${MODEL_NAME}\"}}"
+        MODEL_SOURCE_ARG="S3={S3Uri=${MODEL_NAME}}"
     else
-        MODEL_SOURCE_JSON="{\"ModelName\":\"${MODEL_NAME}\"}"
+        # HuggingFace model — use the HTTPS URL for the model on HuggingFace Hub
+        MODEL_SOURCE_ARG="S3={S3Uri=https://huggingface.co/${MODEL_NAME}}"
     fi
 
-    # Build workload config
-    WORKLOAD_JSON="{\"Concurrency\":${CONCURRENCY},\"InputTokens\":${INPUT_TOKENS},\"OutputTokens\":${OUTPUT_TOKENS}}"
+    # Step 5: Create the recommendation job
+    S3_OUTPUT="s3://${TUNE_S3_BUCKET:-mlcc-tune-$(aws sts get-caller-identity --query Account --output text 2>/dev/null)-${AWS_REGION}}/${PROJECT_NAME}/optimize/"
 
-    # Build the full job specification
-    JOB_INPUT="{\"ModelSource\":${MODEL_SOURCE_JSON},\"Workload\":${WORKLOAD_JSON},\"InstanceTypes\":${INSTANCE_TYPES_JSON},\"OptimizationGoal\":\"${GOAL}\"}"
+    RECOMMEND_CMD=(
+        aws sagemaker create-ai-recommendation-job
+        --ai-recommendation-job-name "${OPTIMIZE_JOB_NAME}"
+        --model-source "${MODEL_SOURCE_ARG}"
+        --output-config "S3OutputLocation=${S3_OUTPUT}"
+        --ai-workload-config-identifier "${WORKLOAD_CONFIG_NAME}"
+        --performance-target "Constraints=[{Metric=${PERF_METRIC}}]"
+        --role-arn "${ROLE_ARN}"
+        --compute-spec "${COMPUTE_SPEC_JSON}"
+        --inference-specification "Framework=VLLM"
+        --region "${AWS_REGION}"
+    )
 
-    if ! aws sagemaker create-ai-recommendation-job \
-        --job-name "${OPTIMIZE_JOB_NAME}" \
-        --role-arn "${ROLE_ARN}" \
-        --input-config "${JOB_INPUT}" \
-        --region "${AWS_REGION}"; then
+    if ! "${RECOMMEND_CMD[@]}" 2>&1; then
+        echo ""
         echo "❌ Failed to create AI Recommendation Job"
         echo "   Check that:"
         echo "   • The execution role has sagemaker:CreateAIRecommendationJob permission"
@@ -232,7 +298,7 @@ fi
 POLL_INTERVAL=30
 MAX_POLL_ATTEMPTS=120  # 60 minutes max (120 * 30s)
 
-if [ "${JOB_STATUS:-}" != "COMPLETED" ] && [ "${JOB_STATUS:-}" != "FAILED" ] && [ "${JOB_STATUS:-}" != "STOPPED" ]; then
+if [ "${JOB_STATUS:-}" != "COMPLETED" ] && [ "${JOB_STATUS:-}" != "FAILED" ] && [ "${JOB_STATUS:-}" != "STOPPED" ] && [ "${JOB_STATUS:-}" != "Completed" ] && [ "${JOB_STATUS:-}" != "Failed" ] && [ "${JOB_STATUS:-}" != "Stopped" ]; then
 
 echo "⏳ Waiting for recommendation job to complete..."
 echo "   Polling every ${POLL_INTERVAL}s (max ${MAX_POLL_ATTEMPTS} attempts = 60 min)"
@@ -243,27 +309,30 @@ JOB_STATUS=""
 
 while [ ${POLL_COUNT} -lt ${MAX_POLL_ATTEMPTS} ]; do
     JOB_STATUS=$(aws sagemaker describe-ai-recommendation-job \
-        --job-name "${OPTIMIZE_JOB_NAME}" \
+        --ai-recommendation-job-name "${OPTIMIZE_JOB_NAME}" \
         --region "${AWS_REGION}" \
-        --query 'Status' \
+        --query 'AIRecommendationJobStatus' \
         --output text 2>/dev/null) || {
         echo "⚠️  Failed to describe recommendation job (credentials may have expired)"
         echo "   Re-run to check status:"
-        echo "   aws sagemaker describe-ai-recommendation-job --job-name ${OPTIMIZE_JOB_NAME} --region ${AWS_REGION}"
+        echo "   aws sagemaker describe-ai-recommendation-job --ai-recommendation-job-name ${OPTIMIZE_JOB_NAME} --region ${AWS_REGION}"
         exit 1
     }
 
     case "${JOB_STATUS}" in
-        COMPLETED)
+        COMPLETED|Completed)
             echo "✅ Recommendation job completed!"
+            JOB_STATUS="COMPLETED"
             break
             ;;
-        FAILED)
+        FAILED|Failed)
             echo "❌ Recommendation job failed"
+            JOB_STATUS="FAILED"
             break
             ;;
-        STOPPED)
+        STOPPED|Stopped)
             echo "⚠️  Recommendation job was stopped"
+            JOB_STATUS="STOPPED"
             break
             ;;
         *)
@@ -292,7 +361,7 @@ if [ "${JOB_STATUS}" = "COMPLETED" ]; then
 
     # Get the full job description with results
     JOB_DESCRIPTION=$(aws sagemaker describe-ai-recommendation-job \
-        --job-name "${OPTIMIZE_JOB_NAME}" \
+        --ai-recommendation-job-name "${OPTIMIZE_JOB_NAME}" \
         --region "${AWS_REGION}" \
         --output json 2>/dev/null) || {
         echo "❌ Failed to fetch recommendation results"
@@ -503,7 +572,7 @@ except:
 
     if [ "${FAILURE_REASON}" = "unknown" ]; then
         FAILURE_REASON=$(aws sagemaker describe-ai-recommendation-job \
-            --job-name "${OPTIMIZE_JOB_NAME}" \
+            --ai-recommendation-job-name "${OPTIMIZE_JOB_NAME}" \
             --region "${AWS_REGION}" \
             --query 'FailureReason' \
             --output text 2>/dev/null) || FAILURE_REASON="unknown"
@@ -513,7 +582,7 @@ except:
     echo "   Reason: ${FAILURE_REASON}"
     echo ""
     echo "   Debug:"
-    echo "   aws sagemaker describe-ai-recommendation-job --job-name ${OPTIMIZE_JOB_NAME} --region ${AWS_REGION}"
+    echo "   aws sagemaker describe-ai-recommendation-job --ai-recommendation-job-name ${OPTIMIZE_JOB_NAME} --region ${AWS_REGION}"
 
 elif [ "${JOB_STATUS}" = "STOPPED" ]; then
     echo "⚠️  Recommendation job was stopped before completion"

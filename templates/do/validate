@@ -6,7 +6,7 @@
 # Validates configuration against AWS service models before deployment.
 #
 # Usage:
-#   ./do/validate [--format json] [--smart]
+#   ./do/validate [--format json] [--smart] [--no-stale-warning]
 #
 # Exit codes:
 #   0 - Validation passed (no errors)
@@ -23,16 +23,19 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Parse flags
 FORMAT="text"
 SMART=""
+ARG_NO_STALE_WARNING=false
 for arg in "$@"; do
     case "$arg" in
         --format=json|--format=JSON) FORMAT="json" ;;
         --smart) SMART="--smart" ;;
+        --no-stale-warning) ARG_NO_STALE_WARNING=true ;;
         --help|-h)
-            echo "Usage: ./do/validate [--format json] [--smart]"
+            echo "Usage: ./do/validate [--format json] [--smart] [--no-stale-warning]"
             echo ""
             echo "Options:"
-            echo "  --format=json  Output validation report as JSON"
-            echo "  --smart        Enable smart-mode validators (requires MCP config)"
+            echo "  --format=json       Output validation report as JSON"
+            echo "  --smart             Enable smart-mode validators (requires MCP config)"
+            echo "  --no-stale-warning  Suppress schema registry staleness warning"
             echo ""
             echo "Exit codes:"
             echo "  0 - Validation passed"
@@ -42,6 +45,43 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# ── _check_schema_registry_staleness() ────────────────────────────────────────
+# Warn if the schema registry manifest's lastSynced timestamp is older than threshold.
+# Configurable via MCC_CATALOG_STALENESS_DAYS (default: 90).
+# Suppressed by --no-stale-warning flag or MCC_NO_STALE_WARNING=true env var.
+_check_schema_registry_staleness() {
+    if [ "${MCC_NO_STALE_WARNING:-}" = "true" ] || [ "${ARG_NO_STALE_WARNING:-false}" = true ]; then
+        return 0
+    fi
+    local threshold="${MCC_CATALOG_STALENESS_DAYS:-90}"
+    local manifest_file="${HOME}/.ml-container-creator/schemas/manifest.json"
+    if [ ! -f "${manifest_file}" ]; then
+        return 0
+    fi
+    local last_synced
+    last_synced=$(python3 -c "
+import json, sys
+from datetime import datetime, timezone
+try:
+    with open('${manifest_file}') as f:
+        manifest = json.load(f)
+    ls = manifest.get('lastSynced', '')
+    if not ls:
+        sys.exit(0)
+    synced = datetime.fromisoformat(ls.replace('Z', '+00:00'))
+    days = (datetime.now(timezone.utc) - synced).days
+    if days > int('${threshold}'):
+        print(days)
+except:
+    pass
+" 2>/dev/null)
+    if [ -n "${last_synced}" ]; then
+        echo "⚠️  Schema registry is ${last_synced} days old. Run 'ml-container-creator bootstrap sync-schemas' to update."
+    fi
+}
+
+_check_schema_registry_staleness
 
 echo "🔍 Running schema validation..."
 

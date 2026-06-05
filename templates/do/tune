@@ -40,6 +40,10 @@ ARG_STATUS=false
 ARG_HELP=false
 ARG_DRY_RUN=false
 ARG_LIST_MODELS=false
+ARG_NO_STALE_WARNING=false
+ARG_DISCOVER=false
+ARG_DISCOVER_FILTER=""
+ARG_COLUMN_MAP=""
 
 
 # ── _parse_args() ─────────────────────────────────────────────────────────────
@@ -137,6 +141,21 @@ _parse_args() {
             --help|-h) ARG_HELP=true; shift ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
             --list-models) ARG_LIST_MODELS=true; shift ;;
+            --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
+            --column-map)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --column-map requires a value (e.g., prompt=question,completion=answer)"
+                    exit 1
+                fi
+                ARG_COLUMN_MAP="$2"; shift 2 ;;
+            --discover)
+                ARG_DISCOVER=true
+                shift
+                if [ $# -gt 0 ] && [[ ! "$1" == --* ]]; then
+                    ARG_DISCOVER_FILTER="$1"
+                    shift
+                fi
+                ;;
             *)
                 echo "❌ Unknown option: $1"
                 echo "   Run ./do/tune --help for usage."
@@ -150,6 +169,8 @@ _parse_args() {
 # ── _show_help() ──────────────────────────────────────────────────────────────
 _show_help() {
     echo "Usage: ./do/tune --technique <technique> --dataset <source> [options]"
+    echo "       ./do/tune --model <id> --technique <technique> --dataset <source>"
+    echo "       ./do/tune --discover [filter]"
     echo "       ./do/tune --status"
     echo "       ./do/tune --list-models"
     echo "       ./do/tune --help"
@@ -157,9 +178,47 @@ _show_help() {
     echo "SageMaker AI Managed Model Customization — fine-tune supported foundation"
     echo "models using SFT, DPO, RLAIF, or RLVR without managing infrastructure."
     echo ""
+    echo "How it works:"
+    echo ""
+    echo "  ┌─────────────────────────────────────────────────────────────────┐"
+    echo "  │  JumpStart model (tune) ──→ LoRA adapter weights (S3)          │"
+    echo "  │                                       ↓                         │"
+    echo "  │  HuggingFace model (deploy) ←──── do/adapter add               │"
+    echo "  │                                       ↓                         │"
+    echo "  │                             vLLM loads adapter at runtime       │"
+    echo "  └─────────────────────────────────────────────────────────────────┘"
+    echo ""
+    echo "  Managed fine-tuning uses a JumpStart Hub model (identified by TUNE_MODEL_ID)"
+    echo "  to produce LoRA adapter weights. These adapters are then attached to your"
+    echo "  HuggingFace BYOC deployment via do/adapter add — no redeployment needed."
+    echo ""
+    echo "Supported model families:"
+    echo "  • qwen-2.5    (Alibaba)   — Qwen 2.5 7B/14B/32B/72B Instruct"
+    echo "  • qwen-3      (Alibaba)   — Qwen 3 0.6B/1.7B/4B/8B/14B/32B"
+    echo "  • llama-3     (Meta)      — Llama 3.1 8B, 3.2 1B/3B, 3.3 70B Instruct"
+    echo "  • deepseek-r1 (DeepSeek)  — R1 Distill Llama 8B/70B, Qwen 1.5B/7B/14B/32B"
+    echo "  • gpt-oss     (OpenAI)    — GPT-OSS 20B/120B"
+    echo ""
+    echo "  Only models registered in the SageMaker JumpStart Hub support managed"
+    echo "  fine-tuning. Not all HuggingFace models have a JumpStart equivalent."
+    echo ""
+    echo "Finding your JumpStart model ID:"
+    echo ""
+    echo "  aws sagemaker list-hub-contents --hub-name SageMakerPublicHub \\"
+    echo "    --hub-content-type Model \\"
+    echo "    --query \"HubContentSummaries[?contains(HubContentName,'<family>')].HubContentName\""
+    echo ""
+    echo "  Or use: ./do/tune --discover [filter]"
+    echo ""
     echo "Required:"
     echo "  --technique <t>       Customization technique: sft, dpo, rlaif, rlvr"
     echo "  --dataset <source>    Dataset: s3://bucket/path.jsonl or hf://org/name[/split]"
+    echo ""
+    echo "Model selection:"
+    echo "  --model <id>          JumpStart Hub content name to use for fine-tuning."
+    echo "                        Takes precedence over TUNE_MODEL_ID in do/config."
+    echo "                        Accepts the Hub content name as-is (no catalog lookup)."
+    echo "                        Example: --model huggingface-reasoning-qwen3-8b"
     echo ""
     echo "Training type:"
     echo "  --training-type <t>   lora (default) or full-rank"
@@ -177,7 +236,6 @@ _show_help() {
     echo "  --reward-prompt <uri>    S3 URI for reward prompt file"
     echo ""
     echo "Overrides:"
-    echo "  --model <id>          Override model (defaults to MODEL_ID from do/config)"
     echo "  --output-bucket <b>   Override output bucket (defaults to TUNE_S3_BUCKET)"
     echo "  --role <arn>          Override execution role (defaults to ROLE_ARN)"
     echo ""
@@ -186,17 +244,43 @@ _show_help() {
     echo "  --no-wait             Submit and exit without polling for completion"
     echo "  --status              Show status of all tracked tune jobs"
     echo ""
+    echo "Discovery and diagnostics:"
+    echo "  --discover [filter]   Query JumpStart Hub for tune-eligible models."
+    echo "                        Without a filter, shows models for the current family."
+    echo "                        With a filter, narrows results by keyword."
+    echo "  --no-stale-warning    Suppress catalog staleness warnings (useful for CI)."
+    echo "                        Also suppressed by MCC_NO_STALE_WARNING=true env var."
+    echo ""
     echo "Informational:"
     echo "  --help, -h            Show this help message"
     echo "  --dry-run             Validate inputs and show what would be submitted"
     echo "  --list-models         Print supported models, techniques, and training types"
     echo ""
     echo "Examples:"
+    echo "  # Fine-tune with pre-configured TUNE_MODEL_ID from do/config:"
     echo "  ./do/tune --technique sft --dataset s3://my-bucket/train.jsonl"
+    echo ""
+    echo "  # Override model ID directly:"
+    echo "  ./do/tune --model huggingface-reasoning-qwen3-8b --technique sft --dataset s3://bucket/data.jsonl"
+    echo ""
+    echo "  # Use a HuggingFace dataset:"
     echo "  ./do/tune --technique dpo --dataset hf://my-org/pref-data --learning-rate 1e-5"
+    echo ""
+    echo "  # Discover available models:"
+    echo "  ./do/tune --discover                    # Models for current family"
+    echo "  ./do/tune --discover qwen               # Filter by keyword"
+    echo ""
+    echo "  # Other:"
     echo "  ./do/tune --technique sft --dataset s3://bucket/data.jsonl --training-type full-rank"
-    echo "  ./do/tune --status"
     echo "  ./do/tune --technique sft --dataset s3://bucket/data.jsonl --dry-run"
+    echo "  ./do/tune --status"
+    echo ""
+    echo "Configuration:"
+    echo "  TUNE_MODEL_ID is set in do/config at generation time when a matching"
+    echo "  JumpStart model is found for your HuggingFace model. If not set, use"
+    echo "  --model <id> or run --discover to find the correct Hub content name."
+    echo ""
+    echo "  For custom training without JumpStart, see: ./do/train --help"
     exit 0
 }
 
@@ -213,7 +297,7 @@ _show_status() {
 
         if [ -n "${job_name}" ]; then
             found_any=true
-            echo "   ${technique^^}:"
+            echo "   $(echo "${technique}" | tr "[:lower:]" "[:upper:]"):"
             echo "     Job: ${job_name}"
 
             # Query status via Python helper
@@ -318,66 +402,203 @@ _update_config_var() {
     fi
 }
 
-# ── _validate_model() ─────────────────────────────────────────────────────────
-# Read MODEL_ID from do/config (or --model override), check against catalog.
-# Sets RESOLVED_MODEL_ID on success.
-_validate_model() {
-    # Resolve model ID: --model override, MODEL_ID from config, or MODEL_NAME fallback
-    if [ -n "${ARG_MODEL}" ]; then
-        RESOLVED_MODEL_ID="${ARG_MODEL}"
-    elif [ -n "${MODEL_ID:-}" ]; then
-        RESOLVED_MODEL_ID="${MODEL_ID}"
-    elif [ -n "${MODEL_NAME:-}" ]; then
-        RESOLVED_MODEL_ID="${MODEL_NAME}"
-    else
-        echo "❌ No model configured"
-        echo "   Set MODEL_ID in do/config or use --model <id>"
-        exit 1
+# ── _check_catalog_staleness() ─────────────────────────────────────────────────
+# Warn if the tune catalog's lastSynced timestamp is older than the threshold.
+# Configurable via MCC_CATALOG_STALENESS_DAYS (default: 90).
+# Suppressed by --no-stale-warning flag or MCC_NO_STALE_WARNING=true env var.
+_check_catalog_staleness() {
+    if [ "${MCC_NO_STALE_WARNING:-}" = "true" ] || [ "${ARG_NO_STALE_WARNING:-false}" = true ]; then
+        return 0
     fi
-
-    if [ ! -f "${CATALOG_FILE}" ]; then
-        echo "❌ Catalog file not found: ${CATALOG_FILE}"
-        echo "   The tune catalog is required for model validation."
-        exit 1
-    fi
-
-    # Check if model is in catalog using python3 for JSON parsing
-    local result
-    result=$(python3 -c "
+    local threshold="${MCC_CATALOG_STALENESS_DAYS:-90}"
+    local last_synced
+    last_synced=$(python3 -c "
 import json, sys
+from datetime import datetime, timezone
+try:
+    with open('${CATALOG_FILE}') as f:
+        catalog = json.load(f)
+    ls = catalog.get('lastSynced', '')
+    if not ls:
+        sys.exit(0)
+    synced = datetime.fromisoformat(ls.replace('Z', '+00:00'))
+    days = (datetime.now(timezone.utc) - synced).days
+    if days > int('${threshold}'):
+        print(days)
+except:
+    pass
+" 2>/dev/null)
+    if [ -n "${last_synced}" ]; then
+        echo "⚠️  Tune catalog is ${last_synced} days old. Run 'ml-container-creator bootstrap sync-model-families' to update."
+    fi
+}
 
-with open('${CATALOG_FILE}') as f:
-    catalog = json.load(f)
-
-model_id = '${RESOLVED_MODEL_ID}'
-models = catalog.get('models', {})
-
-if model_id in models:
-    print('SUPPORTED')
-else:
-    # Collect unique families
-    families = sorted(set(e.get('family', '') for e in models.values() if e.get('family')))
-    print('UNSUPPORTED|' + '|'.join(families))
-" 2>/dev/null) || {
-        echo "❌ Failed to validate model against catalog"
-        echo "   Ensure python3 is available."
-        exit 1
-    }
-
-    if [ "${result}" = "SUPPORTED" ]; then
+# ── _resolve_tune_model() ─────────────────────────────────────────────────────
+# Resolve the JumpStart Hub content name for managed fine-tuning.
+# Priority: --model flag > TUNE_MODEL_ID config > discovery
+# Sets RESOLVED_MODEL_ID on success.
+_resolve_tune_model() {
+    # Priority 1: --model flag (format-check only, no catalog validation)
+    if [ -n "${ARG_MODEL}" ]; then
+        if ! echo "${ARG_MODEL}" | grep -qE '^[a-zA-Z0-9](-*[a-zA-Z0-9])*$'; then
+            echo "❌ Invalid model ID format: ${ARG_MODEL}"
+            echo "   Hub content names must match: [a-zA-Z0-9](-*[a-zA-Z0-9]){0,62}"
+            exit 1
+        fi
+        RESOLVED_MODEL_ID="${ARG_MODEL}"
         return 0
     fi
 
-    # Model not supported — extract families from result
-    local families
-    families=$(echo "${result}" | cut -d'|' -f2- | tr '|' ', ')
+    # Priority 2: TUNE_MODEL_ID from do/config
+    if [ -n "${TUNE_MODEL_ID:-}" ]; then
+        RESOLVED_MODEL_ID="${TUNE_MODEL_ID}"
+        return 0
+    fi
 
-    echo "❌ Model \"${RESOLVED_MODEL_ID}\" is not yet supported for managed serverless customization."
-    echo "   Supported model families: ${families}"
+    # Priority 3: Neither set — attempt runtime discovery, then show guidance
+    _discover_and_guide
+}
+
+# ── _discover_and_guide() ─────────────────────────────────────────────────────
+# Display guidance when no model ID is configured and attempt runtime discovery.
+# Attempts Hub discovery via helper script, falls back to static guidance on failure.
+_discover_and_guide() {
     echo ""
-    echo "   Additional model support and custom training workflows are expected in future releases."
-    echo "   For custom training workflows, see \`do/train\`."
-    exit 1
+    echo "🔧 SageMaker AI Managed Model Customization"
+    echo ""
+    echo "   This feature uses SageMaker Serverless Fine-Tuning, which requires"
+    echo "   the model to be registered in the SageMaker JumpStart Hub."
+    echo ""
+    echo "   Your deployed model: ${MODEL_NAME:-unknown} (HuggingFace BYOC)"
+    echo "   JumpStart model ID:  (not configured)"
+    echo ""
+
+    # Derive model family from the catalog based on MODEL_NAME (HuggingFace ID)
+    local model_family=""
+    if [ -f "${CATALOG_FILE}" ] && [ -n "${MODEL_NAME:-}" ]; then
+        model_family=$(python3 -c "
+import json, sys
+try:
+    with open('${CATALOG_FILE}') as f:
+        catalog = json.load(f)
+    model_name = '${MODEL_NAME}'
+    for entry in catalog.get('models', {}).values():
+        if entry.get('huggingFaceId', '') == model_name:
+            print(entry.get('family', ''))
+            sys.exit(0)
+except:
+    pass
+" 2>/dev/null) || model_family=""
+    fi
+
+    # Attempt runtime discovery via helper script
+    local discover_result=""
+    if [ -f "${HELPER_SCRIPT}" ]; then
+        discover_result=$(python3 "${HELPER_SCRIPT}" discover \
+            --family "${model_family}" \
+            --region "${AWS_REGION}" 2>/dev/null) || discover_result=""
+    fi
+
+    if [ -n "${discover_result}" ] && echo "${discover_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('models') else 1)" 2>/dev/null; then
+        echo "   📋 Suggested models for your family:"
+        echo "${discover_result}" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for m in d.get('models', [])[:5]:
+    print(f'     • {m}')
+" 2>/dev/null
+        echo ""
+    fi
+
+    echo "   To find your model's JumpStart ID:"
+    echo "     aws sagemaker list-hub-contents --hub-name SageMakerPublicHub \\"
+    echo "       --hub-content-type Model --query \"HubContentSummaries[?contains(HubContentName,'<family>')].HubContentName\""
+    echo ""
+    echo "   Then run:"
+    echo "     ./do/tune --model <jumpstart-id> --technique ${ARG_TECHNIQUE} --dataset ${ARG_DATASET}"
+    echo ""
+    echo "   Or set it permanently in do/config:"
+    echo "     export TUNE_MODEL_ID=\"<jumpstart-id>\""
+    echo ""
+    echo "   ┌─────────────────────────────────────────────────────────────┐"
+    echo "   │  JumpStart model (tune) ──→ LoRA adapter weights (S3)      │"
+    echo "   │                                       ↓                     │"
+    echo "   │  HuggingFace model (deploy) ←── do/adapter add             │"
+    echo "   │                                       ↓                     │"
+    echo "   │                           vLLM loads adapter at runtime     │"
+    echo "   └─────────────────────────────────────────────────────────────┘"
+    echo ""
+    echo "   For custom training without JumpStart, see: ./do/train --help"
+    exit 3
+}
+
+# ── _run_discover() ───────────────────────────────────────────────────────────
+# Explicit --discover mode: query the JumpStart Hub and display tune-eligible models.
+# Accepts an optional filter keyword to narrow results.
+_run_discover() {
+    local filter="${1:-}"
+
+    echo ""
+    echo "🔍 Discovering tune-eligible models in SageMaker JumpStart Hub"
+    echo "   Region: ${AWS_REGION}"
+    if [ -n "${filter}" ]; then
+        echo "   Filter: ${filter}"
+    elif [ -n "${MODEL_FAMILY:-}" ]; then
+        echo "   Family: ${MODEL_FAMILY}"
+    fi
+    echo ""
+
+    # Build discover arguments
+    local discover_args=(
+        --region "${AWS_REGION}"
+    )
+    if [ -n "${filter}" ]; then
+        discover_args+=(--filter "${filter}")
+    elif [ -n "${MODEL_FAMILY:-}" ]; then
+        discover_args+=(--family "${MODEL_FAMILY}")
+    fi
+
+    # Call helper script discover subcommand
+    local discover_result
+    discover_result=$(python3 "${HELPER_SCRIPT}" discover "${discover_args[@]}" 2>&1) || {
+        echo "❌ Discovery failed"
+        echo "   ${discover_result}"
+        echo ""
+        echo "   Ensure AWS credentials are configured and you have sagemaker:ListHubContents permission."
+        echo ""
+        echo "   Manual alternative:"
+        echo "     aws sagemaker list-hub-contents --hub-name SageMakerPublicHub \\"
+        echo "       --hub-content-type Model --query \"HubContentSummaries[].HubContentName\""
+        exit 1
+    }
+
+    # Parse and display results
+    local count
+    count=$(echo "${discover_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('count', 0))" 2>/dev/null) || count="0"
+
+    if [ "${count}" = "0" ]; then
+        echo "   No tune-eligible models found."
+        echo ""
+        echo "   Try a different filter or check available models manually:"
+        echo "     aws sagemaker list-hub-contents --hub-name SageMakerPublicHub \\"
+        echo "       --hub-content-type Model --query \"HubContentSummaries[].HubContentName\""
+    else
+        echo "   📋 Tune-eligible models (${count} found):"
+        echo ""
+        echo "${discover_result}" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for m in d.get('models', []):
+    print(f'     • {m}')
+" 2>/dev/null
+        echo ""
+        echo "   Use with:"
+        echo "     ./do/tune --model <id> --technique <sft|dpo|rlaif|rlvr> --dataset <source>"
+        echo ""
+        echo "   Or set permanently in do/config:"
+        echo "     export TUNE_MODEL_ID=\"<id>\""
+    fi
+    echo ""
 }
 
 # ── _validate_technique() ─────────────────────────────────────────────────────
@@ -583,6 +804,10 @@ _validate_dataset() {
         if [ -n "${HF_TOKEN_ARN:-}" ]; then
             stage_args+=(--hf-secret-name "${HF_TOKEN_ARN}")
         fi
+        if [ -n "${ARG_COLUMN_MAP}" ]; then
+            stage_args+=(--column-map "${ARG_COLUMN_MAP}")
+        fi
+        stage_args+=(--technique "${ARG_TECHNIQUE}")
 
         local stage_result
         stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}" 2>/dev/null) || {
@@ -663,7 +888,7 @@ _check_idempotency() {
         return 0  # No existing job or --force: proceed with new job
     fi
 
-    echo "🔍 Found existing ${ARG_TECHNIQUE^^} job: ${existing_job}"
+    echo "🔍 Found existing $(echo "${ARG_TECHNIQUE}" | tr "[:lower:]" "[:upper:]") job: ${existing_job}"
 
     # Query status via Python helper
     local status_json
@@ -752,7 +977,7 @@ _submit_job() {
     timestamp=$(date +%Y%m%d-%H%M%S)
     JOB_NAME="${PROJECT_NAME}-tune-${ARG_TECHNIQUE}-${timestamp}"
 
-    echo "🚀 Submitting ${ARG_TECHNIQUE^^} customization job"
+    echo "🚀 Submitting $(echo "${ARG_TECHNIQUE}" | tr "[:lower:]" "[:upper:]") customization job"
     echo "   Job name: ${JOB_NAME}"
     echo "   Model: ${RESOLVED_MODEL_ID}"
     echo "   Technique: ${ARG_TECHNIQUE}"
@@ -764,6 +989,7 @@ _submit_job() {
     # Build submit arguments
     local submit_args=(
         --model-id "${RESOLVED_MODEL_ID}"
+        --region "${AWS_REGION}"
         --technique "${ARG_TECHNIQUE}"
         --training-type "${ARG_TRAINING_TYPE}"
         --dataset-s3-uri "${RESOLVED_DATASET_S3_URI}"
@@ -802,13 +1028,45 @@ _submit_job() {
         submit_args+=(--reward-prompt "${ARG_REWARD_PROMPT}")
     fi
 
-    # Invoke Python helper
+    # Invoke Python helper (stderr visible to user for diagnostics)
     local submit_result
-    submit_result=$(python3 "${HELPER_SCRIPT}" submit "${submit_args[@]}" 2>/dev/null) || {
+    local submit_stderr
+    submit_stderr=$(mktemp)
+    submit_result=$(python3 "${HELPER_SCRIPT}" submit "${submit_args[@]}" 2>"${submit_stderr}") || {
         echo "❌ Failed to submit customization job"
-        echo "   Ensure the SageMaker Python SDK is installed: pip install 'sagemaker>=2.232.0'"
+        echo "   Model ID used: ${RESOLVED_MODEL_ID}"
+        echo ""
+        # Show stderr from helper script
+        if [ -s "${submit_stderr}" ]; then
+            echo "   Error output:"
+            sed 's/^/   /' "${submit_stderr}"
+            echo ""
+            # Check for ResourceNotFound and suggest verification
+            if grep -qi "ResourceNotFound\|ResourceNotFoundException\|not found" "${submit_stderr}"; then
+                echo "   💡 The model ID may not exist in the JumpStart Hub."
+                echo "      Verify with: aws sagemaker list-hub-contents --hub-name SageMakerPublicHub \\"
+                echo "        --hub-content-type Model --name-contains \"${RESOLVED_MODEL_ID}\" --region ${AWS_REGION}"
+                echo ""
+            fi
+        fi
+        # Show stdout error JSON if available
+        if [ -n "${submit_result:-}" ]; then
+            local err_msg
+            err_msg=$(echo "${submit_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null) || err_msg=""
+            if [ -n "${err_msg}" ]; then
+                echo "   SDK error: ${err_msg}"
+                echo ""
+            fi
+        fi
+        rm -f "${submit_stderr}"
         exit 1
     }
+
+    # Show any stderr warnings from helper script (non-fatal)
+    if [ -s "${submit_stderr}" ]; then
+        sed 's/^/   ⚠️  /' "${submit_stderr}"
+    fi
+    rm -f "${submit_stderr}"
 
     # Check for error in response
     local has_error
@@ -818,6 +1076,14 @@ _submit_job() {
         local error_msg
         error_msg=$(echo "${submit_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null) || error_msg="Unknown error"
         echo "❌ ${error_msg}"
+        echo "   Model ID used: ${RESOLVED_MODEL_ID}"
+        # Check for ResourceNotFound in the error message
+        if echo "${error_msg}" | grep -qi "ResourceNotFound\|ResourceNotFoundException\|not found"; then
+            echo ""
+            echo "   💡 The model ID may not exist in the JumpStart Hub."
+            echo "      Verify with: aws sagemaker list-hub-contents --hub-name SageMakerPublicHub \\"
+            echo "        --hub-content-type Model --name-contains \"${RESOLVED_MODEL_ID}\" --region ${AWS_REGION}"
+        fi
         exit 1
     fi
 
@@ -1084,6 +1350,12 @@ if [ "${ARG_STATUS}" = true ]; then
     _show_status
 fi
 
+# Handle --discover flag (before requiring --technique and --dataset)
+if [ "${ARG_DISCOVER}" = true ]; then
+    _run_discover "${ARG_DISCOVER_FILTER}"
+    exit 0
+fi
+
 # Validate required arguments for job submission
 if [ -z "${ARG_TECHNIQUE}" ]; then
     echo "❌ --technique is required"
@@ -1099,11 +1371,14 @@ if [ -z "${ARG_DATASET}" ]; then
     exit 1
 fi
 
-# Check runtime support
-if [ "${TUNE_SUPPORTED:-}" = "false" ]; then
-    echo "⚠️  Managed customization is not supported for the configured model."
-    echo "   Checking catalog for current support..."
+# Golden-path gating — check TUNE_SUPPORTED before any model resolution
+if [ "${TUNE_SUPPORTED:-}" != "true" ]; then
     echo ""
+    echo "❌ Managed fine-tuning is not available for this model family."
+    echo ""
+    echo "   Use ./do/train for custom fine-tuning."
+    echo ""
+    exit 1
 fi
 
 # Validate Python availability
@@ -1117,7 +1392,8 @@ fi
 echo "🔧 SageMaker AI Managed Model Customization"
 echo ""
 
-_validate_model
+_check_catalog_staleness
+_resolve_tune_model
 _validate_technique
 _validate_training_type
 _validate_dataset

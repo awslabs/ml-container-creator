@@ -48,6 +48,18 @@ const projectPrompts = [
             // Derive framework from deploymentConfig if not already set
             const framework = answers.framework || answers.deploymentConfig?.split('-')[0];
             return generateProjectName(framework);
+        },
+        validate: (input) => {
+            if (!input || input.length < 2) {
+                return 'Project name must be at least 2 characters.';
+            }
+            if (input.length > 63) {
+                return 'Project name must be 63 characters or fewer.';
+            }
+            if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(input)) {
+                return 'Project name must be lowercase alphanumeric with hyphens (e.g. "qwen3-0-6b-v1-test"). No uppercase, dots, or underscores.';
+            }
+            return true;
         }
     }
 ];

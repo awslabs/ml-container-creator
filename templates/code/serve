@@ -176,6 +176,12 @@ unset _MODEL_VAR _RESOLVED_MODEL
 SERVER_ARGS=(--host 0.0.0.0 --port 8081)
 <% } else { %>
 SERVER_ARGS=(--host 0.0.0.0 --port 8080)
+
+# ---------------------------------------------------------------------------
+# Adapter Sidecar — DISABLED
+# vLLM runs on port 8080 and handles /ping, /invocations, /v1/* natively.
+# The /adapters route will be injected directly into vLLM's FastAPI app.
+# ---------------------------------------------------------------------------
 <% } %>
 
 # --- Server-specific arg conversion and exec ---

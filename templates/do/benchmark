@@ -19,22 +19,25 @@ CLEAN_AFTER=false
 FORCE=false
 IC_ARG=""
 ADAPTER_ARG=""
+ARG_NO_STALE_WARNING=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --clean) CLEAN_AFTER=true; shift ;;
         --force) FORCE=true; shift ;;
+        --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
         --ic) shift; IC_ARG="${1:-}"; shift ;;
         --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
         --help|-h)
-            echo "Usage: ./do/benchmark [--ic <name>] [--adapter <name>] [--force] [--clean]"
+            echo "Usage: ./do/benchmark [--ic <name>] [--adapter <name>] [--force] [--clean] [--no-stale-warning]"
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
             echo "Options:"
-            echo "  --ic <name>      Benchmark a specific inference component"
-            echo "  --adapter <name> Benchmark a specific LoRA adapter IC"
-            echo "  --force          Create a new benchmark job even if one is already running"
-            echo "  --clean          Delete workload config and benchmark job after displaying results"
+            echo "  --ic <name>         Benchmark a specific inference component"
+            echo "  --adapter <name>    Benchmark a specific LoRA adapter IC"
+            echo "  --force             Create a new benchmark job even if one is already running"
+            echo "  --clean             Delete workload config and benchmark job after displaying results"
+            echo "  --no-stale-warning  Suppress schema registry staleness warning"
             echo ""
             echo "IC resolution:"
             echo "  --adapter <name> Use ADAPTER_IC_NAME from do/adapters/<name>.conf"
@@ -53,6 +56,43 @@ while [ $# -gt 0 ]; do
         *) shift ;;
     esac
 done
+
+# ── _check_schema_registry_staleness() ────────────────────────────────────────
+# Warn if the schema registry manifest's lastSynced timestamp is older than threshold.
+# Configurable via MCC_CATALOG_STALENESS_DAYS (default: 90).
+# Suppressed by --no-stale-warning flag or MCC_NO_STALE_WARNING=true env var.
+_check_schema_registry_staleness() {
+    if [ "${MCC_NO_STALE_WARNING:-}" = "true" ] || [ "${ARG_NO_STALE_WARNING:-false}" = true ]; then
+        return 0
+    fi
+    local threshold="${MCC_CATALOG_STALENESS_DAYS:-90}"
+    local manifest_file="${HOME}/.ml-container-creator/schemas/manifest.json"
+    if [ ! -f "${manifest_file}" ]; then
+        return 0
+    fi
+    local last_synced
+    last_synced=$(python3 -c "
+import json, sys
+from datetime import datetime, timezone
+try:
+    with open('${manifest_file}') as f:
+        manifest = json.load(f)
+    ls = manifest.get('lastSynced', '')
+    if not ls:
+        sys.exit(0)
+    synced = datetime.fromisoformat(ls.replace('Z', '+00:00'))
+    days = (datetime.now(timezone.utc) - synced).days
+    if days > int('${threshold}'):
+        print(days)
+except:
+    pass
+" 2>/dev/null)
+    if [ -n "${last_synced}" ]; then
+        echo "⚠️  Schema registry is ${last_synced} days old. Run 'ml-container-creator bootstrap sync-schemas' to update."
+    fi
+}
+
+_check_schema_registry_staleness
 
 # ── Verify AWS CLI v2 ─────────────────────────────────────────────────────────
 if ! aws --version 2>&1 | grep -q "aws-cli/2"; then

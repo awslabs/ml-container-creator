@@ -10,15 +10,19 @@ export DEPLOYMENT_CONFIG="<%= deploymentConfig %>"
 export FRAMEWORK="<%= framework %>"
 export MODEL_SERVER="<%= modelServer %>"
 
+# AWS configuration
+export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
+export ECR_REPOSITORY_NAME="ml-container-creator"
+
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
 # LoRA adapter serving
 export ENABLE_LORA=true
 export ADAPTER_S3_BUCKET="mlcc-adapters-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
+<% } else if (framework === 'transformers' || framework === 'diffusors') { %>
+# LoRA adapter serving (uncomment to enable)
+# export ENABLE_LORA=true
+# export ADAPTER_S3_BUCKET="mlcc-adapters-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
 <% } %>
-
-# AWS configuration
-export AWS_REGION="<%= awsRegion %>"
-export ECR_REPOSITORY_NAME="ml-container-creator"
 
 # Build configuration — WHERE the Docker image gets built
 export BUILD_TARGET="<%= buildTarget %>"
@@ -42,14 +46,27 @@ export INSTANCE_TYPE="<%= instanceType %>"
 # Instance pools: heterogeneous instance types with priority-based fallback
 # Priority = selection order (1 = preferred, higher = fallback)
 export INSTANCE_POOLS='<%= JSON.stringify(instancePools) %>'
+<% } else { %>
+# Instance pools: heterogeneous instance types with priority-based fallback (uncomment to enable)
+# Format: [{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.g5.48xlarge","Priority":2}]
+# export INSTANCE_POOLS='[]'
 <% } %>
 <% if (inferenceAmiVersion) { %>
 export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
+<% } else { %>
+# Inference AMI version — auto-resolved from CUDA version (uncomment to override)
+# Valid: al2-ami-sagemaker-inference-gpu-2, al2-ami-sagemaker-inference-gpu-2-1,
+#        al2-ami-sagemaker-inference-gpu-3-1, al2023-ami-sagemaker-inference-gpu-4-1
+# export INFERENCE_AMI_VERSION=""
 <% } %>
 <% if (typeof capacityReservationArn !== 'undefined' && capacityReservationArn) { %>
 # Note: Capacity reservations and instance pools (INSTANCE_POOLS) are mutually exclusive.
 # If both are set, the capacity reservation takes precedence and INSTANCE_POOLS is ignored.
 export CAPACITY_RESERVATION_ARN="<%= capacityReservationArn %>"
+<% } else { %>
+# Capacity reservation (uncomment to use reserved capacity)
+# Note: Mutually exclusive with INSTANCE_POOLS — reservation takes precedence.
+# export CAPACITY_RESERVATION_ARN=""
 <% } %>
 <% } %>
 <% } %>
@@ -59,6 +76,9 @@ export CAPACITY_RESERVATION_ARN="<%= capacityReservationArn %>"
 export INSTANCE_TYPE="<%= instanceType %>"
 <% if (inferenceAmiVersion) { %>
 export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
+<% } else { %>
+# Inference AMI version — auto-resolved from CUDA version (uncomment to override)
+# export INFERENCE_AMI_VERSION=""
 <% } %>
 
 # Async-specific configuration
@@ -85,6 +105,9 @@ export ASYNC_SNS_ERROR_TOPIC="arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}:ml-contain
 
 <% if (asyncMaxConcurrentInvocations) { %>
 export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
+<% } else { %>
+# Max concurrent invocations per instance (uncomment to set)
+# export ASYNC_MAX_CONCURRENT_INVOCATIONS=""
 <% } %>
 <% } %>
 
@@ -95,6 +118,9 @@ export HYPERPOD_NAMESPACE="<%= hyperPodNamespace %>"
 export HYPERPOD_REPLICAS="<%= hyperPodReplicas %>"
 <% if (fsxVolumeHandle) { %>
 export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
+<% } else { %>
+# FSx for Lustre volume for shared model storage (uncomment to enable)
+# export FSX_VOLUME_HANDLE=""
 <% } %>
 <% } %>
 
@@ -121,9 +147,15 @@ export BATCH_STRATEGY="<%= batchStrategy %>"
 export BATCH_JOIN_SOURCE="<%= batchJoinSource || 'None' %>"
 <% if (batchMaxConcurrentTransforms) { %>
 export BATCH_MAX_CONCURRENT_TRANSFORMS="<%= batchMaxConcurrentTransforms %>"
+<% } else { %>
+# Max concurrent transforms per instance (uncomment to set)
+# export BATCH_MAX_CONCURRENT_TRANSFORMS=""
 <% } %>
 <% if (batchMaxPayloadInMB) { %>
 export BATCH_MAX_PAYLOAD_IN_MB="<%= batchMaxPayloadInMB %>"
+<% } else { %>
+# Max payload size in MB (uncomment to set, default: 6)
+# export BATCH_MAX_PAYLOAD_IN_MB=""
 <% } %>
 <% } %>
 
@@ -138,6 +170,22 @@ export ENDPOINT_VARIANT_NAME="<%= endpointVariantName %>"
 <% } %>
 <% if (typeof endpointVolumeSize !== 'undefined' && endpointVolumeSize != null) { %>
 export ENDPOINT_VOLUME_SIZE="<%= endpointVolumeSize %>"
+<% } %>
+
+<% if (deploymentTarget === 'realtime-inference' || deploymentTarget === 'async-inference') { %>
+# ─── Endpoint overrides (uncomment to customize) ───────────────────────────────
+<% if (typeof endpointInitialInstanceCount === 'undefined' || endpointInitialInstanceCount == null) { %>
+# export ENDPOINT_INITIAL_INSTANCE_COUNT="1"    # Number of instances for the endpoint
+<% } %>
+<% if (typeof endpointDataCapturePercent === 'undefined' || endpointDataCapturePercent == null) { %>
+# export ENDPOINT_DATA_CAPTURE_PERCENT=""        # Percentage of requests to capture (0-100)
+<% } %>
+<% if (typeof endpointVariantName === 'undefined' || endpointVariantName == null) { %>
+# export ENDPOINT_VARIANT_NAME=""                # Custom variant name (default: AllTraffic)
+<% } %>
+<% if (typeof endpointVolumeSize === 'undefined' || endpointVolumeSize == null) { %>
+# export ENDPOINT_VOLUME_SIZE=""                 # EBS volume size in GB for model download
+<% } %>
 <% } %>
 
 <% if (typeof icCpuCount !== 'undefined' && icCpuCount != null) { %>
@@ -156,6 +204,22 @@ export IC_COPY_COUNT="<%= icCopyCount %>"
 <% } %>
 <% if (typeof icModelWeight !== 'undefined' && icModelWeight != null) { %>
 export IC_MODEL_WEIGHT="<%= icModelWeight %>"
+<% } %>
+
+<% if (deploymentTarget === 'realtime-inference' || deploymentTarget === 'async-inference') { %>
+# ─── Inference Component overrides (uncomment to customize) ────────────────────
+<% if (typeof icCpuCount === 'undefined' || icCpuCount == null) { %>
+# export IC_CPU_COUNT=""                         # CPU cores reserved for this IC
+<% } %>
+<% if (typeof icMemorySize === 'undefined' || icMemorySize == null) { %>
+# export IC_MEMORY_SIZE=""                       # Memory in MB reserved for this IC
+<% } %>
+<% if (typeof icCopyCount === 'undefined' || icCopyCount == null) { %>
+# export IC_COPY_COUNT=""                        # Number of model copies (multi-IC scaling)
+<% } %>
+<% if (typeof icModelWeight === 'undefined' || icModelWeight == null) { %>
+# export IC_MODEL_WEIGHT=""                      # Traffic weight for this IC (0-100)
+<% } %>
 <% } %>
 
 <% if (typeof modelEnvVars !== 'undefined' && modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
@@ -192,7 +256,22 @@ export NGC_API_KEY="<%= ngcApiKey %>"
 <% if (deploymentTarget !== 'batch-transform') { %>
 # Managed Model Customization (do/tune)
 export TUNE_SUPPORTED=<%= (typeof tuneSupported !== 'undefined' && tuneSupported) ? 'true' : 'false' %>
+<% if (typeof tuneSupported !== 'undefined' && tuneSupported) { %>
+<% if (typeof tuneModelId !== 'undefined' && tuneModelId) { %>
+# SageMaker AI Managed Fine-Tuning — JumpStart Hub model ID
+# Flow: JumpStart model (tune) → LoRA adapter (S3) → do/adapter add → vLLM
+export TUNE_MODEL_ID="<%= tuneModelId %>"
+<% } else { %>
+# SageMaker AI Managed Fine-Tuning — JumpStart Hub model ID
+# To find your model's Hub ID:
+#   aws sagemaker list-hub-contents --hub-name SageMakerPublicHub \
+#     --hub-content-type Model --query "HubContentSummaries[].HubContentName"
+# export TUNE_MODEL_ID=""
+<% } %>
+<% } %>
 export TUNE_S3_BUCKET="mlcc-tune-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
+# MLflow App ARN for experiment tracking (set by bootstrap, or override manually)
+# export MLFLOW_APP_ARN=""
 <% } %>
 <% } %>
 
@@ -210,10 +289,17 @@ export HF_TOKEN="<%= hfToken %>"
 
 <% if (modelFormat) { %>
 export MODEL_FORMAT="<%= modelFormat %>"
+<% } else { %>
+# Model format (uncomment if using quantized models)
+# Valid: pkl, json, keras, safetensors, gguf, awq, gptq
+# export MODEL_FORMAT=""
 <% } %>
 
 <% if (roleArn) { %>
 export ROLE_ARN="<%= roleArn %>"
+<% } else { %>
+# IAM execution role for SageMaker (uncomment to override bootstrap role)
+# export ROLE_ARN=""
 <% } %>
 
 <% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
@@ -234,6 +320,16 @@ export BENCHMARK_S3_OUTPUT_PATH="s3://mlcc-benchmark-$(aws sts get-caller-identi
 <% } %>
 export BENCHMARK_JOB_NAME=""
 export BENCHMARK_WORKLOAD_CONFIG_NAME=""
+<% } else if (framework === 'transformers' && deploymentTarget !== 'batch-transform') { %>
+# ─── SageMaker AI Benchmarking (uncomment to enable) ──────────────────────────
+# export BENCHMARK_CONCURRENCY="10"              # Concurrent requests
+# export BENCHMARK_INPUT_TOKENS_MEAN="550"       # Mean input tokens per request
+# export BENCHMARK_OUTPUT_TOKENS_MEAN="150"      # Mean output tokens per request
+# export BENCHMARK_STREAMING="true"              # Enable streaming
+# export BENCHMARK_REQUEST_COUNT=""              # Total requests (empty = auto)
+# export BENCHMARK_S3_OUTPUT_PATH=""             # S3 path for results (empty = auto)
+# export BENCHMARK_JOB_NAME=""                   # Resume/check existing job
+# export BENCHMARK_WORKLOAD_CONFIG_NAME=""       # Reuse existing workload config
 <% } %>
 
 <% if (orderedEnvVars && orderedEnvVars.length > 0) { %>
@@ -246,7 +342,6 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage || '' %>}
 
 # Allow environment variable overrides
-export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
 <% if ((deploymentTarget === 'realtime-inference' && !(typeof existingEndpointName !== 'undefined' && existingEndpointName)) || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 <% } %>

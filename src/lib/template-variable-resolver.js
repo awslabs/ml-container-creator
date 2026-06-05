@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { isTuneSupported } from './tune-catalog-validator.js';
+import { isTuneSupported, lookupModel } from './tune-catalog-validator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -393,6 +393,30 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
             answers.tuneSupported = isTuneSupported(modelId, tuneCatalog);
         } catch {
             answers.tuneSupported = false;
+        }
+    }
+
+    // Resolve tuneModelId from the catalog — static lookup, no network calls.
+    // Maps the HuggingFace model ID to the Hub content name (catalog key).
+    if (answers.tuneModelId === undefined) {
+        if (answers.tuneSupported && answers.modelName) {
+            try {
+                const tuneCatalogPath = path.resolve(__dirname, '..', '..', 'config', 'tune-catalog.json');
+                const tuneCatalog = JSON.parse(fs.readFileSync(tuneCatalogPath, 'utf-8'));
+                const entry = lookupModel(answers.modelName, tuneCatalog);
+                if (entry) {
+                    const hubContentName = Object.entries(tuneCatalog.models)
+                        .find(([, v]) => v === entry)?.[0];
+                    if (hubContentName) {
+                        answers.tuneModelId = hubContentName;
+                    }
+                }
+            } catch {
+                // Silently continue — tuneModelId will be set to null below
+            }
+        }
+        if (!answers.tuneModelId) {
+            answers.tuneModelId = null;
         }
     }
 }

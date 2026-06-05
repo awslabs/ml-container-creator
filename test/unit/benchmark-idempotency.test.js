@@ -195,19 +195,27 @@ describe('Benchmark Idempotency', () => {
             );
         });
 
-        it('should NOT contain BENCHMARK_JOB_NAME when includeBenchmark is false', () => {
+        it('should NOT export BENCHMARK_JOB_NAME when includeBenchmark is false', () => {
             const output = ejs.render(configTemplate, baseVars({ includeBenchmark: false }));
+            // Check that no uncommented export line exists for this var
+            const activeExport = output.split('\n').some(line =>
+                line.trim().startsWith('export') && line.includes('BENCHMARK_JOB_NAME')
+            );
             assert.ok(
-                !output.includes('BENCHMARK_JOB_NAME'),
-                'must not contain BENCHMARK_JOB_NAME when benchmark disabled'
+                !activeExport,
+                'must not actively export BENCHMARK_JOB_NAME when benchmark disabled'
             );
         });
 
-        it('should NOT contain BENCHMARK_WORKLOAD_CONFIG_NAME when includeBenchmark is false', () => {
+        it('should NOT export BENCHMARK_WORKLOAD_CONFIG_NAME when includeBenchmark is false', () => {
             const output = ejs.render(configTemplate, baseVars({ includeBenchmark: false }));
+            // Check that no uncommented export line exists for this var
+            const activeExport = output.split('\n').some(line =>
+                line.trim().startsWith('export') && line.includes('BENCHMARK_WORKLOAD_CONFIG_NAME')
+            );
             assert.ok(
-                !output.includes('BENCHMARK_WORKLOAD_CONFIG_NAME'),
-                'must not contain BENCHMARK_WORKLOAD_CONFIG_NAME when benchmark disabled'
+                !activeExport,
+                'must not actively export BENCHMARK_WORKLOAD_CONFIG_NAME when benchmark disabled'
             );
         });
     });

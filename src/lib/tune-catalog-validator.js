@@ -13,7 +13,8 @@
 
 /**
  * Look up a model entry in the catalog by model ID.
- * @param {string} modelId - The model ID to look up
+ * Tries: direct key match, huggingFaceId field match, then normalized/suffix matching.
+ * @param {string} modelId - The model ID to look up (Hub content name or HuggingFace ID)
  * @param {Object} catalog - The tune catalog object with a `models` map
  * @returns {Object|null} The catalog entry for the model, or null if not found
  */
@@ -21,10 +22,42 @@ export function lookupModel(modelId, catalog) {
     if (!catalog || !catalog.models) {
         return null;
     }
-    if (!Object.hasOwn(catalog.models, modelId)) {
-        return null;
+
+    // Direct key match (Hub content name)
+    if (Object.hasOwn(catalog.models, modelId)) {
+        return catalog.models[modelId] || null;
     }
-    return catalog.models[modelId] || null;
+
+    // Match by huggingFaceId field (e.g., "Qwen/Qwen3-0.6B")
+    for (const [, entry] of Object.entries(catalog.models)) {
+        if (entry.huggingFaceId === modelId) {
+            return entry;
+        }
+    }
+
+    // Normalized match: strip org prefix, lowercase, replace dots/spaces with hyphens
+    const normalized = modelId.split('/').pop().toLowerCase().replace(/[.\s]+/g, '-');
+    if (normalized && Object.hasOwn(catalog.models, normalized)) {
+        return catalog.models[normalized] || null;
+    }
+
+    // Try without trailing suffixes like -instruct, -chat, -hf, -base
+    const base = normalized ? normalized.replace(/-(instruct|chat|hf|base)$/i, '') : '';
+    if (base && base !== normalized && Object.hasOwn(catalog.models, base)) {
+        return catalog.models[base] || null;
+    }
+
+    // Suffix match: catalog keys may have prefixes (e.g., "huggingface-reasoning-")
+    // Match if a catalog key ends with the normalized name (must be non-trivial match)
+    if (normalized && normalized.length >= 4) {
+        for (const [key, entry] of Object.entries(catalog.models)) {
+            if (key.endsWith(normalized) || (base && base.length >= 4 && key.endsWith(base))) {
+                return entry || null;
+            }
+        }
+    }
+
+    return null;
 }
 
 /**

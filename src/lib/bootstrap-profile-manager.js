@@ -631,4 +631,40 @@ export default class BootstrapProfileManager {
 
         console.log(`  Manifest written: lastSynced = ${result.manifest.lastSynced}\n`);
     }
+
+    /**
+     * Handle sync-model-families subcommand: discover tune-eligible models from
+     * the SageMaker JumpStart Hub and update the tune catalog.
+     *
+     * Requires AWS credentials with sagemaker:ListHubContents and
+     * sagemaker:DescribeHubContent permissions.
+     */
+    async _handleSyncModelFamilies() {
+        console.log('\n📦 Sync Model Families — Discovering supported models...\n');
+
+        // Determine region from active profile or environment
+        const profile = this.handler.config.getActiveProfile();
+        const region = profile?.config?.awsRegion || process.env.AWS_REGION || 'us-west-2';
+
+        try {
+            const { syncModelFamilies } = await import('../../scripts/sync-model-families.js');
+            const result = await syncModelFamilies({ region });
+            console.log(`\n✅ Sync complete: ${result.added} new, ${result.total} total models`);
+        } catch (err) {
+            if (err.name === 'CredentialsProviderError' || err.message?.includes('credentials') || err.message?.includes('Could not load credentials')) {
+                console.log('❌ AWS credentials not available or insufficient permissions.');
+                console.log('');
+                console.log('   Required permissions:');
+                console.log('     • sagemaker:ListHubContents');
+                console.log('     • sagemaker:DescribeHubContent');
+                console.log('');
+                console.log('   Ensure your AWS credentials are configured:');
+                console.log('     aws configure');
+                console.log('     # or set AWS_PROFILE to a profile with SageMaker AI access');
+            } else {
+                console.log(`❌ Sync failed: ${err.message}`);
+            }
+            process.exit(1);
+        }
+    }
 }

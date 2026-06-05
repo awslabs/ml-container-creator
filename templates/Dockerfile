@@ -243,6 +243,7 @@ ENV <%= key %>=<%= value %>
 ENV VLLM_ENABLE_LORA=true
 ENV VLLM_MAX_LORAS=<%= maxLoras %>
 ENV VLLM_MAX_LORA_RANK=<%= maxLoraRank %>
+ENV VLLM_ALLOW_RUNTIME_LORA_UPDATING=true
 <% } %>
 <% if (enableLora && modelServer === 'sglang') { %>
 # LoRA adapter serving configuration
@@ -307,9 +308,17 @@ COPY code/serving.properties /opt/ml/model/serving.properties
 # LMI/DJL containers use their own entrypoint
 # The container will automatically start DJL Serving with the configuration
 <% } else { %>
+<% if (enableLora && (modelServer === 'vllm' || modelServer === 'sglang')) { %>
+# Install aiohttp for the adapter sidecar
+RUN pip install --no-cache-dir aiohttp
+
+<% } %>
 COPY code/cuda_compat.sh /usr/bin/cuda_compat.sh
 COPY code/cw_log_forwarder.py /usr/bin/cw_log_forwarder.py
 COPY code/serve /usr/bin/serve
+<% if (enableLora && (modelServer === 'vllm' || modelServer === 'sglang')) { %>
+COPY code/adapter_sidecar.py /usr/bin/adapter_sidecar.py
+<% } %>
 RUN chmod 777 /usr/bin/serve /usr/bin/cuda_compat.sh
 
 <% if (comments && comments.troubleshooting) { %>

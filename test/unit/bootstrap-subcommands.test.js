@@ -38,7 +38,8 @@ describe('Bootstrap Subcommand Routing', () => {
             use: [],
             list: [],
             remove: [],
-            showHelp: []
+            showHelp: [],
+            syncModelFamilies: []
         };
 
         // Override internal handler methods with spies
@@ -56,6 +57,9 @@ describe('Bootstrap Subcommand Routing', () => {
         };
         handler._handleRemove = async (profileName, options) => {
             calls.remove.push({ profileName, options });
+        };
+        handler._handleSyncModelFamilies = async () => {
+            calls.syncModelFamilies.push({});
         };
         handler._showHelp = () => {
             calls.showHelp.push({});
@@ -125,6 +129,19 @@ describe('Bootstrap Subcommand Routing', () => {
             assert.strictEqual(calls.status.length, 0);
             assert.strictEqual(calls.use.length, 0);
             assert.strictEqual(calls.list.length, 0);
+        });
+    });
+
+    describe('sync-model-families subcommand', () => {
+        it('handle(["sync-model-families"], options) calls _handleSyncModelFamilies()', async () => {
+            await handler.handle(['sync-model-families'], {});
+
+            assert.strictEqual(calls.syncModelFamilies.length, 1, 'should call _handleSyncModelFamilies once');
+            assert.strictEqual(calls.interactiveSetup.length, 0);
+            assert.strictEqual(calls.status.length, 0);
+            assert.strictEqual(calls.use.length, 0);
+            assert.strictEqual(calls.list.length, 0);
+            assert.strictEqual(calls.remove.length, 0);
         });
     });
 

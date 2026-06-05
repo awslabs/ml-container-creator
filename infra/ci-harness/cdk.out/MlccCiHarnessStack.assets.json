@@ -8,26 +8,26 @@
         "packaging": "zip"
       },
       "destinations": {
-        "633146206289-us-west-2-1824dd3f": {
-          "bucketName": "cdk-hnb659fds-assets-633146206289-us-west-2",
+        "633146206289-us-east-1-b796cc37": {
+          "bucketName": "cdk-hnb659fds-assets-633146206289-us-east-1",
           "objectKey": "0cc865cf6b735957518f2af181f8b90df1b29c7b35526266e852a98cd56a2fb8.zip",
-          "region": "us-west-2",
-          "assumeRoleArn": "arn:${AWS::Partition}:iam::633146206289:role/cdk-hnb659fds-file-publishing-role-633146206289-us-west-2"
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::633146206289:role/cdk-hnb659fds-file-publishing-role-633146206289-us-east-1"
         }
       }
     },
-    "e1865e323ea14a5a38b737697741d8daaaf8467656516327d873550ca00f1824": {
+    "816fbe69ec7ebf8232ebf914ce2bd994527d29f0be8d43b3fd765c6a447ffab3": {
       "displayName": "MlccCiHarnessStack Template",
       "source": {
         "path": "MlccCiHarnessStack.template.json",
         "packaging": "file"
       },
       "destinations": {
-        "633146206289-us-west-2-9df5bf9a": {
-          "bucketName": "cdk-hnb659fds-assets-633146206289-us-west-2",
-          "objectKey": "e1865e323ea14a5a38b737697741d8daaaf8467656516327d873550ca00f1824.json",
-          "region": "us-west-2",
-          "assumeRoleArn": "arn:${AWS::Partition}:iam::633146206289:role/cdk-hnb659fds-file-publishing-role-633146206289-us-west-2"
+        "633146206289-us-east-1-3574f6e9": {
+          "bucketName": "cdk-hnb659fds-assets-633146206289-us-east-1",
+          "objectKey": "816fbe69ec7ebf8232ebf914ce2bd994527d29f0be8d43b3fd765c6a447ffab3.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::633146206289:role/cdk-hnb659fds-file-publishing-role-633146206289-us-east-1"
         }
       }
     }
