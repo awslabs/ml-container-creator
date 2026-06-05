@@ -214,6 +214,7 @@ else
     # Resolve inference component name
     # Precedence: do/adapters/ → do/ic/ → legacy config
     IC_NAME=""
+    ADAPTER_MODEL_NAME=""
     if [ -n "${IC_ARG}" ] && [ -f "${SCRIPT_DIR}/adapters/${IC_ARG}.conf" ]; then
         # Argument matches an adapter name — use adapter IC
         ADAPTER_IC_NAME=""
@@ -223,6 +224,7 @@ else
             exit 1
         fi
         IC_NAME="${ADAPTER_IC_NAME}"
+        ADAPTER_MODEL_NAME="${IC_ARG}"
     elif [ -n "${IC_ARG}" ]; then
         # Explicit IC name provided as argument
         IC_CONF="${SCRIPT_DIR}/ic/${IC_ARG}.conf"
@@ -256,6 +258,17 @@ else
     else
         # Legacy: no do/ic/ directory, use INFERENCE_COMPONENT_NAME from do/config
         IC_NAME="${INFERENCE_COMPONENT_NAME:-}"
+    fi
+
+    # If testing an adapter, override the model name in the payload
+    if [ -n "${ADAPTER_MODEL_NAME}" ] && [ "${FRAMEWORK}" = "transformers" ]; then
+        case "${MODEL_SERVER}" in
+            vllm|sglang)
+                TEST_PAYLOAD='{"model": "'"${ADAPTER_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                echo "${TEST_PAYLOAD}" > "${TEMP_PAYLOAD}"
+                echo "   (Using adapter model name: ${ADAPTER_MODEL_NAME})"
+                ;;
+        esac
     fi
 
     INVOKE_ARGS=(

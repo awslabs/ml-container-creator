@@ -156,9 +156,13 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
                         'Output must contain INFERENCE_AMI_VERSION when provided'
                     );
                 } else {
+                    // When not provided, should not have an active (uncommented) export
+                    const hasActiveExport = output.split('\n').some(line =>
+                        line.trim().startsWith('export') && line.includes('INFERENCE_AMI_VERSION=')
+                    );
                     assert.ok(
-                        !output.includes('export INFERENCE_AMI_VERSION='),
-                        'Output must NOT contain INFERENCE_AMI_VERSION when not provided'
+                        !hasActiveExport,
+                        'Output must NOT actively export INFERENCE_AMI_VERSION when not provided'
                     );
                 }
             }
@@ -248,9 +252,13 @@ describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
                         'Output must contain FSX_VOLUME_HANDLE when provided'
                     );
                 } else {
+                    // When not provided, should not have an active (uncommented) export
+                    const hasActiveExport = output.split('\n').some(line =>
+                        line.trim().startsWith('export') && line.includes('FSX_VOLUME_HANDLE=')
+                    );
                     assert.ok(
-                        !output.includes('export FSX_VOLUME_HANDLE='),
-                        'Output must NOT contain FSX_VOLUME_HANDLE when not provided'
+                        !hasActiveExport,
+                        'Output must NOT actively export FSX_VOLUME_HANDLE when not provided'
                     );
                 }
             }

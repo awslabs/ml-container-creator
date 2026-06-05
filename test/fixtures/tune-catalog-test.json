@@ -1,8 +1,8 @@
 {
   "version": "2026-07-01",
   "models": {
-    "qwen3-4b": {
-      "jumpStartModelId": "qwen3-4b",
+    "huggingface-reasoning-qwen3-4b": {
+      "huggingFaceId": "Qwen/Qwen3-4B",
       "family": "qwen-3",
       "provider": "alibaba",
       "displayName": "Alibaba Qwen 3 4B",

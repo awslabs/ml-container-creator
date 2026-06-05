@@ -77,6 +77,11 @@
                     "sagemaker:ListAIBenchmarkJobs",
                     "sagemaker:StopAIBenchmarkJob",
                     "sagemaker:DeleteAIBenchmarkJob",
+                    "sagemaker:CreateAIRecommendationJob",
+                    "sagemaker:DescribeAIRecommendationJob",
+                    "sagemaker:ListAIRecommendationJobs",
+                    "sagemaker:StopAIRecommendationJob",
+                    "sagemaker:DeleteAIRecommendationJob",
                     "sagemaker:CreateAIWorkloadConfig",
                     "sagemaker:DescribeAIWorkloadConfig",
                     "sagemaker:ListAIWorkloadConfigs",
@@ -201,6 +206,9 @@
                     "sagemaker:DescribeModelPackage",
                     "sagemaker:DescribeModelPackageGroup",
                     "sagemaker:ListModelPackages",
+                    "sagemaker:ListHubContents",
+                    "sagemaker:DescribeHubContent",
+                    "sagemaker:DescribeHub",
                     "sagemaker:CallMlflowAppApi"
                   ],
                   "Resource": "*"
@@ -208,8 +216,27 @@
                 {
                   "Sid": "SageMakerMLflow",
                   "Effect": "Allow",
-                  "Action": "sagemaker-mlflow:*",
+                  "Action": [
+                    "sagemaker:ListMlflowApps",
+                    "sagemaker:ListMlflowTrackingServers",
+                    "sagemaker:DescribeMlflowTrackingServer",
+                    "sagemaker:CreatePresignedMlflowTrackingServerUrl",
+                    "sagemaker:DescribeApp",
+                    "sagemaker:ListApps"
+                  ],
                   "Resource": "*"
+                },
+                {
+                  "Sid": "SageMakerMlflowAppAccess",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sagemaker:UpdateMlflowApp",
+                    "sagemaker:DescribeMlflowApp",
+                    "sagemaker:CreatePresignedMlflowAppUrl",
+                    "sagemaker:CallMlflowAppApi",
+                    "sagemaker-mlflow:*"
+                  ],
+                  "Resource": { "Fn::Sub": "arn:aws:sagemaker:*:${AWS::AccountId}:mlflow-app/*" }
                 },
                 {
                   "Sid": "LambdaInvokeForReward",
@@ -395,7 +422,7 @@
     },
     "StackVersion": {
       "Description": "Bootstrap stack template version for forward compatibility tracking",
-      "Value": "2026-05-18"
+      "Value": "2026-05-28"
     }
   }
 }

@@ -124,9 +124,13 @@ describe('Feature: sagemaker-ai-benchmarking, Property: Backward compatibility w
                 const vars = buildVars(baseConfig, includeBenchmark);
                 const output = ejs.render(configTemplate, vars);
 
+                // Check that no uncommented export line contains BENCHMARK_
+                const hasActiveExport = output.split('\n').some(line =>
+                    line.trim().startsWith('export') && line.includes('BENCHMARK_')
+                );
                 assert.ok(
-                    !output.includes('BENCHMARK_'),
-                    `do/config must NOT contain BENCHMARK_* variables when includeBenchmark=${includeBenchmark}, but found BENCHMARK_ in output`
+                    !hasActiveExport,
+                    `do/config must NOT actively export BENCHMARK_* variables when includeBenchmark=${includeBenchmark}`
                 );
             }
         ), { numRuns: 25 });

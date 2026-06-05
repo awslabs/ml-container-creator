@@ -47,18 +47,18 @@ describe('Feature: managed-model-customization, Property 5: Catalog schema valid
         modelKeys = Object.keys(catalog.models);
     });
 
-    it('every catalog entry has a non-empty jumpStartModelId', function () {
+    it('every catalog entry has required metadata fields', function () {
         this.timeout(PROPERTY_CONFIG.timeout);
         fc.assert(fc.property(
             fc.constantFrom(...modelKeys),
             (modelKey) => {
                 const entry = catalog.models[modelKey];
-                assert.ok(entry.jumpStartModelId,
-                    `Model "${modelKey}" must have a non-empty jumpStartModelId`);
-                assert.strictEqual(typeof entry.jumpStartModelId, 'string',
-                    `Model "${modelKey}" jumpStartModelId must be a string`);
-                assert.ok(entry.jumpStartModelId.length > 0,
-                    `Model "${modelKey}" jumpStartModelId must not be empty`);
+                assert.ok(entry.family,
+                    `Model "${modelKey}" must have a non-empty family`);
+                assert.ok(entry.provider,
+                    `Model "${modelKey}" must have a non-empty provider`);
+                assert.ok(entry.displayName,
+                    `Model "${modelKey}" must have a non-empty displayName`);
             }
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });

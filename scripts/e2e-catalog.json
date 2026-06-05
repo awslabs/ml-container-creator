@@ -9,7 +9,7 @@
             "timeout": 1800,
             "tuneTimeout": 3600,
             "tuneConfig": {
-                "tuneId": "qwen3-0-6b",
+                "tuneId": "huggingface-reasoning-qwen3-06b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
@@ -24,7 +24,7 @@
             "timeout": 1800,
             "tuneTimeout": 3600,
             "tuneConfig": {
-                "tuneId": "qwen3-1-7b",
+                "tuneId": "huggingface-reasoning-qwen3-1-7b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
@@ -39,7 +39,7 @@
             "timeout": 1800,
             "tuneTimeout": 3600,
             "tuneConfig": {
-                "tuneId": "qwen3-4b",
+                "tuneId": "huggingface-reasoning-qwen3-4b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
@@ -84,7 +84,7 @@
             "timeout": 1800,
             "tuneTimeout": 3600,
             "tuneConfig": {
-                "tuneId": "deepseek-r1-distill-qwen-1-5b",
+                "tuneId": "deepseek-llm-r1-distill-qwen-1-5b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
@@ -99,7 +99,7 @@
             "timeout": 1800,
             "tuneTimeout": 3600,
             "tuneConfig": {
-                "tuneId": "deepseek-r1-distill-qwen-7b",
+                "tuneId": "deepseek-llm-r1-distill-qwen-7b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
@@ -114,7 +114,7 @@
             "timeout": 1800,
             "tuneTimeout": 3600,
             "tuneConfig": {
-                "tuneId": "qwen2-5-7b-instruct",
+                "tuneId": "huggingface-llm-qwen2-5-7b-instruct",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
@@ -129,7 +129,7 @@
             "timeout": 1800,
             "tuneTimeout": 3600,
             "tuneConfig": {
-                "tuneId": "deepseek-r1-distill-llama-8b",
+                "tuneId": "deepseek-llm-r1-distill-llama-8b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
@@ -144,7 +144,7 @@
             "timeout": 1800,
             "tuneTimeout": 3600,
             "tuneConfig": {
-                "tuneId": "qwen3-8b",
+                "tuneId": "huggingface-reasoning-qwen3-8b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-small/train.jsonl"
@@ -174,7 +174,7 @@
             "timeout": 2700,
             "tuneTimeout": 5400,
             "tuneConfig": {
-                "tuneId": "qwen3-14b",
+                "tuneId": "huggingface-reasoning-qwen3-14b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
@@ -189,7 +189,7 @@
             "timeout": 2700,
             "tuneTimeout": 5400,
             "tuneConfig": {
-                "tuneId": "qwen2-5-14b-instruct",
+                "tuneId": "huggingface-llm-qwen2-5-14b-instruct",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
@@ -204,7 +204,7 @@
             "timeout": 2700,
             "tuneTimeout": 5400,
             "tuneConfig": {
-                "tuneId": "deepseek-r1-distill-qwen-14b",
+                "tuneId": "deepseek-llm-r1-distill-qwen-14b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
@@ -219,7 +219,7 @@
             "timeout": 2700,
             "tuneTimeout": 5400,
             "tuneConfig": {
-                "tuneId": "openai-gpt-oss-20b",
+                "tuneId": "openai-reasoning-gpt-oss-20b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
@@ -234,7 +234,7 @@
             "timeout": 2700,
             "tuneTimeout": 5400,
             "tuneConfig": {
-                "tuneId": "qwen3-32b",
+                "tuneId": "huggingface-reasoning-qwen3-32b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
@@ -249,7 +249,7 @@
             "timeout": 2700,
             "tuneTimeout": 5400,
             "tuneConfig": {
-                "tuneId": "qwen2-5-32b-instruct",
+                "tuneId": "huggingface-llm-qwen2-5-32b-instruct",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
@@ -264,7 +264,7 @@
             "timeout": 2700,
             "tuneTimeout": 5400,
             "tuneConfig": {
-                "tuneId": "deepseek-r1-distill-qwen-32b",
+                "tuneId": "deepseek-llm-r1-distill-qwen-32b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-medium/train.jsonl"
@@ -294,7 +294,7 @@
             "timeout": 3600,
             "tuneTimeout": 10800,
             "tuneConfig": {
-                "tuneId": "qwen2-5-72b-instruct",
+                "tuneId": "huggingface-llm-qwen2-5-72b-instruct",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-large/train.jsonl"
@@ -309,7 +309,7 @@
             "timeout": 3600,
             "tuneTimeout": 10800,
             "tuneConfig": {
-                "tuneId": "deepseek-r1-distill-llama-70b",
+                "tuneId": "deepseek-llm-r1-distill-llama-70b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-large/train.jsonl"
@@ -324,7 +324,7 @@
             "timeout": 3600,
             "tuneTimeout": 10800,
             "tuneConfig": {
-                "tuneId": "openai-gpt-oss-120b",
+                "tuneId": "openai-reasoning-gpt-oss-120b",
                 "technique": "sft",
                 "trainingType": "lora",
                 "dataset": "s3://mlcc-e2e-datasets/sft-large/train.jsonl"

@@ -523,6 +523,155 @@ _adapter_add() {
             echo "📦 Using latest tune adapter output: ${weights_uri}"
         fi
         echo ""
+
+        # ── Package tune artifacts as tar.gz if needed ────────────────────
+        # Tune output is an S3 path that may be:
+        #   1. Already a tar.gz file (s3://...adapter.tar.gz) → use directly
+        #   2. An S3 directory prefix containing adapter files → download, validate, package, upload
+        if echo "${weights_uri}" | grep -qE '\.tar\.gz$'; then
+            echo "✅ Tune output is already a tar.gz archive."
+
+            # Validate adapter_config.json exists in the tar.gz
+            echo "🔍 Validating adapter_config.json in archive..."
+            local tar_validate_dir="/tmp/adapter_tar_validate_$$"
+            mkdir -p "${tar_validate_dir}"
+
+            if aws s3 cp "${weights_uri}" "${tar_validate_dir}/adapter.tar.gz" --region "${AWS_REGION}" --quiet 2>/dev/null; then
+                if ! tar -tzf "${tar_validate_dir}/adapter.tar.gz" 2>/dev/null | grep -q 'adapter_config\.json'; then
+                    echo "❌ adapter_config.json not found in tar.gz archive."
+                    echo ""
+                    echo "   Path: ${weights_uri}"
+                    echo ""
+                    echo "   The archive does not appear to contain a valid"
+                    echo "   PEFT/LoRA adapter. A valid adapter must include:"
+                    echo "   • adapter_config.json"
+                    echo "   • adapter_model.safetensors (or adapter_model.bin)"
+                    echo ""
+                    echo "   Check that the tune job completed successfully:"
+                    echo "   ./do/tune status"
+                    rm -rf "${tar_validate_dir}"
+                    exit 1
+                fi
+                echo "   ✅ adapter_config.json found in archive"
+            else
+                echo "   ⚠️  Could not download archive for validation. Proceeding anyway..."
+            fi
+
+            rm -rf "${tar_validate_dir}"
+            echo "   Using directly without re-packaging."
+        else
+            echo "📦 Tune output is a directory — packaging as tar.gz..."
+            local tune_tmp_dir="/tmp/adapter_tune_package_$$"
+            mkdir -p "${tune_tmp_dir}/adapter_files"
+
+            # Normalize S3 prefix (ensure trailing slash for directory listing)
+            local s3_prefix="${weights_uri}"
+            if [[ "${s3_prefix}" != */ ]]; then
+                s3_prefix="${s3_prefix}/"
+            fi
+
+            # Download all adapter files from S3 directory
+            echo "   Downloading adapter artifacts from: ${s3_prefix}"
+            if ! aws s3 cp "${s3_prefix}" "${tune_tmp_dir}/adapter_files/" --recursive --region "${AWS_REGION}" 2>/dev/null; then
+                echo "❌ Failed to download adapter artifacts from S3."
+                echo ""
+                echo "   Path: ${s3_prefix}"
+                echo "   Check that:"
+                echo "   • The S3 path exists and contains adapter files"
+                echo "   • Your IAM credentials have s3:GetObject and s3:ListBucket permission"
+                rm -rf "${tune_tmp_dir}"
+                exit 1
+            fi
+
+            # Validate adapter_config.json exists
+            if [ ! -f "${tune_tmp_dir}/adapter_files/adapter_config.json" ]; then
+                echo "❌ adapter_config.json not found in tune output."
+                echo ""
+                echo "   Path: ${s3_prefix}"
+                echo ""
+                echo "   The tune output does not appear to contain a valid"
+                echo "   PEFT/LoRA adapter. A valid adapter must include:"
+                echo "   • adapter_config.json"
+                echo "   • adapter_model.safetensors (or adapter_model.bin)"
+                echo ""
+                echo "   Check that the tune job completed successfully:"
+                echo "   ./do/tune status"
+                rm -rf "${tune_tmp_dir}"
+                exit 1
+            fi
+
+            echo "   ✅ adapter_config.json found"
+
+            # Optional: check base_model_name_or_path matches MODEL_NAME
+            if [ -n "${MODEL_NAME:-}" ]; then
+                local adapter_base_model=""
+                if command -v jq &>/dev/null; then
+                    adapter_base_model=$(jq -r '.base_model_name_or_path // empty' "${tune_tmp_dir}/adapter_files/adapter_config.json" 2>/dev/null)
+                else
+                    adapter_base_model=$(grep -o '"base_model_name_or_path"[[:space:]]*:[[:space:]]*"[^"]*"' "${tune_tmp_dir}/adapter_files/adapter_config.json" 2>/dev/null | sed 's/.*"base_model_name_or_path"[[:space:]]*:[[:space:]]*"//' | sed 's/"$//')
+                fi
+
+                if [ -n "${adapter_base_model}" ] && [ "${adapter_base_model}" != "${MODEL_NAME}" ]; then
+                    echo "   ⚠️  Adapter was trained on '${adapter_base_model}' but base model is '${MODEL_NAME}'. Adapter may not work correctly."
+                fi
+            fi
+
+            # Flatten: move any nested files to root level and remove subdirectories
+            find "${tune_tmp_dir}/adapter_files" -mindepth 2 -type f -exec mv {} "${tune_tmp_dir}/adapter_files/" \; 2>/dev/null || true
+            find "${tune_tmp_dir}/adapter_files" -mindepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+
+            # Create flat tar.gz archive
+            echo "   Creating adapter.tar.gz..."
+            if ! tar -czf "${tune_tmp_dir}/adapter.tar.gz" -C "${tune_tmp_dir}/adapter_files" . 2>/dev/null; then
+                echo "❌ Failed to create adapter.tar.gz from tune output."
+                rm -rf "${tune_tmp_dir}"
+                exit 1
+            fi
+
+            local tar_size
+            tar_size=$(du -h "${tune_tmp_dir}/adapter.tar.gz" | cut -f1)
+            echo "   Archive size: ${tar_size}"
+
+            # Resolve S3 bucket for upload
+            local s3_bucket=""
+            if [ -n "${ADAPTER_S3_BUCKET:-}" ]; then
+                s3_bucket="${ADAPTER_S3_BUCKET}"
+            else
+                local account_id
+                account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+                if [ -z "${account_id}" ]; then
+                    echo "❌ Could not determine AWS account ID."
+                    echo "   Ensure AWS credentials are configured."
+                    rm -rf "${tune_tmp_dir}"
+                    exit 1
+                fi
+                s3_bucket="mlcc-adapters-${account_id}-${AWS_REGION}"
+            fi
+
+            # Upload tar.gz to S3
+            local s3_tar_path="s3://${s3_bucket}/adapters/${PROJECT_NAME}/${adapter_name}/adapter.tar.gz"
+            echo "   ☁️  Uploading to S3: ${s3_tar_path}"
+
+            if ! aws s3 cp "${tune_tmp_dir}/adapter.tar.gz" "${s3_tar_path}" --region "${AWS_REGION}"; then
+                echo "❌ Failed to upload adapter tar.gz to S3."
+                echo ""
+                echo "   Check that:"
+                echo "   • The S3 bucket '${s3_bucket}' exists"
+                echo "   • Your IAM credentials have s3:PutObject permission"
+                echo "   • Run bootstrap if the bucket doesn't exist: ./do/bootstrap"
+                rm -rf "${tune_tmp_dir}"
+                exit 1
+            fi
+
+            echo "   ✅ Uploaded to S3: ${s3_tar_path}"
+
+            # Clean up temp directory
+            rm -rf "${tune_tmp_dir}"
+
+            # Update weights_uri to point to the uploaded tar.gz
+            weights_uri="${s3_tar_path}"
+        fi
+        echo ""
     fi
 
     # ── Validate HF repo ID format (if --from-hub) ───────────────────────

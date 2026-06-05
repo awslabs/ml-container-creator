@@ -300,6 +300,13 @@ export default class ConfigManager {
             (!finalConfig.destinationDir || finalConfig.destinationDir === '.')) {
             finalConfig.destinationDir = `./${finalConfig.projectName}`;
         }
+
+        // Ensure destinationDir is never null — derive from projectName if not set.
+        // This covers interactive mode where destinationDir is non-promptable and no
+        // CLI positional argument was provided.
+        if (!finalConfig.destinationDir) {
+            finalConfig.destinationDir = `./${finalConfig.projectName}`;
+        }
         
         // Generate CodeBuild project name if buildTarget is codebuild
         if ((finalConfig.buildTarget === 'codebuild' || finalConfig.deployTarget === 'codebuild') && !finalConfig.codebuildProjectName) {

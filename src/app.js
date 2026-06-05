@@ -347,10 +347,11 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/optimize');
     }
 
-    // Exclude do/adapter and do/adapters/ when LoRA is not enabled
+    // Exclude do/adapter, do/adapters/, and adapter sidecar when LoRA is not enabled
     if (!answers.enableLora) {
         ignorePatterns.push('**/do/adapter');
         ignorePatterns.push('**/do/adapters/**');
+        ignorePatterns.push('**/code/adapter_sidecar.py');
     }
 
     // Exclude tune files when framework is NOT transformers OR deploymentTarget is batch-transform

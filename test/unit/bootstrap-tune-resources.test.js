@@ -192,11 +192,14 @@ describe('Bootstrap Stack — Tune Resources', () => {
             assert.strictEqual(statement.Effect, 'Allow');
         });
 
-        it('should grant sagemaker-mlflow:* action', () => {
-            assert.strictEqual(
-                statement.Action,
-                'sagemaker-mlflow:*',
-                'Should grant sagemaker-mlflow:* action'
+        it('should grant MLflow listing and discovery actions', () => {
+            assert.ok(
+                Array.isArray(statement.Action),
+                'Action should be an array of individual MLflow actions'
+            );
+            assert.ok(
+                statement.Action.includes('sagemaker:ListMlflowApps'),
+                'Should grant sagemaker:ListMlflowApps action'
             );
         });
 

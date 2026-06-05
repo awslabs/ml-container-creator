@@ -62,6 +62,7 @@ export default class BootstrapCommandHandler {
     _handleScan() { return this.profileManager._handleScan(); }
     _handlePrune() { return this.profileManager._handlePrune(); }
     _handleSyncSchemas() { return this.profileManager._handleSyncSchemas(); }
+    _handleSyncModelFamilies() { return this.profileManager._handleSyncModelFamilies(); }
 
     /**
      * Dispatch bootstrap subcommands.
@@ -106,6 +107,9 @@ export default class BootstrapCommandHandler {
             break;
         case 'sync-schemas':
             await this._handleSyncSchemas();
+            break;
+        case 'sync-model-families':
+            await this._handleSyncModelFamilies();
             break;
         default:
             console.log(`Unknown bootstrap subcommand: ${subcommand}`);
@@ -277,6 +281,23 @@ export default class BootstrapCommandHandler {
                 return;
             }
         } // end if (!profileData.stackName)
+
+        // Step 4b: MLflow App for model customization experiment tracking
+        this._displayProgress('📊', 'MLflow App for experiment tracking...');
+        try {
+            if (!profileData.mlflowAppArn) {
+                const mlflowAppArn = this._ensureMlflowApp(profileData, awsProfile);
+                if (mlflowAppArn) {
+                    profileData.mlflowAppArn = mlflowAppArn;
+                    console.log(`  ✅ MLflow App ready: ${mlflowAppArn}`);
+                }
+            } else {
+                console.log(`  ✅ MLflow App already configured: ${profileData.mlflowAppArn}`);
+            }
+        } catch (error) {
+            console.log(`  ⚠️  MLflow App setup skipped: ${error.message}`);
+            console.log('     Tune jobs will still work but experiment tracking may not be available.');
+        }
 
         // Step 5: CI Infrastructure setup (separate CDK stack — unchanged)
         this._displayProgress('🧪', 'CI Testing Infrastructure...');
@@ -478,6 +499,18 @@ export default class BootstrapCommandHandler {
             }
         } else {
             console.log('  ⏭️  CI stack skipped (not provisioned — use --ci to force)');
+        }
+
+        // Ensure MLflow App exists
+        this._displayProgress('📊', 'MLflow App for experiment tracking...');
+        try {
+            const mlflowAppArn = this._ensureMlflowApp(profileConfig, profileConfig.awsProfile);
+            if (mlflowAppArn) {
+                profileConfig.mlflowAppArn = mlflowAppArn;
+                console.log(`  ✅ MLflow App ready: ${mlflowAppArn}`);
+            }
+        } catch (error) {
+            console.log(`  ⚠️  MLflow App setup skipped: ${error.message}`);
         }
 
         // Save updated profile
@@ -822,6 +855,93 @@ export default class BootstrapCommandHandler {
     }
 
     /**
+     * Ensure an MLCC-owned MLflow App exists for experiment tracking.
+     * Creates one if it doesn't exist, using the tune S3 bucket as artifact store.
+     *
+     * @param {object} profileData - Bootstrap profile data (needs roleArn, awsRegion, accountId)
+     * @param {string} awsProfile - AWS CLI profile name
+     * @returns {string|null} MLflow App ARN or null if creation failed
+     */
+    _ensureMlflowApp(profileData, awsProfile) {
+        const region = profileData.awsRegion;
+        const accountId = profileData.accountId;
+        const roleArn = profileData.roleArn;
+        const appName = 'mlcc-tune-tracking';
+        const artifactBucket = `mlcc-tune-${accountId}-${region}`;
+
+        // Check if MLCC app already exists
+        try {
+            const apps = this._execAws(
+                `sagemaker list-mlflow-apps --region ${region}`,
+                awsProfile
+            );
+            const summaries = apps.Summaries || [];
+            const existing = summaries.find(a => a.Name === appName);
+            if (existing) {
+                return existing.Arn;
+            }
+        } catch {
+            // list-mlflow-apps may not be available in all CLI versions — proceed to create
+        }
+
+        // Create the MLflow App
+        console.log(`  Creating MLflow App "${appName}" with artifact store s3://${artifactBucket}...`);
+
+        // Ensure the artifact bucket exists (it's the tune bucket from the stack)
+        try {
+            this._execAws(
+                `s3api head-bucket --bucket ${artifactBucket} --region ${region}`,
+                awsProfile
+            );
+        } catch {
+            // Bucket doesn't exist — create it
+            console.log(`  Creating artifact bucket: ${artifactBucket}`);
+            try {
+                this._execAws(
+                    `s3api create-bucket --bucket ${artifactBucket} --region ${region} --create-bucket-configuration LocationConstraint=${region}`,
+                    awsProfile
+                );
+            } catch (bucketErr) {
+                // May already exist or region doesn't need LocationConstraint (us-east-1)
+                if (!bucketErr.message?.includes('BucketAlreadyOwnedByYou')) {
+                    try {
+                        this._execAws(
+                            `s3api create-bucket --bucket ${artifactBucket} --region ${region}`,
+                            awsProfile
+                        );
+                    } catch {
+                        // Bucket likely exists, continue
+                    }
+                }
+            }
+        }
+
+        // Create the app
+        try {
+            const result = this._execAws(
+                `sagemaker create-mlflow-app --name ${appName} --artifact-store-uri s3://${artifactBucket} --role-arn ${roleArn} --model-registration-mode AutoModelRegistrationEnabled --region ${region}`,
+                awsProfile
+            );
+            return result.Arn;
+        } catch (err) {
+            // If app already exists (race condition), try to describe it
+            if (err.message?.includes('ResourceLimitExceeded') || err.message?.includes('already exists')) {
+                try {
+                    const apps = this._execAws(
+                        `sagemaker list-mlflow-apps --region ${region}`,
+                        awsProfile
+                    );
+                    const found = (apps.Summaries || []).find(a => a.Name === appName);
+                    if (found) return found.Arn;
+                } catch {
+                    // Fall through
+                }
+            }
+            throw err;
+        }
+    }
+
+    /**
      * Format tags for the AWS CLI --tags parameter.
      * Writes tags to a temp file and returns the file:// reference
      * to avoid shell escaping issues with special characters in tag keys/values.
@@ -858,6 +978,7 @@ SUBCOMMANDS:
   scan                                Discover pre-existing MLCC-managed resources in AWS
   prune                               Remove deleted and unknown records from the deployment manifest
   update                              Re-deploy bootstrap stacks using active profile (no prompts)
+  sync-model-families                 Discover tune-eligible models from JumpStart Hub and update catalog
 
 SETUP OPTIONS:
   --non-interactive                   Run without interactive prompts
@@ -886,6 +1007,7 @@ EXAMPLES:
   ml-container-creator bootstrap remove dev
   ml-container-creator bootstrap remove dev --force --delete-stack
   ml-container-creator bootstrap scan
+  ml-container-creator bootstrap sync-model-families
   ml-container-creator bootstrap --non-interactive --profile my-aws-profile --region us-west-2
   ml-container-creator bootstrap --non-interactive --profile my-aws-profile --role-arn arn:aws:iam::123456789012:role/MyRole --skip-s3
   ml-container-creator bootstrap --non-interactive --profile my-aws-profile --region us-west-2 --ci

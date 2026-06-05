@@ -283,7 +283,7 @@ describe('E2E Catalog Validator', () => {
                 timeout: 1800,
                 tuneTimeout: 3600,
                 tuneConfig: {
-                    tuneId: 'qwen3-4b',
+                    tuneId: 'huggingface-reasoning-qwen3-4b',
                     technique: 'sft',
                     trainingType: 'lora',
                     dataset: 's3://mlcc-e2e-datasets/sft-small/train.jsonl'
@@ -364,7 +364,7 @@ describe('E2E Catalog Validator', () => {
             it('rejects tuneConfig with invalid technique enum value', () => {
                 const entry = tuneEntry({
                     tuneConfig: {
-                        tuneId: 'qwen3-4b',
+                        tuneId: 'huggingface-reasoning-qwen3-4b',
                         technique: 'ppo',
                         trainingType: 'lora',
                         dataset: 's3://mlcc-e2e-datasets/sft-small/train.jsonl'
@@ -379,7 +379,7 @@ describe('E2E Catalog Validator', () => {
             it('rejects tuneConfig with invalid trainingType enum value', () => {
                 const entry = tuneEntry({
                     tuneConfig: {
-                        tuneId: 'qwen3-4b',
+                        tuneId: 'huggingface-reasoning-qwen3-4b',
                         technique: 'sft',
                         trainingType: 'quantized',
                         dataset: 's3://mlcc-e2e-datasets/sft-small/train.jsonl'
@@ -395,7 +395,7 @@ describe('E2E Catalog Validator', () => {
                 for (const technique of ['sft', 'dpo', 'rlaif', 'rlvr']) {
                     const entry = tuneEntry({
                         tuneConfig: {
-                            tuneId: 'qwen3-4b',
+                            tuneId: 'huggingface-reasoning-qwen3-4b',
                             technique,
                             trainingType: 'lora',
                             dataset: 's3://mlcc-e2e-datasets/sft-small/train.jsonl'
@@ -411,7 +411,7 @@ describe('E2E Catalog Validator', () => {
                 for (const trainingType of ['lora', 'full-rank']) {
                     const entry = tuneEntry({
                         tuneConfig: {
-                            tuneId: 'qwen3-4b',
+                            tuneId: 'huggingface-reasoning-qwen3-4b',
                             technique: 'sft',
                             trainingType,
                             dataset: 's3://mlcc-e2e-datasets/sft-small/train.jsonl'
@@ -492,7 +492,7 @@ describe('E2E Catalog Validator', () => {
                 timeout: 1800,
                 tuneTimeout: 3600,
                 tuneConfig: {
-                    tuneId: 'qwen3-4b',
+                    tuneId: 'huggingface-reasoning-qwen3-4b',
                     technique: 'sft',
                     trainingType: 'lora',
                     dataset: 's3://mlcc-e2e-datasets/sft-small/train.jsonl'
@@ -660,7 +660,7 @@ describe('E2E Catalog Validator', () => {
                 timeout: 1800,
                 tuneTimeout: 3600,
                 tuneConfig: {
-                    tuneId: 'qwen3-4b',
+                    tuneId: 'huggingface-reasoning-qwen3-4b',
                     technique: 'sft',
                     trainingType: 'lora',
                     dataset: 's3://mlcc-e2e-datasets/sft-small/train.jsonl'
@@ -695,7 +695,7 @@ describe('E2E Catalog Validator', () => {
 
         describe('tuneId validation', () => {
             it('accepts entry with valid tuneId that exists in tune-catalog', () => {
-                const catalog = { configs: [tuneEntry({ tuneConfig: { tuneId: 'qwen3-4b', technique: 'sft', trainingType: 'lora', dataset: 's3://test' } })] };
+                const catalog = { configs: [tuneEntry({ tuneConfig: { tuneId: 'huggingface-reasoning-qwen3-4b', technique: 'sft', trainingType: 'lora', dataset: 's3://test' } })] };
                 const errors = validateTuneCatalogReferences(catalog, FIXTURE_TUNE_CATALOG);
                 assert.deepStrictEqual(errors, []);
             });
@@ -718,13 +718,13 @@ describe('E2E Catalog Validator', () => {
 
         describe('technique validation', () => {
             it('accepts entry with technique supported by the model', () => {
-                const catalog = { configs: [tuneEntry({ tuneConfig: { tuneId: 'qwen3-4b', technique: 'dpo', trainingType: 'lora', dataset: 's3://test' } })] };
+                const catalog = { configs: [tuneEntry({ tuneConfig: { tuneId: 'huggingface-reasoning-qwen3-4b', technique: 'dpo', trainingType: 'lora', dataset: 's3://test' } })] };
                 const errors = validateTuneCatalogReferences(catalog, FIXTURE_TUNE_CATALOG);
                 assert.deepStrictEqual(errors, []);
             });
 
             it('rejects entry with technique not supported by the model', () => {
-                const catalog = { configs: [tuneEntry({ tuneConfig: { tuneId: 'qwen3-4b', technique: 'rlvr', trainingType: 'lora', dataset: 's3://test' } })] };
+                const catalog = { configs: [tuneEntry({ tuneConfig: { tuneId: 'huggingface-reasoning-qwen3-4b', technique: 'rlvr', trainingType: 'lora', dataset: 's3://test' } })] };
                 const errors = validateTuneCatalogReferences(catalog, FIXTURE_TUNE_CATALOG);
                 assert.strictEqual(errors.length, 1);
                 assert.ok(errors[0].message.includes('technique "rlvr" not supported'));
@@ -741,7 +741,7 @@ describe('E2E Catalog Validator', () => {
             });
 
             it('rejects entry with trainingType not supported for the model/technique', () => {
-                const catalog = { configs: [tuneEntry({ tuneConfig: { tuneId: 'qwen3-4b', technique: 'sft', trainingType: 'full-rank', dataset: 's3://test' } })] };
+                const catalog = { configs: [tuneEntry({ tuneConfig: { tuneId: 'huggingface-reasoning-qwen3-4b', technique: 'sft', trainingType: 'full-rank', dataset: 's3://test' } })] };
                 const errors = validateTuneCatalogReferences(catalog, FIXTURE_TUNE_CATALOG);
                 assert.strictEqual(errors.length, 1);
                 assert.ok(errors[0].message.includes('trainingType "full-rank" not supported'));
@@ -762,9 +762,9 @@ describe('E2E Catalog Validator', () => {
             it('validates all entries with tuneConfig and reports errors for each', () => {
                 const catalog = {
                     configs: [
-                        tuneEntry({ id: 'rt-good', tuneConfig: { tuneId: 'qwen3-4b', technique: 'sft', trainingType: 'lora', dataset: 's3://test' } }),
+                        tuneEntry({ id: 'rt-good', tuneConfig: { tuneId: 'huggingface-reasoning-qwen3-4b', technique: 'sft', trainingType: 'lora', dataset: 's3://test' } }),
                         tuneEntry({ id: 'rt-bad-id', tuneConfig: { tuneId: 'nonexistent', technique: 'sft', trainingType: 'lora', dataset: 's3://test' } }),
-                        tuneEntry({ id: 'rt-bad-technique', tuneConfig: { tuneId: 'qwen3-4b', technique: 'rlvr', trainingType: 'lora', dataset: 's3://test' } })
+                        tuneEntry({ id: 'rt-bad-technique', tuneConfig: { tuneId: 'huggingface-reasoning-qwen3-4b', technique: 'rlvr', trainingType: 'lora', dataset: 's3://test' } })
                     ]
                 };
                 const errors = validateTuneCatalogReferences(catalog, FIXTURE_TUNE_CATALOG);

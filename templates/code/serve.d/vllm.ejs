@@ -10,7 +10,7 @@ PREFIX="VLLM_"
 ARG_PREFIX="--"
 
 # Internal variables set by the base image — not CLI args
-EXCLUDE_VARS=("VLLM_USAGE_SOURCE" "VLLM_ENABLE_CUDA_COMPATIBILITY")
+EXCLUDE_VARS=("VLLM_USAGE_SOURCE" "VLLM_ENABLE_CUDA_COMPATIBILITY" "VLLM_ALLOW_RUNTIME_LORA_UPDATING")
 
 # Declare and populate array of matching environment variables
 mapfile -t env_vars < <(env | grep "^${PREFIX}")

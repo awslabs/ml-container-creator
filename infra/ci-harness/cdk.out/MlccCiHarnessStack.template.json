@@ -262,7 +262,7 @@
    "Type": "AWS::Lambda::Function",
    "Properties": {
     "Code": {
-     "S3Bucket": "cdk-hnb659fds-assets-633146206289-us-west-2",
+     "S3Bucket": "cdk-hnb659fds-assets-633146206289-us-east-1",
      "S3Key": "0cc865cf6b735957518f2af181f8b90df1b29c7b35526266e852a98cd56a2fb8.zip"
     },
     "Environment": {
@@ -693,7 +693,7 @@
            {
             "Ref": "AWS::Partition"
            },
-           ":logs:us-west-2:633146206289:log-group:/aws/codebuild/",
+           ":logs:us-east-1:633146206289:log-group:/aws/codebuild/",
            {
             "Ref": "CiCodeBuildProject43C3B05A"
            }
@@ -708,7 +708,7 @@
            {
             "Ref": "AWS::Partition"
            },
-           ":logs:us-west-2:633146206289:log-group:/aws/codebuild/",
+           ":logs:us-east-1:633146206289:log-group:/aws/codebuild/",
            {
             "Ref": "CiCodeBuildProject43C3B05A"
            },
@@ -735,7 +735,7 @@
           {
            "Ref": "AWS::Partition"
           },
-          ":codebuild:us-west-2:633146206289:report-group/",
+          ":codebuild:us-east-1:633146206289:report-group/",
           {
            "Ref": "CiCodeBuildProject43C3B05A"
           },

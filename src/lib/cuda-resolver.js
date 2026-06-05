@@ -96,22 +96,31 @@ export default class CudaResolver {
             return inferenceAmiVersion ? { cudaVersion, inferenceAmiVersion } : null;
         }
 
-        // Multiple options — let the user choose (or auto-select in auto-prompt mode)
+        // Multiple options — determine the best default
         const defaultVersion = frameworkAccel?.version
             && compatibleVersions.includes(frameworkAccel.version)
             ? frameworkAccel.version
             : instanceInfo.accelerator.default || compatibleVersions[compatibleVersions.length - 1];
 
-        // In auto-prompt mode, auto-select the default without prompting
-        if (this.runner.configManager?.isAutoPrompt()) {
+        // Auto-select when we have a reliable default — no need to prompt the user about
+        // AMI internals they shouldn't need to care about. The default is derived from:
+        //   1. Framework's declared CUDA version (highest confidence)
+        //   2. Instance catalog's defaultCudaVersion (hardware-appropriate)
+        //   3. Highest compatible version (safe fallback)
+        // Only prompt if none of these sources provide a default (shouldn't happen in practice).
+        if (defaultVersion && CUDA_AMI_MAP[defaultVersion]) {
             const inferenceAmiVersion = CUDA_AMI_MAP[defaultVersion];
-            if (inferenceAmiVersion) {
-                console.log(`\n🔧 CUDA ${defaultVersion} auto-selected (auto-prompt mode)`);
-                console.log(`   AMI: ${inferenceAmiVersion}`);
-            }
-            return inferenceAmiVersion ? { cudaVersion: defaultVersion, inferenceAmiVersion } : null;
+            const source = frameworkAccel?.version && compatibleVersions.includes(frameworkAccel.version)
+                ? 'framework requirement'
+                : instanceInfo.accelerator.default === defaultVersion
+                    ? 'instance default'
+                    : 'highest compatible';
+            console.log(`\n🔧 CUDA ${defaultVersion} auto-selected (${source})`);
+            console.log(`   AMI: ${inferenceAmiVersion}`);
+            return { cudaVersion: defaultVersion, inferenceAmiVersion };
         }
 
+        // Fallback: prompt only when no reliable default exists (edge case)
         const choices = compatibleVersions.map(v => {
             const ami = CUDA_AMI_MAP[v] || 'unknown';
             const isDefault = v === defaultVersion ? ' (recommended)' : '';

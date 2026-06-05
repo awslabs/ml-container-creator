@@ -107,6 +107,22 @@ describe('tune_helper.py subcommand dispatch', () => {
             assert.ok(result.stderr.includes('--schema'),
                 'should mention required --schema arg');
         });
+
+        it('recognizes the discover subcommand', () => {
+            // discover has no required args (all optional), so it should dispatch
+            // and fail due to missing family/filter (not argparse error)
+            const result = runHelper(['discover'], {
+                env: {
+                    PATH: process.env.PATH,
+                    HOME: process.env.HOME,
+                    AWS_ACCESS_KEY_ID: '',
+                    AWS_SECRET_ACCESS_KEY: ''
+                }
+            });
+            // Should not exit with code 2 (argparse error) — subcommand is recognized
+            assert.notStrictEqual(result.exitCode, 2,
+                'should not be an argparse error — discover subcommand is recognized');
+        });
     });
 
     // ── Unknown Commands ─────────────────────────────────────────────────────
@@ -164,6 +180,90 @@ describe('tune_helper.py subcommand dispatch', () => {
             assert.strictEqual(result.exitCode, 2);
             assert.ok(result.stderr.includes('--schema'),
                 'should mention missing --schema');
+        });
+    });
+
+    // ── Discover Subcommand ──────────────────────────────────────────────────
+
+    describe('discover subcommand', () => {
+        it('exits with error when no family or filter is provided', () => {
+            const result = runHelper(['discover'], {
+                env: {
+                    PATH: process.env.PATH,
+                    HOME: process.env.HOME,
+                    AWS_ACCESS_KEY_ID: '',
+                    AWS_SECRET_ACCESS_KEY: '',
+                    AWS_REGION: ''
+                }
+            });
+            assert.strictEqual(result.exitCode, 1);
+            const output = parseOutput(result.stdout);
+            assert.notStrictEqual(output, null, 'should produce valid JSON output');
+            assert.ok(output.error.includes('No family or filter provided'),
+                'should report that no family or filter was provided');
+        });
+
+        it('accepts --family argument without argparse error', () => {
+            const result = runHelper(['discover', '--family', 'qwen-3'], {
+                env: {
+                    PATH: process.env.PATH,
+                    HOME: process.env.HOME,
+                    AWS_ACCESS_KEY_ID: '',
+                    AWS_SECRET_ACCESS_KEY: '',
+                    AWS_REGION: 'us-east-1'
+                }
+            });
+            // Should not exit with code 2 (argparse error)
+            assert.notStrictEqual(result.exitCode, 2,
+                'should not be an argparse error — --family is accepted');
+            // Will exit 1 because boto3 will fail without credentials
+            // but the subcommand was dispatched correctly
+        });
+
+        it('accepts --filter argument without argparse error', () => {
+            const result = runHelper(['discover', '--filter', 'huggingface-llm'], {
+                env: {
+                    PATH: process.env.PATH,
+                    HOME: process.env.HOME,
+                    AWS_ACCESS_KEY_ID: '',
+                    AWS_SECRET_ACCESS_KEY: '',
+                    AWS_REGION: 'us-east-1'
+                }
+            });
+            assert.notStrictEqual(result.exitCode, 2,
+                'should not be an argparse error — --filter is accepted');
+        });
+
+        it('accepts --region argument without argparse error', () => {
+            const result = runHelper(['discover', '--family', 'llama-3', '--region', 'us-west-2'], {
+                env: {
+                    PATH: process.env.PATH,
+                    HOME: process.env.HOME,
+                    AWS_ACCESS_KEY_ID: '',
+                    AWS_SECRET_ACCESS_KEY: ''
+                }
+            });
+            assert.notStrictEqual(result.exitCode, 2,
+                'should not be an argparse error — --region is accepted');
+        });
+
+        it('produces JSON error output on Hub discovery failure', function () {
+            this.timeout(15000);
+            const result = runHelper(['discover', '--family', 'qwen-3'], {
+                env: {
+                    PATH: process.env.PATH,
+                    HOME: process.env.HOME,
+                    AWS_ACCESS_KEY_ID: 'fake',
+                    AWS_SECRET_ACCESS_KEY: 'fake',
+                    AWS_REGION: 'us-east-1'
+                }
+            });
+            assert.strictEqual(result.exitCode, 1);
+            const output = parseOutput(result.stdout);
+            assert.notStrictEqual(output, null, 'should produce valid JSON output');
+            assert.ok('error' in output, 'should have error field');
+            assert.ok(output.error.includes('Hub discovery failed'),
+                'should report Hub discovery failure');
         });
     });
 

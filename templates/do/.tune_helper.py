@@ -10,6 +10,7 @@ Subcommands:
     resolve  - Resolve output artifact path from job
     stage-hf - Download HF dataset to S3
     validate - Validate dataset format against schema
+    discover - Discover tune-eligible models from JumpStart Hub
 
 All output is JSON on stdout for bash consumption.
 """
@@ -19,21 +20,30 @@ import json
 import os
 import sys
 import time
+import warnings
+
+# Suppress noisy dependency version warnings from requests/urllib3
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*urllib3.*")
+warnings.filterwarnings("ignore", message=".*charset_normalizer.*")
 
 # ── Inline dependency check ───────────────────────────────────────────────────
-MIN_SAGEMAKER_VERSION = "2.232.0"
+MIN_SAGEMAKER_VERSION = "3.0"
 
 
 def _check_sagemaker_sdk():
     """Verify sagemaker SDK is installed with minimum version."""
     try:
         import sagemaker  # noqa: F401
+        # SDK v3 removed __version__; use importlib.metadata instead
+        from importlib.metadata import version as pkg_version
         from packaging.version import Version
-        if Version(sagemaker.__version__) < Version(MIN_SAGEMAKER_VERSION):
+        installed = pkg_version("sagemaker")
+        if Version(installed) < Version(MIN_SAGEMAKER_VERSION):
             _error_exit(
-                f"sagemaker SDK version {sagemaker.__version__} is below minimum "
+                f"sagemaker SDK version {installed} is below minimum "
                 f"required version {MIN_SAGEMAKER_VERSION}. "
-                f"Please upgrade: pip install 'sagemaker>={MIN_SAGEMAKER_VERSION}'"
+                f"Please upgrade: pip install --upgrade 'sagemaker>={MIN_SAGEMAKER_VERSION}'"
             )
     except ImportError:
         _error_exit(
@@ -65,11 +75,37 @@ def cmd_submit(args):
 
     Returns: {"job_name": str, "job_arn": str, "mlflow_url": str|None}
     """
+    # Suppress SDK rich logging that pollutes stdout (we only want JSON output)
+    import logging
+    logging.disable(logging.CRITICAL)
+    os.environ["SAGEMAKER_LOG_LEVEL"] = "CRITICAL"
+
+    # Ensure region is set before ANY sagemaker import (v3 creates boto3 clients at import time)
+    region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
+    if region:
+        os.environ["AWS_DEFAULT_REGION"] = region
+        os.environ.setdefault("AWS_REGION", region)
+
     _check_sagemaker_sdk()
 
-    from sagemaker.modules.train.sft_trainer import SFTTrainer
-    from sagemaker.modules.train.dpo_trainer import DPOTrainer
-    from sagemaker.modules.train.common import TrainingType
+    # SDK v3 moved trainers from sagemaker.modules.train → sagemaker.train
+    # Note: catch Exception (not just ImportError) because SDK v3 AIRHub
+    # creates boto3 clients at class-definition time, which can raise
+    # NoRegionError if AWS_DEFAULT_REGION is not set despite our best efforts.
+    try:
+        from sagemaker.train.sft_trainer import SFTTrainer
+        from sagemaker.train.dpo_trainer import DPOTrainer
+        from sagemaker.train.common import TrainingType
+    except Exception:
+        try:
+            from sagemaker.modules.train.sft_trainer import SFTTrainer
+            from sagemaker.modules.train.dpo_trainer import DPOTrainer
+            from sagemaker.modules.train.common import TrainingType
+        except Exception:
+            _error_exit(
+                "SFTTrainer not found. Requires sagemaker>=3.0. "
+                "Install: pip install --upgrade 'sagemaker>=3.0'"
+            )
 
     # Technique → Trainer class mapping
     TRAINER_MAP = {
@@ -88,63 +124,140 @@ def cmd_submit(args):
     # Resolve training type
     training_type_map = {
         "lora": TrainingType.LORA,
-        "full-rank": TrainingType.FULL_RANK,
+        "full-rank": getattr(TrainingType, 'FULL_RANK', None) or getattr(TrainingType, 'FULL', None),
     }
     training_type = training_type_map.get(args.training_type)
     if not training_type:
         _error_exit(f"Unsupported training type: {args.training_type}")
 
     # Build hyperparameters dict from optional overrides
+    # Map CLI flag names to SDK v3 fine-tuning option names
     hyperparameters = {}
     if args.epochs is not None:
-        hyperparameters["epochs"] = args.epochs
+        hyperparameters["max_epochs"] = args.epochs
     if args.learning_rate is not None:
         hyperparameters["learning_rate"] = args.learning_rate
     if args.max_seq_length is not None:
-        hyperparameters["max_seq_length"] = args.max_seq_length
+        hyperparameters["dataset_max_len"] = args.max_seq_length
     if args.lora_rank is not None:
         hyperparameters["lora_rank"] = args.lora_rank
     if args.lora_alpha is not None:
         hyperparameters["lora_alpha"] = args.lora_alpha
     if args.batch_size is not None:
-        hyperparameters["batch_size"] = args.batch_size
+        hyperparameters["global_batch_size"] = args.batch_size
 
-    # Build trainer kwargs
-    trainer_kwargs = {
-        "model_id": args.model_id,
-        "training_type": training_type,
-        "train_data_uri": args.dataset_s3_uri,
-        "output_path": f"s3://{args.output_bucket}/{args.project_name}/tune/{technique}/",
-        "role": args.role_arn,
-        "job_name": args.job_name,
-    }
+    # Build trainer kwargs — API differs between SDK v2 and v3
+    output_path = f"s3://{args.output_bucket}/{args.project_name}/tune/{technique}/"
 
-    # Add model package group for artifact registration
-    if args.model_package_group:
-        trainer_kwargs["model_package_group_name"] = args.model_package_group
-
-    # Add hyperparameters if any were specified
-    if hyperparameters:
-        trainer_kwargs["hyperparameters"] = hyperparameters
-
-    # Add evaluator config for RLVR/RLAIF techniques
-    if technique in ("rlvr", "rlaif"):
-        if args.reward_function:
-            trainer_kwargs["evaluator_config"] = {
-                "reward_function_arn": args.reward_function
-            }
-        elif args.reward_prompt:
-            trainer_kwargs["evaluator_config"] = {
-                "reward_prompt_s3_uri": args.reward_prompt
-            }
+    # Detect SDK version to use appropriate API
+    sdk_v3 = hasattr(trainer_cls, 'role')  # v3 trainers have role as a settable attribute
 
     try:
-        trainer = trainer_cls(**trainer_kwargs)
-        trainer.train(wait=False)
+        if sdk_v3:
+            # SDK v3 API: positional model, keyword training_dataset, s3_output_path
+            trainer_kwargs = {
+                "model": args.model_id,
+                "training_type": training_type,
+                "training_dataset": args.dataset_s3_uri,
+                "s3_output_path": output_path,
+            }
+            # Resolve model package group — create if it doesn't exist
+            mpg_name = args.model_package_group or f"{args.project_name}-tune-models"
+            try:
+                import boto3 as _boto3
+                _sm = _boto3.client("sagemaker", region_name=args.region or os.environ.get("AWS_REGION", "us-west-2"))
+                _sm.describe_model_package_group(ModelPackageGroupName=mpg_name)
+            except Exception as _mpg_err:
+                if "does not exist" in str(_mpg_err) or "ValidationException" in str(_mpg_err):
+                    try:
+                        _sm.create_model_package_group(
+                            ModelPackageGroupName=mpg_name,
+                            ModelPackageGroupDescription=f"Fine-tuned models for {args.project_name}",
+                        )
+                    except Exception:
+                        pass  # May already exist or lack permissions — let the trainer handle it
+            trainer_kwargs["model_package_group"] = mpg_name
+
+            trainer = trainer_cls(**trainer_kwargs)
+            trainer.role = args.role_arn
+            trainer.base_job_name = args.job_name
+            if hyperparameters:
+                # SDK v3 expects hyperparameters with a .to_dict() method
+                # Wrap our plain dict to satisfy the interface
+                hp_obj = trainer.hyperparameters
+                if hp_obj is not None and hasattr(hp_obj, '__dict__'):
+                    for k, v in hyperparameters.items():
+                        setattr(hp_obj, k, v)
+                else:
+                    # Fallback: create a simple wrapper
+                    class _HyperParams:
+                        def __init__(self, d):
+                            self._data = d
+                            for k, v in d.items():
+                                setattr(self, k, v)
+                        def to_dict(self):
+                            return {k: v for k, v in self._data.items() if v is not None}
+                    trainer.hyperparameters = _HyperParams(hyperparameters)
+
+            # Use MLCC-owned MLflow app if available (avoids permission issues with Studio apps)
+            mlflow_arn = os.environ.get('MLFLOW_APP_ARN', '')
+            if mlflow_arn:
+                trainer.mlflow_resource_arn = mlflow_arn
+
+            trainer.train(training_dataset=args.dataset_s3_uri, wait=False)
+        else:
+            # SDK v2 API: model_id, train_data_uri, output_path, role, job_name
+            trainer_kwargs = {
+                "model_id": args.model_id,
+                "training_type": training_type,
+                "train_data_uri": args.dataset_s3_uri,
+                "output_path": output_path,
+                "role": args.role_arn,
+                "job_name": args.job_name,
+            }
+            if args.model_package_group:
+                trainer_kwargs["model_package_group_name"] = args.model_package_group
+            if hyperparameters:
+                trainer_kwargs["hyperparameters"] = hyperparameters
+
+            # Add evaluator config for RLVR/RLAIF techniques
+            if technique in ("rlvr", "rlaif"):
+                if args.reward_function:
+                    trainer_kwargs["evaluator_config"] = {"reward_function_arn": args.reward_function}
+                elif args.reward_prompt:
+                    trainer_kwargs["evaluator_config"] = {"reward_prompt_s3_uri": args.reward_prompt}
+
+            trainer = trainer_cls(**trainer_kwargs)
+            trainer.train(wait=False)
 
         # Extract job info from the trainer
-        job_name = trainer.training_job_name
+        job_name = getattr(trainer, 'training_job_name', None) or getattr(trainer, 'base_job_name', None)
         job_arn = getattr(trainer, "training_job_arn", None)
+        latest_job = getattr(trainer, 'latest_training_job', None)
+        if latest_job:
+            job_name = job_name or getattr(latest_job, 'name', None) or getattr(latest_job, 'job_name', None)
+            job_arn = job_arn or getattr(latest_job, 'arn', None)
+
+        # If we still don't have the actual job name (SDK appends suffix),
+        # query ListTrainingJobs to find it by our base_job_name prefix
+        if not job_name or job_name == args.job_name:
+            import boto3 as _boto3
+            _sm = _boto3.client("sagemaker", region_name=args.region or os.environ.get("AWS_REGION", "us-west-2"))
+            try:
+                # Brief delay to allow job to register
+                time.sleep(2)
+                list_resp = _sm.list_training_jobs(
+                    NameContains=args.job_name,
+                    SortBy="CreationTime",
+                    SortOrder="Descending",
+                    MaxResults=1,
+                )
+                summaries = list_resp.get("TrainingJobSummaries", [])
+                if summaries:
+                    job_name = summaries[0]["TrainingJobName"]
+                    job_arn = summaries[0].get("TrainingJobArn", job_arn)
+            except Exception:
+                pass  # Fall back to whatever we have
 
         # Attempt to get MLflow URL if available
         mlflow_url = None
@@ -154,7 +267,7 @@ def cmd_submit(args):
             pass
 
         _output({
-            "job_name": job_name,
+            "job_name": job_name or args.job_name,
             "job_arn": job_arn or "",
             "mlflow_url": mlflow_url,
             "model_package_group": args.model_package_group or "",
@@ -189,6 +302,9 @@ def cmd_submit(args):
 def cmd_status(args):
     """Query job status via DescribeTrainingJob.
 
+    Falls back to ListTrainingJobs with name-contains if exact name not found
+    (SDK v3 appends a timestamp suffix to the base job name).
+
     Returns: {"status": str, "failure_reason": str|None,
               "metrics": dict|None, "elapsed_seconds": int}
     """
@@ -196,15 +312,35 @@ def cmd_status(args):
 
     client = boto3.client("sagemaker", region_name=args.region)
 
+    # Try exact name first
+    response = None
     try:
         response = client.describe_training_job(TrainingJobName=args.job_name)
     except client.exceptions.ClientError as e:
         error_code = e.response["Error"]["Code"]
-        if error_code == "ValidationException":
-            _error_exit(f"Training job not found: {args.job_name}")
-        _error_exit(f"Failed to describe training job: {e}")
+        if error_code != "ValidationException":
+            _error_exit(f"Failed to describe training job: {e}")
+        # Job not found by exact name — try name-contains search
     except Exception as e:
         _error_exit(f"Failed to describe training job: {e}")
+
+    # Fallback: search by name prefix (SDK appends timestamp suffix)
+    if response is None:
+        try:
+            list_response = client.list_training_jobs(
+                NameContains=args.job_name,
+                SortBy="CreationTime",
+                SortOrder="Descending",
+                MaxResults=1,
+            )
+            summaries = list_response.get("TrainingJobSummaries", [])
+            if summaries:
+                actual_name = summaries[0]["TrainingJobName"]
+                response = client.describe_training_job(TrainingJobName=actual_name)
+            else:
+                _error_exit(f"Training job not found: {args.job_name}")
+        except Exception as e:
+            _error_exit(f"Failed to find training job: {e}")
 
     status = response.get("TrainingJobStatus", "Unknown")
     failure_reason = response.get("FailureReason")
@@ -278,6 +414,14 @@ def cmd_resolve(args):
     # Determine output type from training type
     output_type = "adapter" if args.training_type == "lora" else "full-model"
 
+    # For LoRA adapters, the actual adapter files are in checkpoints/hf/ subdirectory
+    # The S3ModelArtifacts path points to the top-level output directory
+    if output_type == "adapter":
+        # Ensure trailing slash for directory path
+        if not artifact_path.endswith("/"):
+            artifact_path += "/"
+        artifact_path += "checkpoints/hf/"
+
     # Try to find model package ARN if a model package group was used
     model_package_arn = None
     if args.model_package_group:
@@ -304,6 +448,116 @@ def cmd_resolve(args):
 
 
 # ── Subcommand: stage-hf ─────────────────────────────────────────────────────
+
+
+def _get_required_columns(technique):
+    """Return the required column names for a given technique."""
+    schemas = {
+        "sft": ["prompt", "completion"],
+        "dpo": ["prompt", "chosen", "rejected"],
+        "rlaif": ["prompt"],  # prompt is an array of messages
+        "rlvr": ["prompt"],   # prompt is an array of messages
+    }
+    return schemas.get(technique, ["prompt", "completion"])
+
+
+def _suggest_column_map(detected_columns, required_columns):
+    """Suggest a --column-map based on common column name patterns."""
+    # Common aliases for each required field
+    aliases = {
+        "prompt": ["question", "instruction", "input", "query", "text", "context", "user", "human"],
+        "completion": ["answer", "output", "response", "assistant", "target", "label", "reply"],
+        "chosen": ["chosen", "preferred", "good", "positive", "accepted"],
+        "rejected": ["rejected", "dispreferred", "bad", "negative", "refused"],
+    }
+
+    suggestions = {}
+    for req_col in required_columns:
+        if req_col in detected_columns:
+            continue  # Already present
+        # Check aliases
+        for alias in aliases.get(req_col, []):
+            if alias in detected_columns:
+                suggestions[req_col] = alias
+                break
+
+    if not suggestions:
+        return None
+
+    # Format as --column-map string
+    mapping_str = ",".join(f"{k}={v}" for k, v in suggestions.items())
+    return mapping_str
+
+
+def _parse_column_map(column_map_str):
+    """Parse a column map string like 'prompt=question,completion=answer' into a dict."""
+    if not column_map_str:
+        return {}
+    mapping = {}
+    for pair in column_map_str.split(","):
+        pair = pair.strip()
+        if "=" not in pair:
+            continue
+        target, source = pair.split("=", 1)
+        mapping[target.strip()] = source.strip()
+    return mapping
+
+
+def _apply_column_map(record, column_map):
+    """Apply column mapping to a record: rename source columns to target names."""
+    if not column_map:
+        return record
+    mapped = dict(record)
+    for target, source in column_map.items():
+        if source in mapped and target not in mapped:
+            mapped[target] = mapped.pop(source)
+    return mapped
+
+
+def _validate_dataset_columns(first_record, technique, column_map_str, dataset_id):
+    """Validate that the first record has required columns after mapping.
+
+    Returns (mapped_record, column_map_dict) on success.
+    Calls _error_exit with helpful suggestions on failure.
+    """
+    column_map = _parse_column_map(column_map_str)
+    mapped = _apply_column_map(first_record, column_map)
+    required = _get_required_columns(technique)
+    detected = list(first_record.keys())
+
+    missing = [col for col in required if col not in mapped]
+    if not missing:
+        return mapped, column_map
+
+    # Build helpful error message
+    lines = [
+        f"Dataset columns don't match {technique.upper()} requirements.",
+        f"",
+        f"   Required columns: {', '.join(required)}",
+        f"   Detected columns: {', '.join(detected)}",
+        f"   Missing: {', '.join(missing)}",
+    ]
+
+    # Suggest a column map
+    suggestion = _suggest_column_map(detected, required)
+    if suggestion:
+        lines.append(f"")
+        lines.append(f"   💡 Suggested fix:")
+        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {suggestion}")
+    else:
+        lines.append(f"")
+        lines.append(f"   💡 Use --column-map to rename columns:")
+        example_map = ",".join(f"{r}=<your_column>" for r in missing)
+        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {example_map}")
+
+    lines.append(f"")
+    lines.append(f"   First record sample:")
+    # Show truncated first record
+    for k, v in list(first_record.items())[:5]:
+        val_str = str(v)[:80] + ("..." if len(str(v)) > 80 else "")
+        lines.append(f"      {k}: {val_str}")
+
+    _error_exit("\n".join(lines))
 
 
 def cmd_stage_hf(args):
@@ -367,17 +621,84 @@ def cmd_stage_hf(args):
                     local_dir=tmpdir,
                 )
 
-                # Count records (lines for JSONL)
-                with open(local_path, "r") as f:
-                    for line in f:
-                        if line.strip():
-                            num_records += 1
+                # Handle Parquet files: convert to JSONL for SageMaker compatibility
+                if data_file.endswith(".parquet"):
+                    try:
+                        import pyarrow.parquet as pq
+                        import json as json_mod
 
-                # Upload to S3
-                s3_key = f"{s3_prefix}/{os.path.basename(data_file)}"
-                s3_client.upload_file(local_path, args.output_bucket, s3_key)
+                        table = pq.read_table(local_path)
+                        jsonl_filename = os.path.splitext(os.path.basename(data_file))[0] + ".jsonl"
+                        jsonl_path = os.path.join(tmpdir, jsonl_filename)
 
-        s3_uri = f"s3://{args.output_bucket}/{s3_prefix}/{os.path.basename(data_files[0])}"
+                        # Parse column map and validate against first record
+                        column_map = _parse_column_map(getattr(args, 'column_map', None))
+                        technique = getattr(args, 'technique', 'sft')
+                        batches = table.to_batches(max_chunksize=1)
+                        first_record = batches[0].to_pylist()[0] if batches else {}
+                        _validate_dataset_columns(first_record, technique, getattr(args, 'column_map', None), f"{org}/{name}")
+
+                        with open(jsonl_path, "w", encoding="utf-8") as out_f:
+                            for batch in table.to_batches():
+                                for row in batch.to_pylist():
+                                    mapped_row = _apply_column_map(row, column_map)
+                                    out_f.write(json_mod.dumps(mapped_row, ensure_ascii=False) + "\n")
+                                    num_records += 1
+
+                        # Upload converted JSONL
+                        s3_key = f"{s3_prefix}/{jsonl_filename}"
+                        s3_client.upload_file(jsonl_path, args.output_bucket, s3_key)
+
+                    except ImportError:
+                        _error_exit(
+                            "Dataset is in Parquet format but pyarrow is not installed. "
+                            "Please install: pip install pyarrow"
+                        )
+                else:
+                    # JSONL file — validate columns and apply mapping
+                    import json as json_mod
+                    column_map = _parse_column_map(getattr(args, 'column_map', None))
+                    technique = getattr(args, 'technique', 'sft')
+
+                    # Read first line to validate
+                    with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+                        first_line = f.readline().strip()
+                        if first_line:
+                            first_record = json_mod.loads(first_line)
+                            _validate_dataset_columns(first_record, technique, getattr(args, 'column_map', None), f"{org}/{name}")
+
+                    # If column map is provided, rewrite the file with mapped columns
+                    if column_map:
+                        mapped_path = local_path + ".mapped"
+                        with open(local_path, "r", encoding="utf-8", errors="replace") as f_in, \
+                             open(mapped_path, "w", encoding="utf-8") as f_out:
+                            for line in f_in:
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                record = json_mod.loads(line)
+                                mapped_record = _apply_column_map(record, column_map)
+                                f_out.write(json_mod.dumps(mapped_record, ensure_ascii=False) + "\n")
+                                num_records += 1
+                        local_path = mapped_path
+                    else:
+                        # Count records
+                        with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+                            for line in f:
+                                if line.strip():
+                                    num_records += 1
+
+                    # Upload to S3
+                    s3_key = f"{s3_prefix}/{os.path.basename(data_file)}"
+                    s3_client.upload_file(local_path, args.output_bucket, s3_key)
+
+        # Use the first file's name for the S3 URI (JSONL extension for Parquet conversions)
+        first_file = data_files[0]
+        if first_file.endswith(".parquet"):
+            output_filename = os.path.splitext(os.path.basename(first_file))[0] + ".jsonl"
+        else:
+            output_filename = os.path.basename(first_file)
+        s3_uri = f"s3://{args.output_bucket}/{s3_prefix}/{output_filename}"
 
         _output({
             "s3_uri": s3_uri,
@@ -474,6 +795,11 @@ def _find_data_files(repo_files, split):
     data_jsonl = [f for f in repo_files if f.startswith("data/") and f.endswith(".jsonl")]
     if data_jsonl:
         return sorted(data_jsonl)
+
+    # Final fallback: any JSONL/JSON file in the repo root (single-file datasets)
+    root_data = [f for f in repo_files if "/" not in f and (f.endswith(".jsonl") or f.endswith(".json")) and not f.startswith(".")]
+    if root_data:
+        return sorted(root_data)
 
     return []
 
@@ -648,6 +974,53 @@ def _build_expected_format(schema):
     return "Each line must be a JSON object with: {" + ", ".join(fields) + "}"
 
 
+# ── Subcommand: discover ──────────────────────────────────────────────────────
+
+
+def cmd_discover(args):
+    """Query JumpStart Hub for tune-eligible models matching a family.
+
+    Returns: {"models": [str], "count": int}
+    """
+    import boto3
+
+    region = args.region or os.environ.get('AWS_REGION', 'us-east-1')
+
+    family = args.family or ""
+    # Map family names to Hub content name prefixes
+    FAMILY_PREFIX_MAP = {
+        "qwen-2.5": "huggingface-llm-qwen2-5",
+        "qwen-3": "huggingface-reasoning-qwen3",
+        "llama-3": "meta-textgeneration-llama-3",
+        "deepseek-r1": "deepseek-llm-r1-distill",
+        "gpt-oss": "openai-reasoning-gpt-oss",
+    }
+
+    prefix = FAMILY_PREFIX_MAP.get(family, args.filter or "")
+    if not prefix:
+        _error_exit("No family or filter provided for discovery")
+
+    try:
+        client = boto3.client("sagemaker", region_name=region)
+        models = []
+        paginator = client.get_paginator('list_hub_contents')
+        pages = paginator.paginate(
+            HubName="SageMakerPublicHub",
+            HubContentType="Model",
+            NameContains=prefix,
+            MaxResults=20
+        )
+        for page in pages:
+            for item in page.get('HubContentSummaries', []):
+                if item.get('HubContentStatus') == 'Available':
+                    models.append(item['HubContentName'])
+
+        _output({"models": models[:5], "count": len(models)})
+
+    except Exception as e:
+        _error_exit(f"Hub discovery failed: {e}")
+
+
 # ── CLI argument parsing ──────────────────────────────────────────────────────
 
 
@@ -661,6 +1034,8 @@ def main():
     # ── submit ────────────────────────────────────────────────────────────────
     submit_parser = subparsers.add_parser("submit", help="Submit a customization job")
     submit_parser.add_argument("--model-id", required=True, help="Model ID")
+    submit_parser.add_argument("--region", default=None,
+                               help="AWS region (defaults to AWS_REGION env var)")
     submit_parser.add_argument("--technique", required=True,
                                choices=["sft", "dpo", "rlaif", "rlvr"],
                                help="Customization technique")
@@ -733,6 +1108,11 @@ def main():
                                  help="AWS region")
     stage_hf_parser.add_argument("--hf-secret-name", default=None,
                                  help="Secrets Manager secret name for HF token")
+    stage_hf_parser.add_argument("--column-map", default=None,
+                                 help="Column mapping (e.g., prompt=question,completion=answer)")
+    stage_hf_parser.add_argument("--technique", default="sft",
+                                 choices=["sft", "dpo", "rlaif", "rlvr"],
+                                 help="Customization technique (determines required columns)")
 
     # ── validate ──────────────────────────────────────────────────────────────
     validate_parser = subparsers.add_parser("validate",
@@ -741,6 +1121,16 @@ def main():
                                  help="JSON string of the expected dataset schema")
     validate_parser.add_argument("--file", default="-",
                                  help="Path to dataset file (default: stdin)")
+
+    # ── discover ──────────────────────────────────────────────────────────────
+    discover_parser = subparsers.add_parser("discover",
+                                            help="Discover tune-eligible models from JumpStart Hub")
+    discover_parser.add_argument("--family", default="",
+                                 help="Model family name (e.g., qwen-3, llama-3, deepseek-r1)")
+    discover_parser.add_argument("--filter", default="",
+                                 help="Hub content name prefix filter (overrides family mapping)")
+    discover_parser.add_argument("--region", default="",
+                                 help="AWS region (default: AWS_REGION env or us-east-1)")
 
     # ── Parse and dispatch ────────────────────────────────────────────────────
     args = parser.parse_args()
@@ -755,6 +1145,7 @@ def main():
         "resolve": cmd_resolve,
         "stage-hf": cmd_stage_hf,
         "validate": cmd_validate,
+        "discover": cmd_discover,
     }
 
     handler = command_map.get(args.command)
