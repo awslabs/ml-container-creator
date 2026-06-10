@@ -520,6 +520,7 @@ if [ -n "${EXISTING_CONFIG_SPEC}" ]; then
 
     if [ "${EXISTING_NORMALIZED}" = "${DESIRED_NORMALIZED}" ]; then
         echo "   ✅ Existing workload config matches current parameters — reusing"
+        CREATE_WORKLOAD_CONFIG=false
     else
         echo "   ⚠️  Workload config parameters changed — recreating..."
         aws sagemaker delete-ai-workload-config \

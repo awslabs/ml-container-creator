@@ -41,6 +41,9 @@ export default class ConfigLoader {
             if (profileConfig.awsProfile) {
                 mapped.awsProfile = profileConfig.awsProfile;
             }
+            if (profileConfig.ciBenchmarkResultsBucket) {
+                mapped.ciBenchmarkResultsBucket = profileConfig.ciBenchmarkResultsBucket;
+            }
 
             this.manager._mergeConfig(mapped);
         } catch (error) {
