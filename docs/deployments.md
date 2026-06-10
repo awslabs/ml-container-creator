@@ -20,7 +20,7 @@ Local containers may produce `exec` errors when deployed to a different architec
 
 MCC supports four deployment targets, selected during project generation via the `--deployment-target` option. The chosen target determines how `./do/deploy`, `./do/test`, `./do/clean`, and `./do/logs` behave.
 
-### SageMaker AI Managed Inference (`managed-inference`)
+### SageMaker AI Real-Time Inference (`realtime-inference`)
 
 The default deployment target. `./do/deploy` provisions resources using the SageMaker AI Inference Components API:
 
@@ -66,7 +66,7 @@ For workloads with large payloads or long processing times (> 60s). `./do/deploy
 ```bash
 ml-container-creator my-async-project \
   --deployment-target=async-inference \
-  --async-output-s3=s3://my-bucket/async-output/ \
+  --async-s3-output-path=s3://my-bucket/async-output/ \
   ...
 ```
 
@@ -100,7 +100,7 @@ All generated projects include these `do/` scripts:
 | `./do/add-ic` | Add an inference component to an existing endpoint |
 | `./do/benchmark` | Run latency and throughput benchmarks via SageMaker AI Benchmarking |
 | `./do/status` | Check endpoint and inference component status |
-| `./do/logs` | Tail logs (CloudWatch for managed-inference, kubectl for HyperPod) |
+| `./do/logs` | Tail logs (CloudWatch for realtime-inference, kubectl for HyperPod) |
 | `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
 | `./do/config` | Centralized configuration for all scripts (sourced, not executed) |
 | `./do/export` | Export current configuration as a reproducible CLI command |

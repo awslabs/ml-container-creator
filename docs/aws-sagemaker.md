@@ -169,17 +169,15 @@ You can specify any AWS SageMaker AI instance type using the custom option:
 
 ```bash
 # CLI usage
-ml-container-creator --instance-type=custom --custom-instance-type=ml.g4dn.xlarge
+ml-container-creator --instance-type=ml.g4dn.xlarge
 
 # Configuration file
 {
-  "instanceType": "custom",
-  "customInstanceType": "ml.inf1.xlarge"
+  "instanceType": "ml.inf1.xlarge"
 }
 
 # Environment variables
-export ML_INSTANCE_TYPE=custom
-export ML_CUSTOM_INSTANCE_TYPE=ml.g4dn.2xlarge
+export ML_INSTANCE_TYPE=ml.g4dn.2xlarge
 ```
 
 #### Popular Custom Instance Types

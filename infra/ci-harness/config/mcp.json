@@ -1,0 +1,52 @@
+{
+  "mcpServers": {
+    "base-image-picker": {
+      "command": "node",
+      "args": [
+        "servers/base-image-picker/index.js"
+      ]
+    },
+    "e2e-status": {
+      "command": "node",
+      "args": [
+        "servers/e2e-status/index.js"
+      ]
+    },
+    "endpoint-picker": {
+      "command": "node",
+      "args": [
+        "servers/endpoint-picker/index.js"
+      ]
+    },
+    "hyperpod-cluster-picker": {
+      "command": "node",
+      "args": [
+        "servers/hyperpod-cluster-picker/index.js"
+      ]
+    },
+    "instance-sizer": {
+      "command": "node",
+      "args": [
+        "servers/instance-sizer/index.js"
+      ]
+    },
+    "marketplace-picker": {
+      "command": "node",
+      "args": [
+        "servers/marketplace-picker/index.js"
+      ]
+    },
+    "model-picker": {
+      "command": "node",
+      "args": [
+        "servers/model-picker/index.js"
+      ]
+    },
+    "region-picker": {
+      "command": "node",
+      "args": [
+        "servers/region-picker/index.js"
+      ]
+    }
+  }
+}

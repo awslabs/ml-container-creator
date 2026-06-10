@@ -57,6 +57,129 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# ── Multi-level concurrency support (CI Stage 2) ─────────────────────────────
+# When BENCHMARK_CONCURRENCY_LEVELS is set (comma-separated integers, e.g. "1,4,8"
+# or JSON array string, e.g. "[1,4,8]"), and we are NOT already in single-level
+# execution mode (_BENCHMARK_SINGLE_LEVEL), the script iterates over each level,
+# re-invoking itself for each one.
+# Results from all levels are aggregated into a combined JSON for the benchmark writer.
+# This supports Requirement 1.5: configurable concurrency levels per config.
+if [ -n "${BENCHMARK_CONCURRENCY_LEVELS:-}" ] && [ -z "${_BENCHMARK_SINGLE_LEVEL:-}" ]; then
+    # Normalize: strip brackets and spaces, convert to comma-separated
+    _NORMALIZED_LEVELS=$(echo "${BENCHMARK_CONCURRENCY_LEVELS}" | tr -d '[] ' )
+
+    # Skip if empty after normalization
+    if [ -n "${_NORMALIZED_LEVELS}" ]; then
+        echo "📊 Multi-level benchmark: running concurrency levels [${_NORMALIZED_LEVELS}]"
+        echo ""
+
+        IFS=',' read -ra _LEVELS <<< "${_NORMALIZED_LEVELS}"
+        _ALL_RESULTS_DIR="${SCRIPT_DIR}/../benchmarks/multi-level-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "${_ALL_RESULTS_DIR}"
+        _LEVEL_FAILURES=0
+
+        for _LEVEL in "${_LEVELS[@]}"; do
+            _LEVEL=$(echo "${_LEVEL}" | tr -d ' ')
+            # Skip non-numeric values
+            if ! [[ "${_LEVEL}" =~ ^[0-9]+$ ]]; then
+                echo "⚠️  Skipping invalid concurrency level: ${_LEVEL}"
+                continue
+            fi
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  Running benchmark at concurrency level: ${_LEVEL}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+
+            # Re-invoke self with overridden concurrency and single-level flag
+            export BENCHMARK_CONCURRENCY="${_LEVEL}"
+            export _BENCHMARK_SINGLE_LEVEL=1
+            # Build argument list for re-invocation
+            _REINVOKE_ARGS="--force"
+            if [ "${CLEAN_AFTER}" = true ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --clean"; fi
+            if [ "${ARG_NO_STALE_WARNING}" = true ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --no-stale-warning"; fi
+            if [ -n "${IC_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --ic ${IC_ARG}"; fi
+            if [ -n "${ADAPTER_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --adapter ${ADAPTER_ARG}"; fi
+
+            if "${BASH_SOURCE[0]}" ${_REINVOKE_ARGS}; then
+                # Copy results to aggregation directory
+                _LATEST_JOB_DIR=$(ls -td "${SCRIPT_DIR}/../benchmarks/${PROJECT_NAME}-benchmark-"* 2>/dev/null | head -1)
+                if [ -n "${_LATEST_JOB_DIR}" ] && [ -f "${_LATEST_JOB_DIR}/results.json" ]; then
+                    cp "${_LATEST_JOB_DIR}/results.json" "${_ALL_RESULTS_DIR}/results-concurrency-${_LEVEL}.json"
+                fi
+            else
+                echo "⚠️  Benchmark at concurrency ${_LEVEL} failed (non-fatal, continuing)"
+                _LEVEL_FAILURES=$((_LEVEL_FAILURES + 1))
+            fi
+            unset _BENCHMARK_SINGLE_LEVEL
+            echo ""
+        done
+
+        # Aggregate results into a combined JSON file for the benchmark writer
+        echo "📊 Aggregating multi-level results..."
+        _COMBINED_FILE="${_ALL_RESULTS_DIR}/results.json"
+        python3 -c "
+import json, glob, sys, os
+
+results_dir = '${_ALL_RESULTS_DIR}'
+combined = {'metrics': []}
+for f in sorted(glob.glob(os.path.join(results_dir, 'results-concurrency-*.json'))):
+    try:
+        with open(f) as fp:
+            data = json.load(fp)
+        # Extract concurrency from filename
+        level = int(os.path.basename(f).replace('results-concurrency-', '').replace('.json', ''))
+        if isinstance(data, dict):
+            data['concurrency'] = level
+            combined['metrics'].append(data)
+    except Exception as e:
+        print(f'Warning: Could not parse {f}: {e}', file=sys.stderr)
+
+with open('${_COMBINED_FILE}', 'w') as fp:
+    json.dump(combined, fp, indent=2)
+print(f'Combined {len(combined[\"metrics\"])} concurrency level results')
+" 2>&1
+
+        # Persist to Athena if CI mode is active
+        if [ -n "${CI_BENCHMARK_RESULTS_BUCKET:-}" ] && [ -f "${_COMBINED_FILE}" ]; then
+            echo ""
+            echo "📊 Persisting multi-level benchmark results to Athena..."
+
+            _compute_config_id() {
+                local input="${DEPLOYMENT_CONFIG}:${MODEL_NAME:-none}:${INSTANCE_TYPE}:${AWS_REGION}:${DEPLOYMENT_TARGET}:ic${IC_COUNT:-1}:adapt${ADAPTER_COUNT:-0}"
+                if command -v sha256sum &> /dev/null; then
+                    echo -n "$input" | sha256sum | cut -c1-16
+                else
+                    echo -n "$input" | shasum -a 256 | cut -c1-16
+                fi
+            }
+            CONFIG_ID=$(_compute_config_id)
+
+            if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
+                --results-file "${_COMBINED_FILE}" \
+                --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
+                --config-id "${CONFIG_ID}" \
+                --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
+                --region "${AWS_REGION:-${REGION}}"; then
+                echo "✅ Multi-level benchmark results persisted to S3"
+            else
+                echo "⚠️  Failed to persist multi-level benchmark results to Athena (non-fatal)"
+            fi
+        fi
+
+        echo ""
+        echo "📋 Multi-level Summary:"
+        echo "   Levels tested: ${_NORMALIZED_LEVELS}"
+        echo "   Failures: ${_LEVEL_FAILURES} / ${#_LEVELS[@]}"
+        echo "   Results: ${_ALL_RESULTS_DIR}/"
+
+        if [ ${_LEVEL_FAILURES} -ge ${#_LEVELS[@]} ]; then
+            echo "❌ All concurrency levels failed"
+            exit 1
+        fi
+        exit 0
+    fi
+fi
+
 # ── _check_schema_registry_staleness() ────────────────────────────────────────
 # Warn if the schema registry manifest's lastSynced timestamp is older than threshold.
 # Configurable via MCC_CATALOG_STALENESS_DAYS (default: 90).
@@ -699,6 +822,39 @@ except Exception as e:
             --region "${AWS_REGION}" \
             --query 'Contents[].{Key: Key, Size: Size}' \
             --output table 2>/dev/null || echo "   (could not list objects)"
+    fi
+
+    # ── Persist benchmark results to Athena (CI mode only) ──────────────────
+    # When CI_BENCHMARK_RESULTS_BUCKET is set (injected by CI CodeBuild from
+    # bootstrap config), call the benchmark writer to persist results as Parquet
+    # to S3 for Athena querying. Non-CI users see no change.
+    if [ -n "${CI_BENCHMARK_RESULTS_BUCKET:-}" ] && [ "${RESULTS_DOWNLOADED}" = true ]; then
+        echo ""
+        echo "📊 Persisting benchmark results to Athena..."
+
+        # Compute config_id using the same algorithm as do/register
+        _compute_config_id() {
+            local input="${DEPLOYMENT_CONFIG}:${MODEL_NAME:-none}:${INSTANCE_TYPE}:${AWS_REGION}:${DEPLOYMENT_TARGET}:ic${IC_COUNT:-1}:adapt${ADAPTER_COUNT:-0}"
+            if command -v sha256sum &> /dev/null; then
+                echo -n "$input" | sha256sum | cut -c1-16
+            else
+                echo -n "$input" | shasum -a 256 | cut -c1-16
+            fi
+        }
+        CONFIG_ID=$(_compute_config_id)
+
+        # Best-effort: errors are logged but do not fail the benchmark script
+        if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
+            --results-file "${RESULTS_FILE}" \
+            --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
+            --config-id "${CONFIG_ID}" \
+            --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
+            --region "${AWS_REGION:-${REGION}}"; then
+            echo "✅ Benchmark results persisted to S3"
+        else
+            echo "⚠️  Failed to persist benchmark results to Athena (non-fatal)"
+            echo "   Results remain available locally in: benchmarks/${BENCHMARK_JOB_NAME}/"
+        fi
     fi
 
 elif [ "${JOB_STATUS}" = "Failed" ]; then

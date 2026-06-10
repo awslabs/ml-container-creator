@@ -344,6 +344,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     // Exclude do/benchmark when benchmarking is not selected
     if (!answers.includeBenchmark) {
         ignorePatterns.push('**/do/benchmark');
+        ignorePatterns.push('**/do/.benchmark_writer.py');
         ignorePatterns.push('**/do/optimize');
     }
 

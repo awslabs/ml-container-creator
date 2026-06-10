@@ -277,6 +277,68 @@ describe('Bootstrap CI Integration — BootstrapConfig', () => {
                 'ciTableName should default to "mlcc-ci-table"');
         });
 
+        it('should return ciGlueDatabase=null when not set in profile', () => {
+            const configPath = createTempConfigPath();
+            const config = new BootstrapConfig(configPath);
+
+            config.setProfile('default', {
+                awsProfile: 'default',
+                awsRegion: 'us-east-1',
+                accountId: '111111111111'
+            });
+
+            const profile = config.getProfileWithDefaults('default');
+            assert.strictEqual(profile.ciGlueDatabase, null,
+                'ciGlueDatabase should default to null');
+        });
+
+        it('should return ciBenchmarkResultsBucket=null when not set in profile', () => {
+            const configPath = createTempConfigPath();
+            const config = new BootstrapConfig(configPath);
+
+            config.setProfile('default', {
+                awsProfile: 'default',
+                awsRegion: 'us-east-1',
+                accountId: '111111111111'
+            });
+
+            const profile = config.getProfileWithDefaults('default');
+            assert.strictEqual(profile.ciBenchmarkResultsBucket, null,
+                'ciBenchmarkResultsBucket should default to null');
+        });
+
+        it('should preserve existing ciGlueDatabase', () => {
+            const configPath = createTempConfigPath();
+            const config = new BootstrapConfig(configPath);
+
+            config.setProfile('default', {
+                awsProfile: 'default',
+                awsRegion: 'us-east-1',
+                accountId: '111111111111',
+                ciGlueDatabase: 'mlcc_ci'
+            });
+
+            const profile = config.getProfileWithDefaults('default');
+            assert.strictEqual(profile.ciGlueDatabase, 'mlcc_ci',
+                'ciGlueDatabase should be preserved when set');
+        });
+
+        it('should preserve existing ciBenchmarkResultsBucket', () => {
+            const configPath = createTempConfigPath();
+            const config = new BootstrapConfig(configPath);
+
+            config.setProfile('default', {
+                awsProfile: 'default',
+                awsRegion: 'us-east-1',
+                accountId: '111111111111',
+                ciBenchmarkResultsBucket: 'mlcc-benchmark-results-111111111111-us-east-1'
+            });
+
+            const profile = config.getProfileWithDefaults('default');
+            assert.strictEqual(profile.ciBenchmarkResultsBucket, 'mlcc-benchmark-results-111111111111-us-east-1',
+                'ciBenchmarkResultsBucket should be preserved when set');
+        });
+
         it('should preserve existing ciInfraProvisioned=true', () => {
             const configPath = createTempConfigPath();
             const config = new BootstrapConfig(configPath);
@@ -425,6 +487,8 @@ describe('Bootstrap CI Integration — BootstrapConfig', () => {
             const profile = config.getProfileWithDefaults('legacy');
             assert.strictEqual(profile.ciInfraProvisioned, false);
             assert.strictEqual(profile.ciTableName, 'mlcc-ci-table');
+            assert.strictEqual(profile.ciGlueDatabase, null);
+            assert.strictEqual(profile.ciBenchmarkResultsBucket, null);
         });
     });
 
@@ -481,6 +545,40 @@ describe('Bootstrap CI Integration — BootstrapConfig', () => {
             const profile = config2.getProfile('default');
             assert.strictEqual(profile.ciInfraProvisioned, true);
             assert.strictEqual(profile.ciTableName, 'mlcc-ci-table');
+        });
+
+        it('should persist ciGlueDatabase through write/read cycle', () => {
+            const configPath = createTempConfigPath();
+            const config = new BootstrapConfig(configPath);
+
+            config.setProfile('default', {
+                awsProfile: 'default',
+                awsRegion: 'us-east-1',
+                accountId: '111111111111',
+                ciGlueDatabase: 'mlcc_ci'
+            });
+
+            const config2 = new BootstrapConfig(configPath);
+            const profile = config2.getProfile('default');
+            assert.strictEqual(profile.ciGlueDatabase, 'mlcc_ci',
+                'ciGlueDatabase should persist through write/read');
+        });
+
+        it('should persist ciBenchmarkResultsBucket through write/read cycle', () => {
+            const configPath = createTempConfigPath();
+            const config = new BootstrapConfig(configPath);
+
+            config.setProfile('default', {
+                awsProfile: 'default',
+                awsRegion: 'us-east-1',
+                accountId: '111111111111',
+                ciBenchmarkResultsBucket: 'mlcc-benchmark-results-111111111111-us-east-1'
+            });
+
+            const config2 = new BootstrapConfig(configPath);
+            const profile = config2.getProfile('default');
+            assert.strictEqual(profile.ciBenchmarkResultsBucket, 'mlcc-benchmark-results-111111111111-us-east-1',
+                'ciBenchmarkResultsBucket should persist through write/read');
         });
     });
 });

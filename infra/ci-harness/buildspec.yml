@@ -7,6 +7,7 @@ env:
     CONFIG_ID: ""
     CONFIG_JSON: ""
     BUILD_STRATEGY: "codebuild-submit"
+    BENCHMARK_CONCURRENCY_LEVELS: ""
 
 phases:
   install:

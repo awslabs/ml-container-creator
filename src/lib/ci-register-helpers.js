@@ -104,6 +104,15 @@ export function applyRecordDefaults(record) {
     if (!record.projectName) {
         record.projectName = '';
     }
+    // Benchmark fields — optional, backward-compatible defaults (Requirement 7.1, 7.4)
+    if (record.benchmarkEnabled === undefined || record.benchmarkEnabled === null) {
+        record.benchmarkEnabled = false;
+    }
+    if (!record.benchmarkConcurrencyLevels) {
+        record.benchmarkConcurrencyLevels = [1, 4, 8];
+    }
+    // lastBenchmarkRunId, lastBenchmarkTimestamp, lastBenchmarkStatus are intentionally
+    // NOT defaulted — their absence indicates "never benchmarked" (Requirement 7.4)
     return record;
 }
 
@@ -121,4 +130,69 @@ export function extractBaseImageVersion(baseImage) {
         return '';
     }
     return baseImage.split(':').pop();
+}
+
+/**
+ * Build the benchmark fields to update on a DynamoDB CI record after
+ * a benchmark stage completes (or fails).
+ *
+ * Only returns the benchmark-specific fields — caller merges into the
+ * existing record. Existing fields (testStatus, configJson, etc.) are
+ * intentionally NOT included to satisfy Requirement 7.3.
+ *
+ * @param {string} runId - Benchmark run identifier (e.g., "bmk-20260609T143022Z")
+ * @param {string} status - One of: "completed", "failed", "in-progress"
+ * @param {string} [timestamp] - ISO 8601 timestamp; defaults to current time
+ * @returns {object} Object with lastBenchmarkRunId, lastBenchmarkTimestamp, lastBenchmarkStatus
+ */
+export function buildBenchmarkFields(runId, status, timestamp) {
+    const validStatuses = ['completed', 'failed', 'in-progress'];
+    if (!validStatuses.includes(status)) {
+        throw new Error(`Invalid benchmark status: '${status}'. Must be one of: ${validStatuses.join(', ')}`);
+    }
+    if (!runId || typeof runId !== 'string') {
+        throw new Error('Benchmark runId is required and must be a non-empty string');
+    }
+    return {
+        lastBenchmarkRunId: runId,
+        lastBenchmarkTimestamp: timestamp || new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        lastBenchmarkStatus: status
+    };
+}
+
+/**
+ * Check whether a CI record has ever been benchmarked.
+ *
+ * Per Requirement 7.4, absence of `lastBenchmarkRunId` indicates
+ * "never benchmarked" — this is the canonical check.
+ *
+ * @param {object} record - A CI DynamoDB record
+ * @returns {boolean} True if the record has benchmark data
+ */
+export function hasBeenBenchmarked(record) {
+    return !!(record && record.lastBenchmarkRunId);
+}
+
+/**
+ * Check whether benchmarking is enabled for a CI record/config.
+ *
+ * @param {object} record - A CI DynamoDB record (with defaults applied)
+ * @returns {boolean} True if benchmarkEnabled is true
+ */
+export function isBenchmarkEnabled(record) {
+    if (!record) return false;
+    return record.benchmarkEnabled === true;
+}
+
+/**
+ * Get the benchmark concurrency levels for a CI record/config.
+ *
+ * @param {object} record - A CI DynamoDB record (with defaults applied)
+ * @returns {number[]} Array of concurrency level integers
+ */
+export function getBenchmarkConcurrencyLevels(record) {
+    if (!record || !Array.isArray(record.benchmarkConcurrencyLevels)) {
+        return [1, 4, 8];
+    }
+    return record.benchmarkConcurrencyLevels;
 }

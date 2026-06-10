@@ -77,10 +77,7 @@ Profiles provide pre-configured optimization settings for common use cases:
 
 ```bash
 ml-container-creator \
-  --framework=transformers \
-  --model-server=vllm \
-  --framework-version=0.4.0 \
-  --framework-profile=low-latency
+  --deployment-config=transformers-vllm
 ```
 
 ## Model Registry
@@ -242,8 +239,9 @@ During prompting:
 
 Or via CLI:
 
-```bash
---framework-version=0.4.0
+```text
+# Framework version is now determined by the base image in the catalog
+# See: servers/base-image-picker/catalogs/model-servers.json
 ```
 
 ### Select Framework Profile
@@ -257,8 +255,9 @@ Or via CLI:
 
 Or via CLI:
 
-```bash
---framework-profile=low-latency
+```text
+# Framework profiles are no longer CLI flags
+# Configure via environment variables in do/config instead
 ```
 
 ### Offline Mode
@@ -338,9 +337,7 @@ Try a new framework version and report results:
 
 ```bash
 ml-container-creator \
-  --framework=transformers \
-  --model-server=vllm \
-  --framework-version=0.5.0
+  --deployment-config=transformers-vllm
 ```
 
 If it works, submit a PR adding it to `servers/base-image-picker/catalogs/model-servers.json`.

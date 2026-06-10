@@ -568,7 +568,7 @@ npx @aws/ml-container-creator
 | Deploy target | `--deploy-target` | `MCC_DEPLOY_TARGET` | enum | sagemaker |
 | Skip prompts | `--skip-prompts` | `MCC_SKIP_PROMPTS` | boolean | false |
 | Include testing | `--include-testing` | `MCC_INCLUDE_TESTING` | boolean | true |
-| Include sample model | `--include-sample-model` | `MCC_INCLUDE_SAMPLE_MODEL` | boolean | true |
+| Include sample model | `--include-sample` | `ML_INCLUDE_SAMPLE` | boolean | true |
 
 **Endpoint parameters (realtime-inference):**
 

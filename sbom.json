@@ -2,22 +2,22 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "name": "@aws/ml-container-creator@0.8.0",
-  "documentNamespace": "http://spdx.org/spdxdocs/@aws%2fml-container-creator-0.8.0-***",
+  "name": "@aws/ml-container-creator@0.11.0",
+  "documentNamespace": "http://spdx.org/spdxdocs/@aws%2fml-container-creator-0.11.0-***",
   "creationInfo": {
-    "created": "2026-05-21T16:11:55.713Z",
+    "created": "2026-06-10T13:42:50.994Z",
     "creators": [
       "Tool: npm/cli-11.6.2"
     ]
   },
   "documentDescribes": [
-    "SPDXRef-Package-aws.ml-container-creator-0.8.0"
+    "SPDXRef-Package-aws.ml-container-creator-0.11.0"
   ],
   "packages": [
     {
       "name": "@aws/ml-container-creator",
-      "SPDXID": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
-      "versionInfo": "0.8.0",
+      "SPDXID": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
+      "versionInfo": "0.11.0",
       "packageFileName": "",
       "description": "Generator for SageMaker AI BYOC paradigm for predictive inference use-cases.",
       "primaryPackagePurpose": "LIBRARY",
@@ -29,7 +29,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:npm/%40aws/ml-container-creator@0.8.0"
+          "referenceLocator": "pkg:npm/%40aws/ml-container-creator@0.11.0"
         }
       ]
     },
@@ -3918,7 +3918,7 @@
       "versionInfo": "5.0.5",
       "packageFileName": "node_modules/brace-expansion",
       "description": "Brace expansion as known from sh/bash",
-      "downloadLocation": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.5.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "NOASSERTION",
       "licenseDeclared": "MIT",
@@ -3927,12 +3927,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/brace-expansion@5.0.5"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "559ce72e0b70867f8c69cb7db5f8b0c7ae1f03d7ab1c7fcc0971147c1ff46d7ffa173ea7cb91064d7625b4ca1caa0e31140419b673b70c75965e2f118ae37b71"
         }
       ]
     },
@@ -7035,7 +7029,7 @@
       "versionInfo": "4.12.18",
       "packageFileName": "node_modules/hono",
       "description": "Web framework built on Web Standards",
-      "downloadLocation": "https://registry.npmjs.org/hono/-/hono-4.12.18.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://hono.dev",
       "licenseDeclared": "MIT",
@@ -7044,12 +7038,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/hono@4.12.18"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "456ccff7a93fcafd0f41fc979d68eceb3a2ddb44ea7e97ec35784e9debfc775227031b9b5bddcbd75fe8354737b50aa7d86d1b49d00e0695fedae0c51d5ee475"
         }
       ]
     },
@@ -9746,7 +9734,7 @@
       "versionInfo": "6.15.1",
       "packageFileName": "node_modules/qs",
       "description": "A querystring parser that supports nesting and arrays, with a depth limit",
-      "downloadLocation": "https://registry.npmjs.org/qs/-/qs-6.15.1.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/ljharb/qs",
       "licenseDeclared": "BSD-3-Clause",
@@ -9755,12 +9743,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/qs@6.15.1"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "e981c41512fd99f81c02faa5fd78704ef7f98ca70e8a2ba9b761622711e4897d73e23ed62fc27f8d11d82e5b8e46f7355f1079ad5db42a878ad3481525a9aca6"
         }
       ]
     },
@@ -12168,102 +12150,102 @@
   "relationships": [
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DESCRIBES"
     },
     {
       "spdxElementId": "SPDXRef-Package-inquirer.prompts-8.4.2",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-modelcontextprotocol.sdk-1.29.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-ajv-8.20.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-chalk-5.6.2",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-cli-table3-0.6.5",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-commander-13.1.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-ejs-3.1.10",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-minimatch-10.2.5",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-tinyglobby-0.2.16",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-aws-sdk.client-sagemaker-3.1045.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-aws-sdk.client-service-quotas-3.1045.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-microsoft.eslint-formatter-sarif-3.1.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-eslint-8.57.1",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-fast-check-4.7.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-license-report-6.8.2",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-mocha-10.8.2",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-npm-force-resolutions-0.0.10",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-nyc-15.1.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {
       "spdxElementId": "SPDXRef-Package-sbom-0.0.0",
-      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.8.0",
+      "relatedSpdxElement": "SPDXRef-Package-aws.ml-container-creator-0.11.0",
       "relationshipType": "DEV_DEPENDENCY_OF"
     },
     {

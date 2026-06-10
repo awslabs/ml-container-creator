@@ -9,10 +9,9 @@ Deploy a scikit-learn model with Flask serving on a CPU instance.
 ```bash
 ml-container-creator sklearn-flask-demo \
   --deployment-config=http-flask \
-  --engine=sklearn \
   --model-format=pkl \
-  --include-sample-model \
-  --deployment-target=managed-inference \
+  --include-sample \
+  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -41,10 +40,9 @@ Deploy an XGBoost model with FastAPI serving.
 ```bash
 ml-container-creator xgboost-fastapi-demo \
   --deployment-config=http-fastapi \
-  --engine=xgboost \
   --model-format=json \
-  --include-sample-model \
-  --deployment-target=managed-inference \
+  --include-sample \
+  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -62,10 +60,9 @@ Deploy a TensorFlow SavedModel with Flask serving.
 ```bash
 ml-container-creator tf-flask-demo \
   --deployment-config=http-flask \
-  --engine=tensorflow \
   --model-format=SavedModel \
-  --include-sample-model \
-  --deployment-target=managed-inference \
+  --include-sample \
+  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -84,7 +81,7 @@ Deploy an LLM with vLLM. GPU instance required.
 ml-container-creator vllm-demo \
   --deployment-config=transformers-vllm \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g6.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -109,7 +106,7 @@ Deploy an LLM with SGLang. Same workflow as vLLM with a different deployment con
 ml-container-creator sglang-demo \
   --deployment-config=transformers-sglang \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g6.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -128,7 +125,7 @@ Deploy an LLM with NVIDIA TensorRT-LLM. Requires NGC authentication for the base
 ml-container-creator trtllm-demo \
   --deployment-config=transformers-tensorrt-llm \
   --model-name=meta-llama/Llama-3.2-3B-Instruct \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -159,7 +156,7 @@ Deploy an LLM with AWS Large Model Inference (DJL-based). Uses `serving.properti
 ml-container-creator lmi-demo \
   --deployment-config=transformers-lmi \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -178,7 +175,7 @@ Deploy an LLM with Deep Java Library serving.
 ml-container-creator djl-demo \
   --deployment-config=transformers-djl \
   --model-name=openai/gpt-oss-20b \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.12xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -197,7 +194,7 @@ Deploy XGBoost or LightGBM models on NVIDIA Triton Inference Server using the Fo
 ml-container-creator triton-fil-demo \
   --deployment-config=triton-fil \
   --model-format=json \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -217,7 +214,7 @@ Deploy ONNX models on Triton.
 ```bash
 ml-container-creator triton-onnx-demo \
   --deployment-config=triton-onnxruntime \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -235,7 +232,7 @@ Deploy custom Python models on Triton. The Python backend gives full control ove
 ```bash
 ml-container-creator triton-python-demo \
   --deployment-config=triton-python \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -287,7 +284,7 @@ Generate a project with benchmarking enabled:
 ml-container-creator vllm-benchmark-demo \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.2xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
@@ -322,21 +319,21 @@ Example output:
 ⏳ Polling for completion (every 30s, up to 30 min)...
 ✓ Benchmark completed
 
-┌─────────────────────────────┬───────────┐
-│ Metric                      │ Value     │
-├─────────────────────────────┼───────────┤
-│ Request throughput (req/s)  │ 8.42      │
-│ Output token throughput     │ 1,263     │
-│ Request latency P50         │ 1.12s     │
-│ Request latency P90         │ 1.58s     │
-│ Request latency P99         │ 2.34s     │
-│ TTFT P50                    │ 85ms      │
-│ TTFT P90                    │ 142ms     │
-│ TTFT P99                    │ 298ms     │
-│ ITL P50                     │ 7.2ms     │
-│ ITL P90                     │ 12.1ms    │
-│ ITL P99                     │ 24.8ms    │
-└─────────────────────────────┴───────────┘
+┌─────────────────────────────────┬───────────┐
+│ Metric                          │ Value     │
+├─────────────────────────────────┼───────────┤
+│ Request throughput (req/s)      │ 8.42      │
+│ Output token throughput         │ 1,263     │
+│ Request latency P50             │ 1.12s     │
+│ Request latency P90             │ 1.58s     │
+│ Request latency P99             │ 2.34s     │
+│ TTFT P50                        │ 85ms      │
+│ TTFT P90                        │ 142ms     │
+│ TTFT P99                        │ 298ms     │
+│ ITL P50                         │ 7.2ms     │
+│ ITL P90                         │ 12.1ms    │
+│ ITL P99                         │ 24.8ms    │
+└─────────────────────────────────┴───────────┘
 ```
 
 Clean up benchmark resources when done:

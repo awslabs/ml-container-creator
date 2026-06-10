@@ -44,6 +44,7 @@ ARG_NO_STALE_WARNING=false
 ARG_DISCOVER=false
 ARG_DISCOVER_FILTER=""
 ARG_COLUMN_MAP=""
+ARG_ACCEPT_EULA=false
 
 
 # ── _parse_args() ─────────────────────────────────────────────────────────────
@@ -136,6 +137,7 @@ _parse_args() {
                 fi
                 ARG_ROLE="$2"; shift 2 ;;
             --force) ARG_FORCE=true; shift ;;
+            --accept-eula) ARG_ACCEPT_EULA=true; shift ;;
             --no-wait) ARG_NO_WAIT=true; shift ;;
             --status) ARG_STATUS=true; shift ;;
             --help|-h) ARG_HELP=true; shift ;;
@@ -241,6 +243,7 @@ _show_help() {
     echo ""
     echo "Job control:"
     echo "  --force               Force new job even if one exists for this technique"
+    echo "  --accept-eula         Accept model EULA (required for gated models like Llama)"
     echo "  --no-wait             Submit and exit without polling for completion"
     echo "  --status              Show status of all tracked tune jobs"
     echo ""
@@ -265,6 +268,9 @@ _show_help() {
     echo ""
     echo "  # Use a HuggingFace dataset:"
     echo "  ./do/tune --technique dpo --dataset hf://my-org/pref-data --learning-rate 1e-5"
+    echo ""
+    echo "  # Fine-tune a gated model (Meta Llama) — requires EULA acceptance:"
+    echo "  ./do/tune --technique dpo --dataset hf://argilla/ultrafeedback-binarized-preferences-cleaned --accept-eula"
     echo ""
     echo "  # Discover available models:"
     echo "  ./do/tune --discover                    # Models for current family"
@@ -767,9 +773,17 @@ _validate_dataset() {
     elif [[ "${dataset}" == hf://* ]]; then
         # Hugging Face dataset — parse reference and stage to S3
         local hf_path="${dataset#hf://}"
+        local hf_file=""
+
+        # Extract ?file= parameter before parsing path components
+        if [[ "${hf_path}" == *"?file="* ]]; then
+            hf_file="${hf_path#*?file=}"
+            hf_path="${hf_path%%\?file=*}"
+        fi
+
         local hf_org hf_name hf_split
 
-        # Parse org/name/split
+        # Parse org/name/split from the cleaned path
         hf_org=$(echo "${hf_path}" | cut -d'/' -f1)
         hf_name=$(echo "${hf_path}" | cut -d'/' -f2)
         hf_split=$(echo "${hf_path}" | cut -d'/' -f3-)
@@ -808,9 +822,12 @@ _validate_dataset() {
             stage_args+=(--column-map "${ARG_COLUMN_MAP}")
         fi
         stage_args+=(--technique "${ARG_TECHNIQUE}")
+        if [ -n "${hf_file}" ]; then
+            stage_args+=(--hf-file "${hf_file}")
+        fi
 
         local stage_result
-        stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}" 2>/dev/null) || {
+        stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}") || {
             local error_msg
             error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Failed to stage dataset'))" 2>/dev/null) || error_msg="Failed to stage HF dataset"
             echo "❌ ${error_msg}"
@@ -977,6 +994,25 @@ _submit_job() {
     timestamp=$(date +%Y%m%d-%H%M%S)
     JOB_NAME="${PROJECT_NAME}-tune-${ARG_TECHNIQUE}-${timestamp}"
 
+    # Check if model requires EULA acceptance (gated models from Meta, etc.)
+    if [ "${ARG_ACCEPT_EULA}" != true ]; then
+        local model_provider
+        model_provider=$(python3 -c "
+import json
+with open('${CATALOG_FILE}') as f:
+    catalog = json.load(f)
+entry = catalog.get('models', {}).get('${RESOLVED_MODEL_ID}', {})
+print(entry.get('provider', ''))
+" 2>/dev/null) || model_provider=""
+        if [ "${model_provider}" = "meta" ]; then
+            echo "⚠️  ${RESOLVED_MODEL_ID} is a gated model that requires EULA acceptance."
+            echo "   Add --accept-eula to proceed:"
+            echo "   ./do/tune --technique ${ARG_TECHNIQUE} --dataset ${ARG_DATASET} --accept-eula"
+            echo ""
+            exit 1
+        fi
+    fi
+
     echo "🚀 Submitting $(echo "${ARG_TECHNIQUE}" | tr "[:lower:]" "[:upper:]") customization job"
     echo "   Job name: ${JOB_NAME}"
     echo "   Model: ${RESOLVED_MODEL_ID}"
@@ -1027,6 +1063,9 @@ _submit_job() {
     if [ -n "${ARG_REWARD_PROMPT}" ]; then
         submit_args+=(--reward-prompt "${ARG_REWARD_PROMPT}")
     fi
+    if [ "${ARG_ACCEPT_EULA}" = true ]; then
+        submit_args+=(--accept-eula)
+    fi
 
     # Invoke Python helper (stderr visible to user for diagnostics)
     local submit_result
@@ -1067,6 +1106,10 @@ _submit_job() {
         sed 's/^/   ⚠️  /' "${submit_stderr}"
     fi
     rm -f "${submit_stderr}"
+
+    # SDK may print status lines to stdout before our JSON (e.g., "Training Job Name: ...")
+    # Extract only the JSON line (last line starting with '{')
+    submit_result=$(echo "${submit_result}" | grep '^{' | tail -1)
 
     # Check for error in response
     local has_error

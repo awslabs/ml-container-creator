@@ -13,12 +13,19 @@
       "Type": "String",
       "Default": "",
       "Description": "ARN of an existing IAM role to use instead of creating one. Leave empty to create a new role."
+    },
+    "SkipEcrCreation": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["true", "false"],
+      "Description": "Skip ECR repository creation when it already exists. Set to 'true' to avoid ResourceExistenceCheck failures."
     }
   },
 
   "Conditions": {
     "ShouldCreateS3Buckets": { "Fn::Equals": [{ "Ref": "CreateS3Buckets" }, "true"] },
-    "ShouldCreateRole": { "Fn::Equals": [{ "Ref": "UseExistingRoleArn" }, ""] }
+    "ShouldCreateRole": { "Fn::Equals": [{ "Ref": "UseExistingRoleArn" }, ""] },
+    "ShouldCreateEcr": { "Fn::Equals": [{ "Ref": "SkipEcrCreation" }, "false"] }
   },
 
   "Resources": {
@@ -257,6 +264,7 @@
 
     "EcrRepository": {
       "Type": "AWS::ECR::Repository",
+      "Condition": "ShouldCreateEcr",
       "Properties": {
         "RepositoryName": "ml-container-creator",
         "ImageScanningConfiguration": { "ScanOnPush": true },
@@ -388,10 +396,12 @@
       }
     },
     "EcrRepositoryName": {
+      "Condition": "ShouldCreateEcr",
       "Description": "ECR repository name",
       "Value": { "Ref": "EcrRepository" }
     },
     "EcrRepositoryUri": {
+      "Condition": "ShouldCreateEcr",
       "Description": "ECR repository URI",
       "Value": { "Fn::GetAtt": ["EcrRepository", "RepositoryUri"] }
     },

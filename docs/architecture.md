@@ -74,7 +74,7 @@ Each configuration is expressed as an `architecture-backend` string (e.g., `tran
 
 | Target | Description |
 |---|---|
-| `managed-inference` | Real-time SageMaker AI endpoints |
+| `realtime-inference` | Real-time SageMaker AI endpoints |
 | `async-inference` | Asynchronous endpoints with S3 input/output |
 | `batch-transform` | Batch processing of datasets in S3 |
 | `hyperpod-eks` | Kubernetes deployment on SageMaker AI HyperPod EKS clusters |

@@ -21,38 +21,141 @@ Higher precedence sources override lower ones.
 
 ## Parameter Reference
 
-This table shows every parameter, its CLI flag, which configuration sources support it, and whether it is required.
+All 68 parameters supported by MCC, organized by category. Each can be set via CLI flag, config file key, or (where noted) environment variable.
 
-| Parameter | CLI Option | Env Var | Config File | Package.json | Default | Required |
-|-----------|------------|---------|-------------|--------------|---------|----------|
-| **Core** |
-| Deployment Config | `--deployment-config` | -- | yes | -- | -- | yes |
-| Engine | `--engine` | -- | yes | -- | -- | no |
-| Model Server | `--model-server` | -- | yes | -- | -- | no |
-| Model Format | `--model-format` | -- | yes | -- | -- | yes |
-| **Modules** |
-| Include Sample | `--include-sample` | -- | yes | -- | `false` | yes |
-| Include Testing | `--include-testing` | -- | yes | -- | `true` | yes |
-| **Infrastructure** |
-| Deployment Target | `--deployment-target` | -- | yes | -- | -- | yes |
-| Build Target | `--build-target` | -- | yes | -- | -- | yes |
-| Instance Type | `--instance-type` | `ML_INSTANCE_TYPE` | yes | -- | -- | yes |
-| CodeBuild Compute | `--codebuild-compute-type` | -- | yes | -- | `BUILD_GENERAL1_MEDIUM` | no |
-| AWS Region | `--region` | `AWS_REGION` | yes | yes | `us-east-1` | no |
-| AWS Role ARN | `--role-arn` | `AWS_ROLE` | yes | yes | -- | no |
-| **HyperPod EKS** |
-| Cluster | `--hyperpod-cluster` | -- | yes | -- | -- | no |
-| Namespace | `--hyperpod-namespace` | -- | yes | -- | -- | no |
-| Replicas | `--hyperpod-replicas` | -- | yes | -- | `1` | no |
-| FSx Volume Handle | `--fsx-volume-handle` | -- | yes | -- | -- | no |
-| **Project** |
-| Project Name | `--project-name` | -- | yes | yes | -- | yes |
-| Project Directory | `--project-dir` | -- | yes | yes | `.` | yes |
-| **System** |
-| Config File | `--config` | `ML_CONTAINER_CREATOR_CONFIG` | -- | yes | -- | no |
-| Skip Prompts | `--skip-prompts` | -- | -- | -- | `false` | no |
+### Project
 
-Core parameters (deployment-config, engine, model-server, model-format) are not supported via environment variables or package.json. Only infrastructure and project settings are supported in those sources.
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `projectName` | `--project-name` | string | — | Name for the generated project (env: `ML_PROJECT_NAME`) |
+| `skipPrompts` | `--skip-prompts` | boolean | `false` | Skip interactive prompts and use configuration from other sources (env: `MCC_SKIP_PROMPTS`) |
+| `autoPrompt` | `--auto-prompt` | boolean | `false` | Fill defaults, prompt only for missing required values |
+| `config` | `--config` | string | — | Path to JSON configuration file |
+| `projectDir` | `--project-dir` | string | — | Output directory path (env: `ML_PROJECT_DIR`) |
+| `force` | `--force` | boolean | `false` | Overwrite existing output directory without prompting |
+| `smart` | `--smart` | boolean | `false` | Enable smart mode (live AWS API calls for MCP servers) |
+| `discover` | `--discover` | boolean | `false` | Enable discovery mode for MCP servers |
+| `noValidate` | `--no-validate` | boolean | `false` | Skip parameter validation |
+| `validateEnvVars` | `--validate-env-vars` | boolean | `false` | Validate environment variables against schema |
+| `validateWithDocker` | `--validate-with-docker` | boolean | `false` | Validate Dockerfile builds successfully |
+| `offline` | `--offline` | boolean | `false` | Run in offline mode (no network calls) |
+
+### Model & Server
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `deploymentConfig` | `--deployment-config` | enum (16 values) | — | Deployment configuration (e.g. http-flask, transformers-vllm, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
+| `modelName` | `--model-name` | string | — | Model identifier (hf-org/model, s3://..., registry://..., marketplace://...) (env: `ML_MODEL_NAME`) |
+| `framework` | `--framework` | enum: `sklearn`, `xgboost`, `tensorflow`, `transformers` | — | ~~ML framework~~ *(deprecated, use `--deploymentConfig` instead)* |
+| `modelFormat` | `--model-format` | string | — | Model serialization format (pkl, joblib, json, model, ubj, keras, h5, SavedModel) (env: `ML_MODEL_FORMAT`) |
+| `modelServer` | `--model-server` | enum: `flask`, `fastapi`, `vllm`, `sglang` | — | ~~Model server~~ *(deprecated, use `--deploymentConfig` instead)* |
+| `modelEnv` | `--model-env` | string | `[]` | Model env var, repeatable (e.g. VLLM_TENSOR_PARALLEL_SIZE=4) |
+| `serverEnv` | `--server-env` | string | `[]` | Server env var, repeatable (e.g. SGLANG_MEM_FRACTION=0.9) |
+
+### Infrastructure
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `deploymentTarget` | `--deployment-target` | enum (5 values) | `realtime-inference` | Deployment target (realtime-inference, async-inference, batch-transform, hyperpod-eks). `managed-inference` is accepted but deprecated (env: `ML_DEPLOYMENT_TARGET`) |
+| `instanceType` | `--instance-type` | string | — | SageMaker instance type (e.g. ml.g5.xlarge, ml.m5.large) (env: `ML_INSTANCE_TYPE`) |
+| `region` | `--region` | string | `us-east-1` | AWS region (env: `ML_REGION`) |
+| `roleArn` | `--role-arn` | string | — | IAM role ARN for SageMaker execution (env: `ML_ROLE_ARN`) |
+
+### Build
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `baseImage` | `--base-image` | string | — | Base container image for Dockerfile (env: `ML_BASE_IMAGE`) |
+| `buildTarget` | `--build-target` | string | `codebuild` | Build target (codebuild) (env: `ML_BUILD_TARGET`) |
+| `codebuildComputeType` | `--codebuild-compute-type` | string | `BUILD_GENERAL1_LARGE` | CodeBuild compute type (SMALL, MEDIUM, LARGE) (env: `ML_CODEBUILD_COMPUTE_TYPE`) |
+
+### Endpoint
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `endpointInitialInstanceCount` | `--endpoint-initial-instance-count` | integer | `1` | Number of instances for the endpoint (env: `ML_ENDPOINT_INSTANCE_COUNT`) |
+| `endpointDataCapturePercent` | `--endpoint-data-capture-percent` | integer | `0` | Data capture percentage for monitoring, 0-100 |
+| `endpointVariantName` | `--endpoint-variant-name` | string | `AllTraffic` | Production variant name |
+| `endpointVolumeSize` | `--endpoint-volume-size` | integer | — | ML storage volume size in GB |
+
+### Inference Component
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `icGpuCount` | `--ic-gpu-count` | integer | — | GPUs allocated to the inference component (env: `ML_IC_GPU_COUNT`) |
+| `icCopyCount` | `--ic-copy-count` | integer | `1` | Number of inference component copies (env: `ML_IC_COPY_COUNT`) |
+| `icMemorySize` | `--ic-memory-size` | integer | — | Memory in MB for the inference component (env: `ML_IC_MEMORY_SIZE`) |
+| `icCpuCount` | `--ic-cpu-count` | number | — | vCPUs allocated to the inference component (env: `ML_IC_CPU_COUNT`) |
+| `icModelWeight` | `--ic-model-weight` | number | `1` | Traffic routing weight, 0-1 |
+
+### LoRA Adapters
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `enableLora` | `--enable-lora` | boolean | `false` | Enable LoRA adapter serving (env: `ML_ENABLE_LORA`) |
+| `maxLoras` | `--max-loras` | integer | `30` | Maximum concurrent LoRA adapters in GPU memory (env: `ML_MAX_LORAS`) |
+| `maxLoraRank` | `--max-lora-rank` | integer | `64` | Maximum LoRA rank (env: `ML_MAX_LORA_RANK`) |
+
+### Authentication
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `hfToken` | `--hf-token` | string | — | HuggingFace token (or $HF_TOKEN for env var reference) |
+| `hfTokenArn` | `--hf-token-arn` | string | — | HuggingFace token ARN from Secrets Manager (env: `ML_HF_TOKEN_ARN`) |
+| `ngcToken` | `--ngc-token` | string | — | NVIDIA NGC token (or $NGC_API_KEY for env var reference) |
+| `ngcTokenArn` | `--ngc-token-arn` | string | — | NVIDIA NGC token ARN from Secrets Manager (env: `ML_NGC_TOKEN_ARN`) |
+
+### Async Inference
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `asyncS3OutputPath` | `--async-s3-output-path` | string | — | S3 output path for async results (env: `ML_ASYNC_S3_OUTPUT_PATH`) |
+| `asyncSnsSuccessTopic` | `--async-sns-success-topic` | string | — | SNS topic ARN for success notifications |
+| `asyncSnsErrorTopic` | `--async-sns-error-topic` | string | — | SNS topic ARN for error notifications |
+| `asyncMaxConcurrent` | `--async-max-concurrent` | integer | `1` | Max concurrent invocations per instance |
+
+### Batch Transform
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `batchInputPath` | `--batch-input-path` | string | — | S3 input path for batch data (env: `ML_BATCH_INPUT_PATH`) |
+| `batchOutputPath` | `--batch-output-path` | string | — | S3 output path for batch results (env: `ML_BATCH_OUTPUT_PATH`) |
+| `batchInstanceCount` | `--batch-instance-count` | integer | `1` | Number of batch instances |
+| `batchSplitType` | `--batch-split-type` | enum: `Line`, `RecordIO`, `None` | `Line` | Input split type: Line, RecordIO, None |
+| `batchStrategy` | `--batch-strategy` | enum: `MultiRecord`, `SingleRecord` | `MultiRecord` | Batch strategy: MultiRecord, SingleRecord |
+| `batchJoinSource` | `--batch-join-source` | enum: `Input`, `None` | `None` | Join source: Input, None |
+| `batchMaxConcurrent` | `--batch-max-concurrent` | integer | `1` | Max concurrent transforms per instance |
+| `batchMaxPayload` | `--batch-max-payload` | integer | `6` | Max payload size in MB, 0-100 |
+
+### HyperPod EKS
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `hyperpodCluster` | `--hyperpod-cluster` | string | — | HyperPod EKS cluster name (env: `ML_HYPERPOD_CLUSTER`) |
+| `hyperpodNamespace` | `--hyperpod-namespace` | string | `default` | Kubernetes namespace (env: `ML_HYPERPOD_NAMESPACE`) |
+| `hyperpodReplicas` | `--hyperpod-replicas` | integer | `1` | Number of replicas |
+| `fsxVolumeHandle` | `--fsx-volume-handle` | string | — | FSx for Lustre volume handle (env: `ML_FSX_VOLUME_HANDLE`) |
+
+### Benchmarking
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `includeBenchmark` | `--include-benchmark` | boolean | `false` | Include SageMaker AI Benchmarking (env: `ML_INCLUDE_BENCHMARK`) |
+| `benchmarkConcurrency` | `--benchmark-concurrency` | integer | `10` | Benchmark concurrent requests |
+| `benchmarkInputTokens` | `--benchmark-input-tokens` | integer | `550` | Benchmark mean input tokens |
+| `benchmarkOutputTokens` | `--benchmark-output-tokens` | integer | `150` | Benchmark mean output tokens |
+| `benchmarkStreaming` | `--benchmark-streaming` | boolean | `true` | Enable streaming in benchmark |
+| `benchmarkRequestCount` | `--benchmark-request-count` | integer | — | Total number of benchmark requests to send |
+| `benchmarkS3OutputPath` | `--benchmark-s3-output-path` | string | — | S3 URI for benchmark results output (env: `ML_BENCHMARK_S3_OUTPUT_PATH`) |
+
+### Testing
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `includeSample` | `--include-sample` | boolean | `true` | Include sample model code (env: `ML_INCLUDE_SAMPLE`) |
+| `includeTesting` | `--include-testing` | boolean | `true` | Include test suite (env: `ML_INCLUDE_TESTING`) |
+| `testTypes` | `--test-types` | string | — | Comma-separated test types (env: `ML_TEST_TYPES`) |
+
 
 ### Deployment Configs
 
@@ -74,9 +177,10 @@ The `--deployment-config` flag bundles the architecture and model server into a 
 | `triton-vllm` | Triton | vLLM | LLM serving on Triton |
 | `triton-tensorrtllm` | Triton | TensorRT-LLM | LLM serving on Triton with TensorRT-LLM |
 | `triton-python` | Triton | Python | Custom Python models on Triton |
-| `marketplace` | Marketplace | -- | AWS Marketplace model packages (no container build) |
+| `diffusors-vllm-omni` | Diffusors | vLLM Omni | Diffusion/multimodal models |
+| `marketplace` | Marketplace | — | AWS Marketplace model packages (no container build) |
 
-For traditional ML configs (`http-flask`, `http-fastapi`), also specify `--engine` to set the ML engine (sklearn, xgboost, tensorflow).
+For traditional ML configs (`http-flask`, `http-fastapi`), also specify `--model-format` to set the serialization format for your model.
 
 The `marketplace` config deploys pre-built vendor model packages from AWS Marketplace. No Dockerfile, no build/push — just deploy, test, and benchmark. Use the `marketplace://` prefix with `--model-name`:
 
@@ -90,12 +194,12 @@ ml-container-creator my-marketplace-model \
 
 ### Model Formats
 
-| Engine | Supported Formats | Default |
-|--------|-------------------|---------|
+| Framework | Supported Formats | Default |
+|-----------|-------------------|---------|
 | sklearn | `pkl`, `joblib` | `pkl` |
 | xgboost | `json`, `model`, `ubj` | `json` |
 | tensorflow | `keras`, `h5`, `SavedModel` | `keras` |
-| transformers | N/A (models loaded from HuggingFace Hub) | -- |
+| transformers | N/A (models loaded from HuggingFace Hub) | — |
 
 ## Configuration Methods
 
@@ -114,11 +218,9 @@ Use command-line flags for non-interactive generation:
 ```bash
 ml-container-creator my-project \
   --deployment-config=http-flask \
-  --engine=sklearn \
   --model-format=pkl \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
-  --build-target=codebuild \
   --skip-prompts
 ```
 
@@ -130,13 +232,13 @@ Set infrastructure parameters via the shell environment:
 
 ```bash
 export ML_INSTANCE_TYPE="ml.g5.2xlarge"
-export AWS_REGION="us-west-2"
-export AWS_ROLE="arn:aws:iam::123456789012:role/SageMaker AIRole"
+export ML_REGION="us-west-2"
+export ML_ROLE_ARN="arn:aws:iam::123456789012:role/SageMakerAIRole"
 
 ml-container-creator --deployment-config=transformers-vllm --skip-prompts
 ```
 
-Only four environment variables are supported: `ML_INSTANCE_TYPE`, `AWS_REGION`, `AWS_ROLE`, and `ML_CONTAINER_CREATOR_CONFIG`. Core parameters must come from CLI options or config files.
+Many parameters support environment variables (listed in the parameter reference above with `env:` annotations). Infrastructure and model parameters are commonly set via env vars in CI pipelines.
 
 ### Configuration Files
 
@@ -154,15 +256,14 @@ ml-container-creator --config=production.json --skip-prompts
 {
   "projectName": "my-ml-project",
   "deploymentConfig": "http-flask",
-  "engine": "sklearn",
   "modelFormat": "pkl",
-  "includeSampleModel": false,
+  "includeSample": false,
   "includeTesting": true,
-  "deploymentTarget": "managed-inference",
+  "deploymentTarget": "realtime-inference",
   "buildTarget": "codebuild",
   "instanceType": "ml.m5.large",
-  "awsRegion": "us-east-1",
-  "awsRoleArn": "arn:aws:iam::123456789012:role/SageMaker AIRole"
+  "region": "us-east-1",
+  "roleArn": "arn:aws:iam::123456789012:role/SageMakerAIRole"
 }
 ```
 
@@ -172,8 +273,8 @@ ml-container-creator --config=production.json --skip-prompts
 {
   "name": "my-project",
   "ml-container-creator": {
-    "awsRegion": "us-west-2",
-    "awsRoleArn": "arn:aws:iam::123456789012:role/MyProjectRole",
+    "region": "us-west-2",
+    "roleArn": "arn:aws:iam::123456789012:role/MyProjectRole",
     "projectName": "my-ml-service"
   }
 }
@@ -191,12 +292,12 @@ Beyond project generation, MCC provides configuration management commands:
 
 ## HuggingFace Authentication
 
-When deploying transformer models, you may need to authenticate with HuggingFace to access private or gated models. Public models like `openai/gpt-oss-20b` do not require authentication.
+When deploying transformer models, you may need to authenticate with HuggingFace to access private or gated models. Public models like `Qwen/Qwen3-4B` do not require authentication.
 
 Authentication is required for:
 
 - Private models in your HuggingFace account
-- Gated models requiring license agreement (e.g., Llama 2, Llama 3)
+- Gated models requiring license agreement (e.g., Llama 3)
 - Avoiding rate limits on public models
 
 ### Providing Your Token
@@ -206,7 +307,7 @@ Authentication is required for:
 ```bash
 ml-container-creator my-llm-project \
   --deployment-config=transformers-vllm \
-  --model-name=meta-llama/Llama-2-7b-hf \
+  --model-name=meta-llama/Llama-3.1-8B-Instruct \
   --hf-token='$HF_TOKEN' \
   --skip-prompts
 ```
@@ -216,7 +317,7 @@ ml-container-creator my-llm-project \
 ```json
 {
   "deploymentConfig": "transformers-vllm",
-  "modelName": "meta-llama/Llama-2-7b-hf",
+  "modelName": "meta-llama/Llama-3.1-8B-Instruct",
   "hfToken": "$HF_TOKEN"
 }
 ```
@@ -230,14 +331,14 @@ For improved security, use AWS Secrets Manager instead of plaintext tokens. Pass
 ```bash
 ml-container-creator my-project \
   --deployment-config=transformers-vllm \
-  --model-name=meta-llama/Llama-3-8B \
-  --hf-token-arn=arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token/production-AbCdEf \
+  --model-name=meta-llama/Llama-3.1-8B-Instruct \
+  --hf-token-arn=arn:aws:secretsmanager:us-east-1:123456789012:secret:mlcc/hf-token \
   --skip-prompts
 ```
 
 This resolves the token at build-time and runtime without baking it into the image. See [Secrets Management](secrets.md) for the full workflow, including creating and managing secrets.
 
-!!!note
+!!! note
     You cannot use both `--hf-token` and `--hf-token-arn` simultaneously. Choose one approach per project.
 
 ### Security
@@ -266,14 +367,14 @@ The generator validates configuration at multiple levels:
 
 The generator validates configuration parameters and provides error messages:
 
-```bash
+```text
 # Invalid deployment config
 ml-container-creator --deployment-config=invalid --skip-prompts
 # Error: invalid not implemented yet.
 
 # Incompatible model format
-ml-container-creator --deployment-config=http-flask --engine=sklearn --model-format=json --skip-prompts
-# Error: Unsupported model format 'json' for engine 'sklearn'
+ml-container-creator --deployment-config=http-flask --model-format=json --skip-prompts
+# Error: Unsupported model format 'json' for http-flask (sklearn supports pkl, joblib)
 
 # Invalid ARN
 ml-container-creator --role-arn=invalid-arn --skip-prompts
@@ -383,7 +484,7 @@ ml-container-creator registry sync-architectures
 
 This fetches each server version's model registry source file, parses it for supported `model_type` values, and writes them into the `supportedModelTypes` field in `model-servers.json`.
 
-!!!note
+!!! note
     `bootstrap` automatically runs `sync-architectures` as part of its post-setup chain. You only need to run it manually to pick up newly released server versions.
 
 #### Viewing Supported Architectures
@@ -400,7 +501,7 @@ Output:
 Model Architecture Support:
 
   Server                Version      Architectures
-  ────────────────────  ───────────  ─────────────
+  ════════════════════  ═══════════  ═════════════
   vllm                  0.6.3        85
   vllm                  0.5.5        72
   sglang                0.4.1        68
@@ -419,13 +520,13 @@ ml-container-creator registry list-architectures --verbose
 Check a specific model's compatibility before generating a project:
 
 ```bash
-ml-container-creator registry check meta-llama/Llama-3-8B
+ml-container-creator registry check meta-llama/Llama-3.1-8B-Instruct
 ```
 
 Output:
 
 ```
-🔍 Checking model: meta-llama/Llama-3-8B
+🔍 Checking model: meta-llama/Llama-3.1-8B-Instruct
 
    Fetching model config from HuggingFace...
    Model type: llama

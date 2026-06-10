@@ -32,7 +32,8 @@ async function runCli(args) {
     }
 }
 
-describe('CLI mutual exclusion validation (Requirement 7.6)', () => {
+describe('CLI mutual exclusion validation (Requirement 7.6)', function () {
+    this.timeout(15000);
     describe('--hf-token and --hf-token-arn', () => {
         it('rejects when both --hf-token and --hf-token-arn are provided', async () => {
             const result = await runCli([

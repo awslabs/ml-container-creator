@@ -1,53 +1,44 @@
-# ============================================
-# .npmignore
-# ============================================
-# npm stops using .gitignore once this file exists,
-# so everything from .gitignore is duplicated here.
+# Python bytecode (belt-and-suspenders — also cleaned by npm run clean:pycache)
+**/__pycache__/
+**/*.pyc
+**/*.pyo
 
-# --- From .gitignore ---
+# CDK build output (large, regenerated from source)
+infra/ci-harness/cdk.out/
+
+# Test files (not needed in published package)
+infra/ci-harness/test/
+
+# Development artifacts
 .DS_Store
 .idea/
 .kiro/
-.scripts/
 .vscode/
-drafts/
-node_modules/
-test-results.json
-test-output-*
+.hypothesis/
+.pytest_cache/
 .nyc_output/
 coverage/
-config/mcp.json
-site/
+test-output-*
+test-results.json
+drafts/
 
-# --- Development & CI ---
-.git/
+# MkDocs
+site/
+docs/deep-dive-deck.pptx
+
+# CI/scripts (development-only)
+scripts/
 .github/
-.gitignore
 .eslintrc.cjs
 
-# --- Tests ---
-test/
-
-# --- Documentation (published via GitHub Pages, not npm) ---
-docs/
-mkdocs.yml
-logo.png
-
-# --- MCP servers (node_modules not published, only catalog/index files via "files" whitelist) ---
+# Server test files and dev artifacts
+servers/*/test.js
+servers/*/licenses.csv
+servers/*/sbom.json
 servers/*/node_modules/
-servers/*/test/
+servers/lib/licenses.csv
+servers/lib/sbom.json
+servers/lib/node_modules/
 
-# --- Scripts (dev tooling) ---
-scripts/
-
-# --- License/SBOM artifacts (informational, not runtime) ---
-sbom.json
-licenses.csv
-THIRD_PARTY.csv
-
-# --- Build artifacts ---
-test-output-full.log
-
-# --- Generator legacy (removed) ---
-generators/
-.yo-rc.json
+# Infra node_modules (users run npm install themselves)
+infra/ci-harness/node_modules/

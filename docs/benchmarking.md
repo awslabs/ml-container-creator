@@ -1,232 +1,163 @@
 # Benchmarking
 
-ML Container Creator can generate a `do/benchmark` script that measures LLM endpoint performance using the SageMaker AI Benchmarking service (powered by NVIDIA AIPerf). The script creates a workload configuration, runs a benchmark job against your deployed endpoint, polls for completion, and displays a results summary.
+Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf). The `do/benchmark` script creates a workload configuration, launches a benchmark job, polls for completion, and displays results — all in one command.
 
 ## Prerequisites
 
 | Requirement | Details |
 |---|---|
-| Deployed endpoint | Endpoint must be `InService` (run `./do/deploy` first) |
-| AWS credentials | Configured via `aws configure` or environment variables |
-| Supported architecture | `transformers` or `diffusors` only (`transformers-vllm`, `transformers-sglang`, `transformers-tensorrt-llm`, `transformers-lmi`, `transformers-djl`, `diffusors-vllm-omni`) |
-| Deployment target | `managed-inference` only (HyperPod EKS is not supported) |
-| Bootstrapped account | Run `ml-container-creator bootstrap` to provision IAM permissions for benchmark APIs |
+| Endpoint status | Must be `InService` (run `./do/deploy` first) |
+| Architecture | Transformers or Diffusors only (HTTP and Triton not supported) |
+| Deployment target | `realtime-inference` only (HyperPod EKS is not supported) |
+| AWS credentials | Must be configured for the deployment region |
+| Bootstrap | Recommended — provides the IAM role with benchmarking permissions |
 
-!!! note "Architecture Requirement"
-    Benchmarking requires the OpenAI-compatible chat completions API, which is only available on transformer and diffusor model servers. HTTP and Triton architectures are not supported.
+## Quick Start
 
-## Workflow
-
-The typical benchmarking workflow follows the standard deploy-then-measure pattern:
-
-```mermaid
-graph LR
-    A[Generate project<br>with benchmark] --> B[Build & push<br>container] --> C[Deploy<br>endpoint] --> D[Run<br>benchmark] --> E[Interpret<br>results] --> F[Clean up]
-```
-
-### 1. Generate a project with benchmarking enabled
+Generate a project with benchmarking enabled:
 
 ```bash
-ml-container-creator my-llm-project \
+ml-container-creator vllm-benchmark-demo \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.2xlarge \
-  --deployment-target=managed-inference \
   --include-benchmark \
   --benchmark-concurrency=10 \
   --benchmark-input-tokens=550 \
   --benchmark-output-tokens=150 \
-  --benchmark-streaming
+  --benchmark-streaming \
+  --skip-prompts
 ```
 
-### 2. Build and deploy
+Deploy and benchmark:
 
 ```bash
-cd my-llm-project
-./do/build        # or ./do/submit for CodeBuild
-./do/push
-./do/deploy
-```
-
-Wait for the endpoint to reach `InService` status.
-
-### 3. Run the benchmark
-
-```bash
+./do/build && ./do/push && ./do/deploy
 ./do/benchmark
 ```
 
-The script will:
-
-1. Verify the endpoint is `InService`
-2. Create (or update) a Secrets Manager secret for the HuggingFace token (if `HF_TOKEN` is set in `do/config`)
-3. Create an AI Workload Config with your benchmark parameters
-4. Create an AI Benchmark Job targeting your endpoint's inference component
-5. Poll every 30 seconds until the job completes (up to 30 minutes)
-6. Download and display the results summary
-
-### 4. Clean up benchmark resources
+## Usage
 
 ```bash
-./do/benchmark --clean   # Clean after displaying results
-./do/clean benchmark     # Clean benchmark resources independently
+./do/benchmark [--ic <name>] [--adapter <name>] [--force] [--clean] [--no-stale-warning]
 ```
 
-## Parameters
-
-All benchmark parameters are set during project generation and stored in `do/config`. You can also edit `do/config` directly to adjust parameters between runs.
-
-| Parameter | CLI Option | Default | Description |
-|---|---|---|---|
-| `includeBenchmark` | `--include-benchmark` | `false` | Enable benchmark script generation |
-| `benchmarkConcurrency` | `--benchmark-concurrency` | `10` | Number of concurrent requests sent to the endpoint |
-| `benchmarkInputTokensMean` | `--benchmark-input-tokens` | `550` | Mean number of input tokens per request |
-| `benchmarkOutputTokensMean` | `--benchmark-output-tokens` | `150` | Mean number of output tokens per request |
-| `benchmarkStreaming` | `--benchmark-streaming` | `true` | Enable streaming responses during benchmark |
-| `benchmarkRequestCount` | `--benchmark-request-count` | Service default | Total number of requests to send (leave empty for service default) |
-| `benchmarkS3OutputPath` | `--benchmark-s3-output-path` | Auto-generated | S3 URI for benchmark results output |
-
-### Environment variables
-
-| Variable | Description |
+| Flag | Description |
 |---|---|
-| `ML_INCLUDE_BENCHMARK` | Set to `true` to enable benchmarking (equivalent to `--include-benchmark`) |
-| `ML_BENCHMARK_S3_OUTPUT_PATH` | Override the S3 output path for benchmark results |
+| `--ic <name>` | Benchmark a specific inference component (from `do/ic/<name>.conf`) |
+| `--adapter <name>` | Benchmark a specific LoRA adapter IC (from `do/adapters/<name>.conf`) |
+| `--force` | Create a new benchmark job even if one is already running |
+| `--clean` | Delete workload config and benchmark job after displaying results |
+| `--no-stale-warning` | Suppress schema registry staleness warning |
 
-### do/config variables
+### IC Resolution
 
-When benchmarking is enabled, the following variables are exported in `do/config`:
+The benchmark targets a specific inference component:
+
+1. `--adapter <name>` — Uses `ADAPTER_IC_NAME` from `do/adapters/<name>.conf`
+2. `--ic <name>` — Uses `IC_DEPLOYED_NAME` from `do/ic/<name>.conf`
+3. No flag — Uses the first IC in `do/ic/` alphabetically, or falls back to legacy config
+
+## Metrics
+
+The benchmark reports:
+
+| Metric | Description |
+|---|---|
+| **Request throughput** (req/s) | Sustained requests per second |
+| **Output token throughput** (tokens/s) | Total output tokens generated per second |
+| **Request latency** (P50/P90/P99) | End-to-end request latency |
+| **TTFT** (P50/P90/P99) | Time to first token (streaming latency) |
+| **ITL** (P50/P90/P99) | Inter-token latency (generation speed) |
+
+## Configuration Parameters
+
+Set at generation time via CLI flags:
+
+| Parameter | CLI Flag | Default | Description |
+|---|---|---|---|
+| `benchmarkConcurrency` | `--benchmark-concurrency` | `1` | Number of concurrent clients |
+| `benchmarkInputTokens` | `--benchmark-input-tokens` | `550` | Input token count per request |
+| `benchmarkOutputTokens` | `--benchmark-output-tokens` | `150` | Output token count per request |
+| `benchmarkStreaming` | `--benchmark-streaming` | `false` | Enable streaming mode |
+| `benchmarkDuration` | `--benchmark-duration` | `120` | Duration in seconds |
+| `benchmarkTokenizer` | `--benchmark-tokenizer` | Model default | Custom tokenizer |
+
+These are written to `do/config` and used by `do/benchmark` to create the workload configuration.
+
+## Idempotency
+
+`do/benchmark` is idempotent:
+
+- If a benchmark job is already running, re-running (without `--force`) will resume polling the existing job and display its results when complete.
+- Use `--force` to create a new job even if one exists.
+
+## Cleanup
 
 ```bash
-# SageMaker AI Benchmarking configuration
-export BENCHMARK_CONCURRENCY="10"
-export BENCHMARK_INPUT_TOKENS_MEAN="550"
-export BENCHMARK_OUTPUT_TOKENS_MEAN="150"
-export BENCHMARK_STREAMING="true"
-export BENCHMARK_REQUEST_COUNT=""
-export BENCHMARK_S3_OUTPUT_PATH="s3://ml-container-creator-benchmark-us-east-1-123456789012/my-llm-project/"
+# Delete workload config and benchmark jobs only
+./do/benchmark --clean
+
+# Delete everything (endpoint + benchmark resources)
+./do/clean all
 ```
 
 ## Interpreting Results
 
-When the benchmark job completes, `do/benchmark` displays a summary table with the following metrics:
+### Concurrency Tuning
 
-### Throughput metrics
+Start with concurrency=1 to measure single-request latency, then increase to find the throughput/latency sweet spot:
 
-| Metric | Description |
+| Concurrency | Effect |
 |---|---|
-| **Request throughput** | Number of completed requests per second |
-| **Output token throughput** | Number of output tokens generated per second across all requests |
+| 1 | Baseline latency (no queuing) |
+| 5-10 | Typical production load |
+| 20-50 | Stress test (find saturation point) |
+| 100+ | Overload test (queue buildup) |
 
-### Latency metrics
+### Key Indicators
 
-| Metric | Description |
-|---|---|
-| **Request latency P50** | Median end-to-end request latency |
-| **Request latency P90** | 90th percentile end-to-end request latency |
-| **Request latency P99** | 99th percentile end-to-end request latency |
+- **TTFT > 500ms** — Model may need a smaller batch size or faster instance
+- **ITL > 50ms** — Generation is slow; consider tensor parallelism or a faster backend
+- **Throughput plateau** — You've hit GPU saturation; scale horizontally or upgrade instance
 
-### Streaming metrics (when streaming is enabled)
+### Comparing Configurations
 
-| Metric | Description |
-|---|---|
-| **TTFT P50** | Median time to first token — latency from request submission to first output token |
-| **TTFT P90** | 90th percentile time to first token |
-| **TTFT P99** | 99th percentile time to first token |
-| **ITL P50** | Median inter-token latency — time between consecutive output tokens |
-| **ITL P90** | 90th percentile inter-token latency |
-| **ITL P99** | 99th percentile inter-token latency |
-
-### What good results look like
-
-- **TTFT** should be low (< 500ms for most models) — high TTFT indicates the model is slow to start generating
-- **ITL** should be consistent — high variance suggests resource contention or batching delays
-- **Request throughput** scales with concurrency — if throughput plateaus while increasing concurrency, the endpoint is saturated
-- **P99 latency** much higher than P50 indicates tail latency issues, often caused by request queuing
-
-### Tuning tips
-
-- Increase `benchmarkConcurrency` to find the saturation point of your endpoint
-- Adjust `benchmarkInputTokensMean` and `benchmarkOutputTokensMean` to match your expected production workload
-- Run multiple benchmarks with different parameters to build a performance profile
-- Compare results across instance types to find the best cost/performance ratio
-
-## Cleanup
-
-Benchmark resources (workload configs and benchmark jobs) persist in your AWS account after the benchmark completes. Clean them up to avoid clutter:
+Run benchmarks across different configurations to find the optimal setup:
 
 ```bash
-# Clean benchmark resources only
-./do/clean benchmark
+# Generate project with different instance types
+ml-container-creator bench-g5-xlarge --deployment-config=transformers-vllm \
+  --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --include-benchmark --skip-prompts
 
-# Or use the --clean flag during benchmark execution
-./do/benchmark --clean
+ml-container-creator bench-g5-2xlarge --deployment-config=transformers-vllm \
+  --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.2xlarge --include-benchmark --skip-prompts
 ```
 
-The `benchmark` cleanup target:
+Use `do/register` after each benchmark to record results in the deployment registry for comparison.
 
-- Deletes the workload config (`{project-name}-benchmark-config`)
-- Deletes all completed/failed benchmark jobs matching `{project-name}-benchmark-*`
-- Does **not** delete the Secrets Manager secret (managed separately)
+## Adapter Benchmarking
 
-The `./do/clean all` command also includes benchmark cleanup when benchmarking is enabled.
-
-## Example: Full CLI invocation
-
-Generate a project with all benchmark parameters specified for a fully non-interactive run:
+Benchmark a specific LoRA adapter to compare against the base model:
 
 ```bash
-ml-container-creator my-benchmark-project \
-  --skip-prompts \
-  --deployment-config=transformers-sglang \
-  --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --instance-type=ml.g5.2xlarge \
-  --region=us-west-2 \
-  --deployment-target=managed-inference \
-  --build-target=codebuild \
-  --include-benchmark \
-  --benchmark-concurrency=20 \
-  --benchmark-input-tokens=1024 \
-  --benchmark-output-tokens=256 \
-  --benchmark-streaming \
-  --benchmark-request-count=100
+# Benchmark base model
+./do/benchmark
+
+# Benchmark adapter
+./do/benchmark --adapter my-sft
+
+# Compare results (both recorded in benchmark history)
 ```
 
-Then deploy and benchmark:
+## Integration with CI
+
+In CI pipelines, benchmark results can be registered for regression detection:
 
 ```bash
-cd my-benchmark-project
-./do/submit          # Build via CodeBuild
-./do/deploy          # Deploy to SageMaker AI
-./do/benchmark       # Run the benchmark
-./do/benchmark --clean  # Run again and clean up after
+./do/benchmark
+./do/register --ci --notes "Nightly benchmark run"
 ```
 
-## Troubleshooting
-
-### "Endpoint is not InService"
-
-The benchmark requires a fully deployed endpoint. Check endpoint status:
-
-```bash
-aws sagemaker describe-endpoint --endpoint-name <your-endpoint> \
-  --query 'EndpointStatus' --output text
-```
-
-Wait for `InService` status before running `./do/benchmark`.
-
-### "UnrecognizedClientException"
-
-The AI Benchmarking APIs may not be available in all AWS regions. Try deploying to `us-east-1` or `us-west-2` where the service is generally available.
-
-### Benchmark job fails
-
-Check the failure reason displayed by the script. Common causes:
-
-- **Insufficient permissions** — Run `ml-container-creator bootstrap` to add benchmark IAM permissions
-- **Endpoint not responding** — Verify the endpoint works with `./do/test` before benchmarking
-- **Tokenizer access** — Ensure `HF_TOKEN` is set in `do/config` for gated models
-
-### Benchmark times out
-
-The default timeout is 30 minutes. If your benchmark needs more time (high request counts or slow endpoints), edit the `MAX_POLL_ATTEMPTS` variable in `do/benchmark`.
+See [CI Integration](ci-integration.md) for automated validation workflows.

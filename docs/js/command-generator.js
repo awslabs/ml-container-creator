@@ -391,7 +391,10 @@
             <div class="mcc-gen-output">
                 <div class="mcc-output-header">
                     <h3>Generated Deployment Script</h3>
-                    <button class="mcc-btn" id="mcc-copy">Copy</button>
+                    <div>
+                        ${window.CoverageManifold && window.CoverageManifold.isLoaded() ? '<button class="mcc-show-manifold-btn" id="mcc-show-manifold">★ Show in Manifold</button>' : ''}
+                        <button class="mcc-btn" id="mcc-copy">Copy</button>
+                    </div>
                 </div>
                 <pre><code id="mcc-output">${generateOutput()}</code></pre>
             </div>
@@ -464,6 +467,43 @@
             const btn = document.getElementById('mcc-copy');
             btn.textContent = 'Copied!';
             setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+        });
+
+        on('mcc-show-manifold', 'click', () => {
+            if (window.CoverageManifold && window.CoverageManifold.isLoaded()) {
+                const modelName = state.model || '';
+                const instanceType = state.instanceType || '';
+                const lower = modelName.toLowerCase();
+                let modelFamily = 'qwen3';
+                if (lower.includes('qwen3') || lower.includes('qwen-3')) modelFamily = 'qwen3';
+                else if (lower.includes('qwen2.5')) modelFamily = 'qwen2.5';
+                else if (lower.includes('llama-3') || lower.includes('llama3')) modelFamily = 'llama3';
+                else if (lower.includes('deepseek-r1')) modelFamily = 'deepseek-r1';
+                else if (lower.includes('mistral')) modelFamily = 'mistral';
+                else if (lower.includes('gemma')) modelFamily = 'gemma2';
+                else if (lower.includes('phi')) modelFamily = 'phi3';
+
+                const instMatch = instanceType.match(/ml\.([a-z]+\d+[a-z]*)\./);
+                const instanceFamily = instMatch ? instMatch[1] : 'g5';
+
+                let target = state.deploymentTarget;
+                if (target === 'managed-inference') target = 'realtime-inference';
+
+                const config = {
+                    deployment_config: state.deploymentConfig,
+                    model_family: modelFamily,
+                    instance_family: instanceFamily,
+                    quantization: 'none',
+                    tp_degree: String(state.server.tp || 1),
+                    enable_lora: String(state.features.lora || false),
+                    deployment_target: target
+                };
+                window.CoverageManifold.plotConfig(config);
+
+                // Scroll to manifold if it exists on the page
+                const manifoldEl = document.getElementById('coverage-manifold');
+                if (manifoldEl) manifoldEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         });
     }
 

@@ -22,6 +22,8 @@ JSON_OUTPUT=false
 CI_MODE=false
 CI_TABLE_NAME="${CI_TABLE_NAME:-mlcc-ci-table}"
 CI_BUILD_STRATEGY="codebuild-submit"
+BENCHMARK_STATUS=""
+BENCHMARK_RUN_ID=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -70,14 +72,101 @@ while [[ $# -gt 0 ]]; do
             CI_BUILD_STRATEGY="${1#*=}"
             shift
             ;;
+        --benchmark-status)
+            BENCHMARK_STATUS="$2"
+            shift 2
+            ;;
+        --benchmark-status=*)
+            BENCHMARK_STATUS="${1#*=}"
+            shift
+            ;;
+        --benchmark-run-id)
+            BENCHMARK_RUN_ID="$2"
+            shift 2
+            ;;
+        --benchmark-run-id=*)
+            BENCHMARK_RUN_ID="${1#*=}"
+            shift
+            ;;
         *)
             echo "⚠️  Unknown option: $1"
             echo ""
             echo "Usage: ./do/register [--notes \"text\"] [--status success|partial|failed] [--project] [--json] [--ci] [--ci-table <name>] [--build-strategy <strategy>]"
+            echo "       ./do/register --benchmark-status <completed|failed|in-progress> --benchmark-run-id <run-id>"
             exit 1
             ;;
     esac
 done
+
+# ============================================================
+# Handle --benchmark-status mode (Stage 2 failure isolation)
+# This mode ONLY writes benchmark fields to DynamoDB.
+# It uses an UpdateExpression that sets ONLY:
+#   lastBenchmarkRunId, lastBenchmarkTimestamp, lastBenchmarkStatus
+# It does NOT touch testStatus, configJson, or any other fields.
+# This ensures Stage 2 failure does not change the CI gate result.
+# Requirements: 1.4, 7.3
+# ============================================================
+
+if [ -n "${BENCHMARK_STATUS}" ]; then
+    # Validate benchmark status
+    case "${BENCHMARK_STATUS}" in
+        completed|failed|in-progress) ;;
+        *)
+            echo "❌ Invalid benchmark status: ${BENCHMARK_STATUS}"
+            echo "   Valid values: completed, failed, in-progress"
+            exit 1
+            ;;
+    esac
+
+    if [ -z "${BENCHMARK_RUN_ID}" ]; then
+        echo "❌ --benchmark-run-id is required when using --benchmark-status"
+        exit 1
+    fi
+
+    # Compute configId (same hash logic used by write_ci_record below)
+    _benchmark_input="${DEPLOYMENT_CONFIG}:${MODEL_NAME:-none}:${INSTANCE_TYPE}:${AWS_REGION}:${DEPLOYMENT_TARGET}:ic${IC_COUNT:-1}:adapt${ADAPTER_COUNT:-0}"
+    if command -v sha256sum &> /dev/null; then
+        CONFIG_ID=$(echo -n "$_benchmark_input" | sha256sum | cut -c1-16)
+    else
+        CONFIG_ID=$(echo -n "$_benchmark_input" | shasum -a 256 | cut -c1-16)
+    fi
+    BENCHMARK_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    echo "📊 Recording benchmark status for configId: ${CONFIG_ID}"
+    echo "   Benchmark run ID:  ${BENCHMARK_RUN_ID}"
+    echo "   Benchmark status:  ${BENCHMARK_STATUS}"
+    echo "   Timestamp:         ${BENCHMARK_TIMESTAMP}"
+    echo ""
+
+    # Check if CI_Table exists
+    if ! aws dynamodb describe-table --table-name "${CI_TABLE_NAME}" --region "${AWS_REGION}" &>/dev/null; then
+        echo "⚠️  CI infrastructure not provisioned. Run 'ml-container-creator bootstrap' with CI enabled."
+        echo "   Skipping benchmark status write."
+        exit 0
+    fi
+
+    # UpdateExpression ONLY sets the 3 benchmark fields.
+    # This is a SET operation — it does NOT overwrite the entire record (PutItem).
+    # testStatus, configJson, and all other fields remain unchanged.
+    if aws dynamodb update-item \
+        --region "${AWS_REGION}" \
+        --table-name "${CI_TABLE_NAME}" \
+        --key "{\"configId\": {\"S\": \"${CONFIG_ID}\"}}" \
+        --update-expression "SET lastBenchmarkRunId = :rid, lastBenchmarkTimestamp = :ts, lastBenchmarkStatus = :bs" \
+        --expression-attribute-values "{
+            \":rid\": {\"S\": \"${BENCHMARK_RUN_ID}\"},
+            \":ts\": {\"S\": \"${BENCHMARK_TIMESTAMP}\"},
+            \":bs\": {\"S\": \"${BENCHMARK_STATUS}\"}
+        }" 2>/dev/null; then
+        echo "✅ Benchmark status recorded: ${BENCHMARK_STATUS}"
+    else
+        echo "❌ Failed to write benchmark status for configId: ${CONFIG_ID}"
+        exit 1
+    fi
+
+    exit 0
+fi
 
 # Validate status
 case "${STATUS}" in

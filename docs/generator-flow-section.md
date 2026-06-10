@@ -82,17 +82,14 @@ ml-container-creator
 For automation or CI/CD pipelines, skip prompts entirely:
 
 ```bash
-ml-container-creator \
-  --skip-prompts \
-  --project-name="my-sklearn-model" \
-  --framework="sklearn" \
-  --model-server="flask" \
-  --model-format="pkl" \
-  --instance-type="cpu-optimized" \
-  --deploy-target="sagemaker" \
-  --include-sample=true \
-  --include-testing=true \
-  --region="us-east-1"
+ml-container-creator my-sklearn-model \
+  --deployment-config=http-flask \
+  --model-format=pkl \
+  --deployment-target=realtime-inference \
+  --instance-type=ml.m5.large \
+  --include-sample \
+  --region=us-east-1 \
+  --skip-prompts
 ```
 
 **Output:**
@@ -109,13 +106,12 @@ The generator merges configuration from multiple sources in this precedence orde
 
 1. **CLI Options** (highest priority)
    ```bash
-   --framework=sklearn --model-server=flask
+   --deployment-config=http-flask
    ```
 
 2. **Environment Variables**
    ```bash
-   export FRAMEWORK=sklearn
-   export MODEL_SERVER=flask
+   export ML_DEPLOYMENT_CONFIG=http-flask
    ```
 
 3. **Config File** (`--config` flag)

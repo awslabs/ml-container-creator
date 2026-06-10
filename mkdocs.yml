@@ -9,14 +9,14 @@ theme:
   name: material
   palette:
     - scheme: default
-      primary: blue
-      accent: orange
+      primary: teal
+      accent: pink
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: blue
-      accent: orange
+      primary: deep purple
+      accent: pink
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -37,9 +37,11 @@ theme:
 
 extra_css:
   - stylesheets/extra.css
+  - stylesheets/manifold.css
 
 extra_javascript:
   - js/command-generator.js
+  - js/coverage-manifold.js
 
 plugins:
   - search
@@ -52,24 +54,31 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Supported Models: supported-models.md
+  - Bootstrap: bootstrap.md
+  - MCP Servers: mcp-configuration.md
   - User Guide:
-      - How It Works: how-it-works.md
       - Configuration: configuration.md
-      - MCP Servers: mcp-configuration.md
       - Secrets Management: secrets.md
       - Deployment & Inference: deployments.md
-      - Benchmarking: benchmarking.md
       - Fine-Tuning: fine-tuning.md
-      - CI Integration: ci-integration.md
       - Examples: EXAMPLES.md
       - Troubleshooting: TROUBLESHOOTING.md
+  - Operations:
+      - CI Integration: ci-integration.md
+      - Benchmarking: benchmarking.md
+      - Deployment Registry: deployment-registry.md
+      - Optimization: optimize.md
+      - Path Prover: path-prover.md
+      - Coverage Manifold: coverage-manifold.md
   - Developer Guide:
       - Contributing: CONTRIBUTING.md
-      - Generator Architecture: dev/generator-architecture.md
+      - Local Development: dev/local-development.md
+      - Architecture: how-it-works.md
       - Schema-Driven Architecture: dev/schema-driven-architecture.md
       - Template System: dev/template-system.md
       - MCP Server Development: dev/mcp-server-development.md
       - Registries and Catalogs: dev/registries-and-catalogs.md
+      - Validation System: dev/validation-system.md
       - Testing: dev/testing.md
   - Command Generator: command-generator.md
 
@@ -96,7 +105,6 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
-      pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.keys
   - pymdownx.mark
@@ -113,16 +121,3 @@ markdown_extensions:
   - pymdownx.tilde
   - toc:
       permalink: true
-      toc_depth: 3
-
-extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/awslabs/ml-container-creator
-    - icon: fontawesome/brands/aws
-      link: https://aws.amazon.com/sagemaker/
-  version:
-    provider: mike
-  generator: false
-
-copyright: Copyright &copy; 2024-2026 Amazon.com, Inc. or its affiliates

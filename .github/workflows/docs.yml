@@ -26,6 +26,18 @@ jobs:
         with:
           python-version: '3.x'
           
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          
+      - name: Generate docs data from schemas
+        run: |
+          npm ci
+          npm run codegen
+          node scripts/codegen-manifold.js --sample
+          
       - name: Install dependencies
         run: |
           pip install mkdocs-material pymdown-extensions

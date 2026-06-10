@@ -18,6 +18,47 @@
    ],
    "Description": "CodeBuild compute type for CI executor"
   },
+  "CreateBenchmarkInfra": {
+   "Type": "String",
+   "Default": "false",
+   "AllowedValues": [
+    "true",
+    "false"
+   ],
+   "Description": "Whether to create benchmark infrastructure (S3 results bucket, Glue DB/table, IAM permissions). Opt-in."
+  },
+  "BenchmarkIaTransitionDays": {
+   "Type": "Number",
+   "Default": 90,
+   "Description": "Days before benchmark results transition to Infrequent Access storage",
+   "MaxValue": 365,
+   "MinValue": 30
+  },
+  "BenchmarkExpirationDays": {
+   "Type": "Number",
+   "Default": 365,
+   "Description": "Days before benchmark results expire and are deleted",
+   "MaxValue": 3650,
+   "MinValue": 90
+  },
+  "CreatePathProver": {
+   "Type": "String",
+   "Default": "false",
+   "AllowedValues": [
+    "true",
+    "false"
+   ],
+   "Description": "Whether to create Path Prover infrastructure (state machine, Lambdas, EventBridge rule). Opt-in."
+  },
+  "EnablePathProverSchedule": {
+   "Type": "String",
+   "Default": "DISABLED",
+   "AllowedValues": [
+    "ENABLED",
+    "DISABLED"
+   ],
+   "Description": "Whether to enable the Path Prover scheduled EventBridge rule. Default: DISABLED."
+  },
   "BootstrapVersion": {
    "Type": "AWS::SSM::Parameter::Value<String>",
    "Default": "/cdk-bootstrap/hnb659fds/version",
@@ -157,7 +198,7 @@
      "Version": "2012-10-17"
     },
     "Description": "IAM role for the MLCC CI Scanner Lambda function",
-    "RoleName": "mlcc-ci-scanner-role",
+    "RoleName": "mlcc-ci-scanner-role-us-west-2",
     "Tags": [
      {
       "Key": "mlcc:created-by",
@@ -262,7 +303,7 @@
    "Type": "AWS::Lambda::Function",
    "Properties": {
     "Code": {
-     "S3Bucket": "cdk-hnb659fds-assets-633146206289-us-east-1",
+     "S3Bucket": "cdk-hnb659fds-assets-633146206289-us-west-2",
      "S3Key": "0cc865cf6b735957518f2af181f8b90df1b29c7b35526266e852a98cd56a2fb8.zip"
     },
     "Environment": {
@@ -389,12 +430,19 @@
        "Principal": {
         "Service": "states.amazonaws.com"
        }
+      },
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "events.amazonaws.com"
+       }
       }
      ],
      "Version": "2012-10-17"
     },
     "Description": "IAM role for the MLCC CI Orchestrator Step Functions state machine",
-    "RoleName": "mlcc-ci-orchestrator-role",
+    "RoleName": "mlcc-ci-orchestrator-role-us-west-2",
     "Tags": [
      {
       "Key": "mlcc:created-by",
@@ -420,7 +468,10 @@
     "PolicyDocument": {
      "Statement": [
       {
-       "Action": "dynamodb:UpdateItem",
+       "Action": [
+        "dynamodb:UpdateItem",
+        "dynamodb:GetItem"
+       ],
        "Effect": "Allow",
        "Resource": {
         "Fn::GetAtt": [
@@ -511,11 +562,31 @@
        {
         "Ref": "CiLogGroup636BBA44"
        },
-       "\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.buildResult\"},\"WaitForBuild\":{\"Type\":\"Wait\",\"Seconds\":30,\"Next\":\"PollBuildStatus\"},\"PollBuildStatus\":{\"Next\":\"CheckTimestamp\",\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::aws-sdk:codebuild:batchGetBuilds\",\"Parameters\":{\"Ids.$\":\"States.Array($.buildResult.Build.Id)\"},\"ResultPath\":\"$.pollResult\"},\"CheckTimestamp\":{\"Type\":\"Pass\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\",\"startTime.$\":\"$.startTime\",\"buildResult.$\":\"$.buildResult\",\"pollResult.$\":\"$.pollResult\",\"buildStatus.$\":\"$.pollResult.Builds[0].BuildStatus\",\"currentTime.$\":\"$$.State.EnteredTime\"},\"Next\":\"CheckBuildStatus\"},\"CheckBuildStatus\":{\"Type\":\"Choice\",\"Choices\":[{\"Variable\":\"$.buildStatus\",\"StringEquals\":\"SUCCEEDED\",\"Next\":\"SetBuildCompleteResult\"},{\"Variable\":\"$.buildStatus\",\"StringEquals\":\"FAILED\",\"Next\":\"SetBuildCompleteResult\"},{\"Variable\":\"$.buildStatus\",\"StringEquals\":\"STOPPED\",\"Next\":\"SetBuildCompleteResult\"},{\"Variable\":\"$.buildStatus\",\"StringEquals\":\"TIMED_OUT\",\"Next\":\"HandleTimeout\"}],\"Default\":\"WaitForBuild\"},\"SetBuildCompleteResult\":{\"Type\":\"Pass\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\",\"startTime.$\":\"$.startTime\",\"buildStatus.$\":\"$.buildStatus\",\"pollResult.$\":\"$.pollResult\"},\"Next\":\"UpdateResults\"},\"UpdateResults\":{\"End\":true,\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::dynamodb:updateItem\",\"Parameters\":{\"TableName\":\"",
+       "\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"BENCHMARK_CONCURRENCY_LEVELS\",\"Value.$\":\"$.benchmarkConcurrencyLevels\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.buildResult\"},\"WaitForBuild\":{\"Type\":\"Wait\",\"Seconds\":30,\"Next\":\"PollBuildStatus\"},\"PollBuildStatus\":{\"Next\":\"CheckTimestamp\",\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::aws-sdk:codebuild:batchGetBuilds\",\"Parameters\":{\"Ids.$\":\"States.Array($.buildResult.Build.Id)\"},\"ResultPath\":\"$.pollResult\"},\"CheckTimestamp\":{\"Type\":\"Pass\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\",\"startTime.$\":\"$.startTime\",\"buildResult.$\":\"$.buildResult\",\"pollResult.$\":\"$.pollResult\",\"buildStatus.$\":\"$.pollResult.Builds[0].BuildStatus\",\"currentTime.$\":\"$$.State.EnteredTime\"},\"Next\":\"CheckBuildStatus\"},\"CheckBuildStatus\":{\"Type\":\"Choice\",\"Choices\":[{\"Variable\":\"$.buildStatus\",\"StringEquals\":\"SUCCEEDED\",\"Next\":\"SetBuildCompleteResult\"},{\"Variable\":\"$.buildStatus\",\"StringEquals\":\"FAILED\",\"Next\":\"SetBuildCompleteResult\"},{\"Variable\":\"$.buildStatus\",\"StringEquals\":\"STOPPED\",\"Next\":\"SetBuildCompleteResult\"},{\"Variable\":\"$.buildStatus\",\"StringEquals\":\"TIMED_OUT\",\"Next\":\"HandleTimeout\"}],\"Default\":\"WaitForBuild\"},\"SetBuildCompleteResult\":{\"Type\":\"Pass\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\",\"startTime.$\":\"$.startTime\",\"buildStatus.$\":\"$.buildStatus\",\"pollResult.$\":\"$.pollResult\"},\"Next\":\"UpdateResults\"},\"UpdateResults\":{\"Next\":\"GetBenchmarkConfig\",\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::dynamodb:updateItem\",\"Parameters\":{\"TableName\":\"",
        {
         "Ref": "CiTableEDF40807"
        },
-       "\",\"Key\":{\"configId\":{\"S.$\":\"$.configId\"}},\"UpdateExpression\":\"SET lastTestTimestamp = :ts, errorMessage = :err\",\"ExpressionAttributeValues\":{\":ts\":{\"S.$\":\"$$.State.EnteredTime\"},\":err\":{\"S.$\":\"States.Format('Build completed with status: {}', $.buildStatus)\"}}},\"ResultPath\":\"$.updateResult\",\"Retry\":[{\"ErrorEquals\":[\"States.ALL\"],\"IntervalSeconds\":2,\"MaxAttempts\":3,\"BackoffRate\":2}]},\"HandleTimeout\":{\"Type\":\"Pass\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\",\"startTime.$\":\"$.startTime\",\"testStatus\":\"fail-build\",\"errorMessage\":\"CodeBuild execution timed out after 90 minutes\"},\"Next\":\"UpdateResultsFromTimeout\"},\"UpdateResultsFromTimeout\":{\"End\":true,\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::dynamodb:updateItem\",\"Parameters\":{\"TableName\":\"",
+       "\",\"Key\":{\"configId\":{\"S.$\":\"$.configId\"}},\"UpdateExpression\":\"SET lastTestTimestamp = :ts, errorMessage = :err\",\"ExpressionAttributeValues\":{\":ts\":{\"S.$\":\"$$.State.EnteredTime\"},\":err\":{\"S.$\":\"States.Format('Build completed with status: {}', $.buildStatus)\"}}},\"ResultPath\":\"$.updateResult\",\"Retry\":[{\"ErrorEquals\":[\"States.ALL\"],\"IntervalSeconds\":2,\"MaxAttempts\":3,\"BackoffRate\":2}]},\"GetBenchmarkConfig\":{\"Next\":\"CheckDynamoItemHasBenchmarkField\",\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::dynamodb:getItem\",\"Parameters\":{\"TableName\":\"",
+       {
+        "Ref": "CiTableEDF40807"
+       },
+       "\",\"Key\":{\"configId\":{\"S.$\":\"$.configId\"}},\"ProjectionExpression\":\"testStatus, benchmarkEnabled, benchmarkConcurrencyLevels\",\"ConsistentRead\":true},\"ResultPath\":\"$.dynamoResult\",\"Retry\":[{\"ErrorEquals\":[\"States.ALL\"],\"IntervalSeconds\":2,\"MaxAttempts\":3,\"BackoffRate\":2}]},\"CheckDynamoItemHasBenchmarkField\":{\"Type\":\"Choice\",\"Choices\":[{\"Variable\":\"$.dynamoResult.Item.benchmarkEnabled\",\"IsPresent\":true,\"Next\":\"ExtractBenchmarkFlags\"}],\"Default\":\"ExtractBenchmarkFlagsDefault\"},\"ExtractBenchmarkFlagsDefault\":{\"Type\":\"Pass\",\"ResultPath\":\"$\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\",\"startTime.$\":\"$.startTime\",\"buildStatus.$\":\"$.buildStatus\",\"testStatus\":\"unknown\",\"benchmarkEnabled\":false},\"Next\":\"CheckBenchmarkEnabled\"},\"CheckBenchmarkEnabled\":{\"Type\":\"Choice\",\"Choices\":[{\"And\":[{\"Variable\":\"$.testStatus\",\"StringEquals\":\"pass\"},{\"Variable\":\"$.benchmarkEnabled\",\"BooleanEquals\":true}],\"Next\":\"PrepareStage2Input\"}],\"Default\":\"SkipStage2\"},\"ExtractBenchmarkFlags\":{\"Type\":\"Pass\",\"ResultPath\":\"$\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\",\"startTime.$\":\"$.startTime\",\"buildStatus.$\":\"$.buildStatus\",\"testStatus.$\":\"$.dynamoResult.Item.testStatus.S\",\"benchmarkEnabled.$\":\"$.dynamoResult.Item.benchmarkEnabled.BOOL\"},\"Next\":\"CheckBenchmarkEnabled\"},\"SkipStage2\":{\"Type\":\"Succeed\"},\"PrepareStage2Input\":{\"Type\":\"Pass\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\"},\"Next\":\"Stage2Pipeline\"},\"Stage2Pipeline\":{\"Type\":\"Parallel\",\"ResultPath\":\"$.stage2PipelineResult\",\"End\":true,\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.stage2Error\",\"Next\":\"Stage2FailureHandler\"}],\"Branches\":[{\"StartAt\":\"Stage2Benchmark\",\"States\":{\"Stage2Benchmark\":{\"Next\":\"Stage2RegisterBenchmark\",\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"mlcc-ci-executor\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_ID\",\"Value.$\":\"$.configId\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"$.configJson\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"stage2-benchmark\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_TABLE_NAME\",\"Value\":\"",
+       {
+        "Ref": "CiTableEDF40807"
+       },
+       "\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_LOG_GROUP\",\"Value\":\"",
+       {
+        "Ref": "CiLogGroup636BBA44"
+       },
+       "\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.stage2BuildResult\"},\"Stage2RegisterBenchmark\":{\"Next\":\"Stage2Clean\",\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"mlcc-ci-executor\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_ID\",\"Value.$\":\"$.configId\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"$.configJson\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"stage2-register-benchmark\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"BENCHMARK_STATUS\",\"Value\":\"completed\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_TABLE_NAME\",\"Value\":\"",
+       {
+        "Ref": "CiTableEDF40807"
+       },
+       "\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.stage2RegisterResult\"},\"Stage2Clean\":{\"End\":true,\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"mlcc-ci-executor\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_ID\",\"Value.$\":\"$.configId\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"$.configJson\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"stage2-clean\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.stage2CleanResult\"}}}]},\"Stage2FailureHandler\":{\"Next\":\"Stage2FailureClean\",\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::dynamodb:updateItem\",\"Parameters\":{\"TableName\":\"",
+       {
+        "Ref": "CiTableEDF40807"
+       },
+       "\",\"Key\":{\"configId\":{\"S.$\":\"$.configId\"}},\"UpdateExpression\":\"SET lastBenchmarkRunId = :rid, lastBenchmarkTimestamp = :ts, lastBenchmarkStatus = :status\",\"ExpressionAttributeValues\":{\":rid\":{\"S.$\":\"States.Format('bmk-failure-{}', $.configId)\"},\":ts\":{\"S.$\":\"$$.State.EnteredTime\"},\":status\":{\"S\":\"failed\"}}},\"ResultPath\":\"$.stage2FailureUpdateResult\",\"Retry\":[{\"ErrorEquals\":[\"States.ALL\"],\"IntervalSeconds\":2,\"MaxAttempts\":3,\"BackoffRate\":2}]},\"Stage2FailureClean\":{\"End\":true,\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"mlcc-ci-executor\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_ID\",\"Value.$\":\"$.configId\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"$.configJson\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"stage2-clean\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.stage2FailureCleanResult\"},\"HandleTimeout\":{\"Type\":\"Pass\",\"Parameters\":{\"configId.$\":\"$.configId\",\"configJson.$\":\"$.configJson\",\"buildStrategy.$\":\"$.buildStrategy\",\"startTime.$\":\"$.startTime\",\"testStatus\":\"fail-build\",\"errorMessage\":\"CodeBuild execution timed out after 90 minutes\"},\"Next\":\"UpdateResultsFromTimeout\"},\"UpdateResultsFromTimeout\":{\"End\":true,\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::dynamodb:updateItem\",\"Parameters\":{\"TableName\":\"",
        {
         "Ref": "CiTableEDF40807"
        },
@@ -591,7 +662,7 @@
      "Version": "2012-10-17"
     },
     "Description": "IAM role for the MLCC CI CodeBuild executor project",
-    "RoleName": "mlcc-ci-codebuild-role",
+    "RoleName": "mlcc-ci-codebuild-role-us-west-2",
     "Tags": [
      {
       "Key": "mlcc:created-by",
@@ -693,7 +764,7 @@
            {
             "Ref": "AWS::Partition"
            },
-           ":logs:us-east-1:633146206289:log-group:/aws/codebuild/",
+           ":logs:us-west-2:633146206289:log-group:/aws/codebuild/",
            {
             "Ref": "CiCodeBuildProject43C3B05A"
            }
@@ -708,7 +779,7 @@
            {
             "Ref": "AWS::Partition"
            },
-           ":logs:us-east-1:633146206289:log-group:/aws/codebuild/",
+           ":logs:us-west-2:633146206289:log-group:/aws/codebuild/",
            {
             "Ref": "CiCodeBuildProject43C3B05A"
            },
@@ -735,7 +806,7 @@
           {
            "Ref": "AWS::Partition"
           },
-          ":codebuild:us-east-1:633146206289:report-group/",
+          ":codebuild:us-west-2:633146206289:report-group/",
           {
            "Ref": "CiCodeBuildProject43C3B05A"
           },
@@ -816,14 +887,975 @@
     "aws:cdk:path": "MlccCiHarnessStack/CiCodeBuildProject/Resource"
    }
   },
+  "CiGlueDatabase": {
+   "Type": "AWS::Glue::Database",
+   "Properties": {
+    "CatalogId": "633146206289",
+    "DatabaseInput": {
+     "Description": "MCC CI benchmark results warehouse",
+     "Name": "mlcc_ci"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/CiGlueDatabase"
+   },
+   "Condition": "BenchmarkInfraCondition"
+  },
+  "BenchmarkResultsTable": {
+   "Type": "AWS::Glue::Table",
+   "Properties": {
+    "CatalogId": "633146206289",
+    "DatabaseName": "mlcc_ci",
+    "TableInput": {
+     "Name": "benchmark_results",
+     "Parameters": {
+      "classification": "parquet",
+      "parquet.compression": "SNAPPY"
+     },
+     "PartitionKeys": [
+      {
+       "Name": "region",
+       "Type": "string"
+      },
+      {
+       "Name": "year",
+       "Type": "string"
+      },
+      {
+       "Name": "month",
+       "Type": "string"
+      }
+     ],
+     "StorageDescriptor": {
+      "Columns": [
+       {
+        "Comment": "SHA-256 hash (16 chars), join key with DynamoDB",
+        "Name": "config_id",
+        "Type": "string"
+       },
+       {
+        "Comment": "HuggingFace model ID (e.g., Qwen/Qwen3-4B)",
+        "Name": "model_name",
+        "Type": "string"
+       },
+       {
+        "Comment": "Derived: qwen3, llama3, deepseek-r1, etc.",
+        "Name": "model_family",
+        "Type": "string"
+       },
+       {
+        "Comment": "SageMaker instance (e.g., ml.g5.xlarge)",
+        "Name": "instance_type",
+        "Type": "string"
+       },
+       {
+        "Comment": "Derived: g5, g6, g6e, p5, trn2, etc.",
+        "Name": "instance_family",
+        "Type": "string"
+       },
+       {
+        "Comment": "Architecture-backend (e.g., transformers-vllm)",
+        "Name": "deployment_config",
+        "Type": "string"
+       },
+       {
+        "Comment": "realtime-inference, async-inference, etc.",
+        "Name": "deployment_target",
+        "Type": "string"
+       },
+       {
+        "Comment": "When this benchmark ran (UTC)",
+        "Name": "run_timestamp",
+        "Type": "timestamp"
+       },
+       {
+        "Comment": "TP degree (1, 2, 4, 8)",
+        "Name": "tensor_parallel_degree",
+        "Type": "int"
+       },
+       {
+        "Comment": "Quantization method (fp16, fp8, awq, gptq, none)",
+        "Name": "quantization",
+        "Type": "string"
+       },
+       {
+        "Comment": "Whether LoRA adapters were enabled",
+        "Name": "enable_lora",
+        "Type": "boolean"
+       },
+       {
+        "Comment": "Container base image (e.g., vllm/vllm-openai:v0.8.5)",
+        "Name": "base_image",
+        "Type": "string"
+       },
+       {
+        "Comment": "Extracted tag from base image",
+        "Name": "base_image_version",
+        "Type": "string"
+       },
+       {
+        "Comment": "MCC generator version that produced the project",
+        "Name": "mcc_version",
+        "Type": "string"
+       },
+       {
+        "Comment": "Number of concurrent requests in this measurement",
+        "Name": "concurrency",
+        "Type": "int"
+       },
+       {
+        "Comment": "Mean input token count for workload",
+        "Name": "input_tokens_mean",
+        "Type": "int"
+       },
+       {
+        "Comment": "Mean output token count for workload",
+        "Name": "output_tokens_mean",
+        "Type": "int"
+       },
+       {
+        "Comment": "Benchmark duration in seconds",
+        "Name": "duration_seconds",
+        "Type": "int"
+       },
+       {
+        "Comment": "Time to first token, 50th percentile (ms)",
+        "Name": "ttft_p50_ms",
+        "Type": "double"
+       },
+       {
+        "Comment": "Time to first token, 99th percentile (ms)",
+        "Name": "ttft_p99_ms",
+        "Type": "double"
+       },
+       {
+        "Comment": "Inter-token latency, 50th percentile (ms)",
+        "Name": "itl_p50_ms",
+        "Type": "double"
+       },
+       {
+        "Comment": "Inter-token latency, 99th percentile (ms)",
+        "Name": "itl_p99_ms",
+        "Type": "double"
+       },
+       {
+        "Comment": "Requests per second at this concurrency",
+        "Name": "throughput_rps",
+        "Type": "double"
+       },
+       {
+        "Comment": "Output tokens per second",
+        "Name": "tokens_per_second",
+        "Type": "double"
+       },
+       {
+        "Comment": "Estimated cost per 1M output tokens (USD)",
+        "Name": "cost_per_1m_tokens",
+        "Type": "double"
+       },
+       {
+        "Comment": "Fraction of requests that failed (0.0-1.0)",
+        "Name": "error_rate",
+        "Type": "double"
+       },
+       {
+        "Comment": "completed, failed, timeout, unfeasible",
+        "Name": "status",
+        "Type": "string"
+       },
+       {
+        "Comment": "Source: ci, path_prove, optimization, manual",
+        "Name": "run_type",
+        "Type": "string"
+       },
+       {
+        "Comment": "Step Functions execution ID or CodeBuild build ID",
+        "Name": "ci_run_id",
+        "Type": "string"
+       },
+       {
+        "Comment": "stage2-benchmark",
+        "Name": "ci_stage",
+        "Type": "string"
+       },
+       {
+        "Comment": "SageMaker AI Benchmark job name",
+        "Name": "benchmark_job_name",
+        "Type": "string"
+       },
+       {
+        "Comment": "AWS account ID",
+        "Name": "account_id",
+        "Type": "string"
+       }
+      ],
+      "Compressed": true,
+      "InputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+      "Location": "s3://mlcc-benchmark-results-633146206289-us-west-2/",
+      "OutputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+      "SerdeInfo": {
+       "Parameters": {
+        "serialization.format": "1"
+       },
+       "SerializationLibrary": "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+      }
+     },
+     "TableType": "EXTERNAL_TABLE"
+    }
+   },
+   "DependsOn": [
+    "CiGlueDatabase"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/BenchmarkResultsTable"
+   },
+   "Condition": "BenchmarkInfraCondition"
+  },
+  "BenchmarkResultsBucket9FA9FAA3": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketName": "mlcc-benchmark-results-633146206289-us-west-2",
+    "LifecycleConfiguration": {
+     "Rules": [
+      {
+       "ExpirationInDays": {
+        "Ref": "BenchmarkExpirationDays"
+       },
+       "Status": "Enabled",
+       "Transitions": [
+        {
+         "StorageClass": "STANDARD_IA",
+         "TransitionInDays": {
+          "Ref": "BenchmarkIaTransitionDays"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    "Tags": [
+     {
+      "Key": "mlcc:created-by",
+      "Value": "bootstrap-ci"
+     },
+     {
+      "Key": "mlcc:managed-by",
+      "Value": "ml-container-creator"
+     },
+     {
+      "Key": "mlcc:version",
+      "Value": "0.1.0"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/BenchmarkResultsBucket/Resource"
+   },
+   "Condition": "BenchmarkInfraCondition"
+  },
+  "BenchmarkWritePolicyE80984B0": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:s3:::mlcc-benchmark-results-*",
+        "arn:aws:s3:::mlcc-benchmark-results-*/*"
+       ],
+       "Sid": "BenchmarkResultsWrite"
+      },
+      {
+       "Action": [
+        "glue:GetDatabase",
+        "glue:GetTable",
+        "glue:GetPartitions",
+        "glue:BatchCreatePartition",
+        "glue:CreatePartition"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:glue:*:*:catalog",
+        "arn:aws:glue:*:*:database/mlcc_ci",
+        "arn:aws:glue:*:*:table/mlcc_ci/*"
+       ],
+       "Sid": "GlueCatalogAccess"
+      },
+      {
+       "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryResults"
+       ],
+       "Effect": "Allow",
+       "Resource": "*",
+       "Sid": "AthenaPartitionRepair"
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "mlcc-ci-benchmark-write-policy",
+    "Roles": [
+     {
+      "Ref": "CodeBuildRole728CBADE"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/BenchmarkWritePolicy/Resource"
+   },
+   "Condition": "BenchmarkInfraCondition"
+  },
+  "PathProverBrainRole4FAE83AC": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "IAM role for the Path Prover Brain Lambda function",
+    "RoleName": "mlcc-path-prover-brain-role",
+    "Tags": [
+     {
+      "Key": "mlcc:created-by",
+      "Value": "bootstrap-ci"
+     },
+     {
+      "Key": "mlcc:managed-by",
+      "Value": "ml-container-creator"
+     },
+     {
+      "Key": "mlcc:version",
+      "Value": "0.1.0"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverBrainRole/Resource"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverBrainAthenaPolicyBF807AE3": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:GetQueryResults"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "glue:GetTable",
+        "glue:GetDatabase",
+        "glue:GetPartitions"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:glue:*:*:catalog",
+        "arn:aws:glue:*:*:database/mlcc_ci",
+        "arn:aws:glue:*:*:table/mlcc_ci/*"
+       ]
+      },
+      {
+       "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:PutObject"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:s3:::mlcc-benchmark-results-*",
+        "arn:aws:s3:::mlcc-benchmark-results-*/*"
+       ]
+      },
+      {
+       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "CiLogGroup636BBA44",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "CiLogGroup636BBA44",
+             "Arn"
+            ]
+           },
+           ":*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "mlcc-path-prover-brain-athena",
+    "Roles": [
+     {
+      "Ref": "PathProverBrainRole4FAE83AC"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverBrainAthenaPolicy/Resource"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverBrainFunctionC484EDAD": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-633146206289-us-west-2",
+     "S3Key": "d568c34747d811eb2727f22d7ce2de7fd9f2c985008cd6e8dc9b811347add3a0.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "GLUE_DATABASE": "mlcc_ci",
+      "GLUE_TABLE": "benchmark_results",
+      "MAX_PROVES_PER_RUN": "10",
+      "MAX_COST_PER_RUN": "100"
+     }
+    },
+    "FunctionName": "mlcc-path-prover-brain",
+    "Handler": "index.handler",
+    "LoggingConfig": {
+     "LogGroup": {
+      "Ref": "CiLogGroup636BBA44"
+     }
+    },
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "PathProverBrainRole4FAE83AC",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Tags": [
+     {
+      "Key": "mlcc:created-by",
+      "Value": "bootstrap-ci"
+     },
+     {
+      "Key": "mlcc:managed-by",
+      "Value": "ml-container-creator"
+     },
+     {
+      "Key": "mlcc:version",
+      "Value": "0.1.0"
+     }
+    ],
+    "Timeout": 120
+   },
+   "DependsOn": [
+    "PathProverBrainRole4FAE83AC"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverBrainFunction/Resource",
+    "aws:asset:path": "asset.d568c34747d811eb2727f22d7ce2de7fd9f2c985008cd6e8dc9b811347add3a0",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverWriteRoleB3301266": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "IAM role for the Path Prover Write Results Lambda function",
+    "RoleName": "mlcc-path-prover-write-role",
+    "Tags": [
+     {
+      "Key": "mlcc:created-by",
+      "Value": "bootstrap-ci"
+     },
+     {
+      "Key": "mlcc:managed-by",
+      "Value": "ml-container-creator"
+     },
+     {
+      "Key": "mlcc:version",
+      "Value": "0.1.0"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverWriteRole/Resource"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverWriteResultsPolicyF5BDCD20": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+       ],
+       "Effect": "Allow",
+       "Resource": "arn:aws:s3:::mlcc-benchmark-results-*/*"
+      },
+      {
+       "Action": [
+        "glue:BatchCreatePartition",
+        "glue:CreatePartition",
+        "glue:GetTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:glue:*:*:catalog",
+        "arn:aws:glue:*:*:database/mlcc_ci",
+        "arn:aws:glue:*:*:table/mlcc_ci/*"
+       ]
+      },
+      {
+       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "CiLogGroup636BBA44",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "CiLogGroup636BBA44",
+             "Arn"
+            ]
+           },
+           ":*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "mlcc-path-prover-write-results",
+    "Roles": [
+     {
+      "Ref": "PathProverWriteRoleB3301266"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverWriteResultsPolicy/Resource"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverWriteFunction9E2DD96F": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-633146206289-us-west-2",
+     "S3Key": "de2f2a018f5700970baa630f7a261a2fb51a37b4c87b03c237dca903e1b2ff00.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "GLUE_DATABASE": "mlcc_ci",
+      "GLUE_TABLE": "benchmark_results",
+      "RESULTS_BUCKET": "mlcc-benchmark-results-633146206289-us-west-2"
+     }
+    },
+    "FunctionName": "mlcc-path-prover-write-results",
+    "Handler": "index.handler",
+    "LoggingConfig": {
+     "LogGroup": {
+      "Ref": "CiLogGroup636BBA44"
+     }
+    },
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "PathProverWriteRoleB3301266",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Tags": [
+     {
+      "Key": "mlcc:created-by",
+      "Value": "bootstrap-ci"
+     },
+     {
+      "Key": "mlcc:managed-by",
+      "Value": "ml-container-creator"
+     },
+     {
+      "Key": "mlcc:version",
+      "Value": "0.1.0"
+     }
+    ],
+    "Timeout": 60
+   },
+   "DependsOn": [
+    "PathProverWriteRoleB3301266"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverWriteFunction/Resource",
+    "aws:asset:path": "asset.de2f2a018f5700970baa630f7a261a2fb51a37b4c87b03c237dca903e1b2ff00",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverOrchestratorRoleE5C7885C": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "states.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "IAM role for the Path Prover Step Functions state machine",
+    "RoleName": "mlcc-path-prover-orchestrator-role",
+    "Tags": [
+     {
+      "Key": "mlcc:created-by",
+      "Value": "bootstrap-ci"
+     },
+     {
+      "Key": "mlcc:managed-by",
+      "Value": "ml-container-creator"
+     },
+     {
+      "Key": "mlcc:version",
+      "Value": "0.1.0"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverOrchestratorRole/Resource"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverOrchestratorPolicy6BEC6260": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "lambda:InvokeFunction",
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "PathProverBrainFunctionC484EDAD",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::GetAtt": [
+          "PathProverWriteFunction9E2DD96F",
+          "Arn"
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "codebuild:StartBuild",
+        "codebuild:BatchGetBuilds",
+        "codebuild:StopBuild"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "CiCodeBuildProject43C3B05A",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "logs:CreateLogDelivery",
+        "logs:GetLogDelivery",
+        "logs:UpdateLogDelivery",
+        "logs:DeleteLogDelivery",
+        "logs:ListLogDeliveries",
+        "logs:PutResourcePolicy",
+        "logs:DescribeResourcePolicies",
+        "logs:DescribeLogGroups",
+        "logs:PutLogEvents",
+        "logs:CreateLogStream"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "events:PutTargets",
+        "events:PutRule",
+        "events:DescribeRule"
+       ],
+       "Effect": "Allow",
+       "Resource": "arn:aws:events:us-west-2:633146206289:rule/StepFunctionsGetBuildStatusRule-*"
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "mlcc-path-prover-orchestrator-policy",
+    "Roles": [
+     {
+      "Ref": "PathProverOrchestratorRoleE5C7885C"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverOrchestratorPolicy/Resource"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverStateMachine": {
+   "Type": "AWS::StepFunctions::StateMachine",
+   "Properties": {
+    "DefinitionString": {
+     "Fn::Sub": [
+      "{\"Comment\":\"Path Prover Orchestrator — proves untested configuration paths end-to-end. Loops: Brain → stages → PickNext → Brain|End. Budget-controlled.\",\"StartAt\":\"Brain\",\"States\":{\"Brain\":{\"Type\":\"Task\",\"Resource\":\"${BrainFunctionArn}\",\"Parameters\":{\"action\":\"getNextConfig\",\"iteration.$\":\"$.iteration\",\"budgetSpent.$\":\"$.budgetSpent\",\"maxProvesPerRun.$\":\"$.maxProvesPerRun\",\"maxCostPerRun.$\":\"$.maxCostPerRun\",\"previousResults.$\":\"$.previousResults\"},\"ResultPath\":\"$.brainResult\",\"Retry\":[{\"ErrorEquals\":[\"Lambda.ServiceException\",\"Lambda.AWSLambdaException\"],\"IntervalSeconds\":5,\"MaxAttempts\":2,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.error\",\"Next\":\"ClassifyFailure\"}],\"Next\":\"CheckBrainDone\"},\"CheckBrainDone\":{\"Type\":\"Choice\",\"Choices\":[{\"Variable\":\"$.brainResult.done\",\"BooleanEquals\":true,\"Next\":\"End\"}],\"Default\":\"PrepareStageInput\"},\"PrepareStageInput\":{\"Type\":\"Pass\",\"Parameters\":{\"iteration.$\":\"$.iteration\",\"budgetSpent.$\":\"$.budgetSpent\",\"maxProvesPerRun.$\":\"$.maxProvesPerRun\",\"maxCostPerRun.$\":\"$.maxCostPerRun\",\"previousResults.$\":\"$.previousResults\",\"brainResult.$\":\"$.brainResult\",\"currentConfig.$\":\"$.brainResult.next\",\"tuneRequested.$\":\"$.brainResult.tuneRequested\"},\"Next\":\"GenerateBuildPush\"},\"GenerateBuildPush\":{\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"${CodeBuildProjectName}\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"States.JsonToString($.currentConfig)\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"path-prove-generate-build-push\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"PATH_PROVER_MODE\",\"Value\":\"true\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.generateBuildPushResult\",\"Retry\":[{\"ErrorEquals\":[\"States.TaskFailed\"],\"IntervalSeconds\":30,\"MaxAttempts\":1,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.error\",\"Next\":\"ClassifyFailure\"}],\"Next\":\"DeployTest\"},\"DeployTest\":{\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"${CodeBuildProjectName}\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"States.JsonToString($.currentConfig)\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"path-prove-deploy-test\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"PATH_PROVER_MODE\",\"Value\":\"true\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.deployTestResult\",\"Retry\":[{\"ErrorEquals\":[\"States.TaskFailed\"],\"IntervalSeconds\":30,\"MaxAttempts\":1,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.error\",\"Next\":\"ClassifyFailure\"}],\"Next\":\"CheckTune\"},\"CheckTune\":{\"Type\":\"Choice\",\"Choices\":[{\"Variable\":\"$.tuneRequested\",\"BooleanEquals\":true,\"Next\":\"TuneAdapterTest\"}],\"Default\":\"Benchmark\"},\"TuneAdapterTest\":{\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"${CodeBuildProjectName}\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"States.JsonToString($.currentConfig)\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"path-prove-tune-adapter-test\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"PATH_PROVER_MODE\",\"Value\":\"true\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.tuneAdapterTestResult\",\"Retry\":[{\"ErrorEquals\":[\"States.TaskFailed\"],\"IntervalSeconds\":30,\"MaxAttempts\":1,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.error\",\"Next\":\"ClassifyFailure\"}],\"Next\":\"Benchmark\"},\"Benchmark\":{\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"${CodeBuildProjectName}\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"States.JsonToString($.currentConfig)\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"path-prove-benchmark\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"PATH_PROVER_MODE\",\"Value\":\"true\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.benchmarkResult\",\"Retry\":[{\"ErrorEquals\":[\"States.TaskFailed\"],\"IntervalSeconds\":30,\"MaxAttempts\":1,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.error\",\"Next\":\"ClassifyFailure\"}],\"Next\":\"WriteResults\"},\"WriteResults\":{\"Type\":\"Task\",\"Resource\":\"${WriteResultsFunctionArn}\",\"Parameters\":{\"action\":\"writeResults\",\"config.$\":\"$.currentConfig\",\"benchmarkResult.$\":\"$.benchmarkResult\",\"runType\":\"path_prove\"},\"ResultPath\":\"$.writeResult\",\"Retry\":[{\"ErrorEquals\":[\"Lambda.ServiceException\",\"Lambda.AWSLambdaException\"],\"IntervalSeconds\":5,\"MaxAttempts\":2,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.error\",\"Next\":\"ClassifyFailure\"}],\"Next\":\"Clean\"},\"Clean\":{\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"${CodeBuildProjectName}\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"States.JsonToString($.currentConfig)\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"path-prove-clean\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"PATH_PROVER_MODE\",\"Value\":\"true\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.cleanResult\",\"Retry\":[{\"ErrorEquals\":[\"States.TaskFailed\"],\"IntervalSeconds\":10,\"MaxAttempts\":2,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.cleanError\",\"Next\":\"PickNext\"}],\"Next\":\"PickNext\"},\"PickNext\":{\"Type\":\"Task\",\"Resource\":\"${BrainFunctionArn}\",\"Parameters\":{\"action\":\"pickNext\",\"iteration.$\":\"$.iteration\",\"budgetSpent.$\":\"$.budgetSpent\",\"maxProvesPerRun.$\":\"$.maxProvesPerRun\",\"maxCostPerRun.$\":\"$.maxCostPerRun\",\"currentConfig.$\":\"$.currentConfig\",\"previousResults.$\":\"$.previousResults\",\"lastResult\":\"success\"},\"ResultPath\":\"$.pickNextResult\",\"Retry\":[{\"ErrorEquals\":[\"Lambda.ServiceException\",\"Lambda.AWSLambdaException\"],\"IntervalSeconds\":5,\"MaxAttempts\":2,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.error\",\"Next\":\"End\"}],\"Next\":\"CheckDone\"},\"CheckDone\":{\"Type\":\"Choice\",\"Choices\":[{\"Variable\":\"$.pickNextResult.done\",\"BooleanEquals\":true,\"Next\":\"End\"}],\"Default\":\"UpdateIterationState\"},\"UpdateIterationState\":{\"Type\":\"Pass\",\"Parameters\":{\"iteration.$\":\"$.pickNextResult.iteration\",\"budgetSpent.$\":\"$.pickNextResult.budgetSpent\",\"maxProvesPerRun.$\":\"$.maxProvesPerRun\",\"maxCostPerRun.$\":\"$.maxCostPerRun\",\"previousResults.$\":\"$.pickNextResult.previousResults\",\"brainResult.$\":\"$.pickNextResult\"},\"Next\":\"CheckBrainDone\"},\"ClassifyFailure\":{\"Type\":\"Task\",\"Resource\":\"${ClassifyFailureFunctionArn}\",\"Parameters\":{\"action\":\"classifyFailure\",\"error.$\":\"$.error\",\"config.$\":\"$.currentConfig\",\"iteration.$\":\"$.iteration\"},\"ResultPath\":\"$.classification\",\"Retry\":[{\"ErrorEquals\":[\"Lambda.ServiceException\",\"Lambda.AWSLambdaException\"],\"IntervalSeconds\":5,\"MaxAttempts\":2,\"BackoffRate\":2}],\"Next\":\"WriteFailureRecord\"},\"WriteFailureRecord\":{\"Type\":\"Task\",\"Resource\":\"${WriteResultsFunctionArn}\",\"Parameters\":{\"action\":\"writeFailure\",\"config.$\":\"$.currentConfig\",\"error.$\":\"$.error\",\"classification.$\":\"$.classification\",\"runType\":\"path_prove\"},\"ResultPath\":\"$.failureWriteResult\",\"Retry\":[{\"ErrorEquals\":[\"Lambda.ServiceException\",\"Lambda.AWSLambdaException\"],\"IntervalSeconds\":5,\"MaxAttempts\":2,\"BackoffRate\":2}],\"Next\":\"CleanAfterFailure\"},\"CleanAfterFailure\":{\"Type\":\"Task\",\"Resource\":\"arn:aws:states:::codebuild:startBuild\",\"Parameters\":{\"ProjectName\":\"${CodeBuildProjectName}\",\"EnvironmentVariablesOverride\":[{\"Name\":\"CONFIG_JSON\",\"Value.$\":\"States.JsonToString($.currentConfig)\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"CI_STAGE\",\"Value\":\"path-prove-clean\",\"Type\":\"PLAINTEXT\"},{\"Name\":\"PATH_PROVER_MODE\",\"Value\":\"true\",\"Type\":\"PLAINTEXT\"}]},\"ResultPath\":\"$.failureCleanResult\",\"Retry\":[{\"ErrorEquals\":[\"States.TaskFailed\"],\"IntervalSeconds\":10,\"MaxAttempts\":2,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.failureCleanError\",\"Next\":\"PickNextAfterFailure\"}],\"Next\":\"PickNextAfterFailure\"},\"PickNextAfterFailure\":{\"Type\":\"Task\",\"Resource\":\"${BrainFunctionArn}\",\"Parameters\":{\"action\":\"pickNext\",\"iteration.$\":\"$.iteration\",\"budgetSpent.$\":\"$.budgetSpent\",\"maxProvesPerRun.$\":\"$.maxProvesPerRun\",\"maxCostPerRun.$\":\"$.maxCostPerRun\",\"currentConfig.$\":\"$.currentConfig\",\"previousResults.$\":\"$.previousResults\",\"lastResult\":\"failure\",\"classification.$\":\"$.classification\"},\"ResultPath\":\"$.pickNextResult\",\"Retry\":[{\"ErrorEquals\":[\"Lambda.ServiceException\",\"Lambda.AWSLambdaException\"],\"IntervalSeconds\":5,\"MaxAttempts\":2,\"BackoffRate\":2}],\"Catch\":[{\"ErrorEquals\":[\"States.ALL\"],\"ResultPath\":\"$.error\",\"Next\":\"End\"}],\"Next\":\"CheckDone\"},\"End\":{\"Type\":\"Succeed\"}}}",
+      {
+       "BrainFunctionArn": {
+        "Fn::GetAtt": [
+         "PathProverBrainFunctionC484EDAD",
+         "Arn"
+        ]
+       },
+       "WriteResultsFunctionArn": {
+        "Fn::GetAtt": [
+         "PathProverWriteFunction9E2DD96F",
+         "Arn"
+        ]
+       },
+       "ClassifyFailureFunctionArn": {
+        "Fn::GetAtt": [
+         "PathProverBrainFunctionC484EDAD",
+         "Arn"
+        ]
+       },
+       "CodeBuildProjectName": {
+        "Ref": "CiCodeBuildProject43C3B05A"
+       }
+      }
+     ]
+    },
+    "LoggingConfiguration": {
+     "Destinations": [
+      {
+       "CloudWatchLogsLogGroup": {
+        "LogGroupArn": {
+         "Fn::GetAtt": [
+          "CiLogGroup636BBA44",
+          "Arn"
+         ]
+        }
+       }
+      }
+     ],
+     "IncludeExecutionData": true,
+     "Level": "ALL"
+    },
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "PathProverOrchestratorRoleE5C7885C",
+      "Arn"
+     ]
+    },
+    "StateMachineName": "mlcc-path-prover",
+    "StateMachineType": "STANDARD",
+    "Tags": [
+     {
+      "Key": "mlcc:created-by",
+      "Value": "bootstrap-ci"
+     },
+     {
+      "Key": "mlcc:managed-by",
+      "Value": "ml-container-creator"
+     },
+     {
+      "Key": "mlcc:version",
+      "Value": "0.1.0"
+     }
+    ],
+    "TracingConfiguration": {
+     "Enabled": true
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverStateMachine"
+   },
+   "Condition": "PathProverCondition"
+  },
+  "PathProverScheduleRule": {
+   "Type": "AWS::Events::Rule",
+   "Properties": {
+    "Description": "Triggers the Path Prover state machine on a schedule to fill coverage gaps",
+    "Name": "mlcc-path-prover-schedule",
+    "ScheduleExpression": "rate(6 hours)",
+    "State": {
+     "Ref": "EnablePathProverSchedule"
+    },
+    "Tags": [
+     {
+      "Key": "mlcc:created-by",
+      "Value": "bootstrap-ci"
+     },
+     {
+      "Key": "mlcc:managed-by",
+      "Value": "ml-container-creator"
+     },
+     {
+      "Key": "mlcc:version",
+      "Value": "0.1.0"
+     }
+    ],
+    "Targets": [
+     {
+      "Arn": "arn:aws:states:us-west-2:633146206289:stateMachine:mlcc-path-prover",
+      "Id": "PathProverTarget",
+      "Input": "{\"iteration\":0,\"budgetSpent\":0,\"maxProvesPerRun\":10,\"maxCostPerRun\":100,\"previousResults\":[]}",
+      "RoleArn": {
+       "Fn::GetAtt": [
+        "PathProverOrchestratorRoleE5C7885C",
+        "Arn"
+       ]
+      }
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "MlccCiHarnessStack/PathProverScheduleRule"
+   },
+   "Condition": "PathProverCondition"
+  },
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02P0W7CMAxFv2Xvxhtl+4BRaXvZpqog7RG5qSkpbYzqBISi/PvUwKY93WNb174usHgp8OmBLrow7XEx2AbjxpM5Qrl3FU00sucJ6KK7qE4xbuVkzTzMkGCQTjF+SPc+STjNg19O0F4djdI2GLfUDJxdMySwNGKs5dbLWslgzTVfzZRgoLFpaeek5V7xK8tbcMZbcaCrHamyV3ydBXSF62CO7NekfLdiLPfuzzFv5mm0qlZcAj6z84qxDvcQYc6lnk/7u0MxVqQKZVAv48aTZ/gm66E8iDUMufNJ5mBd3vC/TmCk5SbYocVYTdKz8TnBDVOCmlXCZBhy/o2nzrouwfwt9vp4Lp5xucTlQ6/WLqbgvB0Z65v+AIRzkrC2AQAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/01Qy24CMQz8lt6NW6D9gLJVe+kDAVKPyJuYJZBN0DoBoSj/XiU81NNMYns8nglOXib49EAnGSm9H1nTYloGUntoNm5OA/UceAA6yTqJE0wrfzCqFCvJYH0nmD599zH4eCiFG8+gz456r1tMK2ot16lCMhjqMS385a/i3FujznVrZRks9a2mtfOad4LfFd6jU8F4BzJdkwgHwdcCIFNMs6j2HGYkDBda1C7spoap2bi7SFnGQ29EjHcZ+MguCKZFvPqKxaoEPmyuE4JpTiLQRAm+XwYKDL9kAjRbbxTDMirFrKEEZy1bqC1fpLbGVcn/7wzKa26jsRrTfPA7VtXxlWbobORq+I0CteWse4AZFiw+Doqh3r8M1BnXlYbGO21u5/3EcIghQwkRd/J4nDzjeIzjh50YMxqiC6ZnXFzwD+m6iRwNAgAA"
    },
    "Metadata": {
     "aws:cdk:path": "MlccCiHarnessStack/CDKMetadata/Default"
    }
+  }
+ },
+ "Conditions": {
+  "BenchmarkInfraCondition": {
+   "Fn::Equals": [
+    {
+     "Ref": "CreateBenchmarkInfra"
+    },
+    "true"
+   ]
+  },
+  "PathProverCondition": {
+   "Fn::Equals": [
+    {
+     "Ref": "CreatePathProver"
+    },
+    "true"
+   ]
+  }
+ },
+ "Outputs": {
+  "BenchmarkResultsBucketArn": {
+   "Description": "ARN of the S3 bucket storing benchmark results (Parquet)",
+   "Value": {
+    "Fn::GetAtt": [
+     "BenchmarkResultsBucket9FA9FAA3",
+     "Arn"
+    ]
+   },
+   "Export": {
+    "Name": "mlcc-ci-benchmark-results-bucket-arn"
+   },
+   "Condition": "BenchmarkInfraCondition"
+  },
+  "BenchmarkResultsBucketName": {
+   "Description": "Name of the S3 bucket storing benchmark results (Parquet)",
+   "Value": {
+    "Ref": "BenchmarkResultsBucket9FA9FAA3"
+   },
+   "Condition": "BenchmarkInfraCondition"
+  },
+  "CiGlueDatabaseName": {
+   "Description": "Name of the Glue database for benchmark results",
+   "Value": "mlcc_ci",
+   "Condition": "BenchmarkInfraCondition"
+  },
+  "PathProverStateMachineArn": {
+   "Description": "ARN of the Path Prover Step Functions state machine",
+   "Value": "arn:aws:states:us-west-2:633146206289:stateMachine:mlcc-path-prover",
+   "Condition": "PathProverCondition"
+  },
+  "PathProverBrainFunctionArn": {
+   "Description": "ARN of the Path Prover Brain Lambda function",
+   "Value": {
+    "Fn::GetAtt": [
+     "PathProverBrainFunctionC484EDAD",
+     "Arn"
+    ]
+   },
+   "Condition": "PathProverCondition"
   }
  },
  "Rules": {
