@@ -21,8 +21,7 @@ import assert from 'assert';
 import {
     findNearestSubstitution,
     hammingDistance,
-    identifyGaps,
-    CONFIG_DIMENSIONS
+    identifyGaps
 } from '../../src/lib/path-prover-brain.js';
 
 // ── Test Data ────────────────────────────────────────────────────────────────

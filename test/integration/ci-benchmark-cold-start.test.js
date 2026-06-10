@@ -28,8 +28,7 @@ import {
     identifyGaps,
     findNearestSubstitution,
     buildPathProverRecord,
-    classifyFailure,
-    CONFIG_DIMENSIONS
+    classifyFailure
 } from '../../src/lib/path-prover-brain.js';
 
 // ── Mock Infrastructure ──────────────────────────────────────────────────────
@@ -143,7 +142,7 @@ function simulatePathProverColdStart(db, athena, s3, seedConfig, options = {}) {
 
     // Step 1: Brain identifies gaps — with empty Athena, everything is a gap
     const provenConfigs = athena.getProvenConfigs();
-    const gaps = identifyGaps(provenConfigs);
+    identifyGaps(provenConfigs);
 
     // In cold-start, identifyGaps with empty list returns empty (no known dimension space)
     // So the brain uses the seed config directly as the first prove request

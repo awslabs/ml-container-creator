@@ -133,7 +133,7 @@ function createMockHandlerForSetup(configPath, { accountId, region }) {
     handler._displaySummary = () => {};
 
     // Mock _resourceExists — captures its command and returns false
-    handler._resourceExists = (cmd, profile) => {
+    handler._resourceExists = (cmd, _profile) => {
         capturedCommands.push(cmd);
         return false;
     };
@@ -165,7 +165,6 @@ function createMockHandlerForSetup(configPath, { accountId, region }) {
     };
 
     // Mock _deployStack — captures the region parameter and returns outputs
-    const originalDeployStack = handler._deployStack;
     handler._deployStack = (stackName, parameters, profile, deployRegion) => {
         // Record a synthetic command to verify the region
         capturedCommands.push(`cloudformation deploy --stack-name ${stackName} --region ${deployRegion}`);

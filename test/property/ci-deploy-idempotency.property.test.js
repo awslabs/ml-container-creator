@@ -95,13 +95,11 @@ function shouldCleanupEndpoint(endpointStatus, ciMode) {
  * Models the set of API operations that CI-mode avoids
  * when an endpoint is already InService with matching config.
  */
-const MUTATING_API_CALLS = [
-    'create-endpoint',
-    'create-endpoint-config',
-    'create-inference-component',
-    'update-endpoint',
-    'delete-endpoint'
-];
+// Mutating API calls that CI-mode avoids when endpoint is InService with matching config
+// const MUTATING_API_CALLS = [
+//     'create-endpoint', 'create-endpoint-config', 'create-inference-component',
+//     'update-endpoint', 'delete-endpoint'
+// ];
 
 // ── Property Tests ───────────────────────────────────────────────────────────
 
@@ -122,7 +120,7 @@ describe('Feature: ci-benchmark-pipeline, Property P6: Deploy Idempotency', () =
             arbInstanceType,
             arbRegion,
             arbProjectName,
-            (endpointName, icName, instanceType, region, projectName) => {
+            (endpointName, icName, _instanceType, _region, _projectName) => {
                 const skip = shouldSkipDeployment('InService', 'InService', true);
                 assert.strictEqual(
                     skip, true,
@@ -149,7 +147,7 @@ describe('Feature: ci-benchmark-pipeline, Property P6: Deploy Idempotency', () =
             arbEndpointName,
             arbNonInServiceState,
             arbIcName,
-            (endpointName, endpointStatus, icName) => {
+            (endpointName, endpointStatus, _icName) => {
                 const skip = shouldSkipDeployment(endpointStatus, 'InService', true);
                 assert.strictEqual(
                     skip, false,

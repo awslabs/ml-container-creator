@@ -141,7 +141,7 @@ function createMockHandler(configPath, { scenario, otherStackName, accountId, re
     };
 
     // Mock _deployStack for fresh deployments
-    handler._deployStack = (stackName) => ({
+    handler._deployStack = (_stackName) => ({
         RoleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
         EcrRepositoryName: 'ml-container-creator',
         AsyncS3BucketName: `mlcc-async-${accountId}-${region}`,

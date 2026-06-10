@@ -25,8 +25,7 @@ import assert from 'assert';
 import {
     buildPathProverRecord,
     classifyFailure,
-    FAILURE_CATEGORIES,
-    CONFIG_DIMENSIONS
+    FAILURE_CATEGORIES
 } from '../../src/lib/path-prover-brain.js';
 
 const FAST_PROPERTY_CONFIG = {

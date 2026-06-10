@@ -135,7 +135,7 @@ function simulateStage1(options = {}) {
  * @returns {object} { benchmarkFields, succeed }
  */
 function simulateBenchmarkStage(options = {}) {
-    const { succeed = true, configId = 'abc123def4567890' } = options;
+    const { succeed = true } = options;
     const runId = `bmk-${new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)}Z`;
     const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
@@ -185,7 +185,7 @@ function simulateTwoStagePipeline(db, record, options = {}) {
     }
 
     // Check if benchmark is enabled for this config
-    const updatedRecord = db.getItem(record.configId);
+    db.getItem(record.configId);
     if (!isBenchmarkEnabled(record)) {
         // benchmarkEnabled=false → skip Stage 2
         execution.cleanRan = true;

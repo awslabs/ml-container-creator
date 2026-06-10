@@ -312,7 +312,7 @@ describe('BootstrapCommandHandler._handleUpdate sanity checks', () => {
                 ciInfraProvisioned: false
             };
 
-            const { handler, logs, deployStackCalls, restore } = setupHandler({
+            const { handler, restore } = setupHandler({
                 ciConflict: null,
                 profileConfig
             });
@@ -327,8 +327,6 @@ describe('BootstrapCommandHandler._handleUpdate sanity checks', () => {
 
             // Override the post-sanity-check code to prevent CDK execution
             // We only care that the sanity checks pass and _deployStack is reached
-            const origHandleUpdate = handler._handleUpdate.bind(handler);
-
             // Instead of calling the full _handleUpdate (which hits CDK),
             // test the sanity check logic directly:
             const profile = handler.config.getActiveProfile();

@@ -15,7 +15,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import assert from 'assert';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
@@ -113,8 +113,6 @@ describe('Bootstrap Profile Removal — Metadata Only', () => {
 
         // Override AssetManager to use temp dir by patching the profileManager's _handleRemove
         // to work with our temp directory for manifest file operations
-        const origHandleRemove = handler.profileManager._handleRemove.bind(handler.profileManager);
-
         // Monkey-patch AssetManager import resolution — override _handleRemove
         // to use configDir pointing to our temp directory
         handler.profileManager._handleRemove = async function(profileName, options) {

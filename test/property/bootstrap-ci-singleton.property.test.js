@@ -157,7 +157,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
         fc.assert(fc.property(
             arbExistingConfig,
             arbProfileName,
-            ({ profiles, ciProfileName, accountId, region }, newProfileName) => {
+            ({ profiles, ciProfileName, accountId: _accountId, region: _region }, newProfileName) => {
                 // Ensure the new profile name doesn't collide with existing ones
                 if (profiles[newProfileName]) return true;
 
@@ -204,7 +204,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
             arbExistingConfig,
             arbProfileName,
             arbAwsRegion,
-            ({ profiles, ciProfileName, accountId, region }, newProfileName, newRegion) => {
+            ({ profiles, ciProfileName: _ciProfileName, accountId, region: _region }, newProfileName, newRegion) => {
                 // Ensure the new profile name doesn't collide
                 if (profiles[newProfileName]) return true;
 
