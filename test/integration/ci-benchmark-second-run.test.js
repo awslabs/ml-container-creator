@@ -16,14 +16,14 @@
  * Requirements: 8.2, 8.3, 8.5
  */
 
-import { describe, it, beforeEach } from 'mocha'
-import assert from 'assert'
+import { describe, it, beforeEach } from 'mocha';
+import assert from 'assert';
 import {
     findNearestSubstitution,
     hammingDistance,
     identifyGaps,
     CONFIG_DIMENSIONS
-} from '../../src/lib/path-prover-brain.js'
+} from '../../src/lib/path-prover-brain.js';
 
 // ── Test Data ────────────────────────────────────────────────────────────────
 
@@ -44,18 +44,18 @@ const PROVEN_CONFIG = {
     instance_type: 'ml.g5.xlarge',
     throughput_rps: 12.5,
     ttft_p50_ms: 45.2
-}
+};
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('CI Benchmark Second-Run Integration', function () {
-    this.timeout(30000)
+    this.timeout(30000);
 
-    let provenConfigs
+    let provenConfigs;
 
     beforeEach(() => {
-        provenConfigs = [PROVEN_CONFIG]
-    })
+        provenConfigs = [PROVEN_CONFIG];
+    });
 
     describe('Substitution logic fires for different config (same model_family)', () => {
         it('finds substitution when only deployment_config differs', () => {
@@ -66,15 +66,15 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.ok(result.substitutions, 'Should find substitutions')
-            assert.strictEqual(result.substitutions.length, 1)
-            assert.strictEqual(result.substitutions[0].distance, 1)
-            assert.strictEqual(result.substitutions[0].config.deployment_config, 'transformers-vllm')
-        })
+            assert.ok(result.substitutions, 'Should find substitutions');
+            assert.strictEqual(result.substitutions.length, 1);
+            assert.strictEqual(result.substitutions[0].distance, 1);
+            assert.strictEqual(result.substitutions[0].config.deployment_config, 'transformers-vllm');
+        });
 
         it('finds substitution when instance_family differs', () => {
             const requested = {
@@ -84,14 +84,14 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.ok(result.substitutions)
-            assert.strictEqual(result.substitutions[0].distance, 1)
-            assert.strictEqual(result.substitutions[0].config.instance_family, 'g5')
-        })
+            assert.ok(result.substitutions);
+            assert.strictEqual(result.substitutions[0].distance, 1);
+            assert.strictEqual(result.substitutions[0].config.instance_family, 'g5');
+        });
 
         it('finds substitution when quantization differs', () => {
             const requested = {
@@ -101,13 +101,13 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'fp8',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.ok(result.substitutions)
-            assert.strictEqual(result.substitutions[0].distance, 1)
-        })
+            assert.ok(result.substitutions);
+            assert.strictEqual(result.substitutions[0].distance, 1);
+        });
 
         it('finds substitution with distance 2 when two dimensions differ', () => {
             const requested = {
@@ -117,13 +117,13 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.ok(result.substitutions)
-            assert.strictEqual(result.substitutions[0].distance, 2)
-        })
+            assert.ok(result.substitutions);
+            assert.strictEqual(result.substitutions[0].distance, 2);
+        });
 
         it('finds substitution with distance 3 when three dimensions differ', () => {
             const requested = {
@@ -133,14 +133,14 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'fp8',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.ok(result.substitutions)
-            assert.strictEqual(result.substitutions[0].distance, 3)
-        })
-    })
+            assert.ok(result.substitutions);
+            assert.strictEqual(result.substitutions[0].distance, 3);
+        });
+    });
 
     describe('Nearest-neighbor calculation correctness', () => {
         it('returns distance 0 for exact match', () => {
@@ -151,13 +151,13 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.ok(result.substitutions)
-            assert.strictEqual(result.substitutions[0].distance, 0)
-        })
+            assert.ok(result.substitutions);
+            assert.strictEqual(result.substitutions[0].distance, 0);
+        });
 
         it('Hamming distance counts only differing dimensions', () => {
             const configA = {
@@ -167,7 +167,7 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
             const configB = {
                 deployment_config: 'transformers-sglang',
                 model_family: 'qwen3',
@@ -175,11 +175,11 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'fp8',
                 tp_degree: '4',
                 deployment_target: 'async-inference'
-            }
+            };
 
-            const distance = hammingDistance(configA, configB)
-            assert.strictEqual(distance, 5, 'Should differ on 5 dimensions')
-        })
+            const distance = hammingDistance(configA, configB);
+            assert.strictEqual(distance, 5, 'Should differ on 5 dimensions');
+        });
 
         it('results are ordered by ascending distance', () => {
             // Add more proven configs at various distances
@@ -196,7 +196,7 @@ describe('CI Benchmark Second-Run Integration', function () {
                     instance_family: 'g6e',
                     status: 'completed'
                 }
-            ]
+            ];
 
             const requested = {
                 deployment_config: 'transformers-sglang',
@@ -205,20 +205,20 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'fp8',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, moreProven)
+            const result = findNearestSubstitution(requested, moreProven);
 
-            assert.ok(result.substitutions)
-            assert.ok(result.substitutions.length >= 2)
+            assert.ok(result.substitutions);
+            assert.ok(result.substitutions.length >= 2);
             // Verify ascending order
             for (let i = 1; i < result.substitutions.length; i++) {
                 assert.ok(
                     result.substitutions[i].distance >= result.substitutions[i - 1].distance,
                     'Results must be ordered by ascending distance'
-                )
+                );
             }
-        })
+        });
 
         it('explanation lists the differing dimensions', () => {
             const requested = {
@@ -228,21 +228,21 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.ok(result.substitutions)
-            const explanation = result.substitutions[0].explanation
-            assert.ok(Array.isArray(explanation), 'Explanation should be an array')
-            assert.ok(explanation.length > 0, 'Should explain at least one dimension change')
+            assert.ok(result.substitutions);
+            const explanation = result.substitutions[0].explanation;
+            assert.ok(Array.isArray(explanation), 'Explanation should be an array');
+            assert.ok(explanation.length > 0, 'Should explain at least one dimension change');
             // The explanation should mention deployment_config
             const hasDeploymentConfig = explanation.some(e =>
                 e.toLowerCase().includes('deployment_config')
-            )
-            assert.ok(hasDeploymentConfig, 'Explanation should mention deployment_config difference')
-        })
-    })
+            );
+            assert.ok(hasDeploymentConfig, 'Explanation should mention deployment_config difference');
+        });
+    });
 
     describe('"No coverage" response when model_family differs', () => {
         it('returns noMatch when requested model_family has no proven configs', () => {
@@ -253,13 +253,13 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.strictEqual(result.noMatch, true)
-            assert.ok(result.message.includes('no coverage'))
-        })
+            assert.strictEqual(result.noMatch, true);
+            assert.ok(result.message.includes('no coverage'));
+        });
 
         it('noMatch message includes dimension distance for cross-family', () => {
             const requested = {
@@ -269,13 +269,13 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
             assert.ok(result.message.includes('dimensions away'),
-                'Message should indicate how far the nearest config is')
-        })
+                'Message should indicate how far the nearest config is');
+        });
 
         it('returns noMatch for completely unrelated model_family', () => {
             const requested = {
@@ -285,12 +285,12 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'fp8',
                 tp_degree: '8',
                 deployment_target: 'async-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, provenConfigs)
+            const result = findNearestSubstitution(requested, provenConfigs);
 
-            assert.strictEqual(result.noMatch, true)
-        })
+            assert.strictEqual(result.noMatch, true);
+        });
 
         it('never suggests a config from a different model_family', () => {
             // Add a proven config with different model_family
@@ -305,7 +305,7 @@ describe('CI Benchmark Second-Run Integration', function () {
                     deployment_target: 'realtime-inference',
                     status: 'completed'
                 }
-            ]
+            ];
 
             const requested = {
                 deployment_config: 'transformers-sglang',
@@ -314,28 +314,28 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, crossFamilyProven)
+            const result = findNearestSubstitution(requested, crossFamilyProven);
 
-            assert.ok(result.substitutions)
+            assert.ok(result.substitutions);
             // All suggestions must be from llama3 family
             for (const sub of result.substitutions) {
                 assert.strictEqual(sub.config.model_family, 'llama3',
-                    'Substitution must never cross model_family boundary')
+                    'Substitution must never cross model_family boundary');
             }
-        })
-    })
+        });
+    });
 
     describe('Gap identification with one proven point', () => {
         it('identifies gaps based on proven config dimension values', () => {
             // With a single proven point, gaps come from the observed dimension values
-            const gaps = identifyGaps(provenConfigs)
+            const gaps = identifyGaps(provenConfigs);
 
             // With only one proven config, there are no gaps (all dimensions only have 1 value)
             // Gaps require at least 2 values in some dimension to generate combinations
-            assert.deepStrictEqual(gaps, [])
-        })
+            assert.deepStrictEqual(gaps, []);
+        });
 
         it('identifies gaps when multiple dimension values are present', () => {
             const multipleProven = [
@@ -349,13 +349,13 @@ describe('CI Benchmark Second-Run Integration', function () {
                     deployment_target: 'realtime-inference',
                     status: 'completed'
                 }
-            ]
+            ];
 
-            const gaps = identifyGaps(multipleProven)
+            const gaps = identifyGaps(multipleProven);
             // With 2 deployment_configs and 1 of each other dimension, the cartesian
             // product is 2 combinations — both are already proven, so 0 gaps
-            assert.deepStrictEqual(gaps, [])
-        })
+            assert.deepStrictEqual(gaps, []);
+        });
 
         it('identifies actual gaps when dimension space expands', () => {
             const multipleProven = [
@@ -369,15 +369,15 @@ describe('CI Benchmark Second-Run Integration', function () {
                     deployment_target: 'realtime-inference',
                     status: 'completed'
                 }
-            ]
+            ];
 
-            const gaps = identifyGaps(multipleProven)
+            const gaps = identifyGaps(multipleProven);
             // Now we have 2 deployment_configs × 2 instance_families = 4 combinations
             // 2 are proven, so 2 are gaps:
             //   transformers-vllm + g6e  and  transformers-sglang + g5
-            assert.ok(gaps.length > 0, 'Should identify gaps when combinations are unproven')
-        })
-    })
+            assert.ok(gaps.length > 0, 'Should identify gaps when combinations are unproven');
+        });
+    });
 
     describe('Only completed configs are used for substitution', () => {
         it('failed configs are excluded from substitution candidates', () => {
@@ -392,7 +392,7 @@ describe('CI Benchmark Second-Run Integration', function () {
                     deployment_target: 'realtime-inference',
                     status: 'completed'
                 }
-            ]
+            ];
 
             const requested = {
                 deployment_config: 'transformers-vllm',
@@ -401,19 +401,19 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, mixedConfigs)
+            const result = findNearestSubstitution(requested, mixedConfigs);
 
-            assert.ok(result.substitutions)
+            assert.ok(result.substitutions);
             // Should only return the sglang config (completed), not the vllm (failed)
-            assert.strictEqual(result.substitutions[0].config.deployment_config, 'transformers-sglang')
-        })
+            assert.strictEqual(result.substitutions[0].config.deployment_config, 'transformers-sglang');
+        });
 
         it('unfeasible configs are excluded from substitution candidates', () => {
             const unfeasibleConfigs = [
                 { ...PROVEN_CONFIG, status: 'unfeasible' }
-            ]
+            ];
 
             const requested = {
                 deployment_config: 'transformers-sglang',
@@ -422,12 +422,12 @@ describe('CI Benchmark Second-Run Integration', function () {
                 quantization: 'none',
                 tp_degree: '1',
                 deployment_target: 'realtime-inference'
-            }
+            };
 
-            const result = findNearestSubstitution(requested, unfeasibleConfigs)
+            const result = findNearestSubstitution(requested, unfeasibleConfigs);
 
             assert.strictEqual(result.noMatch, true,
-                'Unfeasible configs should not be suggested as substitutions')
-        })
-    })
-})
+                'Unfeasible configs should not be suggested as substitutions');
+        });
+    });
+});

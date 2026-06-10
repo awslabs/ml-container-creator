@@ -449,7 +449,7 @@ export default class BootstrapCommandHandler {
                     execSync('npm install --silent', {
                         cwd: ciHarnessDir,
                         encoding: 'utf8',
-                    stdio: ['pipe', 'pipe', 'pipe']
+                        stdio: ['pipe', 'pipe', 'pipe']
                     });
 
                     // Warn if shell AWS_REGION differs from profile region
@@ -566,16 +566,16 @@ export default class BootstrapCommandHandler {
 
         // Pre-check: if IAM role already exists globally (from another region's deployment),
         // pass its ARN so CloudFormation skips re-creation (account-level singleton)
-        let useExistingRoleArn = profileConfig.roleArn || ''
+        let useExistingRoleArn = profileConfig.roleArn || '';
         if (!useExistingRoleArn) {
             try {
                 const roleResult = this._execAws(
                     'iam get-role --role-name mlcc-sagemaker-execution-role',
                     profileConfig.awsProfile
-                )
-                const roleArn = roleResult && roleResult.Role && roleResult.Role.Arn
+                );
+                const roleArn = roleResult && roleResult.Role && roleResult.Role.Arn;
                 if (roleArn && roleArn.startsWith('arn:aws:iam::')) {
-                    useExistingRoleArn = roleArn
+                    useExistingRoleArn = roleArn;
                 }
             } catch (_) {
                 // Role doesn't exist yet — will be created by the stack
@@ -1100,7 +1100,7 @@ export default class BootstrapCommandHandler {
                 'BatchS3Bucket': 'BatchS3BucketName',
                 'AdapterS3Bucket': 'AdapterS3BucketName',
                 'BenchmarkS3Bucket': 'BenchmarkS3BucketName',
-                'TuneS3Bucket': 'TuneS3BucketName',
+                'TuneS3Bucket': 'TuneS3BucketName'
             };
             for (const bucket of this._preExistingBuckets) {
                 const outputKey = bucketOutputMap[bucket.logicalId];
@@ -1194,7 +1194,7 @@ export default class BootstrapCommandHandler {
             { logicalId: 'BatchS3Bucket', name: `mlcc-batch-${accountId}-${region}` },
             { logicalId: 'AdapterS3Bucket', name: `mlcc-adapters-${accountId}-${region}` },
             { logicalId: 'BenchmarkS3Bucket', name: `mlcc-benchmark-${accountId}-${region}` },
-            { logicalId: 'TuneS3Bucket', name: `mlcc-tune-${accountId}-${region}` },
+            { logicalId: 'TuneS3Bucket', name: `mlcc-tune-${accountId}-${region}` }
         ];
 
         const bucketsToImport = [];

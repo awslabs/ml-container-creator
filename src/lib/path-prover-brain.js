@@ -25,7 +25,7 @@ export const CONFIG_DIMENSIONS = [
     'quantization',
     'tp_degree',
     'deployment_target'
-]
+];
 
 // ── Failure Classification ───────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ export const FAILURE_CATEGORIES = [
     'code_bug',
     'model_incompatibility',
     'service_limitation'
-]
+];
 
 /**
  * Error pattern matchers for failure classification.
@@ -73,7 +73,7 @@ const ERROR_PATTERNS = [
     { pattern: /API.*not available/i, category: 'service_limitation', retryable: false },
     { pattern: /feature.*not.*region/i, category: 'service_limitation', retryable: false },
     { pattern: /ValidationException/i, category: 'service_limitation', retryable: false }
-]
+];
 
 // ── Gap Identification (Task 5.1) ────────────────────────────────────────────
 
@@ -92,57 +92,57 @@ const ERROR_PATTERNS = [
  */
 export function identifyGaps(provenConfigs) {
     if (!provenConfigs || provenConfigs.length === 0) {
-        return []
+        return [];
     }
 
     // Extract unique values for each dimension from proven configs
-    const dimensionValues = {}
+    const dimensionValues = {};
     for (const dim of CONFIG_DIMENSIONS) {
-        const values = new Set()
+        const values = new Set();
         for (const config of provenConfigs) {
             if (config[dim] !== undefined && config[dim] !== null) {
-                values.add(String(config[dim]))
+                values.add(String(config[dim]));
             }
         }
-        dimensionValues[dim] = [...values]
+        dimensionValues[dim] = [...values];
     }
 
     // Build a set of proven config signatures for fast lookup
-    const provenSignatures = new Set()
+    const provenSignatures = new Set();
     for (const config of provenConfigs) {
         if (config.status === 'completed') {
-            const sig = CONFIG_DIMENSIONS.map(d => String(config[d] ?? '')).join('|')
-            provenSignatures.add(sig)
+            const sig = CONFIG_DIMENSIONS.map(d => String(config[d] ?? '')).join('|');
+            provenSignatures.add(sig);
         }
     }
 
     // Generate all combinations from observed values and find gaps
-    const gaps = []
-    const combinations = cartesianProduct(dimensionValues)
+    const gaps = [];
+    const combinations = cartesianProduct(dimensionValues);
 
     for (const combo of combinations) {
-        const sig = CONFIG_DIMENSIONS.map(d => String(combo[d] ?? '')).join('|')
+        const sig = CONFIG_DIMENSIONS.map(d => String(combo[d] ?? '')).join('|');
         if (!provenSignatures.has(sig)) {
             // Count how many neighbors (distance=1) are proven — higher = more valuable
-            let neighborCount = 0
+            let neighborCount = 0;
             for (const provenSig of provenSignatures) {
-                const provenParts = provenSig.split('|')
-                const comboParts = sig.split('|')
-                let diff = 0
+                const provenParts = provenSig.split('|');
+                const comboParts = sig.split('|');
+                let diff = 0;
                 for (let i = 0; i < provenParts.length; i++) {
-                    if (provenParts[i] !== comboParts[i]) diff++
+                    if (provenParts[i] !== comboParts[i]) diff++;
                 }
-                if (diff === 1) neighborCount++
+                if (diff === 1) neighborCount++;
             }
-            gaps.push({ ...combo, _neighborCount: neighborCount })
+            gaps.push({ ...combo, _neighborCount: neighborCount });
         }
     }
 
     // Sort by neighbor count descending (most surrounded gaps first)
-    gaps.sort((a, b) => b._neighborCount - a._neighborCount)
+    gaps.sort((a, b) => b._neighborCount - a._neighborCount);
 
     // Remove internal sorting field before returning
-    return gaps.map(({ _neighborCount, ...config }) => config)
+    return gaps.map(({ _neighborCount, ...config }) => config);
 }
 
 /**
@@ -151,28 +151,28 @@ export function identifyGaps(provenConfigs) {
  * @returns {object[]} Array of config objects representing all combinations
  */
 function cartesianProduct(dimensionValues) {
-    const dims = CONFIG_DIMENSIONS
-    const results = []
+    const dims = CONFIG_DIMENSIONS;
+    const results = [];
 
     function generate(index, current) {
         if (index === dims.length) {
-            results.push({ ...current })
-            return
+            results.push({ ...current });
+            return;
         }
-        const dim = dims[index]
-        const values = dimensionValues[dim] || []
+        const dim = dims[index];
+        const values = dimensionValues[dim] || [];
         if (values.length === 0) {
-            generate(index + 1, current)
-            return
+            generate(index + 1, current);
+            return;
         }
         for (const val of values) {
-            current[dim] = val
-            generate(index + 1, current)
+            current[dim] = val;
+            generate(index + 1, current);
         }
     }
 
-    generate(0, {})
-    return results
+    generate(0, {});
+    return results;
 }
 
 // ── Substitution Algorithm (Task 5.2) ────────────────────────────────────────
@@ -191,55 +191,55 @@ function cartesianProduct(dimensionValues) {
  */
 export function findNearestSubstitution(requestedConfig, provenConfigs) {
     if (!requestedConfig || !provenConfigs || provenConfigs.length === 0) {
-        return { noMatch: true, message: 'no coverage — no proven configs available' }
+        return { noMatch: true, message: 'no coverage — no proven configs available' };
     }
 
-    const requestedFamily = requestedConfig.model_family
+    const requestedFamily = requestedConfig.model_family;
 
     // Filter to only completed configs in the same model_family
     const candidates = provenConfigs.filter(c =>
         c.status === 'completed' && c.model_family === requestedFamily
-    )
+    );
 
     if (candidates.length === 0) {
         // Find nearest across families for the message
-        const allCompleted = provenConfigs.filter(c => c.status === 'completed')
+        const allCompleted = provenConfigs.filter(c => c.status === 'completed');
         if (allCompleted.length === 0) {
-            return { noMatch: true, message: 'no coverage — no proven configs available' }
+            return { noMatch: true, message: 'no coverage — no proven configs available' };
         }
         const minDistance = Math.min(
             ...allCompleted.map(c => hammingDistance(requestedConfig, c))
-        )
+        );
         return {
             noMatch: true,
             message: `no coverage — nearest proven config is ${minDistance} dimensions away`
-        }
+        };
     }
 
     // Compute distances and sort
     const scored = candidates.map(config => {
-        const distance = hammingDistance(requestedConfig, config)
-        const explanation = buildExplanation(requestedConfig, config)
-        return { config, distance, explanation }
-    })
+        const distance = hammingDistance(requestedConfig, config);
+        const explanation = buildExplanation(requestedConfig, config);
+        return { config, distance, explanation };
+    });
 
     // Sort by distance ascending, then by recency (if run_timestamp available)
     scored.sort((a, b) => {
-        if (a.distance !== b.distance) return a.distance - b.distance
+        if (a.distance !== b.distance) return a.distance - b.distance;
         // Secondary sort: prefer more recent configs
-        const aTime = a.config.run_timestamp || ''
-        const bTime = b.config.run_timestamp || ''
-        return bTime.localeCompare(aTime)
-    })
+        const aTime = a.config.run_timestamp || '';
+        const bTime = b.config.run_timestamp || '';
+        return bTime.localeCompare(aTime);
+    });
 
     // Return top 3
     const substitutions = scored.slice(0, 3).map(({ config, distance, explanation }) => ({
         config,
         distance,
         explanation
-    }))
+    }));
 
-    return { substitutions }
+    return { substitutions };
 }
 
 /**
@@ -251,15 +251,15 @@ export function findNearestSubstitution(requestedConfig, provenConfigs) {
  * @returns {number} Number of dimensions that differ
  */
 export function hammingDistance(configA, configB) {
-    let distance = 0
+    let distance = 0;
     for (const dim of CONFIG_DIMENSIONS) {
-        const valA = String(configA[dim] ?? '')
-        const valB = String(configB[dim] ?? '')
+        const valA = String(configA[dim] ?? '');
+        const valB = String(configB[dim] ?? '');
         if (valA !== valB) {
-            distance++
+            distance++;
         }
     }
-    return distance
+    return distance;
 }
 
 /**
@@ -270,15 +270,15 @@ export function hammingDistance(configA, configB) {
  * @returns {string[]} Array of dimension difference explanations
  */
 function buildExplanation(requested, suggested) {
-    const diffs = []
+    const diffs = [];
     for (const dim of CONFIG_DIMENSIONS) {
-        const reqVal = String(requested[dim] ?? '')
-        const sugVal = String(suggested[dim] ?? '')
+        const reqVal = String(requested[dim] ?? '');
+        const sugVal = String(suggested[dim] ?? '');
         if (reqVal !== sugVal) {
-            diffs.push(`${dim}: '${reqVal}' → '${sugVal}'`)
+            diffs.push(`${dim}: '${reqVal}' → '${sugVal}'`);
         }
     }
-    return diffs
+    return diffs;
 }
 
 // ── Tune/Adapter Stage Gating (Task 5.3) ─────────────────────────────────────
@@ -297,18 +297,18 @@ function buildExplanation(requested, suggested) {
  * @returns {boolean} True if tune stages should execute
  */
 export function shouldExecuteTuneStages(proveRequest) {
-    if (!proveRequest) return false
+    if (!proveRequest) return false;
 
     // Explicit tuning request
-    if (proveRequest.include_tuning === true) return true
+    if (proveRequest.include_tuning === true) return true;
 
     // LoRA adapter serving requested
-    if (proveRequest.enable_lora === true) return true
+    if (proveRequest.enable_lora === true) return true;
 
     // Tune technique specified
-    if (proveRequest.tune_technique && proveRequest.tune_technique !== 'none') return true
+    if (proveRequest.tune_technique && proveRequest.tune_technique !== 'none') return true;
 
-    return false
+    return false;
 }
 
 // ── Failure Classification (Task 5.4) ────────────────────────────────────────
@@ -326,30 +326,30 @@ export function shouldExecuteTuneStages(proveRequest) {
  */
 export function classifyFailure(errorOutput) {
     if (!errorOutput) {
-        return { stage: 'unknown', category: 'code_bug', retryable: false }
+        return { stage: 'unknown', category: 'code_bug', retryable: false };
     }
 
     // Extract error message and stage
-    let errorMsg = ''
-    let stage = 'unknown'
+    let errorMsg = '';
+    let stage = 'unknown';
 
     if (typeof errorOutput === 'string') {
-        errorMsg = errorOutput
-        stage = detectStage(errorOutput)
+        errorMsg = errorOutput;
+        stage = detectStage(errorOutput);
     } else if (typeof errorOutput === 'object') {
-        errorMsg = errorOutput.error || errorOutput.message || JSON.stringify(errorOutput)
-        stage = errorOutput.stage || detectStage(errorMsg)
+        errorMsg = errorOutput.error || errorOutput.message || JSON.stringify(errorOutput);
+        stage = errorOutput.stage || detectStage(errorMsg);
     }
 
     // Match against known patterns
     for (const { pattern, category, retryable } of ERROR_PATTERNS) {
         if (pattern.test(errorMsg)) {
-            return { stage, category, retryable }
+            return { stage, category, retryable };
         }
     }
 
     // Default: unrecognized errors are classified as code_bug (non-retryable)
-    return { stage, category: 'code_bug', retryable: false }
+    return { stage, category: 'code_bug', retryable: false };
 }
 
 /**
@@ -370,15 +370,15 @@ function detectStage(errorMsg) {
         { pattern: /\b(benchmark|bench)\b/i, stage: 'benchmark' },
         { pattern: /\b(register|dynamo)\b/i, stage: 'register' },
         { pattern: /\b(clean|delete)\b/i, stage: 'clean' }
-    ]
+    ];
 
     for (const { pattern, stage } of stagePatterns) {
         if (pattern.test(errorMsg)) {
-            return stage
+            return stage;
         }
     }
 
-    return 'unknown'
+    return 'unknown';
 }
 
 // ── Result Writing (Task 5.5) ────────────────────────────────────────────────
@@ -405,46 +405,46 @@ export function buildPathProverRecord(result, classification) {
     const record = {
         run_type: 'path_prove',
         run_timestamp: new Date().toISOString()
-    }
+    };
 
     // Merge config dimensions if provided
     if (result.config) {
         for (const dim of CONFIG_DIMENSIONS) {
             if (result.config[dim] !== undefined) {
-                record[dim] = result.config[dim]
+                record[dim] = result.config[dim];
             }
         }
         // Also copy non-dimension config fields
-        if (result.config.config_id) record.config_id = result.config.config_id
-        if (result.config.model_name) record.model_name = result.config.model_name
-        if (result.config.instance_type) record.instance_type = result.config.instance_type
+        if (result.config.config_id) record.config_id = result.config.config_id;
+        if (result.config.model_name) record.model_name = result.config.model_name;
+        if (result.config.instance_type) record.instance_type = result.config.instance_type;
     }
 
     if (result.success) {
-        record.status = 'completed'
+        record.status = 'completed';
         // Merge metrics if available
         if (result.metrics) {
-            Object.assign(record, result.metrics)
+            Object.assign(record, result.metrics);
         }
     } else {
         // Failure case
         if (classification && classification.retryable === false) {
-            record.status = 'unfeasible'
+            record.status = 'unfeasible';
         } else {
-            record.status = 'failed'
+            record.status = 'failed';
         }
 
         // Populate failure details
-        record.failure_reason = result.error || 'Unknown failure'
+        record.failure_reason = result.error || 'Unknown failure';
 
         if (classification) {
-            record.failure_stage = classification.stage
-            record.failure_category = classification.category
-            record.failure_retryable = classification.retryable
+            record.failure_stage = classification.stage;
+            record.failure_category = classification.category;
+            record.failure_retryable = classification.retryable;
         }
     }
 
-    return record
+    return record;
 }
 
 /**
@@ -456,20 +456,20 @@ export function buildPathProverRecord(result, classification) {
  */
 export function findUnfeasibleRecord(config, existingRecords) {
     if (!config || !existingRecords || existingRecords.length === 0) {
-        return null
+        return null;
     }
 
     for (const record of existingRecords) {
-        if (record.status !== 'unfeasible') continue
-        if (record.run_type !== 'path_prove') continue
+        if (record.status !== 'unfeasible') continue;
+        if (record.run_type !== 'path_prove') continue;
 
         // Check if all dimensions match
         const allMatch = CONFIG_DIMENSIONS.every(dim =>
             String(record[dim] ?? '') === String(config[dim] ?? '')
-        )
+        );
 
-        if (allMatch) return record
+        if (allMatch) return record;
     }
 
-    return null
+    return null;
 }

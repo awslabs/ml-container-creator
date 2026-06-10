@@ -14,8 +14,8 @@
  * Validates: Requirements 8.1, 8.2, 8.5, 8.7, 8.8
  */
 
-import { describe, it } from 'mocha'
-import assert from 'assert'
+import { describe, it } from 'mocha';
+import assert from 'assert';
 import {
     identifyGaps,
     findNearestSubstitution,
@@ -26,7 +26,7 @@ import {
     findUnfeasibleRecord,
     CONFIG_DIMENSIONS,
     FAILURE_CATEGORIES
-} from '../../src/lib/path-prover-brain.js'
+} from '../../src/lib/path-prover-brain.js';
 
 // ── Test Data ────────────────────────────────────────────────────────────────
 
@@ -81,7 +81,7 @@ const PROVEN_CONFIGS = [
         status: 'failed',
         run_timestamp: '2026-06-05T10:00:00Z'
     }
-]
+];
 
 // ── Gap Identification Tests (Task 5.1) ──────────────────────────────────────
 
@@ -89,15 +89,15 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Gap Identificati
 
     it('returns empty list for empty input', () => {
         // **Validates: Requirements 8.1**
-        const gaps = identifyGaps([])
-        assert.deepStrictEqual(gaps, [])
-    })
+        const gaps = identifyGaps([]);
+        assert.deepStrictEqual(gaps, []);
+    });
 
     it('returns empty list for null input', () => {
         // **Validates: Requirements 8.1**
-        const gaps = identifyGaps(null)
-        assert.deepStrictEqual(gaps, [])
-    })
+        const gaps = identifyGaps(null);
+        assert.deepStrictEqual(gaps, []);
+    });
 
     it('identifies gaps in dimension space', () => {
         // **Validates: Requirements 8.1**
@@ -120,14 +120,14 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Gap Identificati
                 deployment_target: 'realtime-inference',
                 status: 'completed'
             }
-        ]
+        ];
 
-        const gaps = identifyGaps(simpleConfigs)
+        const gaps = identifyGaps(simpleConfigs);
 
         // With 2 deployment_configs and 1 of everything else, there are 2 total combos.
         // Both are proven, so there should be no gaps.
-        assert.strictEqual(gaps.length, 0)
-    })
+        assert.strictEqual(gaps.length, 0);
+    });
 
     it('identifies gap when one combination is missing', () => {
         // **Validates: Requirements 8.1**
@@ -150,14 +150,14 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Gap Identificati
                 deployment_target: 'realtime-inference',
                 status: 'failed' // not completed!
             }
-        ]
+        ];
 
-        const gaps = identifyGaps(configs)
+        const gaps = identifyGaps(configs);
 
         // The sglang config is failed, so the sglang combo is a gap
-        assert.strictEqual(gaps.length, 1)
-        assert.strictEqual(gaps[0].deployment_config, 'transformers-sglang')
-    })
+        assert.strictEqual(gaps.length, 1);
+        assert.strictEqual(gaps[0].deployment_config, 'transformers-sglang');
+    });
 
     it('prioritizes gaps with more proven neighbors', () => {
         // **Validates: Requirements 8.1**
@@ -189,20 +189,20 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Gap Identificati
                 deployment_target: 'realtime-inference',
                 status: 'completed'
             }
-        ]
+        ];
 
-        const gaps = identifyGaps(configs)
+        const gaps = identifyGaps(configs);
 
         // sglang+g6 should be prioritized (2 proven neighbors at distance 1)
         // vs vllm+g5 with sglang = 1 neighbor at distance 1 (but that's already proven)
         if (gaps.length > 0) {
             const sglangG6 = gaps.find(g =>
                 g.deployment_config === 'transformers-sglang' && g.instance_family === 'g6'
-            )
-            assert.ok(sglangG6, 'Expected sglang+g6 gap to be identified')
+            );
+            assert.ok(sglangG6, 'Expected sglang+g6 gap to be identified');
         }
-    })
-})
+    });
+});
 
 // ── Substitution Algorithm Tests (Task 5.2) ──────────────────────────────────
 
@@ -217,15 +217,15 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'async-inference'
-        }
+        };
 
-        const result = findNearestSubstitution(requested, PROVEN_CONFIGS)
+        const result = findNearestSubstitution(requested, PROVEN_CONFIGS);
 
-        assert.ok(!result.noMatch, 'Should find a match')
-        assert.ok(result.substitutions.length > 0)
+        assert.ok(!result.noMatch, 'Should find a match');
+        assert.ok(result.substitutions.length > 0);
         // Closest match should be distance 1 (only deployment_target differs or only deployment_config)
-        assert(result.substitutions[0].distance <= 2)
-    })
+        assert(result.substitutions[0].distance <= 2);
+    });
 
     it('computes Hamming distance correctly', () => {
         // **Validates: Requirements 8.2**
@@ -236,7 +236,7 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
         const configB = {
             deployment_config: 'transformers-sglang', // diff
@@ -245,10 +245,10 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
-        assert.strictEqual(hammingDistance(configA, configB), 2)
-    })
+        assert.strictEqual(hammingDistance(configA, configB), 2);
+    });
 
     it('returns distance 0 for identical configs', () => {
         // **Validates: Requirements 8.2**
@@ -259,10 +259,10 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
-        assert.strictEqual(hammingDistance(config, config), 0)
-    })
+        assert.strictEqual(hammingDistance(config, config), 0);
+    });
 
     it('never suggests configs from different model_family', () => {
         // **Validates: Requirements 8.3**
@@ -273,16 +273,16 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
-        const result = findNearestSubstitution(requested, PROVEN_CONFIGS)
+        const result = findNearestSubstitution(requested, PROVEN_CONFIGS);
 
         if (!result.noMatch) {
             for (const sub of result.substitutions) {
-                assert.strictEqual(sub.config.model_family, 'qwen3')
+                assert.strictEqual(sub.config.model_family, 'qwen3');
             }
         }
-    })
+    });
 
     it('only suggests configs with status=completed', () => {
         // **Validates: Requirements 8.4**
@@ -293,16 +293,16 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'fp8',
             tp_degree: '4',
             deployment_target: 'async-inference'
-        }
+        };
 
-        const result = findNearestSubstitution(requested, PROVEN_CONFIGS)
+        const result = findNearestSubstitution(requested, PROVEN_CONFIGS);
 
         if (!result.noMatch) {
             for (const sub of result.substitutions) {
-                assert.strictEqual(sub.config.status, 'completed')
+                assert.strictEqual(sub.config.status, 'completed');
             }
         }
-    })
+    });
 
     it('returns noMatch when no same-family completed configs exist', () => {
         // **Validates: Requirements 8.5**
@@ -313,14 +313,14 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
-        const result = findNearestSubstitution(requested, PROVEN_CONFIGS)
+        const result = findNearestSubstitution(requested, PROVEN_CONFIGS);
 
-        assert.strictEqual(result.noMatch, true)
-        assert.ok(result.message.includes('no coverage'))
-        assert.ok(result.message.includes('dimensions away'))
-    })
+        assert.strictEqual(result.noMatch, true);
+        assert.ok(result.message.includes('no coverage'));
+        assert.ok(result.message.includes('dimensions away'));
+    });
 
     it('returns noMatch for empty proven configs', () => {
         // **Validates: Requirements 8.5**
@@ -331,11 +331,11 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
-        const result = findNearestSubstitution(requested, [])
-        assert.strictEqual(result.noMatch, true)
-    })
+        const result = findNearestSubstitution(requested, []);
+        assert.strictEqual(result.noMatch, true);
+    });
 
     it('explanation lists exactly the differing dimensions', () => {
         // **Validates: Requirements 8.6**
@@ -346,24 +346,24 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
-        const result = findNearestSubstitution(requested, PROVEN_CONFIGS)
+        const result = findNearestSubstitution(requested, PROVEN_CONFIGS);
 
-        assert.ok(!result.noMatch)
-        const nearest = result.substitutions[0]
+        assert.ok(!result.noMatch);
+        const nearest = result.substitutions[0];
         // The closest should be distance 1 (one dimension differs)
-        assert.strictEqual(nearest.distance, 1)
-        assert.strictEqual(nearest.explanation.length, 1)
+        assert.strictEqual(nearest.distance, 1);
+        assert.strictEqual(nearest.explanation.length, 1);
         // Explanation should reference exactly the one differing dimension
         const diffDim = CONFIG_DIMENSIONS.find(dim =>
             String(requested[dim]) !== String(nearest.config[dim])
-        )
+        );
         assert.ok(
             nearest.explanation[0].includes(diffDim),
             `Explanation should mention '${diffDim}', got: '${nearest.explanation[0]}'`
-        )
-    })
+        );
+    });
 
     it('returns at most 3 substitutions', () => {
         // **Validates: Requirements 8.2**
@@ -374,14 +374,14 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'awq',
             tp_degree: '8',
             deployment_target: 'batch-transform'
-        }
+        };
 
-        const result = findNearestSubstitution(requested, PROVEN_CONFIGS)
+        const result = findNearestSubstitution(requested, PROVEN_CONFIGS);
 
         if (!result.noMatch) {
-            assert(result.substitutions.length <= 3)
+            assert(result.substitutions.length <= 3);
         }
-    })
+    });
 
     it('results are sorted by ascending distance', () => {
         // **Validates: Requirements 8.2**
@@ -392,17 +392,17 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Substitution Alg
             quantization: 'fp16',
             tp_degree: '2',
             deployment_target: 'async-inference'
-        }
+        };
 
-        const result = findNearestSubstitution(requested, PROVEN_CONFIGS)
+        const result = findNearestSubstitution(requested, PROVEN_CONFIGS);
 
         if (!result.noMatch && result.substitutions.length > 1) {
             for (let i = 1; i < result.substitutions.length; i++) {
-                assert(result.substitutions[i].distance >= result.substitutions[i - 1].distance)
+                assert(result.substitutions[i].distance >= result.substitutions[i - 1].distance);
             }
         }
-    })
-})
+    });
+});
 
 // ── Tune/Adapter Stage Gating Tests (Task 5.3) ──────────────────────────────
 
@@ -410,58 +410,58 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Tune Stage Gatin
 
     it('returns false when no tuning requested', () => {
         // **Validates: Requirements 8.7**
-        assert.strictEqual(shouldExecuteTuneStages({}), false)
-    })
+        assert.strictEqual(shouldExecuteTuneStages({}), false);
+    });
 
     it('returns false for null input', () => {
         // **Validates: Requirements 8.7**
-        assert.strictEqual(shouldExecuteTuneStages(null), false)
-    })
+        assert.strictEqual(shouldExecuteTuneStages(null), false);
+    });
 
     it('returns true when include_tuning is true', () => {
         // **Validates: Requirements 8.7**
         assert.strictEqual(
             shouldExecuteTuneStages({ include_tuning: true }),
             true
-        )
-    })
+        );
+    });
 
     it('returns true when enable_lora is true', () => {
         // **Validates: Requirements 8.7**
         assert.strictEqual(
             shouldExecuteTuneStages({ enable_lora: true }),
             true
-        )
-    })
+        );
+    });
 
     it('returns true when tune_technique is specified', () => {
         // **Validates: Requirements 8.7**
         assert.strictEqual(
             shouldExecuteTuneStages({ tune_technique: 'sft' }),
             true
-        )
+        );
         assert.strictEqual(
             shouldExecuteTuneStages({ tune_technique: 'dpo' }),
             true
-        )
-    })
+        );
+    });
 
     it('returns false when tune_technique is none', () => {
         // **Validates: Requirements 8.7**
         assert.strictEqual(
             shouldExecuteTuneStages({ tune_technique: 'none' }),
             false
-        )
-    })
+        );
+    });
 
     it('returns false when include_tuning is false and no lora', () => {
         // **Validates: Requirements 8.7**
         assert.strictEqual(
             shouldExecuteTuneStages({ include_tuning: false, enable_lora: false }),
             false
-        )
-    })
-})
+        );
+    });
+});
 
 // ── Failure Classification Tests (Task 5.4) ──────────────────────────────────
 
@@ -469,77 +469,77 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Failure Classifi
 
     it('classifies capacity errors', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure('InsufficientInstanceCapacity: Unable to provision ml.g5.xlarge')
-        assert.strictEqual(result.category, 'capacity')
-        assert.strictEqual(result.retryable, true)
-    })
+        const result = classifyFailure('InsufficientInstanceCapacity: Unable to provision ml.g5.xlarge');
+        assert.strictEqual(result.category, 'capacity');
+        assert.strictEqual(result.retryable, true);
+    });
 
     it('classifies timeout errors', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure('Deployment timed out after 1200 seconds')
-        assert.strictEqual(result.category, 'timeout')
-        assert.strictEqual(result.retryable, true)
-    })
+        const result = classifyFailure('Deployment timed out after 1200 seconds');
+        assert.strictEqual(result.category, 'timeout');
+        assert.strictEqual(result.retryable, true);
+    });
 
     it('classifies OOM errors', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure('CUDA out of memory. Tried to allocate 2.00 GiB')
-        assert.strictEqual(result.category, 'oom')
-        assert.strictEqual(result.retryable, false)
-    })
+        const result = classifyFailure('CUDA out of memory. Tried to allocate 2.00 GiB');
+        assert.strictEqual(result.category, 'oom');
+        assert.strictEqual(result.retryable, false);
+    });
 
     it('classifies code_bug errors', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure('SyntaxError: Unexpected token in template rendering')
-        assert.strictEqual(result.category, 'code_bug')
-        assert.strictEqual(result.retryable, false)
-    })
+        const result = classifyFailure('SyntaxError: Unexpected token in template rendering');
+        assert.strictEqual(result.category, 'code_bug');
+        assert.strictEqual(result.retryable, false);
+    });
 
     it('classifies model_incompatibility errors', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure('LoRA not supported for this model architecture')
-        assert.strictEqual(result.category, 'model_incompatibility')
-        assert.strictEqual(result.retryable, false)
-    })
+        const result = classifyFailure('LoRA not supported for this model architecture');
+        assert.strictEqual(result.category, 'model_incompatibility');
+        assert.strictEqual(result.retryable, false);
+    });
 
     it('classifies service_limitation errors', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure('Feature not available in region us-east-2')
-        assert.strictEqual(result.category, 'service_limitation')
-        assert.strictEqual(result.retryable, false)
-    })
+        const result = classifyFailure('Feature not available in region us-east-2');
+        assert.strictEqual(result.category, 'service_limitation');
+        assert.strictEqual(result.retryable, false);
+    });
 
     it('defaults to code_bug for unrecognized errors', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure('Something completely unexpected happened')
-        assert.strictEqual(result.category, 'code_bug')
-        assert.strictEqual(result.retryable, false)
-    })
+        const result = classifyFailure('Something completely unexpected happened');
+        assert.strictEqual(result.category, 'code_bug');
+        assert.strictEqual(result.retryable, false);
+    });
 
     it('detects stage from error message', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure('InsufficientInstanceCapacity during deploy stage on CreateEndpoint')
-        assert.strictEqual(result.stage, 'deploy')
-    })
+        const result = classifyFailure('InsufficientInstanceCapacity during deploy stage on CreateEndpoint');
+        assert.strictEqual(result.stage, 'deploy');
+    });
 
     it('handles structured error objects', () => {
         // **Validates: Requirements 8.8**
         const result = classifyFailure({
             error: 'CUDA out of memory',
             stage: 'test'
-        })
-        assert.strictEqual(result.category, 'oom')
-        assert.strictEqual(result.stage, 'test')
-        assert.strictEqual(result.retryable, false)
-    })
+        });
+        assert.strictEqual(result.category, 'oom');
+        assert.strictEqual(result.stage, 'test');
+        assert.strictEqual(result.retryable, false);
+    });
 
     it('handles null input gracefully', () => {
         // **Validates: Requirements 8.8**
-        const result = classifyFailure(null)
-        assert.strictEqual(result.category, 'code_bug')
-        assert.strictEqual(result.retryable, false)
-        assert.strictEqual(result.stage, 'unknown')
-    })
+        const result = classifyFailure(null);
+        assert.strictEqual(result.category, 'code_bug');
+        assert.strictEqual(result.retryable, false);
+        assert.strictEqual(result.stage, 'unknown');
+    });
 
     it('category is always from defined enum', () => {
         // **Validates: Requirements 8.8**
@@ -551,17 +551,17 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Failure Classifi
             'model incompatible with feature',
             'service not supported in region',
             'random error message'
-        ]
+        ];
 
         for (const msg of testMessages) {
-            const result = classifyFailure(msg)
+            const result = classifyFailure(msg);
             assert.ok(
                 FAILURE_CATEGORIES.includes(result.category),
                 `Category '${result.category}' not in valid enum for message: '${msg}'`
-            )
+            );
         }
-    })
-})
+    });
+});
 
 // ── Result Writing Tests (Task 5.5) ──────────────────────────────────────────
 
@@ -581,14 +581,14 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
                 config_id: 'abc123def456'
             },
             metrics: { ttft_p50_ms: 45.2, throughput_rps: 12.5 }
-        }
+        };
 
-        const record = buildPathProverRecord(result, null)
+        const record = buildPathProverRecord(result, null);
 
-        assert.strictEqual(record.run_type, 'path_prove')
-        assert.strictEqual(record.status, 'completed')
-        assert.ok(record.run_timestamp)
-    })
+        assert.strictEqual(record.run_type, 'path_prove');
+        assert.strictEqual(record.status, 'completed');
+        assert.ok(record.run_timestamp);
+    });
 
     it('non-retryable failure produces unfeasible status', () => {
         // **Validates: Requirements 8.12**
@@ -600,18 +600,18 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
                 instance_family: 'g5'
             },
             error: 'CUDA out of memory'
-        }
-        const classification = { stage: 'deploy', category: 'oom', retryable: false }
+        };
+        const classification = { stage: 'deploy', category: 'oom', retryable: false };
 
-        const record = buildPathProverRecord(result, classification)
+        const record = buildPathProverRecord(result, classification);
 
-        assert.strictEqual(record.run_type, 'path_prove')
-        assert.strictEqual(record.status, 'unfeasible')
-        assert.ok(record.failure_reason.length > 0)
-        assert.strictEqual(record.failure_stage, 'deploy')
-        assert.strictEqual(record.failure_category, 'oom')
-        assert.strictEqual(record.failure_retryable, false)
-    })
+        assert.strictEqual(record.run_type, 'path_prove');
+        assert.strictEqual(record.status, 'unfeasible');
+        assert.ok(record.failure_reason.length > 0);
+        assert.strictEqual(record.failure_stage, 'deploy');
+        assert.strictEqual(record.failure_category, 'oom');
+        assert.strictEqual(record.failure_retryable, false);
+    });
 
     it('retryable failure produces failed status', () => {
         // **Validates: Requirements 8.8**
@@ -623,15 +623,15 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
                 instance_family: 'g5'
             },
             error: 'InsufficientInstanceCapacity'
-        }
-        const classification = { stage: 'deploy', category: 'capacity', retryable: true }
+        };
+        const classification = { stage: 'deploy', category: 'capacity', retryable: true };
 
-        const record = buildPathProverRecord(result, classification)
+        const record = buildPathProverRecord(result, classification);
 
-        assert.strictEqual(record.run_type, 'path_prove')
-        assert.strictEqual(record.status, 'failed')
-        assert.ok(record.failure_reason.length > 0)
-    })
+        assert.strictEqual(record.run_type, 'path_prove');
+        assert.strictEqual(record.status, 'failed');
+        assert.ok(record.failure_reason.length > 0);
+    });
 
     it('copies config dimensions into the record', () => {
         // **Validates: Requirements 8.9**
@@ -645,15 +645,15 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
             config_id: 'abcdef1234567890',
             model_name: 'Qwen/Qwen3-4B',
             instance_type: 'ml.g5.xlarge'
-        }
+        };
 
-        const record = buildPathProverRecord({ success: true, config }, null)
+        const record = buildPathProverRecord({ success: true, config }, null);
 
-        assert.strictEqual(record.deployment_config, 'transformers-vllm')
-        assert.strictEqual(record.model_family, 'qwen3')
-        assert.strictEqual(record.instance_family, 'g5')
-        assert.strictEqual(record.config_id, 'abcdef1234567890')
-    })
+        assert.strictEqual(record.deployment_config, 'transformers-vllm');
+        assert.strictEqual(record.model_family, 'qwen3');
+        assert.strictEqual(record.instance_family, 'g5');
+        assert.strictEqual(record.config_id, 'abcdef1234567890');
+    });
 
     it('findUnfeasibleRecord detects known-bad configs', () => {
         // **Validates: Requirements 8.12**
@@ -664,7 +664,7 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
         const existingRecords = [
             {
@@ -673,12 +673,12 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
                 run_type: 'path_prove',
                 failure_reason: 'OOM'
             }
-        ]
+        ];
 
-        const found = findUnfeasibleRecord(config, existingRecords)
-        assert.ok(found)
-        assert.strictEqual(found.status, 'unfeasible')
-    })
+        const found = findUnfeasibleRecord(config, existingRecords);
+        assert.ok(found);
+        assert.strictEqual(found.status, 'unfeasible');
+    });
 
     it('findUnfeasibleRecord returns null when no match', () => {
         // **Validates: Requirements 8.12**
@@ -689,7 +689,7 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
         const existingRecords = [
             {
@@ -703,11 +703,11 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
                 run_type: 'path_prove',
                 failure_reason: 'OOM'
             }
-        ]
+        ];
 
-        const found = findUnfeasibleRecord(config, existingRecords)
-        assert.strictEqual(found, null)
-    })
+        const found = findUnfeasibleRecord(config, existingRecords);
+        assert.strictEqual(found, null);
+    });
 
     it('findUnfeasibleRecord ignores non-path_prove records', () => {
         // **Validates: Requirements 8.12**
@@ -718,7 +718,7 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
             quantization: 'none',
             tp_degree: '1',
             deployment_target: 'realtime-inference'
-        }
+        };
 
         const existingRecords = [
             {
@@ -727,35 +727,35 @@ describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Result Writing',
                 run_type: 'ci', // not path_prove
                 failure_reason: 'OOM'
             }
-        ]
+        ];
 
-        const found = findUnfeasibleRecord(config, existingRecords)
-        assert.strictEqual(found, null)
-    })
-})
+        const found = findUnfeasibleRecord(config, existingRecords);
+        assert.strictEqual(found, null);
+    });
+});
 
 // ── CONFIG_DIMENSIONS Export Tests ───────────────────────────────────────────
 
 describe('Feature: ci-benchmark-pipeline — Path Prover Brain: Module Exports', () => {
 
     it('exports CONFIG_DIMENSIONS with correct values', () => {
-        assert.ok(Array.isArray(CONFIG_DIMENSIONS))
-        assert.strictEqual(CONFIG_DIMENSIONS.length, 6)
-        assert.ok(CONFIG_DIMENSIONS.includes('deployment_config'))
-        assert.ok(CONFIG_DIMENSIONS.includes('model_family'))
-        assert.ok(CONFIG_DIMENSIONS.includes('instance_family'))
-        assert.ok(CONFIG_DIMENSIONS.includes('quantization'))
-        assert.ok(CONFIG_DIMENSIONS.includes('tp_degree'))
-        assert.ok(CONFIG_DIMENSIONS.includes('deployment_target'))
-    })
+        assert.ok(Array.isArray(CONFIG_DIMENSIONS));
+        assert.strictEqual(CONFIG_DIMENSIONS.length, 6);
+        assert.ok(CONFIG_DIMENSIONS.includes('deployment_config'));
+        assert.ok(CONFIG_DIMENSIONS.includes('model_family'));
+        assert.ok(CONFIG_DIMENSIONS.includes('instance_family'));
+        assert.ok(CONFIG_DIMENSIONS.includes('quantization'));
+        assert.ok(CONFIG_DIMENSIONS.includes('tp_degree'));
+        assert.ok(CONFIG_DIMENSIONS.includes('deployment_target'));
+    });
 
     it('exports FAILURE_CATEGORIES with all expected values', () => {
-        assert.ok(Array.isArray(FAILURE_CATEGORIES))
-        assert.ok(FAILURE_CATEGORIES.includes('capacity'))
-        assert.ok(FAILURE_CATEGORIES.includes('timeout'))
-        assert.ok(FAILURE_CATEGORIES.includes('oom'))
-        assert.ok(FAILURE_CATEGORIES.includes('code_bug'))
-        assert.ok(FAILURE_CATEGORIES.includes('model_incompatibility'))
-        assert.ok(FAILURE_CATEGORIES.includes('service_limitation'))
-    })
-})
+        assert.ok(Array.isArray(FAILURE_CATEGORIES));
+        assert.ok(FAILURE_CATEGORIES.includes('capacity'));
+        assert.ok(FAILURE_CATEGORIES.includes('timeout'));
+        assert.ok(FAILURE_CATEGORIES.includes('oom'));
+        assert.ok(FAILURE_CATEGORIES.includes('code_bug'));
+        assert.ok(FAILURE_CATEGORIES.includes('model_incompatibility'));
+        assert.ok(FAILURE_CATEGORIES.includes('service_limitation'));
+    });
+});
