@@ -323,7 +323,7 @@ export BENCHMARK_JOB_NAME=""
 export BENCHMARK_WORKLOAD_CONFIG_NAME=""
 
 # CI Benchmark Athena persistence (set automatically from bootstrap --benchmark-infra)
-<% if (ciBenchmarkResultsBucket) { %>
+<% if (typeof ciBenchmarkResultsBucket !== 'undefined' && ciBenchmarkResultsBucket) { %>
 export CI_BENCHMARK_RESULTS_BUCKET="<%= ciBenchmarkResultsBucket %>"
 <% } else { %>
 # export CI_BENCHMARK_RESULTS_BUCKET=""            # S3 bucket for Athena Parquet results (set by bootstrap --benchmark-infra)

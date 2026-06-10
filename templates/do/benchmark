@@ -348,11 +348,7 @@ if [ "${FORCE}" = false ] && [ -n "${BENCHMARK_JOB_NAME:-}" ]; then
 fi
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-if [ "${FORCE}" = true ]; then
-    WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config-$(date +%Y%m%d-%H%M%S)"
-else
-    WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config"
-fi
+WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config-$(date +%Y%m%d-%H%M%S)"
 if [ "${RESUME_EXISTING}" = false ]; then
     BENCHMARK_JOB_NAME="${PROJECT_NAME}-benchmark-$(date +%Y%m%d-%H%M%S)"
 fi
