@@ -24,6 +24,9 @@ jobs:
 
       - run: npm install
 
+      - name: Validate docs commands
+        run: npm run validate:doc-commands
+
       - name: Lint
         run: npm run lint
 

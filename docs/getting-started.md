@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide covers installation and two end-to-end walkthroughs: deploying a predictive model (sklearn + Flask) and deploying an LLM (SGLang). Both deploy to a SageMaker AI managed inference endpoint.
+This guide covers installation and two end-to-end walkthroughs: deploying a predictive model (sklearn + Flask) and deploying an LLM (vLLM). Both deploy to a SageMaker AI managed inference endpoint.
 
 ## Prerequisites
 
@@ -59,10 +59,8 @@ This walkthrough generates a project that serves a scikit-learn model behind Fla
 mkdir sklearn-demo && cd sklearn-demo
 ml-container-creator sklearn-demo \
   --deployment-config=http-flask \
-  --engine=sklearn \
   --model-format=pkl \
-  --include-sample \
-  --deployment-target=managed-inference \
+  --deployment-target=realtime-inference \
   --instance-type=ml.m5.large \
   --region=us-east-1 \
   --skip-prompts
@@ -170,20 +168,22 @@ To use your own model instead of the sample, edit the Dockerfile `COPY` directiv
 COPY path/to/your/model.pkl /opt/ml/model/
 ```
 
-## Example 2: LLM (SGLang)
+## Example 2: LLM (vLLM)
 
-This walkthrough deploys an LLM to a SageMaker AI endpoint using SGLang. LLM containers are large and GPU-dependent — this example uses CodeBuild for the image build.
+This walkthrough deploys [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) to a SageMaker AI real-time endpoint using vLLM. The model runs on a single `ml.g5.xlarge` GPU instance and supports LoRA adapter hot-swapping out of the box.
+
+!!! note "Time estimate"
+    ~30 minutes end-to-end (most of that is waiting for the container build and endpoint deployment).
 
 ### Generate the project
 
 ```bash
-mkdir sglang-demo && cd sglang-demo
-ml-container-creator sglang-demo \
-  --deployment-config=transformers-sglang \
-  --model-name=openai/gpt-oss-20b \
-  --deployment-target=managed-inference \
-  --build-target=codebuild \
-  --instance-type=ml.g6.12xlarge \
+ml-container-creator qwen3-demo \
+  --deployment-config=transformers-vllm \
+  --model-name=Qwen/Qwen3-4B \
+  --deployment-target=realtime-inference \
+  --instance-type=ml.g5.xlarge \
+  --enable-lora \
   --region=us-east-1 \
   --skip-prompts
 ```
@@ -191,48 +191,62 @@ ml-container-creator sglang-demo \
 ### Project structure
 
 ```
-sglang-demo/
+qwen3-demo/
 ├── Dockerfile
-├── buildspec.yml                 # CodeBuild build specification
 ├── IAM_PERMISSIONS.md
 ├── code/
-│   ├── serve                     # Entrypoint script launching SGLang
-│   └── serving.properties        # Server configuration (model ID, port)
+│   ├── serve                     # Entrypoint script launching vLLM
+│   └── serving.properties        # Server configuration (model ID, LoRA settings)
 ├── do/
-│   ├── config
-│   ├── build
-│   ├── push
-│   ├── submit                    # Submit build to CodeBuild
-│   ├── deploy
-│   ├── test
-│   ├── clean
-│   ├── register
-│   ├── manifest
-│   ├── logs
-│   └── export
+│   ├── config                    # Project configuration
+│   ├── build                     # Build Docker image locally
+│   ├── push                      # Push to Amazon ECR
+│   ├── submit                    # Submit build to CodeBuild (alternative)
+│   ├── deploy                    # Deploy to SageMaker AI
+│   ├── test                      # Test inference
+│   ├── tune                      # Fine-tune (SageMaker AI managed customization)
+│   ├── adapter                   # LoRA adapter management (add/remove/list)
+│   ├── benchmark                 # Latency + throughput measurement
+│   ├── clean                     # Tear down resources
+│   ├── register                  # Log to deployment registry
+│   ├── manifest                  # Asset manifest operations
+│   ├── logs                      # Tail CloudWatch logs
+│   └── export                    # Export config as JSON
 └── test/
     └── test_endpoint.sh
 ```
 
-### Build with CodeBuild
+### Build and push
+
+Build the container image locally and push to Amazon ECR:
 
 ```bash
-./do/submit
+cd qwen3-demo
+./do/build        # Build the Docker image (~10 minutes for vLLM base)
+./do/push         # Push to Amazon ECR
 ```
 
-This creates a CodeBuild project, uploads the source, builds the Docker image, and pushes it to ECR. Monitor progress in the terminal or the CodeBuild console link printed during execution.
+!!! tip
+    If your local machine doesn't have enough disk space or you prefer a cloud build, use `./do/submit` instead. This submits the build to AWS CodeBuild (requires bootstrap with CodeBuild enabled).
 
-### Deploy and test
+### Deploy
 
 ```bash
-./do/deploy       # Deploy to SageMaker AI (GPU endpoint, may take 5-10 minutes)
-./do/test         # Test with an OpenAI-compatible chat completion request
+./do/deploy       # Deploy to SageMaker AI (GPU endpoint, 5-10 minutes)
+```
+
+The deploy script creates an endpoint configuration, endpoint, and inference component. It waits until the endpoint reaches `InService` status — vLLM needs time to download the model weights from HuggingFace and load them onto the GPU.
+
+### Test
+
+```bash
+./do/test
 ```
 
 Output:
 
 ```
-🧪 Testing SageMaker AI endpoint: sglang-demo-endpoint-<TIMESTAMP>
+🧪 Testing SageMaker AI endpoint: qwen3-demo-endpoint-<TIMESTAMP>
 
 🔍 Test 1: Health check
    Checking endpoint status...
@@ -242,10 +256,29 @@ Output:
    Payload: OpenAI-compatible chat completion request
    Invoking SageMaker AI endpoint...
 ✅ Inference request successful
-   Response preview: {"choices": [{"message": {"content": "I'm doing great—thanks for asking!..."}}]}
+   Response preview: {"choices": [{"message": {"content": "Hello! I'm Qwen, a large language model created by Alibaba Cloud..."}}]}
 
 ✅ All tests passed!
 ```
+
+The endpoint serves an OpenAI-compatible API — you can use it with any OpenAI SDK client by pointing to your SageMaker AI endpoint URL.
+
+### Next: Fine-Tune and Add an Adapter
+
+Your endpoint supports LoRA adapter hot-swapping (we passed `--enable-lora` during generation). You can fine-tune Qwen3-4B and attach the resulting adapter without redeploying:
+
+```bash
+# Fine-tune with SageMaker AI managed customization
+./do/tune --technique sft --dataset s3://my-bucket/train.jsonl
+
+# Attach the trained adapter to the running endpoint
+./do/adapter add my-sft --from-tune
+
+# Test the adapter
+./do/test
+```
+
+The adapter is served as a separate inference component on the same endpoint — no downtime, no container rebuild. See [Fine-Tuning](fine-tuning.md) for the full guide on training data format, all supported techniques (SFT, DPO, RLAIF, RLVR), and adapter lifecycle management.
 
 ## Cleanup
 
@@ -287,10 +320,12 @@ For full details, see the [CI Integration Guide](ci-integration.md).
 
 ## Next Steps
 
-- [How It Works](how-it-works.md) — Understand the generator architecture and prompt flow
+- [Supported Models](supported-models.md) — Check if your model is validated end-to-end
 - [Configuration](configuration.md) — CLI flags, environment variables, config files, and MCP servers
 - [Deployment & Inference](deployments.md) — All deployment targets and lifecycle scripts
 - [Fine-Tuning](fine-tuning.md) — Fine-tune supported models with `do/tune` and deploy adapters
 - [Examples](EXAMPLES.md) — Walkthroughs for other architectures (Triton, diffusors, async, batch transform)
+- [MCP Servers](mcp-configuration.md) — Configure intelligent defaults for instance sizing, region selection, and more
+- [Benchmarking](benchmarking.md) — Measure latency and throughput with SageMaker AI Benchmarking
 - [CI Integration](ci-integration.md) — Automated lifecycle testing for all deployment configurations
 - [Troubleshooting](TROUBLESHOOTING.md) — Common issues and solutions

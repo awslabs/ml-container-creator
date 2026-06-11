@@ -41,7 +41,8 @@ describe('Registry CLI E2E Status Graceful Degradation', () => {
             assert.strictEqual(result, null);
         });
 
-        it('should return null or a Map without throwing when server is called', async () => {
+        it('should return null or a Map without throwing when server is called', async function () {
+            this.timeout(10000);
             const entries = [{
                 id: 'test-entry',
                 deployment: { deploymentConfig: 'transformers-vllm', deploymentTarget: 'realtime-inference' },

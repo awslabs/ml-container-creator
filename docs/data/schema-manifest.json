@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-05-23T12:02:19.664Z",
+  "generatedAt": "2026-06-10T13:42:41.047Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "0.9.1",
+  "version": "0.11.0",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -200,7 +200,7 @@
         "inputType": "number",
         "placeholder": "1024",
         "datalist": null,
-        "default": 1024,
+        "default": null,
         "validation": {
           "min": 128,
           "max": 3145728

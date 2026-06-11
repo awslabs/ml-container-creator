@@ -1,0 +1,296 @@
+/* Coverage Manifold Visualization Styles */
+
+.manifold-container {
+    position: relative;
+    width: 100%;
+    margin: 1rem 0;
+}
+
+.manifold-loading {
+    text-align: center;
+    color: #666;
+    padding: 2rem;
+}
+
+/* Controls */
+.manifold-controls {
+    margin-bottom: 0.75rem;
+}
+
+.manifold-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-end;
+}
+
+.manifold-filter-row label {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.8rem;
+    font-weight: 500;
+    gap: 0.25rem;
+}
+
+.manifold-filter-row select {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: #fff;
+}
+
+.manifold-btn {
+    padding: 0.4rem 0.8rem;
+    background: #ff851b;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.manifold-btn:hover {
+    background: #e06d0a;
+}
+
+/* SVG */
+.manifold-svg {
+    display: block;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    background: #fafafa;
+}
+
+.manifold-axis text {
+    font-size: 0.7rem;
+    fill: #666;
+}
+
+.manifold-axis line,
+.manifold-axis path {
+    stroke: #ccc;
+}
+
+.manifold-axis-label {
+    font-size: 0.75rem;
+    fill: #888;
+}
+
+.manifold-point {
+    transition: opacity 0.15s;
+}
+
+.manifold-point:hover {
+    opacity: 1 !important;
+}
+
+/* Tooltip */
+.manifold-tooltip {
+    position: absolute;
+    padding: 0.6rem 0.8rem;
+    background: rgba(30, 30, 30, 0.92);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    pointer-events: none;
+    z-index: 10000;
+    max-width: 320px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transition: opacity 0.15s;
+}
+
+.manifold-tt-label {
+    color: #aaa;
+    font-size: 0.72rem;
+}
+
+/* Detail Panel */
+.manifold-detail-panel {
+    display: none;
+    position: absolute;
+    top: 60px;
+    right: 10px;
+    width: 320px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    padding: 0.75rem;
+    font-size: 0.82rem;
+}
+
+.manifold-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.manifold-detail-header h4 {
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.manifold-detail-close {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: #888;
+    padding: 0 0.3rem;
+}
+
+.manifold-detail-close:hover {
+    color: #333;
+}
+
+.manifold-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.manifold-detail-table td {
+    padding: 0.25rem 0.4rem;
+    border-bottom: 1px solid #eee;
+    font-size: 0.8rem;
+}
+
+.manifold-detail-table td:first-child {
+    color: #666;
+    font-weight: 500;
+    width: 40%;
+}
+
+.manifold-detail-table code {
+    font-size: 0.75rem;
+    background: #f5f5f5;
+    padding: 0.1rem 0.3rem;
+    border-radius: 2px;
+}
+
+/* Legend */
+.manifold-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem 0;
+    font-size: 0.78rem;
+    color: #555;
+}
+
+.manifold-legend-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.manifold-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.manifold-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid #333;
+}
+
+/* Placeholder */
+.manifold-placeholder {
+    text-align: center;
+    padding: 3rem 2rem;
+    background: #f8f8f8;
+    border: 1px dashed #ccc;
+    border-radius: 8px;
+    color: #666;
+}
+
+.manifold-placeholder-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.manifold-placeholder h3 {
+    margin: 0.5rem 0;
+    color: #333;
+}
+
+.manifold-placeholder code {
+    background: #e8e8e8;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.85rem;
+}
+
+/* User Star */
+.manifold-user-star {
+    animation: manifold-pulse 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes manifold-pulse {
+    from { opacity: 0.85; }
+    to { opacity: 1; }
+}
+
+/* Connector lines */
+.manifold-connector {
+    pointer-events: none;
+}
+
+/* "Show in Manifold" button in Command Generator */
+.mcc-show-manifold-btn {
+    padding: 0.4rem 0.8rem;
+    background: #ff851b;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 500;
+    margin-top: 0.5rem;
+    transition: background 0.2s;
+}
+
+.mcc-show-manifold-btn:hover {
+    background: #e06d0a;
+}
+
+/* Dark mode support */
+[data-md-color-scheme="slate"] .manifold-svg {
+    background: #1e1e1e;
+    border-color: #444;
+}
+
+[data-md-color-scheme="slate"] .manifold-axis text {
+    fill: #aaa;
+}
+
+[data-md-color-scheme="slate"] .manifold-axis line,
+[data-md-color-scheme="slate"] .manifold-axis path {
+    stroke: #555;
+}
+
+[data-md-color-scheme="slate"] .manifold-detail-panel {
+    background: #2a2a2a;
+    border-color: #444;
+    color: #ddd;
+}
+
+[data-md-color-scheme="slate"] .manifold-detail-table td {
+    border-color: #444;
+}
+
+[data-md-color-scheme="slate"] .manifold-placeholder {
+    background: #2a2a2a;
+    border-color: #555;
+    color: #bbb;
+}

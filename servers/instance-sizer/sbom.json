@@ -5,7 +5,7 @@
   "name": "@amzn/ml-container-creator-instance-sizer@1.0.0",
   "documentNamespace": "http://spdx.org/spdxdocs/@amzn%2fml-container-creator-instance-sizer-1.0.0-***",
   "creationInfo": {
-    "created": "2026-05-21T16:11:59.000Z",
+    "created": "2026-06-10T13:42:55.100Z",
     "creators": [
       "Tool: npm/cli-11.6.2"
     ]
@@ -179,7 +179,7 @@
       "versionInfo": "3.1045.0",
       "packageFileName": "node_modules/@aws-sdk/client-ec2",
       "description": "AWS SDK for JavaScript Ec2 Client for Node.js, Browser and React Native",
-      "downloadLocation": "https://registry.npmjs.org/@aws-sdk/client-ec2/-/client-ec2-3.1045.0.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/aws/aws-sdk-js-v3/tree/main/clients/client-ec2",
       "licenseDeclared": "Apache-2.0",
@@ -188,12 +188,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/%40aws-sdk/client-ec2@3.1045.0"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "fd2869b2e1d96e9c2234149173aaeea7115187f36a2936b1019bf7e30e7cb4f14e82086927cbcf5f6555f85662649587aab7507f093b3e14adc51a4ecfeaeefb"
         }
       ]
     },
@@ -535,7 +529,7 @@
       "SPDXID": "SPDXRef-Package-aws-sdk.middleware-sdk-ec2-3.972.22",
       "versionInfo": "3.972.22",
       "packageFileName": "node_modules/@aws-sdk/middleware-sdk-ec2",
-      "downloadLocation": "https://registry.npmjs.org/@aws-sdk/middleware-sdk-ec2/-/middleware-sdk-ec2-3.972.22.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/middleware-sdk-ec2",
       "licenseDeclared": "Apache-2.0",
@@ -544,12 +538,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/%40aws-sdk/middleware-sdk-ec2@3.972.22"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "8bd05e187f0e20f5e60eebb955912fab7415ccfd94a6dd1026c5bfd33892f3bdc227ecc5882ca86e2a90dd04e0269c48b0105706cc2c4506a3106f8fbee2b162"
         }
       ]
     },
@@ -770,7 +758,7 @@
       "SPDXID": "SPDXRef-Package-aws-sdk.util-format-url-3.972.10",
       "versionInfo": "3.972.10",
       "packageFileName": "node_modules/@aws-sdk/util-format-url",
-      "downloadLocation": "https://registry.npmjs.org/@aws-sdk/util-format-url/-/util-format-url-3.972.10.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/util-format-url",
       "licenseDeclared": "Apache-2.0",
@@ -779,12 +767,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/%40aws-sdk/util-format-url@3.972.10"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "0c42a21cd255b4dc5dc93790b29cd8fb5e4fa3f9079bab05d02b381d5f50dbe969941eb7f83aef75e892a0e49d584580a0ed91718d6f7a85d50f3dad5b158281"
         }
       ]
     },
@@ -1356,7 +1338,7 @@
       "SPDXID": "SPDXRef-Package-smithy.querystring-builder-4.3.1",
       "versionInfo": "4.3.1",
       "packageFileName": "node_modules/@smithy/querystring-builder",
-      "downloadLocation": "https://registry.npmjs.org/@smithy/querystring-builder/-/querystring-builder-4.3.1.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/smithy-lang/smithy-typescript/tree/main/packages/querystring-builder",
       "licenseDeclared": "Apache-2.0",
@@ -1365,12 +1347,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/%40smithy/querystring-builder@4.3.1"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "b68ca2f2c5cf583368547eb22bbb1727d766e6ec70dad58b087ccfcbfb75e85be5eb612ce2f5d05f396297235ac3e0ea170c5296b142961d2b18b3d4176a7d2e"
         }
       ]
     },
@@ -3460,7 +3436,7 @@
       "versionInfo": "6.15.1",
       "packageFileName": "node_modules/qs",
       "description": "A querystring parser that supports nesting and arrays, with a depth limit",
-      "downloadLocation": "https://registry.npmjs.org/qs/-/qs-6.15.1.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/ljharb/qs",
       "licenseDeclared": "BSD-3-Clause",
@@ -3469,12 +3445,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/qs@6.15.1"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "e981c41512fd99f81c02faa5fd78704ef7f98ca70e8a2ba9b761622711e4897d73e23ed62fc27f8d11d82e5b8e46f7355f1079ad5db42a878ad3481525a9aca6"
         }
       ]
     },

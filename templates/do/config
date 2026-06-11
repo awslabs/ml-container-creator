@@ -1,6 +1,7 @@
 #!/bin/bash
 # do-framework configuration
 # This file is sourced by all do scripts
+# Generated: <%= new Date().toISOString() %>
 
 # Project identification
 export PROJECT_NAME="<%= projectName %>"
@@ -320,6 +321,13 @@ export BENCHMARK_S3_OUTPUT_PATH="s3://mlcc-benchmark-$(aws sts get-caller-identi
 <% } %>
 export BENCHMARK_JOB_NAME=""
 export BENCHMARK_WORKLOAD_CONFIG_NAME=""
+
+# CI Benchmark Athena persistence (set automatically from bootstrap --benchmark-infra)
+<% if (typeof ciBenchmarkResultsBucket !== 'undefined' && ciBenchmarkResultsBucket) { %>
+export CI_BENCHMARK_RESULTS_BUCKET="<%= ciBenchmarkResultsBucket %>"
+<% } else { %>
+# export CI_BENCHMARK_RESULTS_BUCKET=""            # S3 bucket for Athena Parquet results (set by bootstrap --benchmark-infra)
+<% } %>
 <% } else if (framework === 'transformers' && deploymentTarget !== 'batch-transform') { %>
 # ─── SageMaker AI Benchmarking (uncomment to enable) ──────────────────────────
 # export BENCHMARK_CONCURRENCY="10"              # Concurrent requests

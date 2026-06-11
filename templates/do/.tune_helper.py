@@ -16,8 +16,10 @@ All output is JSON on stdout for bash consumption.
 """
 
 import argparse
+import fnmatch
 import json
 import os
+import re
 import sys
 import time
 import warnings
@@ -29,6 +31,8 @@ warnings.filterwarnings("ignore", message=".*charset_normalizer.*")
 
 # ── Inline dependency check ───────────────────────────────────────────────────
 MIN_SAGEMAKER_VERSION = "3.0"
+
+_GLOB_METACHAR_RE = re.compile(r'[*?\[]')
 
 
 def _check_sagemaker_sdk():
@@ -161,6 +165,11 @@ def cmd_submit(args):
                 "training_dataset": args.dataset_s3_uri,
                 "s3_output_path": output_path,
             }
+            # Accept EULA for gated models (e.g., Meta Llama)
+            # SDK v3.12+ accepts accept_eula as a constructor parameter
+            if args.accept_eula:
+                trainer_kwargs["accept_eula"] = True
+
             # Resolve model package group — create if it doesn't exist
             mpg_name = args.model_package_group or f"{args.project_name}-tune-models"
             try:
@@ -204,7 +213,15 @@ def cmd_submit(args):
             if mlflow_arn:
                 trainer.mlflow_resource_arn = mlflow_arn
 
-            trainer.train(training_dataset=args.dataset_s3_uri, wait=False)
+            # Suppress SDK print() output (e.g., "Training Job Name: ...")
+            # that pollutes stdout and breaks JSON parsing by the shell script
+            import io as _io
+            _orig_stdout = sys.stdout
+            sys.stdout = _io.StringIO()
+            try:
+                trainer.train(training_dataset=args.dataset_s3_uri, wait=False)
+            finally:
+                sys.stdout = _orig_stdout
         else:
             # SDK v2 API: model_id, train_data_uri, output_path, role, job_name
             trainer_kwargs = {
@@ -227,8 +244,19 @@ def cmd_submit(args):
                 elif args.reward_prompt:
                     trainer_kwargs["evaluator_config"] = {"reward_prompt_s3_uri": args.reward_prompt}
 
+            # Accept EULA for gated models (e.g., Meta Llama)
+            if args.accept_eula:
+                trainer_kwargs["accept_eula"] = True
+
             trainer = trainer_cls(**trainer_kwargs)
-            trainer.train(wait=False)
+            # Suppress SDK print() output that pollutes stdout
+            import io as _io
+            _orig_stdout = sys.stdout
+            sys.stdout = _io.StringIO()
+            try:
+                trainer.train(wait=False)
+            finally:
+                sys.stdout = _orig_stdout
 
         # Extract job info from the trainer
         job_name = getattr(trainer, 'training_job_name', None) or getattr(trainer, 'base_job_name', None)
@@ -289,8 +317,15 @@ def cmd_submit(args):
             )
         elif "ValidationException" in error_msg and "license" in error_msg.lower():
             _error_exit(
-                f"Model license not accepted. Accept the model license before "
-                f"using this model for customization. Details: {error_msg}"
+                f"Model requires EULA acceptance. Re-run with --accept-eula flag: "
+                f"./do/tune --technique {technique} --accept-eula ... "
+                f"Details: {error_msg}"
+            )
+        elif "ValidationException" in error_msg and "eula" in error_msg.lower():
+            _error_exit(
+                f"Model requires EULA acceptance. Re-run with --accept-eula flag: "
+                f"./do/tune --technique {technique} --accept-eula ... "
+                f"Details: {error_msg}"
             )
         else:
             _error_exit(f"Failed to submit training job: {error_msg}")
@@ -514,6 +549,222 @@ def _apply_column_map(record, column_map):
     return mapped
 
 
+def _detect_chat_columns(record, required_columns, schema_types):
+    """Detect which required columns contain chat-format data.
+
+    Only inspects columns whose schema type is "string". Columns with
+    "array" type (RLAIF/RLVR) are excluded from detection entirely.
+
+    Args:
+        record: The first record (dict) after column mapping
+        required_columns: List of required column names for the technique
+        schema_types: Dict mapping column name -> expected type from schema
+
+    Returns:
+        dict: Maps column_name -> detection_result where detection_result is:
+              {"type": "single_dict"} or
+              {"type": "message_list", "strategy": "extract"|"same_role"|"multi_role", "count": int}
+              Only columns detected as chat-format are included.
+    """
+    results = {}
+    for column in required_columns:
+        # Only inspect columns whose schema type is "string"
+        if schema_types.get(column) != "string":
+            continue
+
+        # Skip if column is not present in the record
+        if column not in record:
+            continue
+
+        value = record[column]
+
+        # Check for Single_Message_Dict: dict with both "role" and "content" keys
+        if isinstance(value, dict) and "role" in value and "content" in value:
+            results[column] = {"type": "single_dict"}
+            continue
+
+        # Check for Message_List: non-empty list whose first element is a dict
+        # with both "role" and "content" keys
+        if isinstance(value, list) and len(value) > 0:
+            first_element = value[0]
+            if isinstance(first_element, dict) and "role" in first_element and "content" in first_element:
+                count = len(value)
+                if count == 1:
+                    strategy = "extract"
+                elif all(
+                    isinstance(elem, dict) and elem.get("role") == first_element["role"]
+                    for elem in value
+                ):
+                    strategy = "same_role"
+                else:
+                    strategy = "multi_role"
+                results[column] = {"type": "message_list", "strategy": strategy, "count": count}
+                continue
+
+    return results
+
+
+def _flatten_value(value, detection_result):
+    """Flatten a chat-format column value to a plain string.
+
+    Args:
+        value: The column value (dict, list, string, or other)
+        detection_result: The detection metadata for this column
+
+    Returns:
+        str: The flattened string value
+
+    Raises:
+        ValueError: If the value cannot be converted at all (str() also fails)
+    """
+    import json
+
+    # Edge case: string pass-through
+    if isinstance(value, str):
+        return value
+
+    # Edge case: None → ""
+    if value is None:
+        return ""
+
+    # Edge case: empty list → ""
+    if isinstance(value, list) and len(value) == 0:
+        return ""
+
+    det_type = detection_result.get("type")
+
+    if det_type == "single_dict":
+        if isinstance(value, dict):
+            role = value.get("role", "")
+            if "content" in value:
+                content = value["content"]
+                if isinstance(content, str):
+                    return content
+                # Non-string content: format as "role: json_content"
+                return f"{role}: {json.dumps(content)}"
+            else:
+                # No content key: format as "role: remaining_values"
+                remaining = {k: v for k, v in value.items() if k != "role"}
+                return f"{role}: {json.dumps(remaining)}"
+
+    elif det_type == "message_list":
+        strategy = detection_result.get("strategy")
+
+        if isinstance(value, list) and len(value) > 0:
+            if strategy == "extract":
+                # Extract single element's content
+                elem = value[0]
+                if isinstance(elem, dict):
+                    content = elem.get("content")
+                    if content is None:
+                        return ""
+                    if isinstance(content, str):
+                        return content
+                    return f"{elem.get('role', '')}: {json.dumps(content)}"
+                return ""
+
+            elif strategy == "same_role":
+                # Join all content fields with newline
+                parts = []
+                for elem in value:
+                    if isinstance(elem, dict):
+                        content = elem.get("content")
+                        if content is None or content == "":
+                            parts.append("")
+                        elif isinstance(content, str):
+                            parts.append(content)
+                        else:
+                            parts.append(json.dumps(content))
+                    else:
+                        parts.append("")
+                return "\n".join(parts)
+
+            elif strategy == "multi_role":
+                # Format as "role: content" per line
+                lines = []
+                for elem in value:
+                    if isinstance(elem, dict):
+                        role = elem.get("role", "")
+                        content = elem.get("content")
+                        if content is None:
+                            content = ""
+                        elif not isinstance(content, str):
+                            content = json.dumps(content)
+                        lines.append(f"{role}: {content}")
+                    else:
+                        lines.append("")
+                return "\n".join(lines)
+
+    # Fallback for unexpected types: int/bool → str()
+    try:
+        return str(value)
+    except Exception as e:
+        raise ValueError(f"Cannot convert value to string: {e}")
+
+
+def _flatten_record(record, chat_columns):
+    """Apply flattening to all chat-format columns in a record.
+
+    Args:
+        record: The mapped record dict
+        chat_columns: Detection results from _detect_chat_columns
+
+    Returns:
+        dict: The record with chat-format columns replaced by flat strings
+    """
+    flattened = dict(record)
+    for column_name, detection_result in chat_columns.items():
+        if column_name in flattened:
+            flattened[column_name] = _flatten_value(flattened[column_name], detection_result)
+    return flattened
+
+
+def _log_flatten_info(chat_columns, no_transform):
+    """Log auto-flatten detection and strategy information.
+
+    Logs regardless of --no-transform state (per requirement 6.3/6.4).
+    When --no-transform is active, detection still runs for logging purposes.
+
+    All output goes to stderr to avoid polluting stdout JSON output.
+
+    Args:
+        chat_columns: Detection results dict (from _detect_chat_columns)
+        no_transform: Whether --no-transform flag is active
+    """
+    for column_name, detection_result in chat_columns.items():
+        print(f"\u2139\ufe0f  Auto-converted column '{column_name}' from chat-format to string", file=sys.stderr)
+        det_type = detection_result.get("type")
+        if det_type == "single_dict":
+            print("    Format: extracted content field", file=sys.stderr)
+        elif det_type == "message_list":
+            strategy = detection_result.get("strategy")
+            count = detection_result.get("count", 0)
+            if strategy == "multi_role":
+                print(f"    Format: role: content (multi-turn, {count} messages)", file=sys.stderr)
+            elif strategy == "same_role":
+                print(f"    Format: newline-joined content ({count} messages, same role)", file=sys.stderr)
+            elif strategy == "extract":
+                print("    Format: extracted content field", file=sys.stderr)
+
+
+def _get_schema_types(technique):
+    """Return a dict mapping column names to their expected types for a technique.
+
+    Args:
+        technique: One of 'sft', 'dpo', 'rlaif', 'rlvr'
+
+    Returns:
+        dict: Maps column_name -> expected type ("string" or "array")
+    """
+    schemas = {
+        "sft": {"prompt": "string", "completion": "string"},
+        "dpo": {"prompt": "string", "chosen": "string", "rejected": "string"},
+        "rlaif": {"prompt": "array"},
+        "rlvr": {"prompt": "array"},
+    }
+    return schemas.get(technique, {"prompt": "string", "completion": "string"})
+
+
 def _validate_dataset_columns(first_record, technique, column_map_str, dataset_id):
     """Validate that the first record has required columns after mapping.
 
@@ -567,6 +818,9 @@ def cmd_stage_hf(args):
 
     Returns: {"s3_uri": str, "num_records": int}
     """
+    # Suppress HF Hub progress bars — they pollute stdout which must be clean JSON
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
     try:
         from huggingface_hub import hf_hub_download, HfApi
     except ImportError:
@@ -606,12 +860,28 @@ def cmd_stage_hf(args):
                 f"Available files: {', '.join(repo_files[:20])}"
             )
 
+        # Apply file filter if --hf-file is provided
+        hf_file_pattern = getattr(args, 'hf_file', None)
+        if hf_file_pattern:
+            data_files = _filter_data_files(data_files, hf_file_pattern)
+
         # Download and upload to S3
         s3_client = boto3.client("s3", region_name=args.region)
         s3_prefix = f"{args.project_name}/datasets/{org}/{name}/{split}"
         num_records = 0
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Schema divergence check (skip for single file)
+            if len(data_files) > 1:
+                column_map = _parse_column_map(getattr(args, 'column_map', None))
+                technique = getattr(args, 'technique', 'sft')
+                no_transform = getattr(args, 'no_transform', False)
+                file_records = _inspect_file_schemas(
+                    data_files, dataset_id, hf_token, tmpdir,
+                    column_map, technique, no_transform
+                )
+                _check_schema_divergence(file_records, dataset_id, technique)
+
             for data_file in data_files:
                 local_path = hf_hub_download(
                     repo_id=dataset_id,
@@ -634,14 +904,52 @@ def cmd_stage_hf(args):
                         # Parse column map and validate against first record
                         column_map = _parse_column_map(getattr(args, 'column_map', None))
                         technique = getattr(args, 'technique', 'sft')
+                        no_transform = getattr(args, 'no_transform', False)
                         batches = table.to_batches(max_chunksize=1)
                         first_record = batches[0].to_pylist()[0] if batches else {}
                         _validate_dataset_columns(first_record, technique, getattr(args, 'column_map', None), f"{org}/{name}")
+
+                        # Apply column map to first record for detection
+                        mapped_first = _apply_column_map(first_record, column_map)
+                        required_columns = _get_required_columns(technique)
+                        schema_types = _get_schema_types(technique)
+
+                        # Detect chat-format columns on first record
+                        chat_columns = _detect_chat_columns(mapped_first, required_columns, schema_types)
+
+                        # Log detection results if any chat columns found
+                        if chat_columns:
+                            _log_flatten_info(chat_columns, no_transform)
+
+                        # If --no-transform is active and chat-format detected, halt with error
+                        if no_transform and chat_columns:
+                            col_name = next(iter(chat_columns))
+                            det = chat_columns[col_name]
+                            det_type = det.get("type")
+                            strategy = det.get("strategy", "")
+                            if det_type == "single_dict":
+                                strategy_desc = "single message dict with role+content"
+                            elif strategy == "extract":
+                                strategy_desc = "message list (single element)"
+                            elif strategy == "same_role":
+                                strategy_desc = f"message list ({det.get('count', 0)} messages, same role)"
+                            elif strategy == "multi_role":
+                                strategy_desc = f"message list (multi-turn, {det.get('count', 0)} messages)"
+                            else:
+                                strategy_desc = det_type
+                            _error_exit(
+                                f"Column '{col_name}' contains chat-format data (detected: {det_type}) but --no-transform is active.\n\n"
+                                f"   Remove --no-transform to enable automatic conversion:\n"
+                                f"      ./do/tune --technique {technique} --dataset hf://{org}/{name} [--column-map ...]\n\n"
+                                f"   Detected format: {strategy_desc}"
+                            )
 
                         with open(jsonl_path, "w", encoding="utf-8") as out_f:
                             for batch in table.to_batches():
                                 for row in batch.to_pylist():
                                     mapped_row = _apply_column_map(row, column_map)
+                                    if chat_columns and not no_transform:
+                                        mapped_row = _flatten_record(mapped_row, chat_columns)
                                     out_f.write(json_mod.dumps(mapped_row, ensure_ascii=False) + "\n")
                                     num_records += 1
 
@@ -659,16 +967,54 @@ def cmd_stage_hf(args):
                     import json as json_mod
                     column_map = _parse_column_map(getattr(args, 'column_map', None))
                     technique = getattr(args, 'technique', 'sft')
+                    no_transform = getattr(args, 'no_transform', False)
 
                     # Read first line to validate
+                    chat_columns = {}
                     with open(local_path, "r", encoding="utf-8", errors="replace") as f:
                         first_line = f.readline().strip()
                         if first_line:
                             first_record = json_mod.loads(first_line)
                             _validate_dataset_columns(first_record, technique, getattr(args, 'column_map', None), f"{org}/{name}")
 
-                    # If column map is provided, rewrite the file with mapped columns
-                    if column_map:
+                            # Apply column map to first record for detection
+                            mapped_first = _apply_column_map(first_record, column_map)
+                            required_columns = _get_required_columns(technique)
+                            schema_types = _get_schema_types(technique)
+
+                            # Detect chat-format columns on first record
+                            chat_columns = _detect_chat_columns(mapped_first, required_columns, schema_types)
+
+                            # Log detection results if any chat columns found
+                            if chat_columns:
+                                _log_flatten_info(chat_columns, no_transform)
+
+                            # If --no-transform is active and chat-format detected, halt with error
+                            if no_transform and chat_columns:
+                                col_name = next(iter(chat_columns))
+                                det = chat_columns[col_name]
+                                det_type = det.get("type")
+                                strategy = det.get("strategy", "")
+                                if det_type == "single_dict":
+                                    strategy_desc = "single message dict with role+content"
+                                elif strategy == "extract":
+                                    strategy_desc = "message list (single element)"
+                                elif strategy == "same_role":
+                                    strategy_desc = f"message list ({det.get('count', 0)} messages, same role)"
+                                elif strategy == "multi_role":
+                                    strategy_desc = f"message list (multi-turn, {det.get('count', 0)} messages)"
+                                else:
+                                    strategy_desc = det_type
+                                _error_exit(
+                                    f"Column '{col_name}' contains chat-format data (detected: {det_type}) but --no-transform is active.\n\n"
+                                    f"   Remove --no-transform to enable automatic conversion:\n"
+                                    f"      ./do/tune --technique {technique} --dataset hf://{org}/{name} [--column-map ...]\n\n"
+                                    f"   Detected format: {strategy_desc}"
+                                )
+
+                    # Rewrite the file with mapped (and optionally flattened) columns
+                    should_flatten = bool(chat_columns) and not no_transform
+                    if column_map or should_flatten:
                         mapped_path = local_path + ".mapped"
                         with open(local_path, "r", encoding="utf-8", errors="replace") as f_in, \
                              open(mapped_path, "w", encoding="utf-8") as f_out:
@@ -678,6 +1024,8 @@ def cmd_stage_hf(args):
                                     continue
                                 record = json_mod.loads(line)
                                 mapped_record = _apply_column_map(record, column_map)
+                                if should_flatten:
+                                    mapped_record = _flatten_record(mapped_record, chat_columns)
                                 f_out.write(json_mod.dumps(mapped_record, ensure_ascii=False) + "\n")
                                 num_records += 1
                         local_path = mapped_path
@@ -802,6 +1150,186 @@ def _find_data_files(repo_files, split):
         return sorted(root_data)
 
     return []
+
+
+def _is_glob_pattern(pattern):
+    """Return True if pattern contains glob metacharacters (*, ?, [)."""
+    return bool(_GLOB_METACHAR_RE.search(pattern))
+
+
+def _filter_data_files(data_files, pattern):
+    """Filter data files by glob or substring pattern.
+
+    If the pattern is empty or None, returns all files (no-filter).
+    If the pattern contains glob metacharacters (*, ?, [), uses fnmatch
+    against the full relative path. Otherwise, performs substring match
+    on the basename.
+
+    Args:
+        data_files: List of file paths from _find_data_files
+        pattern: The filter pattern string
+
+    Returns:
+        list: Filtered file paths that match the pattern
+
+    Raises:
+        SystemExit: via _error_exit if no files match (includes available files list)
+    """
+    if not pattern:
+        return data_files
+
+    if _is_glob_pattern(pattern):
+        matched = [f for f in data_files if fnmatch.fnmatch(f, pattern)]
+    else:
+        matched = [f for f in data_files if pattern in os.path.basename(f)]
+
+    if not matched:
+        file_list = "\n".join(f"  • {f}" for f in data_files)
+        _error_exit(
+            f"No files matched pattern '{pattern}'.\n\n"
+            f"Available files:\n{file_list}"
+        )
+
+    return matched
+
+
+def _inspect_file_schemas(data_files, dataset_id, hf_token, tmpdir,
+                          column_map, technique, no_transform):
+    """Inspect first record of each file to extract effective column sets.
+
+    Downloads each file, reads its first record, applies column-map and
+    flattening, then returns the resulting column names.
+
+    Args:
+        data_files: List of file paths to inspect
+        dataset_id: HF dataset identifier for downloads
+        hf_token: Authentication token
+        tmpdir: Temporary directory for downloads
+        column_map: Parsed column mapping dict
+        technique: Technique name for schema types
+        no_transform: Whether --no-transform is active
+
+    Returns:
+        list: [(filename, set_of_column_names), ...] for each file
+    """
+    from huggingface_hub import hf_hub_download
+
+    required_columns = _get_required_columns(technique)
+    schema_types = _get_schema_types(technique)
+    results = []
+
+    for data_file in data_files:
+        local_path = hf_hub_download(
+            repo_id=dataset_id,
+            filename=data_file,
+            repo_type="dataset",
+            token=hf_token,
+            local_dir=tmpdir,
+        )
+
+        first_record = {}
+
+        if data_file.endswith(".parquet"):
+            try:
+                import pyarrow.parquet as pq
+
+                table = pq.read_table(local_path)
+                batches = table.to_batches(max_chunksize=1)
+                if batches:
+                    first_record = batches[0].to_pylist()[0]
+            except ImportError:
+                _error_exit(
+                    "Dataset is in Parquet format but pyarrow is not installed. "
+                    "Please install: pip install pyarrow"
+                )
+        else:
+            import json as json_mod
+
+            with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+                first_line = f.readline().strip()
+                if first_line:
+                    first_record = json_mod.loads(first_line)
+
+        # Apply column mapping
+        mapped_record = _apply_column_map(first_record, column_map)
+
+        # Apply flattening if --no-transform is not active
+        if not no_transform:
+            chat_columns = _detect_chat_columns(mapped_record, required_columns, schema_types)
+            if chat_columns:
+                mapped_record = _flatten_record(mapped_record, chat_columns)
+
+        results.append((data_file, set(mapped_record.keys())))
+
+    return results
+
+
+def _check_schema_divergence(file_records, dataset_id, technique):
+    """Check that all files have identical effective columns.
+
+    Args:
+        file_records: List of (filename, first_record_columns) tuples where
+                      first_record_columns is the set of column names after
+                      column-map and flattening
+        dataset_id: The dataset identifier (for error messages)
+        technique: The technique name (for error messages)
+
+    Returns:
+        None on success (all schemas match)
+
+    Raises:
+        SystemExit: via _error_exit with per-file column listing and
+                    ?file= remediation suggestion if schemas differ
+    """
+    if not file_records:
+        return None
+
+    # Compare all column sets to the first file's columns
+    first_columns = file_records[0][1]
+    all_identical = all(cols == first_columns for _, cols in file_records)
+
+    if all_identical:
+        return None
+
+    # Build per-file column listing
+    file_sections = []
+    for filename, columns in file_records:
+        sorted_cols = ", ".join(sorted(columns))
+        file_sections.append(
+            f"  \U0001f4c4 {filename}\n"
+            f"     Columns: {sorted_cols}"
+        )
+
+    # Derive remediation pattern from first file's basename
+    first_file = file_records[0][0]
+    basename = os.path.basename(first_file)
+    # Strip extension and wrap with wildcards for a useful pattern
+    name_without_ext = os.path.splitext(basename)[0]
+    # Use a distinctive portion — take the first numeric segment if present
+    import re as _re
+    numeric_match = _re.search(r'\d+', name_without_ext)
+    if numeric_match:
+        pattern_suggestion = f"*{numeric_match.group()}*"
+    else:
+        pattern_suggestion = f"*{name_without_ext}*"
+
+    # Build available files list
+    available_files = "\n".join(
+        f"     \u2022 {filename}" for filename, _ in file_records
+    )
+
+    # Build the full error message
+    file_listing = "\n\n".join(file_sections)
+    message = (
+        f"Schema divergence detected in dataset {dataset_id}.\n"
+        f"Files have different columns after applying column-map and transforms:\n\n"
+        f"{file_listing}\n\n"
+        f"\U0001f4a1 Use ?file=<pattern> to select compatible files:\n"
+        f"   ./do/tune --technique {technique} --dataset hf://{dataset_id}?file={pattern_suggestion}\n\n"
+        f"   Available files:\n{available_files}"
+    )
+
+    _error_exit(message)
 
 
 # ── Subcommand: validate ──────────────────────────────────────────────────────
@@ -1070,6 +1598,8 @@ def main():
                                help="Lambda ARN for reward function (RLVR)")
     submit_parser.add_argument("--reward-prompt", default=None,
                                help="S3 URI for reward prompt (RLAIF)")
+    submit_parser.add_argument("--accept-eula", action="store_true", default=False,
+                               help="Accept model EULA for gated models (e.g., Llama)")
 
     # ── status ────────────────────────────────────────────────────────────────
     status_parser = subparsers.add_parser("status", help="Get job status and metrics")
@@ -1100,6 +1630,8 @@ def main():
                                  help="Hugging Face dataset name")
     stage_hf_parser.add_argument("--hf-split", default="train",
                                  help="Dataset split (default: train)")
+    stage_hf_parser.add_argument("--hf-file", default=None,
+                                 help="File filter pattern (glob or substring)")
     stage_hf_parser.add_argument("--output-bucket", required=True,
                                  help="S3 bucket for staged dataset")
     stage_hf_parser.add_argument("--project-name", required=True,
@@ -1113,6 +1645,8 @@ def main():
     stage_hf_parser.add_argument("--technique", default="sft",
                                  choices=["sft", "dpo", "rlaif", "rlvr"],
                                  help="Customization technique (determines required columns)")
+    stage_hf_parser.add_argument("--no-transform", action="store_true", default=False,
+                                 help="Disable automatic chat-format flattening")
 
     # ── validate ──────────────────────────────────────────────────────────────
     validate_parser = subparsers.add_parser("validate",

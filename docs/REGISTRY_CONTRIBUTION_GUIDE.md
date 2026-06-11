@@ -460,8 +460,7 @@ Before contributing, test your configuration:
 ```bash
 # Generate project with your configuration
 ml-container-creator test-project \
-  --framework=your-framework \
-  --version=your-version \
+  --deployment-config=transformers-vllm \
   --skip-prompts
 
 # Build Docker image
@@ -536,8 +535,7 @@ npm link
 
 # 2. Generate project with your configuration
 ml-container-creator test-project \
-  --framework=your-framework \
-  --version=your-version \
+  --deployment-config=transformers-vllm \
   --skip-prompts
 
 # 3. Verify generated files

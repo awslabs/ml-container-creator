@@ -144,7 +144,7 @@ For CI/CD workflows, `./do/submit` creates a CodeBuild project that builds the i
 
 Once a container is built and pushed to ECR, `./do/deploy` provisions the deployment target. MCC supports two targets:
 
-- **Managed Inference** (`managed-inference`): SageMaker AI real-time endpoints via the Inference Components API. This is the default.
+- **Managed Inference** (`realtime-inference`): SageMaker AI real-time endpoints via the Inference Components API. This is the default.
 - **HyperPod EKS** (`hyperpod-eks`): Kubernetes deployment on existing SageMaker AI HyperPod clusters.
 
 After deployment, `./do/test` validates the endpoint, `./do/logs` tails logs, and `./do/clean` tears down resources.

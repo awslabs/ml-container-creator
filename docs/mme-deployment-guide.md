@@ -27,7 +27,7 @@ Walk through the interactive prompts with these selections:
 
 | Phase | Prompt | Selection |
 |-------|--------|-----------|
-| Infrastructure | Deployment target | `managed-inference` |
+| Infrastructure | Deployment target | `realtime-inference` |
 | Infrastructure | Instance type | `ml.g5.12xlarge` (or appropriate GPU instance) |
 | Infrastructure | Build target | `codebuild` |
 | Core ML | Deployment configuration | `Transformers with DJL (Deep Java Library)` |

@@ -1,6 +1,8 @@
 .DS_Store
+.hypothesis
 .idea/
 .kiro/
+.pytest_cache/
 .scripts/
 .vscode/
 drafts/

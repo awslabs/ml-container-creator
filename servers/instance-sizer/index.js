@@ -18,43 +18,43 @@
  *   Returns: { values, choices, metadata }
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { resolve, dirname } from 'node:path'
-import { resolveModelMetadata } from './lib/model-resolver.js'
-import { estimateVram } from './lib/vram-estimator.js'
-import { filterAndRankInstances, applyAvailabilityRanking } from './lib/instance-ranker.js'
-import { QuotaResolver } from './lib/quota-resolver.js'
-import { queryBedrock } from '../lib/bedrock-client.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { resolve, dirname } from 'node:path';
+import { resolveModelMetadata } from './lib/model-resolver.js';
+import { estimateVram } from './lib/vram-estimator.js';
+import { filterAndRankInstances, applyAvailabilityRanking } from './lib/instance-ranker.js';
+import { QuotaResolver } from './lib/quota-resolver.js';
+import { queryBedrock } from '../lib/bedrock-client.js';
 
 // ── Path setup ───────────────────────────────────────────────────────────────
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // ── Load instance catalog from shared lib ────────────────────────────────────
 
-let INSTANCE_CATALOG
+let INSTANCE_CATALOG;
 
 try {
-    const catalogPath = resolve(__dirname, '../lib/catalogs/instances.json')
-    const raw = readFileSync(catalogPath, 'utf8')
-    const data = JSON.parse(raw)
-    INSTANCE_CATALOG = data.catalog
+    const catalogPath = resolve(__dirname, '../lib/catalogs/instances.json');
+    const raw = readFileSync(catalogPath, 'utf8');
+    const data = JSON.parse(raw);
+    INSTANCE_CATALOG = data.catalog;
 } catch (err) {
-    process.stderr.write(`[instance-sizer] Fatal: Failed to load instance catalog: ${err.message}\n`)
-    process.exit(1)
+    process.stderr.write(`[instance-sizer] Fatal: Failed to load instance catalog: ${err.message}\n`);
+    process.exit(1);
 }
 
 // ── Mode configuration ───────────────────────────────────────────────────────
 
-const DISCOVER_MODE = process.env.DISCOVER_MODE !== 'false' && !process.argv.includes('--no-discover')
-const SMART_MODE = process.env.BEDROCK_SMART === 'true'
-const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-20250514-v1:0'
-const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1'
+const DISCOVER_MODE = process.env.DISCOVER_MODE !== 'false' && !process.argv.includes('--no-discover');
+const SMART_MODE = process.env.BEDROCK_SMART === 'true';
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-20250514-v1:0';
+const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1';
 
 // ── Bedrock server config ─────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ Rules:
     maxTokens: 1024,
     modelId: BEDROCK_MODEL,
     region: BEDROCK_REGION
-}
+};
 
 // ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ Rules:
  * Log to stderr so it doesn't interfere with MCP stdio protocol on stdout.
  */
 function log(message) {
-    process.stderr.write(`[instance-sizer] ${message}\n`)
+    process.stderr.write(`[instance-sizer] ${message}\n`);
 }
 
 // ── Tag-based search filtering ───────────────────────────────────────────────
@@ -119,76 +119,76 @@ function log(message) {
  * @returns {string[]} Matching instance type names, sorted by relevance
  */
 function searchInstancesByTag(search, instanceCatalog, options = {}) {
-    const { limit = 10 } = options
-    const candidates = Object.entries(instanceCatalog)
+    const { limit = 10 } = options;
+    const candidates = Object.entries(instanceCatalog);
 
     // Tokenize search into lowercase keywords
-    const tokens = search.toLowerCase().split(/[\s,\-_]+/).filter(Boolean)
+    const tokens = search.toLowerCase().split(/[\s,\-_]+/).filter(Boolean);
 
     // Detect compound terms
-    const rawLower = search.toLowerCase()
-    const wantsMultiGpu = rawLower.includes('multi gpu') || rawLower.includes('multi-gpu') || rawLower.includes('multigpu')
+    const rawLower = search.toLowerCase();
+    const wantsMultiGpu = rawLower.includes('multi gpu') || rawLower.includes('multi-gpu') || rawLower.includes('multigpu');
 
     // Detect CUDA version requests: "cuda 12", "cuda 11.8", "cuda-12.1"
-    const cudaMatch = rawLower.match(/cuda[\s\-_]*(\d+(?:\.\d+)?)/)
-    const wantsCudaVersion = cudaMatch ? cudaMatch[1] : null
+    const cudaMatch = rawLower.match(/cuda[\s\-_]*(\d+(?:\.\d+)?)/);
+    const wantsCudaVersion = cudaMatch ? cudaMatch[1] : null;
 
     // Score each instance
     const scored = candidates.map(([name, meta]) => {
-        let score = 0
-        const cudaStr = meta.cudaVersions ? meta.cudaVersions.join(' ') : ''
-        const haystack = [...(meta.tags || []), (meta.accelerator || '').toLowerCase(), name, meta.category || '', cudaStr].join(' ')
+        let score = 0;
+        const cudaStr = meta.cudaVersions ? meta.cudaVersions.join(' ') : '';
+        const haystack = [...(meta.tags || []), (meta.accelerator || '').toLowerCase(), name, meta.category || '', cudaStr].join(' ');
 
         // Compound term: multi-gpu
         if (wantsMultiGpu) {
             if (meta.gpus > 1) {
-                score += 5
+                score += 5;
             } else {
-                return { name, meta, score: 0 }
+                return { name, meta, score: 0 };
             }
         }
 
         // Compound term: cuda version
         if (wantsCudaVersion) {
-            if (!meta.cudaVersions) return { name, meta, score: 0 }
-            const hasExact = meta.cudaVersions.includes(wantsCudaVersion)
-            const hasMajor = meta.cudaVersions.some(v => v.startsWith(wantsCudaVersion))
+            if (!meta.cudaVersions) return { name, meta, score: 0 };
+            const hasExact = meta.cudaVersions.includes(wantsCudaVersion);
+            const hasMajor = meta.cudaVersions.some(v => v.startsWith(wantsCudaVersion));
             if (hasExact) {
-                score += 4
+                score += 4;
             } else if (hasMajor) {
-                score += 3
+                score += 3;
             } else {
-                return { name, meta, score: 0 }
+                return { name, meta, score: 0 };
             }
         }
 
         for (const token of tokens) {
-            if (wantsMultiGpu && (token === 'multi' || token === 'gpu')) continue
-            if (wantsCudaVersion && (token === 'cuda' || token === wantsCudaVersion)) continue
+            if (wantsMultiGpu && (token === 'multi' || token === 'gpu')) continue;
+            if (wantsCudaVersion && (token === 'cuda' || token === wantsCudaVersion)) continue;
 
-            if (haystack.includes(token)) score += 1
-            if (meta.gpus > 1 && token === 'parallel') score += 2
-            if (token === 'gpu' && meta.gpus > 0) score += 1
-            if (token === 'cpu' && meta.gpus === 0) score += 1
+            if (haystack.includes(token)) score += 1;
+            if (meta.gpus > 1 && token === 'parallel') score += 2;
+            if (token === 'gpu' && meta.gpus > 0) score += 1;
+            if (token === 'cpu' && meta.gpus === 0) score += 1;
             if (token === 'cheap' || token === 'budget' || token === 'cost') {
-                if ((meta.tags || []).includes('budget') || (meta.tags || []).includes('cost-effective')) score += 1
+                if ((meta.tags || []).includes('budget') || (meta.tags || []).includes('cost-effective')) score += 1;
             }
             if (token === 'memory' || token === 'high-memory') {
-                if (meta.memGb >= 32) score += 1
+                if (meta.memGb >= 32) score += 1;
             }
-            if (token === 'large' && meta.vcpus >= 16) score += 1
-            if (meta.cudaVersions && meta.cudaVersions.includes(token)) score += 2
+            if (token === 'large' && meta.vcpus >= 16) score += 1;
+            if (meta.cudaVersions && meta.cudaVersions.includes(token)) score += 2;
         }
-        return { name, meta, score }
-    })
+        return { name, meta, score };
+    });
 
-    const matched = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score)
+    const matched = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score);
 
     if (matched.length === 0) {
-        return []
+        return [];
     }
 
-    return matched.slice(0, limit).map(s => s.name)
+    return matched.slice(0, limit).map(s => s.name);
 }
 
 // ── CUDA version filtering ───────────────────────────────────────────────────
@@ -201,22 +201,22 @@ function searchInstancesByTag(search, instanceCatalog, options = {}) {
  * @returns {object} Filtered instance catalog
  */
 function filterByCudaVersion(instanceCatalog, requiredCuda) {
-    const majorRequired = requiredCuda.split('.')[0]
-    const filtered = {}
+    const majorRequired = requiredCuda.split('.')[0];
+    const filtered = {};
 
     for (const [name, meta] of Object.entries(instanceCatalog)) {
-        if (!meta.cudaVersions || meta.cudaVersions.length === 0) continue
+        if (!meta.cudaVersions || meta.cudaVersions.length === 0) continue;
         const hasCompatible = meta.cudaVersions.some(v => {
-            if (v === requiredCuda) return true
-            if (v.startsWith(majorRequired + '.')) return true
-            return false
-        })
+            if (v === requiredCuda) return true;
+            if (v.startsWith(`${majorRequired  }.`)) return true;
+            return false;
+        });
         if (hasCompatible) {
-            filtered[name] = meta
+            filtered[name] = meta;
         }
     }
 
-    return filtered
+    return filtered;
 }
 
 // ── Tool handler ─────────────────────────────────────────────────────────────
@@ -239,26 +239,26 @@ async function handleGetInstanceRecommendation(params) {
         cudaVersion,
         limit = 10,
         context
-    } = params
+    } = params;
 
     // Apply profile ENV overrides to sequence length and batch size
-    let effectiveMaxSeqLen = maxSequenceLength
-    let effectiveBatchSize = batchSize
+    let effectiveMaxSeqLen = maxSequenceLength;
+    let effectiveBatchSize = batchSize;
     if (context?.profileEnvVars) {
         if (context.profileEnvVars.VLLM_MAX_MODEL_LEN) {
-            effectiveMaxSeqLen = parseInt(context.profileEnvVars.VLLM_MAX_MODEL_LEN, 10) || effectiveMaxSeqLen
+            effectiveMaxSeqLen = parseInt(context.profileEnvVars.VLLM_MAX_MODEL_LEN, 10) || effectiveMaxSeqLen;
         }
         if (context.profileEnvVars.VLLM_MAX_NUM_SEQS) {
-            effectiveBatchSize = parseInt(context.profileEnvVars.VLLM_MAX_NUM_SEQS, 10) || effectiveBatchSize
+            effectiveBatchSize = parseInt(context.profileEnvVars.VLLM_MAX_NUM_SEQS, 10) || effectiveBatchSize;
         }
     }
 
     // Apply CUDA version filtering to instance catalog
-    let effectiveCatalog = INSTANCE_CATALOG
+    let effectiveCatalog = INSTANCE_CATALOG;
     if (cudaVersion) {
-        effectiveCatalog = filterByCudaVersion(INSTANCE_CATALOG, cudaVersion)
+        effectiveCatalog = filterByCudaVersion(INSTANCE_CATALOG, cudaVersion);
         if (Object.keys(effectiveCatalog).length === 0) {
-            log(`CUDA version ${cudaVersion} filter eliminated all instances`)
+            log(`CUDA version ${cudaVersion} filter eliminated all instances`);
             return {
                 content: [{
                     type: 'text',
@@ -272,13 +272,13 @@ async function handleGetInstanceRecommendation(params) {
                         }
                     })
                 }]
-            }
+            };
         }
     }
 
     // Mode: tag-based search only (no model name)
     if (!modelName && instanceSearch) {
-        const searchResults = searchInstancesByTag(instanceSearch, effectiveCatalog, { limit })
+        const searchResults = searchInstancesByTag(instanceSearch, effectiveCatalog, { limit });
         return {
             content: [{
                 type: 'text',
@@ -293,14 +293,14 @@ async function handleGetInstanceRecommendation(params) {
                     }
                 })
             }]
-        }
+        };
     }
 
     // Mode: no model name and no search — return all GPU instances
     if (!modelName) {
         const allGpuInstances = Object.keys(effectiveCatalog)
             .filter(key => effectiveCatalog[key].category === 'gpu')
-            .slice(0, limit)
+            .slice(0, limit);
 
         return {
             content: [{
@@ -316,20 +316,20 @@ async function handleGetInstanceRecommendation(params) {
                     }
                 })
             }]
-        }
+        };
     }
 
     // Step 1: Resolve model metadata
     const modelMetadata = await resolveModelMetadata(modelName, {
         discover: DISCOVER_MODE
-    })
+    });
 
     // If model metadata cannot be resolved, return all GPU instances unfiltered
     if (!modelMetadata) {
-        log(`Model metadata not found for "${modelName}", returning unfiltered GPU instances`)
+        log(`Model metadata not found for "${modelName}", returning unfiltered GPU instances`);
         const allGpuInstances = Object.keys(effectiveCatalog)
             .filter(key => effectiveCatalog[key].category === 'gpu')
-            .slice(0, limit)
+            .slice(0, limit);
 
         return {
             content: [{
@@ -358,78 +358,78 @@ async function handleGetInstanceRecommendation(params) {
                     }
                 })
             }]
-        }
+        };
     }
 
     // Step 2: Estimate VRAM
     // Use model's max_position_embeddings as the sequence length when no explicit value is provided.
     // This ensures KV cache is sized for the model's actual context window, not the 4096 default.
-    const resolvedMaxSeqLen = effectiveMaxSeqLen || modelMetadata.maxPositionEmbeddings || undefined
+    const resolvedMaxSeqLen = effectiveMaxSeqLen || modelMetadata.maxPositionEmbeddings || undefined;
     const vramEstimate = estimateVram({
         parameterCount: modelMetadata.parameterCount,
         dtype: modelMetadata.dtype,
         quantization: quantization || undefined,
         maxSequenceLength: resolvedMaxSeqLen,
         batchSize: effectiveBatchSize || undefined
-    })
+    });
 
     // Step 3: Filter and rank instances
     let recommendations = filterAndRankInstances(
         vramEstimate.vramGb,
         effectiveCatalog,
         { limit }
-    )
+    );
 
     // Step 3a: Quota & availability filtering (discover mode only)
-    let preQuotaFilterCount = 0
-    let allFilteredByQuota = false
-    let preQuotaRecommendations = []
+    let preQuotaFilterCount = 0;
+    let allFilteredByQuota = false;
+    let preQuotaRecommendations = [];
     if (DISCOVER_MODE && recommendations.length > 0) {
         try {
-            const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || BEDROCK_REGION
-            const quotaResolver = new QuotaResolver(region)
+            const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || BEDROCK_REGION;
+            const quotaResolver = new QuotaResolver(region);
 
-            const instanceTypes = recommendations.map(r => r.instanceType)
+            const instanceTypes = recommendations.map(r => r.instanceType);
             const [quotas, reservations, ftps] = await Promise.allSettled([
                 quotaResolver.getQuotaHeadroom(instanceTypes),
                 quotaResolver.getCapacityReservations(),
                 quotaResolver.getTrainingPlans()
-            ])
+            ]);
 
-            preQuotaFilterCount = recommendations.length
-            preQuotaRecommendations = [...recommendations]
+            preQuotaFilterCount = recommendations.length;
+            preQuotaRecommendations = [...recommendations];
             recommendations = applyAvailabilityRanking(
                 recommendations,
                 quotas.status === 'fulfilled' ? quotas.value : null,
                 reservations.status === 'fulfilled' ? reservations.value : null,
                 ftps.status === 'fulfilled' ? ftps.value : null
-            )
+            );
             if (recommendations.length === 0 && preQuotaFilterCount > 0) {
-                allFilteredByQuota = true
+                allFilteredByQuota = true;
                 // Restore pre-filter recommendations so user can see compatible instances
                 // and request quota increases for the ones they want
-                recommendations = preQuotaRecommendations
-                log(`All ${preQuotaFilterCount} instances filtered by zero-quota — restoring unfiltered list`)
+                recommendations = preQuotaRecommendations;
+                log(`All ${preQuotaFilterCount} instances filtered by zero-quota — restoring unfiltered list`);
             }
         } catch (err) {
             // Graceful degradation: if credentials are missing or any unexpected
             // error occurs, skip quota filtering and continue with unfiltered results
-            log(`Quota resolution skipped: ${err.message}`)
+            log(`Quota resolution skipped: ${err.message}`);
         }
     }
 
     // Step 3b: If instanceSearch is also provided, further filter by tags
     if (instanceSearch && recommendations.length > 0) {
-        const searchMatches = new Set(searchInstancesByTag(instanceSearch, effectiveCatalog, { limit: 100 }))
-        recommendations = recommendations.filter(r => searchMatches.has(r.instanceType))
+        const searchMatches = new Set(searchInstancesByTag(instanceSearch, effectiveCatalog, { limit: 100 }));
+        recommendations = recommendations.filter(r => searchMatches.has(r.instanceType));
     }
 
     // Step 4: Smart mode — query Bedrock for edge-case reasoning
-    let finalRecommendations = recommendations
-    let smartModeUsed = false
+    let finalRecommendations = recommendations;
+    let smartModeUsed = false;
 
     if (SMART_MODE && recommendations.length > 0) {
-        log('[smart] Smart mode enabled, querying Amazon Bedrock...')
+        log('[smart] Smart mode enabled, querying Amazon Bedrock...');
 
         const bedrockContext = {
             modelName,
@@ -446,38 +446,38 @@ async function handleGetInstanceRecommendation(params) {
                 tensorParallelism: r.tensorParallelism
             })),
             ...(context || {})
-        }
+        };
 
         const bedrockResult = await queryBedrock(
             SERVER_CONFIG,
             ['instanceType'],
             limit,
             bedrockContext
-        )
+        );
 
         if (bedrockResult?.values?.instanceType) {
-            const bedrockInstance = bedrockResult.values.instanceType
-            log(`[smart] Bedrock recommendation: ${bedrockInstance}`)
+            const bedrockInstance = bedrockResult.values.instanceType;
+            log(`[smart] Bedrock recommendation: ${bedrockInstance}`);
 
             // Check if Bedrock's suggestion is already in our list
             const existingIndex = finalRecommendations.findIndex(
                 r => r.instanceType === bedrockInstance
-            )
+            );
 
             if (existingIndex > 0) {
                 // Move Bedrock's pick to the top
-                const [picked] = finalRecommendations.splice(existingIndex, 1)
-                finalRecommendations = [picked, ...finalRecommendations]
-                smartModeUsed = true
+                const [picked] = finalRecommendations.splice(existingIndex, 1);
+                finalRecommendations = [picked, ...finalRecommendations];
+                smartModeUsed = true;
             } else if (existingIndex === 0) {
                 // Already at the top — Bedrock agrees with static
-                smartModeUsed = true
-                log('[smart] Bedrock agrees with static top recommendation')
+                smartModeUsed = true;
+                log('[smart] Bedrock agrees with static top recommendation');
             } else {
                 // Bedrock suggested an instance not in our filtered list;
                 // verify it exists in the catalog before prepending
                 if (INSTANCE_CATALOG[bedrockInstance]) {
-                    const catalogEntry = INSTANCE_CATALOG[bedrockInstance]
+                    const catalogEntry = INSTANCE_CATALOG[bedrockInstance];
                     const bedrockRec = {
                         instanceType: bedrockInstance,
                         gpuCount: catalogEntry.gpus || 0,
@@ -485,24 +485,24 @@ async function handleGetInstanceRecommendation(params) {
                         utilizationPercent: null,
                         tensorParallelism: catalogEntry.gpus || 1,
                         costTier: catalogEntry.costTier || null
-                    }
-                    finalRecommendations = [bedrockRec, ...finalRecommendations].slice(0, limit)
-                    smartModeUsed = true
+                    };
+                    finalRecommendations = [bedrockRec, ...finalRecommendations].slice(0, limit);
+                    smartModeUsed = true;
                 } else {
-                    log(`[smart] Bedrock suggested unknown instance "${bedrockInstance}", ignoring`)
+                    log(`[smart] Bedrock suggested unknown instance "${bedrockInstance}", ignoring`);
                 }
             }
         } else {
-            log('[smart] Bedrock did not return usable results, falling back to static recommendations')
+            log('[smart] Bedrock did not return usable results, falling back to static recommendations');
         }
     }
 
     // Build response
     const topRecommendation = finalRecommendations.length > 0
         ? finalRecommendations[0].instanceType
-        : null
+        : null;
 
-    const rankedList = finalRecommendations.map(r => r.instanceType)
+    const rankedList = finalRecommendations.map(r => r.instanceType);
 
     return {
         content: [{
@@ -524,7 +524,7 @@ async function handleGetInstanceRecommendation(params) {
                 }
             })
         }]
-    }
+    };
 }
 
 // ── MCP Server setup ─────────────────────────────────────────────────────────
@@ -532,7 +532,7 @@ async function handleGetInstanceRecommendation(params) {
 const server = new McpServer({
     name: 'instance-sizer',
     version: '1.0.0'
-})
+});
 
 // Register the get_instance_recommendation tool
 server.tool(
@@ -554,9 +554,9 @@ server.tool(
         }).optional().describe('Additional deployment context')
     },
     async (params) => {
-        return handleGetInstanceRecommendation(params)
+        return handleGetInstanceRecommendation(params);
     }
-)
+);
 
 // Register alias tool name for backward compatibility
 server.tool(
@@ -578,27 +578,27 @@ server.tool(
         }).optional().describe('Additional deployment context')
     },
     async (params) => {
-        return handleGetInstanceRecommendation(params)
+        return handleGetInstanceRecommendation(params);
     }
-)
+);
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
-export { handleGetInstanceRecommendation, INSTANCE_CATALOG, SERVER_CONFIG, server, searchInstancesByTag, filterByCudaVersion }
+export { handleGetInstanceRecommendation, INSTANCE_CATALOG, SERVER_CONFIG, server, searchInstancesByTag, filterByCudaVersion };
 
 // ── Transport connection (main module only) ──────────────────────────────────
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename
+const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
 
 if (isMain) {
     if (SMART_MODE) {
-        log(`Smart mode enabled (model: ${BEDROCK_MODEL}, region: ${BEDROCK_REGION})`)
+        log(`Smart mode enabled (model: ${BEDROCK_MODEL}, region: ${BEDROCK_REGION})`);
     } else if (!DISCOVER_MODE) {
-        log('Static mode (catalog-only, no network calls) — use --no-discover to force this')
+        log('Static mode (catalog-only, no network calls) — use --no-discover to force this');
     } else {
-        log('Discover mode (HuggingFace API + quota lookups active)')
+        log('Discover mode (HuggingFace API + quota lookups active)');
     }
 
-    const transport = new StdioServerTransport()
-    await server.connect(transport)
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
 }

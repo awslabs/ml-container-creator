@@ -1,5 +1,10 @@
 /* Custom styles for ML Container Creator docs */
 
+/* Off-white background for light mode */
+[data-md-color-scheme="default"] {
+    --md-default-bg-color: #F5F3F0;
+}
+
 /* Center and style the logo on the home page */
 .md-content img[alt="ML Container Creator"] {
     display: block;

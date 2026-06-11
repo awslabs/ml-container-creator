@@ -1,232 +1,215 @@
 # Benchmarking
 
-ML Container Creator can generate a `do/benchmark` script that measures LLM endpoint performance using the SageMaker AI Benchmarking service (powered by NVIDIA AIPerf). The script creates a workload configuration, runs a benchmark job against your deployed endpoint, polls for completion, and displays a results summary.
+Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf). The `do/benchmark` script creates a workload configuration, launches a benchmark job, polls for completion, and displays results — all in one command.
 
 ## Prerequisites
 
 | Requirement | Details |
 |---|---|
-| Deployed endpoint | Endpoint must be `InService` (run `./do/deploy` first) |
-| AWS credentials | Configured via `aws configure` or environment variables |
-| Supported architecture | `transformers` or `diffusors` only (`transformers-vllm`, `transformers-sglang`, `transformers-tensorrt-llm`, `transformers-lmi`, `transformers-djl`, `diffusors-vllm-omni`) |
-| Deployment target | `managed-inference` only (HyperPod EKS is not supported) |
-| Bootstrapped account | Run `ml-container-creator bootstrap` to provision IAM permissions for benchmark APIs |
+| Endpoint status | Must be `InService` (run `./do/deploy` first) |
+| Architecture | Transformers or Diffusors only (HTTP and Triton not supported) |
+| Deployment target | `realtime-inference` only (HyperPod EKS is not supported) |
+| AWS credentials | Must be configured for the deployment region |
+| Bootstrap | Recommended — provides the IAM role with benchmarking permissions and S3 bucket for results |
 
-!!! note "Architecture Requirement"
-    Benchmarking requires the OpenAI-compatible chat completions API, which is only available on transformer and diffusor model servers. HTTP and Triton architectures are not supported.
+## Quick Start
 
-## Workflow
-
-The typical benchmarking workflow follows the standard deploy-then-measure pattern:
-
-```mermaid
-graph LR
-    A[Generate project<br>with benchmark] --> B[Build & push<br>container] --> C[Deploy<br>endpoint] --> D[Run<br>benchmark] --> E[Interpret<br>results] --> F[Clean up]
-```
-
-### 1. Generate a project with benchmarking enabled
+Generate a project with benchmarking enabled:
 
 ```bash
-ml-container-creator my-llm-project \
+ml-container-creator vllm-benchmark-demo \
   --deployment-config=transformers-vllm \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
+  --deployment-target=realtime-inference \
   --instance-type=ml.g5.2xlarge \
-  --deployment-target=managed-inference \
   --include-benchmark \
-  --benchmark-concurrency=10 \
-  --benchmark-input-tokens=550 \
-  --benchmark-output-tokens=150 \
-  --benchmark-streaming
+  --skip-prompts
 ```
 
-### 2. Build and deploy
+Deploy and benchmark:
 
 ```bash
-cd my-llm-project
-./do/build        # or ./do/submit for CodeBuild
-./do/push
-./do/deploy
+./do/build && ./do/push && ./do/deploy
+./do/benchmark --workload multi_turn_chat
 ```
 
-Wait for the endpoint to reach `InService` status.
+!!! note "No benchmark configuration in `do/config`"
+    All benchmark parameters are resolved at runtime — from the workload-picker MCP server (workload profile) and the bootstrap profile (S3 buckets). The `do/config` file contains only project identity (endpoint name, model, instance type, etc.).
 
-### 3. Run the benchmark
+## Usage
 
 ```bash
-./do/benchmark
+./do/benchmark --workload <name> [--ic <name>] [--adapter <name>] [--force] [--clean] [--no-stale-warning]
 ```
 
-The script will:
-
-1. Verify the endpoint is `InService`
-2. Create (or update) a Secrets Manager secret for the HuggingFace token (if `HF_TOKEN` is set in `do/config`)
-3. Create an AI Workload Config with your benchmark parameters
-4. Create an AI Benchmark Job targeting your endpoint's inference component
-5. Poll every 30 seconds until the job completes (up to 30 minutes)
-6. Download and display the results summary
-
-### 4. Clean up benchmark resources
-
-```bash
-./do/benchmark --clean   # Clean after displaying results
-./do/clean benchmark     # Clean benchmark resources independently
-```
-
-## Parameters
-
-All benchmark parameters are set during project generation and stored in `do/config`. You can also edit `do/config` directly to adjust parameters between runs.
-
-| Parameter | CLI Option | Default | Description |
-|---|---|---|---|
-| `includeBenchmark` | `--include-benchmark` | `false` | Enable benchmark script generation |
-| `benchmarkConcurrency` | `--benchmark-concurrency` | `10` | Number of concurrent requests sent to the endpoint |
-| `benchmarkInputTokensMean` | `--benchmark-input-tokens` | `550` | Mean number of input tokens per request |
-| `benchmarkOutputTokensMean` | `--benchmark-output-tokens` | `150` | Mean number of output tokens per request |
-| `benchmarkStreaming` | `--benchmark-streaming` | `true` | Enable streaming responses during benchmark |
-| `benchmarkRequestCount` | `--benchmark-request-count` | Service default | Total number of requests to send (leave empty for service default) |
-| `benchmarkS3OutputPath` | `--benchmark-s3-output-path` | Auto-generated | S3 URI for benchmark results output |
-
-### Environment variables
-
-| Variable | Description |
+| Flag | Description |
 |---|---|
-| `ML_INCLUDE_BENCHMARK` | Set to `true` to enable benchmarking (equivalent to `--include-benchmark`) |
-| `ML_BENCHMARK_S3_OUTPUT_PATH` | Override the S3 output path for benchmark results |
+| `--workload <name>` | **Required.** Workload profile from the workload-picker MCP server |
+| `--ic <name>` | Benchmark a specific inference component (from `do/ic/<name>.conf`) |
+| `--adapter <name>` | Benchmark a specific LoRA adapter IC (from `do/adapters/<name>.conf`) |
+| `--force` | Create a new benchmark job even if one is already running |
+| `--clean` | Delete workload config and benchmark job after displaying results |
+| `--no-stale-warning` | Suppress schema registry staleness warning |
 
-### do/config variables
+### IC Resolution
 
-When benchmarking is enabled, the following variables are exported in `do/config`:
+The benchmark targets a specific inference component:
+
+1. `--adapter <name>` — Uses `ADAPTER_IC_NAME` from `do/adapters/<name>.conf`
+2. `--ic <name>` — Uses `IC_DEPLOYED_NAME` from `do/ic/<name>.conf`
+3. No flag — Uses the first IC in `do/ic/` alphabetically, or falls back to legacy config
+
+## Workload Profiles
+
+Benchmark parameters are resolved from named **workload profiles** served by the workload-picker MCP server. Each profile defines a realistic traffic pattern:
+
+| Workload | Concurrency | Input Tokens | Output Tokens | Streaming | Description |
+|---|---|---|---|---|---|
+| `multi_turn_chat` | 10 | 550 | 150 | ✅ | Multi-turn conversational workload |
+| `rag_document_qa` | 8 | 2048 | 256 | ✅ | RAG with long context retrieval |
+| `agent_tool_calling` | 4 | 800 | 100 | ❌ | Tool-calling agent (structured output) |
+| `long_context_scaling` | 2 | 8192 | 512 | ✅ | Long-context stress test |
+| `production_traffic_mix` | 16 | 1024 | 200 | ✅ | Simulated production traffic mix |
+| `shared_system_prompt` | 12 | 300 | 150 | ✅ | Short requests with shared system prompt |
+
+List available workloads:
 
 ```bash
-# SageMaker AI Benchmarking configuration
-export BENCHMARK_CONCURRENCY="10"
-export BENCHMARK_INPUT_TOKENS_MEAN="550"
-export BENCHMARK_OUTPUT_TOKENS_MEAN="150"
-export BENCHMARK_STREAMING="true"
-export BENCHMARK_REQUEST_COUNT=""
-export BENCHMARK_S3_OUTPUT_PATH="s3://ml-container-creator-benchmark-us-east-1-123456789012/my-llm-project/"
+# Via MCP (if workload-picker server is running)
+mcc mcp call workload-picker list_workloads
+
+# Or inspect the catalog directly
+cat servers/workload-picker/workload-profiles.json
+```
+
+### How Resolution Works
+
+When you run `./do/benchmark --workload multi_turn_chat`:
+
+1. **Workload params** — `do/benchmark` queries the workload-picker MCP server for the named profile, which returns concurrency, input/output token counts, streaming mode, and request count
+2. **S3 paths** — Read from the bootstrap profile (`~/.ml-container-creator/config.json`): `benchmarkS3Bucket` for raw results, `ciBenchmarkResultsBucket` for Athena Parquet
+3. **Job names** — Derived at runtime: `${PROJECT_NAME}-benchmark-${timestamp}`
+4. **Project identity** — From `do/config`: `PROJECT_NAME`, `ENDPOINT_NAME`, `MODEL_NAME`, `INSTANCE_TYPE`, `AWS_REGION`
+
+If the MCP server is unavailable, defaults are applied: concurrency=10, input=550, output=150, streaming=true.
+
+## Metrics
+
+The benchmark reports:
+
+| Metric | Description |
+|---|---|
+| **Request throughput** (req/s) | Sustained requests per second |
+| **Output token throughput** (tokens/s) | Total output tokens generated per second |
+| **Request latency** (P50/P90/P99) | End-to-end request latency |
+| **TTFT** (P50/P90/P99) | Time to first token (streaming latency) |
+| **ITL** (P50/P90/P99) | Inter-token latency (generation speed) |
+
+## Generation-Time Configuration
+
+At project generation, benchmarking is opt-in with a single boolean flag:
+
+```bash
+ml-container-creator my-project \
+  --deployment-config=transformers-vllm \
+  --model-name=Qwen/Qwen3-4B \
+  --instance-type=ml.g5.xlarge \
+  --include-benchmark \
+  --skip-prompts
+```
+
+| Parameter | CLI Flag | Default | Description |
+|---|---|---|---|
+| `includeBenchmark` | `--include-benchmark` | `false` | Include the `do/benchmark` script in the generated project |
+
+All other benchmark parameters (concurrency, tokens, streaming) are resolved at **runtime** from the workload profile — not baked into the project at generation time.
+
+## Idempotency
+
+`do/benchmark` is idempotent:
+
+- If a benchmark job is already running, re-running (without `--force`) will resume polling the existing job and display its results when complete.
+- Use `--force` to create a new job even if one exists.
+
+## Cleanup
+
+```bash
+# Delete workload config and benchmark jobs only
+./do/benchmark --clean
+
+# Delete everything (endpoint + benchmark resources)
+./do/clean all
 ```
 
 ## Interpreting Results
 
-When the benchmark job completes, `do/benchmark` displays a summary table with the following metrics:
+### Concurrency Tuning
 
-### Throughput metrics
+Use different workload profiles to test varying concurrency levels, or override with multiple runs:
 
-| Metric | Description |
+| Concurrency | Effect |
 |---|---|
-| **Request throughput** | Number of completed requests per second |
-| **Output token throughput** | Number of output tokens generated per second across all requests |
+| 1–4 | Baseline latency (agent/tool-calling patterns) |
+| 8–12 | Typical production load (chat, RAG) |
+| 16–32 | High-throughput stress test |
+| 64+ | Overload test (queue buildup) |
 
-### Latency metrics
+### Key Indicators
 
-| Metric | Description |
+- **TTFT > 500ms** — Model may need a smaller batch size or faster instance
+- **ITL > 50ms** — Generation is slow; consider tensor parallelism or a faster backend
+- **Throughput plateau** — You've hit GPU saturation; scale horizontally or upgrade instance
+
+### Comparing Configurations
+
+Run the same workload across different configurations to find the optimal setup:
+
+```bash
+# Same model, different instance types
+cd bench-g5-xlarge && ./do/benchmark --workload production_traffic_mix
+cd bench-g5-2xlarge && ./do/benchmark --workload production_traffic_mix
+```
+
+Use `do/register` after each benchmark to record results in the deployment registry for comparison.
+
+## Adapter Benchmarking
+
+Benchmark a specific LoRA adapter to compare against the base model:
+
+```bash
+# Benchmark base model
+./do/benchmark --workload multi_turn_chat
+
+# Benchmark adapter
+./do/benchmark --workload multi_turn_chat --adapter my-sft
+
+# Compare results (both recorded in benchmark history)
+```
+
+## Results Persistence
+
+When benchmark infrastructure is provisioned (`bootstrap --benchmark-infra`), results are automatically:
+
+1. **Written to S3** as aggregate JSON (`profile_export_aiperf.json`) in the benchmark S3 bucket
+2. **Converted to Parquet** and written to the CI benchmark results bucket (partitioned by model/instance/target)
+3. **Registered in Athena** for SQL-based analysis across all runs
+
+The S3 buckets are resolved from the bootstrap profile config:
+
+| Profile Key | Purpose |
 |---|---|
-| **Request latency P50** | Median end-to-end request latency |
-| **Request latency P90** | 90th percentile end-to-end request latency |
-| **Request latency P99** | 99th percentile end-to-end request latency |
+| `benchmarkS3Bucket` | Raw benchmark outputs (`s3://{bucket}/{project}/`) |
+| `ciBenchmarkResultsBucket` | Athena-queryable Parquet results |
 
-### Streaming metrics (when streaming is enabled)
+If these keys are not set (benchmark infra not provisioned), results are displayed locally only — no S3 writes occur.
 
-| Metric | Description |
-|---|---|
-| **TTFT P50** | Median time to first token — latency from request submission to first output token |
-| **TTFT P90** | 90th percentile time to first token |
-| **TTFT P99** | 99th percentile time to first token |
-| **ITL P50** | Median inter-token latency — time between consecutive output tokens |
-| **ITL P90** | 90th percentile inter-token latency |
-| **ITL P99** | 99th percentile inter-token latency |
+## Integration with CI
 
-### What good results look like
-
-- **TTFT** should be low (< 500ms for most models) — high TTFT indicates the model is slow to start generating
-- **ITL** should be consistent — high variance suggests resource contention or batching delays
-- **Request throughput** scales with concurrency — if throughput plateaus while increasing concurrency, the endpoint is saturated
-- **P99 latency** much higher than P50 indicates tail latency issues, often caused by request queuing
-
-### Tuning tips
-
-- Increase `benchmarkConcurrency` to find the saturation point of your endpoint
-- Adjust `benchmarkInputTokensMean` and `benchmarkOutputTokensMean` to match your expected production workload
-- Run multiple benchmarks with different parameters to build a performance profile
-- Compare results across instance types to find the best cost/performance ratio
-
-## Cleanup
-
-Benchmark resources (workload configs and benchmark jobs) persist in your AWS account after the benchmark completes. Clean them up to avoid clutter:
+In CI pipelines, benchmark results can be registered for regression detection:
 
 ```bash
-# Clean benchmark resources only
-./do/clean benchmark
-
-# Or use the --clean flag during benchmark execution
-./do/benchmark --clean
+./do/benchmark --workload production_traffic_mix
+./do/register --ci --notes "Nightly benchmark run"
 ```
 
-The `benchmark` cleanup target:
-
-- Deletes the workload config (`{project-name}-benchmark-config`)
-- Deletes all completed/failed benchmark jobs matching `{project-name}-benchmark-*`
-- Does **not** delete the Secrets Manager secret (managed separately)
-
-The `./do/clean all` command also includes benchmark cleanup when benchmarking is enabled.
-
-## Example: Full CLI invocation
-
-Generate a project with all benchmark parameters specified for a fully non-interactive run:
-
-```bash
-ml-container-creator my-benchmark-project \
-  --skip-prompts \
-  --deployment-config=transformers-sglang \
-  --model-name=meta-llama/Llama-3.1-8B-Instruct \
-  --instance-type=ml.g5.2xlarge \
-  --region=us-west-2 \
-  --deployment-target=managed-inference \
-  --build-target=codebuild \
-  --include-benchmark \
-  --benchmark-concurrency=20 \
-  --benchmark-input-tokens=1024 \
-  --benchmark-output-tokens=256 \
-  --benchmark-streaming \
-  --benchmark-request-count=100
-```
-
-Then deploy and benchmark:
-
-```bash
-cd my-benchmark-project
-./do/submit          # Build via CodeBuild
-./do/deploy          # Deploy to SageMaker AI
-./do/benchmark       # Run the benchmark
-./do/benchmark --clean  # Run again and clean up after
-```
-
-## Troubleshooting
-
-### "Endpoint is not InService"
-
-The benchmark requires a fully deployed endpoint. Check endpoint status:
-
-```bash
-aws sagemaker describe-endpoint --endpoint-name <your-endpoint> \
-  --query 'EndpointStatus' --output text
-```
-
-Wait for `InService` status before running `./do/benchmark`.
-
-### "UnrecognizedClientException"
-
-The AI Benchmarking APIs may not be available in all AWS regions. Try deploying to `us-east-1` or `us-west-2` where the service is generally available.
-
-### Benchmark job fails
-
-Check the failure reason displayed by the script. Common causes:
-
-- **Insufficient permissions** — Run `ml-container-creator bootstrap` to add benchmark IAM permissions
-- **Endpoint not responding** — Verify the endpoint works with `./do/test` before benchmarking
-- **Tokenizer access** — Ensure `HF_TOKEN` is set in `do/config` for gated models
-
-### Benchmark times out
-
-The default timeout is 30 minutes. If your benchmark needs more time (high request counts or slow endpoints), edit the `MAX_POLL_ATTEMPTS` variable in `do/benchmark`.
+See [CI Integration](ci-integration.md) for automated validation workflows and the two-stage pipeline.

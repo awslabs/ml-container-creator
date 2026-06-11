@@ -14,6 +14,9 @@ Common issues and solutions when using ML Container Creator.
 | ECR authentication failed | `aws ecr get-login-password` (see [ECR Auth](#ecr-authentication-failed)) |
 | Endpoint stuck in Creating | Check CloudWatch logs for health check or model loading failures |
 | Model file not found in container | Verify `COPY` directive in Dockerfile targets `/opt/ml/model/` |
+| Adapter "Not Found" on first call | Wait 60s after `do/adapter add` (see [LoRA Adapter Issues](#lora-adapter-issues)) |
+| Adapter read timeout | `./do/test --cli-read-timeout 120` |
+| Adapter wrong model name | Use base model name, not adapter name (see [Wrong Model Name](#wrong-model-name-in-adapter-test)) |
 | HuggingFace API timeout | Use `--offline` flag |
 | HuggingFace access denied | Verify token and model license agreement |
 
@@ -184,6 +187,55 @@ curl -X POST http://localhost:8080/invocations \
   -d '{"instances": [[1.0, 2.0, 3.0]]}'
 ```
 
+## LoRA Adapter Issues
+
+### "Not Found" Error on First Adapter Invocation
+
+**Symptoms:** After `do/adapter add`, the first `do/test` returns `{"detail":"Not Found"}` but a second attempt works.
+
+**Root cause:** The adapter inference component reports `InService` before vLLM finishes loading LoRA weights into GPU memory. SageMaker AI's readiness check passes (the base model's `/ping` returns 200) but the adapter isn't actually ready to serve yet.
+
+**Workaround:** Wait 30–60 seconds after `do/adapter add` reports success before testing:
+
+```bash
+./do/adapter add my-sft --from-tune
+sleep 60
+./do/test
+```
+
+A future release will add a post-attach probe loop to confirm the adapter is serving before returning.
+
+### Read Timeout on First Adapter Inference
+
+**Symptoms:** First inference after adapter load returns a "Read timeout" error, but the response body contains valid JSON.
+
+**Root cause:** The first inference triggers JIT compilation of the adapter path. Combined with thinking-mode tokens (for reasoning models like DeepSeek R1), this can exceed the default CLI read timeout.
+
+**Fix:** Increase the read timeout:
+
+```bash
+./do/test --cli-read-timeout 120
+```
+
+Or accept that the first invocation is slow — subsequent calls will be fast.
+
+### Wrong Model Name in Adapter Test
+
+**Symptoms:** `do/test` sends the adapter name (e.g., `"val-sft"`) as the `model` field, but vLLM returns an error because it only recognizes the base model name.
+
+**Root cause:** When adapter config is detected, `do/test` should use the base `MODEL_NAME` in the request's `"model"` field, not `ADAPTER_MODEL_NAME`. SageMaker AI handles adapter routing at the inference component layer — vLLM doesn't need to know the adapter name.
+
+**Fix (pending):** This will be fixed in a future release. As a workaround, manually invoke with the base model name:
+
+```bash
+aws sagemaker-runtime invoke-endpoint \
+  --endpoint-name <endpoint> \
+  --inference-component-name <adapter-ic-name> \
+  --body '{"model": "Qwen/Qwen3-0.6B", "messages": [{"role": "user", "content": "Hello"}]}' \
+  --content-type application/json \
+  output.json
+```
+
 ## Model Loading Issues
 
 ### Model File Not Found
@@ -263,6 +315,78 @@ Use `--offline` to skip API calls, or set `HF_TOKEN` for higher rate limits:
 ```bash
 export HF_TOKEN=hf_your_token_here
 ml-container-creator
+```
+
+## LoRA Adapter Issues
+
+### "Not Found" error on first adapter invocation
+
+**Symptoms:** After `do/adapter add`, the first `do/test` returns `{"detail":"Not Found"}` but a second attempt succeeds.
+
+**Root cause:** The adapter inference component reports `InService` before vLLM finishes loading LoRA weights into GPU memory. SageMaker AI's readiness check passes (base model `/ping` returns 200) but the adapter isn't actually ready to serve requests yet.
+
+**Workaround:** Wait 30–60 seconds after `do/adapter add` reports success before testing. A future release will add a post-attach probe loop to confirm the adapter is serving.
+
+```bash
+# Wait, then test
+./do/adapter add my-sft --from-tune
+sleep 60
+./do/test
+```
+
+### Read timeout on first adapter inference
+
+**Symptoms:** First inference after adapter load returns a "Read timeout" error, but the response body contains valid JSON.
+
+**Root cause:** The first inference triggers JIT compilation of the adapter code path. Combined with thinking-mode tokens (for reasoning models like DeepSeek R1), this can exceed the default CLI read timeout.
+
+**Fix:** Increase the read timeout:
+
+```bash
+./do/test --cli-read-timeout 120
+```
+
+Subsequent calls will be fast — only the first invocation is slow.
+
+### Wrong model name in adapter test
+
+**Symptoms:** `do/test` sends the adapter name (e.g., `"val-sft"`) as the `model` field in the request, but vLLM returns "Not Found" because it only recognizes the base model name.
+
+**Root cause:** When adapter config is detected, `do/test` uses `ADAPTER_MODEL_NAME` in the request's `"model"` field. However, SageMaker AI handles adapter routing at the inference component layer — vLLM doesn't need to know the adapter name. The correct value is the base `MODEL_NAME` (e.g., `"Qwen/Qwen3-0.6B"`).
+
+**Workaround:** Invoke directly with the base model name:
+
+```bash
+aws sagemaker-runtime invoke-endpoint \
+  --endpoint-name <endpoint> \
+  --inference-component-name <adapter-ic-name> \
+  --body '{"model": "Qwen/Qwen3-0.6B", "messages": [{"role": "user", "content": "Hello"}]}' \
+  --content-type application/json \
+  output.json
+```
+
+This will be fixed in a future release so `do/test` automatically uses the base model name when testing adapters.
+
+### Adapter IC stuck in "Creating" state
+
+**Symptoms:** `do/adapter add` hangs waiting for the inference component to reach `InService`.
+
+**Common causes:**
+
+1. **Insufficient GPU memory** — The base model + adapter don't fit in the instance's GPU memory. Try a smaller adapter rank or a larger instance.
+2. **Invalid S3 path** — The adapter weights URI doesn't exist or isn't accessible by the SageMaker AI execution role.
+3. **Incompatible adapter** — The adapter was trained with a different base model or rank than configured.
+
+**Debug:**
+
+```bash
+# Check IC status and failure reason
+aws sagemaker describe-inference-component \
+  --inference-component-name <adapter-ic-name> \
+  --query '[InferenceComponentStatus, FailureReason]'
+
+# Check endpoint logs for vLLM errors
+./do/logs
 ```
 
 ## Getting Help

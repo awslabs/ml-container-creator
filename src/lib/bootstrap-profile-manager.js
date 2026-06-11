@@ -313,7 +313,12 @@ export default class BootstrapProfileManager {
     }
 
     /**
-     * Remove a bootstrap profile.
+     * Remove a bootstrap profile (metadata-only).
+     *
+     * Only removes the profile entry from config.json and the local manifest file.
+     * AWS resources (CloudFormation stack, S3 buckets, ECR repo, IAM roles) are
+     * intentionally retained — they may be shared across profiles or still in use.
+     *
      * @param {string} profileName - Profile name to remove
      * @param {object} options - Parsed CLI options (e.g., --force)
      */
@@ -340,23 +345,6 @@ export default class BootstrapProfileManager {
             }
         }
 
-        // Check for CloudFormation stack
-        const stackName = profile.stackName || `${STACK_NAME_PREFIX}-${profileName}`;
-        let hasStack = false;
-        try {
-            hasStack = this.handler._resourceExists(
-                `cloudformation describe-stacks --stack-name ${stackName} --region ${profile.awsRegion}`,
-                profile.awsProfile
-            );
-        } catch {
-            // ignore
-        }
-
-        if (hasStack && !options.force) {
-            console.log(`⚠️  Profile "${profileName}" has a CloudFormation stack: ${stackName}`);
-            console.log('   Use --delete-stack to also delete the AWS resources, or --force to remove the profile only.');
-        }
-
         if (!options.force) {
             const { confirm } = await this.handler._promptFn([{
                 type: 'confirm',
@@ -371,29 +359,6 @@ export default class BootstrapProfileManager {
             }
         }
 
-        // Delete CloudFormation stack if requested
-        if (hasStack && options['delete-stack']) {
-            try {
-                console.log(`🗑️  Deleting CloudFormation stack: ${stackName}`);
-                execSync(
-                    `aws cloudformation delete-stack --stack-name ${stackName} --region ${profile.awsRegion} --profile ${profile.awsProfile}`,
-                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-                );
-                console.log('⏳ Waiting for stack deletion...');
-                execSync(
-                    `aws cloudformation wait stack-delete-complete --stack-name ${stackName} --region ${profile.awsRegion} --profile ${profile.awsProfile}`,
-                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-                );
-                console.log(`✅ Stack "${stackName}" deleted.`);
-            } catch (err) {
-                console.log(`⚠️  Could not delete stack "${stackName}": ${err.message}`);
-                console.log('   You may need to delete it manually from the CloudFormation console.');
-            }
-        } else if (hasStack) {
-            console.log(`Note: CloudFormation stack "${stackName}" was left in place.`);
-            console.log('   To delete AWS resources, re-run with --delete-stack');
-        }
-
         // Delete manifest file if it exists
         if (hasManifest) {
             try {
@@ -406,6 +371,12 @@ export default class BootstrapProfileManager {
 
         this.handler.config.removeProfile(profileName);
         console.log(`Profile "${profileName}" removed.`);
+
+        // Advisory: AWS resources are retained for safety
+        const stackName = profile.stackName || `${STACK_NAME_PREFIX}-${profileName}`;
+        console.log('');
+        console.log('ℹ️  Profile removed from config. AWS resources (CloudFormation stack, S3 buckets, ECR repo, IAM roles) have been retained.');
+        console.log(`   To delete AWS resources, manually delete the CloudFormation stack "${stackName}" in the AWS console.`);
     }
 
     /**

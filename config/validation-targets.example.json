@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "description": "Example validation targets for Path Prover. Copy to config/validation-targets.json and customize.",
+  "defaults": {
+    "instance_type": "ml.g5.xlarge",
+    "deployment_target": "realtime-inference",
+    "deployment_config": "transformers-vllm",
+    "quantization": "none",
+    "tp_degree": 1,
+    "workload": "sample",
+    "stages": ["generate", "build", "deploy", "test", "tune", "adapter", "test-adapter", "benchmark", "clean"]
+  },
+  "targets": [
+    {"model_name": "Qwen/Qwen3-0.6B"},
+    {"model_name": "Qwen/Qwen3-1.7B"},
+    {"model_name": "Qwen/Qwen3-4B"},
+    {"model_name": "Qwen/Qwen3-8B"},
+
+    {"model_name": "meta-llama/Llama-3.2-1B-Instruct"},
+    {"model_name": "meta-llama/Llama-3.2-3B-Instruct"},
+    {"model_name": "meta-llama/Llama-3.1-8B-Instruct"},
+
+    {"model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"},
+    {"model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"},
+    {"model_name": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"},
+
+    {
+      "_comment": "Tier 2 example — larger model with overrides",
+      "model_name": "Qwen/Qwen3-32B",
+      "instance_type": "ml.g5.12xlarge",
+      "tp_degree": 4,
+      "quantization": "fp8",
+      "serving_params": {
+        "max_model_len": 32768,
+        "gpu_memory_utilization": 0.95,
+        "enable_chunked_prefill": true
+      }
+    }
+  ],
+  "proven": []
+}

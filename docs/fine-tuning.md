@@ -114,16 +114,20 @@ Each technique's output is tracked independently. You can tune with SFT, then tu
 
 The following model families support managed customization via `do/tune`:
 
-| Provider | Model Family | Sizes |
-|---|---|---|
-| Alibaba | Qwen 2.5 | 7B, 14B, 32B, 72B |
-| Alibaba | Qwen 3 | 0.6B, 1.7B, 4B, 8B, 14B, 32B |
-| DeepSeek | R1 Distill (Llama) | 8B, 70B |
-| DeepSeek | R1 Distill (Qwen) | 1.5B, 7B, 14B, 32B |
-| Meta | Llama 3.1 Instruct | 8B |
-| Meta | Llama 3.2 Instruct | 1B, 3B |
-| Meta | Llama 3.3 Instruct | 70B |
-| OpenAI | GPT-OSS | 20B, 120B |
+| Provider | Model Family | Sizes | Techniques |
+|---|---|---|---|
+| Alibaba | Qwen 2.5 | 7B, 14B, 32B, 72B | SFT, DPO, RLAIF, RLVR |
+| Alibaba | Qwen 3 | 0.6B, 1.7B, 4B, 8B, 14B, 32B | SFT, DPO, RLAIF, RLVR |
+| Alibaba | Qwen 3.5 (VLM) | 4B, 9B, 27B | SFT, RLAIF, RLVR |
+| Alibaba | Qwen 3.6 (VLM) | 27B | SFT, RLAIF, RLVR |
+| DeepSeek | R1 Distill (Llama) | 8B, 70B | SFT, DPO, RLAIF, RLVR |
+| DeepSeek | R1 Distill (Qwen) | 1.5B, 7B, 14B, 32B | SFT, DPO, RLAIF, RLVR |
+| Meta | Llama 3.1 Instruct | 8B | SFT, DPO, RLAIF, RLVR |
+| Meta | Llama 3.2 Instruct | 1B, 3B | SFT, DPO, RLAIF, RLVR |
+| Meta | Llama 3.3 Instruct | 70B | SFT, DPO, RLAIF, RLVR |
+| OpenAI | GPT-OSS | 20B, 120B | SFT, DPO, RLAIF, RLVR |
+
+**26 models total** across 10 families. VLM (Vision-Language) models support SFT, RLAIF, and RLVR but not DPO.
 
 View the full catalog at any time:
 
@@ -135,11 +139,11 @@ View the full catalog at any time:
 
 If your configured model is not in the Supported Model Catalog, `do/tune` exits with a clear message:
 
-```
+```text
 ❌ Model "my-custom-model-7b" is not yet supported for managed customization.
 
    Supported model families:
-   • Alibaba Qwen 2.5 / Qwen 3
+   • Alibaba Qwen 2.5 / Qwen 3 / Qwen 3.5 (VLM) / Qwen 3.6 (VLM)
    • DeepSeek R1 Distill
    • Meta Llama 3.1 / 3.2 / 3.3
    • OpenAI GPT-OSS
@@ -267,6 +271,106 @@ Datasets can be provided from two sources:
 
 When using a Hugging Face dataset, the script downloads it to S3 automatically before submitting the job. If the dataset requires authentication, set `HF_TOKEN` in your environment or configure it via `do/secrets`.
 
+### File selection for multi-file datasets
+
+Some HuggingFace datasets contain multiple files under the same split with different schemas. For example, `nvidia/When2Call` has files for tool-calling and general conversation — with different columns in each.
+
+Without a file filter, the pipeline detects this mismatch and fails with a clear error showing each file's columns:
+
+```text
+❌ Schema divergence detected across files in nvidia/When2Call.
+
+  📄 call_train_00000.parquet
+     Columns: chosen, prompt, rejected
+  📄 general_train_00000.parquet
+     Columns: completion, prompt
+
+  Files have different column sets. Use ?file=<pattern> to select compatible files:
+    ./do/tune --technique dpo --dataset "hf://nvidia/When2Call?file=*call*"
+```
+
+Append `?file=<pattern>` to your `hf://` URI to filter:
+
+```bash
+# Glob pattern (fnmatch semantics)
+./do/tune --technique dpo --dataset "hf://nvidia/When2Call?file=*call*"
+
+# Substring match (no glob metacharacters)
+./do/tune --technique sft --dataset "hf://my-org/my-dataset/train?file=sft_data"
+
+# Specific file pattern
+./do/tune --technique dpo --dataset "hf://my-org/my-dataset?file=train-0000?-*"
+```
+
+**Pattern matching rules:**
+
+- If the pattern contains `*`, `?`, or `[` → glob match (fnmatch) against the full filename
+- If the pattern is a plain string → substring match against the file's basename
+- If no files match → the error lists all available files to help you choose
+
+When only one file matches (or the dataset has a single file), schema divergence checking is skipped entirely.
+
+### Auto-flatten (chat-format columns)
+
+Many HuggingFace DPO datasets store `chosen`/`rejected` as chat-format message dicts rather than the flat strings SageMaker AI expects:
+
+```json
+{"prompt": "Explain AI", "chosen": {"role": "assistant", "content": "AI is..."}, "rejected": {"role": "assistant", "content": "Computers are fast"}}
+```
+
+The staging pipeline **automatically detects and flattens** these columns. No manual preprocessing needed:
+
+```bash
+# This just works — chat-format columns are flattened automatically
+./do/tune --technique dpo --dataset "hf://nvidia/When2Call?file=*call*"
+```
+
+**What gets flattened:**
+
+| Input Format | Strategy | Output |
+|---|---|---|
+| Single dict: `{"role": "assistant", "content": "text"}` | Extract `content` | `"text"` |
+| Single-element list: `[{"role": "user", "content": "hi"}]` | Extract content | `"hi"` |
+| Multi-message, same role | Concatenate with newlines | `"A\nB"` |
+| Multi-message, mixed roles | Role-prefixed pairs | `"user: Q\nassistant: A"` |
+
+**When it triggers:**
+
+- Only on columns whose expected schema type is `"string"` (DPO: `chosen`, `rejected`; SFT: `completion`)
+- RLAIF/RLVR `prompt` columns (type `"array"`) are **never** flattened — they legitimately contain message arrays
+- Detection uses the first record only; the same strategy is applied uniformly to all records
+
+**User feedback:**
+
+When auto-flatten converts columns, you'll see:
+
+```text
+ℹ️  Auto-converted column 'chosen' from chat-format to string
+    Format: extracted content field
+ℹ️  Auto-converted column 'rejected' from chat-format to string
+    Format: extracted content field
+```
+
+**Disabling auto-flatten:**
+
+If you need to preserve the original column structure (e.g., for debugging or custom preprocessing):
+
+```bash
+./do/tune --technique dpo --dataset hf://my-org/my-dataset --no-transform
+```
+
+With `--no-transform` active, the pipeline still detects chat-format columns and logs what it found, but halts with an actionable error instead of converting:
+
+```text
+❌ Column 'chosen' contains chat-format data (detected: single_dict) but --no-transform is active.
+
+   Remove --no-transform to enable automatic conversion:
+   ./do/tune --technique dpo --dataset hf://my-org/my-dataset
+```
+
+!!! note "Pipeline ordering"
+    The full staging pipeline runs in this order: **download** → **column rename** (`--column-map`) → **detect chat-format** → **flatten** → **type validation** → **write JSONL** → **upload to S3**. Column rename always happens before flatten, so `--column-map` and auto-flatten compose correctly.
+
 ## `do/tune` vs `do/train`
 
 ML Container Creator offers two paths for model customization:
@@ -298,7 +402,7 @@ ML Container Creator offers two paths for model customization:
 | Flag | Values | Description |
 |---|---|---|
 | `--technique` | `sft`, `dpo`, `rlaif`, `rlvr` | Customization technique to apply |
-| `--dataset` | S3 URI or `hf://org/name[/split]` | Training dataset location |
+| `--dataset` | S3 URI or `hf://org/name[/split][?file=pattern]` | Training dataset location |
 
 ### Training type
 
@@ -316,6 +420,13 @@ ML Container Creator offers two paths for model customization:
 | `--lora-rank` | integer | LoRA rank (e.g., 16, 32, 64). Only applies when `--training-type lora` |
 | `--lora-alpha` | integer | LoRA alpha scaling factor. Only applies when `--training-type lora` |
 | `--batch-size` | integer | Global batch size |
+
+### Dataset options
+
+| Flag | Type | Description |
+|---|---|---|
+| `--column-map` | string | Rename source columns to target columns (e.g., `"input:prompt,output:completion"`) |
+| `--no-transform` | flag | Disable auto-flatten — halt with error if chat-format data is detected |
 
 ### Evaluator flags (RLVR/RLAIF only)
 
@@ -355,6 +466,12 @@ ML Container Creator offers two paths for model customization:
 
 ```bash
 ./do/tune --technique dpo --dataset hf://my-org/preference-data --learning-rate 1e-5
+```
+
+### DPO with multi-file dataset (file selection + auto-flatten)
+
+```bash
+./do/tune --technique dpo --dataset "hf://nvidia/When2Call?file=*call*"
 ```
 
 ### Full-rank fine-tuning
@@ -425,6 +542,14 @@ The script validates the first 10 lines of your dataset. Check that:
 - Values match the expected types (strings for SFT/DPO, arrays for RLVR/RLAIF prompts)
 
 The error message shows the first malformed line and the expected format.
+
+### "Schema divergence detected across files"
+
+Your HuggingFace dataset has files with different column sets. Use `?file=<pattern>` to select only the files matching your technique's schema. The error message shows each file's columns and suggests a pattern.
+
+### "Column contains chat-format data but --no-transform is active"
+
+You passed `--no-transform` but the dataset has chat-format columns that need flattening. Remove `--no-transform` to enable automatic conversion, or preprocess the data manually.
 
 ### "Technique not supported for this model"
 

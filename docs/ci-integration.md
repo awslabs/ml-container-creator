@@ -16,6 +16,68 @@ Both systems write results to the same DynamoDB CI table, giving a unified view 
 - **Regression detection** — Catches breaking changes automatically across all configurations
 - **Full lifecycle coverage** — Tests not just inference, but tune + adapter hot-swap (the iteration loop)
 
+## Two-Stage CI Pipeline
+
+MCC uses a **two-stage pipeline** for each configuration:
+
+| Stage | Purpose | Duration | Blocking? |
+|---|---|---|---|
+| **Stage 1: CI Gate** | generate → build → push → deploy → test → register | ~15 min | Yes — sets `testStatus` |
+| **Stage 2: Benchmark** | benchmark → write to Athena → update DynamoDB | ~30 min | No — `testStatus` unchanged |
+
+### How It Works
+
+1. **Stage 1** runs the full lifecycle. If it passes, `testStatus` is set to `pass` in DynamoDB.
+2. If `benchmarkEnabled: true` for the configuration, **Stage 2** runs after Stage 1 succeeds.
+3. Stage 2 runs `do/benchmark --workload <name>`, writes Parquet to S3, registers the partition in Athena, and updates the DynamoDB record with `lastBenchmarkRunId`, `lastBenchmarkTimestamp`, and `lastBenchmarkStatus`. The workload profile is resolved from the workload-picker MCP server — no benchmark env vars are needed in `do/config`.
+4. **Stage 2 failure is isolated** — a benchmark failure does NOT change `testStatus`. The configuration remains `pass`.
+
+### Enabling Benchmarks
+
+Set `benchmarkEnabled: true` on a configuration to opt it into Stage 2:
+
+```bash
+# During registration
+./do/register --ci --benchmark-enabled
+
+# Or update an existing config in DynamoDB
+aws dynamodb update-item \
+  --table-name mlcc-ci-table \
+  --key '{"configId": {"S": "your-config-id"}}' \
+  --update-expression 'SET benchmarkEnabled = :b' \
+  --expression-attribute-values '{":b": {"BOOL": true}}'
+```
+
+### Benchmark Workload Selection
+
+Stage 2 uses workload profiles from the workload-picker MCP server. Each CI configuration specifies a workload name:
+
+```json
+{
+  "benchmarkWorkload": "production_traffic_mix"
+}
+```
+
+The workload profile defines concurrency, input/output token counts, streaming mode, and request count. See [Benchmarking](benchmarking.md) for available workload profiles. S3 paths and Athena buckets are resolved from the bootstrap profile at runtime.
+
+### Benchmark Results in DynamoDB
+
+After Stage 2 completes, the DynamoDB record gains these fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `lastBenchmarkRunId` | String | e.g., `bmk-20260609T143022Z` |
+| `lastBenchmarkTimestamp` | String | ISO 8601 |
+| `lastBenchmarkStatus` | String | `completed`, `failed`, or `in-progress` |
+
+Absence of `lastBenchmarkRunId` indicates the configuration has never been benchmarked.
+
+### Benchmark Results in Athena
+
+Rich metrics are written to the `mlcc_ci.benchmark_results` Athena table. See [Benchmarking](benchmarking.md) for the full schema and query patterns.
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -132,7 +194,7 @@ The E2E catalog (`scripts/e2e-catalog.json`) defines 22 models organized in thre
 All models use:
 - **Serving engine**: vLLM
 - **Deployment config**: `transformers-vllm`
-- **Deployment target**: managed-inference (SageMaker AI real-time endpoints)
+- **Deployment target**: realtime-inference (SageMaker AI real-time endpoints)
 - **LoRA enabled**: Yes (required for tune/adapter lifecycle)
 - **Lifecycle**: `build → push → deploy → test → tune-sft → adapter-add → test-adapter → clean`
 
@@ -161,6 +223,58 @@ ml-container-creator bootstrap update --ci
 ```
 
 This deploys the CI stack without affecting your existing IAM roles, ECR repositories, or S3 buckets.
+
+#### Benchmark Infrastructure (`--benchmark-infra`)
+
+To enable Stage 2 (Athena-backed benchmark persistence), add the `--benchmark-infra` flag:
+
+```bash
+ml-container-creator bootstrap --ci --benchmark-infra
+ml-container-creator bootstrap update --ci --benchmark-infra
+```
+
+This provisions:
+
+- **Glue database** (`mlcc_ci`)
+- **Athena table** (`benchmark_results`) with the full metrics schema
+- **S3 results bucket** (`mlcc-benchmark-results-{accountId}-{region}`)
+
+Without `--benchmark-infra`, CI deploys only the DynamoDB table, Lambda, Step Functions, and CodeBuild — Stage 2 writes will fail silently if the Glue/Athena infrastructure doesn't exist.
+
+---
+
+### CI Harness Roles (Region-Scoped)
+
+CI IAM role names include the region to prevent cross-region conflicts:
+
+| Role | Purpose |
+|---|---|
+| `mlcc-ci-scanner-role-{region}` | Lambda scanner execution |
+| `mlcc-ci-orchestrator-role-{region}` | Step Functions execution |
+| `mlcc-ci-codebuild-role-{region}` | CodeBuild executor |
+
+For example, in `us-west-2`: `mlcc-ci-orchestrator-role-us-west-2`.
+
+This means you can deploy CI harnesses in multiple regions without IAM conflicts (one per account, but role names won't clash if you tear down and redeploy in a different region).
+
+---
+
+### Teardown and Rebuild
+
+The CI harness stack can be torn down and rebuilt cleanly:
+
+```bash
+# Delete the CI harness (retains DynamoDB data via RETAIN policy on table)
+aws cloudformation delete-stack --stack-name MlccCiHarnessStack --region <region>
+
+# Rebuild fresh
+ml-container-creator bootstrap update --ci --benchmark-infra
+```
+
+**Roles are disposable** — they do NOT have `RemovalPolicy.RETAIN`. Deleting the stack removes the IAM roles. Re-running `bootstrap --ci` creates them fresh with the correct permissions. No orphaned resources.
+
+This is the recommended approach if you encounter role conflicts or need to move CI to a different region.
+
 
 ### Prerequisites
 
@@ -341,7 +455,7 @@ SHA-256( deploymentConfig:modelName:instanceType:region:deploymentTarget )
 For example:
 
 ```bash
-# Input: "transformers-vllm:Qwen/Qwen3-4B:ml.g5.xlarge:us-west-2:managed-inference"
+# Input: "transformers-vllm:Qwen/Qwen3-4B:ml.g5.xlarge:us-west-2:realtime-inference"
 # configId: "a3f8b2c1d4e5f6a7" (first 16 hex chars)
 ```
 
@@ -580,7 +694,7 @@ Each entry in `scripts/e2e-catalog.json`:
   "id": "rt-qwen3-4b",
   "tier": "ci",
   "track": "realtime",
-  "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2 --deployment-target=managed-inference --enable-lora",
+  "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2 --deployment-target=realtime-inference --enable-lora",
   "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
   "timeout": 1800,
   "tuneTimeout": 3600,

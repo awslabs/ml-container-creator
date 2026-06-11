@@ -17,20 +17,20 @@ const BYTES_PER_PARAM = {
     bfloat16: 2.0,
     int8: 1.0,
     int4: 0.5
-}
+};
 
 const QUANTIZATION_BYTES = {
     'awq': 0.5,
     'gptq': 0.5,
     'bnb-4bit': 0.5,
     'bnb-8bit': 1.0
-}
+};
 
-const BYTES_IN_GB = 1024 ** 3
+const BYTES_IN_GB = 1024 ** 3;
 
-const DEFAULT_MAX_SEQUENCE_LENGTH = 4096
-const DEFAULT_BATCH_SIZE = 1
-const OVERHEAD_FACTOR = 0.1
+const DEFAULT_MAX_SEQUENCE_LENGTH = 4096;
+const DEFAULT_BATCH_SIZE = 1;
+const OVERHEAD_FACTOR = 0.1;
 
 // ── Helper Functions ─────────────────────────────────────────────────────────
 
@@ -44,10 +44,10 @@ const OVERHEAD_FACTOR = 0.1
  */
 const bytesPerParam = (dtype, quantization) => {
     if (quantization && QUANTIZATION_BYTES[quantization] !== undefined) {
-        return QUANTIZATION_BYTES[quantization]
+        return QUANTIZATION_BYTES[quantization];
     }
-    return BYTES_PER_PARAM[dtype] ?? BYTES_PER_PARAM.float16
-}
+    return BYTES_PER_PARAM[dtype] ?? BYTES_PER_PARAM.float16;
+};
 
 /**
  * Estimate KV cache memory usage.
@@ -66,16 +66,16 @@ const bytesPerParam = (dtype, quantization) => {
  * @returns {number} Estimated KV cache size in bytes
  */
 const estimateKvCache = (parameterCount, maxSequenceLength, batchSize) => {
-    const seqLength = maxSequenceLength ?? DEFAULT_MAX_SEQUENCE_LENGTH
-    const batch = batchSize ?? DEFAULT_BATCH_SIZE
+    const seqLength = maxSequenceLength ?? DEFAULT_MAX_SEQUENCE_LENGTH;
+    const batch = batchSize ?? DEFAULT_BATCH_SIZE;
 
     // Heuristic: KV cache ≈ parameterCount × (seqLength / 4096) × batch × 0.05 bytes
     // This gives ~5% of raw param count in bytes at default seq length and batch=1
     // For 7B params: 7e9 × 0.05 = 350MB at seq=4096, batch=1
     // Scales linearly with sequence length and batch size
-    const kvBytes = parameterCount * (seqLength / DEFAULT_MAX_SEQUENCE_LENGTH) * batch * 0.05
-    return kvBytes
-}
+    const kvBytes = parameterCount * (seqLength / DEFAULT_MAX_SEQUENCE_LENGTH) * batch * 0.05;
+    return kvBytes;
+};
 
 // ── Main Estimation Function ─────────────────────────────────────────────────
 
@@ -97,28 +97,28 @@ const estimateVram = (modelInfo) => {
         quantization,
         maxSequenceLength,
         batchSize
-    } = modelInfo
+    } = modelInfo;
 
     // Determine confidence based on what was explicitly provided
-    const confidence = determineConfidence(modelInfo)
+    const confidence = determineConfidence(modelInfo);
 
     // Calculate base weight bytes
-    const bpp = bytesPerParam(dtype, quantization)
-    const baseWeightBytes = parameterCount * bpp
+    const bpp = bytesPerParam(dtype, quantization);
+    const baseWeightBytes = parameterCount * bpp;
 
     // Calculate KV cache
     const kvCacheBytes = estimateKvCache(
         parameterCount,
         maxSequenceLength ?? DEFAULT_MAX_SEQUENCE_LENGTH,
         batchSize ?? DEFAULT_BATCH_SIZE
-    )
+    );
 
     // Calculate overhead (framework/CUDA)
-    const overheadBytes = baseWeightBytes * OVERHEAD_FACTOR
+    const overheadBytes = baseWeightBytes * OVERHEAD_FACTOR;
 
     // Total VRAM
-    const totalVramBytes = baseWeightBytes + kvCacheBytes + overheadBytes
-    const vramGb = totalVramBytes / BYTES_IN_GB
+    const totalVramBytes = baseWeightBytes + kvCacheBytes + overheadBytes;
+    const vramGb = totalVramBytes / BYTES_IN_GB;
 
     return {
         vramGb,
@@ -129,8 +129,8 @@ const estimateVram = (modelInfo) => {
         },
         confidence,
         source: 'estimate'
-    }
-}
+    };
+};
 
 /**
  * Determine confidence level based on which parameters were explicitly provided.
@@ -143,25 +143,25 @@ const estimateVram = (modelInfo) => {
  * @returns {'high' | 'medium' | 'low'}
  */
 const determineConfidence = (modelInfo) => {
-    const { parameterCount, dtype, maxSequenceLength, batchSize } = modelInfo
+    const { parameterCount, dtype, maxSequenceLength, batchSize } = modelInfo;
 
     if (!parameterCount || !dtype) {
-        return 'low'
+        return 'low';
     }
 
     // If dtype is not in our known list, confidence drops
     if (!BYTES_PER_PARAM[dtype]) {
-        return 'low'
+        return 'low';
     }
 
     // All key params explicitly provided
     if (maxSequenceLength !== undefined && batchSize !== undefined) {
-        return 'high'
+        return 'high';
     }
 
     // Core params present but some optional ones use defaults
-    return 'medium'
-}
+    return 'medium';
+};
 
 export {
     estimateVram,
@@ -174,4 +174,4 @@ export {
     DEFAULT_BATCH_SIZE,
     OVERHEAD_FACTOR,
     BYTES_IN_GB
-}
+};

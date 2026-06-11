@@ -4,6 +4,9 @@ MCC validates specific model + server + instance combinations end-to-end through
 
 Models not listed below are still supported by MCC — the CLI generates projects for any HuggingFace model. You take on the validation responsibility for unlisted combinations.
 
+!!! warning "Validation In Progress"
+    The v1 validation sprint is actively running. Status indicators below reflect the **target state** — models are being validated sequentially starting with the smallest (CI tier). Check the [release notes](https://github.com/awslabs/ml-container-creator/releases) for the latest confirmed validations.
+
 ---
 
 ## Model Families
@@ -13,29 +16,29 @@ Models not listed below are still supported by MCC — the CLI generates project
 | Model | Parameters | Instance | Tuning Techniques | Status |
 |---|---|---|---|---|
 | Qwen/Qwen3-0.6B | 0.6B | ml.g5.xlarge | SFT, DPO | ✅ Validated |
-| Qwen/Qwen3-1.7B | 1.7B | ml.g5.xlarge | SFT, DPO | ✅ Validated |
-| Qwen/Qwen3-4B | 4B | ml.g5.xlarge | SFT, DPO | ✅ Validated |
-| Qwen/Qwen3-8B | 8B | ml.g5.xlarge | SFT, DPO | ✅ Validated |
-| Qwen/Qwen3-14B | 14B | ml.g5.2xlarge | SFT, DPO | ✅ Validated |
-| Qwen/Qwen3-32B | 32B | ml.g5.12xlarge | SFT, DPO, RLVR | ✅ Validated |
+| Qwen/Qwen3-1.7B | 1.7B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen3-4B | 4B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen3-8B | 8B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen3-14B | 14B | ml.g5.2xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen3-32B | 32B | ml.g5.12xlarge | SFT, DPO, RLVR | ⏳ Pending |
 
 ### Qwen 2.5
 
 | Model | Parameters | Instance | Tuning Techniques | Status |
 |---|---|---|---|---|
-| Qwen/Qwen2.5-7B-Instruct | 7B | ml.g5.xlarge | SFT, DPO | ✅ Validated |
-| Qwen/Qwen2.5-14B-Instruct | 14B | ml.g5.2xlarge | SFT, DPO | ✅ Validated |
-| Qwen/Qwen2.5-32B-Instruct | 32B | ml.g5.12xlarge | SFT, DPO | ✅ Validated |
-| Qwen/Qwen2.5-72B-Instruct | 72B | ml.g5.48xlarge | SFT, DPO, RLVR | ✅ Validated |
+| Qwen/Qwen2.5-7B-Instruct | 7B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen2.5-14B-Instruct | 14B | ml.g5.2xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen2.5-32B-Instruct | 32B | ml.g5.12xlarge | SFT, DPO | ⏳ Pending |
+| Qwen/Qwen2.5-72B-Instruct | 72B | ml.g5.48xlarge | SFT, DPO, RLVR | ⏳ Pending |
 
 ### Llama 3
 
 | Model | Parameters | Instance | Tuning Techniques | Status |
 |---|---|---|---|---|
 | meta-llama/Llama-3.2-1B-Instruct | 1B | ml.g5.xlarge | SFT, DPO | ✅ Validated |
-| meta-llama/Llama-3.2-3B-Instruct | 3B | ml.g5.xlarge | SFT, DPO | ✅ Validated |
-| meta-llama/Llama-3.1-8B-Instruct | 8B | ml.g5.xlarge | SFT, DPO, RLVR | ✅ Validated |
-| meta-llama/Llama-3.3-70B-Instruct | 70B | ml.g5.48xlarge | SFT, DPO, RLVR, RLAIF | ✅ Validated |
+| meta-llama/Llama-3.2-3B-Instruct | 3B | ml.g5.xlarge | SFT, DPO | ⏳ Pending |
+| meta-llama/Llama-3.1-8B-Instruct | 8B | ml.g5.xlarge | SFT, DPO, RLVR | ⏳ Pending |
+| meta-llama/Llama-3.3-70B-Instruct | 70B | ml.g5.48xlarge | SFT, DPO, RLVR, RLAIF | ⏳ Pending |
 
 !!! note "Gated Models"
     Llama models require a HuggingFace token with Meta's license agreement accepted. See [Secrets Management](secrets.md) for configuration.
@@ -44,19 +47,19 @@ Models not listed below are still supported by MCC — the CLI generates project
 
 | Model | Parameters | Instance | Tuning Techniques | Status |
 |---|---|---|---|---|
-| deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B | 1.5B | ml.g5.xlarge | SFT | ✅ Validated |
-| deepseek-ai/DeepSeek-R1-Distill-Qwen-7B | 7B | ml.g5.xlarge | SFT | ✅ Validated |
-| deepseek-ai/DeepSeek-R1-Distill-Qwen-14B | 14B | ml.g5.2xlarge | SFT | ✅ Validated |
-| deepseek-ai/DeepSeek-R1-Distill-Qwen-32B | 32B | ml.g5.12xlarge | SFT | ✅ Validated |
-| deepseek-ai/DeepSeek-R1-Distill-Llama-8B | 8B | ml.g5.xlarge | SFT | ✅ Validated |
-| deepseek-ai/DeepSeek-R1-Distill-Llama-70B | 70B | ml.g5.48xlarge | SFT | ✅ Validated |
+| deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B | 1.5B | ml.g5.xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
+| deepseek-ai/DeepSeek-R1-Distill-Qwen-7B | 7B | ml.g5.xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
+| deepseek-ai/DeepSeek-R1-Distill-Qwen-14B | 14B | ml.g5.2xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
+| deepseek-ai/DeepSeek-R1-Distill-Qwen-32B | 32B | ml.g5.12xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
+| deepseek-ai/DeepSeek-R1-Distill-Llama-8B | 8B | ml.g5.xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
+| deepseek-ai/DeepSeek-R1-Distill-Llama-70B | 70B | ml.g5.48xlarge | SFT, DPO, RLAIF, RLVR | ⏳ Pending |
 
 ### GPT-OSS
 
 | Model | Parameters | Instance | Tuning Techniques | Status |
 |---|---|---|---|---|
-| openai/gpt-oss-20b | 20B | ml.g5.12xlarge | SFT, DPO | ✅ Validated |
-| openai/gpt-oss-120b | 120B | ml.g5.48xlarge | SFT, DPO | ✅ Validated |
+| openai/gpt-oss-20b | 20B | ml.g5.12xlarge | SFT, DPO | ⏳ Pending |
+| openai/gpt-oss-120b | 120B | ml.g5.48xlarge | SFT, DPO | ⏳ Pending |
 
 ---
 
@@ -164,7 +167,7 @@ generate → build → push → deploy → test → tune (SFT) → adapter add �
 
 ### DeepSeek R1
 
-- SFT-only (DPO and RLVR not supported by SageMaker AI managed customization for this family).
+- All 4 tuning techniques supported (SFT, DPO, RLAIF, RLVR).
 - Distilled variants maintain reasoning chain formatting in outputs.
 
 ### GPT-OSS

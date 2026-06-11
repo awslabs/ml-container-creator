@@ -423,7 +423,7 @@
         },
         "includeBenchmark": {
             "type": "boolean",
-            "description": "Include SageMaker AI Benchmarking",
+            "description": "Include SageMaker AI Benchmarking scripts (do/benchmark, do/optimize). Workload configuration is specified at runtime via --workload flag.",
             "cliFlag": "--include-benchmark",
             "cliArgName": null,
             "envVar": "ML_INCLUDE_BENCHMARK",
@@ -483,11 +483,7 @@
                 "inputType": "number",
                 "placeholder": "10"
             },
-            "prompt": {
-                "message": "Benchmark concurrency?",
-                "type": "number",
-                "when": "includeBenchmark === true"
-            },
+            "prompt": null,
             "deprecated": false,
             "since": "0.6.0"
         },
@@ -520,11 +516,7 @@
                 "inputType": "number",
                 "placeholder": "550"
             },
-            "prompt": {
-                "message": "Mean input tokens?",
-                "type": "number",
-                "when": "includeBenchmark === true"
-            },
+            "prompt": null,
             "deprecated": false,
             "since": "0.6.0"
         },
@@ -557,11 +549,7 @@
                 "inputType": "number",
                 "placeholder": "150"
             },
-            "prompt": {
-                "message": "Mean output tokens?",
-                "type": "number",
-                "when": "includeBenchmark === true"
-            },
+            "prompt": null,
             "deprecated": false,
             "since": "0.6.0"
         },
@@ -590,11 +578,7 @@
                 "section": "features",
                 "inputType": "checkbox"
             },
-            "prompt": {
-                "message": "Enable streaming in benchmark?",
-                "type": "confirm",
-                "when": "includeBenchmark === true"
-            },
+            "prompt": null,
             "deprecated": false,
             "since": "0.6.0"
         },

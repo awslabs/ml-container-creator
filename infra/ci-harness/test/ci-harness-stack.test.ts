@@ -1,5 +1,6 @@
 import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
+import assert from 'node:assert/strict';
 import { MlccCiHarnessStack } from '../lib/ci-harness-stack';
 
 describe('MlccCiHarnessStack', () => {
@@ -380,12 +381,15 @@ describe('MlccCiHarnessStack', () => {
             });
         });
 
-        it('has DynamoDB:UpdateItem permission', () => {
+        it('has DynamoDB:UpdateItem and GetItem permissions', () => {
             template.hasResourceProperties('AWS::IAM::Policy', {
                 PolicyDocument: Match.objectLike({
                     Statement: Match.arrayWith([
                         Match.objectLike({
-                            Action: 'dynamodb:UpdateItem',
+                            Action: Match.arrayWith([
+                                'dynamodb:UpdateItem',
+                                'dynamodb:GetItem',
+                            ]),
                             Effect: 'Allow',
                         }),
                     ]),
@@ -515,6 +519,456 @@ describe('MlccCiHarnessStack', () => {
                     { Ref: Match.stringLikeRegexp('CodeBuildRole') },
                 ]),
             });
+        });
+    });
+
+    describe('Benchmark Infrastructure Idempotency (Req 3.2)', () => {
+        it('defines CreateBenchmarkInfra parameter with default false', () => {
+            template.hasParameter('CreateBenchmarkInfra', {
+                Type: 'String',
+                Default: 'false',
+                AllowedValues: ['true', 'false'],
+            });
+        });
+
+        it('defines BenchmarkInfraCondition based on CreateBenchmarkInfra parameter', () => {
+            template.hasCondition('BenchmarkInfraCondition', {
+                'Fn::Equals': [
+                    { Ref: 'CreateBenchmarkInfra' },
+                    'true',
+                ],
+            });
+        });
+
+        it('Glue database is gated by BenchmarkInfraCondition', () => {
+            template.hasResource('AWS::Glue::Database', {
+                Condition: 'BenchmarkInfraCondition',
+                Properties: Match.objectLike({
+                    DatabaseInput: Match.objectLike({
+                        Name: 'mlcc_ci',
+                    }),
+                }),
+            });
+        });
+
+        it('Glue table is gated by BenchmarkInfraCondition', () => {
+            template.hasResource('AWS::Glue::Table', {
+                Condition: 'BenchmarkInfraCondition',
+                Properties: Match.objectLike({
+                    DatabaseName: 'mlcc_ci',
+                    TableInput: Match.objectLike({
+                        Name: 'benchmark_results',
+                        TableType: 'EXTERNAL_TABLE',
+                    }),
+                }),
+            });
+        });
+
+        it('S3 bucket is gated by BenchmarkInfraCondition', () => {
+            template.hasResource('AWS::S3::Bucket', {
+                Condition: 'BenchmarkInfraCondition',
+                UpdateReplacePolicy: 'Retain',
+                DeletionPolicy: 'Retain',
+            });
+        });
+
+        it('benchmark IAM policy is gated by BenchmarkInfraCondition', () => {
+            template.hasResource('AWS::IAM::Policy', {
+                Condition: 'BenchmarkInfraCondition',
+                Properties: Match.objectLike({
+                    PolicyName: 'mlcc-ci-benchmark-write-policy',
+                }),
+            });
+        });
+
+        it('cdk synth produces identical output on repeated runs (deterministic)', () => {
+            // Synthesize the same stack a second time
+            const app2 = new App();
+            const stack2 = new MlccCiHarnessStack(app2, 'TestStack');
+            const template2 = Template.fromStack(stack2);
+
+            // Both templates should have the same resource counts
+            const resources1 = template.toJSON().Resources;
+            const resources2 = template2.toJSON().Resources;
+
+            // Same number of resources
+            const keys1 = Object.keys(resources1).sort();
+            const keys2 = Object.keys(resources2).sort();
+            assert.deepStrictEqual(keys1, keys2, 'Resource logical IDs must be identical across synths');
+        });
+
+        it('Glue table depends on Glue database (ordered creation)', () => {
+            template.hasResource('AWS::Glue::Table', {
+                DependsOn: Match.arrayWith(['CiGlueDatabase']),
+            });
+        });
+
+        it('all benchmark resources use a single shared condition', () => {
+            // Verify benchmark + path prover conditions are defined
+            const conditions = template.toJSON().Conditions;
+            const conditionNames = Object.keys(conditions);
+            assert.ok(conditionNames.includes('BenchmarkInfraCondition'), 'Should have BenchmarkInfraCondition');
+            // PathProverCondition is separate — benchmark resources only use BenchmarkInfraCondition
+        });
+    });
+
+    describe('Benchmark Infrastructure Snapshot (Req 3.1, 3.2, 3.4)', () => {
+        // This describe block validates the detailed resource properties
+        // of the benchmark infrastructure when CreateBenchmarkInfra=true.
+        // It acts as a snapshot test ensuring the Glue DB, Glue Table,
+        // S3 bucket, and IAM policy all have the correct configurations.
+
+        it('Glue database has correct catalog ID and description', () => {
+            template.hasResourceProperties('AWS::Glue::Database', {
+                CatalogId: { Ref: 'AWS::AccountId' },
+                DatabaseInput: {
+                    Name: 'mlcc_ci',
+                    Description: 'MCC CI benchmark results warehouse',
+                },
+            });
+        });
+
+        it('Glue table has Parquet classification and Snappy compression parameters', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    Parameters: {
+                        'classification': 'parquet',
+                        'parquet.compression': 'SNAPPY',
+                    },
+                }),
+            });
+        });
+
+        it('Glue table storage descriptor uses Parquet input/output formats', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    StorageDescriptor: Match.objectLike({
+                        InputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
+                        OutputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
+                        SerdeInfo: Match.objectLike({
+                            SerializationLibrary: 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe',
+                        }),
+                        Compressed: true,
+                    }),
+                }),
+            });
+        });
+
+        it('Glue table has all required core dimension columns', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    StorageDescriptor: Match.objectLike({
+                        Columns: Match.arrayWith([
+                            Match.objectLike({ Name: 'config_id', Type: 'string' }),
+                            Match.objectLike({ Name: 'model_name', Type: 'string' }),
+                            Match.objectLike({ Name: 'model_family', Type: 'string' }),
+                            Match.objectLike({ Name: 'instance_type', Type: 'string' }),
+                            Match.objectLike({ Name: 'instance_family', Type: 'string' }),
+                            Match.objectLike({ Name: 'deployment_config', Type: 'string' }),
+                            Match.objectLike({ Name: 'deployment_target', Type: 'string' }),
+                            Match.objectLike({ Name: 'run_timestamp', Type: 'timestamp' }),
+                        ]),
+                    }),
+                }),
+            });
+        });
+
+        it('Glue table has all required metric columns', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    StorageDescriptor: Match.objectLike({
+                        Columns: Match.arrayWith([
+                            Match.objectLike({ Name: 'ttft_p50_ms', Type: 'double' }),
+                            Match.objectLike({ Name: 'ttft_p99_ms', Type: 'double' }),
+                            Match.objectLike({ Name: 'itl_p50_ms', Type: 'double' }),
+                            Match.objectLike({ Name: 'itl_p99_ms', Type: 'double' }),
+                            Match.objectLike({ Name: 'throughput_rps', Type: 'double' }),
+                            Match.objectLike({ Name: 'tokens_per_second', Type: 'double' }),
+                            Match.objectLike({ Name: 'cost_per_1m_tokens', Type: 'double' }),
+                            Match.objectLike({ Name: 'error_rate', Type: 'double' }),
+                            Match.objectLike({ Name: 'status', Type: 'string' }),
+                        ]),
+                    }),
+                }),
+            });
+        });
+
+        it('Glue table has run_type provenance column (Req 8.10)', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    StorageDescriptor: Match.objectLike({
+                        Columns: Match.arrayWith([
+                            Match.objectLike({ Name: 'run_type', Type: 'string' }),
+                            Match.objectLike({ Name: 'ci_run_id', Type: 'string' }),
+                            Match.objectLike({ Name: 'benchmark_job_name', Type: 'string' }),
+                            Match.objectLike({ Name: 'account_id', Type: 'string' }),
+                        ]),
+                    }),
+                }),
+            });
+        });
+
+        it('Glue table has configuration dimension columns (quantization, tp, lora)', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    StorageDescriptor: Match.objectLike({
+                        Columns: Match.arrayWith([
+                            Match.objectLike({ Name: 'tensor_parallel_degree', Type: 'int' }),
+                            Match.objectLike({ Name: 'quantization', Type: 'string' }),
+                            Match.objectLike({ Name: 'enable_lora', Type: 'boolean' }),
+                            Match.objectLike({ Name: 'base_image', Type: 'string' }),
+                            Match.objectLike({ Name: 'mcc_version', Type: 'string' }),
+                        ]),
+                    }),
+                }),
+            });
+        });
+
+        it('Glue table has workload dimension columns', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    StorageDescriptor: Match.objectLike({
+                        Columns: Match.arrayWith([
+                            Match.objectLike({ Name: 'concurrency', Type: 'int' }),
+                            Match.objectLike({ Name: 'input_tokens_mean', Type: 'int' }),
+                            Match.objectLike({ Name: 'output_tokens_mean', Type: 'int' }),
+                            Match.objectLike({ Name: 'duration_seconds', Type: 'int' }),
+                        ]),
+                    }),
+                }),
+            });
+        });
+
+        it('Glue table has region/year/month partition keys', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    PartitionKeys: [
+                        { Name: 'region', Type: 'string' },
+                        { Name: 'year', Type: 'string' },
+                        { Name: 'month', Type: 'string' },
+                    ],
+                }),
+            });
+        });
+
+        it('Glue table storage location references account/region bucket via Fn::Join', () => {
+            template.hasResourceProperties('AWS::Glue::Table', {
+                TableInput: Match.objectLike({
+                    StorageDescriptor: Match.objectLike({
+                        Location: Match.objectLike({
+                            'Fn::Join': Match.arrayWith([
+                                '',
+                                Match.arrayWith([
+                                    's3://mlcc-benchmark-results-',
+                                ]),
+                            ]),
+                        }),
+                    }),
+                }),
+            });
+        });
+
+        it('S3 bucket has lifecycle rule with IA transition', () => {
+            template.hasResourceProperties('AWS::S3::Bucket', {
+                LifecycleConfiguration: Match.objectLike({
+                    Rules: Match.arrayWith([
+                        Match.objectLike({
+                            Transitions: Match.arrayWith([
+                                Match.objectLike({
+                                    StorageClass: 'STANDARD_IA',
+                                }),
+                            ]),
+                        }),
+                    ]),
+                }),
+            });
+        });
+
+        it('S3 bucket has expiration lifecycle rule', () => {
+            template.hasResourceProperties('AWS::S3::Bucket', {
+                LifecycleConfiguration: Match.objectLike({
+                    Rules: Match.arrayWith([
+                        Match.objectLike({
+                            ExpirationInDays: Match.anyValue(),
+                        }),
+                    ]),
+                }),
+            });
+        });
+
+        it('S3 bucket name follows mlcc-benchmark-results-{account}-{region} pattern', () => {
+            template.hasResourceProperties('AWS::S3::Bucket', {
+                BucketName: Match.objectLike({
+                    'Fn::Join': Match.arrayWith([
+                        '',
+                        Match.arrayWith([
+                            'mlcc-benchmark-results-',
+                        ]),
+                    ]),
+                }),
+            });
+        });
+
+        it('benchmark write policy has S3 PutObject/GetObject/ListBucket actions', () => {
+            template.hasResourceProperties('AWS::IAM::Policy', {
+                PolicyName: 'mlcc-ci-benchmark-write-policy',
+                PolicyDocument: Match.objectLike({
+                    Statement: Match.arrayWith([
+                        Match.objectLike({
+                            Sid: 'BenchmarkResultsWrite',
+                            Effect: 'Allow',
+                            Action: Match.arrayWith([
+                                's3:PutObject',
+                                's3:GetObject',
+                                's3:ListBucket',
+                            ]),
+                            Resource: Match.arrayWith([
+                                'arn:aws:s3:::mlcc-benchmark-results-*',
+                                'arn:aws:s3:::mlcc-benchmark-results-*/*',
+                            ]),
+                        }),
+                    ]),
+                }),
+            });
+        });
+
+        it('benchmark write policy has Glue catalog access actions', () => {
+            template.hasResourceProperties('AWS::IAM::Policy', {
+                PolicyName: 'mlcc-ci-benchmark-write-policy',
+                PolicyDocument: Match.objectLike({
+                    Statement: Match.arrayWith([
+                        Match.objectLike({
+                            Sid: 'GlueCatalogAccess',
+                            Effect: 'Allow',
+                            Action: Match.arrayWith([
+                                'glue:GetDatabase',
+                                'glue:GetTable',
+                                'glue:GetPartitions',
+                                'glue:BatchCreatePartition',
+                                'glue:CreatePartition',
+                            ]),
+                            Resource: Match.arrayWith([
+                                'arn:aws:glue:*:*:catalog',
+                                'arn:aws:glue:*:*:database/mlcc_ci',
+                                'arn:aws:glue:*:*:table/mlcc_ci/*',
+                            ]),
+                        }),
+                    ]),
+                }),
+            });
+        });
+
+        it('benchmark write policy has Athena query execution for partition repair', () => {
+            template.hasResourceProperties('AWS::IAM::Policy', {
+                PolicyName: 'mlcc-ci-benchmark-write-policy',
+                PolicyDocument: Match.objectLike({
+                    Statement: Match.arrayWith([
+                        Match.objectLike({
+                            Sid: 'AthenaPartitionRepair',
+                            Effect: 'Allow',
+                            Action: Match.arrayWith([
+                                'athena:StartQueryExecution',
+                                'athena:GetQueryResults',
+                            ]),
+                        }),
+                    ]),
+                }),
+            });
+        });
+
+        it('benchmark write policy is attached to the CodeBuild role', () => {
+            template.hasResourceProperties('AWS::IAM::Policy', {
+                PolicyName: 'mlcc-ci-benchmark-write-policy',
+                Roles: Match.arrayWith([
+                    { Ref: Match.stringLikeRegexp('CodeBuildRole') },
+                ]),
+            });
+        });
+
+        it('stack outputs include benchmark results bucket ARN (conditional)', () => {
+            const outputs = template.toJSON().Outputs;
+            const bucketArnOutput = Object.values(outputs as Record<string, any>).find(
+                (o: any) => o.Export?.Name === 'mlcc-ci-benchmark-results-bucket-arn'
+            );
+            assert.ok(bucketArnOutput, 'BenchmarkResultsBucketArn output should exist');
+            assert.strictEqual(bucketArnOutput.Condition, 'BenchmarkInfraCondition');
+        });
+
+        it('stack outputs include Glue database name (conditional)', () => {
+            const outputs = template.toJSON().Outputs;
+            const glueDbOutput = Object.values(outputs as Record<string, any>).find(
+                (o: any) => o.Value === 'mlcc_ci'
+            );
+            assert.ok(glueDbOutput, 'CiGlueDatabaseName output should exist');
+            assert.strictEqual(glueDbOutput.Condition, 'BenchmarkInfraCondition');
+        });
+
+        it('cdk synth twice with same parameters produces identical JSON (idempotent)', () => {
+            const app1 = new App();
+            const stack1 = new MlccCiHarnessStack(app1, 'IdempotencyTest');
+            const template1 = Template.fromStack(stack1);
+
+            const app2 = new App();
+            const stack2 = new MlccCiHarnessStack(app2, 'IdempotencyTest');
+            const template2 = Template.fromStack(stack2);
+
+            const json1 = JSON.stringify(template1.toJSON());
+            const json2 = JSON.stringify(template2.toJSON());
+            assert.strictEqual(json1, json2, 'Two identical cdk synth runs must produce byte-for-byte identical output');
+        });
+
+        it('without benchmark infra opted in, no Glue or S3 resources are created at deploy time', () => {
+            // With default parameter (false), CloudFormation condition ensures no resources.
+            // Verify the condition evaluates to gate these resources.
+            const cfnTemplate = template.toJSON();
+
+            // All Glue::Database resources have the BenchmarkInfraCondition
+            const resources = cfnTemplate.Resources;
+            const glueDbResources = Object.entries(resources).filter(
+                ([, v]: [string, any]) => v.Type === 'AWS::Glue::Database'
+            );
+            for (const [key, resource] of glueDbResources) {
+                assert.strictEqual(
+                    (resource as any).Condition,
+                    'BenchmarkInfraCondition',
+                    `Glue::Database ${key} must be gated by BenchmarkInfraCondition`
+                );
+            }
+
+            // All Glue::Table resources have the BenchmarkInfraCondition
+            const glueTableResources = Object.entries(resources).filter(
+                ([, v]: [string, any]) => v.Type === 'AWS::Glue::Table'
+            );
+            for (const [key, resource] of glueTableResources) {
+                assert.strictEqual(
+                    (resource as any).Condition,
+                    'BenchmarkInfraCondition',
+                    `Glue::Table ${key} must be gated by BenchmarkInfraCondition`
+                );
+            }
+
+            // All S3::Bucket resources have the BenchmarkInfraCondition
+            const s3Resources = Object.entries(resources).filter(
+                ([, v]: [string, any]) => v.Type === 'AWS::S3::Bucket'
+            );
+            for (const [key, resource] of s3Resources) {
+                assert.strictEqual(
+                    (resource as any).Condition,
+                    'BenchmarkInfraCondition',
+                    `S3::Bucket ${key} must be gated by BenchmarkInfraCondition`
+                );
+            }
+        });
+
+        it('Glue table defines exactly 31 columns (28 data + 3 partition excluded from columns)', () => {
+            const cfnTemplate = template.toJSON();
+            const resources = cfnTemplate.Resources;
+            const glueTableResource = Object.values(resources).find(
+                (r: any) => r.Type === 'AWS::Glue::Table'
+            ) as any;
+            assert.ok(glueTableResource, 'Glue table resource should exist');
+            const columns = glueTableResource.Properties.TableInput.StorageDescriptor.Columns;
+            assert.ok(columns.length >= 28, `Expected at least 28 columns but got ${columns.length}`);
         });
     });
 

@@ -5,7 +5,7 @@
   "name": "@amzn/ml-container-creator-endpoint-picker@1.0.0",
   "documentNamespace": "http://spdx.org/spdxdocs/@amzn%2fml-container-creator-endpoint-picker-1.0.0-***",
   "creationInfo": {
-    "created": "2026-05-21T16:11:57.348Z",
+    "created": "2026-06-10T13:42:53.530Z",
     "creators": [
       "Tool: npm/cli-11.6.2"
     ]
@@ -3414,7 +3414,7 @@
       "versionInfo": "6.15.1",
       "packageFileName": "node_modules/qs",
       "description": "A querystring parser that supports nesting and arrays, with a depth limit",
-      "downloadLocation": "https://registry.npmjs.org/qs/-/qs-6.15.1.tgz",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "homepage": "https://github.com/ljharb/qs",
       "licenseDeclared": "BSD-3-Clause",
@@ -3423,12 +3423,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:npm/qs@6.15.1"
-        }
-      ],
-      "checksums": [
-        {
-          "algorithm": "SHA512",
-          "checksumValue": "e981c41512fd99f81c02faa5fd78704ef7f98ca70e8a2ba9b761622711e4897d73e23ed62fc27f8d11d82e5b8e46f7355f1079ad5db42a878ad3481525a9aca6"
         }
       ]
     },

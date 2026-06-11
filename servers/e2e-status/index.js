@@ -17,14 +17,13 @@
  * empty results with a warning.
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
-import { resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
 
 // ── Bootstrap config loader ──────────────────────────────────────────────────
 
@@ -38,45 +37,45 @@ const __dirname = dirname(__filename)
 async function loadBootstrapConfig() {
     // Try bootstrap config first
     try {
-        const { default: BootstrapConfig } = await import('../../src/lib/bootstrap-config.js')
-        const config = new BootstrapConfig()
-        const profile = config.getActiveProfileWithDefaults()
+        const { default: BootstrapConfig } = await import('../../src/lib/bootstrap-config.js');
+        const config = new BootstrapConfig();
+        const profile = config.getActiveProfileWithDefaults();
         if (profile && profile.config.ciInfraProvisioned) {
             return {
                 tableName: profile.config.ciTableName,
                 region: profile.config.awsRegion
-            }
+            };
         }
     } catch {
         // Bootstrap config not available — fall through to env vars
     }
 
     // Fall back to environment variables
-    const tableName = process.env.CI_TABLE_NAME || 'mlcc-ci-table'
-    const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2'
+    const tableName = process.env.CI_TABLE_NAME || 'mlcc-ci-table';
+    const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2';
 
     // Only return config if we have a table name (env var or default)
-    return { tableName, region }
+    return { tableName, region };
 }
 
 // ── DynamoDB helpers ─────────────────────────────────────────────────────────
 
-let dynamoClient = null
-let tableConfig = null
+let dynamoClient = null;
+let tableConfig = null;
 
 /**
  * Lazily initialize the DynamoDB client.
  * Returns null if CI table is not provisioned.
  */
 async function getDynamoClient() {
-    if (dynamoClient) return { client: dynamoClient, tableName: tableConfig.tableName }
+    if (dynamoClient) return { client: dynamoClient, tableName: tableConfig.tableName };
 
-    tableConfig = await loadBootstrapConfig()
-    if (!tableConfig) return null
+    tableConfig = await loadBootstrapConfig();
+    if (!tableConfig) return null;
 
-    const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb')
-    dynamoClient = new DynamoDBClient({ region: tableConfig.region })
-    return { client: dynamoClient, tableName: tableConfig.tableName }
+    const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
+    dynamoClient = new DynamoDBClient({ region: tableConfig.region });
+    return { client: dynamoClient, tableName: tableConfig.tableName };
 }
 
 // ── Tool: get_e2e_status ─────────────────────────────────────────────────────
@@ -89,37 +88,37 @@ async function getDynamoClient() {
  * @returns {Promise<{results: Array}>}
  */
 async function getE2eStatus(configIds) {
-    const db = await getDynamoClient()
+    const db = await getDynamoClient();
     if (!db) {
-        return { results: [], warning: 'CI table not provisioned' }
+        return { results: [], warning: 'CI table not provisioned' };
     }
 
-    const { client, tableName } = db
+    const { client, tableName } = db;
 
     try {
-        const { BatchGetItemCommand } = await import('@aws-sdk/client-dynamodb')
-        const { unmarshall } = await import('@aws-sdk/util-dynamodb')
+        const { BatchGetItemCommand } = await import('@aws-sdk/client-dynamodb');
+        const { unmarshall } = await import('@aws-sdk/util-dynamodb');
 
         // BatchGetItem has a 100-item limit; chunk if needed
-        const chunks = []
+        const chunks = [];
         for (let i = 0; i < configIds.length; i += 100) {
-            chunks.push(configIds.slice(i, i + 100))
+            chunks.push(configIds.slice(i, i + 100));
         }
 
-        const results = []
+        const results = [];
 
         for (const chunk of chunks) {
-            const keys = chunk.map(id => ({ configId: { S: id } }))
+            const keys = chunk.map(id => ({ configId: { S: id } }));
 
             const response = await client.send(new BatchGetItemCommand({
                 RequestItems: {
                     [tableName]: { Keys: keys }
                 }
-            }))
+            }));
 
-            const items = response.Responses?.[tableName] || []
+            const items = response.Responses?.[tableName] || [];
             for (const rawItem of items) {
-                const item = unmarshall(rawItem)
+                const item = unmarshall(rawItem);
                 results.push({
                     configId: item.configId,
                     testStatus: item.testStatus || 'untested',
@@ -128,12 +127,12 @@ async function getE2eStatus(configIds) {
                     failingStage: item.testStatus && item.testStatus.startsWith('fail-')
                         ? item.testStatus.replace('fail-', '')
                         : null
-                })
+                });
             }
         }
 
         // Add 'untested' entries for configIds not found in the table
-        const foundIds = new Set(results.map(r => r.configId))
+        const foundIds = new Set(results.map(r => r.configId));
         for (const id of configIds) {
             if (!foundIds.has(id)) {
                 results.push({
@@ -142,13 +141,13 @@ async function getE2eStatus(configIds) {
                     lastTestTimestamp: null,
                     tier: null,
                     failingStage: null
-                })
+                });
             }
         }
 
-        return { results }
+        return { results };
     } catch (err) {
-        return { results: [], error: `Failed to query CI table: ${err.message}` }
+        return { results: [], error: `Failed to query CI table: ${err.message}` };
     }
 }
 
@@ -169,38 +168,38 @@ async function getE2eStatus(configIds) {
  * @returns {Promise<{runs: Array}>}
  */
 async function listE2eRuns(options = {}) {
-    const { tier, limit = 10 } = options
-    const db = await getDynamoClient()
+    const { tier, limit = 10 } = options;
+    const db = await getDynamoClient();
     if (!db) {
-        return { runs: [], warning: 'CI table not provisioned' }
+        return { runs: [], warning: 'CI table not provisioned' };
     }
 
-    const { client, tableName } = db
+    const { client, tableName } = db;
 
     try {
-        const { ScanCommand } = await import('@aws-sdk/client-dynamodb')
-        const { unmarshall } = await import('@aws-sdk/util-dynamodb')
+        const { ScanCommand } = await import('@aws-sdk/client-dynamodb');
+        const { unmarshall } = await import('@aws-sdk/util-dynamodb');
 
         const scanParams = {
             TableName: tableName,
             Limit: 500 // Scan a reasonable number of recent items
-        }
+        };
 
         // Apply tier filter if specified
         if (tier) {
-            scanParams.FilterExpression = 'tier = :tier'
-            scanParams.ExpressionAttributeValues = { ':tier': { S: tier } }
+            scanParams.FilterExpression = 'tier = :tier';
+            scanParams.ExpressionAttributeValues = { ':tier': { S: tier } };
         }
 
-        const response = await client.send(new ScanCommand(scanParams))
-        const items = (response.Items || []).map(i => unmarshall(i))
+        const response = await client.send(new ScanCommand(scanParams));
+        const items = (response.Items || []).map(i => unmarshall(i));
 
         // Group items by date (YYYY-MM-DD from lastTestTimestamp) as a run proxy
-        const runMap = new Map()
+        const runMap = new Map();
         for (const item of items) {
-            if (!item.lastTestTimestamp) continue
-            const dateKey = item.lastTestTimestamp.slice(0, 10) // YYYY-MM-DD
-            const runId = `${item.tier || 'unknown'}-${dateKey}`
+            if (!item.lastTestTimestamp) continue;
+            const dateKey = item.lastTestTimestamp.slice(0, 10); // YYYY-MM-DD
+            const runId = `${item.tier || 'unknown'}-${dateKey}`;
 
             if (!runMap.has(runId)) {
                 runMap.set(runId, {
@@ -209,30 +208,30 @@ async function listE2eRuns(options = {}) {
                     timestamp: item.lastTestTimestamp,
                     passed: 0,
                     failed: 0
-                })
+                });
             }
 
-            const run = runMap.get(runId)
+            const run = runMap.get(runId);
             if (item.testStatus === 'pass') {
-                run.passed++
+                run.passed++;
             } else {
-                run.failed++
+                run.failed++;
             }
 
             // Keep the most recent timestamp for the run
             if (item.lastTestTimestamp > run.timestamp) {
-                run.timestamp = item.lastTestTimestamp
+                run.timestamp = item.lastTestTimestamp;
             }
         }
 
         // Sort by timestamp descending and limit
         const runs = Array.from(runMap.values())
             .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-            .slice(0, limit)
+            .slice(0, limit);
 
-        return { runs }
+        return { runs };
     } catch (err) {
-        return { runs: [], error: `Failed to scan CI table: ${err.message}` }
+        return { runs: [], error: `Failed to scan CI table: ${err.message}` };
     }
 }
 
@@ -241,7 +240,7 @@ async function listE2eRuns(options = {}) {
 const server = new McpServer({
     name: 'e2e-status',
     version: '1.0.0'
-})
+});
 
 server.tool(
     'get_e2e_status',
@@ -250,15 +249,15 @@ server.tool(
         configIds: z.array(z.string()).min(1).describe('List of configId values to query status for')
     },
     async ({ configIds }) => {
-        const result = await getE2eStatus(configIds)
+        const result = await getE2eStatus(configIds);
         return {
             content: [{
                 type: 'text',
                 text: JSON.stringify(result)
             }]
-        }
+        };
     }
-)
+);
 
 server.tool(
     'list_e2e_runs',
@@ -268,15 +267,15 @@ server.tool(
         limit: z.number().int().positive().default(10).describe('Maximum number of runs to return')
     },
     async ({ tier, limit }) => {
-        const result = await listE2eRuns({ tier, limit })
+        const result = await listE2eRuns({ tier, limit });
         return {
             content: [{
                 type: 'text',
                 text: JSON.stringify(result)
             }]
-        }
+        };
     }
-)
+);
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
@@ -285,14 +284,14 @@ export {
     listE2eRuns,
     loadBootstrapConfig,
     getDynamoClient
-}
+};
 
 // ── Main guard ───────────────────────────────────────────────────────────────
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename
+const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
 
 if (isMain) {
-    process.stderr.write('[e2e-status] Starting E2E status MCP server\n')
-    const transport = new StdioServerTransport()
-    await server.connect(transport)
+    process.stderr.write('[e2e-status] Starting E2E status MCP server\n');
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
 }

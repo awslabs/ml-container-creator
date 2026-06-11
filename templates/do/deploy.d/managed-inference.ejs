@@ -10,9 +10,11 @@ set -o pipefail
 FORCE_NEW=false
 FORCE_IC=false
 IC_TARGET=""
+CI_FLAG=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE_NEW=true; shift ;;
+        --ci) CI_FLAG=true; shift ;;
         --force-ic)
             FORCE_IC=true
             shift
@@ -32,13 +34,14 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: ./do/deploy [--force] [--force-ic [<name>]] [--ic <name>]"
+            echo "Usage: ./do/deploy [--force] [--force-ic [<name>]] [--ic <name>] [--ci]"
             echo ""
             echo "Options:"
             echo "  --force            Create a new endpoint and IC, even if one already exists."
             echo "  --force-ic         Recreate ALL inference components on the existing endpoint."
             echo "  --force-ic <name>  Recreate only the named IC on the existing endpoint."
             echo "  --ic <name>        Deploy only the named IC (from do/ic/<name>.conf)."
+            echo "  --ci               Enable CI mode (structured errors, timeouts, idempotency)."
             echo ""
             echo "Without flags, deploy resumes from the last run."
             exit 0
@@ -50,6 +53,160 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# ============================================================
+# CI-Mode Detection and Configuration
+# ============================================================
+# CI mode is activated by CI_MODE=true env var OR --ci flag
+if [ "${CI_MODE:-false}" = "true" ] || [ "${CI_FLAG}" = "true" ]; then
+    CI_ACTIVE=true
+else
+    CI_ACTIVE=false
+fi
+
+# CI-mode timeout configuration (seconds)
+if [ "${CI_ACTIVE}" = "true" ]; then
+    CI_DEPLOY_TIMEOUT="${CI_DEPLOY_TIMEOUT_SECONDS:-1200}"
+    CI_DEPLOY_START=$(date +%s)
+fi
+
+# _ci_emit_error <error_message> <error_type> <retryable>
+#   Emits structured JSON error output when in CI mode.
+#   In non-CI mode, prints human-readable error and exits.
+_ci_emit_error() {
+    local error_msg="$1"
+    local error_type="$2"
+    local retryable="$3"
+    local elapsed=0
+
+    if [ "${CI_ACTIVE}" = "true" ]; then
+        elapsed=$(( $(date +%s) - CI_DEPLOY_START ))
+        echo "{\"error\":\"${error_msg}\",\"error_type\":\"${error_type}\",\"instance_type\":\"${INSTANCE_TYPE:-unknown}\",\"region\":\"${AWS_REGION:-unknown}\",\"retryable\":${retryable},\"elapsed_seconds\":${elapsed}}"
+        exit 1
+    else
+        echo "❌ ${error_msg}"
+        exit 1
+    fi
+}
+
+# _ci_check_timeout
+#   Checks if CI-mode timeout has been exceeded.
+#   Emits structured timeout error if so.
+_ci_check_timeout() {
+    if [ "${CI_ACTIVE}" = "true" ]; then
+        local elapsed=$(( $(date +%s) - CI_DEPLOY_START ))
+        if [ "${elapsed}" -ge "${CI_DEPLOY_TIMEOUT}" ]; then
+            _ci_emit_error "Deployment timed out after ${elapsed} seconds (limit: ${CI_DEPLOY_TIMEOUT}s)" "timeout" "true"
+        fi
+    fi
+}
+
+# _ci_create_endpoint_with_retry
+#   Wraps CreateEndpoint with exponential backoff for throttling.
+#   Base: 5 seconds, max 3 attempts.
+_ci_create_endpoint_with_retry() {
+    local attempt=0
+    local max_attempts=3
+    local backoff=5
+    local ep_name="$1"
+    local ep_config="$2"
+
+    while [ "${attempt}" -lt "${max_attempts}" ]; do
+        attempt=$(( attempt + 1 ))
+        local create_output
+        create_output=$(aws sagemaker create-endpoint \
+            --endpoint-name "${ep_name}" \
+            --endpoint-config-name "${ep_config}" \
+            --region "${AWS_REGION}" 2>&1) && return 0
+
+        # Check if throttled
+        if echo "${create_output}" | grep -qi "ThrottlingException"; then
+            if [ "${attempt}" -lt "${max_attempts}" ]; then
+                if [ "${CI_ACTIVE}" = "true" ]; then
+                    echo "⏳ Throttled (attempt ${attempt}/${max_attempts}), retrying in ${backoff}s..."
+                else
+                    echo "⏳ Throttled, retrying in ${backoff}s..."
+                fi
+                sleep "${backoff}"
+                backoff=$(( backoff * 2 ))
+            else
+                _ci_emit_error "CreateEndpoint throttled after ${max_attempts} attempts" "throttled" "true"
+            fi
+        elif echo "${create_output}" | grep -qi "InsufficientInstanceCapacity"; then
+            _ci_emit_error "InsufficientInstanceCapacity: Unable to provision ${INSTANCE_TYPE} in ${AWS_REGION}" "capacity" "true"
+        else
+            # Other API error
+            _ci_emit_error "CreateEndpoint failed: ${create_output}" "api_error" "false"
+        fi
+    done
+}
+
+# _ci_handle_existing_endpoint
+#   CI-mode idempotent deployment logic.
+#   Returns 0 if deployment should be skipped (already InService with matching config).
+#   Returns 1 if a fresh deploy should proceed.
+#   Handles bad-state cleanup (Failed/OutOfService → delete + recreate).
+_ci_handle_existing_endpoint() {
+    local ep_name="${ENDPOINT_NAME:-}"
+    if [ -z "${ep_name}" ]; then
+        return 1  # No existing endpoint, proceed with fresh deploy
+    fi
+
+    local ep_status
+    ep_status=$(_get_endpoint_status "${ep_name}" 2>/dev/null || echo "")
+
+    case "${ep_status}" in
+        InService)
+            # Check if config matches (idempotent check)
+            if [ -n "${INFERENCE_COMPONENT_NAME:-}" ]; then
+                local ic_status
+                ic_status=$(_get_ic_status "${INFERENCE_COMPONENT_NAME}" 2>/dev/null || echo "")
+                if [ "${ic_status}" = "InService" ]; then
+                    echo "✅ [CI] Endpoint InService with matching config — skipping deployment"
+                    echo "   Endpoint: ${ep_name}"
+                    echo "   Inference Component: ${INFERENCE_COMPONENT_NAME}"
+                    return 0
+                fi
+            fi
+            return 1
+            ;;
+        Failed|OutOfService)
+            echo "⚠️  [CI] Endpoint in bad state (${ep_status}): ${ep_name}"
+            echo "   Deleting endpoint for fresh deployment..."
+
+            aws sagemaker delete-endpoint \
+                --endpoint-name "${ep_name}" \
+                --region "${AWS_REGION}" 2>/dev/null || true
+
+            # Wait for deletion to complete
+            local delete_start
+            delete_start=$(date +%s)
+            local delete_timeout=300  # 5 minutes
+
+            while true; do
+                _ci_check_timeout
+                local check_status
+                check_status=$(_get_endpoint_status "${ep_name}" 2>/dev/null || echo "")
+                if [ -z "${check_status}" ]; then
+                    echo "   ✅ Endpoint deleted: ${ep_name}"
+                    break
+                fi
+                local del_elapsed=$(( $(date +%s) - delete_start ))
+                if [ "${del_elapsed}" -ge "${delete_timeout}" ]; then
+                    _ci_emit_error "Endpoint deletion timed out for ${ep_name} (state: ${ep_status})" "endpoint_failed" "true"
+                fi
+                sleep 10
+            done
+
+            # Clear endpoint name so fresh deploy proceeds
+            ENDPOINT_NAME=""
+            return 1
+            ;;
+        *)
+            return 1  # Unknown/absent state, proceed with fresh deploy
+            ;;
+    esac
+}
 
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -192,6 +349,16 @@ fi
 
 # Resolve container secrets (HF_TOKEN, NGC_API_KEY)
 resolve_secrets
+
+# ============================================================
+# CI-Mode: Idempotent deployment check (runs before normal idempotency)
+# ============================================================
+if [ "${CI_ACTIVE}" = "true" ] && [ "${FORCE_NEW}" != "true" ]; then
+    if _ci_handle_existing_endpoint; then
+        # Endpoint already InService with matching config — exit successfully
+        exit 0
+    fi
+fi
 
 # ============================================================
 # Idempotency: check for existing deployment from a previous run
@@ -380,16 +547,20 @@ if [ -z "${SKIP_TO}" ]; then
 
         # Step 2: Create endpoint
         echo "🚀 Creating endpoint: ${ENDPOINT_NAME}"
-        if ! aws sagemaker create-endpoint \
-            --endpoint-name "${ENDPOINT_NAME}" \
-            --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
-            --region "${AWS_REGION}"; then
+        if [ "${CI_ACTIVE}" = "true" ]; then
+            _ci_create_endpoint_with_retry "${ENDPOINT_NAME}" "${ENDPOINT_CONFIG_NAME}"
+        else
+            if ! aws sagemaker create-endpoint \
+                --endpoint-name "${ENDPOINT_NAME}" \
+                --endpoint-config-name "${ENDPOINT_CONFIG_NAME}" \
+                --region "${AWS_REGION}"; then
 
-            echo "❌ Failed to create endpoint"
-            echo "   Check that:"
-            echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
-            echo "   • You have sufficient service quota in region: ${AWS_REGION}"
-            exit 4
+                echo "❌ Failed to create endpoint"
+                echo "   Check that:"
+                echo "   • Your IAM credentials have sagemaker:CreateEndpoint permission"
+                echo "   • You have sufficient service quota in region: ${AWS_REGION}"
+                exit 4
+            fi
         fi
 
         echo "✅ Endpoint creation initiated: ${ENDPOINT_NAME}"
@@ -413,7 +584,17 @@ if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
     echo "   This may take a few minutes..."
     echo "   If this times out, re-run ./do/deploy to resume."
 
+    # CI-mode: check timeout during wait
+    if [ "${CI_ACTIVE}" = "true" ]; then
+        _ci_check_timeout
+    fi
+
     wait_endpoint "${ENDPOINT_NAME}"
+
+    # CI-mode: check timeout after wait completes
+    if [ "${CI_ACTIVE}" = "true" ]; then
+        _ci_check_timeout
+    fi
 
     echo "✅ Endpoint is InService: ${ENDPOINT_NAME}"
 fi

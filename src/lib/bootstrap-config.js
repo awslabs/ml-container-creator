@@ -29,6 +29,8 @@
  * Optional CI fields (added by bootstrap --ci):
  *   - ciInfraProvisioned (boolean): Whether CI harness infrastructure has been deployed. Defaults to false.
  *   - ciTableName (string): Name of the DynamoDB CI table. Defaults to "mlcc-ci-table".
+ *   - ciGlueDatabase (string|null): Name of the Glue database for benchmark results. Defaults to null (benchmark infra not provisioned).
+ *   - ciBenchmarkResultsBucket (string|null): Name of the S3 bucket for benchmark Parquet files. Defaults to null (benchmark infra not provisioned).
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -134,6 +136,8 @@ export default class BootstrapConfig {
         return {
             ciInfraProvisioned: false,
             ciTableName: 'mlcc-ci-table',
+            ciGlueDatabase: null,
+            ciBenchmarkResultsBucket: null,
             ...profile
         };
     }
@@ -156,9 +160,41 @@ export default class BootstrapConfig {
             config: {
                 ciInfraProvisioned: false,
                 ciTableName: 'mlcc-ci-table',
+                ciGlueDatabase: null,
+                ciBenchmarkResultsBucket: null,
                 ...active.config
             }
         };
+    }
+
+    /**
+     * Find the profile that has CI infrastructure provisioned.
+     * Scans all profiles and returns the first one with ciInfraProvisioned: true.
+     *
+     * @returns {{ name: string, config: Object }|null} The CI profile, or null if none found
+     */
+    findCiProfile() {
+        const config = this.read();
+        if (!config || !config.profiles) return null;
+
+        for (const [name, profileConfig] of Object.entries(config.profiles)) {
+            if (profileConfig.ciInfraProvisioned) {
+                return { name, config: profileConfig };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get the sharedInfraFrom field, handling legacy sharedStackFrom.
+     * Returns the source stack name if infrastructure was shared from another profile,
+     * or null if this profile has standalone infrastructure.
+     *
+     * @param {Object} profileConfig - A profile configuration object
+     * @returns {string|null} The source stack name or null
+     */
+    getSharedInfraSource(profileConfig) {
+        return profileConfig.sharedInfraFrom || profileConfig.sharedStackFrom || null;
     }
 
     /**

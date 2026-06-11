@@ -20,8 +20,8 @@ class DynamicResolver {
      * @param {object} [options] - Resolver-specific options (limit, timeout, etc.)
      * @returns {Promise<{items: object[], defaultItem: *|null}>}
      */
-    async fetch(key, options = {}) {
-        throw new Error('fetch() must be implemented by subclass')
+    async fetch(key, _options = {}) {
+        throw new Error('fetch() must be implemented by subclass');
     }
 
     /**
@@ -29,8 +29,8 @@ class DynamicResolver {
      * @returns {string[]}
      */
     supportedKeys() {
-        throw new Error('supportedKeys() must be implemented by subclass')
+        throw new Error('supportedKeys() must be implemented by subclass');
     }
 }
 
-export { DynamicResolver }
+export { DynamicResolver };
