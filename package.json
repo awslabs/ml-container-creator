@@ -4,8 +4,8 @@
   "description": "Build and deploy custom ML containers on AWS SageMaker with minimal configuration.",
   "main": "src/index.js",
   "bin": {
-    "ml-container-creator": "bin/cli.js",
-    "mcc": "bin/cli.js"
+    "ml-container-creator": "./bin/cli.js",
+    "mcc": "./bin/cli.js"
   },
   "keywords": [
     "sagemaker",
