@@ -98,7 +98,7 @@
     "test:perf": "node scripts/analyze-test-performance.js",
     "lint": "eslint src/ servers/ bin/ --ext .js,.cjs,.mjs",
     "lint:fix": "eslint src/ servers/ bin/ --ext .js,.cjs,.mjs --fix",
-    "codegen": "node scripts/codegen-parameter-schema.js && node scripts/codegen-docs-commands.js",
+    "codegen": "node scripts/codegen-cli.js && node scripts/codegen-validator.js && node scripts/codegen-widget.js && node scripts/codegen-parameter-matrix.js",
     "validate:doc-commands": "node scripts/validate-docs-commands.js",
     "sbom": "sbom --format spdx --output sbom.json",
     "prepublishOnly": "npm run lint && npm run test:all"
