@@ -18,18 +18,18 @@
  *   Returns: { values, choices, message }
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { resolve, dirname } from 'node:path'
-import { DynamicResolver } from '../lib/dynamic-resolver.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { resolve, dirname } from 'node:path';
+import { DynamicResolver } from '../lib/dynamic-resolver.js';
 
 // ── Catalog loader ───────────────────────────────────────────────────────────
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Load and parse a JSON catalog file relative to the server directory.
@@ -39,17 +39,17 @@ const __dirname = dirname(__filename)
  * @returns {any} Parsed JSON content
  */
 function loadCatalog(relativePath) {
-    const fullPath = resolve(__dirname, relativePath)
-    let raw
+    const fullPath = resolve(__dirname, relativePath);
+    let raw;
     try {
-        raw = readFileSync(fullPath, 'utf8')
+        raw = readFileSync(fullPath, 'utf8');
     } catch (err) {
-        throw new Error(`Catalog file not found: ${fullPath}`)
+        throw new Error(`Catalog file not found: ${fullPath}`);
     }
     try {
-        return JSON.parse(raw)
+        return JSON.parse(raw);
     } catch (err) {
-        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`)
+        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`);
     }
 }
 
@@ -71,8 +71,8 @@ class ModelResolver extends DynamicResolver {
      * @param {object} options - { fields, limit, context }
      * @returns {Promise<object|null>} Model metadata or null
      */
-    async fetchModelMetadata(modelId, options = {}) {
-        throw new Error('fetchModelMetadata() must be implemented by subclass')
+    async fetchModelMetadata(modelId, _options = {}) {
+        throw new Error('fetchModelMetadata() must be implemented by subclass');
     }
 
     /**
@@ -80,17 +80,17 @@ class ModelResolver extends DynamicResolver {
      * @returns {string[]} e.g. ['hf:org/model'] for HuggingFace org/model pattern
      */
     supportedPatterns() {
-        throw new Error('supportedPatterns() must be implemented by subclass')
+        throw new Error('supportedPatterns() must be implemented by subclass');
     }
 
     // ── DynamicResolver interface bridge ─────────────────────────────────
 
     async fetch(key, options = {}) {
-        return this.fetchModelMetadata(key, options)
+        return this.fetchModelMetadata(key, options);
     }
 
     supportedKeys() {
-        return this.supportedPatterns()
+        return this.supportedPatterns();
     }
 }
 
@@ -106,30 +106,30 @@ class ModelResolver extends DynamicResolver {
  */
 class StaticCatalogResolver extends ModelResolver {
     constructor(catalog) {
-        super()
-        this._catalog = catalog
+        super();
+        this._catalog = catalog;
     }
 
     supportedPatterns() {
-        return ['*']
+        return ['*'];
     }
 
-    async fetchModelMetadata(modelId, options = {}) {
+    async fetchModelMetadata(modelId, _options = {}) {
         // Exact match first
         if (this._catalog[modelId]) {
-            return { ...this._catalog[modelId] }
+            return { ...this._catalog[modelId] };
         }
 
         // Glob pattern match (e.g., 'meta-llama/Llama-2-*')
         for (const [pattern, metadata] of Object.entries(this._catalog)) {
             if (pattern.includes('*') || pattern.includes('?')) {
                 if (this._globMatch(modelId, pattern)) {
-                    return { ...metadata }
+                    return { ...metadata };
                 }
             }
         }
 
-        return null
+        return null;
     }
 
     /**
@@ -142,9 +142,9 @@ class StaticCatalogResolver extends ModelResolver {
      */
     _globMatch(str, pattern) {
         const regex = new RegExp(
-            '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$'
-        )
-        return regex.test(str)
+            `^${  pattern.replace(/\*/g, '.*').replace(/\?/g, '.')  }$`
+        );
+        return regex.test(str);
     }
 }
 
@@ -163,47 +163,47 @@ class StaticCatalogResolver extends ModelResolver {
  */
 class HuggingFaceResolver extends ModelResolver {
     constructor(options = {}) {
-        super()
-        this.baseUrl = options.baseUrl || 'https://huggingface.co'
-        this.timeout = options.timeout || 5000
+        super();
+        this.baseUrl = options.baseUrl || 'https://huggingface.co';
+        this.timeout = options.timeout || 5000;
     }
 
     supportedPatterns() {
-        return ['hf:*/*']
+        return ['hf:*/*'];
     }
 
     async fetchModelMetadata(modelId, options = {}) {
-        const { fields } = options
-        const metadata = {}
+        const { fields } = options;
+        const metadata = {};
 
         // Fetch model info (always)
         const modelInfo = await this._fetchJson(
             `${this.baseUrl}/api/models/${modelId}`
-        )
+        );
         if (modelInfo) {
-            metadata.tags = modelInfo.tags || []
-            metadata.gated = modelInfo.gated || false
-            metadata.pipeline_tag = modelInfo.pipeline_tag || null
+            metadata.tags = modelInfo.tags || [];
+            metadata.gated = modelInfo.gated || false;
+            metadata.pipeline_tag = modelInfo.pipeline_tag || null;
         }
 
         // Fetch tokenizer config (conditional)
         if (!fields || fields.includes('chat_template')) {
             const tokenizerConfig = await this._fetchJson(
                 `${this.baseUrl}/${modelId}/resolve/main/tokenizer_config.json`
-            )
-            metadata.chat_template = tokenizerConfig?.chat_template || null
+            );
+            metadata.chat_template = tokenizerConfig?.chat_template || null;
         }
 
         // Fetch model config (conditional)
         if (!fields || fields.includes('architecture') || fields.includes('model_type')) {
             const modelConfig = await this._fetchJson(
                 `${this.baseUrl}/${modelId}/resolve/main/config.json`
-            )
-            metadata.architecture = modelConfig?.architectures?.[0] || null
-            metadata.model_type = modelConfig?.model_type || null
+            );
+            metadata.architecture = modelConfig?.architectures?.[0] || null;
+            metadata.model_type = modelConfig?.model_type || null;
         }
 
-        return Object.keys(metadata).length > 0 ? metadata : null
+        return Object.keys(metadata).length > 0 ? metadata : null;
     }
 
     /**
@@ -214,26 +214,26 @@ class HuggingFaceResolver extends ModelResolver {
      * @returns {Promise<object|null>}
      */
     async _fetchJson(url) {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), this.timeout)
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.timeout);
         try {
-            const response = await fetch(url, { signal: controller.signal })
-            clearTimeout(timer)
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timer);
             if (response.status === 429) {
                 process.stderr.write(
                     `[model-picker] Rate limited: ${url}\n`
-                )
-                return null
+                );
+                return null;
             }
-            if (response.status === 404) return null
-            if (!response.ok) return null
-            return await response.json()
+            if (response.status === 404) return null;
+            if (!response.ok) return null;
+            return await response.json();
         } catch (err) {
-            clearTimeout(timer)
+            clearTimeout(timer);
             process.stderr.write(
                 `[model-picker] Fetch failed: ${url} — ${err.message}\n`
-            )
-            return null
+            );
+            return null;
         }
     }
 }
@@ -253,7 +253,7 @@ const CREDENTIAL_ERROR_NAMES = new Set([
     'InvalidIdentityToken',
     'NoSuchTokenException',
     'UnrecognizedClientException'
-])
+]);
 
 /**
  * JumpStartPublicResolver — fetches model metadata from the JumpStart public
@@ -270,16 +270,16 @@ const CREDENTIAL_ERROR_NAMES = new Set([
  */
 class JumpStartPublicResolver extends ModelResolver {
     constructor(options = {}) {
-        super()
-        this.timeout = options.timeout ?? 10000
-        this.region = options.region || process.env.AWS_REGION || 'us-east-1'
-        this._client = null
-        this._sdkModule = null
-        this._staticCatalog = options.staticCatalog || null
+        super();
+        this.timeout = options.timeout ?? 10000;
+        this.region = options.region || process.env.AWS_REGION || 'us-east-1';
+        this._client = null;
+        this._sdkModule = null;
+        this._staticCatalog = options.staticCatalog || null;
     }
 
     supportedPatterns() {
-        return ['jumpstart://*']
+        return ['jumpstart://*'];
     }
 
     /**
@@ -297,61 +297,61 @@ class JumpStartPublicResolver extends ModelResolver {
      * @param {object} options - { fields, context }
      * @returns {Promise<object|null>} ModelMetadata or null
      */
-    async fetchModelMetadata(modelId, options = {}) {
-        const bareId = modelId.replace(/^jumpstart:\/\//, '')
+    async fetchModelMetadata(modelId, _options = {}) {
+        const bareId = modelId.replace(/^jumpstart:\/\//, '');
 
         try {
-            const sdk = await this._loadSdk()
-            const client = this._createClient(sdk)
+            const sdk = await this._loadSdk();
+            const client = this._createClient(sdk);
 
             // Fetch the manifest
             const manifestCmd = new sdk.GetObjectCommand({
                 Bucket: this._bucketName(),
                 Key: 'models_manifest.json'
-            })
-            const manifestResp = await client.send(manifestCmd)
-            const manifestBody = await manifestResp.Body.transformToString()
-            const manifest = JSON.parse(manifestBody)
+            });
+            const manifestResp = await client.send(manifestCmd);
+            const manifestBody = await manifestResp.Body.transformToString();
+            const manifest = JSON.parse(manifestBody);
 
             if (!Array.isArray(manifest) || manifest.length === 0) {
-                return null
+                return null;
             }
 
             // List mode — return metadata from the first manifest entry
             if (!bareId || bareId === '*') {
-                return this._mapToMetadata(manifest[0], manifest[0].model_id || '*')
+                return this._mapToMetadata(manifest[0], manifest[0].model_id || '*');
             }
 
             // Find the latest version entry for the requested model
-            const entry = this._findLatestEntry(manifest, bareId)
+            const entry = this._findLatestEntry(manifest, bareId);
             if (!entry || !entry.spec_key) {
                 process.stderr.write(
                     `[jumpstart] Model not found in manifest: ${bareId}\n`
-                )
-                return this._fallbackToStaticCatalog(modelId)
+                );
+                return this._fallbackToStaticCatalog(modelId);
             }
 
             // Fetch the full spec using the spec_key from the manifest
             const specCmd = new sdk.GetObjectCommand({
                 Bucket: this._bucketName(),
                 Key: entry.spec_key
-            })
-            const specResp = await client.send(specCmd)
-            const specBody = await specResp.Body.transformToString()
-            const spec = JSON.parse(specBody)
-            return this._mapToMetadata(spec, bareId)
+            });
+            const specResp = await client.send(specCmd);
+            const specBody = await specResp.Body.transformToString();
+            const spec = JSON.parse(specBody);
+            return this._mapToMetadata(spec, bareId);
         } catch (err) {
             if (this._isCredentialError(err)) {
                 process.stderr.write(
-                    `[jumpstart] AWS credentials not available. Falling back to static catalog.\n`
-                )
-                return this._fallbackToStaticCatalog(modelId)
+                    '[jumpstart] AWS credentials not available. Falling back to static catalog.\n'
+                );
+                return this._fallbackToStaticCatalog(modelId);
             }
 
             process.stderr.write(
                 `[jumpstart] JumpStart S3 bucket unreachable: ${err.name || err.code || 'Unknown'}. Falling back to static catalog.\n`
-            )
-            return this._fallbackToStaticCatalog(modelId)
+            );
+            return this._fallbackToStaticCatalog(modelId);
         }
     }
 
@@ -369,7 +369,7 @@ class JumpStartPublicResolver extends ModelResolver {
     _findLatestEntry(manifest, bareId) {
         return manifest.find(e => e.model_id === bareId && !e.deprecated) ||
                manifest.find(e => e.model_id === bareId) ||
-               null
+               null;
     }
 
     /**
@@ -378,9 +378,9 @@ class JumpStartPublicResolver extends ModelResolver {
      */
     async _loadSdk() {
         if (!this._sdkModule) {
-            this._sdkModule = await import('@aws-sdk/client-s3')
+            this._sdkModule = await import('@aws-sdk/client-s3');
         }
-        return this._sdkModule
+        return this._sdkModule;
     }
 
     /**
@@ -401,9 +401,9 @@ class JumpStartPublicResolver extends ModelResolver {
                     requestTimeout: this.timeout
                 },
                 signer: { sign: async (request) => request }
-            })
+            });
         }
-        return this._client
+        return this._client;
     }
 
     /**
@@ -411,7 +411,7 @@ class JumpStartPublicResolver extends ModelResolver {
      * @returns {string} Bucket name
      */
     _bucketName() {
-        return `jumpstart-cache-prod-${this.region}`
+        return `jumpstart-cache-prod-${this.region}`;
     }
 
     /**
@@ -428,58 +428,58 @@ class JumpStartPublicResolver extends ModelResolver {
      * @returns {object} ModelMetadata
      */
     _mapToMetadata(spec, bareId) {
-        if (!spec) return null
+        if (!spec) return null;
 
-        const modelId = spec.model_id || bareId
+        const modelId = spec.model_id || bareId;
         const metadata = {
             provider: 'jumpstart',
             modelId: `jumpstart://${modelId}`,
             description: this._humanReadableId(modelId)
-        }
+        };
 
         // Extract framework from hosting_ecr_specs (full spec) or spec.framework
         const framework = spec.hosting_ecr_specs?.framework ||
                           spec.hosting_ecr_specs?.Framework ||
-                          spec.framework
+                          spec.framework;
         if (framework) {
-            metadata.framework = framework
+            metadata.framework = framework;
         }
 
         // Extract tags from search_keywords or task-related fields
-        const tags = []
+        const tags = [];
         if (Array.isArray(spec.search_keywords)) {
-            tags.push(...spec.search_keywords)
+            tags.push(...spec.search_keywords);
         }
-        if (spec.model_type) tags.push(spec.model_type)
-        if (spec.inference_task) tags.push(spec.inference_task)
+        if (spec.model_type) tags.push(spec.model_type);
+        if (spec.inference_task) tags.push(spec.inference_task);
         if (tags.length > 0) {
-            metadata.tags = [...new Set(tags)]
+            metadata.tags = [...new Set(tags)];
         }
 
         // Extract default instance type if available
         if (spec.default_inference_instance_type) {
-            metadata.defaultInstanceType = spec.default_inference_instance_type
+            metadata.defaultInstanceType = spec.default_inference_instance_type;
         }
 
         // Extract supported instance types if available
         if (Array.isArray(spec.supported_inference_instance_types) &&
             spec.supported_inference_instance_types.length > 0) {
-            metadata.supportedInstanceTypes = spec.supported_inference_instance_types
+            metadata.supportedInstanceTypes = spec.supported_inference_instance_types;
         }
 
         // Extract artifact URI from hosting artifact keys
         // Prefer hosting_prepacked_artifact_key (pre-packaged model ready for serving)
         // Fall back to hosting_artifact_key (raw model artifacts)
-        const artifactKey = spec.hosting_prepacked_artifact_key || spec.hosting_artifact_key
+        const artifactKey = spec.hosting_prepacked_artifact_key || spec.hosting_artifact_key;
         if (artifactKey) {
-            metadata.artifactUri = `s3://${this._bucketName()}/${artifactKey}`
+            metadata.artifactUri = `s3://${this._bucketName()}/${artifactKey}`;
         } else {
             process.stderr.write(
                 `[jumpstart] No artifact key found for model ${modelId}. artifactUri will be undefined.\n`
-            )
+            );
         }
 
-        return metadata
+        return metadata;
     }
 
     /**
@@ -490,11 +490,11 @@ class JumpStartPublicResolver extends ModelResolver {
      * @returns {string} Title-cased, space-separated description
      */
     _humanReadableId(id) {
-        if (!id) return ''
+        if (!id) return '';
         return id
             .split('-')
             .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(' ')
+            .join(' ');
     }
 
     /**
@@ -505,7 +505,7 @@ class JumpStartPublicResolver extends ModelResolver {
     _isCredentialError(err) {
         return CREDENTIAL_ERROR_NAMES.has(err.name) ||
             CREDENTIAL_ERROR_NAMES.has(err.Code) ||
-            (err.message && err.message.includes('credentials'))
+            (err.message && err.message.includes('credentials'));
     }
 
     /**
@@ -515,9 +515,9 @@ class JumpStartPublicResolver extends ModelResolver {
      */
     _fallbackToStaticCatalog(modelId) {
         if (this._staticCatalog && this._staticCatalog[modelId]) {
-            return { ...this._staticCatalog[modelId] }
+            return { ...this._staticCatalog[modelId] };
         }
-        return null
+        return null;
     }
 }
 
@@ -543,15 +543,15 @@ class JumpStartPublicResolver extends ModelResolver {
  */
 class JumpStartPrivateResolver extends ModelResolver {
     constructor(options = {}) {
-        super()
-        this.timeout = options.timeout ?? 10000
-        this.region = options.region || process.env.AWS_REGION || 'us-east-1'
-        this._client = null
-        this._sdkModule = null
+        super();
+        this.timeout = options.timeout ?? 10000;
+        this.region = options.region || process.env.AWS_REGION || 'us-east-1';
+        this._client = null;
+        this._sdkModule = null;
     }
 
     supportedPatterns() {
-        return ['jumpstart-hub://*']
+        return ['jumpstart-hub://*'];
     }
 
     /**
@@ -561,20 +561,20 @@ class JumpStartPrivateResolver extends ModelResolver {
      * @returns {{ hubName: string, modelName: string } | null}
      */
     _parseHubUri(modelId) {
-        const withoutPrefix = modelId.replace(/^jumpstart-hub:\/\//, '')
-        if (!withoutPrefix) return null
+        const withoutPrefix = modelId.replace(/^jumpstart-hub:\/\//, '');
+        if (!withoutPrefix) return null;
 
-        const slashIndex = withoutPrefix.indexOf('/')
+        const slashIndex = withoutPrefix.indexOf('/');
         if (slashIndex === -1) {
             // Only hub name, no model name — list mode
-            return { hubName: withoutPrefix, modelName: null }
+            return { hubName: withoutPrefix, modelName: null };
         }
 
-        const hubName = withoutPrefix.slice(0, slashIndex)
-        const modelName = withoutPrefix.slice(slashIndex + 1) || null
+        const hubName = withoutPrefix.slice(0, slashIndex);
+        const modelName = withoutPrefix.slice(slashIndex + 1) || null;
 
-        if (!hubName) return null
-        return { hubName, modelName }
+        if (!hubName) return null;
+        return { hubName, modelName };
     }
 
     /**
@@ -584,20 +584,20 @@ class JumpStartPrivateResolver extends ModelResolver {
      * @param {object} options - { fields, context }
      * @returns {Promise<object|null>} ModelMetadata or null
      */
-    async fetchModelMetadata(modelId, options = {}) {
-        const parsed = this._parseHubUri(modelId)
+    async fetchModelMetadata(modelId, _options = {}) {
+        const parsed = this._parseHubUri(modelId);
         if (!parsed) {
             process.stderr.write(
                 `[jumpstart-hub] Invalid hub URI: ${modelId}\n`
-            )
-            return null
+            );
+            return null;
         }
 
-        const { hubName, modelName } = parsed
+        const { hubName, modelName } = parsed;
 
         try {
-            const sdk = await this._loadSdk()
-            const client = this._createClient(sdk)
+            const sdk = await this._loadSdk();
+            const client = this._createClient(sdk);
 
             // If a specific model is requested, describe it
             if (modelName) {
@@ -605,24 +605,24 @@ class JumpStartPrivateResolver extends ModelResolver {
                     HubName: hubName,
                     HubContentName: modelName,
                     HubContentType: 'Model'
-                })
-                const response = await client.send(command)
-                return this._mapToMetadata(response, hubName)
+                });
+                const response = await client.send(command);
+                return this._mapToMetadata(response, hubName);
             }
 
             // Otherwise list hub contents
             const command = new sdk.ListHubContentsCommand({
                 HubName: hubName,
                 HubContentType: 'Model'
-            })
-            const response = await client.send(command)
+            });
+            const response = await client.send(command);
             if (response.HubContentSummaries && response.HubContentSummaries.length > 0) {
-                return this._mapToMetadata(response.HubContentSummaries[0], hubName)
+                return this._mapToMetadata(response.HubContentSummaries[0], hubName);
             }
 
-            return null
+            return null;
         } catch (err) {
-            return this._handleError(err, hubName, modelName)
+            return this._handleError(err, hubName, modelName);
         }
     }
 
@@ -632,9 +632,9 @@ class JumpStartPrivateResolver extends ModelResolver {
      */
     async _loadSdk() {
         if (!this._sdkModule) {
-            this._sdkModule = await import('@aws-sdk/client-sagemaker')
+            this._sdkModule = await import('@aws-sdk/client-sagemaker');
         }
-        return this._sdkModule
+        return this._sdkModule;
     }
 
     /**
@@ -651,9 +651,9 @@ class JumpStartPrivateResolver extends ModelResolver {
                 requestHandler: {
                     requestTimeout: this.timeout
                 }
-            })
+            });
         }
-        return this._client
+        return this._client;
     }
 
     /**
@@ -664,35 +664,35 @@ class JumpStartPrivateResolver extends ModelResolver {
      * @returns {object} ModelMetadata
      */
     _mapToMetadata(apiResponse, hubName) {
-        if (!apiResponse) return null
+        if (!apiResponse) return null;
 
-        const contentName = apiResponse.HubContentName || apiResponse.HubContentDisplayName || ''
+        const contentName = apiResponse.HubContentName || apiResponse.HubContentDisplayName || '';
         const metadata = {
             provider: 'jumpstart-hub',
             modelId: `jumpstart-hub://${hubName}/${contentName}`,
             description: apiResponse.HubContentDescription || apiResponse.HubContentDisplayName || contentName,
             hubName
-        }
+        };
 
         // Extract framework from hub content document schema or search keywords
         if (apiResponse.HubContentDocument) {
             try {
                 const doc = typeof apiResponse.HubContentDocument === 'string'
                     ? JSON.parse(apiResponse.HubContentDocument)
-                    : apiResponse.HubContentDocument
+                    : apiResponse.HubContentDocument;
                 if (doc.Framework) {
-                    metadata.framework = doc.Framework
+                    metadata.framework = doc.Framework;
                 }
                 if (doc.ModelFormat) {
-                    metadata.modelFormat = doc.ModelFormat
+                    metadata.modelFormat = doc.ModelFormat;
                 }
                 // artifactUri extraction (Requirement 1.2): extract from
                 // HubContentDocument — check both ArtifactUri and HostingArtifactUri
                 // as the field name varies by hub content document schema
                 if (doc.ArtifactUri) {
-                    metadata.artifactUri = doc.ArtifactUri
+                    metadata.artifactUri = doc.ArtifactUri;
                 } else if (doc.HostingArtifactUri) {
-                    metadata.artifactUri = doc.HostingArtifactUri
+                    metadata.artifactUri = doc.HostingArtifactUri;
                 }
             } catch {
                 // Ignore JSON parse errors in hub content document
@@ -701,10 +701,10 @@ class JumpStartPrivateResolver extends ModelResolver {
 
         // Extract tags from search keywords
         if (Array.isArray(apiResponse.HubContentSearchKeywords)) {
-            metadata.tags = apiResponse.HubContentSearchKeywords
+            metadata.tags = apiResponse.HubContentSearchKeywords;
         }
 
-        return metadata
+        return metadata;
     }
 
     /**
@@ -715,7 +715,7 @@ class JumpStartPrivateResolver extends ModelResolver {
     _isCredentialError(err) {
         return CREDENTIAL_ERROR_NAMES.has(err.name) ||
             CREDENTIAL_ERROR_NAMES.has(err.Code) ||
-            (err.message && err.message.includes('credentials'))
+            (err.message && err.message.includes('credentials'));
     }
 
     /**
@@ -729,36 +729,36 @@ class JumpStartPrivateResolver extends ModelResolver {
     _handleError(err, hubName, modelName) {
         if (this._isCredentialError(err)) {
             process.stderr.write(
-                `[jumpstart-hub] AWS credentials required for private hub access.\n`
-            )
-            return null
+                '[jumpstart-hub] AWS credentials required for private hub access.\n'
+            );
+            return null;
         }
 
         if (err.name === 'ResourceNotFoundException' || err.Code === 'ResourceNotFoundException') {
             if (modelName) {
                 process.stderr.write(
                     `[jumpstart-hub] Model not found in hub: ${hubName}/${modelName}\n`
-                )
+                );
             } else {
                 process.stderr.write(
                     `[jumpstart-hub] Hub not found: ${hubName}\n`
-                )
+                );
             }
-            return null
+            return null;
         }
 
         if (err.name === 'AccessDeniedException' || err.Code === 'AccessDeniedException' ||
             err.$metadata?.httpStatusCode === 403) {
             process.stderr.write(
                 `[jumpstart-hub] Access denied to hub: ${hubName}\n`
-            )
-            return null
+            );
+            return null;
         }
 
         process.stderr.write(
             `[jumpstart-hub] SageMaker API error: ${err.name || err.code || 'Unknown'}.\n`
-        )
-        return null
+        );
+        return null;
     }
 }
 
@@ -779,15 +779,15 @@ class JumpStartPrivateResolver extends ModelResolver {
  */
 class ModelRegistryResolver extends ModelResolver {
     constructor(options = {}) {
-        super()
-        this.timeout = options.timeout ?? 10000
-        this.region = options.region || process.env.AWS_REGION || 'us-east-1'
-        this._client = null
-        this._sdkModule = null
+        super();
+        this.timeout = options.timeout ?? 10000;
+        this.region = options.region || process.env.AWS_REGION || 'us-east-1';
+        this._client = null;
+        this._sdkModule = null;
     }
 
     supportedPatterns() {
-        return ['registry://*']
+        return ['registry://*'];
     }
 
     /**
@@ -797,20 +797,20 @@ class ModelRegistryResolver extends ModelResolver {
      * @returns {{ groupName: string, version: string|null } | null}
      */
     _parseRegistryUri(modelId) {
-        const withoutPrefix = modelId.replace(/^registry:\/\//, '')
-        if (!withoutPrefix) return null
+        const withoutPrefix = modelId.replace(/^registry:\/\//, '');
+        if (!withoutPrefix) return null;
 
-        const slashIndex = withoutPrefix.indexOf('/')
+        const slashIndex = withoutPrefix.indexOf('/');
         if (slashIndex === -1) {
             // Only group name, no version — list mode
-            return { groupName: withoutPrefix, version: null }
+            return { groupName: withoutPrefix, version: null };
         }
 
-        const groupName = withoutPrefix.slice(0, slashIndex)
-        const version = withoutPrefix.slice(slashIndex + 1) || null
+        const groupName = withoutPrefix.slice(0, slashIndex);
+        const version = withoutPrefix.slice(slashIndex + 1) || null;
 
-        if (!groupName) return null
-        return { groupName, version }
+        if (!groupName) return null;
+        return { groupName, version };
     }
 
     /**
@@ -820,42 +820,42 @@ class ModelRegistryResolver extends ModelResolver {
      * @param {object} options - { fields, context }
      * @returns {Promise<object|null>} ModelMetadata or null
      */
-    async fetchModelMetadata(modelId, options = {}) {
-        const parsed = this._parseRegistryUri(modelId)
+    async fetchModelMetadata(modelId, _options = {}) {
+        const parsed = this._parseRegistryUri(modelId);
         if (!parsed) {
             process.stderr.write(
                 `[registry] Invalid registry URI: ${modelId}\n`
-            )
-            return null
+            );
+            return null;
         }
 
-        const { groupName, version } = parsed
+        const { groupName, version } = parsed;
 
         try {
-            const sdk = await this._loadSdk()
-            const client = this._createClient(sdk)
+            const sdk = await this._loadSdk();
+            const client = this._createClient(sdk);
 
             // If a specific version is requested, describe that model package
             if (version) {
                 const command = new sdk.DescribeModelPackageCommand({
                     ModelPackageName: `${groupName}/${version}`
-                })
-                const response = await client.send(command)
-                return this._mapToMetadata(response, groupName)
+                });
+                const response = await client.send(command);
+                return this._mapToMetadata(response, groupName);
             }
 
             // Otherwise list model packages in the group
             const command = new sdk.ListModelPackagesCommand({
                 ModelPackageGroupName: groupName
-            })
-            const response = await client.send(command)
+            });
+            const response = await client.send(command);
             if (response.ModelPackageSummaryList && response.ModelPackageSummaryList.length > 0) {
-                return this._mapToMetadata(response.ModelPackageSummaryList[0], groupName)
+                return this._mapToMetadata(response.ModelPackageSummaryList[0], groupName);
             }
 
-            return null
+            return null;
         } catch (err) {
-            return this._handleError(err, groupName)
+            return this._handleError(err, groupName);
         }
     }
 
@@ -865,9 +865,9 @@ class ModelRegistryResolver extends ModelResolver {
      */
     async _loadSdk() {
         if (!this._sdkModule) {
-            this._sdkModule = await import('@aws-sdk/client-sagemaker')
+            this._sdkModule = await import('@aws-sdk/client-sagemaker');
         }
-        return this._sdkModule
+        return this._sdkModule;
     }
 
     /**
@@ -884,9 +884,9 @@ class ModelRegistryResolver extends ModelResolver {
                 requestHandler: {
                     requestTimeout: this.timeout
                 }
-            })
+            });
         }
-        return this._client
+        return this._client;
     }
 
     /**
@@ -897,52 +897,52 @@ class ModelRegistryResolver extends ModelResolver {
      * @returns {object} ModelMetadata
      */
     _mapToMetadata(apiResponse, groupName) {
-        if (!apiResponse) return null
+        if (!apiResponse) return null;
 
         const metadata = {
             provider: 'registry',
             modelId: `registry://${groupName}`,
             description: apiResponse.ModelPackageDescription || `Model package group: ${groupName}`
-        }
+        };
 
         // Model package ARN
         if (apiResponse.ModelPackageArn) {
-            metadata.modelPackageArn = apiResponse.ModelPackageArn
+            metadata.modelPackageArn = apiResponse.ModelPackageArn;
         }
 
         // Group name
-        metadata.modelPackageGroupName = apiResponse.ModelPackageGroupName || groupName
+        metadata.modelPackageGroupName = apiResponse.ModelPackageGroupName || groupName;
 
         // Version
         if (apiResponse.ModelPackageVersion !== undefined && apiResponse.ModelPackageVersion !== null) {
-            metadata.modelPackageVersion = apiResponse.ModelPackageVersion
-            metadata.modelId = `registry://${groupName}/${apiResponse.ModelPackageVersion}`
+            metadata.modelPackageVersion = apiResponse.ModelPackageVersion;
+            metadata.modelId = `registry://${groupName}/${apiResponse.ModelPackageVersion}`;
         }
 
         // Approval status
         if (apiResponse.ModelApprovalStatus) {
-            metadata.approvalStatus = apiResponse.ModelApprovalStatus
+            metadata.approvalStatus = apiResponse.ModelApprovalStatus;
         }
 
         // artifactUri extraction (Requirement 1.3): extract from
         // InferenceSpecification.Containers[0].ModelDataUrl — the S3 URI
         // where the registered model package stores its inference artifacts
-        const container = apiResponse.InferenceSpecification?.Containers?.[0]
+        const container = apiResponse.InferenceSpecification?.Containers?.[0];
         if (container) {
             if (container.Framework) {
-                metadata.framework = container.Framework
+                metadata.framework = container.Framework;
             }
             if (container.ModelDataUrl) {
-                metadata.artifactUri = container.ModelDataUrl
+                metadata.artifactUri = container.ModelDataUrl;
             }
         }
 
         // Fallback: top-level ModelDataUrl when InferenceSpecification is absent
         if (!metadata.artifactUri && apiResponse.ModelDataUrl) {
-            metadata.artifactUri = apiResponse.ModelDataUrl
+            metadata.artifactUri = apiResponse.ModelDataUrl;
         }
 
-        return metadata
+        return metadata;
     }
 
     /**
@@ -953,7 +953,7 @@ class ModelRegistryResolver extends ModelResolver {
     _isCredentialError(err) {
         return CREDENTIAL_ERROR_NAMES.has(err.name) ||
             CREDENTIAL_ERROR_NAMES.has(err.Code) ||
-            (err.message && err.message.includes('credentials'))
+            (err.message && err.message.includes('credentials'));
     }
 
     /**
@@ -966,31 +966,31 @@ class ModelRegistryResolver extends ModelResolver {
     _handleError(err, groupName) {
         if (this._isCredentialError(err)) {
             process.stderr.write(
-                `[registry] AWS credentials required for Model Registry access.\n`
-            )
-            return null
+                '[registry] AWS credentials required for Model Registry access.\n'
+            );
+            return null;
         }
 
         if (err.name === 'ResourceNotFoundException' || err.Code === 'ResourceNotFoundException' ||
             err.name === 'ValidationException') {
             process.stderr.write(
                 `[registry] Model package group not found: ${groupName}\n`
-            )
-            return null
+            );
+            return null;
         }
 
         if (err.name === 'AccessDeniedException' || err.Code === 'AccessDeniedException' ||
             err.$metadata?.httpStatusCode === 403) {
             process.stderr.write(
                 `[registry] Access denied to model package group: ${groupName}\n`
-            )
-            return null
+            );
+            return null;
         }
 
         process.stderr.write(
             `[registry] SageMaker API error: ${err.name || err.code || 'Unknown'}.\n`
-        )
-        return null
+        );
+        return null;
     }
 }
 
@@ -1012,15 +1012,15 @@ class ModelRegistryResolver extends ModelResolver {
  */
 class S3Resolver extends ModelResolver {
     constructor(options = {}) {
-        super()
-        this.timeout = options.timeout ?? 10000
-        this.region = options.region || process.env.AWS_REGION || 'us-east-1'
-        this._client = null
-        this._sdkModule = null
+        super();
+        this.timeout = options.timeout ?? 10000;
+        this.region = options.region || process.env.AWS_REGION || 'us-east-1';
+        this._client = null;
+        this._sdkModule = null;
     }
 
     supportedPatterns() {
-        return ['s3://*']
+        return ['s3://*'];
     }
 
     /**
@@ -1030,20 +1030,20 @@ class S3Resolver extends ModelResolver {
      * @param {object} options - { fields, context }
      * @returns {Promise<object|null>} ModelMetadata or null
      */
-    async fetchModelMetadata(modelId, options = {}) {
-        const parsed = parseS3Uri(modelId)
+    async fetchModelMetadata(modelId, _options = {}) {
+        const parsed = parseS3Uri(modelId);
         if (parsed.error) {
             process.stderr.write(
                 `[s3] Invalid S3 URI: ${parsed.error}\n`
-            )
-            return null
+            );
+            return null;
         }
 
-        const { bucket, key } = parsed
+        const { bucket, key } = parsed;
 
         try {
-            const sdk = await this._loadSdk()
-            const client = this._createClient(sdk)
+            const sdk = await this._loadSdk();
+            const client = this._createClient(sdk);
 
             // Try HeadObject first to check if it's a single file
             if (key && !key.endsWith('/')) {
@@ -1051,11 +1051,11 @@ class S3Resolver extends ModelResolver {
                     const headCommand = new sdk.HeadObjectCommand({
                         Bucket: bucket,
                         Key: key
-                    })
-                    const headResponse = await client.send(headCommand)
+                    });
+                    const headResponse = await client.send(headCommand);
 
                     const artifactType = key.endsWith('.tar.gz') || key.endsWith('.tgz')
-                        ? 'tarball' : 'single-file'
+                        ? 'tarball' : 'single-file';
 
                     const metadata = {
                         provider: 's3',
@@ -1069,53 +1069,53 @@ class S3Resolver extends ModelResolver {
                         artifactSizeBytes: headResponse.ContentLength ?? null,
                         lastModified: headResponse.LastModified
                             ? headResponse.LastModified.toISOString() : null
-                    }
+                    };
 
-                    return metadata
+                    return metadata;
                 } catch (headErr) {
                     // If it's a 404, the key might be a directory prefix — fall through to ListObjectsV2
                     if (headErr.name !== 'NotFound' && headErr.$metadata?.httpStatusCode !== 404) {
-                        throw headErr
+                        throw headErr;
                     }
                 }
             }
 
             // List objects under the key prefix (directory-style artifact)
-            const prefix = key ? (key.endsWith('/') ? key : key + '/') : ''
+            const prefix = key ? (key.endsWith('/') ? key : `${key  }/`) : '';
             const listCommand = new sdk.ListObjectsV2Command({
                 Bucket: bucket,
                 Prefix: prefix,
                 MaxKeys: 1000
-            })
-            const listResponse = await client.send(listCommand)
+            });
+            const listResponse = await client.send(listCommand);
 
             if (!listResponse.Contents || listResponse.Contents.length === 0) {
                 process.stderr.write(
                     `[s3] Key not found: ${bucket}/${key}\n`
-                )
-                return null
+                );
+                return null;
             }
 
             // Calculate total size and find last modified
-            let totalSize = 0
-            let latestModified = null
-            const fileNames = []
+            let totalSize = 0;
+            let latestModified = null;
+            const fileNames = [];
 
             for (const obj of listResponse.Contents) {
-                totalSize += obj.Size ?? 0
+                totalSize += obj.Size ?? 0;
                 if (obj.LastModified && (!latestModified || obj.LastModified > latestModified)) {
-                    latestModified = obj.LastModified
+                    latestModified = obj.LastModified;
                 }
                 // Extract relative file name from the key
-                const relativeName = prefix ? obj.Key.slice(prefix.length) : obj.Key
+                const relativeName = prefix ? obj.Key.slice(prefix.length) : obj.Key;
                 if (relativeName) {
-                    fileNames.push(relativeName)
+                    fileNames.push(relativeName);
                 }
             }
 
             // Try to infer framework from config files
-            const configFiles = {}
-            const configFileNames = ['config.json', 'tokenizer_config.json', 'serving.properties']
+            const configFiles = {};
+            const configFileNames = ['config.json', 'tokenizer_config.json', 'serving.properties'];
 
             for (const cfgName of configFileNames) {
                 if (fileNames.includes(cfgName)) {
@@ -1123,17 +1123,17 @@ class S3Resolver extends ModelResolver {
                         const getCommand = new sdk.GetObjectCommand({
                             Bucket: bucket,
                             Key: prefix + cfgName
-                        })
-                        const getResponse = await client.send(getCommand)
-                        const body = await getResponse.Body.transformToString()
-                        configFiles[cfgName] = body
+                        });
+                        const getResponse = await client.send(getCommand);
+                        const body = await getResponse.Body.transformToString();
+                        configFiles[cfgName] = body;
                     } catch {
                         // Ignore errors reading individual config files
                     }
                 }
             }
 
-            const framework = this._inferFramework(configFiles)
+            const framework = this._inferFramework(configFiles);
 
             const metadata = {
                 provider: 's3',
@@ -1146,15 +1146,15 @@ class S3Resolver extends ModelResolver {
                 artifactType: 'directory',
                 artifactSizeBytes: totalSize,
                 lastModified: latestModified ? latestModified.toISOString() : null
-            }
+            };
 
             if (framework) {
-                metadata.framework = framework
+                metadata.framework = framework;
             }
 
-            return metadata
+            return metadata;
         } catch (err) {
-            return this._handleError(err, bucket, key, modelId)
+            return this._handleError(err, bucket, key, modelId);
         }
     }
 
@@ -1168,12 +1168,12 @@ class S3Resolver extends ModelResolver {
         // Check config.json for HuggingFace transformer architectures
         if (configFiles['config.json']) {
             try {
-                const config = JSON.parse(configFiles['config.json'])
+                const config = JSON.parse(configFiles['config.json']);
                 if (config.architectures && Array.isArray(config.architectures) && config.architectures.length > 0) {
-                    return 'huggingface'
+                    return 'huggingface';
                 }
                 if (config.model_type) {
-                    return 'huggingface'
+                    return 'huggingface';
                 }
             } catch {
                 // Invalid JSON — skip
@@ -1183,8 +1183,8 @@ class S3Resolver extends ModelResolver {
         // Check tokenizer_config.json — presence implies HuggingFace
         if (configFiles['tokenizer_config.json']) {
             try {
-                JSON.parse(configFiles['tokenizer_config.json'])
-                return 'huggingface'
+                JSON.parse(configFiles['tokenizer_config.json']);
+                return 'huggingface';
             } catch {
                 // Invalid JSON — skip
             }
@@ -1192,13 +1192,13 @@ class S3Resolver extends ModelResolver {
 
         // Check serving.properties for DJL serving configuration
         if (configFiles['serving.properties']) {
-            const content = configFiles['serving.properties']
+            const content = configFiles['serving.properties'];
             if (content.includes('model_id') || content.includes('option.model_id')) {
-                return 'djl'
+                return 'djl';
             }
         }
 
-        return null
+        return null;
     }
 
     /**
@@ -1207,9 +1207,9 @@ class S3Resolver extends ModelResolver {
      */
     async _loadSdk() {
         if (!this._sdkModule) {
-            this._sdkModule = await import('@aws-sdk/client-s3')
+            this._sdkModule = await import('@aws-sdk/client-s3');
         }
-        return this._sdkModule
+        return this._sdkModule;
     }
 
     /**
@@ -1226,9 +1226,9 @@ class S3Resolver extends ModelResolver {
                 requestHandler: {
                     requestTimeout: this.timeout
                 }
-            })
+            });
         }
-        return this._client
+        return this._client;
     }
 
     /**
@@ -1239,7 +1239,7 @@ class S3Resolver extends ModelResolver {
     _isCredentialError(err) {
         return CREDENTIAL_ERROR_NAMES.has(err.name) ||
             CREDENTIAL_ERROR_NAMES.has(err.Code) ||
-            (err.message && err.message.includes('credentials'))
+            (err.message && err.message.includes('credentials'));
     }
 
     /**
@@ -1254,38 +1254,38 @@ class S3Resolver extends ModelResolver {
     _handleError(err, bucket, key, uri) {
         if (this._isCredentialError(err)) {
             process.stderr.write(
-                `[s3] AWS credentials required for S3 access.\n`
-            )
-            return null
+                '[s3] AWS credentials required for S3 access.\n'
+            );
+            return null;
         }
 
         if (err.name === 'NoSuchBucket' || err.Code === 'NoSuchBucket') {
             process.stderr.write(
                 `[s3] Bucket not found: ${bucket}\n`
-            )
-            return null
+            );
+            return null;
         }
 
         if (err.name === 'NoSuchKey' || err.Code === 'NoSuchKey' ||
             err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
             process.stderr.write(
                 `[s3] Key not found: ${bucket}/${key}\n`
-            )
-            return null
+            );
+            return null;
         }
 
         if (err.name === 'AccessDenied' || err.Code === 'AccessDenied' ||
             err.$metadata?.httpStatusCode === 403) {
             process.stderr.write(
                 `[s3] Access denied: ${uri}\n`
-            )
-            return null
+            );
+            return null;
         }
 
         process.stderr.write(
             `[s3] S3 API error: ${err.name || err.code || 'Unknown'}.\n`
-        )
-        return null
+        );
+        return null;
     }
 }
 
@@ -1301,8 +1301,8 @@ class S3Resolver extends ModelResolver {
  */
 class ResolverRegistry {
     constructor() {
-        this._resolvers = []
-        this._defaultResolver = null
+        this._resolvers = [];
+        this._defaultResolver = null;
     }
 
     /**
@@ -1311,7 +1311,7 @@ class ResolverRegistry {
      * @param {function(string): boolean} matchFn
      */
     register(resolver, matchFn) {
-        this._resolvers.push({ resolver, matchFn })
+        this._resolvers.push({ resolver, matchFn });
     }
 
     /**
@@ -1319,7 +1319,7 @@ class ResolverRegistry {
      * @param {ModelResolver} resolver
      */
     setDefault(resolver) {
-        this._defaultResolver = resolver
+        this._defaultResolver = resolver;
     }
 
     /**
@@ -1329,9 +1329,9 @@ class ResolverRegistry {
      */
     getResolver(modelId) {
         for (const { resolver, matchFn } of this._resolvers) {
-            if (matchFn(modelId)) return resolver
+            if (matchFn(modelId)) return resolver;
         }
-        return this._defaultResolver
+        return this._defaultResolver;
     }
 }
 
@@ -1346,18 +1346,18 @@ class ResolverRegistry {
  * @returns {object|null} Merged metadata, or null if both inputs are null
  */
 function mergeMetadata(liveData, staticData) {
-    if (!liveData && !staticData) return null
-    if (!liveData) return { ...staticData }
-    if (!staticData) return { ...liveData }
+    if (!liveData && !staticData) return null;
+    if (!liveData) return { ...staticData };
+    if (!staticData) return { ...liveData };
 
     // Shallow merge: live takes precedence for non-null fields
-    const merged = { ...staticData }
+    const merged = { ...staticData };
     for (const [key, value] of Object.entries(liveData)) {
         if (value !== null && value !== undefined) {
-            merged[key] = value
+            merged[key] = value;
         }
     }
-    return merged
+    return merged;
 }
 
 // ── S3 URI parsing ───────────────────────────────────────────────────────────
@@ -1366,7 +1366,7 @@ function mergeMetadata(liveData, staticData) {
  * Regex for valid S3 bucket names: 3–63 chars, lowercase letters/numbers/hyphens/periods,
  * no consecutive periods, not an IP address format.
  */
-const S3_BUCKET_REGEX = /^(?!(\d{1,3}\.){3}\d{1,3}$)[a-z0-9]([a-z0-9.\-]*[a-z0-9])?$/
+const S3_BUCKET_REGEX = /^(?!(\d{1,3}\.){3}\d{1,3}$)[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
 
 /**
  * Parse and validate an S3 URI into bucket and key components.
@@ -1383,38 +1383,38 @@ const S3_BUCKET_REGEX = /^(?!(\d{1,3}\.){3}\d{1,3}$)[a-z0-9]([a-z0-9.\-]*[a-z0-9
  */
 function parseS3Uri(uri) {
     if (typeof uri !== 'string') {
-        return { error: 'S3 URI must be a string' }
+        return { error: 'S3 URI must be a string' };
     }
 
     if (!uri.startsWith('s3://')) {
-        return { error: 'S3 URI must start with s3://' }
+        return { error: 'S3 URI must start with s3://' };
     }
 
-    const withoutPrefix = uri.slice(5) // strip 's3://'
-    const slashIndex = withoutPrefix.indexOf('/')
-    const bucket = slashIndex === -1 ? withoutPrefix : withoutPrefix.slice(0, slashIndex)
-    const key = slashIndex === -1 ? '' : withoutPrefix.slice(slashIndex + 1)
+    const withoutPrefix = uri.slice(5); // strip 's3://'
+    const slashIndex = withoutPrefix.indexOf('/');
+    const bucket = slashIndex === -1 ? withoutPrefix : withoutPrefix.slice(0, slashIndex);
+    const key = slashIndex === -1 ? '' : withoutPrefix.slice(slashIndex + 1);
 
     // Validate bucket name
     if (bucket.length === 0) {
-        return { error: 'Bucket name must not be empty' }
+        return { error: 'Bucket name must not be empty' };
     }
     if (bucket.length < 3 || bucket.length > 63) {
-        return { error: `Bucket name must be 3–63 characters, got ${bucket.length}` }
+        return { error: `Bucket name must be 3–63 characters, got ${bucket.length}` };
     }
     if (bucket.includes('..')) {
-        return { error: 'Bucket name must not contain consecutive periods' }
+        return { error: 'Bucket name must not contain consecutive periods' };
     }
     if (!S3_BUCKET_REGEX.test(bucket)) {
-        return { error: `Invalid bucket name: ${bucket}` }
+        return { error: `Invalid bucket name: ${bucket}` };
     }
 
     // Validate key length
     if (key.length > 1024) {
-        return { error: `Key must be ≤ 1024 characters, got ${key.length}` }
+        return { error: `Key must be ≤ 1024 characters, got ${key.length}` };
     }
 
-    return { bucket, key }
+    return { bucket, key };
 }
 
 /**
@@ -1425,54 +1425,54 @@ function parseS3Uri(uri) {
  * @returns {string} 's3://<bucket>/<key>'
  */
 function buildS3Uri(bucket, key) {
-    return `s3://${bucket}/${key}`
+    return `s3://${bucket}/${key}`;
 }
 
 // ── Load catalogs ────────────────────────────────────────────────────────────
 
-let POPULAR_MODELS_CATALOG
+let POPULAR_MODELS_CATALOG;
 
 try {
     POPULAR_MODELS_CATALOG = {
         ...loadCatalog('../lib/catalogs/models.json'),
         ...loadCatalog('../lib/catalogs/jumpstart-public.json')
-    }
+    };
 } catch (err) {
-    process.stderr.write(`[model-picker] Fatal: ${err.message}\n`)
-    process.exit(1)
+    process.stderr.write(`[model-picker] Fatal: ${err.message}\n`);
+    process.exit(1);
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
 
-const staticResolver = new StaticCatalogResolver(POPULAR_MODELS_CATALOG)
-const hfResolver = new HuggingFaceResolver()
-const jumpStartPublicResolver = new JumpStartPublicResolver()
-const jumpStartPrivateResolver = new JumpStartPrivateResolver()
-const modelRegistryResolver = new ModelRegistryResolver()
-const s3Resolver = new S3Resolver()
-const registry = new ResolverRegistry()
+const staticResolver = new StaticCatalogResolver(POPULAR_MODELS_CATALOG);
+const hfResolver = new HuggingFaceResolver();
+const jumpStartPublicResolver = new JumpStartPublicResolver();
+const jumpStartPrivateResolver = new JumpStartPrivateResolver();
+const modelRegistryResolver = new ModelRegistryResolver();
+const s3Resolver = new S3Resolver();
+const registry = new ResolverRegistry();
 
 registry.register(
     jumpStartPublicResolver,
     id => id.startsWith('jumpstart://')
-)
+);
 registry.register(
     jumpStartPrivateResolver,
     id => id.startsWith('jumpstart-hub://')
-)
+);
 registry.register(
     modelRegistryResolver,
     id => id.startsWith('registry://')
-)
+);
 registry.register(
     s3Resolver,
     id => id.startsWith('s3://')
-)
+);
 registry.register(
     hfResolver,
     id => /^[^/]+\/[^/]+$/.test(id) && !id.includes('://')
-)
-registry.setDefault(staticResolver)
+);
+registry.setDefault(staticResolver);
 
 // ── Choice formatting helpers ─────────────────────────────────────────────────
 
@@ -1485,7 +1485,7 @@ const PROVIDER_LABELS = {
     'registry': '[Registry]',
     's3': '[S3]',
     'huggingface': '[HuggingFace]'
-}
+};
 
 /**
  * Format a model choice with a provider prefix label.
@@ -1494,12 +1494,12 @@ const PROVIDER_LABELS = {
  * @returns {string} Formatted choice string, e.g. '[JumpStart] huggingface-llm-falcon-7b'
  */
 function formatModelChoice(metadata) {
-    if (!metadata || !metadata.modelId) return ''
-    const label = PROVIDER_LABELS[metadata.provider]
+    if (!metadata || !metadata.modelId) return '';
+    const label = PROVIDER_LABELS[metadata.provider];
     if (label) {
-        return `${label} ${metadata.modelId}`
+        return `${label} ${metadata.modelId}`;
     }
-    return metadata.modelId
+    return metadata.modelId;
 }
 
 /**
@@ -1510,8 +1510,8 @@ function formatModelChoice(metadata) {
  * @returns {object[]} Filtered array containing only models whose `provider` matches
  */
 function filterByProvider(models, provider) {
-    if (!Array.isArray(models) || !provider) return models || []
-    return models.filter(m => m && m.provider === provider)
+    if (!Array.isArray(models) || !provider) return models || [];
+    return models.filter(m => m && m.provider === provider);
 }
 
 // ── Tool handler ─────────────────────────────────────────────────────────────
@@ -1528,67 +1528,67 @@ function filterByProvider(models, provider) {
  * @returns {Promise<{content: Array}>} MCP response
  */
 async function resolveModel({ model_id, fields, mode = 'discover', context }) {
-    let values = {}
-    let message = null
+    let values = {};
+    let message = null;
 
     // Reject deprecated JumpStart prefixes
     if (model_id.startsWith('jumpstart://') || model_id.startsWith('jumpstart-hub://')) {
-        const bareId = model_id.replace(/^jumpstart(-hub)?:\/\//, '')
-        message = `JumpStart is no longer supported. Use the HuggingFace model ID directly: ${bareId}`
+        const bareId = model_id.replace(/^jumpstart(-hub)?:\/\//, '');
+        message = `JumpStart is no longer supported. Use the HuggingFace model ID directly: ${bareId}`;
         return {
             content: [{
                 type: 'text',
                 text: JSON.stringify({ values: {}, choices: {}, message })
             }]
-        }
+        };
     }
 
     if (mode === 'static') {
         // Static mode: use StaticCatalogResolver only
-        const metadata = await staticResolver.fetchModelMetadata(model_id, { fields })
+        const metadata = await staticResolver.fetchModelMetadata(model_id, { fields });
         if (metadata) {
-            values = { ...metadata }
+            values = { ...metadata };
         } else {
-            message = `Model not found in static catalog: ${model_id}`
+            message = `Model not found in static catalog: ${model_id}`;
         }
     } else {
         // Discover mode: use ResolverRegistry for live data, merge with static
-        const resolver = registry.getResolver(model_id)
-        let liveData = null
-        let resolverFailed = false
+        const resolver = registry.getResolver(model_id);
+        let liveData = null;
+        let resolverFailed = false;
 
         if (resolver) {
-            liveData = await resolver.fetchModelMetadata(model_id, { fields })
+            liveData = await resolver.fetchModelMetadata(model_id, { fields });
             if (liveData === null) {
-                resolverFailed = true
+                resolverFailed = true;
             }
         }
 
-        const staticData = await staticResolver.fetchModelMetadata(model_id, { fields })
-        const merged = mergeMetadata(liveData, staticData)
+        const staticData = await staticResolver.fetchModelMetadata(model_id, { fields });
+        const merged = mergeMetadata(liveData, staticData);
 
         if (merged) {
-            values = { ...merged }
+            values = { ...merged };
             // If the resolver failed but we got data from static catalog, note the fallback
             if (resolverFailed && !liveData && staticData) {
                 if (model_id.startsWith('registry://')) {
-                    message = '[registry] SageMaker API unreachable. Using static catalog fallback.'
+                    message = '[registry] SageMaker API unreachable. Using static catalog fallback.';
                 } else if (model_id.startsWith('s3://')) {
-                    message = '[s3] S3 API unreachable. Using static catalog fallback.'
+                    message = '[s3] S3 API unreachable. Using static catalog fallback.';
                 }
             }
         } else {
             // No data from either source
             if (resolverFailed) {
                 if (model_id.startsWith('registry://')) {
-                    message = `[registry] Resolver could not fetch data for: ${model_id}`
+                    message = `[registry] Resolver could not fetch data for: ${model_id}`;
                 } else if (model_id.startsWith('s3://')) {
-                    message = `[s3] Resolver could not fetch data for: ${model_id}`
+                    message = `[s3] Resolver could not fetch data for: ${model_id}`;
                 } else {
-                    message = `Model not found: ${model_id}`
+                    message = `Model not found: ${model_id}`;
                 }
             } else {
-                message = `Model not found: ${model_id}`
+                message = `Model not found: ${model_id}`;
             }
         }
     }
@@ -1596,40 +1596,40 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
     // Apply provider filter from context
     if (context && context.provider && Object.keys(values).length > 0) {
         if (values.provider && values.provider !== context.provider) {
-            message = `Model ${model_id} is from provider '${values.provider}', not '${context.provider}'`
-            values = {}
+            message = `Model ${model_id} is from provider '${values.provider}', not '${context.provider}'`;
+            values = {};
         }
     }
 
     // Filter fields if specified
     if (fields && fields.length > 0 && Object.keys(values).length > 0) {
-        const filtered = {}
+        const filtered = {};
         for (const field of fields) {
             if (field in values) {
-                filtered[field] = values[field]
+                filtered[field] = values[field];
             }
         }
-        values = filtered
+        values = filtered;
     }
 
     // Exclude jumpstart:// prefixed results from output
-    const resolvedModelId = values.modelId || model_id
+    const resolvedModelId = values.modelId || model_id;
     if (resolvedModelId.startsWith('jumpstart://') || resolvedModelId.startsWith('jumpstart-hub://')) {
-        const bareId = resolvedModelId.replace(/^jumpstart(-hub)?:\/\//, '')
+        const bareId = resolvedModelId.replace(/^jumpstart(-hub)?:\/\//, '');
         return {
             content: [{
                 type: 'text',
                 text: JSON.stringify({ values: {}, choices: {}, message: `JumpStart is no longer supported. Use the HuggingFace model ID directly: ${bareId}` })
             }]
-        }
+        };
     }
 
     // Build choices with provider prefix labels
-    const choices = {}
+    const choices = {};
     if (Object.keys(values).length > 0) {
-        const choiceLabel = formatModelChoice(values)
+        const choiceLabel = formatModelChoice(values);
         if (choiceLabel) {
-            choices[choiceLabel] = values.modelId || model_id
+            choices[choiceLabel] = values.modelId || model_id;
         }
     }
 
@@ -1638,7 +1638,7 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
             type: 'text',
             text: JSON.stringify({ values, choices, message })
         }]
-    }
+    };
 }
 
 // ── MCP Server ───────────────────────────────────────────────────────────────
@@ -1646,7 +1646,7 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
 const server = new McpServer({
     name: 'model-picker',
     version: '1.0.0'
-})
+});
 
 server.tool(
     'get_models',
@@ -1663,7 +1663,7 @@ server.tool(
         )
     },
     async (params) => resolveModel(params)
-)
+);
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
@@ -1691,14 +1691,14 @@ export {
     s3Resolver,
     registry,
     POPULAR_MODELS_CATALOG
-}
+};
 
 // ── Main guard ───────────────────────────────────────────────────────────────
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename
+const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
 
 if (isMain) {
-    process.stderr.write('[model-picker] Starting model-picker MCP server\n')
-    const transport = new StdioServerTransport()
-    await server.connect(transport)
+    process.stderr.write('[model-picker] Starting model-picker MCP server\n');
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
 }

@@ -140,13 +140,10 @@ All 68 parameters supported by MCC, organized by category. Each can be set via C
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `includeBenchmark` | `--include-benchmark` | boolean | `false` | Include SageMaker AI Benchmarking (env: `ML_INCLUDE_BENCHMARK`) |
-| `benchmarkConcurrency` | `--benchmark-concurrency` | integer | `10` | Benchmark concurrent requests |
-| `benchmarkInputTokens` | `--benchmark-input-tokens` | integer | `550` | Benchmark mean input tokens |
-| `benchmarkOutputTokens` | `--benchmark-output-tokens` | integer | `150` | Benchmark mean output tokens |
-| `benchmarkStreaming` | `--benchmark-streaming` | boolean | `true` | Enable streaming in benchmark |
-| `benchmarkRequestCount` | `--benchmark-request-count` | integer | — | Total number of benchmark requests to send |
-| `benchmarkS3OutputPath` | `--benchmark-s3-output-path` | string | — | S3 URI for benchmark results output (env: `ML_BENCHMARK_S3_OUTPUT_PATH`) |
+| `includeBenchmark` | `--include-benchmark` | boolean | `false` | Include `do/benchmark` script in the generated project (env: `ML_INCLUDE_BENCHMARK`) |
+
+!!! note "Runtime resolution"
+    Benchmark parameters (concurrency, token counts, streaming, S3 paths) are **not** set at generation time. They are resolved at runtime by `do/benchmark --workload <name>` from the workload-picker MCP server and the bootstrap profile. See [Benchmarking](benchmarking.md) for workload profiles and the full runtime flow.
 
 ### Testing
 

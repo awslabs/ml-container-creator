@@ -375,7 +375,8 @@ Without `--benchmark-infra`, CI deploys only the DynamoDB table, Lambda, Step Fu
 | Field | Description |
 |---|---|
 | `ciGlueDatabase` | Name of the Glue database (default: `mlcc_ci`) |
-| `ciBenchmarkResultsBucket` | S3 bucket name for benchmark results |
+| `benchmarkS3Bucket` | S3 bucket for raw benchmark outputs (from CloudFormation stack output `BenchmarkS3BucketName`) |
+| `ciBenchmarkResultsBucket` | S3 bucket for Athena-queryable Parquet benchmark results |
 
 Example config after provisioning:
 
@@ -387,6 +388,7 @@ Example config after provisioning:
       "ciInfraProvisioned": true,
       "ciTableName": "mlcc-ci-table",
       "ciGlueDatabase": "mlcc_ci",
+      "benchmarkS3Bucket": "mlcc-benchmark-111111111111-us-east-1",
       "ciBenchmarkResultsBucket": "mlcc-benchmark-results-111111111111-us-east-1"
     }
   }

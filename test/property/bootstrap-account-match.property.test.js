@@ -95,6 +95,9 @@ function createMockHandler(configPath, { callerAccount, stackExists }) {
     // Mock _resourceExists to control whether the stack is found
     handler._resourceExists = () => stackExists;
 
+    // Mock _execAws to prevent real AWS calls
+    handler._execAws = () => { throw new Error('NoSuchEntity'); };
+
     // Mock _deployStack to track whether deployment was attempted
     handler._deployStack = () => {
         state.deployAttempted = true;

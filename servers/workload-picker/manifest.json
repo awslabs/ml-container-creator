@@ -1,0 +1,23 @@
+{
+    "name": "@amzn/ml-container-creator-workload-picker",
+    "version": "1.0.0",
+    "description": "MCP server that provides named benchmark workload profiles for do/benchmark.",
+    "modes": {
+        "static": true,
+        "smart": false,
+        "discover": false
+    },
+    "catalogs": {
+        "workload-profiles": "./catalogs/workload-profiles.json"
+    },
+    "tools": [
+        {
+            "name": "list_workloads",
+            "description": "Returns all available benchmark workload profiles"
+        },
+        {
+            "name": "get_workload_profile",
+            "description": "Returns parameters for a specific named workload"
+        }
+    ]
+}

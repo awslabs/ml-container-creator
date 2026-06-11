@@ -20,45 +20,45 @@
  *   AWS_PROFILE - AWS profile to use for credentials
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
-import { fileURLToPath } from 'node:url'
-import { resolve, dirname } from 'node:path'
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { DynamicResolver } from '../lib/dynamic-resolver.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { fileURLToPath } from 'node:url';
+import { resolve, dirname } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { DynamicResolver } from '../lib/dynamic-resolver.js';
 
 /**
  * Log to stderr so it doesn't interfere with MCP stdio protocol on stdout.
  */
 function log(message) {
-    process.stderr.write(`[endpoint-picker] ${message}\n`)
+    process.stderr.write(`[endpoint-picker] ${message}\n`);
 }
 
 // ── Instance catalog for GPU lookup ──────────────────────────────────────────
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-let _instanceCatalog = null
+let _instanceCatalog = null;
 
 /**
  * Load the instance catalog from servers/lib/catalogs/instances.json.
  * Returns a map of instanceType -> { gpus, ... }
  */
 function _loadInstanceCatalog() {
-    if (_instanceCatalog) return _instanceCatalog
+    if (_instanceCatalog) return _instanceCatalog;
     try {
-        const catalogPath = resolve(__dirname, '../lib/catalogs/instances.json')
-        const raw = readFileSync(catalogPath, 'utf8')
-        const parsed = JSON.parse(raw)
-        _instanceCatalog = parsed.catalog || parsed
-        return _instanceCatalog
+        const catalogPath = resolve(__dirname, '../lib/catalogs/instances.json');
+        const raw = readFileSync(catalogPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        _instanceCatalog = parsed.catalog || parsed;
+        return _instanceCatalog;
     } catch (err) {
-        log(`Warning: could not load instance catalog: ${err.message}`)
-        _instanceCatalog = {}
-        return _instanceCatalog
+        log(`Warning: could not load instance catalog: ${err.message}`);
+        _instanceCatalog = {};
+        return _instanceCatalog;
     }
 }
 
@@ -67,48 +67,48 @@ function _loadInstanceCatalog() {
  * Returns null if the instance type is not in the catalog.
  */
 function getGpusForInstance(instanceType) {
-    const catalog = _loadInstanceCatalog()
-    const entry = catalog[instanceType]
-    if (!entry) return null
-    return entry.gpus ?? null
+    const catalog = _loadInstanceCatalog();
+    const entry = catalog[instanceType];
+    if (!entry) return null;
+    return entry.gpus ?? null;
 }
 
 // ── AWS SDK lazy loading ─────────────────────────────────────────────────────
 
-let _SageMakerClient = null
-let _ListEndpointsCommand = null
-let _DescribeEndpointCommand = null
-let _ListInferenceComponentsCommand = null
-let _fromIni = null
+let _SageMakerClient = null;
+let _ListEndpointsCommand = null;
+let _DescribeEndpointCommand = null;
+let _ListInferenceComponentsCommand = null;
+let _fromIni = null;
 
 /**
  * Lazily load the AWS SDK SageMaker client classes.
  */
 async function _ensureSdkLoaded() {
-    if (_SageMakerClient) return
-    const sdk = await import('@aws-sdk/client-sagemaker')
-    _SageMakerClient = sdk.SageMakerClient
-    _ListEndpointsCommand = sdk.ListEndpointsCommand
-    _DescribeEndpointCommand = sdk.DescribeEndpointCommand
-    _ListInferenceComponentsCommand = sdk.ListInferenceComponentsCommand
+    if (_SageMakerClient) return;
+    const sdk = await import('@aws-sdk/client-sagemaker');
+    _SageMakerClient = sdk.SageMakerClient;
+    _ListEndpointsCommand = sdk.ListEndpointsCommand;
+    _DescribeEndpointCommand = sdk.DescribeEndpointCommand;
+    _ListInferenceComponentsCommand = sdk.ListInferenceComponentsCommand;
     try {
-        const credentialProviders = await import('@aws-sdk/credential-providers')
-        _fromIni = credentialProviders.fromIni
+        const credentialProviders = await import('@aws-sdk/credential-providers');
+        _fromIni = credentialProviders.fromIni;
     } catch {
         // credential-providers not available — profile-based fallback won't work
     }
 }
 
 function _defaultClientFactory(region) {
-    return new _SageMakerClient({ region })
+    return new _SageMakerClient({ region });
 }
 
 /**
  * Create a SageMaker client for the given region.
  */
 function createSageMakerClient(region, clientFactory = null) {
-    if (clientFactory) return clientFactory(region)
-    return _defaultClientFactory(region)
+    if (clientFactory) return clientFactory(region);
+    return _defaultClientFactory(region);
 }
 
 /**
@@ -116,34 +116,34 @@ function createSageMakerClient(region, clientFactory = null) {
  */
 function _createClientWithProfile(region, profile) {
     if (!_fromIni) {
-        throw new Error('Cannot use profile-based credentials: @aws-sdk/credential-providers not available')
+        throw new Error('Cannot use profile-based credentials: @aws-sdk/credential-providers not available');
     }
     return new _SageMakerClient({
         region,
         credentials: _fromIni({ profile })
-    })
+    });
 }
 
 /**
  * Detect available AWS profile names from ~/.aws/credentials and ~/.aws/config.
  */
 function _detectAwsProfiles() {
-    const profiles = new Set()
+    const profiles = new Set();
     try {
-        const credsPath = resolve(homedir(), '.aws/credentials')
-        const creds = readFileSync(credsPath, 'utf8')
+        const credsPath = resolve(homedir(), '.aws/credentials');
+        const creds = readFileSync(credsPath, 'utf8');
         for (const match of creds.matchAll(/^\[(.+)\]$/gm)) {
-            profiles.add(match[1])
+            profiles.add(match[1]);
         }
     } catch { /* no credentials file */ }
     try {
-        const configPath = resolve(homedir(), '.aws/config')
-        const config = readFileSync(configPath, 'utf8')
+        const configPath = resolve(homedir(), '.aws/config');
+        const config = readFileSync(configPath, 'utf8');
         for (const match of config.matchAll(/^\[profile\s+(.+)\]$/gm)) {
-            profiles.add(match[1])
+            profiles.add(match[1]);
         }
     } catch { /* no config file */ }
-    return [...profiles]
+    return [...profiles];
 }
 
 // ── Core logic ───────────────────────────────────────────────────────────────
@@ -156,88 +156,88 @@ function _detectAwsProfiles() {
  * @returns {Promise<Array<object>>} Array of endpoint info objects
  */
 async function fetchEndpoints(client, { limit = 10, showFull = false } = {}) {
-    const endpoints = []
-    let nextToken
-    const maxDescribeCalls = 10
+    const endpoints = [];
+    let nextToken;
+    const maxDescribeCalls = 10;
 
     // Paginate ListEndpoints — InService only, sorted by creation time descending
-    const collectedNames = []
+    const collectedNames = [];
     do {
         const params = {
             StatusEquals: 'InService',
             SortBy: 'CreationTime',
             SortOrder: 'Descending',
             MaxResults: 100
-        }
-        if (nextToken) params.NextToken = nextToken
+        };
+        if (nextToken) params.NextToken = nextToken;
 
-        const command = new _ListEndpointsCommand(params)
-        const response = await client.send(command)
+        const command = new _ListEndpointsCommand(params);
+        const response = await client.send(command);
 
-        const summaries = response.Endpoints || []
+        const summaries = response.Endpoints || [];
         for (const summary of summaries) {
-            collectedNames.push(summary.EndpointName)
-            if (collectedNames.length >= limit) break
+            collectedNames.push(summary.EndpointName);
+            if (collectedNames.length >= limit) break;
         }
 
-        nextToken = response.NextToken
-    } while (nextToken && collectedNames.length < limit)
+        nextToken = response.NextToken;
+    } while (nextToken && collectedNames.length < limit);
 
     // Cap describe calls to maxDescribeCalls
-    const toDescribe = collectedNames.slice(0, maxDescribeCalls)
+    const toDescribe = collectedNames.slice(0, maxDescribeCalls);
 
     // Describe each endpoint and list its inference components
     for (const endpointName of toDescribe) {
         try {
             // DescribeEndpoint
-            const describeCmd = new _DescribeEndpointCommand({ EndpointName: endpointName })
-            const detail = await client.send(describeCmd)
+            const describeCmd = new _DescribeEndpointCommand({ EndpointName: endpointName });
+            const detail = await client.send(describeCmd);
 
-            const variants = detail.ProductionVariants || []
-            const primaryVariant = variants[0] || {}
+            const variants = detail.ProductionVariants || [];
+            const primaryVariant = variants[0] || {};
 
-            const variantName = primaryVariant.VariantName || 'AllTraffic'
-            const instanceType = primaryVariant.CurrentInstanceCount != null
+            const variantName = primaryVariant.VariantName || 'AllTraffic';
+            const instanceType = primaryVariant.CurrentInstanceCount !== null && primaryVariant.CurrentInstanceCount !== undefined
                 ? (primaryVariant.InstanceType || detail.ProductionVariants?.[0]?.InstanceType || 'unknown')
-                : (primaryVariant.InstanceType || 'unknown')
-            const instanceCount = primaryVariant.CurrentInstanceCount ?? primaryVariant.DesiredInstanceCount ?? 1
-            const hasInstancePools = !!(primaryVariant.InstancePools && primaryVariant.InstancePools.length > 0)
+                : (primaryVariant.InstanceType || 'unknown');
+            const instanceCount = primaryVariant.CurrentInstanceCount ?? primaryVariant.DesiredInstanceCount ?? 1;
+            const hasInstancePools = !!(primaryVariant.InstancePools && primaryVariant.InstancePools.length > 0);
 
             // ListInferenceComponents for this endpoint
-            let icCount = 0
-            let totalGpuAllocated = 0
-            let icNextToken
+            let icCount = 0;
+            let totalGpuAllocated = 0;
+            let icNextToken;
             do {
-                const icParams = { EndpointNameEquals: endpointName, MaxResults: 100 }
-                if (icNextToken) icParams.NextToken = icNextToken
+                const icParams = { EndpointNameEquals: endpointName, MaxResults: 100 };
+                if (icNextToken) icParams.NextToken = icNextToken;
 
-                const icCmd = new _ListInferenceComponentsCommand(icParams)
-                const icResponse = await client.send(icCmd)
+                const icCmd = new _ListInferenceComponentsCommand(icParams);
+                const icResponse = await client.send(icCmd);
 
-                const components = icResponse.InferenceComponents || []
+                const components = icResponse.InferenceComponents || [];
                 for (const ic of components) {
-                    icCount++
+                    icCount++;
                     const gpuReq = ic.Specification?.ComputeResourceRequirements?.NumberOfAcceleratorDevicesRequired
                         ?? ic.ComputeResourceRequirements?.NumberOfAcceleratorDevicesRequired
-                        ?? 0
-                    totalGpuAllocated += gpuReq
+                        ?? 0;
+                    totalGpuAllocated += gpuReq;
                 }
 
-                icNextToken = icResponse.NextToken
-            } while (icNextToken)
+                icNextToken = icResponse.NextToken;
+            } while (icNextToken);
 
             // Capacity estimation
-            const gpusPerInstance = getGpusForInstance(instanceType)
-            let availableGpus
+            const gpusPerInstance = getGpusForInstance(instanceType);
+            let availableGpus;
             if (gpusPerInstance === null) {
-                availableGpus = '?'
+                availableGpus = '?';
             } else {
-                availableGpus = (instanceCount * gpusPerInstance) - totalGpuAllocated
+                availableGpus = (instanceCount * gpusPerInstance) - totalGpuAllocated;
             }
 
             // Filter: by default only return endpoints with available capacity
             if (!showFull && availableGpus !== '?' && availableGpus <= 0) {
-                continue
+                continue;
             }
 
             endpoints.push({
@@ -248,17 +248,17 @@ async function fetchEndpoints(client, { limit = 10, showFull = false } = {}) {
                 icCount,
                 availableGpus,
                 hasInstancePools
-            })
+            });
         } catch (err) {
             if (err.name === 'AccessDeniedException' || err.Code === 'AccessDeniedException') {
-                log(`AccessDeniedException for endpoint "${endpointName}" — skipping`)
-                continue
+                log(`AccessDeniedException for endpoint "${endpointName}" — skipping`);
+                continue;
             }
-            log(`Warning: could not describe endpoint "${endpointName}": ${err.message}`)
+            log(`Warning: could not describe endpoint "${endpointName}": ${err.message}`);
         }
     }
 
-    return endpoints
+    return endpoints;
 }
 
 /**
@@ -273,10 +273,10 @@ function buildResponse(endpoints) {
             values: {},
             choices: { endpointName: [] },
             message: 'No InService real-time endpoints with available capacity found in the specified region.'
-        }
+        };
     }
 
-    const endpointNames = endpoints.map(e => e.endpointName)
+    const endpointNames = endpoints.map(e => e.endpointName);
 
     return {
         values: { endpointName: endpointNames[0] },
@@ -291,7 +291,7 @@ function buildResponse(endpoints) {
                 hasInstancePools: e.hasInstancePools
             }])
         )
-    }
+    };
 }
 
 // ── EndpointResolver ─────────────────────────────────────────────────────────
@@ -304,70 +304,70 @@ function buildResponse(endpoints) {
  */
 class EndpointResolver extends DynamicResolver {
     constructor(options = {}) {
-        super()
-        this._region = options.region || process.env.AWS_REGION || 'us-east-1'
-        this._profile = options.profile || process.env.AWS_PROFILE || null
-        this._clientFactory = options.clientFactory || null
+        super();
+        this._region = options.region || process.env.AWS_REGION || 'us-east-1';
+        this._profile = options.profile || process.env.AWS_PROFILE || null;
+        this._clientFactory = options.clientFactory || null;
     }
 
     async fetch(key, options = {}) {
-        const { limit = 10, showFull = false } = options
+        const { limit = 10, showFull = false } = options;
 
-        await _ensureSdkLoaded()
+        await _ensureSdkLoaded();
 
-        let endpoints = null
-        let lastError = null
+        let endpoints = null;
+        let lastError = null;
 
         // Strategy 1: If a specific profile was requested, use it directly
         if (this._profile) {
             try {
-                const client = _createClientWithProfile(this._region, this._profile)
-                endpoints = await fetchEndpoints(client, { limit, showFull })
+                const client = _createClientWithProfile(this._region, this._profile);
+                endpoints = await fetchEndpoints(client, { limit, showFull });
             } catch (err) {
-                log(`Profile "${this._profile}" failed: ${err.message}`)
-                lastError = err
+                log(`Profile "${this._profile}" failed: ${err.message}`);
+                lastError = err;
             }
         }
 
         // Strategy 2: Try the default credential chain
         if (!endpoints) {
             try {
-                const client = createSageMakerClient(this._region, this._clientFactory)
-                endpoints = await fetchEndpoints(client, { limit, showFull })
+                const client = createSageMakerClient(this._region, this._clientFactory);
+                endpoints = await fetchEndpoints(client, { limit, showFull });
             } catch (err) {
-                log(`Default credential chain failed: ${err.message}`)
-                lastError = err
+                log(`Default credential chain failed: ${err.message}`);
+                lastError = err;
             }
         }
 
         // Strategy 3: Detect available AWS profiles and try each
         if (!endpoints && _fromIni) {
-            const profiles = _detectAwsProfiles()
+            const profiles = _detectAwsProfiles();
             for (const p of profiles) {
                 try {
-                    const client = _createClientWithProfile(this._region, p)
-                    endpoints = await fetchEndpoints(client, { limit, showFull })
-                    log(`Profile "${p}" succeeded`)
-                    break
+                    const client = _createClientWithProfile(this._region, p);
+                    endpoints = await fetchEndpoints(client, { limit, showFull });
+                    log(`Profile "${p}" succeeded`);
+                    break;
                 } catch (err) {
-                    log(`Profile "${p}" failed: ${err.message}`)
-                    lastError = err
+                    log(`Profile "${p}" failed: ${err.message}`);
+                    lastError = err;
                 }
             }
         }
 
         if (!endpoints) {
-            throw lastError || new Error('No AWS credentials available')
+            throw lastError || new Error('No AWS credentials available');
         }
 
         return {
             items: endpoints,
             defaultItem: endpoints[0] || null
-        }
+        };
     }
 
     supportedKeys() {
-        return ['endpointName']
+        return ['endpointName'];
     }
 }
 
@@ -376,7 +376,7 @@ class EndpointResolver extends DynamicResolver {
 const server = new McpServer({
     name: 'endpoint-picker',
     version: '1.0.0'
-})
+});
 
 // Register the get_inference_endpoints tool
 server.tool(
@@ -395,7 +395,7 @@ server.tool(
                     type: 'text',
                     text: JSON.stringify({ values: {}, choices: {} })
                 }]
-            }
+            };
         }
 
         if (context?.deploymentTarget && context.deploymentTarget !== 'realtime-inference') {
@@ -404,58 +404,58 @@ server.tool(
                     type: 'text',
                     text: JSON.stringify({ values: {}, choices: {} })
                 }]
-            }
+            };
         }
 
-        const region = context?.awsRegion || process.env.AWS_REGION || 'us-east-1'
-        const profile = context?.awsProfile || process.env.AWS_PROFILE || null
-        const showFull = context?.showFull || false
-        log(`Querying InService endpoints in region: ${region}${profile ? ` (profile: ${profile})` : ''}`)
+        const region = context?.awsRegion || process.env.AWS_REGION || 'us-east-1';
+        const profile = context?.awsProfile || process.env.AWS_PROFILE || null;
+        const showFull = context?.showFull || false;
+        log(`Querying InService endpoints in region: ${region}${profile ? ` (profile: ${profile})` : ''}`);
 
         try {
-            await _ensureSdkLoaded()
+            await _ensureSdkLoaded();
 
-            let endpoints = null
-            let lastError = null
+            let endpoints = null;
+            let lastError = null;
 
             // Strategy 1: If a specific profile was requested, use it directly
             if (profile) {
                 try {
-                    log(`Trying explicit profile: ${profile}`)
-                    const client = _createClientWithProfile(region, profile)
-                    endpoints = await fetchEndpoints(client, { limit, showFull })
+                    log(`Trying explicit profile: ${profile}`);
+                    const client = _createClientWithProfile(region, profile);
+                    endpoints = await fetchEndpoints(client, { limit, showFull });
                 } catch (err) {
-                    log(`Profile "${profile}" failed: ${err.message}`)
-                    lastError = err
+                    log(`Profile "${profile}" failed: ${err.message}`);
+                    lastError = err;
                 }
             }
 
             // Strategy 2: Try the default credential chain
             if (!endpoints) {
                 try {
-                    log('Trying default credential chain')
-                    const client = createSageMakerClient(region)
-                    endpoints = await fetchEndpoints(client, { limit, showFull })
+                    log('Trying default credential chain');
+                    const client = createSageMakerClient(region);
+                    endpoints = await fetchEndpoints(client, { limit, showFull });
                 } catch (err) {
-                    log(`Default credential chain failed: ${err.message}`)
-                    lastError = err
+                    log(`Default credential chain failed: ${err.message}`);
+                    lastError = err;
                 }
             }
 
             // Strategy 3: Detect available AWS profiles and try each
             if (!endpoints && _fromIni) {
-                const profiles = _detectAwsProfiles()
+                const profiles = _detectAwsProfiles();
                 if (profiles.length > 0) {
-                    log(`Default credentials failed, trying ${profiles.length} detected profile(s): ${profiles.join(', ')}`)
+                    log(`Default credentials failed, trying ${profiles.length} detected profile(s): ${profiles.join(', ')}`);
                     for (const p of profiles) {
                         try {
-                            const client = _createClientWithProfile(region, p)
-                            endpoints = await fetchEndpoints(client, { limit, showFull })
-                            log(`Profile "${p}" succeeded`)
-                            break
+                            const client = _createClientWithProfile(region, p);
+                            endpoints = await fetchEndpoints(client, { limit, showFull });
+                            log(`Profile "${p}" succeeded`);
+                            break;
                         } catch (err) {
-                            log(`Profile "${p}" failed: ${err.message}`)
-                            lastError = err
+                            log(`Profile "${p}" failed: ${err.message}`);
+                            lastError = err;
                         }
                     }
                 }
@@ -463,15 +463,15 @@ server.tool(
 
             // If all strategies failed, throw the last error
             if (!endpoints) {
-                throw lastError || new Error('No AWS credentials available')
+                throw lastError || new Error('No AWS credentials available');
             }
 
-            const result = buildResponse(endpoints)
+            const result = buildResponse(endpoints);
 
             if (endpoints.length > 0) {
-                log(`Found ${endpoints.length} endpoint(s) with available capacity`)
+                log(`Found ${endpoints.length} endpoint(s) with available capacity`);
             } else {
-                log('No InService endpoints with available capacity found')
+                log('No InService endpoints with available capacity found');
             }
 
             return {
@@ -479,13 +479,13 @@ server.tool(
                     type: 'text',
                     text: JSON.stringify(result)
                 }]
-            }
+            };
         } catch (err) {
-            log(`Error querying endpoints: ${err.message}`)
+            log(`Error querying endpoints: ${err.message}`);
 
             // Handle AccessDeniedException gracefully
             if (err.name === 'AccessDeniedException' || err.Code === 'AccessDeniedException') {
-                log('AccessDeniedException — returning empty result')
+                log('AccessDeniedException — returning empty result');
                 return {
                     content: [{
                         type: 'text',
@@ -495,7 +495,7 @@ server.tool(
                             message: 'Access denied when querying SageMaker endpoints. Check IAM permissions.'
                         })
                     }]
-                }
+                };
             }
 
             const errorResult = {
@@ -503,16 +503,16 @@ server.tool(
                 choices: { endpointName: [] },
                 error: err.message,
                 message: `Failed to query endpoints: ${err.message}`
-            }
+            };
             return {
                 content: [{
                     type: 'text',
                     text: JSON.stringify(errorResult)
                 }]
-            }
+            };
         }
     }
-)
+);
 
 // Export for testing
 export {
@@ -523,14 +523,14 @@ export {
     _ensureSdkLoaded,
     _loadInstanceCatalog,
     EndpointResolver
-}
+};
 
 // Guard MCP transport — only connect when run as main module
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename
+const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
 
 if (isMain) {
-    log('Starting Endpoint Picker MCP server')
-    await _ensureSdkLoaded()
-    const transport = new StdioServerTransport()
-    await server.connect(transport)
+    log('Starting Endpoint Picker MCP server');
+    await _ensureSdkLoaded();
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
 }

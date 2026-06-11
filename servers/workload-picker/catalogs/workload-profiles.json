@@ -1,0 +1,67 @@
+{
+  "workloads": {
+    "sample": {
+      "description": "POC Sample Workload",
+      "input_tokens_mean": 100,
+      "output_tokens_mean": 100,
+      "streaming": true,
+      "dataset": "synthetic",
+      "concurrency_levels": [2],
+      "use_case": "POC Sample Workload"
+    },
+    "multi_turn_chat": {
+      "description": "Copilots, assistants, customer support — short exchanges with conversation history",
+      "input_tokens_mean": 550,
+      "output_tokens_mean": 150,
+      "streaming": true,
+      "dataset": "synthetic",
+      "concurrency_levels": [1, 4, 8, 16],
+      "use_case": "Interactive chat, low latency"
+    },
+    "rag_document_qa": {
+      "description": "Knowledge bases, legal & medical search — long context retrieval with focused answers",
+      "input_tokens_mean": 2000,
+      "output_tokens_mean": 500,
+      "streaming": true,
+      "dataset": "synthetic",
+      "concurrency_levels": [1, 4, 8],
+      "use_case": "RAG, document Q&A"
+    },
+    "agent_tool_calling": {
+      "description": "Coding agents, research agents, automation — short structured outputs (JSON)",
+      "input_tokens_mean": 200,
+      "output_tokens_mean": 100,
+      "streaming": false,
+      "dataset": "synthetic",
+      "concurrency_levels": [1, 4, 8, 16, 32],
+      "use_case": "Agents, structured output"
+    },
+    "long_context_scaling": {
+      "description": "Prefill stress test — very long inputs with moderate outputs",
+      "input_tokens_mean": 8000,
+      "output_tokens_mean": 1000,
+      "streaming": true,
+      "dataset": "synthetic",
+      "concurrency_levels": [1, 2, 4],
+      "use_case": "Long context, summarization"
+    },
+    "production_traffic_mix": {
+      "description": "Aggregate real traffic simulation — mixed input/output lengths",
+      "input_tokens_mean": 1000,
+      "output_tokens_mean": 300,
+      "streaming": true,
+      "dataset": "synthetic",
+      "concurrency_levels": [4, 8, 16, 32],
+      "use_case": "Production fleet sizing"
+    },
+    "shared_system_prompt": {
+      "description": "Prefix caching / prompt reuse — long shared prefix with short user queries",
+      "input_tokens_mean": 1000,
+      "output_tokens_mean": 200,
+      "streaming": true,
+      "dataset": "synthetic",
+      "concurrency_levels": [4, 8, 16, 32],
+      "use_case": "Prefix caching validation"
+    }
+  }
+}

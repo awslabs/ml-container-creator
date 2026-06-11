@@ -24,7 +24,7 @@ const GPU_MEMORY_MAP = {
     'NVIDIA H100': 80,
     'AWS Inferentia2': 32,
     'AWS Trainium': 32
-}
+};
 
 /**
  * Cost tier classification by instance family.
@@ -45,7 +45,7 @@ const COST_TIER_MAP = {
     'p5e': 'high',
     'p5en': 'high',
     'p6': 'high'
-}
+};
 
 /**
  * Relative cost weight by tier for sorting within TP groups.
@@ -55,7 +55,7 @@ const COST_TIER_WEIGHT = {
     'low': 1,
     'medium': 2,
     'high': 3
-}
+};
 
 /**
  * Generation weight by instance family.
@@ -77,13 +77,13 @@ const GENERATION_WEIGHT = {
     'p3': 6,
     'g4dn': 7,
     'g4ad': 7
-}
+};
 
 /**
  * TP overhead penalty: 10% per additional GPU beyond the first.
  * Effective VRAM = totalVram × (1 - 0.10 × (gpuCount - 1))
  */
-const TP_OVERHEAD_PER_GPU = 0.10
+const TP_OVERHEAD_PER_GPU = 0.10;
 
 // ── Helper Functions ─────────────────────────────────────────────────────────
 
@@ -101,33 +101,33 @@ const TP_OVERHEAD_PER_GPU = 0.10
 const getPerGpuMemoryGb = (instance) => {
     // 1. Direct field
     if (instance.gpuMemoryGb) {
-        return instance.gpuMemoryGb
+        return instance.gpuMemoryGb;
     }
 
     // 2. Parse from accelerator string
     if (instance.accelerator) {
         // Match patterns like "A10G 24GB", "4x A10G 96GB", "T4 16GB"
-        const totalMatch = instance.accelerator.match(/(\d+)GB/)
+        const totalMatch = instance.accelerator.match(/(\d+)GB/);
         if (totalMatch) {
-            const totalGb = parseInt(totalMatch[1], 10)
-            const gpuCount = instance.gpus || 1
+            const totalGb = parseInt(totalMatch[1], 10);
+            const gpuCount = instance.gpus || 1;
             // If the string has a multiplier prefix like "4x", the GB is total
-            const hasMultiplier = instance.accelerator.match(/^(\d+)x\s/)
+            const hasMultiplier = instance.accelerator.match(/^(\d+)x\s/);
             if (hasMultiplier) {
-                return totalGb / gpuCount
+                return totalGb / gpuCount;
             }
             // Single GPU entry — the GB value is per-GPU
-            return totalGb
+            return totalGb;
         }
     }
 
     // 3. Lookup by hardware type
     if (instance.hardware && GPU_MEMORY_MAP[instance.hardware]) {
-        return GPU_MEMORY_MAP[instance.hardware]
+        return GPU_MEMORY_MAP[instance.hardware];
     }
 
-    return null
-}
+    return null;
+};
 
 /**
  * Determine cost tier for an instance based on its family.
@@ -137,11 +137,11 @@ const getPerGpuMemoryGb = (instance) => {
  */
 const getCostTier = (instance) => {
     if (instance.costTier) {
-        return instance.costTier
+        return instance.costTier;
     }
-    const family = instance.family || ''
-    return COST_TIER_MAP[family] || 'medium'
-}
+    const family = instance.family || '';
+    return COST_TIER_MAP[family] || 'medium';
+};
 
 /**
  * Calculate effective VRAM available after TP overhead penalty.
@@ -158,11 +158,11 @@ const getCostTier = (instance) => {
  * @returns {number} Effective usable VRAM in GB
  */
 const effectiveVram = (totalVramGb, gpuCount) => {
-    if (gpuCount <= 1) return totalVramGb
-    const perGpuMemory = totalVramGb / gpuCount
-    const overhead = perGpuMemory * TP_OVERHEAD_PER_GPU * (gpuCount - 1)
-    return totalVramGb - overhead
-}
+    if (gpuCount <= 1) return totalVramGb;
+    const perGpuMemory = totalVramGb / gpuCount;
+    const overhead = perGpuMemory * TP_OVERHEAD_PER_GPU * (gpuCount - 1);
+    return totalVramGb - overhead;
+};
 
 // ── Main Function ────────────────────────────────────────────────────────────
 
@@ -177,33 +177,33 @@ const effectiveVram = (totalVramGb, gpuCount) => {
  * @returns {object[]} Ranked list of compatible instances
  */
 const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => {
-    const { limit = 10, allowTensorParallelism = true } = options
+    const { limit = 10, allowTensorParallelism = true } = options;
 
     if (!vramRequired || vramRequired <= 0) {
-        return []
+        return [];
     }
 
     if (!instanceCatalog || typeof instanceCatalog !== 'object') {
-        return []
+        return [];
     }
 
-    const candidates = []
+    const candidates = [];
 
     for (const [instanceType, meta] of Object.entries(instanceCatalog)) {
         // Skip non-GPU instances
-        if (!meta.gpus || meta.gpus <= 0) continue
-        if (meta.category !== 'gpu') continue
+        if (!meta.gpus || meta.gpus <= 0) continue;
+        if (meta.category !== 'gpu') continue;
 
-        const perGpuMemory = getPerGpuMemoryGb(meta)
-        if (!perGpuMemory) continue
+        const perGpuMemory = getPerGpuMemoryGb(meta);
+        if (!perGpuMemory) continue;
 
-        const gpuCount = meta.gpus
-        const totalVramGb = perGpuMemory * gpuCount
+        const gpuCount = meta.gpus;
+        const totalVramGb = perGpuMemory * gpuCount;
 
         // Determine if model fits on a single GPU
         if (gpuCount === 1) {
             if (perGpuMemory >= vramRequired) {
-                const utilizationPercent = Math.round((vramRequired / perGpuMemory) * 100)
+                const utilizationPercent = Math.round((vramRequired / perGpuMemory) * 100);
                 candidates.push({
                     instanceType,
                     gpuCount,
@@ -212,13 +212,13 @@ const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => 
                     tensorParallelism: 1,
                     costTier: getCostTier(meta),
                     family: meta.family || ''
-                })
+                });
             }
         } else if (allowTensorParallelism) {
             // Multi-GPU: check if model fits with TP across all GPUs
-            const effectiveTotal = effectiveVram(totalVramGb, gpuCount)
+            const effectiveTotal = effectiveVram(totalVramGb, gpuCount);
             if (effectiveTotal >= vramRequired) {
-                const utilizationPercent = Math.round((vramRequired / effectiveTotal) * 100)
+                const utilizationPercent = Math.round((vramRequired / effectiveTotal) * 100);
                 candidates.push({
                     instanceType,
                     gpuCount,
@@ -227,7 +227,7 @@ const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => 
                     tensorParallelism: gpuCount,
                     costTier: getCostTier(meta),
                     family: meta.family || ''
-                })
+                });
             }
         }
     }
@@ -240,34 +240,34 @@ const filterAndRankInstances = (vramRequired, instanceCatalog, options = {}) => 
     candidates.sort((a, b) => {
         // Primary: TP degree (lower is better)
         if (a.tensorParallelism !== b.tensorParallelism) {
-            return a.tensorParallelism - b.tensorParallelism
+            return a.tensorParallelism - b.tensorParallelism;
         }
 
         // Secondary: generation (newer is better — lower weight)
-        const genA = GENERATION_WEIGHT[a.family] || 4
-        const genB = GENERATION_WEIGHT[b.family] || 4
+        const genA = GENERATION_WEIGHT[a.family] || 4;
+        const genB = GENERATION_WEIGHT[b.family] || 4;
         if (genA !== genB) {
-            return genA - genB
+            return genA - genB;
         }
 
         // Tertiary: cost tier (lower is better)
-        const costA = COST_TIER_WEIGHT[a.costTier] || 2
-        const costB = COST_TIER_WEIGHT[b.costTier] || 2
+        const costA = COST_TIER_WEIGHT[a.costTier] || 2;
+        const costB = COST_TIER_WEIGHT[b.costTier] || 2;
         if (costA !== costB) {
-            return costA - costB
+            return costA - costB;
         }
 
         // Quaternary: prefer lower total VRAM (right-sized, less waste)
         if (a.totalVramGb !== b.totalVramGb) {
-            return a.totalVramGb - b.totalVramGb
+            return a.totalVramGb - b.totalVramGb;
         }
 
         // Final tiebreaker: instance type name for deterministic ordering
-        return a.instanceType.localeCompare(b.instanceType)
-    })
+        return a.instanceType.localeCompare(b.instanceType);
+    });
 
-    return candidates.slice(0, limit)
-}
+    return candidates.slice(0, limit);
+};
 
 // ── Availability Ranking ─────────────────────────────────────────────────────
 
@@ -279,7 +279,7 @@ const CAPACITY_TYPE_PRIORITY = {
     reserved: 0,
     ftp: 1,
     'on-demand': 2
-}
+};
 
 /**
  * Annotate, filter, and re-rank instance recommendations based on
@@ -305,40 +305,40 @@ const CAPACITY_TYPE_PRIORITY = {
  */
 const applyAvailabilityRanking = (recommendations, quotas, reservations, ftps) => {
     if (!recommendations || recommendations.length === 0) {
-        return []
+        return [];
     }
 
     // If all signals are null (all API calls failed), return unmodified
     if (!quotas && !reservations && !ftps) {
-        return recommendations
+        return recommendations;
     }
 
     // Annotate each recommendation with capacityType and quotaStatus
     for (const rec of recommendations) {
-        rec.capacityType = 'on-demand'
-        rec.quotaStatus = 'available'
+        rec.capacityType = 'on-demand';
+        rec.quotaStatus = 'available';
 
         if (reservations?.has(rec.instanceType)) {
-            rec.capacityType = 'reserved'
-            rec.reservationInfo = reservations.get(rec.instanceType)
-            rec.reservationType = 'training-plan'
+            rec.capacityType = 'reserved';
+            rec.reservationInfo = reservations.get(rec.instanceType);
+            rec.reservationType = 'training-plan';
         } else if (ftps?.has(rec.instanceType)) {
-            rec.capacityType = 'ftp'
-            rec.ftpInfo = ftps.get(rec.instanceType)
+            rec.capacityType = 'ftp';
+            rec.ftpInfo = ftps.get(rec.instanceType);
         }
 
         // quotaStatus applies to all instances regardless of capacityType
         if (quotas) {
-            const q = quotas.get(rec.instanceType)
+            const q = quotas.get(rec.instanceType);
             if (q && q.headroom === 0) {
-                rec.quotaStatus = 'zero-quota'
+                rec.quotaStatus = 'zero-quota';
             } else if (q && q.headroom < 2) {
-                rec.quotaStatus = 'limited'
+                rec.quotaStatus = 'limited';
             }
             if (q) {
-                rec.quotaHeadroom = q.headroom
-                rec.quotaDeployed = q.deployed
-                rec.quotaLimit = q.quota
+                rec.quotaHeadroom = q.headroom;
+                rec.quotaDeployed = q.deployed;
+                rec.quotaLimit = q.quota;
             }
         }
     }
@@ -346,18 +346,18 @@ const applyAvailabilityRanking = (recommendations, quotas, reservations, ftps) =
     // Filter out zero-quota instances (but never filter reserved/FTP — you have the capacity)
     const filtered = recommendations.filter(r =>
         r.quotaStatus !== 'zero-quota' || r.capacityType === 'reserved' || r.capacityType === 'ftp'
-    )
+    );
 
     // Sort: reserved first, then FTP, then on-demand (preserve existing order within tier)
     filtered.sort((a, b) => {
-        const pa = CAPACITY_TYPE_PRIORITY[a.capacityType] ?? 2
-        const pb = CAPACITY_TYPE_PRIORITY[b.capacityType] ?? 2
-        if (pa !== pb) return pa - pb
-        return 0
-    })
+        const pa = CAPACITY_TYPE_PRIORITY[a.capacityType] ?? 2;
+        const pb = CAPACITY_TYPE_PRIORITY[b.capacityType] ?? 2;
+        if (pa !== pb) return pa - pb;
+        return 0;
+    });
 
-    return filtered
-}
+    return filtered;
+};
 
 export {
     filterAndRankInstances,
@@ -371,4 +371,4 @@ export {
     GENERATION_WEIGHT,
     CAPACITY_TYPE_PRIORITY,
     TP_OVERHEAD_PER_GPU
-}
+};

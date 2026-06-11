@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 REQUIRED_FIELDS = [
-    'config_id',
+    'project_name',
     'model_name',
     'instance_type',
     'deployment_config',
@@ -244,54 +244,61 @@ def compute_partition_keys(timestamp):
     return (dt.strftime('%Y'), dt.strftime('%m'))
 
 
-def compute_s3_path(bucket, config_id, region, timestamp):
+def compute_s3_path(bucket, project_name, model_name, instance_type, deployment_target, timestamp):
     """Construct the full S3 URI for a benchmark run Parquet file.
+
+    Uses model/instance/target partitioning scheme.
 
     Args:
         bucket: S3 bucket name.
-        config_id: Configuration ID.
-        region: AWS region string.
+        project_name: MCC project name.
+        model_name: HuggingFace model ID.
+        instance_type: SageMaker instance type.
+        deployment_target: Deployment target (realtime-inference, etc.).
         timestamp: datetime object for the run timestamp.
 
     Returns:
         str — full S3 URI.
     """
-    year = timestamp.strftime('%Y')
-    month = timestamp.strftime('%m')
+    # Sanitize model name for S3 path (/ → _)
+    model_partition = model_name.replace('/', '_') if model_name else 'unknown'
+    instance_partition = instance_type or 'unknown'
+    target_partition = deployment_target or 'realtime-inference'
     ts_str = timestamp.strftime('%Y%m%dT%H%M%SZ')
-    filename = f'run-{config_id}-{ts_str}.parquet'
+    filename = f'run-{project_name}-{ts_str}.parquet'
 
-    return f's3://{bucket}/region={region}/year={year}/month={month}/{filename}'
+    return f's3://{bucket}/results/model={model_partition}/instance={instance_partition}/target={target_partition}/{filename}'
 
 
-def compute_partition_info(region, timestamp):
-    """Compute partition metadata dict.
+def compute_partition_info(model_name, instance_type, deployment_target):
+    """Compute partition metadata dict for model/instance/target scheme.
 
     Args:
-        region: AWS region string.
-        timestamp: datetime object.
+        model_name: HuggingFace model ID (e.g., 'Qwen/Qwen3-0.6B').
+        instance_type: SageMaker instance type (e.g., 'ml.g5.xlarge').
+        deployment_target: Deployment target (e.g., 'realtime-inference').
 
     Returns:
-        dict with keys: region, year, month.
+        dict with keys: model, instance, target.
     """
     return {
-        "region": region,
-        "year": timestamp.strftime('%Y'),
-        "month": timestamp.strftime('%m'),
+        "model": model_name.replace('/', '_') if model_name else 'unknown',
+        "instance": instance_type or 'unknown',
+        "target": deployment_target or 'realtime-inference',
     }
 
 
-def build_s3_path(bucket, region, config_id, timestamp=None):
+def build_s3_path(bucket, project_name, model_name, instance_type, deployment_target, timestamp=None, region=''):
     """Construct the S3 path and partition info for a benchmark run.
 
     Args:
         bucket: S3 bucket name.
         region: AWS region string.
-        config_id: Configuration ID.
+        project_name: MCC project name.
         timestamp: datetime object or None (defaults to now UTC).
 
     Returns:
-        dict with keys: s3_uri, partition_region, partition_year, partition_month, filename.
+        dict with keys: s3_uri, partition_model, partition_instance, partition_target, filename.
     """
     if timestamp is None:
         timestamp = datetime.now(timezone.utc)
@@ -299,15 +306,18 @@ def build_s3_path(bucket, region, config_id, timestamp=None):
     year = timestamp.strftime('%Y')
     month = timestamp.strftime('%m')
     ts_str = timestamp.strftime('%Y%m%dT%H%M%SZ')
-    filename = f'run-{config_id}-{ts_str}.parquet'
+    model_partition = model_name.replace('/', '_') if model_name else 'unknown'
+    instance_partition = instance_type or 'unknown'
+    target_partition = deployment_target or 'realtime-inference'
+    filename = f'run-{project_name}-{ts_str}.parquet'
 
-    s3_uri = f's3://{bucket}/region={region}/year={year}/month={month}/{filename}'
+    s3_uri = f's3://{bucket}/results/model={model_partition}/instance={instance_partition}/target={target_partition}/{filename}'
 
     return {
         's3_uri': s3_uri,
-        'partition_region': region,
-        'partition_year': year,
-        'partition_month': month,
+        'partition_model': model_partition,
+        'partition_instance': instance_partition,
+        'partition_target': target_partition,
         'filename': filename,
     }
 
@@ -336,7 +346,7 @@ def enrich_records(config, results, run_timestamp=None):
     Each metrics entry becomes one enriched record with all Athena columns populated.
 
     Args:
-        config: dict with config context fields (config_id, model_name, etc.)
+        config: dict with config context fields (project_name, model_name, etc.)
         results: dict with benchmark results (job_name, metrics array)
         run_timestamp: Optional datetime for run_timestamp. Defaults to now UTC.
 
@@ -348,13 +358,12 @@ def enrich_records(config, results, run_timestamp=None):
 
     model_name = config.get('model_name', '')
     instance_type = config.get('instance_type', '')
-    config_id = config.get('config_id', '')
+    project_name = config.get('project_name', '')
     deployment_config = config.get('deployment_config', '')
     region = config.get('region', '')
 
     # Derived fields
     model_family = derive_model_family(model_name)
-    instance_family = derive_instance_family(instance_type)
 
     # Optional context fields
     deployment_target = config.get('deployment_target', 'realtime-inference')
@@ -368,21 +377,26 @@ def enrich_records(config, results, run_timestamp=None):
     ci_run_id = config.get('ci_run_id', '')
     account_id = config.get('account_id', '')
 
-    # Partition keys
-    year = run_timestamp.strftime('%Y')
-    month = run_timestamp.strftime('%m')
 
     # Get metrics from results
     metrics = results.get('metrics', []) if isinstance(results, dict) else []
 
+    # Helper: unwrap aiperf metric dicts to scalar values
+    # Derived metrics: {'unit': 'requests/sec', 'avg': 9.57} → 9.57
+    # Record metrics: {'unit': 'ms', 'avg': 181.9, 'p50': 183.2, ...} → passed to .get('p50') etc.
+    def scalar(val, stat='avg'):
+        if isinstance(val, dict):
+            return val.get(stat, 0.0)
+        return val if val is not None else 0.0
+
     records = []
     for metric in metrics:
-        concurrency = metric.get('concurrency', 0)
-        throughput_rps = metric.get('request_throughput', 0.0)
-        tokens_per_second = metric.get('output_token_throughput', 0.0)
+        concurrency = scalar(metric.get('concurrency', 0))
+        throughput_rps = scalar(metric.get('request_throughput', 0.0))
+        tokens_per_second = scalar(metric.get('output_token_throughput', 0.0))
         error_count = metric.get('error_count', 0)
-        total_requests = metric.get('total_requests', 0)
-        duration_seconds = metric.get('duration_seconds', 0)
+        total_requests = scalar(metric.get('total_requests', 0))
+        duration_seconds = scalar(metric.get('duration_seconds', 0), stat='avg')
         input_tokens_mean = metric.get('input_tokens_mean', 0)
         output_tokens_mean = metric.get('output_tokens_mean', 0)
 
@@ -402,42 +416,77 @@ def enrich_records(config, results, run_timestamp=None):
         # Cost computation
         cost = compute_cost_per_1m_tokens(instance_type, tokens_per_second)
 
+        # Build serving_config JSON blob from all available config params
+        serving_config_dict = {
+            k: v for k, v in {
+                'quantization': quantization,
+                'tensor_parallel_degree': tensor_parallel_degree,
+                'enable_lora': enable_lora,
+                'base_image': base_image,
+                'kv_cache_dtype': config.get('kv_cache_dtype', 'auto'),
+                'max_model_len': config.get('max_model_len', ''),
+                'vllm_version': config.get('vllm_version', ''),
+                'gpu_memory_utilization': config.get('gpu_memory_utilization', ''),
+                'ic_gpu_count': config.get('ic_gpu_count', ''),
+                'ic_copy_count': config.get('ic_copy_count', ''),
+                'adapter_name': config.get('adapter_name', ''),
+            }.items() if v not in ('', None)
+        }
+
+        # Extract richer latency metrics
+        e2e_latency = metric.get('e2e_latency', {})
+        prefill = metric.get('prefill_throughput', {})
+        output_tps = metric.get('output_token_throughput_detail', {})
+
         record = {
-            'config_id': config_id,
+            'project_name': project_name,
             'model_name': model_name,
             'model_family': model_family,
             'instance_type': instance_type,
-            'instance_family': instance_family,
             'deployment_config': deployment_config,
             'deployment_target': deployment_target,
-            'run_timestamp': run_timestamp.isoformat(),
-            'tensor_parallel_degree': tensor_parallel_degree,
             'quantization': quantization,
-            'enable_lora': enable_lora,
-            'base_image': base_image,
-            'base_image_version': base_image_version,
-            'mcc_version': mcc_version,
+            'tensor_parallel_degree': tensor_parallel_degree,
+            'serving_config': json.dumps(serving_config_dict),
+            'workload': config.get('workload', 'manual'),
             'concurrency': concurrency,
             'input_tokens_mean': input_tokens_mean,
             'output_tokens_mean': output_tokens_mean,
+            'streaming': config.get('streaming', True),
             'duration_seconds': duration_seconds,
+            'request_throughput_rps': throughput_rps,
+            'total_token_throughput_tps': scalar(metric.get('total_token_throughput', 0.0)),
+            'output_token_throughput_tps': scalar(metric.get('output_token_throughput', 0.0)),
+            'request_count': scalar(metric.get('request_count', metric.get('total_requests', 0))),
+            'ttft_avg_ms': ttft.get('avg', 0.0),
             'ttft_p50_ms': ttft.get('p50', 0.0),
+            'ttft_p90_ms': ttft.get('p90', 0.0),
             'ttft_p99_ms': ttft.get('p99', 0.0),
+            'itl_avg_ms': itl.get('avg', 0.0),
             'itl_p50_ms': itl.get('p50', 0.0),
+            'itl_p90_ms': itl.get('p90', 0.0),
             'itl_p99_ms': itl.get('p99', 0.0),
-            'throughput_rps': throughput_rps,
-            'tokens_per_second': tokens_per_second,
-            'cost_per_1m_tokens': cost,
+            'e2e_latency_avg_ms': e2e_latency.get('avg', 0.0),
+            'e2e_latency_p50_ms': e2e_latency.get('p50', 0.0),
+            'e2e_latency_p90_ms': e2e_latency.get('p90', 0.0),
+            'e2e_latency_p99_ms': e2e_latency.get('p99', 0.0),
+            'prefill_tps_avg': prefill.get('avg', 0.0),
+            'prefill_tps_p50': prefill.get('p50', 0.0),
+            'output_token_tps_avg': output_tps.get('avg', 0.0),
+            'output_token_tps_p50': output_tps.get('p50', 0.0),
+            'output_token_tps_p90': output_tps.get('p90', 0.0),
+            'ttst_p50_ms': metric.get('time_to_second_token', {}).get('p50', 0.0),
+            'ttst_p90_ms': metric.get('time_to_second_token', {}).get('p90', 0.0),
+            'output_sequence_length_avg': metric.get('output_sequence_length_avg', 0.0),
+            'output_sequence_length_avg': scalar(metric.get('output_sequence_length', metric.get('output_sequence_length_avg', 0.0))),
+            'input_sequence_length_avg': scalar(metric.get('input_sequence_length', metric.get('input_sequence_length_avg', 0.0))),
             'error_rate': error_rate,
-            'status': status,
+            'benchmark_duration_sec': metric.get('benchmark_duration_sec', duration_seconds),
             'run_type': run_type,
-            'ci_run_id': ci_run_id,
-            'ci_stage': 'stage2-benchmark',
             'benchmark_job_name': results.get('job_name', '') if isinstance(results, dict) else '',
-            'account_id': account_id,
+            'mcc_version': mcc_version,
+            'run_timestamp': run_timestamp.isoformat(),
             'region': region,
-            'year': year,
-            'month': month,
         }
         records.append(record)
 
@@ -589,9 +638,9 @@ def emit_validation_error(errors):
 # ── Partition Registration ────────────────────────────────────────────────────
 
 
-def register_partition(bucket, region, year, month,
+def register_partition(bucket, model, instance, target,
                        glue_database='mlcc_ci', glue_table='benchmark_results',
-                       glue_client=None):
+                       glue_client=None, region='us-east-1'):
     """Register a partition in the Glue catalog via BatchCreatePartition.
 
     After writing Parquet to S3, this function ensures the partition is
@@ -599,21 +648,24 @@ def register_partition(bucket, region, year, month,
     queryable via Athena. If the partition already exists, the error is
     swallowed silently (idempotent behavior).
 
+    Uses model/instance/target partitioning scheme matching the S3 data layout.
+
     Args:
         bucket: S3 bucket name.
-        region: Partition region value (e.g., 'us-east-1').
-        year: Partition year value as string (e.g., '2026').
-        month: Partition month value as string (e.g., '06').
+        model: Model partition value (model name with / replaced by _, e.g., 'Qwen_Qwen3-0.6B').
+        instance: Instance partition value (e.g., 'ml.g5.xlarge').
+        target: Deployment target partition value (e.g., 'realtime-inference').
         glue_database: Glue database name (default: mlcc_ci).
         glue_table: Glue table name (default: benchmark_results).
         glue_client: Optional pre-configured boto3 Glue client (for testing).
                      If None, a new client is created for the given region.
+        region: AWS region for the Glue client (default: us-east-1).
 
     Returns:
         dict with keys:
             - registered (bool): True if partition was newly created
             - already_exists (bool): True if partition already existed
-            - partition_values (list): [region, year, month]
+            - partition_values (list): [model, instance, target]
             - location (str): S3 location for the partition
             - error (str|None): Error message if registration failed for
                                 a reason other than already-exists
@@ -628,8 +680,8 @@ def register_partition(bucket, region, year, month,
     if glue_client is None:
         glue_client = boto3.client('glue', region_name=region)
 
-    partition_values = [region, year, month]
-    location = f's3://{bucket}/region={region}/year={year}/month={month}/'
+    partition_values = [model, instance, target]
+    location = f's3://{bucket}/results/model={model}/instance={instance}/target={target}/'
 
     # Get table StorageDescriptor to inherit columns/serde
     try:
@@ -743,53 +795,70 @@ def get_parquet_schema():
     """Return the pyarrow schema matching the Athena DDL for benchmark_results.
 
     All columns defined in the Athena DDL are included. Partition columns
-    (region, year, month) are NOT included here — they are encoded in the
+    (model, instance, target) are NOT included here — they are encoded in the
     S3 path and handled by Glue/Athena partitioning.
     """
     import pyarrow as pa
 
     return pa.schema([
-        # Core dimensions
-        pa.field("config_id", pa.string()),
+        # Identity
+        pa.field("project_name", pa.string()),
+
+        # Model + Serving Config (queryable columns)
         pa.field("model_name", pa.string()),
         pa.field("model_family", pa.string()),
         pa.field("instance_type", pa.string()),
-        pa.field("instance_family", pa.string()),
         pa.field("deployment_config", pa.string()),
         pa.field("deployment_target", pa.string()),
-        pa.field("run_timestamp", pa.timestamp("ms", tz="UTC")),
-
-        # Configuration dimensions
-        pa.field("tensor_parallel_degree", pa.int32()),
         pa.field("quantization", pa.string()),
-        pa.field("enable_lora", pa.bool_()),
-        pa.field("base_image", pa.string()),
-        pa.field("base_image_version", pa.string()),
-        pa.field("mcc_version", pa.string()),
+        pa.field("tensor_parallel_degree", pa.int32()),
 
-        # Workload dimensions
+        # Full serving config (extensible JSON blob)
+        pa.field("serving_config", pa.string()),
+
+        # Workload
+        pa.field("workload", pa.string()),
         pa.field("concurrency", pa.int32()),
         pa.field("input_tokens_mean", pa.int32()),
         pa.field("output_tokens_mean", pa.int32()),
+        pa.field("streaming", pa.bool_()),
         pa.field("duration_seconds", pa.int32()),
 
-        # Result metrics
+        # Rich Metrics
+        pa.field("request_throughput_rps", pa.float64()),
+        pa.field("total_token_throughput_tps", pa.float64()),
+        pa.field("output_token_throughput_tps", pa.float64()),
+        pa.field("request_count", pa.float64()),
+        pa.field("ttft_avg_ms", pa.float64()),
         pa.field("ttft_p50_ms", pa.float64()),
+        pa.field("ttft_p90_ms", pa.float64()),
         pa.field("ttft_p99_ms", pa.float64()),
+        pa.field("itl_avg_ms", pa.float64()),
         pa.field("itl_p50_ms", pa.float64()),
+        pa.field("itl_p90_ms", pa.float64()),
         pa.field("itl_p99_ms", pa.float64()),
-        pa.field("throughput_rps", pa.float64()),
-        pa.field("tokens_per_second", pa.float64()),
-        pa.field("cost_per_1m_tokens", pa.float64()),
+        pa.field("e2e_latency_avg_ms", pa.float64()),
+        pa.field("e2e_latency_p50_ms", pa.float64()),
+        pa.field("e2e_latency_p90_ms", pa.float64()),
+        pa.field("e2e_latency_p99_ms", pa.float64()),
+        pa.field("prefill_tps_avg", pa.float64()),
+        pa.field("prefill_tps_p50", pa.float64()),
+        pa.field("output_token_tps_avg", pa.float64()),
+        pa.field("output_token_tps_p50", pa.float64()),
+        pa.field("output_token_tps_p90", pa.float64()),
+        pa.field("ttst_p50_ms", pa.float64()),
+        pa.field("ttst_p90_ms", pa.float64()),
+        pa.field("output_sequence_length_avg", pa.float64()),
+        pa.field("input_sequence_length_avg", pa.float64()),
         pa.field("error_rate", pa.float64()),
-        pa.field("status", pa.string()),
+        pa.field("benchmark_duration_sec", pa.float64()),
 
-        # Provenance
+        # Run Metadata
         pa.field("run_type", pa.string()),
-        pa.field("ci_run_id", pa.string()),
-        pa.field("ci_stage", pa.string()),
         pa.field("benchmark_job_name", pa.string()),
-        pa.field("account_id", pa.string()),
+        pa.field("mcc_version", pa.string()),
+        pa.field("run_timestamp", pa.string()),
+        pa.field("region", pa.string()),
     ])
 
 
@@ -816,12 +885,9 @@ def _records_to_parquet_table(records):
         for record in records:
             val = record.get(col_name)
 
-            # Handle run_timestamp: convert ISO string to datetime
-            if col_name == 'run_timestamp' and isinstance(val, str):
-                try:
-                    val = dt.fromisoformat(val.replace('Z', '+00:00'))
-                except (ValueError, TypeError):
-                    val = None
+            # Handle run_timestamp: ensure it's a string (schema is pa.string())
+            if col_name == 'run_timestamp' and isinstance(val, dt):
+                val = val.isoformat()
             elif col_name == 'run_timestamp' and val is None:
                 val = None
 
@@ -851,6 +917,193 @@ def _upload_to_s3(local_path, bucket, s3_uri, region):
     s3_client.upload_file(local_path, bucket, s3_key)
 
 
+
+
+def _parse_jsonl_to_metrics(jsonl_path, concurrency=None):
+    """Parse profile_export.jsonl and aggregate into metrics format.
+
+    The JSONL file contains one JSON object per request with:
+    - metadata: {session_num, request_start_ns, request_end_ns, ...}
+    - metrics: {request_latency: {value, unit}, time_to_first_token: {value, unit}, ...}
+
+    Returns a dict compatible with the existing validation/enrichment pipeline:
+    {
+        "metrics": [{concurrency, request_throughput, time_to_first_token: {avg,p50,p90,p99}, ...}]
+    }
+    """
+    import math
+
+    def _percentile(sorted_vals, pct):
+        if not sorted_vals:
+            return 0.0
+        idx = (pct / 100.0) * (len(sorted_vals) - 1)
+        lower = int(math.floor(idx))
+        upper = int(math.ceil(idx))
+        if lower == upper:
+            return sorted_vals[lower]
+        frac = idx - lower
+        return sorted_vals[lower] * (1 - frac) + sorted_vals[upper] * frac
+
+    def _get_val(metrics_dict, key):
+        """Extract scalar value from a metric dict like {value: X, unit: "ms"}."""
+        m = metrics_dict.get(key)
+        if isinstance(m, dict):
+            return m.get('value')
+        return m
+
+    records = []
+    try:
+        with open(jsonl_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    except (FileNotFoundError, IOError) as e:
+        return {"error": str(e)}
+
+    if not records:
+        return {"metrics": []}
+
+    # Collect per-request metrics
+    latencies = []
+    ttfts = []
+    itls = []
+    ttsts = []
+    output_tokens = []
+    input_tokens = []
+    prefill_tps = []
+    output_tps = []
+    start_times = []
+    end_times = []
+
+    for rec in records:
+        meta = rec.get('metadata', {})
+        metrics = rec.get('metrics', {})
+
+        lat = _get_val(metrics, 'request_latency')
+        if lat is not None:
+            latencies.append(lat)
+
+        ttft = _get_val(metrics, 'time_to_first_token')
+        if ttft is None:
+            ttft = _get_val(metrics, 'time_to_first_output_token')
+        if ttft is not None:
+            ttfts.append(ttft)
+
+        itl = _get_val(metrics, 'inter_token_latency')
+        if itl is not None:
+            itls.append(itl)
+
+        ttst = _get_val(metrics, 'time_to_second_token')
+        if ttst is not None:
+            ttsts.append(ttst)
+
+        otc = _get_val(metrics, 'output_token_count')
+        if otc is not None:
+            output_tokens.append(otc)
+
+        isl = _get_val(metrics, 'input_sequence_length')
+        if isl is not None:
+            input_tokens.append(isl)
+
+        ptps = _get_val(metrics, 'prefill_throughput_per_user')
+        if ptps is not None:
+            prefill_tps.append(ptps)
+
+        otps = _get_val(metrics, 'output_token_throughput_per_user')
+        if otps is not None:
+            output_tps.append(otps)
+
+        rs = meta.get('request_start_ns')
+        re_ = meta.get('request_end_ns')
+        if rs is not None:
+            start_times.append(rs)
+        if re_ is not None:
+            end_times.append(re_)
+
+    # Sort for percentiles
+    latencies.sort()
+    ttfts.sort()
+    itls.sort()
+    ttsts.sort()
+    prefill_tps.sort()
+    output_tps.sort()
+
+    # Compute system throughput
+    if start_times and end_times:
+        duration_ns = max(end_times) - min(start_times)
+        duration_s = duration_ns / 1e9 if duration_ns > 0 else 1.0
+    else:
+        duration_s = 1.0
+    duration_s = max(duration_s, 0.001)
+
+    n = len(records)
+    req_throughput = n / duration_s
+    total_out_tokens = sum(output_tokens) if output_tokens else 0
+    token_throughput = total_out_tokens / duration_s
+
+    # Determine concurrency (from arg or infer from max concurrent)
+    conc = concurrency if concurrency is not None else n
+
+    # Build metrics entry matching the schema expected by enrich_records
+    entry = {
+        'concurrency': conc,
+        'request_throughput': req_throughput,
+        'output_token_throughput': token_throughput,
+        'total_token_throughput': (total_out_tokens + sum(input_tokens)) / duration_s if input_tokens else token_throughput,
+        'total_requests': n,
+        'request_count': n,
+        'duration_seconds': duration_s,
+        'time_to_first_token': {
+            'avg': sum(ttfts) / len(ttfts) if ttfts else 0.0,
+            'p50': _percentile(ttfts, 50),
+            'p90': _percentile(ttfts, 90),
+            'p99': _percentile(ttfts, 99),
+        },
+        'inter_token_latency': {
+            'avg': sum(itls) / len(itls) if itls else 0.0,
+            'p50': _percentile(itls, 50),
+            'p90': _percentile(itls, 90),
+            'p99': _percentile(itls, 99),
+        },
+        'e2e_latency': {
+            'avg': sum(latencies) / len(latencies) if latencies else 0.0,
+            'p50': _percentile(latencies, 50),
+            'p90': _percentile(latencies, 90),
+            'p99': _percentile(latencies, 99),
+        },
+        'request_latency': {
+            'avg': sum(latencies) / len(latencies) if latencies else 0.0,
+            'p50': _percentile(latencies, 50),
+            'p90': _percentile(latencies, 90),
+            'p99': _percentile(latencies, 99),
+        },
+        'time_to_second_token': {
+            'avg': sum(ttsts) / len(ttsts) if ttsts else 0.0,
+            'p50': _percentile(ttsts, 50),
+            'p90': _percentile(ttsts, 90),
+        },
+        'prefill_throughput': {
+            'avg': sum(prefill_tps) / len(prefill_tps) if prefill_tps else 0.0,
+            'p50': _percentile(prefill_tps, 50),
+        },
+        'output_token_throughput_detail': {
+            'avg': sum(output_tps) / len(output_tps) if output_tps else 0.0,
+            'p50': _percentile(output_tps, 50),
+            'p90': _percentile(output_tps, 90),
+        },
+        'output_sequence_length': sum(output_tokens) / len(output_tokens) if output_tokens else 0.0,
+        'input_sequence_length': sum(input_tokens) / len(input_tokens) if input_tokens else 0.0,
+        'input_tokens_mean': int(sum(input_tokens) / len(input_tokens)) if input_tokens else 0,
+        'output_tokens_mean': int(sum(output_tokens) / len(output_tokens)) if output_tokens else 0,
+    }
+
+    return {"metrics": [entry]}
+
+
 # ── Command: write ────────────────────────────────────────────────────────────
 
 
@@ -860,20 +1113,26 @@ def cmd_write(args):
     Validation occurs before any S3 interaction. If validation fails,
     a structured error is emitted and no write occurs.
     """
-    # Load benchmark results JSON
+    # Load benchmark results (JSON or JSONL)
     results_path = args.results_file or args.input
     if not results_path:
         _error_exit("--results-file (or --input) is required")
 
-    try:
-        with open(results_path, 'r') as f:
-            benchmark_data = json.load(f)
-    except FileNotFoundError:
-        _error_exit(f"Results file not found: {results_path}")
-    except json.JSONDecodeError as e:
-        _error_exit(f"Invalid JSON in results file: {e}")
-    except Exception as e:
-        _error_exit(f"Failed to read results file: {e}")
+    if results_path.endswith('.jsonl'):
+        # Parse JSONL (per-request data) and aggregate into metrics format
+        benchmark_data = _parse_jsonl_to_metrics(results_path, concurrency=getattr(args, 'concurrency', None))
+        if 'error' in benchmark_data:
+            _error_exit(f"Failed to parse JSONL: {benchmark_data['error']}")
+    else:
+        try:
+            with open(results_path, 'r') as f:
+                benchmark_data = json.load(f)
+        except FileNotFoundError:
+            _error_exit(f"Results file not found: {results_path}")
+        except json.JSONDecodeError as e:
+            _error_exit(f"Invalid JSON in results file: {e}")
+        except Exception as e:
+            _error_exit(f"Failed to read results file: {e}")
 
     # Build the combined input data for validation
     # Merge CLI-provided fields with the benchmark results
@@ -892,8 +1151,19 @@ def cmd_write(args):
         metrics = benchmark_data.get('metrics')
         if metrics is not None:
             input_data['metrics'] = metrics
+        else:
+            # Single-level benchmark: raw results at top level without a 'metrics' wrapper.
+            # Wrap into the expected array format for validation and enrichment.
+            # Detect by presence of known metric fields (request_throughput, output_token_throughput, etc.)
+            metric_indicators = ['request_throughput', 'output_token_throughput', 'time_to_first_token',
+                                 'inter_token_latency', 'request_latency', 'concurrency']
+            if any(k in benchmark_data for k in metric_indicators):
+                # Use BENCHMARK_CONCURRENCY from config if concurrency not in the results
+                if 'concurrency' not in benchmark_data:
+                    benchmark_data['concurrency'] = int(input_data.get('benchmark_concurrency', 10))
+                input_data['metrics'] = [benchmark_data]
         # Also pull any config fields from the results file
-        for field in ['model_name', 'instance_type', 'deployment_config', 'config_id', 'region']:
+        for field in ['model_name', 'instance_type', 'deployment_config', 'project_name', 'region']:
             if field in benchmark_data and field not in input_data:
                 input_data[field] = benchmark_data[field]
     elif isinstance(benchmark_data, list):
@@ -901,8 +1171,10 @@ def cmd_write(args):
         input_data['metrics'] = benchmark_data
 
     # CLI args override config file and results file values
-    if args.config_id:
-        input_data['config_id'] = args.config_id
+    if args.project_name:
+        input_data['project_name'] = args.project_name
+    if args.workload:
+        input_data['workload'] = args.workload
     if args.region:
         input_data['region'] = args.region
 
@@ -926,8 +1198,8 @@ def cmd_write(args):
 
         # Compute intended S3 path (use bucket if provided, else placeholder)
         bucket = args.bucket or f'mlcc-benchmark-results-<accountId>-{input_data["region"]}'
-        s3_path = compute_s3_path(bucket, input_data['config_id'], input_data['region'], timestamp)
-        partition = compute_partition_info(input_data['region'], timestamp)
+        s3_path = compute_s3_path(bucket, input_data.get('project_name', ''), input_data.get('model_name', ''), input_data.get('instance_type', ''), input_data.get('deployment_target', 'realtime-inference'), timestamp)
+        partition = compute_partition_info(input_data.get('model_name', ''), input_data.get('instance_type', ''), input_data.get('deployment_target', 'realtime-inference'))
 
         _output({
             "dry_run": True,
@@ -942,7 +1214,7 @@ def cmd_write(args):
     if not args.bucket:
         _error_exit("--bucket is required when not using --dry-run")
 
-    region = input_data['region']
+    region = input_data.get('region', os.environ.get('AWS_REGION', ''))
     timestamp = datetime.now(timezone.utc)
 
     # Split input_data back into config and results for enrich_records
@@ -957,7 +1229,7 @@ def cmd_write(args):
         _error_exit("No records produced from benchmark metrics")
 
     # Compute S3 path
-    s3_info = build_s3_path(args.bucket, region, input_data['config_id'], timestamp)
+    s3_info = build_s3_path(args.bucket, input_data.get('project_name', ''), input_data.get('model_name', ''), input_data.get('instance_type', ''), input_data.get('deployment_target', 'realtime-inference'), timestamp, region=region)
 
     # Write Parquet to a temp file then upload to S3
     try:
@@ -995,9 +1267,10 @@ def cmd_write(args):
     try:
         partition_result = register_partition(
             bucket=args.bucket,
+            model=s3_info['partition_model'],
+            instance=s3_info['partition_instance'],
+            target=s3_info['partition_target'],
             region=region,
-            year=s3_info['partition_year'],
-            month=s3_info['partition_month'],
         )
     except SystemExit:
         # register_partition calls _error_exit on some failures; catch to avoid
@@ -1016,12 +1289,12 @@ def cmd_write(args):
         "success": True,
         "s3_uri": s3_info['s3_uri'],
         "partition": {
-            "region": s3_info['partition_region'],
-            "year": s3_info['partition_year'],
-            "month": s3_info['partition_month'],
+            "model": s3_info['partition_model'],
+            "instance": s3_info['partition_instance'],
+            "target": s3_info['partition_target'],
         },
         "rows_written": len(enriched_records),
-        "config_id": input_data['config_id'],
+        "project_name": input_data.get('project_name', ''),
         "run_timestamp": timestamp.isoformat(),
         "partition_registration": partition_result,
     })
@@ -1048,8 +1321,8 @@ def _load_config_file(config_path):
             data = json.loads(content)
             # Map known JSON fields to our expected names
             field_map = {
-                'config_id': 'config_id',
-                'configId': 'config_id',
+                'project_name': 'project_name',
+                'projectName': 'project_name',
                 'model_name': 'model_name',
                 'modelName': 'model_name',
                 'MODEL_NAME': 'model_name',
@@ -1102,9 +1375,15 @@ def _load_config_file(config_path):
                 key, _, value = line.partition('=')
                 key = key.strip()
                 value = value.strip().strip('"').strip("'")
+                # Handle shell default syntax: ${VAR:-default} → extract default
+                if value.startswith('${') and ':-' in value:
+                    value = value.split(':-', 1)[1].rstrip('}')
+                # Skip unresolved shell variables (e.g., ${INSTANCE_TYPE})
+                if value.startswith('${') or value.startswith('$('):
+                    continue
                 # Map shell var names to our field names
                 shell_map = {
-                    'CONFIG_ID': 'config_id',
+                    'PROJECT_NAME': 'project_name',
                     'MODEL_NAME': 'model_name',
                     'INSTANCE_TYPE': 'instance_type',
                     'DEPLOYMENT_CONFIG': 'deployment_config',
@@ -1115,6 +1394,7 @@ def _load_config_file(config_path):
                     'MCC_VERSION': 'mcc_version',
                     'BASE_IMAGE': 'base_image',
                     'BASE_IMAGE_VERSION': 'base_image_version',
+                    'BENCHMARK_CONCURRENCY': 'benchmark_concurrency',
                 }
                 if key in shell_map:
                     context[shell_map[key]] = value
@@ -1150,8 +1430,16 @@ def main():
         help='Path to config file (do/config or JSON) for context fields'
     )
     write_parser.add_argument(
-        '--config-id', dest='config_id',
-        help='Configuration ID (SHA-256 hash, 16 chars)'
+        '--project-name', dest='project_name',
+        help='MCC project name (human-readable identifier)'
+    )
+    write_parser.add_argument(
+        '--workload', default='manual',
+        help='Named workload profile (from workload-picker MCP, default: manual)'
+    )
+    write_parser.add_argument(
+        '--concurrency', type=int, default=None,
+        help='Concurrency level (passed to JSONL aggregation if results are per-request)'
     )
     write_parser.add_argument(
         '--bucket',

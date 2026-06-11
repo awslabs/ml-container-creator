@@ -23,18 +23,18 @@
  *   BEDROCK_REGION - AWS region for Bedrock API calls (fallback: AWS_REGION, then us-east-1)
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { resolve, dirname } from 'node:path'
-import { queryBedrock } from '../lib/bedrock-client.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { resolve, dirname } from 'node:path';
+import { queryBedrock } from '../lib/bedrock-client.js';
 
 // ── Catalog loader ───────────────────────────────────────────────────────────
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Load and parse a JSON catalog file relative to the server directory.
@@ -44,37 +44,37 @@ const __dirname = dirname(__filename)
  * @returns {any} Parsed JSON content
  */
 function loadCatalog(relativePath) {
-    const fullPath = resolve(__dirname, relativePath)
-    let raw
+    const fullPath = resolve(__dirname, relativePath);
+    let raw;
     try {
-        raw = readFileSync(fullPath, 'utf8')
+        raw = readFileSync(fullPath, 'utf8');
     } catch (err) {
-        throw new Error(`Catalog file not found: ${fullPath}`)
+        throw new Error(`Catalog file not found: ${fullPath}`);
     }
     try {
-        return JSON.parse(raw)
+        return JSON.parse(raw);
     } catch (err) {
-        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`)
+        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`);
     }
 }
 
 // ── Load catalogs from JSON files ─────────────────────────────────────────────
 
-let AWS_REGIONS
-let VALID_REGION_CODES
+let AWS_REGIONS;
+let VALID_REGION_CODES;
 
 try {
-    AWS_REGIONS = loadCatalog('../lib/catalogs/regions.json')
-    VALID_REGION_CODES = new Set(AWS_REGIONS.map(r => r.code))
+    AWS_REGIONS = loadCatalog('../lib/catalogs/regions.json');
+    VALID_REGION_CODES = new Set(AWS_REGIONS.map(r => r.code));
 } catch (err) {
-    process.stderr.write(`[region-picker] Fatal: ${err.message}\n`)
-    process.exit(1)
+    process.stderr.write(`[region-picker] Fatal: ${err.message}\n`);
+    process.exit(1);
 }
 
 // Bedrock / smart-mode configuration
-const SMART_MODE = process.env.BEDROCK_SMART === 'true'
-const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-20250514-v1:0'
-const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1'
+const SMART_MODE = process.env.BEDROCK_SMART === 'true';
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-20250514-v1:0';
+const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1';
 
 /**
  * Per-server configuration passed to the shared Bedrock client.
@@ -105,7 +105,7 @@ Rules:
     maxTokens: 1024,
     modelId: BEDROCK_MODEL,
     region: BEDROCK_REGION
-}
+};
 
 /**
  * Filter AWS_REGIONS by a case-insensitive substring match against
@@ -116,42 +116,42 @@ Rules:
  * @returns {{ values: object, choices: object }}
  */
 function filterRegions(searchTerm, limit) {
-    let matched
+    let matched;
 
     if (searchTerm) {
-        const term = searchTerm.toLowerCase()
+        const term = searchTerm.toLowerCase();
         matched = AWS_REGIONS.filter(
             r => r.code.toLowerCase().includes(term) ||
                  r.labels.some(l => l.toLowerCase().includes(term))
-        )
+        );
     } else {
-        matched = AWS_REGIONS
+        matched = AWS_REGIONS;
     }
 
-    const codes = matched.map(r => r.code).slice(0, limit)
+    const codes = matched.map(r => r.code).slice(0, limit);
 
     if (codes.length === 0) {
-        return { values: {}, choices: { awsRegion: [] } }
+        return { values: {}, choices: { awsRegion: [] } };
     }
 
     return {
         values: { awsRegion: codes[0] },
         choices: { awsRegion: codes }
-    }
+    };
 }
 
 /**
  * Log to stderr so it doesn't interfere with MCP stdio protocol on stdout.
  */
 function log(message) {
-    process.stderr.write(`[region-picker] ${message}\n`)
+    process.stderr.write(`[region-picker] ${message}\n`);
 }
 
 // Create MCP server
 const server = new McpServer({
     name: 'region-picker',
     version: '1.0.0'
-})
+});
 
 // Register the get_regions tool
 server.tool(
@@ -170,37 +170,37 @@ server.tool(
                     type: 'text',
                     text: JSON.stringify({ values: {}, choices: {} })
                 }]
-            }
+            };
         }
 
-        const searchTerm = context?.regionSearch
-        let result
+        const searchTerm = context?.regionSearch;
+        let result;
 
         // Smart mode: try Bedrock first
         if (SMART_MODE) {
-            log('[smart] Smart mode enabled, querying Amazon Bedrock...')
-            const bedrockResult = await queryBedrock(SERVER_CONFIG, parameters, limit, context || {})
+            log('[smart] Smart mode enabled, querying Amazon Bedrock...');
+            const bedrockResult = await queryBedrock(SERVER_CONFIG, parameters, limit, context || {});
 
             if (bedrockResult?.values?.awsRegion && VALID_REGION_CODES.has(bedrockResult.values.awsRegion)) {
-                const bedrockValue = bedrockResult.values.awsRegion
-                log(`[smart] Using Bedrock recommendation: ${bedrockValue}`)
+                const bedrockValue = bedrockResult.values.awsRegion;
+                log(`[smart] Using Bedrock recommendation: ${bedrockValue}`);
 
                 // Pad with static results, deduplicating the Bedrock pick
-                const staticResult = filterRegions(searchTerm, limit)
-                const staticCodes = staticResult.choices.awsRegion || []
-                const combined = [bedrockValue, ...staticCodes.filter(c => c !== bedrockValue)]
+                const staticResult = filterRegions(searchTerm, limit);
+                const staticCodes = staticResult.choices.awsRegion || [];
+                const combined = [bedrockValue, ...staticCodes.filter(c => c !== bedrockValue)];
 
                 result = {
                     values: { awsRegion: bedrockValue },
                     choices: { awsRegion: combined.slice(0, limit) }
-                }
+                };
             } else {
-                log('[smart] Bedrock did not return usable results, falling back to static filtering')
-                result = filterRegions(searchTerm, limit)
+                log('[smart] Bedrock did not return usable results, falling back to static filtering');
+                result = filterRegions(searchTerm, limit);
             }
         } else {
             // Static mode (default)
-            result = filterRegions(searchTerm, limit)
+            result = filterRegions(searchTerm, limit);
         }
 
         return {
@@ -208,23 +208,23 @@ server.tool(
                 type: 'text',
                 text: JSON.stringify(result)
             }]
-        }
+        };
     }
-)
+);
 
 // Export for standalone testing
-export { loadCatalog, filterRegions, AWS_REGIONS, VALID_REGION_CODES }
+export { loadCatalog, filterRegions, AWS_REGIONS, VALID_REGION_CODES };
 
 // Guard MCP transport — only connect when run as main module
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename
+const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
 
 if (isMain) {
     if (SMART_MODE) {
-        log(`Smart mode enabled (model: ${BEDROCK_MODEL}, region: ${BEDROCK_REGION})`)
+        log(`Smart mode enabled (model: ${BEDROCK_MODEL}, region: ${BEDROCK_REGION})`);
     } else {
-        log('Static mode (set BEDROCK_SMART=true to enable Bedrock-powered recommendations)')
+        log('Static mode (set BEDROCK_SMART=true to enable Bedrock-powered recommendations)');
     }
 
-    const transport = new StdioServerTransport()
-    await server.connect(transport)
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
 }

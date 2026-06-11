@@ -991,7 +991,7 @@ export class MlccCiHarnessStack extends cdk.Stack {
                         { name: 'instance_family', type: 'string', comment: 'Derived: g5, g6, g6e, p5, trn2, etc.' },
                         { name: 'deployment_config', type: 'string', comment: 'Architecture-backend (e.g., transformers-vllm)' },
                         { name: 'deployment_target', type: 'string', comment: 'realtime-inference, async-inference, etc.' },
-                        { name: 'run_timestamp', type: 'timestamp', comment: 'When this benchmark ran (UTC)' },
+                        { name: 'run_timestamp', type: 'string', comment: 'When this benchmark ran (ISO 8601 UTC)' },
                         // Configuration dimensions
                         { name: 'tensor_parallel_degree', type: 'int', comment: 'TP degree (1, 2, 4, 8)' },
                         { name: 'quantization', type: 'string', comment: 'Quantization method (fp16, fp8, awq, gptq, none)' },
@@ -1021,7 +1021,7 @@ export class MlccCiHarnessStack extends cdk.Stack {
                         { name: 'benchmark_job_name', type: 'string', comment: 'SageMaker AI Benchmark job name' },
                         { name: 'account_id', type: 'string', comment: 'AWS account ID' },
                     ],
-                    location: `s3://mlcc-benchmark-results-${this.account}-${this.region}/`,
+                    location: `s3://mlcc-benchmark-results-${this.account}-${this.region}/results/`,
                     inputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
                     outputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
                     serdeInfo: {
@@ -1033,9 +1033,9 @@ export class MlccCiHarnessStack extends cdk.Stack {
                     compressed: true,
                 },
                 partitionKeys: [
-                    { name: 'region', type: 'string' },
-                    { name: 'year', type: 'string' },
-                    { name: 'month', type: 'string' },
+                    { name: 'model', type: 'string', comment: 'Model name with / replaced by _ (e.g., Qwen_Qwen3-0.6B)' },
+                    { name: 'instance', type: 'string', comment: 'SageMaker instance type (e.g., ml.g5.xlarge)' },
+                    { name: 'target', type: 'string', comment: 'Deployment target (realtime-inference, async-inference, etc.)' },
                 ],
             },
         });

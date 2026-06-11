@@ -1,0 +1,16 @@
+{
+  "name": "@amzn/ml-container-creator-workload-picker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MCP server that provides named benchmark workload profiles for ML Container Creator. Defines token distributions, concurrency levels, and streaming modes for standardized benchmarking.",
+  "type": "module",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.22.0"
+  }
+}

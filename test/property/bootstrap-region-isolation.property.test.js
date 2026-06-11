@@ -207,6 +207,18 @@ function createMockHandlerForUpdate(configPath, { accountId, region }) {
     // Mock _displayProgress
     handler._displayProgress = () => {};
 
+    // Mock _execAws — captures commands, prevents real AWS calls
+    handler._execAws = (cmd) => {
+        capturedCommands.push(cmd);
+        if (cmd.includes('iam get-role')) {
+            throw new Error('NoSuchEntity');
+        }
+        if (cmd.includes('ecr describe-repositories')) {
+            throw new Error('RepositoryNotFoundException');
+        }
+        return {};
+    };
+
     // Mock _ensureMlflowApp
     handler._ensureMlflowApp = () => null;
 

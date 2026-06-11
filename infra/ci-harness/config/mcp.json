@@ -47,6 +47,12 @@
       "args": [
         "servers/region-picker/index.js"
       ]
+    },
+    "workload-picker": {
+      "command": "node",
+      "args": [
+        "servers/workload-picker/index.js"
+      ]
     }
   }
 }

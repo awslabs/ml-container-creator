@@ -29,7 +29,7 @@ MCC uses a **two-stage pipeline** for each configuration:
 
 1. **Stage 1** runs the full lifecycle. If it passes, `testStatus` is set to `pass` in DynamoDB.
 2. If `benchmarkEnabled: true` for the configuration, **Stage 2** runs after Stage 1 succeeds.
-3. Stage 2 runs `do/benchmark`, writes Parquet to S3, registers the partition in Athena, and updates the DynamoDB record with `lastBenchmarkRunId`, `lastBenchmarkTimestamp`, and `lastBenchmarkStatus`.
+3. Stage 2 runs `do/benchmark --workload <name>`, writes Parquet to S3, registers the partition in Athena, and updates the DynamoDB record with `lastBenchmarkRunId`, `lastBenchmarkTimestamp`, and `lastBenchmarkStatus`. The workload profile is resolved from the workload-picker MCP server — no benchmark env vars are needed in `do/config`.
 4. **Stage 2 failure is isolated** — a benchmark failure does NOT change `testStatus`. The configuration remains `pass`.
 
 ### Enabling Benchmarks
@@ -48,17 +48,17 @@ aws dynamodb update-item \
   --expression-attribute-values '{":b": {"BOOL": true}}'
 ```
 
-### Benchmark Concurrency Levels
+### Benchmark Workload Selection
 
-Control which concurrency levels are tested during Stage 2:
+Stage 2 uses workload profiles from the workload-picker MCP server. Each CI configuration specifies a workload name:
 
 ```json
 {
-  "benchmarkConcurrencyLevels": [1, 4, 8, 16, 32]
+  "benchmarkWorkload": "production_traffic_mix"
 }
 ```
 
-Default: `[1, 4, 8]`. Each level produces one row in the Athena benchmark_results table.
+The workload profile defines concurrency, input/output token counts, streaming mode, and request count. See [Benchmarking](benchmarking.md) for available workload profiles. S3 paths and Athena buckets are resolved from the bootstrap profile at runtime.
 
 ### Benchmark Results in DynamoDB
 

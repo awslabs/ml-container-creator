@@ -1,6 +1,9 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 /**
  * Path Prover Brain
  *
@@ -472,4 +475,133 @@ export function findUnfeasibleRecord(config, existingRecords) {
     }
 
     return null;
+}
+
+// ── Priority Queue (v1 Validation Mode) ──────────────────────────────────────
+
+/**
+ * Get the next unproven config from the priority queue.
+ *
+ * Checks the priority targets list and returns the first target whose
+ * status is 'pending' and which hasn't been proven in existing records.
+ * If all priority targets are proven/completed, returns null to fall
+ * through to gap-finding mode.
+ *
+ * @param {object} event - The Step Functions event object
+ * @param {string} [event.priorityConfigPath] - Path to priority targets JSON
+ * @param {object[]} [event.previousResults] - Previously proven configs in this run
+ * @param {object|null} priorityData - Pre-loaded priority data (for Lambda/testing).
+ *   If null, attempts to load from event.priorityConfigPath.
+ * @returns {object|null} Next config to prove, or null if priority queue exhausted
+ */
+export function getNextPriorityConfig(event, priorityData = null) {
+    // Resolve priority data: explicit param > event._priorityData > load from file
+    const data = priorityData || event._priorityData || (
+        event.priorityConfigPath ? loadPriorityTargets(event.priorityConfigPath) : null
+    );
+
+    if (!data || !data.targets || !Array.isArray(data.targets)) {
+        return null;
+    }
+
+    const defaults = data.defaults || {};
+    const provenNames = new Set((data.proven || []).map(p => p.model_name));
+
+    // Also consider previousResults from this run as proven
+    const previousResults = event.previousResults || [];
+    for (const result of previousResults) {
+        if (result.success && result.config && result.config.model_name) {
+            provenNames.add(result.config.model_name);
+        }
+    }
+
+    // Find first pending target not yet proven
+    for (const target of data.targets) {
+        if (target.status !== 'pending') continue;
+        if (provenNames.has(target.model_name)) continue;
+
+        // Build full config from defaults + target overrides
+        const config = { ...defaults, ...target };
+        delete config.status; // status is metadata, not a config field
+
+        return config;
+    }
+
+    // All priority targets are proven or non-pending
+    return null;
+}
+
+/**
+ * Update a priority target's status after a prove attempt.
+ *
+ * @param {object} priorityData - The loaded priority targets data (mutated in place)
+ * @param {string} modelName - The model_name to update
+ * @param {string} newStatus - New status: 'proven', 'failed', or 'unfeasible'
+ * @param {object} [details] - Additional details (error_category, error_message)
+ * @returns {object} Updated priority data (same reference, mutated)
+ */
+export function updatePriorityStatus(priorityData, modelName, newStatus, details = {}) {
+    if (!priorityData || !priorityData.targets) return priorityData;
+
+    const targetIndex = priorityData.targets.findIndex(t => t.model_name === modelName);
+    if (targetIndex === -1) return priorityData;
+
+    if (newStatus === 'proven') {
+        // Move from targets to proven list
+        priorityData.targets.splice(targetIndex, 1);
+        priorityData.proven = priorityData.proven || [];
+        priorityData.proven.push({
+            model_name: modelName,
+            proven_date: new Date().toISOString().split('T')[0],
+            ...details
+        });
+    } else {
+        // Update status in place (failed, unfeasible)
+        const target = priorityData.targets[targetIndex];
+        target.status = newStatus;
+        if (details.error_category) target.error_category = details.error_category;
+        if (details.error_message) target.error_message = details.error_message;
+        target.last_attempt = new Date().toISOString();
+    }
+
+    return priorityData;
+}
+
+/**
+ * Get a summary of priority queue status.
+ *
+ * @param {object} priorityData - The loaded priority targets data
+ * @returns {object} Summary with counts: { total, pending, proven, failed, unfeasible }
+ */
+export function getPriorityQueueStatus(priorityData) {
+    if (!priorityData) {
+        return { total: 0, pending: 0, proven: 0, failed: 0, unfeasible: 0 };
+    }
+
+    const targets = priorityData.targets || [];
+    const proven = priorityData.proven || [];
+
+    return {
+        total: targets.length + proven.length,
+        pending: targets.filter(t => t.status === 'pending').length,
+        proven: proven.length,
+        failed: targets.filter(t => t.status === 'failed').length,
+        unfeasible: targets.filter(t => t.status === 'unfeasible').length
+    };
+}
+
+/**
+ * Load priority targets from a JSON file path (synchronous).
+ *
+ * @param {string} configPath - Absolute or relative path to the JSON file
+ * @returns {object|null} Parsed priority data, or null if not found/invalid
+ */
+export function loadPriorityTargets(configPath) {
+    try {
+        const resolvedPath = resolve(configPath);
+        const raw = readFileSync(resolvedPath, 'utf8');
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
 }

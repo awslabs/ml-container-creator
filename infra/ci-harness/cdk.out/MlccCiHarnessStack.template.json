@@ -914,15 +914,18 @@
      },
      "PartitionKeys": [
       {
-       "Name": "region",
+       "Comment": "Model name with / replaced by _ (e.g., Qwen_Qwen3-0.6B)",
+       "Name": "model",
        "Type": "string"
       },
       {
-       "Name": "year",
+       "Comment": "SageMaker instance type (e.g., ml.g5.xlarge)",
+       "Name": "instance",
        "Type": "string"
       },
       {
-       "Name": "month",
+       "Comment": "Deployment target (realtime-inference, async-inference, etc.)",
+       "Name": "target",
        "Type": "string"
       }
      ],
@@ -964,9 +967,9 @@
         "Type": "string"
        },
        {
-        "Comment": "When this benchmark ran (UTC)",
+        "Comment": "When this benchmark ran (ISO 8601 UTC)",
         "Name": "run_timestamp",
-        "Type": "timestamp"
+        "Type": "string"
        },
        {
         "Comment": "TP degree (1, 2, 4, 8)",
@@ -1091,7 +1094,7 @@
       ],
       "Compressed": true,
       "InputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-      "Location": "s3://mlcc-benchmark-results-633146206289-us-west-2/",
+      "Location": "s3://mlcc-benchmark-results-633146206289-us-west-2/results/",
       "OutputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
       "SerdeInfo": {
        "Parameters": {

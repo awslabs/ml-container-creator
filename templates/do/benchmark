@@ -1,4 +1,3 @@
-#!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
@@ -20,15 +19,17 @@ FORCE=false
 IC_ARG=""
 ADAPTER_ARG=""
 ARG_NO_STALE_WARNING=false
+ARG_WORKLOAD=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --clean) CLEAN_AFTER=true; shift ;;
         --force) FORCE=true; shift ;;
         --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
+        --workload) shift; ARG_WORKLOAD="${1:-}"; shift ;;
         --ic) shift; IC_ARG="${1:-}"; shift ;;
         --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
         --help|-h)
-            echo "Usage: ./do/benchmark [--ic <name>] [--adapter <name>] [--force] [--clean] [--no-stale-warning]"
+            echo "Usage: ./do/benchmark [--workload <name>] [--ic <name>] [--adapter <name>] [--force] [--clean] [--no-stale-warning]"
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
@@ -56,6 +57,132 @@ while [ $# -gt 0 ]; do
         *) shift ;;
     esac
 done
+
+
+# ── Require --workload flag ───────────────────────────────────────────────────
+if [ -z "${ARG_WORKLOAD}" ]; then
+    echo "❌ --workload <name> is required"
+    echo ""
+    # List available workloads from the MCP catalog
+    _CATALOG_FOR_HELP=""
+    if command -v npm &>/dev/null; then
+        _NPM_ROOT=$(npm root -g 2>/dev/null) || _NPM_ROOT=""
+        if [ -n "${_NPM_ROOT}" ] && [ -f "${_NPM_ROOT}/@aws/ml-container-creator/servers/workload-picker/catalogs/workload-profiles.json" ]; then
+            _CATALOG_FOR_HELP="${_NPM_ROOT}/@aws/ml-container-creator/servers/workload-picker/catalogs/workload-profiles.json"
+        fi
+    fi
+    if [ -n "${_CATALOG_FOR_HELP}" ]; then
+        echo "   Available workloads:"
+        python3 -c "
+import json
+with open('${_CATALOG_FOR_HELP}') as f:
+    catalog = json.load(f)
+for name, wl in catalog.get('workloads', {}).items():
+    print(f'     {name:30s} {wl.get("description", "")[:50]}')
+" 2>/dev/null || echo "   (could not read workload catalog)"
+    else
+        echo "   Run 'ml-container-creator mcp init' to install workload profiles"
+    fi
+    echo ""
+    echo "   Usage: ./do/benchmark --workload multi_turn_chat"
+    exit 1
+fi
+
+# ── Workload Resolution (from workload-picker MCP server catalog) ─────────────
+# If --workload is passed with a named workload (not "manual"), resolve
+# the workload parameters from the MCP server's catalog file. This overrides
+# BENCHMARK_INPUT_TOKENS_MEAN, BENCHMARK_OUTPUT_TOKENS_MEAN, BENCHMARK_STREAMING,
+# and BENCHMARK_CONCURRENCY_LEVELS from do/config.
+BENCHMARK_WORKLOAD="${ARG_WORKLOAD:-manual}"
+
+if [ "${BENCHMARK_WORKLOAD}" != "manual" ]; then
+    # Locate the workload catalog (npm global or local)
+    _WORKLOAD_CATALOG=""
+    if [ -f "$(dirname "${BASH_SOURCE[0]}")/../node_modules/@aws/ml-container-creator/servers/workload-picker/catalogs/workload-profiles.json" ]; then
+        _WORKLOAD_CATALOG="$(dirname "${BASH_SOURCE[0]}")/../node_modules/@aws/ml-container-creator/servers/workload-picker/catalogs/workload-profiles.json"
+    elif command -v npm &>/dev/null; then
+        _NPM_ROOT=$(npm root -g 2>/dev/null) || _NPM_ROOT=""
+        if [ -n "${_NPM_ROOT}" ] && [ -f "${_NPM_ROOT}/@aws/ml-container-creator/servers/workload-picker/catalogs/workload-profiles.json" ]; then
+            _WORKLOAD_CATALOG="${_NPM_ROOT}/@aws/ml-container-creator/servers/workload-picker/catalogs/workload-profiles.json"
+        fi
+    fi
+
+    if [ -n "${_WORKLOAD_CATALOG}" ]; then
+        _WL_PARAMS=$(python3 -c "
+import json, sys
+with open('${_WORKLOAD_CATALOG}') as f:
+    catalog = json.load(f)
+wl = catalog.get('workloads', {}).get('${BENCHMARK_WORKLOAD}')
+if wl:
+    print(json.dumps(wl))
+else:
+    print('null')
+" 2>/dev/null) || _WL_PARAMS="null"
+
+        if [ "${_WL_PARAMS}" != "null" ] && [ -n "${_WL_PARAMS}" ]; then
+            echo "📋 Workload profile: ${BENCHMARK_WORKLOAD}"
+            BENCHMARK_INPUT_TOKENS_MEAN=$(echo "${_WL_PARAMS}" | python3 -c "import sys,json; print(json.load(sys.stdin)['input_tokens_mean'])")
+            BENCHMARK_OUTPUT_TOKENS_MEAN=$(echo "${_WL_PARAMS}" | python3 -c "import sys,json; print(json.load(sys.stdin)['output_tokens_mean'])")
+            BENCHMARK_STREAMING=$(echo "${_WL_PARAMS}" | python3 -c "import sys,json; print(str(json.load(sys.stdin)['streaming']).lower())")
+            # Set concurrency levels for multi-level mode if not already overridden
+            if [ -z "${BENCHMARK_CONCURRENCY_LEVELS:-}" ]; then
+                BENCHMARK_CONCURRENCY_LEVELS=$(echo "${_WL_PARAMS}" | python3 -c "import sys,json; print(','.join(str(x) for x in json.load(sys.stdin)['concurrency_levels']))")
+            fi
+            # Also override single-level BENCHMARK_CONCURRENCY with first level from workload
+            BENCHMARK_CONCURRENCY=$(echo "${_WL_PARAMS}" | python3 -c "import sys,json; print(json.load(sys.stdin)['concurrency_levels'][0])")
+            echo "   Input tokens: ${BENCHMARK_INPUT_TOKENS_MEAN}, Output tokens: ${BENCHMARK_OUTPUT_TOKENS_MEAN}"
+            echo "   Streaming: ${BENCHMARK_STREAMING}, Concurrency: ${BENCHMARK_CONCURRENCY_LEVELS:-${BENCHMARK_CONCURRENCY}}"
+            echo ""
+        else
+            echo "⚠️  Unknown workload '${BENCHMARK_WORKLOAD}' — using do/config defaults"
+        fi
+    else
+        echo "⚠️  Workload catalog not found — using do/config defaults"
+    fi
+fi
+
+# ── Resolve profile-level values ──────────────────────────────────────────────
+# Read S3 buckets and account info from the bootstrap profile
+_PROFILE_JSON=""
+if command -v python3 &>/dev/null; then
+    _PROFILE_JSON=$(python3 -c "
+import json, os
+config_path = os.path.expanduser('~/.ml-container-creator/config.json')
+try:
+    with open(config_path) as f:
+        config = json.load(f)
+    profile = config['profiles'][config['activeProfile']]
+    print(json.dumps(profile))
+except:
+    print('{}')
+" 2>/dev/null) || _PROFILE_JSON="{}"
+fi
+
+# Extract benchmark-relevant profile values
+BENCHMARK_S3_OUTPUT_PATH=$(echo "${_PROFILE_JSON}" | python3 -c "
+import sys, json
+p = json.load(sys.stdin)
+bucket = p.get('benchmarkS3Bucket', '')
+if not bucket:
+    acct = p.get('accountId', 'unknown')
+    region = p.get('awsRegion', 'us-east-1')
+    bucket = f'mlcc-benchmark-{acct}-{region}'
+print(f's3://{bucket}/${PROJECT_NAME}/')
+" 2>/dev/null) || BENCHMARK_S3_OUTPUT_PATH=""
+
+CI_BENCHMARK_RESULTS_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ciBenchmarkResultsBucket', ''))" 2>/dev/null) || CI_BENCHMARK_RESULTS_BUCKET=""
+
+# Derive job names at runtime (unique per invocation)
+BENCHMARK_JOB_NAME="${PROJECT_NAME}-benchmark-$(date +%Y%m%d-%H%M%S)"
+BENCHMARK_WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config-$(date +%Y%m%d-%H%M%S)"
+
+# Ensure benchmark params have defaults (in case workload catalog wasn't found)
+BENCHMARK_CONCURRENCY=${BENCHMARK_CONCURRENCY:-10}
+BENCHMARK_INPUT_TOKENS_MEAN=${BENCHMARK_INPUT_TOKENS_MEAN:-550}
+BENCHMARK_OUTPUT_TOKENS_MEAN=${BENCHMARK_OUTPUT_TOKENS_MEAN:-150}
+BENCHMARK_STREAMING=${BENCHMARK_STREAMING:-true}
+
+
 
 # ── Multi-level concurrency support (CI Stage 2) ─────────────────────────────
 # When BENCHMARK_CONCURRENCY_LEVELS is set (comma-separated integers, e.g. "1,4,8"
@@ -97,14 +224,24 @@ if [ -n "${BENCHMARK_CONCURRENCY_LEVELS:-}" ] && [ -z "${_BENCHMARK_SINGLE_LEVEL
             _REINVOKE_ARGS="--force"
             if [ "${CLEAN_AFTER}" = true ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --clean"; fi
             if [ "${ARG_NO_STALE_WARNING}" = true ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --no-stale-warning"; fi
+            if [ -n "${ARG_WORKLOAD}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --workload ${ARG_WORKLOAD}"; fi
             if [ -n "${IC_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --ic ${IC_ARG}"; fi
             if [ -n "${ADAPTER_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --adapter ${ADAPTER_ARG}"; fi
 
             if "${BASH_SOURCE[0]}" ${_REINVOKE_ARGS}; then
-                # Copy results to aggregation directory
-                _LATEST_JOB_DIR=$(ls -td "${SCRIPT_DIR}/../benchmarks/${PROJECT_NAME}-benchmark-"* 2>/dev/null | head -1)
-                if [ -n "${_LATEST_JOB_DIR}" ] && [ -f "${_LATEST_JOB_DIR}/results.json" ]; then
-                    cp "${_LATEST_JOB_DIR}/results.json" "${_ALL_RESULTS_DIR}/results-concurrency-${_LEVEL}.json"
+                # Copy results to aggregation directory — find the child's results
+                # Try the marker file first (set by child), then fall back to ls -td
+                _LATEST_JOB_DIR=""
+                if [ -f "/tmp/.mlcc-benchmark-latest-${PROJECT_NAME}" ]; then
+                    _LATEST_JOB_DIR=$(cat "/tmp/.mlcc-benchmark-latest-${PROJECT_NAME}" 2>/dev/null)
+                fi
+                if [ -z "${_LATEST_JOB_DIR}" ] || [ ! -d "${_LATEST_JOB_DIR}" ]; then
+                    _LATEST_JOB_DIR=$(ls -td "${SCRIPT_DIR}/../benchmarks/${PROJECT_NAME}-benchmark-"* 2>/dev/null | head -1)
+                fi
+                if [ -n "${_LATEST_JOB_DIR}" ] && [ -d "${_LATEST_JOB_DIR}" ] && [ -f "${_LATEST_JOB_DIR}/output/profile_export.jsonl" ]; then
+                    cp "${_LATEST_JOB_DIR}/output/profile_export.jsonl" "${_ALL_RESULTS_DIR}/profile-concurrency-${_LEVEL}.jsonl"
+                elif [ -n "${_LATEST_JOB_DIR}" ] && [ -f "${_LATEST_JOB_DIR}/output/profile_export_aiperf.json" ]; then
+                    cp "${_LATEST_JOB_DIR}/output/profile_export_aiperf.json" "${_ALL_RESULTS_DIR}/results-concurrency-${_LEVEL}.json"
                 fi
             else
                 echo "⚠️  Benchmark at concurrency ${_LEVEL} failed (non-fatal, continuing)"
@@ -115,28 +252,158 @@ if [ -n "${BENCHMARK_CONCURRENCY_LEVELS:-}" ] && [ -z "${_BENCHMARK_SINGLE_LEVEL
         done
 
         # Aggregate results into a combined JSON file for the benchmark writer
+        # Reads per-level JSONL files and computes aggregate metrics per concurrency level
         echo "📊 Aggregating multi-level results..."
         _COMBINED_FILE="${_ALL_RESULTS_DIR}/results.json"
         python3 -c "
-import json, glob, sys, os
+import json, glob, sys, os, math
+
+def percentile(sorted_vals, pct):
+    if not sorted_vals:
+        return 0.0
+    idx = (pct / 100.0) * (len(sorted_vals) - 1)
+    lower = int(math.floor(idx))
+    upper = int(math.ceil(idx))
+    if lower == upper:
+        return sorted_vals[lower]
+    frac = idx - lower
+    return sorted_vals[lower] * (1 - frac) + sorted_vals[upper] * frac
+
+def get_val(metrics, key):
+    m = metrics.get(key)
+    if isinstance(m, dict):
+        return m.get('value')
+    return m
 
 results_dir = '${_ALL_RESULTS_DIR}'
 combined = {'metrics': []}
-for f in sorted(glob.glob(os.path.join(results_dir, 'results-concurrency-*.json'))):
+
+# Process JSONL files (preferred)
+for f in sorted(glob.glob(os.path.join(results_dir, 'profile-concurrency-*.jsonl'))):
     try:
+        level = int(os.path.basename(f).replace('profile-concurrency-', '').replace('.jsonl', ''))
+        records = []
         with open(f) as fp:
-            data = json.load(fp)
-        # Extract concurrency from filename
-        level = int(os.path.basename(f).replace('results-concurrency-', '').replace('.json', ''))
-        if isinstance(data, dict):
-            data['concurrency'] = level
-            combined['metrics'].append(data)
+            for line in fp:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+
+        if not records:
+            continue
+
+        # Aggregate per-request metrics
+        latencies, ttfts, itls, ttsts, out_tokens = [], [], [], [], []
+        start_times, end_times, in_tokens = [], [], []
+        prefill_tps, output_tps = [], []
+
+        for rec in records:
+            meta = rec.get('metadata', {})
+            metrics = rec.get('metrics', {})
+            lat = get_val(metrics, 'request_latency')
+            if lat is not None: latencies.append(lat)
+            ttft = get_val(metrics, 'time_to_first_token') or get_val(metrics, 'time_to_first_output_token')
+            if ttft is not None: ttfts.append(ttft)
+            itl = get_val(metrics, 'inter_token_latency')
+            if itl is not None: itls.append(itl)
+            ttst = get_val(metrics, 'time_to_second_token')
+            if ttst is not None: ttsts.append(ttst)
+            otc = get_val(metrics, 'output_token_count')
+            if otc is not None: out_tokens.append(otc)
+            isl = get_val(metrics, 'input_sequence_length')
+            if isl is not None: in_tokens.append(isl)
+            ptps = get_val(metrics, 'prefill_throughput_per_user')
+            if ptps is not None: prefill_tps.append(ptps)
+            otps = get_val(metrics, 'output_token_throughput_per_user')
+            if otps is not None: output_tps.append(otps)
+            rs = meta.get('request_start_ns')
+            re_ = meta.get('request_end_ns')
+            if rs: start_times.append(rs)
+            if re_: end_times.append(re_)
+
+        # Sort for percentiles
+        latencies.sort()
+        ttfts.sort()
+        itls.sort()
+        ttsts.sort()
+        prefill_tps.sort()
+        output_tps.sort()
+
+        # Compute throughput
+        duration_s = (max(end_times) - min(start_times)) / 1e9 if start_times and end_times else 1.0
+        duration_s = max(duration_s, 0.001)
+        req_throughput = len(records) / duration_s
+        token_throughput = sum(out_tokens) / duration_s if out_tokens else 0.0
+
+        entry = {
+            'concurrency': level,
+            'request_throughput': req_throughput,
+            'output_token_throughput': token_throughput,
+            'total_requests': len(records),
+            'duration_seconds': duration_s,
+            'time_to_first_token': {
+                'avg': sum(ttfts)/len(ttfts) if ttfts else 0.0,
+                'p50': percentile(ttfts, 50),
+                'p90': percentile(ttfts, 90),
+                'p99': percentile(ttfts, 99),
+            },
+            'inter_token_latency': {
+                'avg': sum(itls)/len(itls) if itls else 0.0,
+                'p50': percentile(itls, 50),
+                'p90': percentile(itls, 90),
+                'p99': percentile(itls, 99),
+            },
+            'e2e_latency': {
+                'avg': sum(latencies)/len(latencies) if latencies else 0.0,
+                'p50': percentile(latencies, 50),
+                'p90': percentile(latencies, 90),
+                'p99': percentile(latencies, 99),
+            },
+            'time_to_second_token': {
+                'p50': percentile(ttsts, 50),
+                'p90': percentile(ttsts, 90),
+            },
+            'prefill_throughput': {
+                'avg': sum(prefill_tps)/len(prefill_tps) if prefill_tps else 0.0,
+                'p50': percentile(prefill_tps, 50),
+            },
+            'output_token_throughput_detail': {
+                'avg': sum(output_tps)/len(output_tps) if output_tps else 0.0,
+                'p50': percentile(output_tps, 50),
+                'p90': percentile(output_tps, 90),
+            },
+            'total_token_throughput': (sum(out_tokens) + sum(in_tokens)) / duration_s if (out_tokens or in_tokens) else 0.0,
+            'output_sequence_length': sum(out_tokens)/len(out_tokens) if out_tokens else 0.0,
+            'input_sequence_length': sum(in_tokens)/len(in_tokens) if in_tokens else 0.0,
+            'request_count': len(records),
+            'input_tokens_mean': ${BENCHMARK_INPUT_TOKENS_MEAN:-0},
+            'output_tokens_mean': ${BENCHMARK_OUTPUT_TOKENS_MEAN:-0},
+        }
+        combined['metrics'].append(entry)
     except Exception as e:
         print(f'Warning: Could not parse {f}: {e}', file=sys.stderr)
 
+# Fallback: process old-style JSON files if no JSONL found
+if not combined['metrics']:
+    for f in sorted(glob.glob(os.path.join(results_dir, 'results-concurrency-*.json'))):
+        try:
+            with open(f) as fp:
+                data = json.load(fp)
+            level = int(os.path.basename(f).replace('results-concurrency-', '').replace('.json', ''))
+            if isinstance(data, dict):
+                data['concurrency'] = level
+                combined['metrics'].append(data)
+        except Exception as e:
+            print(f'Warning: Could not parse {f}: {e}', file=sys.stderr)
+
 with open('${_COMBINED_FILE}', 'w') as fp:
-    json.dump(combined, fp, indent=2)
-print(f'Combined {len(combined[\"metrics\"])} concurrency level results')
+    try:
+        json.dump(combined, fp, indent=2)
+    except TypeError as te:
+        print(f'Warning: JSON serialize error: {str(te)}', file=sys.stderr)
+        fp.write(json.dumps({'metrics': []}, indent=2))
+n_metrics = len(combined.get('metrics', []))
+print(f'Combined {n_metrics} concurrency level results')
 " 2>&1
 
         # Persist to Athena if CI mode is active
@@ -157,7 +424,8 @@ print(f'Combined {len(combined[\"metrics\"])} concurrency level results')
             if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
                 --results-file "${_COMBINED_FILE}" \
                 --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
-                --config-id "${CONFIG_ID}" \
+                --project-name "${PROJECT_NAME}" \
+                --workload "${BENCHMARK_WORKLOAD:-manual}" \
                 --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
                 --region "${AWS_REGION:-${REGION}}"; then
                 echo "✅ Multi-level benchmark results persisted to S3"
@@ -648,10 +916,11 @@ if [ "${JOB_STATUS}" = "Completed" ]; then
     # Persist results locally to benchmarks/<job-name>/
     PROJECT_ROOT="${SCRIPT_DIR}/.."
     LOCAL_RESULTS_DIR="${PROJECT_ROOT}/benchmarks/${BENCHMARK_JOB_NAME}"
-    RESULTS_FILE="${LOCAL_RESULTS_DIR}/results.json"
+    RESULTS_JSONL="${LOCAL_RESULTS_DIR}/output/profile_export.jsonl"
+    RESULTS_FILE="${LOCAL_RESULTS_DIR}/output/profile_export_aiperf.json"
 
     # Check if results already exist locally (idempotency: skip S3 download)
-    if [ -f "${RESULTS_FILE}" ]; then
+    if [ -f "${RESULTS_JSONL}" ] || [ -f "${RESULTS_FILE}" ]; then
         echo "📥 Step 4: Results already available locally"
         RESULTS_DOWNLOADED=true
     else
@@ -677,12 +946,27 @@ if [ "${JOB_STATUS}" = "Completed" ]; then
         # This is the most reliable approach — handles any subdirectory structure
         echo "   Syncing results from S3..."
         if aws s3 sync "${RESULTS_S3_PATH}" "${LOCAL_RESULTS_DIR}/" --region "${AWS_REGION}" 2>/dev/null; then
-            # Look for any JSON file in the synced directory tree
-            FOUND_FILE=$(find "${LOCAL_RESULTS_DIR}" -name "*.json" -type f 2>/dev/null | head -1)
-            if [ -n "${FOUND_FILE}" ]; then
-                # If the found file isn't already at our canonical path, copy it there
-                if [ "${FOUND_FILE}" != "${RESULTS_FILE}" ]; then
-                    cp "${FOUND_FILE}" "${RESULTS_FILE}"
+            # Extract any tar.gz archives (benchmark service packages results as output.tar.gz)
+            for ARCHIVE in $(find "${LOCAL_RESULTS_DIR}" -name "*.tar.gz" -type f 2>/dev/null); do
+                ARCHIVE_DIR=$(dirname "${ARCHIVE}")
+                tar -xzf "${ARCHIVE}" -C "${ARCHIVE_DIR}" 2>/dev/null || true
+            done
+
+            # Look for specific result files (priority: JSONL > aiperf JSON)
+            _FOUND_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1)
+            _FOUND_JSON=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export_aiperf.json" -type f 2>/dev/null | head -1)
+
+            if [ -n "${_FOUND_JSONL}" ]; then
+                if [ "${_FOUND_JSONL}" != "${RESULTS_JSONL}" ]; then
+                    mkdir -p "$(dirname "${RESULTS_JSONL}")"
+                    cp "${_FOUND_JSONL}" "${RESULTS_JSONL}"
+                fi
+                RESULTS_DOWNLOADED=true
+            fi
+            if [ -n "${_FOUND_JSON}" ]; then
+                if [ "${_FOUND_JSON}" != "${RESULTS_FILE}" ]; then
+                    mkdir -p "$(dirname "${RESULTS_FILE}")"
+                    cp "${_FOUND_JSON}" "${RESULTS_FILE}"
                 fi
                 RESULTS_DOWNLOADED=true
             fi
@@ -695,33 +979,25 @@ if [ "${JOB_STATUS}" = "Completed" ]; then
             RESULTS_BUCKET=$(echo "${RESULTS_S3_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
             RESULTS_PREFIX=$(echo "${RESULTS_S3_PATH}" | sed "s|s3://${RESULTS_BUCKET}/||")
 
-            # List all objects under the output path and find data files
-            # aws s3api list-objects-v2 is more reliable than aws s3 ls --recursive
-            FOUND_KEY=$(aws s3api list-objects-v2 \
+            # List all objects and look for our target files
+            _ALL_KEYS=$(aws s3api list-objects-v2 \
                 --bucket "${RESULTS_BUCKET}" \
                 --prefix "${RESULTS_PREFIX}" \
                 --region "${AWS_REGION}" \
                 --query 'Contents[].Key' \
-                --output text 2>/dev/null \
-                | tr '\t' '\n' \
-                | grep -E '\.(json|jsonl|csv)$' \
-                | head -1)
+                --output text 2>/dev/null | tr '\t' '\n')
 
-            if [ -n "${FOUND_KEY}" ] && [ "${FOUND_KEY}" != "None" ]; then
-                if aws s3 cp "s3://${RESULTS_BUCKET}/${FOUND_KEY}" "${RESULTS_FILE}" --region "${AWS_REGION}" 2>/dev/null; then
-                    RESULTS_DOWNLOADED=true
-                fi
+            _JSONL_KEY=$(echo "${_ALL_KEYS}" | grep "profile_export\.jsonl$" | head -1)
+            _JSON_KEY=$(echo "${_ALL_KEYS}" | grep "profile_export_aiperf\.json$" | head -1)
+
+            if [ -n "${_JSONL_KEY}" ] && [ "${_JSONL_KEY}" != "None" ]; then
+                mkdir -p "$(dirname "${RESULTS_JSONL}")"
+                aws s3 cp "s3://${RESULTS_BUCKET}/${_JSONL_KEY}" "${RESULTS_JSONL}" --region "${AWS_REGION}" 2>/dev/null && RESULTS_DOWNLOADED=true
             fi
-        fi
-
-        # Strategy 3: If still nothing, try direct path patterns the service might use
-        if [ "${RESULTS_DOWNLOADED}" = false ]; then
-            for PATTERN in "results.json" "benchmark_results.json" "output.json"; do
-                if aws s3 cp "${RESULTS_S3_PATH}${PATTERN}" "${RESULTS_FILE}" --region "${AWS_REGION}" 2>/dev/null; then
-                    RESULTS_DOWNLOADED=true
-                    break
-                fi
-            done
+            if [ -n "${_JSON_KEY}" ] && [ "${_JSON_KEY}" != "None" ]; then
+                mkdir -p "$(dirname "${RESULTS_FILE}")"
+                aws s3 cp "s3://${RESULTS_BUCKET}/${_JSON_KEY}" "${RESULTS_FILE}" --region "${AWS_REGION}" 2>/dev/null && RESULTS_DOWNLOADED=true
+            fi
         fi
     fi
 
@@ -737,72 +1013,156 @@ if [ "${JOB_STATUS}" = "Completed" ]; then
         echo "║  Endpoint: ${ENDPOINT_NAME}"
         echo "╠══════════════════════════════════════════════════════════════════╣"
 
-        # Parse and display metrics using built-in tools
-        # Extract key metrics from the results JSON
+        # Parse and display metrics from profile_export.jsonl (rich per-request data)
         if command -v python3 &>/dev/null; then
             python3 -c "
-import json, sys
+import json, sys, os, math
+
+def percentile(sorted_vals, pct):
+    if not sorted_vals:
+        return None
+    idx = (pct / 100.0) * (len(sorted_vals) - 1)
+    lower = int(math.floor(idx))
+    upper = int(math.ceil(idx))
+    if lower == upper:
+        return sorted_vals[lower]
+    frac = idx - lower
+    return sorted_vals[lower] * (1 - frac) + sorted_vals[upper] * frac
+
+def fmt(val, suffix=''):
+    if val is None:
+        return 'N/A'
+    return f'{val:.2f}{suffix}'
 
 try:
-    with open('${RESULTS_FILE}') as f:
-        data = json.load(f)
+    jsonl_path = '${RESULTS_JSONL}'
+    json_path = '${RESULTS_FILE}'
+    records = []
 
-    metrics = data if isinstance(data, dict) else {}
+    # Primary: read profile_export.jsonl (rich per-request data)
+    if os.path.exists(jsonl_path):
+        with open(jsonl_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
 
-    # Helper to safely get nested values
-    def get_metric(d, *keys):
-        for k in keys:
-            if isinstance(d, dict):
-                d = d.get(k, 'N/A')
-            else:
-                return 'N/A'
-        return d
+    if records:
+        # Extract scalar values from metric dicts {"value": X, "unit": "..."}
+        def get_val(metrics, key):
+            m = metrics.get(key)
+            if isinstance(m, dict):
+                return m.get('value')
+            return m
 
-    # Display throughput
-    throughput = get_metric(metrics, 'request_throughput')
-    output_throughput = get_metric(metrics, 'output_token_throughput')
-    print(f'║  Request Throughput:      {throughput} req/s')
-    print(f'║  Output Token Throughput: {output_throughput} tokens/s')
-    print('║')
+        # Collect per-request metrics
+        latencies = []
+        ttfts = []
+        itls = []
+        ttsts = []
+        output_tokens = []
+        start_times = []
+        end_times = []
 
-    # Display request latency
-    lat_p50 = get_metric(metrics, 'request_latency', 'p50')
-    lat_p90 = get_metric(metrics, 'request_latency', 'p90')
-    lat_p99 = get_metric(metrics, 'request_latency', 'p99')
-    print(f'║  Request Latency (ms):')
-    print(f'║    P50: {lat_p50}  P90: {lat_p90}  P99: {lat_p99}')
-    print('║')
+        for rec in records:
+            meta = rec.get('metadata', {})
+            metrics = rec.get('metrics', {})
 
-    # Display TTFT (time to first token)
-    ttft_p50 = get_metric(metrics, 'time_to_first_token', 'p50')
-    ttft_p90 = get_metric(metrics, 'time_to_first_token', 'p90')
-    ttft_p99 = get_metric(metrics, 'time_to_first_token', 'p99')
-    print(f'║  Time to First Token (ms):')
-    print(f'║    P50: {ttft_p50}  P90: {ttft_p90}  P99: {ttft_p99}')
-    print('║')
+            lat = get_val(metrics, 'request_latency')
+            if lat is not None:
+                latencies.append(lat)
 
-    # Display ITL (inter-token latency)
-    itl_p50 = get_metric(metrics, 'inter_token_latency', 'p50')
-    itl_p90 = get_metric(metrics, 'inter_token_latency', 'p90')
-    itl_p99 = get_metric(metrics, 'inter_token_latency', 'p99')
-    print(f'║  Inter-Token Latency (ms):')
-    print(f'║    P50: {itl_p50}  P90: {itl_p90}  P99: {itl_p99}')
+            ttft = get_val(metrics, 'time_to_first_token')
+            if ttft is None:
+                ttft = get_val(metrics, 'time_to_first_output_token')
+            if ttft is not None:
+                ttfts.append(ttft)
+
+            itl = get_val(metrics, 'inter_token_latency')
+            if itl is not None:
+                itls.append(itl)
+
+            ttst = get_val(metrics, 'time_to_second_token')
+            if ttst is not None:
+                ttsts.append(ttst)
+
+            otc = get_val(metrics, 'output_token_count')
+            if otc is not None:
+                output_tokens.append(otc)
+
+            # Track timing for throughput calculation
+            rs = meta.get('request_start_ns')
+            re_ = meta.get('request_end_ns')
+            if rs is not None:
+                start_times.append(rs)
+            if re_ is not None:
+                end_times.append(re_)
+
+        n = len(records)
+
+        # Compute system throughput
+        if start_times and end_times:
+            duration_ns = max(end_times) - min(start_times)
+            duration_s = duration_ns / 1e9 if duration_ns > 0 else 1.0
+            req_throughput = n / duration_s
+            total_out_tokens = sum(output_tokens) if output_tokens else 0
+            token_throughput = total_out_tokens / duration_s
+        else:
+            req_throughput = None
+            token_throughput = None
+
+        # Compute percentiles
+        latencies.sort()
+        ttfts.sort()
+        itls.sort()
+        ttsts.sort()
+
+        print(f'║  Requests:                {n}')
+        print(f'║  Request Throughput:      {fmt(req_throughput)} req/s')
+        print(f'║  Output Token Throughput: {fmt(token_throughput)} tokens/s')
+        print('║')
+        print('║  Time to First Token (ms):')
+        print(f'║    Avg: {fmt(sum(ttfts)/len(ttfts) if ttfts else None)}  P50: {fmt(percentile(ttfts, 50))}  P90: {fmt(percentile(ttfts, 90))}  P99: {fmt(percentile(ttfts, 99))}')
+        print('║')
+        print('║  Inter-Token Latency (ms):')
+        print(f'║    Avg: {fmt(sum(itls)/len(itls) if itls else None)}  P50: {fmt(percentile(itls, 50))}  P90: {fmt(percentile(itls, 90))}  P99: {fmt(percentile(itls, 99))}')
+        print('║')
+        print('║  Request Latency (ms):')
+        print(f'║    Avg: {fmt(sum(latencies)/len(latencies) if latencies else None)}  P50: {fmt(percentile(latencies, 50))}  P90: {fmt(percentile(latencies, 90))}  P99: {fmt(percentile(latencies, 99))}')
+        print('║')
+        print('║  Time to Second Token (ms):')
+        print(f'║    Avg: {fmt(sum(ttsts)/len(ttsts) if ttsts else None)}  P50: {fmt(percentile(ttsts, 50))}  P90: {fmt(percentile(ttsts, 90))}  P99: {fmt(percentile(ttsts, 99))}')
+
+    else:
+        print('║  ⚠️  No JSONL results found — cannot display metrics')
+        print(f'║  Expected: {jsonl_path}')
 
 except Exception as e:
     print(f'║  ⚠️  Could not parse results: {e}')
-    print(f'║  Raw file: ${RESULTS_FILE}')
+    import traceback
+    traceback.print_exc(file=sys.stderr)
 "
         else
             # Fallback: display raw JSON if python3 is not available
             echo "║  (python3 not available — showing raw results)"
             echo "║"
-            cat "${RESULTS_FILE}" | head -50
+            if [ -f "${RESULTS_JSONL}" ]; then
+                head -3 "${RESULTS_JSONL}"
+            elif [ -f "${RESULTS_FILE}" ]; then
+                cat "${RESULTS_FILE}" | head -50
+            fi
         fi
 
         echo "╚══════════════════════════════════════════════════════════════════╝"
         echo ""
         echo "📁 Results saved to: benchmarks/${BENCHMARK_JOB_NAME}/"
         echo "☁️  S3 results: ${RESULTS_S3_PATH:-${BENCHMARK_S3_OUTPUT_PATH}}"
+
+        # Write marker for multi-level parent to find this results dir
+        echo "${LOCAL_RESULTS_DIR}" > "/tmp/.mlcc-benchmark-latest-${PROJECT_NAME}" 2>/dev/null || true
     else
         echo "⚠️  Could not download results from S3"
         echo "   The benchmark completed but results could not be located."
@@ -825,30 +1185,28 @@ except Exception as e:
             --output table 2>/dev/null || echo "   (could not list objects)"
     fi
 
-    # ── Persist benchmark results to Athena (CI mode only) ──────────────────
-    # When CI_BENCHMARK_RESULTS_BUCKET is set (injected by CI CodeBuild from
-    # bootstrap config), call the benchmark writer to persist results as Parquet
-    # to S3 for Athena querying. Non-CI users see no change.
-    if [ -n "${CI_BENCHMARK_RESULTS_BUCKET:-}" ] && [ "${RESULTS_DOWNLOADED}" = true ]; then
+    # ── Persist benchmark results to Athena ──────────────────────────────────
+    # When CI_BENCHMARK_RESULTS_BUCKET is set (from bootstrap config), call the
+    # benchmark writer to persist results as Parquet to S3 for Athena querying.
+    # Skip when running as a child of multi-level mode — the parent orchestrator
+    # handles combined persistence (one row per concurrency level, no duplicates).
+    if [ -n "${CI_BENCHMARK_RESULTS_BUCKET:-}" ] && [ "${RESULTS_DOWNLOADED}" = true ] && [ -z "${_BENCHMARK_SINGLE_LEVEL:-}" ]; then
         echo ""
         echo "📊 Persisting benchmark results to Athena..."
 
-        # Compute config_id using the same algorithm as do/register
-        _compute_config_id() {
-            local input="${DEPLOYMENT_CONFIG}:${MODEL_NAME:-none}:${INSTANCE_TYPE}:${AWS_REGION}:${DEPLOYMENT_TARGET}:ic${IC_COUNT:-1}:adapt${ADAPTER_COUNT:-0}"
-            if command -v sha256sum &> /dev/null; then
-                echo -n "$input" | sha256sum | cut -c1-16
-            else
-                echo -n "$input" | shasum -a 256 | cut -c1-16
-            fi
-        }
-        CONFIG_ID=$(_compute_config_id)
+        # Determine which results file to pass to the writer (prefer JSONL)
+        _WRITER_INPUT="${RESULTS_JSONL}"
+        if [ ! -f "${_WRITER_INPUT}" ]; then
+            _WRITER_INPUT="${RESULTS_FILE}"
+        fi
 
         # Best-effort: errors are logged but do not fail the benchmark script
         if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
-            --results-file "${RESULTS_FILE}" \
+            --results-file "${_WRITER_INPUT}" \
             --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
-            --config-id "${CONFIG_ID}" \
+            --project-name "${PROJECT_NAME}" \
+            --workload "${BENCHMARK_WORKLOAD:-manual}" \
+            --concurrency "${BENCHMARK_CONCURRENCY}" \
             --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
             --region "${AWS_REGION:-${REGION}}"; then
             echo "✅ Benchmark results persisted to S3"
@@ -857,7 +1215,6 @@ except Exception as e:
             echo "   Results remain available locally in: benchmarks/${BENCHMARK_JOB_NAME}/"
         fi
     fi
-
 elif [ "${JOB_STATUS}" = "Failed" ]; then
     # Display failure reason
     echo "❌ Step 4: Benchmark job failed"

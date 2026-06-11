@@ -153,6 +153,49 @@ Recommends base Docker images based on the selected deployment configuration, fr
 ml-container-creator mcp add base-image-picker --bundled
 ```
 
+### workload-picker
+
+Provides named benchmark workload profiles for `do/benchmark`. Instead of manually configuring concurrency, token distributions, and request counts, the workload-picker server defines reusable traffic patterns that model real-world inference scenarios.
+
+```bash
+ml-container-creator mcp add workload-picker --bundled
+```
+
+Unlike other bundled servers, workload-picker is not queried during project generation. It is queried at **runtime** by `do/benchmark --workload <name>` to resolve all benchmark parameters. No manual benchmark configuration is needed in `do/config`.
+
+#### Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_workloads` | Returns all available workload names with descriptions and use cases |
+| `get_workload_profile` | Returns full benchmark parameters for a named workload |
+
+#### Available Workloads
+
+| Workload | Use Case | Input Tokens | Output Tokens | Streaming | Concurrency Levels |
+|----------|----------|:---:|:---:|:---:|---|
+| `sample` | POC sample workload | 100 | 100 | yes | 2 |
+| `multi_turn_chat` | Interactive chat, low latency | 550 | 150 | yes | 1, 4, 8, 16 |
+| `rag_document_qa` | RAG, document Q&A | 2000 | 500 | yes | 1, 4, 8 |
+| `agent_tool_calling` | Agents, structured output | 200 | 100 | no | 1, 4, 8, 16, 32 |
+| `long_context_scaling` | Long context, summarization | 8000 | 1000 | yes | 1, 2, 4 |
+| `production_traffic_mix` | Production fleet sizing | 1000 | 300 | yes | 4, 8, 16, 32 |
+| `shared_system_prompt` | Prefix caching validation | 1000 | 200 | yes | 4, 8, 16, 32 |
+
+#### Usage
+
+```bash
+# Run benchmarks with a named workload
+do/benchmark --workload multi_turn_chat
+
+# The workload resolves all parameters at runtime:
+#   concurrency, input/output tokens, streaming, dataset type
+# S3 paths come from your bootstrap profile.
+# No env vars to set.
+```
+
+The workload catalog lives at `servers/workload-picker/catalogs/workload-profiles.json`. Add custom workloads by appending entries to that file.
+
 ## Smart Mode (Amazon Bedrock)
 
 Both bundled servers support an optional smart mode that queries Amazon Bedrock for context-aware recommendations instead of returning static lists. Set `BEDROCK_SMART=true` in the server's environment to enable it. If the Bedrock call fails, the server falls back to static recommendations.

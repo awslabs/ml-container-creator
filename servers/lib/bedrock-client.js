@@ -19,29 +19,29 @@
  * @returns {object|null} Parsed JSON object, or null if extraction fails
  */
 export function extractJson(text) {
-    if (!text || typeof text !== 'string') return null
+    if (!text || typeof text !== 'string') return null;
 
     // Try markdown-fenced code block first (```json ... ``` or ``` ... ```)
-    const fencedMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/)
+    const fencedMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
     if (fencedMatch) {
         try {
-            return JSON.parse(fencedMatch[1].trim())
+            return JSON.parse(fencedMatch[1].trim());
         } catch {
             // Fall through to raw extraction
         }
     }
 
     // Try extracting raw JSON object
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
         try {
-            return JSON.parse(jsonMatch[0])
+            return JSON.parse(jsonMatch[0]);
         } catch {
-            return null
+            return null;
         }
     }
 
-    return null
+    return null;
 }
 
 /**
@@ -61,22 +61,22 @@ export function extractJson(text) {
  * @returns {Promise<{values: object} | null>}
  */
 export async function queryBedrock(serverConfig, parameters, limit, context) {
-    const prefix = `[${serverConfig.serverName}]`
+    const prefix = `[${serverConfig.serverName}]`;
 
     // Dynamic import with 1s timeout
-    let BedrockRuntimeClient, InvokeModelCommand
+    let BedrockRuntimeClient, InvokeModelCommand;
     try {
         const mod = await Promise.race([
             import('@aws-sdk/client-bedrock-runtime'),
             new Promise((_, reject) =>
                 setTimeout(() => reject(new Error('Import timed out')), 1000)
             )
-        ])
-        BedrockRuntimeClient = mod.BedrockRuntimeClient
-        InvokeModelCommand = mod.InvokeModelCommand
+        ]);
+        BedrockRuntimeClient = mod.BedrockRuntimeClient;
+        InvokeModelCommand = mod.InvokeModelCommand;
     } catch {
-        log(prefix, 'Failed to load @aws-sdk/client-bedrock-runtime. Run "npm install" in the servers/lib/ directory')
-        return null
+        log(prefix, 'Failed to load @aws-sdk/client-bedrock-runtime. Run "npm install" in the servers/lib/ directory');
+        return null;
     }
 
     const client = new BedrockRuntimeClient({
@@ -84,20 +84,20 @@ export async function queryBedrock(serverConfig, parameters, limit, context) {
         requestHandler: {
             requestTimeout: 10000
         }
-    })
+    });
 
     // Build prompt from template
     const contextStr = context && Object.keys(context).length > 0
         ? JSON.stringify(context)
-        : 'No specific configuration context provided.'
+        : 'No specific configuration context provided.';
 
     const prompt = serverConfig.systemPromptTemplate
         .replace('{context}', contextStr)
         .replace('{parameters}', parameters.join(', '))
-        .replace('{limit}', String(limit))
+        .replace('{limit}', String(limit));
 
     try {
-        log(prefix, `Querying Bedrock model ${serverConfig.modelId} in ${serverConfig.region}...`)
+        log(prefix, `Querying Bedrock model ${serverConfig.modelId} in ${serverConfig.region}...`);
 
         const body = JSON.stringify({
             anthropic_version: 'bedrock-2023-05-31',
@@ -107,48 +107,48 @@ export async function queryBedrock(serverConfig, parameters, limit, context) {
                 role: 'user',
                 content: prompt
             }]
-        })
+        });
 
         const command = new InvokeModelCommand({
             modelId: serverConfig.modelId,
             contentType: 'application/json',
             accept: 'application/json',
             body
-        })
+        });
 
-        const response = await client.send(command)
-        const responseBody = JSON.parse(new TextDecoder().decode(response.body))
+        const response = await client.send(command);
+        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
 
-        const text = responseBody.content?.[0]?.text
+        const text = responseBody.content?.[0]?.text;
         if (!text) {
-            log(prefix, 'Bedrock response contained no text content')
-            return null
+            log(prefix, 'Bedrock response contained no text content');
+            return null;
         }
 
-        const parsed = extractJson(text)
+        const parsed = extractJson(text);
         if (!parsed) {
-            log(prefix, 'Could not extract JSON from Bedrock response')
-            return null
+            log(prefix, 'Could not extract JSON from Bedrock response');
+            return null;
         }
 
         if (!parsed.values || typeof parsed.values !== 'object') {
-            log(prefix, 'Bedrock response missing "values" object')
-            return null
+            log(prefix, 'Bedrock response missing "values" object');
+            return null;
         }
 
-        log(prefix, `Bedrock returned recommendations: ${JSON.stringify(parsed.values)}`)
-        return parsed
+        log(prefix, `Bedrock returned recommendations: ${JSON.stringify(parsed.values)}`);
+        return parsed;
     } catch (err) {
         if (err.name === 'AccessDeniedException') {
-            log(prefix, `Access denied. Ensure bedrock:InvokeModel permission for arn:aws:bedrock:${serverConfig.region}:*:inference-profile/${serverConfig.modelId}`)
+            log(prefix, `Access denied. Ensure bedrock:InvokeModel permission for arn:aws:bedrock:${serverConfig.region}:*:inference-profile/${serverConfig.modelId}`);
         } else if (err.name === 'ResourceNotFoundException') {
-            log(prefix, `Model "${serverConfig.modelId}" not found. Set BEDROCK_MODEL env var. Example: BEDROCK_MODEL=global.anthropic.claude-sonnet-4-20250514-v1:0`)
+            log(prefix, `Model "${serverConfig.modelId}" not found. Set BEDROCK_MODEL env var. Example: BEDROCK_MODEL=global.anthropic.claude-sonnet-4-20250514-v1:0`);
         } else if (err.name === 'ThrottlingException') {
-            log(prefix, 'Bedrock rate limit hit. Falling back to static recommendations')
+            log(prefix, 'Bedrock rate limit hit. Falling back to static recommendations');
         } else {
-            log(prefix, `Bedrock query failed: ${err.name}: ${err.message}`)
+            log(prefix, `Bedrock query failed: ${err.name}: ${err.message}`);
         }
-        return null
+        return null;
     }
 }
 
@@ -156,5 +156,5 @@ export async function queryBedrock(serverConfig, parameters, limit, context) {
  * Log to stderr so it doesn't interfere with MCP stdio protocol on stdout.
  */
 function log(prefix, message) {
-    process.stderr.write(`${prefix} ${message}\n`)
+    process.stderr.write(`${prefix} ${message}\n`);
 }

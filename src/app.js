@@ -16,7 +16,7 @@ import CommentGenerator from './lib/comment-generator.js';
 import ConfigurationManager from './lib/configuration-manager.js';
 import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
-import { _ensureTemplateVariables, _validateEnvironmentVariables, _mergeEnvVarsWithPrecedence } from './lib/template-variable-resolver.js';
+import { _ensureTemplateVariables, _validateEnvironmentVariables } from './lib/template-variable-resolver.js';
 import ejs from 'ejs';
 
 const __filename = fileURLToPath(import.meta.url);

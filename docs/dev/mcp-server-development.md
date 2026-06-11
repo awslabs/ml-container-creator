@@ -43,7 +43,7 @@ For user-facing documentation (adding/removing servers, smart mode, configuring 
 
 ## Bundled Servers
 
-Eight servers ship with the project:
+Nine servers ship with the project:
 
 | Server | Tool Name | Modes | Purpose |
 |--------|-----------|-------|---------|
@@ -55,6 +55,7 @@ Eight servers ship with the project:
 | `endpoint-picker` | `get_inference_endpoints` | discover | Discovers InService SageMaker AI endpoints |
 | `marketplace-picker` | `get_ml_config` | static, discover | Lists SageMaker AI Marketplace models |
 | `e2e-status` | `get_ml_config` | static | Returns E2E validation status for models |
+| `workload-picker` | `list_workloads`, `get_workload_profile` | static | Provides named benchmark workload profiles for `do/benchmark` |
 
 **Modes:**
 
