@@ -99,6 +99,7 @@
     "lint": "eslint src/ servers/ bin/ --ext .js,.cjs,.mjs",
     "lint:fix": "eslint src/ servers/ bin/ --ext .js,.cjs,.mjs --fix",
     "codegen": "node scripts/codegen-parameter-schema.js && node scripts/codegen-docs-commands.js",
+    "validate:doc-commands": "node scripts/validate-docs-commands.js",
     "sbom": "sbom --format spdx --output sbom.json",
     "prepublishOnly": "npm run lint && npm run test:all"
   },
