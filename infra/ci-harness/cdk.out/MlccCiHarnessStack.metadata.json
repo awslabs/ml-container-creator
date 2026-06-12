@@ -153,7 +153,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1084:9)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1100:9)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -167,7 +167,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1092:9)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1108:9)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -181,7 +181,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1099:9)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1115:9)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -195,7 +195,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1168:34)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1184:34)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -209,7 +209,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1175:37)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1191:37)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -223,7 +223,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1376:40)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1392:40)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -237,7 +237,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1398:42)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1414:42)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -251,7 +251,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1405:40)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1421:40)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -265,7 +265,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1426:9)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1442:9)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -279,7 +279,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1433:9)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1449:9)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -476,21 +476,6 @@
       ]
     }
   ],
-  "/MlccCiHarnessStack/BenchmarkResultsBucket/Resource": [
-    {
-      "type": "aws:cdk:logicalId",
-      "data": "BenchmarkResultsBucket9FA9FAA3"
-    },
-    {
-      "type": "aws:cdk:creationStack",
-      "data": [
-        "...new Bucket2 in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1063:40)",
-        "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
-        "...node internals, ts-node, ts-node, ts-node..."
-      ]
-    }
-  ],
   "/MlccCiHarnessStack/BenchmarkWritePolicy/Resource": [
     {
       "type": "aws:cdk:logicalId",
@@ -500,7 +485,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Policy2 in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1150:33)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1166:33)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -515,7 +500,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Role2 in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1180:37)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1196:37)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -530,7 +515,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Policy2 in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1188:35)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1204:35)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -545,7 +530,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new NodejsFunction in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1228:41)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1244:41)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -560,7 +545,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Role2 in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1251:37)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1267:37)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -575,7 +560,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Policy2 in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1259:36)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1275:36)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -590,7 +575,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new NodejsFunction in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1289:41)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1305:41)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -605,7 +590,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Role2 in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1311:44)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1327:44)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]
@@ -620,7 +605,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Policy2 in aws-cdk-lib...",
-        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1319:46)",
+        "new MlccCiHarnessStack (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/lib/ci-harness-stack.ts:1335:46)",
         "<anonymous> (/Users/frgud/KiroProjects/ml-container-creator/infra/ci-harness/bin/ci-harness.ts:20:1)",
         "...node internals, ts-node, ts-node, ts-node..."
       ]

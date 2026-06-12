@@ -213,3 +213,42 @@ In CI pipelines, benchmark results can be registered for regression detection:
 ```
 
 See [CI Integration](ci-integration.md) for automated validation workflows and the two-stage pipeline.
+
+
+## Pre-staging Large Models (`do/stage`)
+
+For models >30B parameters, downloading from HuggingFace at deploy time can cause 30-60 minute startup delays or timeout failures. Pre-stage weights to your MCC S3 bucket first:
+
+```bash
+./do/stage
+```
+
+This downloads model weights from HuggingFace and uploads to `s3://${_PROFILE[benchmarkS3Bucket]}/models/${PROJECT_NAME}/`. Subsequent deploys load from S3 (seconds instead of minutes).
+
+The script is idempotent — if weights are already staged, it skips the download.
+
+For models >500GB, use `--submit` to run as a SageMaker Processing Job with 2TB attached storage:
+
+```bash
+./do/stage --submit
+```
+
+!!! tip "S3 Model URIs"
+    You can also generate a project directly with an S3 model URI: `--model-name s3://bucket/models/my-model/`. This skips HuggingFace entirely — useful when weights are pre-staged in a shared team bucket.
+
+## Deploying on Reserved Capacity (FTP)
+
+If you have a Flexible Training Plan (FTP) or capacity reservation, pass the ARN at generation time:
+
+```bash
+ml-container-creator my-benchmark-project \
+  --model-name s3://my-bucket/models/gemma-4-31b/ \
+  --instance-type ml.p6-b200.48xlarge \
+  --capacity-reservation-arn "arn:aws:sagemaker:us-east-2:ACCOUNT:training-plan/tp-XXX" \
+  --include-benchmark \
+  --skip-prompts
+```
+
+The endpoint will deploy exclusively on reserved capacity. FTPs are time-bound — ensure your reservation window covers the full benchmark duration (deployment + warm-up + all concurrency levels).
+
+The instance-picker and endpoint-sizer MCP servers are FTP-aware — during interactive generation, they surface available capacity reservations in your account/region.

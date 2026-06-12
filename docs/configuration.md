@@ -78,6 +78,15 @@ All 68 parameters supported by MCC, organized by category. Each can be set via C
 | `endpointVariantName` | `--endpoint-variant-name` | string | `AllTraffic` | Production variant name |
 | `endpointVolumeSize` | `--endpoint-volume-size` | integer | — | ML storage volume size in GB |
 
+### Capacity & Serving
+
+| Parameter | CLI Flag | Type | Default | Description |
+|---|---|---|---|---|
+| `capacityReservationArn` | `--capacity-reservation-arn` | string | — | FTP/capacity reservation ARN for deploying on reserved capacity. Mutually exclusive with `instancePools`. |
+| `instancePools` | `--instance-pools` | JSON | — | Heterogeneous instance types with priority-based fallback. Mutually exclusive with `capacityReservationArn`. |
+| `serverEnv` | `--server-env` | string[] | — | Container environment variable overrides (e.g., `SM_VLLM_KV_CACHE_DTYPE=fp8`). Repeatable flag. |
+
+
 ### Inference Component
 
 | Parameter | CLI Flag | Type | Default | Description |
@@ -197,6 +206,14 @@ ml-container-creator my-marketplace-model \
 | xgboost | `json`, `model`, `ubj` | `json` |
 | tensorflow | `keras`, `h5`, `SavedModel` | `keras` |
 | transformers | N/A (models loaded from HuggingFace Hub) | — |
+
+
+!!! info "S3 Model URIs"
+    When the model identifier starts with `s3://`, MCC loads model weights directly from S3 instead of downloading from HuggingFace. This enables faster cold-start for pre-staged models. Example: `--model-name s3://my-bucket/models/gemma-4-31b/`
+
+!!! info "Runtime Profile Resolution (v0.12.0)"
+    Generated projects include `do/lib/profile.sh` which reads the active bootstrap profile (`~/.ml-container-creator/config.json`) at runtime. Values like S3 bucket names, account ID, and region are resolved from the profile — no need to regenerate when switching profiles. Scripts use `${_PROFILE[key]}` for profile values, with env var precedence: explicit env var > profile > default.
+
 
 ## Configuration Methods
 

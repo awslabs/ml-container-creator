@@ -38,6 +38,10 @@ done
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
+
+# ── Profile-resolved variables (env var > profile > default) ──────────────────
+export AWS_REGION="${AWS_REGION:-${_PROFILE[awsRegion]:-us-east-1}}"
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"

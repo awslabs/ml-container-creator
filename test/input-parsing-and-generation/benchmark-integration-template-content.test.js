@@ -73,44 +73,41 @@ describe('Benchmark Integration: Generated template content', function () {
     });
 
     // ================================================================
-    // Test 1: do/config contains BENCHMARK_* variables
+    // Test 1: do/config benchmark exports when includeBenchmark=true
+    // Benchmark user-configured values are exported in the if block.
     // ================================================================
-    describe('do/config with includeBenchmark === true', () => {
-        it('should contain BENCHMARK_CONCURRENCY variable', () => {
+    describe('do/config benchmark configuration (includeBenchmark=true)', () => {
+        it('should contain benchmark export statements when includeBenchmark is true', () => {
             const output = ejs.render(configTemplate, baseVars());
-            assert.ok(output.includes('BENCHMARK_CONCURRENCY'), 'must contain BENCHMARK_CONCURRENCY');
+            const benchmarkExports = output.split('\n').filter(line =>
+                line.trim().startsWith('export') && line.includes('BENCHMARK_')
+            );
+            assert.ok(benchmarkExports.length > 0,
+                'must contain benchmark exports when includeBenchmark is true');
         });
 
-        it('should contain BENCHMARK_INPUT_TOKENS_MEAN variable', () => {
-            const output = ejs.render(configTemplate, baseVars());
-            assert.ok(output.includes('BENCHMARK_INPUT_TOKENS_MEAN'), 'must contain BENCHMARK_INPUT_TOKENS_MEAN');
-        });
-
-        it('should contain BENCHMARK_OUTPUT_TOKENS_MEAN variable', () => {
-            const output = ejs.render(configTemplate, baseVars());
-            assert.ok(output.includes('BENCHMARK_OUTPUT_TOKENS_MEAN'), 'must contain BENCHMARK_OUTPUT_TOKENS_MEAN');
-        });
-
-        it('should contain BENCHMARK_STREAMING variable', () => {
-            const output = ejs.render(configTemplate, baseVars());
-            assert.ok(output.includes('BENCHMARK_STREAMING'), 'must contain BENCHMARK_STREAMING');
-        });
-
-        it('should contain BENCHMARK_REQUEST_COUNT variable', () => {
-            const output = ejs.render(configTemplate, baseVars());
-            assert.ok(output.includes('BENCHMARK_REQUEST_COUNT'), 'must contain BENCHMARK_REQUEST_COUNT');
-        });
-
-        it('should contain BENCHMARK_S3_OUTPUT_PATH variable', () => {
-            const output = ejs.render(configTemplate, baseVars());
-            assert.ok(output.includes('BENCHMARK_S3_OUTPUT_PATH'), 'must contain BENCHMARK_S3_OUTPUT_PATH');
+        it('should NOT contain benchmark exports when includeBenchmark is false', () => {
+            const output = ejs.render(configTemplate, baseVars({ includeBenchmark: false }));
+            const benchmarkExports = output.split('\n').filter(line =>
+                line.trim().startsWith('export') && line.includes('BENCHMARK_')
+            );
+            assert.strictEqual(benchmarkExports.length, 0,
+                'must contain zero benchmark exports when includeBenchmark is false');
         });
 
         it('should contain the SageMaker AI Benchmarking section header', () => {
             const output = ejs.render(configTemplate, baseVars());
             assert.ok(
-                output.includes('# SageMaker AI Benchmarking configuration'),
+                output.includes('SageMaker AI Benchmarking'),
                 'must contain section header comment'
+            );
+        });
+
+        it('should contain commented benchmark hints when includeBenchmark is false', () => {
+            const output = ejs.render(configTemplate, baseVars({ includeBenchmark: false }));
+            assert.ok(
+                output.includes('# export BENCHMARK_CONCURRENCY='),
+                'must contain commented benchmark hints when disabled'
             );
         });
     });

@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Path Prover Brain
@@ -364,6 +368,7 @@ export function classifyFailure(errorOutput) {
 function detectStage(errorMsg) {
     const stagePatterns = [
         { pattern: /\b(generate|generation)\b/i, stage: 'generate' },
+        { pattern: /\bdo\/stage\b|model.staging|pre-stage|s3.*stag/i, stage: 'stage' },
         { pattern: /\b(build|docker)\b/i, stage: 'build' },
         { pattern: /\b(push|ecr|registry)\b/i, stage: 'push' },
         { pattern: /\b(deploy|endpoint|CreateEndpoint|InferenceComponent)\b/i, stage: 'deploy' },
@@ -604,4 +609,56 @@ export function loadPriorityTargets(configPath) {
     } catch {
         return null;
     }
+}
+
+// ── TP Degree Auto-Resolution at Prove-Time (Task 6.5) ──────────────────────
+
+/**
+ * Resolve tp_degree from instance catalog when not explicitly set in a prove config.
+ *
+ * At prove-time, if the target config omits tp_degree but specifies an instance_type,
+ * look up the instance catalog's GPU count and use it as the tp_degree.
+ * This mirrors the generation-time logic in template-variable-resolver.js.
+ *
+ * Requirements: FTP-1 (extension) — task 6.5
+ *
+ * @param {object} config - The prove config (from getNextPriorityConfig or similar)
+ * @param {string} [config.instance_type] - Instance type (e.g. 'ml.g5.48xlarge')
+ * @param {number|string|undefined} [config.tp_degree] - TP degree if already set
+ * @param {object|null} [catalogOverride] - Optional catalog data for testing (skips file load)
+ * @returns {object} The config object (mutated in place) with tp_degree resolved
+ */
+export function resolveProveTpDegree(config, catalogOverride = null) {
+    if (!config) return config;
+
+    // If tp_degree is already set (not null/undefined), respect it
+    if (config.tp_degree !== undefined && config.tp_degree !== null) {
+        return config;
+    }
+
+    // Need an instance_type to look up GPU count
+    if (!config.instance_type) {
+        return config;
+    }
+
+    // Load instance catalog
+    let catalog = catalogOverride;
+    if (!catalog) {
+        try {
+            const catalogPath = resolve(__dirname, '..', '..', 'servers', 'lib', 'catalogs', 'instances.json');
+            const raw = readFileSync(catalogPath, 'utf8');
+            catalog = JSON.parse(raw);
+        } catch {
+            return config;
+        }
+    }
+
+    const instanceInfo = catalog?.catalog?.[config.instance_type];
+    if (instanceInfo?.gpus && instanceInfo.gpus > 0) {
+        config.tp_degree = instanceInfo.gpus;
+        config._tpAutoResolved = true;
+        config._tpAutoResolvedFrom = config.instance_type;
+    }
+
+    return config;
 }

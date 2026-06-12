@@ -459,8 +459,22 @@ export default class BootstrapCommandHandler {
 
                     // --no-rollback prevents rollback on AlreadyExists errors for IAM roles
                     // that may pre-exist from a prior deployment or another region.
+                    // Check if benchmark bucket already exists (from a prior torn-down stack with RETAIN policy)
+                    let importBucketCtx = '';
+                    if (options.benchmarkInfra) {
+                        try {
+                            execSync(
+                                `aws s3api head-bucket --bucket mlcc-benchmark-results-${profileData.accountId}-${profileData.awsRegion}${profileData.awsProfile ? ` --profile ${profileData.awsProfile}` : ''} --region ${profileData.awsRegion}`,
+                                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                            );
+                            importBucketCtx = ' -c importExistingBenchmarkBucket=true';
+                            console.log('  ℹ️  Benchmark results bucket already exists — importing into stack');
+                        } catch {
+                            // Bucket doesn't exist — will be created fresh
+                        }
+                    }
                     const cdkDeployCmd = options.benchmarkInfra
-                        ? 'npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback --parameters MlccCiHarnessStack:CreateBenchmarkInfra=true'
+                        ? `npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback --parameters MlccCiHarnessStack:CreateBenchmarkInfra=true${importBucketCtx}`
                         : 'npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback';
                     execSync(
                         cdkDeployCmd,
@@ -634,8 +648,22 @@ export default class BootstrapCommandHandler {
 
                     // --no-rollback prevents rollback on AlreadyExists errors for IAM roles
                     // that may pre-exist from a prior deployment or another region.
+                    // Check if benchmark bucket already exists (from a prior torn-down stack with RETAIN policy)
+                    let updateImportBucketCtx = '';
+                    if (options.benchmarkInfra || profileConfig.benchmarkInfraProvisioned) {
+                        try {
+                            execSync(
+                                `aws s3api head-bucket --bucket mlcc-benchmark-results-${profileConfig.accountId}-${profileConfig.awsRegion}${profileConfig.awsProfile ? ` --profile ${profileConfig.awsProfile}` : ''} --region ${profileConfig.awsRegion}`,
+                                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                            );
+                            updateImportBucketCtx = ' -c importExistingBenchmarkBucket=true';
+                            console.log('  ℹ️  Benchmark results bucket already exists — importing into stack');
+                        } catch {
+                            // Bucket doesn't exist — will be created fresh
+                        }
+                    }
                     const updateCdkCmd = (options.benchmarkInfra || profileConfig.benchmarkInfraProvisioned)
-                        ? 'npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback --parameters MlccCiHarnessStack:CreateBenchmarkInfra=true'
+                        ? `npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback --parameters MlccCiHarnessStack:CreateBenchmarkInfra=true${updateImportBucketCtx}`
                         : 'npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback';
                     execSync(
                         updateCdkCmd,
@@ -989,7 +1017,8 @@ export default class BootstrapCommandHandler {
      * @returns {object} Parsed JSON output
      */
     _execAws(command, profile) {
-        const fullCommand = `aws ${command} --profile ${profile} --output json`;
+        const profileFlag = profile ? `--profile ${profile}` : '';
+        const fullCommand = `aws ${command} ${profileFlag} --output json`.replace(/\s+/g, ' ').trim();
         const output = execSync(fullCommand, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
         const trimmed = output.trim();
         if (!trimmed) {

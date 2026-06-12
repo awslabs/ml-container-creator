@@ -213,6 +213,54 @@ Increase `MAX_COST_PER_RUN` or run multiple executions. The brain picks up where
 
 ---
 
+## Validation Target Configuration
+
+### Serving Parameters
+
+Targets can include `serving_params` for container-level engine configuration:
+
+```json
+{
+  "model_name": "Qwen/Qwen3-32B",
+  "instance_type": "ml.g5.12xlarge",
+  "serving_params": {
+    "max_model_len": 32768,
+    "gpu_memory_utilization": 0.95,
+    "kv_cache_dtype": "fp8"
+  }
+}
+```
+
+These map to `--server-env SM_VLLM_<KEY>=<value>` flags at generation time. Any vLLM engine argument can be passed this way.
+
+### Capacity Reservations (FTP)
+
+For models that require reserved capacity (large GPU instances with limited availability):
+
+```json
+{
+  "model_name": "google/gemma-4-31B-it",
+  "instance_type": "ml.p6-b200.48xlarge",
+  "infra_params": {
+    "capacity_reservation_arn": "arn:aws:sagemaker:us-east-2:ACCOUNT:training-plan/tp-XXX"
+  }
+}
+```
+
+### Model Pre-Staging
+
+Add `"stage"` to the `stages` array to pre-stage model weights from HuggingFace to S3 before deployment:
+
+```json
+{
+  "model_name": "google/gemma-4-31B-it",
+  "stages": ["stage", "generate", "build", "deploy", "test", "benchmark", "clean"]
+}
+```
+
+This runs `do/stage` first, uploading weights to the MCC S3 bucket. Subsequent stages use the S3 URI for fast model loading.
+
+
 ## Related
 
 - [CI Integration](ci-integration.md) — Two-stage pipeline and E2E validation

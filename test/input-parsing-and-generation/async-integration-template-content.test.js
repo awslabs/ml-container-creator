@@ -84,13 +84,14 @@ describe('Async Integration: Generated template content', function () {
             assert.ok(!output.includes('HYPERPOD_CLUSTER_NAME'), 'must NOT contain HYPERPOD_CLUSTER_NAME');
         });
 
-        it('should contain user-provided S3 output path when specified', () => {
+        it('should NOT contain user-provided S3 output path (moved to profile/consuming scripts)', () => {
             const output = ejs.render(configTemplate, baseVars({
                 asyncS3OutputPath: 's3://my-bucket/output/'
             }));
 
-            assert.ok(output.includes('s3://my-bucket/output/'), 'must contain the user-provided S3 path literally');
-            assert.ok(output.includes('ASYNC_S3_OUTPUT_PATH'), 'must still export ASYNC_S3_OUTPUT_PATH');
+            // User-provided paths are no longer baked into do/config — they come from profile at runtime
+            assert.ok(!output.includes('export ASYNC_S3_OUTPUT_PATH="s3://my-bucket/output/"'),
+                'do/config must NOT export user-provided ASYNC_S3_OUTPUT_PATH (resolved from profile)');
         });
     });
 

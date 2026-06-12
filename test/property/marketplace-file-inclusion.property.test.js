@@ -43,7 +43,8 @@ const BASE_DO_SCRIPTS = new Set([
     'clean',
     'register',
     'ci',
-    'manifest'
+    'manifest',
+    'stage'
 ]);
 
 /**

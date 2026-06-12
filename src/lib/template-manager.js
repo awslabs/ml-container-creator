@@ -146,7 +146,7 @@ export default class TemplateManager {
         
         // Validate instance type format (ml.*.*) - only for realtime-inference
         if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
-            const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
+            const instancePattern = /^ml\.[a-z0-9-]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
             if (!instancePattern.test(this.answers.instanceType)) {
                 throw new Error(`⚠️  Invalid instance type format: ${this.answers.instanceType}. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g5.xlarge)`);
             }

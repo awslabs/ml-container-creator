@@ -140,7 +140,7 @@ describe('do/config TUNE_MODEL_ID Conditional Rendering', () => {
             );
         });
 
-        it('should still render TUNE_S3_BUCKET', () => {
+        it('should NOT render TUNE_S3_BUCKET (resolved from profile at runtime)', () => {
             const vars = {
                 ...baseConfig,
                 tuneSupported: true,
@@ -150,8 +150,8 @@ describe('do/config TUNE_MODEL_ID Conditional Rendering', () => {
             const output = renderConfig(vars);
 
             assert.ok(
-                output.includes('export TUNE_S3_BUCKET='),
-                'Output must contain TUNE_S3_BUCKET'
+                !output.includes('export TUNE_S3_BUCKET='),
+                'Output must NOT contain TUNE_S3_BUCKET (resolved from profile at runtime)'
             );
         });
     });
@@ -256,7 +256,7 @@ describe('do/config TUNE_MODEL_ID Conditional Rendering', () => {
             );
         });
 
-        it('should still render TUNE_S3_BUCKET', () => {
+        it('should NOT render TUNE_S3_BUCKET (resolved from profile at runtime)', () => {
             const vars = {
                 ...baseConfig,
                 tuneSupported: true,
@@ -266,8 +266,8 @@ describe('do/config TUNE_MODEL_ID Conditional Rendering', () => {
             const output = renderConfig(vars);
 
             assert.ok(
-                output.includes('export TUNE_S3_BUCKET='),
-                'Output must contain TUNE_S3_BUCKET'
+                !output.includes('export TUNE_S3_BUCKET='),
+                'Output must NOT contain TUNE_S3_BUCKET (resolved from profile at runtime)'
             );
         });
     });
@@ -333,7 +333,7 @@ describe('do/config TUNE_MODEL_ID Conditional Rendering', () => {
             );
         });
 
-        it('should still render TUNE_S3_BUCKET even when tuneSupported is false', () => {
+        it('should NOT render TUNE_S3_BUCKET (resolved from profile at runtime)', () => {
             const vars = {
                 ...baseConfig,
                 tuneSupported: false,
@@ -343,8 +343,8 @@ describe('do/config TUNE_MODEL_ID Conditional Rendering', () => {
             const output = renderConfig(vars);
 
             assert.ok(
-                output.includes('export TUNE_S3_BUCKET='),
-                'Output must contain TUNE_S3_BUCKET (always present for non-batch-transform)'
+                !output.includes('export TUNE_S3_BUCKET='),
+                'Output must NOT contain TUNE_S3_BUCKET (resolved from profile at runtime)'
             );
         });
 

@@ -13,23 +13,23 @@ export MODEL_SERVER="<%= modelServer %>"
 
 # AWS configuration
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
-export ECR_REPOSITORY_NAME="ml-container-creator"
+
+# ── Profile-resolved values (from ~/.ml-container-creator/config.json) ────
+# ECR_REPOSITORY_NAME, ROLE_ARN, ADAPTER_S3_BUCKET — see do/lib/profile.sh
 
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
 # LoRA adapter serving
 export ENABLE_LORA=true
-export ADAPTER_S3_BUCKET="mlcc-adapters-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
 <% } else if (framework === 'transformers' || framework === 'diffusors') { %>
 # LoRA adapter serving (uncomment to enable)
 # export ENABLE_LORA=true
-# export ADAPTER_S3_BUCKET="mlcc-adapters-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
 <% } %>
 
 # Build configuration — WHERE the Docker image gets built
 export BUILD_TARGET="<%= buildTarget %>"
 <% if (buildTarget === 'codebuild') { %>
 export CODEBUILD_COMPUTE_TYPE="<%= codebuildComputeType %>"
-export CODEBUILD_PROJECT_NAME="${PROJECT_NAME}-build-$(date +%Y%m%d)"
+# CODEBUILD_PROJECT_NAME — derived in do/submit at runtime
 <% } %>
 
 # Deployment configuration — WHERE the model runs
@@ -83,26 +83,9 @@ export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
 <% } %>
 
 # Async-specific configuration
-# Resolve AWS account ID at runtime for default resource names
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "UNKNOWN")
-
-<% if (asyncS3OutputPath) { %>
-export ASYNC_S3_OUTPUT_PATH="<%= asyncS3OutputPath %>"
-<% } else { %>
-export ASYNC_S3_OUTPUT_PATH="s3://mlcc-async-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/output/"
-<% } %>
-
-<% if (asyncSnsSuccessTopic) { %>
-export ASYNC_SNS_SUCCESS_TOPIC="<%= asyncSnsSuccessTopic %>"
-<% } else { %>
-export ASYNC_SNS_SUCCESS_TOPIC="arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}:ml-container-creator-${PROJECT_NAME}-async-success"
-<% } %>
-
-<% if (asyncSnsErrorTopic) { %>
-export ASYNC_SNS_ERROR_TOPIC="<%= asyncSnsErrorTopic %>"
-<% } else { %>
-export ASYNC_SNS_ERROR_TOPIC="arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}:ml-container-creator-${PROJECT_NAME}-async-error"
-<% } %>
+# ── Profile-resolved values (from ~/.ml-container-creator/config.json) ────
+# ASYNC_S3_OUTPUT_PATH, ASYNC_SNS_SUCCESS_TOPIC, ASYNC_SNS_ERROR_TOPIC — see do/lib/profile.sh
+# ACCOUNT_ID — derived inline in consuming scripts (do/deploy.d/async-inference)
 
 <% if (asyncMaxConcurrentInvocations) { %>
 export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
@@ -129,19 +112,10 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 # SageMaker Batch Transform configuration
 export INSTANCE_TYPE="<%= instanceType %>"
 
-# Resolve AWS account ID at runtime for default resource names
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "UNKNOWN")
+# ── Profile-resolved values (from ~/.ml-container-creator/config.json) ────
+# BATCH_INPUT_PATH, BATCH_OUTPUT_PATH — see do/lib/profile.sh
+# ACCOUNT_ID — derived inline in consuming scripts (do/deploy.d/batch-transform)
 
-<% if (batchInputPath) { %>
-export BATCH_INPUT_PATH="<%= batchInputPath %>"
-<% } else { %>
-export BATCH_INPUT_PATH="s3://mlcc-batch-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/input/"
-<% } %>
-<% if (batchOutputPath) { %>
-export BATCH_OUTPUT_PATH="<%= batchOutputPath %>"
-<% } else { %>
-export BATCH_OUTPUT_PATH="s3://mlcc-batch-${ACCOUNT_ID}-${AWS_REGION}/${PROJECT_NAME}/output/"
-<% } %>
 export BATCH_INSTANCE_COUNT="<%= batchInstanceCount %>"
 export BATCH_SPLIT_TYPE="<%= batchSplitType %>"
 export BATCH_STRATEGY="<%= batchStrategy %>"
@@ -256,6 +230,8 @@ export NGC_API_KEY="<%= ngcApiKey %>"
 
 <% if (deploymentTarget !== 'batch-transform') { %>
 # Managed Model Customization (do/tune)
+# ── Profile-resolved values (from ~/.ml-container-creator/config.json) ────
+# TUNE_S3_BUCKET — see do/lib/profile.sh
 export TUNE_SUPPORTED=<%= (typeof tuneSupported !== 'undefined' && tuneSupported) ? 'true' : 'false' %>
 <% if (typeof tuneSupported !== 'undefined' && tuneSupported) { %>
 <% if (typeof tuneModelId !== 'undefined' && tuneModelId) { %>
@@ -270,7 +246,6 @@ export TUNE_MODEL_ID="<%= tuneModelId %>"
 # export TUNE_MODEL_ID=""
 <% } %>
 <% } %>
-export TUNE_S3_BUCKET="mlcc-tune-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')-${AWS_REGION}"
 # MLflow App ARN for experiment tracking (set by bootstrap, or override manually)
 # export MLFLOW_APP_ARN=""
 <% } %>
@@ -294,13 +269,6 @@ export MODEL_FORMAT="<%= modelFormat %>"
 # Model format (uncomment if using quantized models)
 # Valid: pkl, json, keras, safetensors, gguf, awq, gptq
 # export MODEL_FORMAT=""
-<% } %>
-
-<% if (roleArn) { %>
-export ROLE_ARN="<%= roleArn %>"
-<% } else { %>
-# IAM execution role for SageMaker (uncomment to override bootstrap role)
-# export ROLE_ARN=""
 <% } %>
 
 <% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
@@ -353,7 +321,6 @@ export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage || '' %>}
 <% if ((deploymentTarget === 'realtime-inference' && !(typeof existingEndpointName !== 'undefined' && existingEndpointName)) || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 <% } %>
-export ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-ml-container-creator}
 
 # Print configuration summary
 echo "⚙️  Configuration loaded"

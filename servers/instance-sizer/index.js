@@ -327,31 +327,44 @@ async function handleGetInstanceRecommendation(params) {
     // If model metadata cannot be resolved, return all GPU instances unfiltered
     if (!modelMetadata) {
         log(`Model metadata not found for "${modelName}", returning unfiltered GPU instances`);
-        const allGpuInstances = Object.keys(effectiveCatalog)
+        let unfilteredRecs = Object.keys(effectiveCatalog)
             .filter(key => effectiveCatalog[key].category === 'gpu')
-            .slice(0, limit);
+            .slice(0, limit)
+            .map(instanceType => ({
+                instanceType,
+                gpuCount: effectiveCatalog[instanceType]?.gpus || 0,
+                totalVramGb: null,
+                utilizationPercent: null,
+                tensorParallelism: null,
+                costTier: null
+            }));
+
+        // Still apply availability ranking so quota/FTP info is displayed
+        if (DISCOVER_MODE && unfilteredRecs.length > 0) {
+            try {
+                const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || BEDROCK_REGION;
+                const quotaResolver = new QuotaResolver(region);
+                const instanceTypes = unfilteredRecs.map(r => r.instanceType);
+                const [quotas, reservations, ftps] = await Promise.allSettled([
+                    quotaResolver.getQuotaHeadroom(instanceTypes),
+                    quotaResolver.getCapacityReservations(),
+                    quotaResolver.getTrainingPlans()
+                ]);
+                unfilteredRecs = applyAvailabilityRanking(unfilteredRecs, quotas.status === 'fulfilled' ? quotas.value : null, reservations.status === 'fulfilled' ? reservations.value : null, ftps.status === 'fulfilled' ? ftps.value : null);
+            } catch (err) {
+                log(`Quota resolution skipped (unfiltered path): ${err.message}`);
+            }
+        }
 
         return {
             content: [{
                 type: 'text',
                 text: JSON.stringify({
-                    values: { instanceType: allGpuInstances[0] || null },
-                    choices: { instanceType: allGpuInstances },
+                    values: { instanceType: unfilteredRecs[0]?.instanceType || null },
+                    choices: { instanceType: unfilteredRecs.map(r => r.instanceType) },
                     metadata: {
                         modelName,
-                        parameterCount: null,
-                        dtype: null,
-                        quantization: quantization || null,
-                        estimatedVramGb: null,
-                        vramBreakdown: null,
-                        recommendations: allGpuInstances.map(instanceType => ({
-                            instanceType,
-                            gpuCount: effectiveCatalog[instanceType]?.gpus || 0,
-                            totalVramGb: null,
-                            utilizationPercent: null,
-                            tensorParallelism: null,
-                            costTier: null
-                        })),
+                        recommendations: unfilteredRecs,
                         source: 'unfiltered',
                         cudaVersionFilter: cudaVersion || null,
                         warning: `Could not resolve model metadata for "${modelName}". Returning all GPU instances without filtering.`

@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-06-10T13:42:41.047Z",
+  "generatedAt": "2026-06-12T22:03:00.508Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "0.11.0",
+  "version": "0.12.1",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -132,7 +132,7 @@
         "datalist": "instances",
         "default": null,
         "validation": {
-          "pattern": "^ml\\.[a-z0-9]+\\.[a-z0-9]+$"
+          "pattern": "^ml\\.[a-z0-9-]+\\.[a-z0-9]+$"
         },
         "group": "infrastructure",
         "appliesTo": {
@@ -287,7 +287,7 @@
         "key": "includeBenchmark",
         "cliFlag": "--include-benchmark",
         "type": "boolean",
-        "description": "Include SageMaker AI Benchmarking",
+        "description": "Include SageMaker AI Benchmarking scripts (do/benchmark, do/optimize). Workload configuration is specified at runtime via --workload flag.",
         "inputType": "checkbox",
         "placeholder": null,
         "datalist": null,
@@ -555,7 +555,7 @@
     {
       "key": "includeBenchmark",
       "cliFlag": "--include-benchmark",
-      "description": "Include SageMaker AI Benchmarking",
+      "description": "Include SageMaker AI Benchmarking scripts (do/benchmark, do/optimize). Workload configuration is specified at runtime via --workload flag.",
       "type": "boolean",
       "group": "benchmark",
       "phase": "features",
@@ -827,6 +827,16 @@
       "cliFlag": "--endpoint-volume-size",
       "description": "ML storage volume size in GB",
       "type": "integer",
+      "group": "endpoint",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "capacityReservationArn",
+      "cliFlag": "--capacity-reservation-arn",
+      "description": "Capacity reservation ARN (FTP or ODCR) for reserved instance deployment",
+      "type": "string",
       "group": "endpoint",
       "phase": "infrastructure",
       "deprecated": false,

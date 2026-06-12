@@ -361,7 +361,7 @@ export default class ConfigValidator {
 
         case 'instanceType':
             if (value) {
-                const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
+                const instancePattern = /^ml\.[a-z0-9-]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
                 if (!instancePattern.test(value)) {
                     throw new ValidationError(
                         `Invalid instance type format: ${value}. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g4dn.xlarge)`,

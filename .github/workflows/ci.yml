@@ -35,6 +35,8 @@ jobs:
 
       - name: Tests
         run: npm run test:ci
+        env:
+          PROPERTY_NUM_RUNS: 30
 
       - name: Coverage
         if: matrix.node-version == '24.x'

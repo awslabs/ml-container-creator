@@ -178,20 +178,20 @@ describe('Benchmark Idempotency', () => {
         });
     });
 
-    describe('do/config template: benchmark state initialization', () => {
-        it('should contain BENCHMARK_JOB_NAME initialization when includeBenchmark is true', () => {
+    describe('do/config template: benchmark state initialization (FTP-4 cleanup)', () => {
+        it('should export BENCHMARK_JOB_NAME as empty string when includeBenchmark is true', () => {
             const output = ejs.render(configTemplate, baseVars());
             assert.ok(
-                output.includes('BENCHMARK_JOB_NAME=""'),
-                'must initialize BENCHMARK_JOB_NAME to empty string'
+                output.includes('export BENCHMARK_JOB_NAME=""'),
+                'must export BENCHMARK_JOB_NAME="" as empty placeholder for idempotency'
             );
         });
 
-        it('should contain BENCHMARK_WORKLOAD_CONFIG_NAME initialization when includeBenchmark is true', () => {
+        it('should export BENCHMARK_WORKLOAD_CONFIG_NAME as empty string when includeBenchmark is true', () => {
             const output = ejs.render(configTemplate, baseVars());
             assert.ok(
-                output.includes('BENCHMARK_WORKLOAD_CONFIG_NAME=""'),
-                'must initialize BENCHMARK_WORKLOAD_CONFIG_NAME to empty string'
+                output.includes('export BENCHMARK_WORKLOAD_CONFIG_NAME=""'),
+                'must export BENCHMARK_WORKLOAD_CONFIG_NAME="" as empty placeholder for idempotency'
             );
         });
 

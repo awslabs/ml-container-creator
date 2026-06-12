@@ -113,6 +113,22 @@ describe('PromptRunner Secret Prompt Integration (Requirements 8.1–8.9)', () =
             assert.strictEqual(runner._secretStagesApply(classification, answers), false);
         });
 
+        it('should return false for hf-token when modelName starts with s3://', () => {
+            const { runner } = createTestRunner();
+            const classification = { identifier: 'hf-token', stages: ['build-time', 'runtime'] };
+            const answers = { architecture: 'transformers', backend: 'vllm', modelName: 's3://bucket/models/my-model/' };
+
+            assert.strictEqual(runner._secretStagesApply(classification, answers), false);
+        });
+
+        it('should return false for hf-token when customModelName starts with s3://', () => {
+            const { runner } = createTestRunner();
+            const classification = { identifier: 'hf-token', stages: ['build-time', 'runtime'] };
+            const answers = { architecture: 'transformers', backend: 'vllm', customModelName: 's3://my-bucket/path/to/model/' };
+
+            assert.strictEqual(runner._secretStagesApply(classification, answers), false);
+        });
+
         it('should return true for ngc-token when architecture is transformers with tensorrt-llm backend', () => {
             const { runner } = createTestRunner();
             const classification = { identifier: 'ngc-token', stages: ['build-time'] };
