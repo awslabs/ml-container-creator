@@ -343,6 +343,50 @@ const applyAvailabilityRanking = (recommendations, quotas, reservations, ftps) =
         }
     }
 
+    // Inject FTP/reserved instances that aren't already in the recommendation list.
+    // These instances may not be in the static catalog (e.g., ml.p6-b200.48xlarge)
+    // but are available via capacity reservation — always surface them.
+    const existingTypes = new Set(recommendations.map(r => r.instanceType));
+
+    if (reservations) {
+        for (const [instanceType, info] of reservations) {
+            if (!existingTypes.has(instanceType)) {
+                recommendations.push({
+                    instanceType,
+                    capacityType: 'reserved',
+                    reservationInfo: info,
+                    reservationType: 'training-plan',
+                    quotaStatus: 'available',
+                    gpuCount: null,
+                    totalVramGb: null,
+                    utilizationPercent: null,
+                    tensorParallelism: null,
+                    costTier: null,
+                    injectedFromReservation: true
+                });
+            }
+        }
+    }
+
+    if (ftps) {
+        for (const [instanceType, info] of ftps) {
+            if (!existingTypes.has(instanceType)) {
+                recommendations.push({
+                    instanceType,
+                    capacityType: 'ftp',
+                    ftpInfo: info,
+                    quotaStatus: 'available',
+                    gpuCount: null,
+                    totalVramGb: null,
+                    utilizationPercent: null,
+                    tensorParallelism: null,
+                    costTier: null,
+                    injectedFromFtp: true
+                });
+            }
+        }
+    }
+
     // Filter out zero-quota instances (but never filter reserved/FTP — you have the capacity)
     const filtered = recommendations.filter(r =>
         r.quotaStatus !== 'zero-quota' || r.capacityType === 'reserved' || r.capacityType === 'ftp'

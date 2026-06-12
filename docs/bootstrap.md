@@ -406,6 +406,19 @@ IAM permissions added to the CI CodeBuild role:
 
 These fields are absent (and the system gracefully degrades) if benchmark infrastructure is not provisioned — backward compatible with existing bootstrap profiles.
 
+
+### Runtime Profile Loader
+
+Generated projects include `do/lib/profile.sh` — a shared loader sourced by all `do/` scripts. It reads the active bootstrap profile into a bash associative array (`_PROFILE[]`) at runtime:
+
+- **No regeneration needed** when switching profiles — run `mcc bootstrap use <profile>` then re-run any `do/` script
+- **Precedence**: explicit env var > `_PROFILE[key]` > hardcoded default
+- **Bash 4+ required** (Linux default; macOS users need Homebrew bash)
+- **Graceful degradation**: if `~/.ml-container-creator/config.json` doesn't exist, `_PROFILE` stays empty and scripts fall back to env vars
+
+This enables workflows where you switch profiles and immediately run `do/deploy` against the new region/account without regenerating the project.
+
+
 ### Single-Region Enforcement
 
 CI infrastructure deploys **exactly once per AWS account**, in a single region. Attempting to deploy CI in a second region is rejected:

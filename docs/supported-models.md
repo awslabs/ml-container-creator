@@ -7,6 +7,10 @@ Models not listed below are still supported by MCC — the CLI generates project
 !!! warning "Validation In Progress"
     The v1 validation sprint is actively running. Status indicators below reflect the **target state** — models are being validated sequentially starting with the smallest (CI tier). Check the [release notes](https://github.com/awslabs/ml-container-creator/releases) for the latest confirmed validations.
 
+
+!!! tip "S3 Model URIs"
+    Models don't have to come from HuggingFace. Pass an S3 URI as the model identifier (e.g., `s3://bucket/models/my-model/`) to load pre-staged weights directly. This is recommended for models >30B parameters to avoid download timeouts. See [Benchmarking](benchmarking.md#pre-staging-large-models-dostage) for the `do/stage` workflow.
+
 ---
 
 ## Model Families

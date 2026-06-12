@@ -165,7 +165,7 @@ create_endpoint_config() {
         # Optional: capacity reservation
         if [ -n "${CAPACITY_RESERVATION_ARN:-}" ]; then
             variant_json="${variant_json},\"CapacityReservationConfig\":{\"CapacityReservationPreference\":\"capacity-reservations-only\",\"MlReservationArn\":\"${CAPACITY_RESERVATION_ARN}\"}"
-            echo "   ⚠️  Capacity reservation (experimental): ${CAPACITY_RESERVATION_ARN}"
+            echo "   ✓ Capacity reservation: ${CAPACITY_RESERVATION_ARN}"
         fi
 
         variant_json="${variant_json}}]"

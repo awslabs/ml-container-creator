@@ -228,34 +228,6 @@
             "gpuMemoryGb": 24,
             "gpuType": "NVIDIA A10G",
             "costTier": "medium"
-        },
-        "ml.p6-b200.48xlarge": {
-            "category": "gpu",
-            "gpus": 8,
-            "vcpus": 192,
-            "memGb": 1536,
-            "accelerator": "8x B200 192GB",
-            "cudaVersions": [
-                "12.6"
-            ],
-            "tags": [
-                "gpu",
-                "multi-gpu",
-                "inference",
-                "training",
-                "b200",
-                "cuda-next",
-                "high-end"
-            ],
-            "family": "p6",
-            "acceleratorType": "cuda",
-            "hardware": "NVIDIA B200",
-            "gpuArchitecture": "Blackwell",
-            "defaultCudaVersion": "12.6",
-            "notes": "8x NVIDIA B200 GPUs (192GB HBM3e each). Available via Flexible Training Plans.",
-            "gpuMemoryGb": 192,
-            "gpuType": "NVIDIA B200",
-            "costTier": "high"
         }
     },
     "recommendations": {
@@ -268,8 +240,7 @@
             "ml.g5.12xlarge",
             "ml.g5.16xlarge",
             "ml.g5.24xlarge",
-            "ml.g5.48xlarge",
-            "ml.p6-b200.48xlarge"
+            "ml.g5.48xlarge"
         ]
     }
 }

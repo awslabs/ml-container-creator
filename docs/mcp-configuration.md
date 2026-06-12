@@ -129,6 +129,11 @@ ml-container-creator mcp add instance-sizer --bundled
 
 The instance-sizer accepts optional context including CUDA version constraints (from the base image), serving profile ENV overrides (for accurate KV cache estimation), and deployment target. When the model is known, it computes VRAM requirements and filters instances to only those with sufficient GPU memory and compatible CUDA versions.
 
+
+!!! info "FTP-Aware Instance Recommendations"
+    The instance catalog includes `ml.p6-b200.48xlarge` (8× NVIDIA B200 GPUs, 192GB each, Blackwell architecture). The instance-sizer is **FTP-aware** — it surfaces available Flexible Training Plans (capacity reservations) in the target account/region during interactive generation, allowing you to deploy on reserved capacity without manual ARN lookup.
+
+
 ### region-picker
 
 Suggests AWS regions based on a search term. Set `REGION_SEARCH` to filter by region code or location name (e.g., "europe", "tokyo", "us-west"). Without a search term, returns popular SageMaker AI regions.
