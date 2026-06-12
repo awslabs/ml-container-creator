@@ -1,0 +1,29 @@
+#!/bin/bash
+# Pre-commit hook — runs lint and sync checks before allowing commit.
+# Install: git config core.hooksPath .githooks
+
+set -e
+
+echo "🔍 Pre-commit checks..."
+
+# 1. Lint source files
+echo "   Linting src/ servers/ bin/..."
+npx eslint src/ servers/ bin/ --ext .js,.cjs,.mjs --quiet
+
+# 2. Lint test files
+echo "   Linting test/..."
+npx eslint 'test/**/*.js' --config .eslintrc.cjs --quiet
+
+# 3. Codegen parity (generated files match schema)
+echo "   Checking codegen parity..."
+npm run codegen --silent
+if ! git diff --quiet src/lib/generated/ docs/data/schema-manifest.json; then
+    echo "❌ Generated files are out of sync. Run: npm run codegen && git add src/lib/generated/ docs/data/"
+    exit 1
+fi
+
+# 4. Sync command generator (docs/data matches catalogs)
+echo "   Checking sync-command-generator..."
+node scripts/sync-command-generator.js --check
+
+echo "✅ Pre-commit checks passed"

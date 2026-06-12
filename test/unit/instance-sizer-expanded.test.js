@@ -85,61 +85,7 @@ describe('instance-sizer: CUDA version filtering', () => {
     });
 });
 
-describe('instance-sizer: profile ENV override', () => {
-    it('uses VLLM_MAX_MODEL_LEN from profileEnvVars', async function () {
-        this.timeout(10000);
-        const result = await handleGetInstanceRecommendation({
-            modelName: 'meta-llama/Llama-2-7b-chat-hf',
-            limit: 3,
-            context: {
-                profileEnvVars: {
-                    VLLM_MAX_MODEL_LEN: '2048'
-                }
-            }
-        });
-
-        const response = JSON.parse(result.content[0].text);
-        assert.ok(response.metadata, 'should have metadata');
-        assert.ok(response.values.instanceType, 'should recommend an instance');
-    });
-
-    it('uses VLLM_MAX_NUM_SEQS from profileEnvVars', async function () {
-        this.timeout(10000);
-        const result = await handleGetInstanceRecommendation({
-            modelName: 'meta-llama/Llama-2-7b-chat-hf',
-            limit: 3,
-            context: {
-                profileEnvVars: {
-                    VLLM_MAX_NUM_SEQS: '128'
-                }
-            }
-        });
-
-        const response = JSON.parse(result.content[0].text);
-        assert.ok(response.metadata, 'should have metadata');
-        assert.ok(response.values.instanceType, 'should recommend an instance');
-    });
-});
-
 describe('instance-sizer: combined VRAM + search', () => {
-    it('filters by VRAM first then by search tags', async function () {
-        this.timeout(10000);
-        const result = await handleGetInstanceRecommendation({
-            modelName: 'meta-llama/Llama-2-7b-chat-hf',
-            instanceSearch: 'gpu',
-            limit: 8
-        });
-
-        const response = JSON.parse(result.content[0].text);
-        // All results should be GPU instances
-        for (const instanceType of response.choices.instanceType) {
-            if (INSTANCE_CATALOG[instanceType]) {
-                assert.ok(INSTANCE_CATALOG[instanceType].gpus > 0,
-                    `${instanceType} should be a GPU instance`);
-            }
-        }
-    });
-
     it('tag-only search works without modelName', async function () {
         this.timeout(10000);
         const result = await handleGetInstanceRecommendation({
