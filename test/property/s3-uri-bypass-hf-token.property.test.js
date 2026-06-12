@@ -56,13 +56,13 @@ function createTestRunner() {
  * Generate a valid S3 bucket name.
  * S3 bucket names: 3-63 chars, lowercase letters, numbers, hyphens, dots.
  */
-const arbS3BucketName = fc.stringMatching(/^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$/)
+const arbS3BucketName = fc.stringMatching(/^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$/) // eslint-disable-line no-useless-escape
     .filter(s => !s.includes('..') && !s.startsWith('-') && !s.endsWith('-'));
 
 /**
  * Generate a valid S3 key path segment (non-empty, no leading slash).
  */
-const arbS3KeySegment = fc.stringMatching(/^[a-zA-Z0-9_\-][a-zA-Z0-9_\-./]{0,30}$/)
+const arbS3KeySegment = fc.stringMatching(/^[a-zA-Z0-9_\-][a-zA-Z0-9_\-./]{0,30}$/) // eslint-disable-line no-useless-escape
     .filter(s => s.length > 0 && !s.includes('//'));
 
 /**
@@ -168,7 +168,7 @@ describe('Feature: ftp-benchmark-support, Property 2: S3 URI Bypasses HuggingFac
         const classification = { identifier: 'hf-token', stages: ['build-time', 'runtime'] };
 
         // Generate HuggingFace-style model names (not starting with s3://)
-        const arbHfModelName = fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9_\-]{1,30}\/[a-zA-Z0-9_\-.]{1,30}$/)
+        const arbHfModelName = fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9_\-]{1,30}\/[a-zA-Z0-9_.\-]{1,30}$/) // eslint-disable-line no-useless-escape
             .filter(s => !s.startsWith('s3://'));
 
         // Only test architectures that definitely need HF token (transformers and diffusors)

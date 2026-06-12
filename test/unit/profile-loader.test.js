@@ -10,106 +10,106 @@
  * Requirements: PROF-1
  */
 
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import { execSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
+import { describe, it } from 'mocha';
+import assert from 'assert';
+import { execSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-const PROFILE_SH = join(__dirname, '..', '..', 'templates', 'do', 'lib', 'profile.sh')
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PROFILE_SH = join(__dirname, '..', '..', 'templates', 'do', 'lib', 'profile.sh');
 
 /**
  * Helper: write a bash test script to a temp file and execute it.
  * Uses the same set -e / set -u context that real do/ scripts use.
  */
 function runProfileLoader(homeDir, extraScript = '') {
-    const scriptPath = join(homeDir, '_test_runner.sh')
+    const scriptPath = join(homeDir, '_test_runner.sh');
     const scriptContent = `#!/usr/bin/env bash
 set -e
 set -o pipefail
 export HOME="${homeDir}"
 source "${PROFILE_SH}"
 ${extraScript}
-`
-    writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
+`;
+    writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
     const result = execSync(`bash "${scriptPath}"`, {
         encoding: 'utf-8',
         env: { ...process.env, HOME: homeDir },
         timeout: 10000
-    })
-    return result
+    });
+    return result;
 }
 
 describe('profile.sh — missing config.json', () => {
     it('should not crash when ~/.ml-container-creator/config.json does not exist', () => {
-        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'))
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
 
         // No config.json created — directory doesn't even have .ml-container-creator/
-        const output = runProfileLoader(tempHome, 'echo "EXIT_OK"')
-        assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing')
-    })
+        const output = runProfileLoader(tempHome, 'echo "EXIT_OK"');
+        assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing');
+    });
 
     it('should have _PROFILE declared but with no populated keys', () => {
-        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'))
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
 
-        const output = runProfileLoader(tempHome, 'echo "KEY_COUNT=${#_PROFILE[@]}"')
-        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`)
-    })
+        const output = runProfileLoader(tempHome, 'echo "KEY_COUNT=${#_PROFILE[@]}"');
+        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`);
+    });
 
     it('should not crash when .ml-container-creator directory exists but config.json is missing', () => {
-        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'))
-        mkdirSync(join(tempHome, '.ml-container-creator'), { recursive: true })
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
+        mkdirSync(join(tempHome, '.ml-container-creator'), { recursive: true });
 
-        const output = runProfileLoader(tempHome, 'echo "EXIT_OK"')
-        assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing')
-    })
+        const output = runProfileLoader(tempHome, 'echo "EXIT_OK"');
+        assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing');
+    });
 
     it('should have empty _PROFILE keys when config.json is missing', () => {
-        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'))
-        mkdirSync(join(tempHome, '.ml-container-creator'), { recursive: true })
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
+        mkdirSync(join(tempHome, '.ml-container-creator'), { recursive: true });
 
         const output = runProfileLoader(tempHome, `
 echo "REGION=\${_PROFILE[awsRegion]:-EMPTY}"
 echo "ACCOUNT=\${_PROFILE[accountId]:-EMPTY}"
 echo "ROLE=\${_PROFILE[roleArn]:-EMPTY}"
 echo "ECR=\${_PROFILE[ecrRepositoryName]:-EMPTY}"
-`)
-        assert.ok(output.includes('REGION=EMPTY'), `awsRegion should be empty, got: ${output}`)
-        assert.ok(output.includes('ACCOUNT=EMPTY'), `accountId should be empty, got: ${output}`)
-        assert.ok(output.includes('ROLE=EMPTY'), `roleArn should be empty, got: ${output}`)
-        assert.ok(output.includes('ECR=EMPTY'), `ecrRepositoryName should be empty, got: ${output}`)
-    })
+`);
+        assert.ok(output.includes('REGION=EMPTY'), `awsRegion should be empty, got: ${output}`);
+        assert.ok(output.includes('ACCOUNT=EMPTY'), `accountId should be empty, got: ${output}`);
+        assert.ok(output.includes('ROLE=EMPTY'), `roleArn should be empty, got: ${output}`);
+        assert.ok(output.includes('ECR=EMPTY'), `ecrRepositoryName should be empty, got: ${output}`);
+    });
 
     it('should not crash when config.json is an empty file', () => {
-        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'))
-        const configDir = join(tempHome, '.ml-container-creator')
-        mkdirSync(configDir, { recursive: true })
-        writeFileSync(join(configDir, 'config.json'), '')
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
+        const configDir = join(tempHome, '.ml-container-creator');
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(join(configDir, 'config.json'), '');
 
         const output = runProfileLoader(tempHome, `
 echo "EXIT_OK"
 echo "KEY_COUNT=\${#_PROFILE[@]}"
-`)
-        assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing')
-        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`)
-    })
+`);
+        assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing');
+        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`);
+    });
 
     it('should not crash when config.json contains invalid JSON', () => {
-        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'))
-        const configDir = join(tempHome, '.ml-container-creator')
-        mkdirSync(configDir, { recursive: true })
-        writeFileSync(join(configDir, 'config.json'), 'not valid json {{{')
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
+        const configDir = join(tempHome, '.ml-container-creator');
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(join(configDir, 'config.json'), 'not valid json {{{');
 
         const output = runProfileLoader(tempHome, `
 echo "EXIT_OK"
 echo "KEY_COUNT=\${#_PROFILE[@]}"
-`)
-        assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing')
-        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`)
-    })
-})
+`);
+        assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing');
+        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`);
+    });
+});

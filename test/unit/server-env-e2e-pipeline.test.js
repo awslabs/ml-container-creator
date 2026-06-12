@@ -18,7 +18,7 @@ import fs from 'fs';
 
 describe('Server-Env E2E Pipeline (Task 3.4, FTP-3: 3.1, 3.4, 3.5)', () => {
 
-    it('--server-env SM_VLLM_KV_CACHE_DTYPE=fp8 flows through to do/config and do/deploy', function () {
+    it('--server-env SM_VLLM_KV_CACHE_DTYPE=fp8 flows through to do/config and do/deploy', () => {
         const result = runGenerator({
             'project-name': 'test-server-env-e2e',
             'deployment-config': 'transformers-vllm',
@@ -92,7 +92,7 @@ describe('Server-Env E2E Pipeline (Task 3.4, FTP-3: 3.1, 3.4, 3.5)', () => {
         }
     });
 
-    it('multiple --server-env values all appear in do/config and do/deploy', function () {
+    it('multiple --server-env values all appear in do/config and do/deploy', () => {
         const result = runGenerator({
             'project-name': 'test-multi-server-env',
             'deployment-config': 'transformers-vllm',
@@ -141,7 +141,7 @@ describe('Server-Env E2E Pipeline (Task 3.4, FTP-3: 3.1, 3.4, 3.5)', () => {
         }
     });
 
-    it('do/config server-env section has correct comment header', function () {
+    it('do/config server-env section has correct comment header', () => {
         const result = runGenerator({
             'project-name': 'test-server-env-header',
             'deployment-config': 'transformers-vllm',

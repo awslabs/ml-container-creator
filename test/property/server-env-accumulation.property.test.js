@@ -176,7 +176,7 @@ describe('Feature: ftp-benchmark-support, Property 4: Server-Env Accumulation an
                     const sortedRenderedKeys = [...renderedKeys].sort();
 
                     assert.deepStrictEqual(sortedRenderedKeys, inputKeys,
-                        `rendered keys must match input keys exactly`);
+                        'rendered keys must match input keys exactly');
                 }
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });

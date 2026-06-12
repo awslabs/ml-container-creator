@@ -17,7 +17,7 @@ import { runGenerator } from '../helpers/run-generator.js';
 import fs from 'fs';
 
 describe('S3 Model URI Passthrough (FTP-2: 2.1, 2.4)', () => {
-    it('MODEL_NAME in do/config contains the full S3 URI unmodified', function () {
+    it('MODEL_NAME in do/config contains the full S3 URI unmodified', () => {
         const s3Uri = 's3://sagemaker-benchmark-us-east-2-946952788839/models/gemma-4-31b-vllm/';
 
         const result = runGenerator({
@@ -52,7 +52,7 @@ describe('S3 Model URI Passthrough (FTP-2: 2.1, 2.4)', () => {
         }
     });
 
-    it('S3 URI with minimal path passes through unmodified', function () {
+    it('S3 URI with minimal path passes through unmodified', () => {
         const s3Uri = 's3://my-bucket/model/';
 
         const result = runGenerator({
@@ -80,7 +80,7 @@ describe('S3 Model URI Passthrough (FTP-2: 2.1, 2.4)', () => {
         }
     });
 
-    it('S3 URI with deep nested path passes through unmodified', function () {
+    it('S3 URI with deep nested path passes through unmodified', () => {
         const s3Uri = 's3://company-models/prod/llm/v2/gemma-4-31b/weights/';
 
         const result = runGenerator({
@@ -108,7 +108,7 @@ describe('S3 Model URI Passthrough (FTP-2: 2.1, 2.4)', () => {
         }
     });
 
-    it('generate with s3://test-bucket/models/test-model/ — do/config and serve script are correct', function () {
+    it('generate with s3://test-bucket/models/test-model/ — do/config and serve script are correct', () => {
         const s3Uri = 's3://test-bucket/models/test-model/';
 
         const result = runGenerator({

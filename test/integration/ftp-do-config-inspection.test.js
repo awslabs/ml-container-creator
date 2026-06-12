@@ -39,7 +39,7 @@ describe('FTP do/config Inspection (Task 4.3, FTP-2, FTP-3, FTP-4)', function ()
     let result;
     let configContent;
 
-    before(function () {
+    before(() => {
         result = runGenerator({
             'project-name': 'ftp-config-inspect',
             'deployment-config': 'transformers-vllm',
@@ -56,13 +56,13 @@ describe('FTP do/config Inspection (Task 4.3, FTP-2, FTP-3, FTP-4)', function ()
         configContent = fs.readFileSync(result.file('do/config'), 'utf8');
     });
 
-    after(function () {
+    after(() => {
         if (result) {
             result.cleanup();
         }
     });
 
-    it('MODEL_NAME export contains the full S3 URI', function () {
+    it('MODEL_NAME export contains the full S3 URI', () => {
         // The template renders: export MODEL_NAME="s3://bucket/models/gemma-4-31b-vllm/"
         assert.ok(
             configContent.includes(`export MODEL_NAME="${S3_MODEL_URI}"`),
@@ -71,7 +71,7 @@ describe('FTP do/config Inspection (Task 4.3, FTP-2, FTP-3, FTP-4)', function ()
         );
     });
 
-    it('CAPACITY_RESERVATION_ARN export contains the FTP ARN', function () {
+    it('CAPACITY_RESERVATION_ARN export contains the FTP ARN', () => {
         // The template renders: export CAPACITY_RESERVATION_ARN="arn:aws:sagemaker:..."
         assert.ok(
             configContent.includes(`export CAPACITY_RESERVATION_ARN="${CAPACITY_ARN}"`),
@@ -80,7 +80,7 @@ describe('FTP do/config Inspection (Task 4.3, FTP-2, FTP-3, FTP-4)', function ()
         );
     });
 
-    it('server env exports are present with VLLM_ engine prefix', function () {
+    it('server env exports are present with VLLM_ engine prefix', () => {
         // Engine prefix resolver prepends VLLM_ to all keys for the vllm engine.
         // SM_VLLM_TENSOR_PARALLEL_SIZE → VLLM_SM_VLLM_TENSOR_PARALLEL_SIZE
         const expectedExports = [
@@ -105,7 +105,7 @@ describe('FTP do/config Inspection (Task 4.3, FTP-2, FTP-3, FTP-4)', function ()
         }
     });
 
-    it('no benchmark export statements exist in do/config', function () {
+    it('no benchmark export statements exist in do/config', () => {
         // Scan all lines starting with 'export' for benchmark-related vars
         const lines = configContent.split('\n');
         const benchmarkExports = lines.filter(l =>
@@ -124,17 +124,17 @@ describe('FTP do/config Inspection (Task 4.3, FTP-2, FTP-3, FTP-4)', function ()
         );
     });
 
-    it('server env section has the correct header comment', function () {
+    it('server env section has the correct header comment', () => {
         assert.ok(
             configContent.includes('# Server environment variables'),
             'do/config should contain "# Server environment variables" section header'
         );
     });
 
-    it('INSTANCE_TYPE export contains ml.p6-b200.48xlarge', function () {
+    it('INSTANCE_TYPE export contains ml.p6-b200.48xlarge', () => {
         assert.ok(
             configContent.includes('ml.p6-b200.48xlarge'),
-            `do/config should contain instance type ml.p6-b200.48xlarge.\n` +
+            'do/config should contain instance type ml.p6-b200.48xlarge.\n' +
             `Actual INSTANCE_TYPE lines:\n${configContent.split('\n').filter(l => l.includes('INSTANCE_TYPE')).join('\n')}`
         );
     });

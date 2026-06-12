@@ -26,14 +26,14 @@ describe('FTP Customer Config Generation (Task 4.2, FTP-4: 4.1, 4.2, 4.3)', func
 
     let result;
 
-    afterEach(function () {
+    afterEach(() => {
         if (result) {
             result.cleanup();
             result = null;
         }
     });
 
-    it('generates a project with the full customer FTP benchmark config', function () {
+    it('generates a project with the full customer FTP benchmark config', () => {
         result = runGenerator({
             'project-name': 'gemma-4-31b-ftp-benchmark',
             'deployment-config': 'transformers-vllm',
@@ -57,7 +57,7 @@ describe('FTP Customer Config Generation (Task 4.2, FTP-4: 4.1, 4.2, 4.3)', func
         result.assertFile('Dockerfile');
     });
 
-    it('generates all expected do/ lifecycle scripts', function () {
+    it('generates all expected do/ lifecycle scripts', () => {
         result = runGenerator({
             'project-name': 'gemma-4-31b-ftp-lifecycle',
             'deployment-config': 'transformers-vllm',
@@ -83,7 +83,7 @@ describe('FTP Customer Config Generation (Task 4.2, FTP-4: 4.1, 4.2, 4.3)', func
         result.assertFile('do/run');
     });
 
-    it('do/config contains S3 model URI, capacity reservation ARN, instance type, and server env vars', function () {
+    it('do/config contains S3 model URI, capacity reservation ARN, instance type, and server env vars', () => {
         result = runGenerator({
             'project-name': 'gemma-4-31b-ftp-config',
             'deployment-config': 'transformers-vllm',
@@ -134,7 +134,7 @@ describe('FTP Customer Config Generation (Task 4.2, FTP-4: 4.1, 4.2, 4.3)', func
         }
     });
 
-    it('do/config has no benchmark export statements (FTP-4, 4.1)', function () {
+    it('do/config has no benchmark export statements (FTP-4, 4.1)', () => {
         result = runGenerator({
             'project-name': 'gemma-4-31b-ftp-nobench',
             'deployment-config': 'transformers-vllm',
@@ -167,7 +167,7 @@ describe('FTP Customer Config Generation (Task 4.2, FTP-4: 4.1, 4.2, 4.3)', func
         );
     });
 
-    it('code/serve contains model source resolution logic', function () {
+    it('code/serve contains model source resolution logic', () => {
         result = runGenerator({
             'project-name': 'gemma-4-31b-ftp-serve',
             'deployment-config': 'transformers-vllm',
