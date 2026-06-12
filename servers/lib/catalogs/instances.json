@@ -228,6 +228,33 @@
             "gpuMemoryGb": 24,
             "gpuType": "NVIDIA A10G",
             "costTier": "medium"
+        },
+        "ml.p6-b200.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 1536,
+            "accelerator": "8x B200 1440GB",
+            "cudaVersions": [
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "b200",
+                "cuda-12",
+                "high-performance"
+            ],
+            "family": "p6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA B200",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.6",
+            "notes": "8x NVIDIA B200 GPUs (1440GB total). Next-gen Blackwell architecture",
+            "gpuMemoryGb": 180,
+            "gpuType": "NVIDIA B200",
+            "costTier": "high"
         }
     },
     "recommendations": {
