@@ -73,25 +73,26 @@ describe('Benchmark Integration: Generated template content', function () {
     });
 
     // ================================================================
-    // Test 1: do/config has NO benchmark exports (FTP-4 cleanup)
-    // Benchmark config is now resolved from MCP/profile at runtime.
+    // Test 1: do/config benchmark exports when includeBenchmark=true
+    // Benchmark user-configured values are exported in the if block.
     // ================================================================
-    describe('do/config benchmark cleanup (FTP-4)', () => {
-        it('should NOT contain any benchmark export statements', () => {
+    describe('do/config benchmark configuration (includeBenchmark=true)', () => {
+        it('should contain benchmark export statements when includeBenchmark is true', () => {
             const output = ejs.render(configTemplate, baseVars());
             const benchmarkExports = output.split('\n').filter(line =>
                 line.trim().startsWith('export') && line.includes('BENCHMARK_')
             );
-            assert.strictEqual(benchmarkExports.length, 0,
-                `must contain zero benchmark exports, found: ${benchmarkExports.join(', ')}`);
+            assert.ok(benchmarkExports.length > 0,
+                'must contain benchmark exports when includeBenchmark is true');
         });
 
-        it('should contain only a comment block for benchmarking', () => {
-            const output = ejs.render(configTemplate, baseVars());
-            assert.ok(
-                output.includes('# Benchmark configuration is resolved from MCP/profile at runtime.'),
-                'must contain the runtime resolution comment'
+        it('should NOT contain benchmark exports when includeBenchmark is false', () => {
+            const output = ejs.render(configTemplate, baseVars({ includeBenchmark: false }));
+            const benchmarkExports = output.split('\n').filter(line =>
+                line.trim().startsWith('export') && line.includes('BENCHMARK_')
             );
+            assert.strictEqual(benchmarkExports.length, 0,
+                'must contain zero benchmark exports when includeBenchmark is false');
         });
 
         it('should contain the SageMaker AI Benchmarking section header', () => {
@@ -102,11 +103,11 @@ describe('Benchmark Integration: Generated template content', function () {
             );
         });
 
-        it('should direct users to do/benchmark command', () => {
-            const output = ejs.render(configTemplate, baseVars());
+        it('should contain commented benchmark hints when includeBenchmark is false', () => {
+            const output = ejs.render(configTemplate, baseVars({ includeBenchmark: false }));
             assert.ok(
-                output.includes('do/benchmark'),
-                'must reference do/benchmark command'
+                output.includes('# export BENCHMARK_CONCURRENCY='),
+                'must contain commented benchmark hints when disabled'
             );
         });
     });

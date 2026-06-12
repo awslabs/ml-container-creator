@@ -38,4 +38,7 @@ except:
     fi
 fi
 
-set -u 2>/dev/null || true
+# NOTE: set -u is NOT re-enabled here. The caller is responsible for managing
+# their own shell options. Re-enabling set -u would cause "unbound variable"
+# errors when accessing _PROFILE keys on bash versions where empty associative
+# arrays are treated as unset (bash 5.x on some platforms).
