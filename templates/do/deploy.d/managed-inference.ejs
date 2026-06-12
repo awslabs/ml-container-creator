@@ -211,6 +211,12 @@ _ci_handle_existing_endpoint() {
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
+
+# ── Profile-resolved variables (env var > profile > default) ──────────────────
+ROLE_ARN="${ROLE_ARN:-${_PROFILE[roleArn]:-}}"
+ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE[ecrRepositoryName]:-ml-container-creator}}"
+export AWS_REGION="${AWS_REGION:-${_PROFILE[awsRegion]:-us-east-1}}"
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"
@@ -307,13 +313,13 @@ source "${SCRIPT_DIR}/lib/inference-component.sh"
 
 # Validate execution role ARN
 if [ -z "${ROLE_ARN:-}" ]; then
-    echo "❌ Execution role ARN not provided"
+    echo "❌ ROLE_ARN is not set."
+    echo "   Run 'ml-container-creator bootstrap' to configure your profile,"
+    echo "   or set ROLE_ARN as an environment variable."
     echo ""
     echo "Usage:"
     echo "  export ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/YOUR_ROLE"
     echo "  ./do/deploy"
-    echo ""
-    echo "Or set ROLE_ARN in do/config"
     echo ""
     echo "The execution role must have permissions for:"
     echo "  • SageMaker endpoint and inference component management"
@@ -349,6 +355,21 @@ fi
 
 # Resolve container secrets (HF_TOKEN, NGC_API_KEY)
 resolve_secrets
+
+<% if (typeof serverEnvVars !== 'undefined' && serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
+# ============================================================
+# Inject server environment variables into container Environment
+# ============================================================
+<% Object.keys(serverEnvVars).forEach(function(key) { %>
+if [ -n "${<%= key %>:-}" ]; then
+    if [ -n "${CONTAINER_ENV_JSON}" ]; then
+        CONTAINER_ENV_JSON="${CONTAINER_ENV_JSON},\"<%= key %>\":\"${<%= key %>}\""
+    else
+        CONTAINER_ENV_JSON="\"<%= key %>\":\"${<%= key %>}\""
+    fi
+fi
+<% }); %>
+<% } %>
 
 # ============================================================
 # CI-Mode: Idempotent deployment check (runs before normal idempotency)

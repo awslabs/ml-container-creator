@@ -377,6 +377,12 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/lib/feedback.sh');
     }
 
+    // Exclude do/stage when model is already S3-sourced (nothing to stage)
+    const modelName = answers.modelName || answers.customModelName || '';
+    if (answers.modelSource === 's3' || modelName.startsWith('s3://')) {
+        ignorePatterns.push('**/do/stage');
+    }
+
     // Exclude do/test when hosted-model-endpoint is not selected
     const testTypes = answers.testTypes || [];
     if (!testTypes.includes('hosted-model-endpoint')) {
@@ -818,7 +824,8 @@ function _setExecutablePermissions(destDir, answers = {}) {
         'do/add-ic',
         'do/adapter',
         'do/tune',
-        'do/train'
+        'do/train',
+        'do/stage'
     ];
 
     const shellScripts = architecture === 'marketplace' ? marketplaceScripts : defaultScripts;

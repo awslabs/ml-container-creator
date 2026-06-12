@@ -70,6 +70,10 @@ export default class SecretsPromptRunner {
             const modelSource = answers.modelSource;
             if (modelSource && modelSource !== 'huggingface') return false;
 
+            // Skip HF token when model name is an S3 URI (no HF download needed)
+            const modelName = answers.customModelName || answers.modelName;
+            if (modelName && modelName.startsWith('s3://')) return false;
+
             return true;
         }
 

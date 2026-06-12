@@ -174,7 +174,7 @@
             "configKey": "instanceType",
             "default": null,
             "validation": {
-                "pattern": "^ml\\.[a-z0-9]+\\.[a-z0-9]+$"
+                "pattern": "^ml\\.[a-z0-9-]+\\.[a-z0-9]+$"
             },
             "phase": "infrastructure",
             "group": "infrastructure",
@@ -1237,6 +1237,33 @@
             "prompt": null,
             "deprecated": false,
             "since": "0.4.0"
+        },
+        "capacityReservationArn": {
+            "type": "string",
+            "description": "Capacity reservation ARN (FTP or ODCR) for reserved instance deployment",
+            "cliFlag": "--capacity-reservation-arn",
+            "cliArgName": "arn",
+            "envVar": "ML_CAPACITY_RESERVATION_ARN",
+            "templateVar": "capacityReservationArn",
+            "configKey": "capacityReservationArn",
+            "default": null,
+            "validation": {
+                "pattern": "^arn:aws:sagemaker:"
+            },
+            "phase": "infrastructure",
+            "group": "endpoint",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "0.11.0"
         },
         "icCpuCount": {
             "type": "number",

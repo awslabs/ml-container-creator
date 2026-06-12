@@ -18,6 +18,11 @@ set -o pipefail
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
+
+# ── Profile-resolved variables (env var > profile > default) ──────────────────
+ADAPTER_S3_BUCKET="${ADAPTER_S3_BUCKET:-mlcc-adapters-${_PROFILE[accountId]:-unknown}-${_PROFILE[awsRegion]:-us-east-1}}"
+
 source "${SCRIPT_DIR}/lib/wait.sh"
 
 # ── Usage ─────────────────────────────────────────────────────────────────────

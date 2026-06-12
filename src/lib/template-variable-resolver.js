@@ -383,6 +383,68 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
         }
     }
 
+    // Auto-resolve tensor parallel degree from instance catalog GPU count.
+    // Only applies when:
+    //   1. The engine supports tensor parallelism (vLLM, SGLang, TensorRT-LLM, LMI)
+    //   2. The instance has multiple GPUs (gpus > 1)
+    //   3. The user has NOT explicitly set the TP env var via --server-env or --model-env
+    // This ensures multi-GPU instances default to full TP utilization without requiring
+    // the user to manually specify TENSOR_PARALLEL_SIZE.
+    // Requirements: FTP-1 (extension) — task 6.2
+    const _TP_ENGINE_MAP = {
+        'vllm': 'VLLM_TENSOR_PARALLEL_SIZE',
+        'vllm-omni': 'VLLM_OMNI_TENSOR_PARALLEL_SIZE',
+        'sglang': 'SGLANG_TENSOR_PARALLEL_SIZE',
+        'tensorrt-llm': 'TRTLLM_TENSOR_PARALLEL_SIZE',
+        'lmi': 'OPTION_TENSOR_PARALLEL_DEGREE'
+    };
+
+    const tpEngine = answers.backend || answers.modelServer;
+    const tpEnvKey = tpEngine ? _TP_ENGINE_MAP[tpEngine] : null;
+
+    if (tpEnvKey && answers.instanceType) {
+        // Check if user explicitly set the TP value via --server-env (un-prefixed key)
+        const userServerEnvVars = answers.serverEnvVars || {};
+        const userExplicitlySetTP = (
+            userServerEnvVars['TENSOR_PARALLEL_SIZE'] !== undefined ||
+            userServerEnvVars['TENSOR_PARALLEL_DEGREE'] !== undefined ||
+            userServerEnvVars[tpEnvKey] !== undefined
+        );
+
+        if (!userExplicitlySetTP) {
+            // Look up GPU count from instance catalog
+            let instanceGpuCount = null;
+            if (answers.gpuCount) {
+                instanceGpuCount = answers.gpuCount;
+            } else if (answers.icGpuCount) {
+                instanceGpuCount = answers.icGpuCount;
+            } else {
+                try {
+                    const catalogPath = path.resolve(__dirname, '..', '..', 'servers', 'lib', 'catalogs', 'instances.json');
+                    const catalogData = JSON.parse(fs.readFileSync(catalogPath, 'utf-8'));
+                    const instanceInfo = catalogData?.catalog?.[answers.instanceType];
+                    if (instanceInfo?.gpus && instanceInfo.gpus > 0) {
+                        instanceGpuCount = instanceInfo.gpus;
+                    }
+                } catch {
+                    // Silently continue
+                }
+            }
+
+            // Auto-set TP to GPU count when instance has multiple GPUs
+            if (instanceGpuCount && instanceGpuCount > 1) {
+                if (!answers.envVars) {
+                    answers.envVars = {};
+                }
+                answers.envVars[tpEnvKey] = String(instanceGpuCount);
+                answers.tensorParallelSize = instanceGpuCount;
+                answers._tpAutoResolved = true;
+                answers._tpAutoResolvedFrom = answers.instanceType;
+                console.log(`    ℹ️  TP degree: ${instanceGpuCount} (auto-detected from ${answers.instanceType})`);
+            }
+        }
+    }
+
     // Determine tune support based on model presence in the tune catalog.
     // Used by the do/config template to write TUNE_SUPPORTED=true|false.
     if (answers.tuneSupported === undefined) {

@@ -8,7 +8,7 @@
     "quantization": "none",
     "tp_degree": 1,
     "workload": "sample",
-    "stages": ["generate", "build", "deploy", "test", "tune", "adapter", "test-adapter", "benchmark", "clean"]
+    "stages": ["generate", "stage", "build", "deploy", "test", "tune", "adapter", "test-adapter", "benchmark", "clean"]
   },
   "targets": [
     {"model_name": "Qwen/Qwen3-0.6B"},

@@ -252,7 +252,7 @@ const infraInstancePrompts = [
             if (!input || input.trim() === '') {
                 return 'At least one instance type is required';
             }
-            const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
+            const instancePattern = /^ml\.[a-z0-9-]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
             const instances = input.split(',').map(s => s.trim()).filter(s => s.length > 0);
             if (instances.length === 0) {
                 return 'At least one instance type is required';
@@ -384,7 +384,7 @@ const infraInstancePrompts = [
             if (!input || input.trim() === '') {
                 return 'Instance type is required';
             }
-            const instancePattern = /^ml\.[a-z0-9]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
+            const instancePattern = /^ml\.[a-z0-9-]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
             if (!instancePattern.test(input.trim())) {
                 return 'Invalid instance type format. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g4dn.xlarge)';
             }

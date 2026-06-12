@@ -459,6 +459,12 @@ const hfTokenPrompts = [
                 return false;
             }
             
+            // Skip HF token when model name is an S3 URI (no HF download needed)
+            const modelName = answers.customModelName || answers.modelName;
+            if (modelName && modelName.startsWith('s3://')) {
+                return false;
+            }
+            
             // Display security warning before prompting
             console.log('\n🔐 HuggingFace Authentication');
             console.log('   Many models (e.g. Llama, Mistral) are gated and require a token.');

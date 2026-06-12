@@ -9,6 +9,11 @@ set -o pipefail
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
+
+# ── Profile-resolved variables (env var > profile > default) ──────────────────
+ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE[ecrRepositoryName]:-ml-container-creator}}"
+export AWS_REGION="${AWS_REGION:-${_PROFILE[awsRegion]:-us-east-1}}"
 
 echo "🚀 Pushing Docker image to Amazon ECR"
 echo "   Project: ${PROJECT_NAME}"
