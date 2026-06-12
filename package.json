@@ -85,8 +85,8 @@
     "npm": ">=11.6.2"
   },
   "scripts": {
-    "test": "mocha 'test/**/*.test.js' --recursive --timeout 30000",
-    "test:property": "mocha 'test/property/**/*.test.js' --recursive --timeout 60000",
+    "test": "mocha 'test/**/*.test.js' --ignore 'test/property/**' --recursive --timeout 30000 --parallel",
+    "test:property": "mocha 'test/property/**/*.test.js' --recursive --timeout 60000 --parallel",
     "test:all": "npm run test && npm run test:property",
     "test:fast": "mocha 'test/**/*.test.js' --recursive --timeout 15000 --parallel",
     "test:unit": "mocha 'test/unit/**/*.test.js' --recursive --timeout 15000",
