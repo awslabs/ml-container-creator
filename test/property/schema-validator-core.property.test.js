@@ -21,12 +21,7 @@ import assert from 'assert';
 import EnumValidator from '../../src/lib/validators/enum-validator.js';
 import TypeValidator from '../../src/lib/validators/type-validator.js';
 import RequiredFieldValidator from '../../src/lib/validators/required-field-validator.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -93,7 +88,6 @@ describe('Schema Validator Core Property-Based Tests', () => {
     const typeValidator = new TypeValidator();
     const requiredFieldValidator = new RequiredFieldValidator();
 
-
     // Feature: schema-driven-validation, Property 1: Enum validation correctness
     describe('Property 1: Enum validation correctness', () => {
 
@@ -102,7 +96,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
          */
 
         it('reports error iff value is not in enum set', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbFieldName, arbEnumValues, fc.boolean()),
@@ -157,11 +151,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('validates optional fields with same rigor as required fields', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbFieldName, arbEnumValues),
@@ -198,10 +192,9 @@ describe('Schema Validator Core Property-Based Tests', () => {
                         'Should be an error, not a warning');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
-
 
     // Feature: schema-driven-validation, Property 2: Enum error reporting completeness
     describe('Property 2: Enum error reporting completeness', () => {
@@ -211,7 +204,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
          */
 
         it('error finding contains invalid value, full field path, and complete valid enum set', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbFieldName, arbEnumValues),
@@ -269,11 +262,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('nested field paths use dot-notation', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbFieldName, arbFieldName, arbEnumValues),
@@ -313,10 +306,9 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
-
 
     // Feature: schema-driven-validation, Property 3: Pattern validation correctness
     describe('Property 3: Pattern validation correctness', () => {
@@ -326,7 +318,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
          */
 
         it('reports error iff value does not match pattern regex', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -375,11 +367,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('pattern validation is skipped when shape has enum', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbFieldName, arbEnumValues),
@@ -413,10 +405,9 @@ describe('Schema Validator Core Property-Based Tests', () => {
                         'Pattern validation should be skipped when shape has enum');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
-
 
     // Feature: schema-driven-validation, Property 4: Required field detection
     describe('Property 4: Required field detection', () => {
@@ -426,7 +417,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
          */
 
         it('reports error for each missing required field', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(arbFieldName, { minLength: 2, maxLength: 5 })
@@ -475,11 +466,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('no error when all required fields are present and non-empty', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(arbFieldName, { minLength: 1, maxLength: 4 })
@@ -520,10 +511,9 @@ describe('Schema Validator Core Property-Based Tests', () => {
                         'No errors when all required fields are present and non-empty');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
-
 
     // Feature: schema-driven-validation, Property 5: Recursive structure validation
     describe('Property 5: Recursive structure validation', () => {
@@ -533,7 +523,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
          */
 
         it('validates fields at every nesting depth with full dot-notation path', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -586,11 +576,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('enum validation works at nested depths', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbFieldName, arbFieldName, arbEnumValues)
@@ -627,10 +617,9 @@ describe('Schema Validator Core Property-Based Tests', () => {
                     assert.strictEqual(findings[0].fieldPath, `${parentField}.${childField}`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
-
 
     // Feature: schema-driven-validation, Property 6: Present-field validation uniformity
     describe('Property 6: Present-field validation uniformity', () => {
@@ -640,7 +629,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
          */
 
         it('optional fields with invalid values produce errors not warnings', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbFieldName, arbEnumValues),
@@ -679,11 +668,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('optional fields with invalid types produce errors', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -723,10 +712,9 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
-
 
     // Feature: schema-driven-validation, Property 7: Type validation correctness
     describe('Property 7: Type validation correctness', () => {
@@ -736,7 +724,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
          */
 
         it('integer fields reject non-integer values', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -775,11 +763,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('integer fields accept valid integers', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbFieldName, fc.integer()),
@@ -808,11 +796,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
                         `Valid integer ${validInt} should produce no type errors`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('string fields reject non-string values', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -851,11 +839,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('boolean fields reject non-boolean values', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -894,11 +882,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('list fields reject non-array values', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -941,11 +929,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('list fields recursively validate elements', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -988,10 +976,9 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
-
 
     // Feature: schema-driven-validation, Property 8: Range validation correctness
     describe('Property 8: Range validation correctness', () => {
@@ -1001,7 +988,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
          */
 
         it('reports error iff numeric value falls outside [min, max] range', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -1049,11 +1036,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('validates min-only constraints correctly', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -1095,11 +1082,11 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('validates max-only constraints correctly', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -1141,7 +1128,7 @@ describe('Schema Validator Core Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

@@ -18,12 +18,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { validationRules } from '../../src/lib/generated/validation-rules.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -71,7 +66,7 @@ describe('S3 URI CLI Validation Property-Based Tests', () => {
          */
 
         it('any valid S3 URI is accepted by the modelName validation rule', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const modelNameValidator = validationRules['modelName'];
             assert.ok(modelNameValidator, 'modelName validation rule must exist');
@@ -84,11 +79,11 @@ describe('S3 URI CLI Validation Property-Based Tests', () => {
                         `S3 URI "${uri}" should be accepted by modelName validator, but got error: "${error}"`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('S3 URIs with varied bucket names are accepted', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const modelNameValidator = validationRules['modelName'];
 
@@ -110,11 +105,11 @@ describe('S3 URI CLI Validation Property-Based Tests', () => {
                         `S3 URI "${uri}" should be accepted, but got: "${error}"`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('S3 URIs with deep paths are accepted', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const modelNameValidator = validationRules['modelName'];
 
@@ -130,7 +125,7 @@ describe('S3 URI CLI Validation Property-Based Tests', () => {
                         `Deep-path S3 URI "${uri}" should be accepted, but got: "${error}"`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

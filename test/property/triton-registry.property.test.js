@@ -20,6 +20,7 @@ import RegistryLoader from '../../src/lib/registry-loader.js';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __testFilename = fileURLToPath(import.meta.url);
 const __testDir = dirname(__testFilename);
@@ -28,12 +29,6 @@ const tritonBackends = JSON.parse(readFileSync(tritonBackendsCatalogPath, 'utf8'
 
 const loader = new RegistryLoader();
 const frameworkRegistry = await loader.loadFrameworkRegistry();
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -84,7 +79,7 @@ describe('Triton Registry Property-Based Tests', () => {
     before(() => {
         console.log('\n🚀 Starting Triton Registry Property Tests');
         console.log('📋 Testing: Registry base images and backend metadata completeness');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property`);
         console.log(`📦 Triton registry keys: ${TRITON_REGISTRY_KEYS.length}, backend names: ${TRITON_BACKEND_NAMES.length}\n`);
     });
 
@@ -100,7 +95,7 @@ describe('Triton Registry Property-Based Tests', () => {
      */
     describe('Property 9: Triton Registry Base Images', () => {
         it('all Triton backend entries have baseImage starting with nvcr.io/nvidia/tritonserver and contain required fields', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...TRITON_REGISTRY_KEYS),
@@ -132,7 +127,7 @@ describe('Triton Registry Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -149,7 +144,7 @@ describe('Triton Registry Property-Based Tests', () => {
      */
     describe('Property 10: Triton Backend Metadata Completeness', () => {
         it('all 7 Triton backends have complete metadata with all required fields', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...TRITON_BACKEND_NAMES),
@@ -195,7 +190,7 @@ describe('Triton Registry Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

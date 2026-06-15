@@ -25,10 +25,9 @@ import ejs from 'ejs';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
-
 // ── Load the actual serve template ───────────────────────────────────────────
 
 const SERVE_TEMPLATE_PATH = resolve(__dirname, '../../templates/code/serve');

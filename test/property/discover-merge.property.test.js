@@ -15,12 +15,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { mergeStaticAndDynamic } from '../../servers/base-image-picker/index.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -72,7 +67,7 @@ describe('Discover Mode Merge Property-Based Tests', () => {
          * (a) Static entries come first in their original order.
          */
         it('static entries appear first in their original order', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbStaticImages,
@@ -91,7 +86,7 @@ describe('Discover Mode Merge Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         /**
@@ -100,7 +95,7 @@ describe('Discover Mode Merge Property-Based Tests', () => {
          * (b) No duplicate image identifiers (by `image` field).
          */
         it('merged result contains no duplicate image identifiers', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbStaticImages,
@@ -119,7 +114,7 @@ describe('Discover Mode Merge Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         /**
@@ -129,7 +124,7 @@ describe('Discover Mode Merge Property-Based Tests', () => {
          *     `created` date descending.
          */
         it('net-new dynamic entries follow static entries sorted by created desc', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbStaticImages,
@@ -161,7 +156,7 @@ describe('Discover Mode Merge Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         /**
@@ -172,7 +167,7 @@ describe('Discover Mode Merge Property-Based Tests', () => {
          *     is kept and the dynamic one is excluded.
          */
         it('static entries take precedence on collision', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbStaticImages.filter(arr => arr.length > 0),
@@ -205,7 +200,7 @@ describe('Discover Mode Merge Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

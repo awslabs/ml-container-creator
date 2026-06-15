@@ -23,12 +23,7 @@ import {
     validateManifestNamespaces,
     validatePublishSafety
 } from '../../scripts/validate-namespaces.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -111,7 +106,7 @@ describe('Namespace Validation Property-Based Tests', () => {
         // ── Test 1: Root package with invalid prefix is rejected ─────────
 
         it('rejects root package.json names not starting with @aws/', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbInvalidRootPrefix,
@@ -139,13 +134,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 2: Root package with valid @aws/ prefix passes ──────────
 
         it('accepts root package.json names starting with @aws/', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbNameSuffix,
@@ -166,13 +161,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 3: Server package with invalid prefix is rejected ───────
 
         it('rejects server package.json names not starting with @amzn/', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbServerDirName,
@@ -209,13 +204,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 4: Server package with valid @amzn/ prefix passes ───────
 
         it('accepts server package.json names starting with @amzn/', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbServerDirName,
@@ -238,13 +233,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 5: Manifest with invalid prefix is rejected ─────────────
 
         it('rejects server manifest.json names not starting with @amzn/', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbServerDirName,
@@ -281,13 +276,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 6: Manifest with valid @amzn/ prefix passes ─────────────
 
         it('accepts server manifest.json names starting with @amzn/', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbServerDirName,
@@ -310,13 +305,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 7: Missing name field is rejected ───────────────────────
 
         it('rejects package.json or manifest.json with missing name field', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbServerDirName,
@@ -357,7 +352,7 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -376,7 +371,7 @@ describe('Namespace Validation Property-Based Tests', () => {
         // ── Test 1: Server packages without "private": true produce errors ──
 
         it('rejects server packages missing "private": true', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbServerDirName,
@@ -414,13 +409,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 2: Server packages with "private": true don't produce errors ──
 
         it('accepts server packages with "private": true', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbServerDirName,
@@ -451,13 +446,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 3: Root package with "private": true produces errors ────────
 
         it('rejects root package with "private": true', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbServerDirName,
@@ -492,13 +487,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 4: Root package without "private": true doesn't produce errors ─
 
         it('accepts root package without "private": true', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(false, undefined),
@@ -525,13 +520,13 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 5: Combined — random private values across root and servers ─
 
         it('correctly identifies all publish safety violations with random private values', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbPrivateField,
@@ -591,7 +586,7 @@ describe('Namespace Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

@@ -17,12 +17,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const VALID_ARCHITECTURES = ['http', 'transformers', 'triton', 'diffusors', 'marketplace'];
 
@@ -51,7 +46,7 @@ describe('Feature: deployment-registry, Property 18: Deployment config decomposi
      */
 
     it('decomposing any canonical config produces a valid architecture and backend', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidDeploymentConfig,
@@ -71,11 +66,11 @@ describe('Feature: deployment-registry, Property 18: Deployment config decomposi
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('decomposing then recomposing yields the original config string', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidDeploymentConfig,
@@ -91,11 +86,11 @@ describe('Feature: deployment-registry, Property 18: Deployment config decomposi
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('decomposing an invalid config string throws an error', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbInvalidDeploymentConfig,
@@ -108,6 +103,6 @@ describe('Feature: deployment-registry, Property 18: Deployment config decomposi
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

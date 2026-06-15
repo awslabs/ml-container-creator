@@ -28,8 +28,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) };
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 

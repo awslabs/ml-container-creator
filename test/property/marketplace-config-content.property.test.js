@@ -21,11 +21,12 @@ import ejs from 'ejs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false, seed: 42 };
+const PROPERTY_CONFIG = { numRuns: NUM_RUNS, timeout: 30000, verbose: false, seed: 42 };
 
 // ── Load the actual marketplace config template ──────────────────────────────
 

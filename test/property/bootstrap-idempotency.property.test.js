@@ -17,12 +17,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,7 +63,7 @@ describe('Feature: bootstrap-shared-infra, Property 6: Idempotency messaging cor
      * when resource does not exist, output contains "created".
      */
     it('ECR setup displays "reused" when repository exists and "created" when it does not', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             fc.boolean(),
@@ -117,7 +112,7 @@ describe('Feature: bootstrap-shared-infra, Property 6: Idempotency messaging cor
                     );
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -127,7 +122,7 @@ describe('Feature: bootstrap-shared-infra, Property 6: Idempotency messaging cor
      * when role does not exist, output contains "created".
      */
     it('IAM role setup displays "reused" when role exists and "created" when it does not', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             fc.boolean(),
@@ -178,7 +173,7 @@ describe('Feature: bootstrap-shared-infra, Property 6: Idempotency messaging cor
                     );
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -188,7 +183,7 @@ describe('Feature: bootstrap-shared-infra, Property 6: Idempotency messaging cor
      * when bucket does not exist, output contains "created".
      */
     it('S3 bucket setup displays "reused" when bucket exists and "created" when it does not', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             fc.boolean(),
@@ -236,6 +231,6 @@ describe('Feature: bootstrap-shared-infra, Property 6: Idempotency messaging cor
                     );
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

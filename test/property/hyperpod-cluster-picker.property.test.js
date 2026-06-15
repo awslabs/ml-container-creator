@@ -13,12 +13,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { buildResponse } from '../../servers/hyperpod-cluster-picker/index.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Shared arbitrary generators ──────────────────────────────────────────────
 
@@ -65,7 +60,6 @@ const arbClusterEntry = fc.record({
 /** Positive integer limit */
 const arbLimit = fc.integer({ min: 1, max: 50 });
 
-
 // ── Property tests ───────────────────────────────────────────────────────────
 
 describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
@@ -73,7 +67,7 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
     // Feature: sagemaker-hyperpod-deployment, Property 4: Cluster Discovery Filtering
     describe('Property 4: Cluster Discovery Filtering', () => {
         it('only InService + EKS clusters pass through filtering', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(arbClusterEntry, { minLength: 0, maxLength: 20 }),
@@ -113,11 +107,11 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('Slurm clusters are always excluded', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbClusterName,
@@ -140,14 +134,14 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: sagemaker-hyperpod-deployment, Property 5: Cluster Discovery Response Completeness
     describe('Property 5: Cluster Discovery Response Completeness', () => {
         it('every returned cluster includes name, ARN, status, and instance groups', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(
@@ -184,11 +178,11 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('instance group metadata includes name, instanceType, and count', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbClusterName,
@@ -218,14 +212,14 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Additional response format properties
     describe('Response Format Invariants', () => {
         it('empty clusters returns empty choices with descriptive message', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const result = buildResponse([]);
             assert.deepStrictEqual(result.choices.hyperPodCluster, []);
@@ -234,7 +228,7 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
         });
 
         it('values.hyperPodCluster equals first choice when non-empty', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(
@@ -252,11 +246,11 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
                         'values.hyperPodCluster should equal first choice');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('choices length equals input clusters length', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(
@@ -274,7 +268,7 @@ describe('HyperPod Cluster Picker Server Property-Based Tests', () => {
                         'choices length should match input clusters length');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

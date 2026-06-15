@@ -13,11 +13,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { computeConfigId } from '../../src/lib/ci-register-helpers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -86,7 +82,7 @@ describe('Feature: ci-integration-harness, Property 8: configId determinism', ()
                 assert.strictEqual(id1, id2,
                     `Same inputs should produce same configId: '${id1}' vs '${id2}'`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('configId is always a 16-character lowercase hex string', function () {
@@ -105,7 +101,7 @@ describe('Feature: ci-integration-harness, Property 8: configId determinism', ()
                 assert.ok(/^[0-9a-f]+$/.test(id),
                     `configId should be lowercase hex, got '${id}'`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('different inputs produce different configIds (with cryptographic probability)', function () {
@@ -143,7 +139,7 @@ describe('Feature: ci-integration-harness, Property 8: configId determinism', ()
                     `Input 2: ${JSON.stringify(config2)}\n` +
                     `Both produced: '${id1}'`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('configId is computed from all five input fields', function () {
@@ -171,6 +167,6 @@ describe('Feature: ci-integration-harness, Property 8: configId determinism', ()
                         `Changing field ${i} should produce a different configId`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

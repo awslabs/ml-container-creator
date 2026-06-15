@@ -21,12 +21,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import AwsProfileParser from '../../src/lib/aws-profile-parser.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -41,7 +36,6 @@ const arbProfileName = fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9-]{0,14}$/)
  * Generate a non-empty set of unique profile names (excluding 'default').
  */
 const arbProfileNames = fc.uniqueArray(arbProfileName, { minLength: 1, maxLength: 8 });
-
 
 /**
  * Build INI content for a config file with [profile X] sections.
@@ -106,7 +100,7 @@ describe('Feature: bootstrap-shared-infra, Property 3: AWS profile parsing extra
      * no duplicates exist, and `default` is first when present.
      */
     it('extracts all profile names from config and credentials files, deduplicated, with default first', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileNames,
@@ -167,7 +161,7 @@ describe('Feature: bootstrap-shared-infra, Property 3: AWS profile parsing extra
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -176,7 +170,7 @@ describe('Feature: bootstrap-shared-infra, Property 3: AWS profile parsing extra
      * Missing files don't cause errors — parser returns empty array gracefully.
      */
     it('returns empty array when both config and credentials files are missing', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const configPath = join(tmpDir, 'nonexistent-config');
         const credentialsPath = join(tmpDir, 'nonexistent-credentials');
@@ -194,7 +188,7 @@ describe('Feature: bootstrap-shared-infra, Property 3: AWS profile parsing extra
      * When only one file exists, profiles from that file are still returned.
      */
     it('returns profiles from config file when credentials file is missing', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileNames,
@@ -228,7 +222,7 @@ describe('Feature: bootstrap-shared-infra, Property 3: AWS profile parsing extra
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -237,7 +231,7 @@ describe('Feature: bootstrap-shared-infra, Property 3: AWS profile parsing extra
      * When only credentials file exists, profiles from that file are still returned.
      */
     it('returns profiles from credentials file when config file is missing', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileNames,
@@ -271,6 +265,6 @@ describe('Feature: bootstrap-shared-infra, Property 3: AWS profile parsing extra
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

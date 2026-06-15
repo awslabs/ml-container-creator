@@ -22,12 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -184,7 +179,7 @@ describe('Feature: bootstrap-shared-infra, Property 7: Resilience — failed ste
      * the CI step fails, the profile is still saved with the stack outputs.
      */
     it('failed provisioning steps do not abort remaining steps', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             fc.boolean(),  // stackFails
@@ -275,6 +270,6 @@ describe('Feature: bootstrap-shared-infra, Property 7: Resilience — failed ste
                     // Ignore cleanup errors
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

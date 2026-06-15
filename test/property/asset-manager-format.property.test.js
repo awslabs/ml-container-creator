@@ -21,12 +21,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import AssetManager, { VALID_RESOURCE_TYPES, VALID_STATUSES } from '../../src/lib/asset-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -78,7 +73,7 @@ describe('Feature: deployment-registry, Property 2: Manifest file format correct
      * **Validates: Requirements 1.3, 1.4**
      */
     it('written manifest has correct schemaVersion, resources array, 2-space indentation, and trailing newline', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.array(arbAssetRecord, { minLength: 1, maxLength: 10 })
@@ -133,6 +128,6 @@ describe('Feature: deployment-registry, Property 2: Manifest file format correct
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

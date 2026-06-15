@@ -21,12 +21,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import AssetManager, { VALID_RESOURCE_TYPES, VALID_STATUSES } from '../../src/lib/asset-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -78,7 +73,7 @@ describe('Feature: deployment-registry, Property 5: addResource correctness and 
      * **Validates: Requirements 8.1, 8.6**
      */
     it('manifest contains exactly one record per unique resourceId after multiple adds', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.array(arbAssetRecord, { minLength: 1, maxLength: 15 }),
@@ -116,14 +111,14 @@ describe('Feature: deployment-registry, Property 5: addResource correctness and 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
      * **Validates: Requirements 8.1, 8.6**
      */
     it('upsert updates lastUpdatedAt and status on existing record', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbAssetRecord,
@@ -156,6 +151,6 @@ describe('Feature: deployment-registry, Property 5: addResource correctness and 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

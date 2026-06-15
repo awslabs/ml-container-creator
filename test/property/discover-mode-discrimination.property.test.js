@@ -17,9 +17,10 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { isHuggingFacePattern, PROTOCOL_PREFIXES } from '../../servers/instance-sizer/lib/model-resolver.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 200,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -40,7 +41,7 @@ describe('Feature: mcp-catalog-consolidation, Property 9: Discover mode source d
                     `"${modelId}" should match HuggingFace pattern (org/model-name)`
                 );
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -56,7 +57,7 @@ describe('Feature: mcp-catalog-consolidation, Property 9: Discover mode source d
                     `"${modelId}" should NOT match HuggingFace pattern (has protocol prefix)`
                 );
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -71,7 +72,7 @@ describe('Feature: mcp-catalog-consolidation, Property 9: Discover mode source d
                     `"${modelId}" should NOT match (no slash)`
                 );
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -89,7 +90,7 @@ describe('Feature: mcp-catalog-consolidation, Property 9: Discover mode source d
                     `"${modelId}" should NOT match (multiple slashes)`
                 );
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 

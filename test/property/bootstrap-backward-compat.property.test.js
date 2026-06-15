@@ -24,14 +24,9 @@ import { join } from 'node:path';
 import os from 'node:os';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const STACK_NAME_PREFIX = 'mlcc-bootstrap';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -143,7 +138,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
      * shared-infrastructure tracking.
      */
     it('profiles without sharedInfraFrom are treated as standalone (getSharedInfraSource returns null)', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileName,
@@ -174,7 +169,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
                     `getSharedInfraSource should return null for profile without sharedInfraFrom, got: "${result}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -184,7 +179,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
      * getSharedInfraSource correctly reads the legacy field.
      */
     it('legacy sharedStackFrom is interpreted equivalently to sharedInfraFrom', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileName,
@@ -235,7 +230,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
                     'Legacy and new field should produce the same result'
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -246,7 +241,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
      * Non-regionalized CI resource names (mlcc-ci-table) still work.
      */
     it('_handleUpdate proceeds without halting on legacy profiles without sharedInfraFrom', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -300,7 +295,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
                     '_handleUpdate should proceed with deployment on legacy profiles'
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -310,7 +305,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
      * The legacy field does not cause any code path to reject or force migration.
      */
     it('_handleUpdate proceeds on profiles with legacy sharedStackFrom field', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -364,7 +359,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
                     '_handleUpdate should proceed with deployment on profiles with sharedStackFrom'
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -375,7 +370,7 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
      * _handleUpdate operates correctly against them without forcing migration.
      */
     it('non-regionalized CI resource names (mlcc-ci-table) still work', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -438,6 +433,6 @@ describe('Feature: multi-region-bootstrap, Property 6: Backward Compatibility', 
                     'Non-regionalized ciTableName should be preserved after update'
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

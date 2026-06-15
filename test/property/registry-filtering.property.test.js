@@ -18,12 +18,7 @@ import { join } from 'node:path';
 import os from 'node:os';
 import { minimatch } from 'minimatch';
 import DeploymentRegistry from '../../src/lib/deployment-registry.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -221,7 +216,7 @@ describe('Feature: deployment-registry, Property 3: Entry filtering correctness'
      * provided filter (AND logic).
      */
     it('list(filters) returns exactly the entries matching all filters (AND logic)', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.array(arbValidDeploymentEntry, { minLength: 0, maxLength: 10 }),
@@ -262,7 +257,7 @@ describe('Feature: deployment-registry, Property 3: Entry filtering correctness'
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -293,7 +288,7 @@ describe('Feature: deployment-registry, Property 4: Glob-based model search', ()
      * matches the glob pattern.
      */
     it('search({model: pattern}) returns exactly entries whose modelName matches the glob', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.array(arbEntryWithModelName, { minLength: 0, maxLength: 10 }),
@@ -336,6 +331,6 @@ describe('Feature: deployment-registry, Property 4: Glob-based model search', ()
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

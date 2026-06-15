@@ -17,12 +17,7 @@ import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
 import TemplateManager from '../../src/lib/template-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -56,7 +51,7 @@ describe('TemplateManager Triton Validation Property-Based Tests', () => {
     before(() => {
         console.log('\n🚀 Starting TemplateManager Triton Property Tests');
         console.log('📋 Testing: Valid config acceptance and GPU backend rejection');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property`);
         console.log(`📦 Total configs: ${ALL_VALID_CONFIGS.length} (${GPU_REQUIRING_BACKENDS.length} GPU-requiring)\n`);
     });
 
@@ -70,7 +65,7 @@ describe('TemplateManager Triton Validation Property-Based Tests', () => {
      */
     describe('Property 6: TemplateManager Accepts All Valid Configs', () => {
         it('validate() does not throw for any valid deployment-config with appropriate instance type', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...ALL_VALID_CONFIGS),
@@ -90,7 +85,7 @@ describe('TemplateManager Triton Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -106,7 +101,7 @@ describe('TemplateManager Triton Validation Property-Based Tests', () => {
      */
     describe('Property 7: GPU Backend Validation Rejects CPU Instances', () => {
         it('validate() throws for GPU-requiring backends with CPU-only instance types', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...GPU_REQUIRING_BACKENDS),
@@ -127,7 +122,7 @@ describe('TemplateManager Triton Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

@@ -22,12 +22,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import DeploymentRegistry from '../../src/lib/deployment-registry.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -192,7 +187,7 @@ describe('Feature: deployment-registry, Property 2: Sensitive field stripping co
      */
 
     it('strips all sensitive fields from entries that contain them', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbEntryWithSensitiveFields,
@@ -225,11 +220,11 @@ describe('Feature: deployment-registry, Property 2: Sensitive field stripping co
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('preserves all non-sensitive fields in their original form', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         // Helper to normalize objects through JSON round-trip so prototype
         // differences (e.g. null-prototype from fc.dictionary) don't cause
@@ -279,11 +274,11 @@ describe('Feature: deployment-registry, Property 2: Sensitive field stripping co
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('does not mutate the original entry object', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         // Helper to normalize objects through JSON round-trip
         const normalize = (obj) => JSON.parse(JSON.stringify(obj));
@@ -305,11 +300,11 @@ describe('Feature: deployment-registry, Property 2: Sensitive field stripping co
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('preserves entries without sensitive fields unchanged', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         // Helper to normalize objects through JSON round-trip
         const normalize = (obj) => JSON.parse(JSON.stringify(obj));
@@ -347,6 +342,6 @@ describe('Feature: deployment-registry, Property 2: Sensitive field stripping co
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

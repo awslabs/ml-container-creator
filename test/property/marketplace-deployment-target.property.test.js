@@ -18,6 +18,7 @@
 import { describe, it } from 'mocha';
 import fc from 'fast-check';
 import { runGenerator } from '../helpers/run-generator.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 // ── Arbitraries ──────────────────────────────────────────────────────────────
 
@@ -76,7 +77,7 @@ describe('Feature: marketplace-model-packages, Property 11: Deployment target pr
                     }
                 }
             ),
-            { numRuns: 30, seed: 42 }
+            { numRuns: NUM_RUNS, seed: 42 }
         );
     });
 });

@@ -24,8 +24,7 @@ import { tmpdir } from 'node:os';
 import yaml from 'js-yaml';
 
 import { parseTrainingConfig, parseTrainingConfigFromString } from '../../src/lib/train-config-parser.js';
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 

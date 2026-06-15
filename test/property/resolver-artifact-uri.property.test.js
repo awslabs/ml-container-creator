@@ -19,8 +19,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import { strict as assert } from 'node:assert';
 import { JumpStartPublicResolver } from '../../servers/model-picker/index.js';
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Test region constant ─────────────────────────────────────────────────────
 

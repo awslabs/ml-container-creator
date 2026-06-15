@@ -37,6 +37,15 @@ module.exports = {
         'prefer-arrow-callback': 'error',
         'prefer-template': 'error'
     },
+    overrides: [
+        {
+            files: ['test/property/**/*.test.js'],
+            plugins: ['property-test-rules'],
+            rules: {
+                'property-test-rules/no-hardcoded-numruns': 'error'
+            }
+        }
+    ],
     ignorePatterns: [
         'node_modules/',
         'templates/**',

@@ -19,12 +19,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import ConfigManager from '../../src/lib/config-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -79,7 +74,7 @@ describe('CLI-Over-Registry Merge Precedence Property-Based Tests', () => {
          */
 
         it('--model-env CLI values override registry values for overlapping keys', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbOverlappingEnvVars,
@@ -124,11 +119,11 @@ describe('CLI-Over-Registry Merge Precedence Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('--server-env CLI values override registry values for overlapping keys', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbOverlappingEnvVars,
@@ -173,7 +168,7 @@ describe('CLI-Over-Registry Merge Precedence Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

@@ -65,4 +65,4 @@ Property tests use [fast-check](https://github.com/dubzzz/fast-check) to validat
     - Architecture-based heuristic fallback correctness
     - Discover mode source discrimination
 
-Run them with `npm run test:property`. Each test file targets a specific property and runs 20--100 iterations depending on complexity.
+Run them with `npm run test:property`. Each test file targets a specific property and runs 100 iterations by default (override with `PROPERTY_NUM_RUNS=N`). All property tests import shared config from `test/helpers/property-config.js` — never hardcode `numRuns` directly.

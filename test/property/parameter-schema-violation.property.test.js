@@ -25,15 +25,10 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ParameterSchemaValidator from '../../src/lib/parameter-schema-validator.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Schema loading ───────────────────────────────────────────────────────────
 
@@ -189,7 +184,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
         describe('Integer parameters - values below minimum', () => {
             for (const param of INTEGER_PARAMS) {
                 it(`${param.name}: value below min (${param.min}) produces error referencing parameter name, constraint, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbBelowMin(param.min),
@@ -206,7 +201,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
                                 `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });
@@ -214,7 +209,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
         describe('Integer parameters - values above maximum', () => {
             for (const param of INTEGER_PARAMS) {
                 it(`${param.name}: value above max (${param.max}) produces error referencing parameter name, constraint, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbAboveMax(param.max),
@@ -231,7 +226,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
                                 `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });
@@ -239,7 +234,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
         describe('Number parameters - values below minimum', () => {
             for (const param of NUMBER_PARAMS) {
                 it(`${param.name}: value below min (${param.min}) produces error referencing parameter name, constraint, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbNumberBelowMin(param.min),
@@ -256,7 +251,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
                                 `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });
@@ -264,7 +259,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
         describe('Number parameters - values above maximum', () => {
             for (const param of NUMBER_PARAMS) {
                 it(`${param.name}: value above max (${param.max}) produces error referencing parameter name, constraint, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbNumberAboveMax(param.max),
@@ -281,7 +276,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
                                 `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });
@@ -289,7 +284,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
         describe('String parameters - pattern mismatches', () => {
             for (const param of STRING_PARAMS) {
                 it(`${param.name}: invalid pattern produces error referencing parameter name, pattern, and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         arbInvalidVariantName,
@@ -313,7 +308,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
                                 `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });
@@ -321,7 +316,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
         describe('Integer parameters - wrong type (non-integer number)', () => {
             for (const param of INTEGER_PARAMS) {
                 it(`${param.name}: non-integer number produces error referencing parameter name and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         fc.double({ min: param.min, max: param.max, noNaN: true, noDefaultInfinity: true })
@@ -337,7 +332,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
                                 `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });
@@ -347,7 +342,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
 
             for (const param of allNumericParams) {
                 it(`${param.name}: string value produces error referencing parameter name and API reference`, function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     fc.assert(fc.property(
                         fc.string({ minLength: 1, maxLength: 20 }),
@@ -362,7 +357,7 @@ describe('Parameter Schema Violation Property-Based Tests', () => {
                                 `Error should contain API reference "${param.apiReference}" but got: "${result.error}"`);
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });

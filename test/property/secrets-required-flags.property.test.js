@@ -20,12 +20,7 @@ import fc from 'fast-check';
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import assert from 'node:assert';
 import SecretsCommandHandler from '../../src/lib/secrets-command-handler.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -103,7 +98,7 @@ describe('Feature: secrets-manager-integration, Property 2: Required Flags Valid
      * includes type, name, and secret-value.
      */
     it('secrets create succeeds iff all three required flags (type, name, secretValue) are present', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.asyncProperty(
             arbFlagSubset,
@@ -153,7 +148,7 @@ describe('Feature: secrets-manager-integration, Property 2: Required Flags Valid
                     );
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -163,7 +158,7 @@ describe('Feature: secrets-manager-integration, Property 2: Required Flags Valid
      * the missing required fields.
      */
     it('error message lists exactly the missing required fields', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.asyncProperty(
             arbFlagSubset.filter(s => !(s.includeType && s.includeName && s.includeSecretValue)),
@@ -244,6 +239,6 @@ describe('Feature: secrets-manager-integration, Property 2: Required Flags Valid
                     }
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

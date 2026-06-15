@@ -16,12 +16,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { CUSTOM_VALIDATORS } from '../../servers/lib/custom-validators.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Transformation logic (extracted from prompt-runner.js) ───────────────────
 
@@ -91,7 +86,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
          * baseImage to the custom value.
          */
         it('custom values get _baseImageSource set to "custom"', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbBaseAnswers,
@@ -123,7 +118,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         /**
@@ -133,7 +128,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
          * _baseImageSource should remain undefined.
          */
         it('non-custom values do not get the source marker', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbBaseAnswers,
@@ -160,7 +155,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         /**
@@ -169,7 +164,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
          * The transformation preserves all other answer fields unchanged.
          */
         it('transformation preserves all other answer fields', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbBaseAnswers,
@@ -194,7 +189,7 @@ describe('Custom Value Source Marker Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

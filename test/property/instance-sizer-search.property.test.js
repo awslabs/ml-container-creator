@@ -15,9 +15,10 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { searchInstancesByTag, filterByCudaVersion, INSTANCE_CATALOG } from '../../servers/instance-sizer/index.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -58,7 +59,7 @@ describe('Feature: mcp-catalog-consolidation, Property 6: CUDA version filtering
                     );
                 }
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -75,7 +76,7 @@ describe('Feature: mcp-catalog-consolidation, Property 6: CUDA version filtering
                     );
                 }
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 });
@@ -107,7 +108,7 @@ describe('Feature: mcp-catalog-consolidation, Property 7: Tag-based search filte
                     );
                 }
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -121,7 +122,7 @@ describe('Feature: mcp-catalog-consolidation, Property 7: Tag-based search filte
                 // Nonsense queries should return empty or very few results
                 assert.ok(results.length <= 20, 'should respect limit');
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -181,7 +182,7 @@ describe('Feature: mcp-catalog-consolidation, Property 8: Combined VRAM + search
                     assert.ok(hasCompatible, `${instanceName}: must have compatible CUDA version`);
                 }
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 });

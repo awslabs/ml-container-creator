@@ -22,12 +22,7 @@ import {
     resolveBaseImage,
     staticResolver
 } from '../../servers/base-image-picker/index.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Shared arbitrary generators ──────────────────────────────────────────────
 
@@ -51,7 +46,7 @@ describe('Base Image Picker Server Property-Based Tests', () => {
     // Property 1: Catalog results are sorted by created date descending
     describe('Property 1: Catalog results sorted by created date descending', () => {
         it('for any supported framework, fetchImages() returns images sorted by created date descending', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbSupportedFramework,
@@ -67,14 +62,14 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Property 2: Limit parameter caps result size
     describe('Property 2: Limit parameter caps result size', () => {
         it('for any supported framework and positive limit, result length equals min(limit, catalog_size)', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbSupportedFramework,
@@ -88,14 +83,14 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                         `Expected ${expected} images for framework "${framework}" with limit ${limit}, got ${limitedResult.images.length}`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Property 3: Default image equals first result
     describe('Property 3: Default image equals first result', () => {
         it('for any supported framework, defaultImage equals first image or null if empty', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbSupportedFramework,
@@ -111,14 +106,14 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Property 4: Metadata and choices correspond 1:1
     describe('Property 4: Metadata and choices correspond 1:1', () => {
         it('for any MCP resolution, metadata.baseImage and choices.baseImage correspond 1:1', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbSupportedFramework,
@@ -141,14 +136,14 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Property 5: Unknown modelServer returns empty results
     describe('Property 5: Unknown modelServer returns empty results', () => {
         it('for any string not in the transformer catalog, resolving returns empty choices and null value', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbUnknownModelServer,
@@ -164,14 +159,14 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                         `Expected null value for unknown modelServer "${unknownServer}"`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Property 6: Search criteria filters Python slim results correctly
     describe('Property 6: Search criteria filters Python slim results correctly', () => {
         it('for any non-empty search string, every returned entry contains the search string in tag or python_version', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbSearchCriteria.filter(s => s.trim().length > 0),
@@ -193,14 +188,14 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Property 7: Empty search criteria returns full Python slim catalog
     describe('Property 7: Empty search criteria returns full Python slim catalog', () => {
         it('for any empty/whitespace search string, result equals full catalog up to limit', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbEmptySearch = fc.oneof(
                 fc.constant(''),
@@ -225,14 +220,14 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                         'Empty search criteria should return same results as no search criteria');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Property 8: ImageEntry schema validation
     describe('Property 8: ImageEntry schema validation', () => {
         it('every ImageEntry in both catalogs has all required fields and valid formats', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const requiredFields = ['image', 'tag', 'architecture', 'created', 'labels', 'registry', 'repository'];
             const dockerRefPattern = /^[a-zA-Z0-9._\-/:]+:[a-zA-Z0-9._\-]+$/; // eslint-disable-line no-useless-escape
@@ -284,14 +279,14 @@ describe('Base Image Picker Server Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Property 9: ResolverRegistry routes to registered resolver
     describe('Property 9: ResolverRegistry routes to registered resolver', () => {
         it('registered frameworks return their resolver; unregistered return default', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             // Create a fresh registry with a known resolver and default
             const testResolver = new StaticCatalogResolver(TRANSFORMER_IMAGE_CATALOG, PYTHON_SLIM_CATALOG);
@@ -310,7 +305,7 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                         `Registered framework "${framework}" should return the registered resolver`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
 
             // Unregistered frameworks should return default
             fc.assert(fc.property(
@@ -321,7 +316,7 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                         `Unregistered framework "${unknownFramework}" should return the default resolver`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

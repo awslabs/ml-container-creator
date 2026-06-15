@@ -19,11 +19,10 @@ import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import { createRequire } from 'node:module';
 import { parseDatasetArg, validateDatasetFormat } from '../../src/lib/tune-dataset-validator.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const require = createRequire(import.meta.url);
 const catalog = require('../../config/tune-catalog.json');
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
 
 // ── Generators ───────────────────────────────────────────────────────────────
 

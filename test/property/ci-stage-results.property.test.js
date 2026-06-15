@@ -21,11 +21,7 @@ import {
     STAGE_ORDER,
     ALWAYS_RUN_STAGES
 } from '../../src/lib/ci-stage-helpers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -145,7 +141,7 @@ describe('Feature: ci-integration-harness, Property 7: Failure-skip with teardow
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('teardown stage always executes regardless of which stage fails', function () {
@@ -164,7 +160,7 @@ describe('Feature: ci-integration-harness, Property 7: Failure-skip with teardow
                 assert.notStrictEqual(stageResults.teardown.status, 'skip',
                     `Teardown should not be skipped when '${failedStage}' fails`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('the failed stage itself retains its fail status', function () {
@@ -181,7 +177,7 @@ describe('Feature: ci-integration-harness, Property 7: Failure-skip with teardow
                 assert.strictEqual(stageResults[failedStage].status, 'fail',
                     `Failed stage '${failedStage}' should retain status=fail`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
 
@@ -207,7 +203,7 @@ describe('Feature: ci-integration-harness, Property 12: Stage result structure c
                 assert.strictEqual(Object.keys(stageResults).length, 7,
                     `stageResults should have exactly 7 entries, got ${Object.keys(stageResults).length}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('stageResults with one failure has exactly 7 valid entries', function () {
@@ -240,7 +236,7 @@ describe('Feature: ci-integration-harness, Property 12: Stage result structure c
                         `Stage '${stage}' durationSeconds should be non-negative number`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
 
@@ -265,7 +261,7 @@ describe('Feature: ci-integration-harness, Property 13: testStatus reflects firs
                 assert.strictEqual(testStatus, 'pass',
                     `testStatus should be 'pass' when all stages pass, got '${testStatus}'`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('testStatus reflects the first failing stage', function () {
@@ -284,7 +280,7 @@ describe('Feature: ci-integration-harness, Property 13: testStatus reflects firs
                 assert.strictEqual(testStatus, `fail-${failedStage}`,
                     `testStatus should be 'fail-${failedStage}', got '${testStatus}'`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('testStatus reflects the FIRST failing stage when multiple could fail', function () {
@@ -322,6 +318,6 @@ describe('Feature: ci-integration-harness, Property 13: testStatus reflects firs
                         'testStatus should reflect teardown as first failure');
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

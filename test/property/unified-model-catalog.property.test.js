@@ -16,12 +16,13 @@ import assert from 'assert';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CATALOGS_DIR = resolve(__dirname, '../../servers/lib/catalogs');
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -54,7 +55,7 @@ describe('Feature: mcp-catalog-consolidation, Property 2: Unified catalog schema
                     );
                 }
             ),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -72,7 +73,7 @@ describe('Feature: mcp-catalog-consolidation, Property 2: Unified catalog schema
                     );
                 }
             ),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -94,7 +95,7 @@ describe('Feature: mcp-catalog-consolidation, Property 2: Unified catalog schema
                     );
                 }
             ),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 });
@@ -145,7 +146,7 @@ describe('Feature: mcp-catalog-consolidation, Property 1: Unified catalog field 
                     if (source.architecture) assert.strictEqual(unified.architecture, source.architecture);
                 }
             ),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -173,7 +174,7 @@ describe('Feature: mcp-catalog-consolidation, Property 1: Unified catalog field 
                     if (source.architecture) assert.strictEqual(unified.architecture, source.architecture);
                 }
             ),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -222,7 +223,7 @@ describe('Feature: mcp-catalog-consolidation, Property 1: Unified catalog field 
                     }
                 }
             ),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 });

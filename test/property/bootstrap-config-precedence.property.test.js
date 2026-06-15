@@ -24,9 +24,10 @@ import os from 'node:os';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
 import ConfigManager from '../../src/lib/config-manager.js';
 import { createMockGenerator, createMockGeneratorWithOptions, cleanupEnvVars } from '../helpers/mock-generator.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 60000,
     verbose: false
 };
@@ -131,7 +132,7 @@ describe('Feature: bootstrap-shared-infra, Property 5: ConfigManager bootstrap p
      * should appear in the final config instead of generator defaults.
      */
     it('bootstrap values are used over generator defaults when no higher source provides them', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -164,7 +165,7 @@ describe('Feature: bootstrap-shared-infra, Property 5: ConfigManager bootstrap p
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -174,7 +175,7 @@ describe('Feature: bootstrap-shared-infra, Property 5: ConfigManager bootstrap p
      * the CLI option (higher precedence) should win.
      */
     it('CLI options override bootstrap values', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -212,7 +213,7 @@ describe('Feature: bootstrap-shared-infra, Property 5: ConfigManager bootstrap p
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -222,7 +223,7 @@ describe('Feature: bootstrap-shared-infra, Property 5: ConfigManager bootstrap p
      * provides, the environment variable (higher precedence) should win.
      */
     it('environment variables override bootstrap values', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -261,6 +262,6 @@ describe('Feature: bootstrap-shared-infra, Property 5: ConfigManager bootstrap p
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

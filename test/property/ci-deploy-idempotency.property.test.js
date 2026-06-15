@@ -24,15 +24,11 @@ import assert from 'assert';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference.ejs');
 const templateContent = readFileSync(TEMPLATE_PATH, 'utf-8');
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -128,7 +124,7 @@ describe('Feature: ci-benchmark-pipeline, Property P6: Deploy Idempotency', () =
                     `${endpointName} with InService IC ${icName} in CI mode`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -155,7 +151,7 @@ describe('Feature: ci-benchmark-pipeline, Property P6: Deploy Idempotency', () =
                     `in state '${endpointStatus}', but it was skipped`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -182,7 +178,7 @@ describe('Feature: ci-benchmark-pipeline, Property P6: Deploy Idempotency', () =
                     `${endpointName} with IC ${icName} in state '${icStatus}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -205,7 +201,7 @@ describe('Feature: ci-benchmark-pipeline, Property P6: Deploy Idempotency', () =
                     `Expected cleanup for endpoint ${endpointName} in state '${badState}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -228,7 +224,7 @@ describe('Feature: ci-benchmark-pipeline, Property P6: Deploy Idempotency', () =
                     `Unexpected cleanup for endpoint ${endpointName} in state '${state}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**

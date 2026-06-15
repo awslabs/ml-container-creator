@@ -16,12 +16,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { formatImageChoices } from '../../src/lib/prompts/index.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // Arbitrary generator for a valid ImageEntry
 const arbImageEntry = fc.record({
@@ -50,7 +45,7 @@ const arbImageEntry = fc.record({
 
 describe('Property 10: formatImageChoices includes all expected metadata', () => {
     it('for any ImageEntry and isTransformer=true, formatted string contains repository, tag, architecture, cuda_version, python_version, and date', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbImageEntry,
@@ -75,11 +70,11 @@ describe('Property 10: formatImageChoices includes all expected metadata', () =>
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('for any ImageEntry and isTransformer=false, formatted string contains repository, tag, architecture, python_version, date but NOT cuda_version column', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbImageEntry,
@@ -102,7 +97,7 @@ describe('Property 10: formatImageChoices includes all expected metadata', () =>
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('for entries with missing labels, uses "-" as fallback', () => {

@@ -25,10 +25,11 @@ import {
     isSourceSupported,
     getEnvVarName
 } from '../input-parsing-and-generation/property-test-utils.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 // Fast property test configuration (can run 100 iterations now!)
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 10,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000, // 30 seconds total for all iterations
     verbose: false
 };
@@ -39,8 +40,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
     before(() => {
         console.log('\n🚀 Starting ConfigManager Property Tests (Refactored)');
         console.log('📋 Testing: Universal correctness properties using ConfigManager directly');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property`);
-        console.log(`⏱️  Timeout: ${FAST_PROPERTY_CONFIG.timeout}ms per test`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property`);
+        console.log(`⏱️  Timeout: ${PROPERTY_CONFIG.timeout}ms per test`);
         console.log('⚡ Speed: ~1ms per iteration (500x faster than full generator)\n');
     });
 
@@ -52,7 +53,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
 
     describe('Property 1: Parameter Source Enforcement', () => {
         it('should ignore values from unsupported sources according to matrix', async function() {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
             
             console.log('\n  🧪 Property 1: Parameter Source Enforcement');
             console.log('  📝 For any parameter and configuration source, if the matrix marks that source as unsupported, ConfigManager should ignore values from that source');
@@ -89,8 +90,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     return isIgnored;
                 }
             ), { 
-                numRuns: FAST_PROPERTY_CONFIG.numRuns, 
-                verbose: FAST_PROPERTY_CONFIG.verbose 
+                numRuns: PROPERTY_CONFIG.numRuns, 
+                verbose: PROPERTY_CONFIG.verbose 
             });
             
             console.log('  ✅ Property 1 validated: Parameter source enforcement working correctly');
@@ -99,7 +100,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
 
     describe('Property 2: Environment Variable Mapping', () => {
         it('should correctly map supported environment variables to internal parameters', async function() {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
             
             console.log('\n  🧪 Property 2: Environment Variable Mapping');
             console.log('  📝 For any supported environment variable, ConfigManager should correctly map it to the corresponding internal parameter');
@@ -139,8 +140,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     return true;
                 }
             ), { 
-                numRuns: FAST_PROPERTY_CONFIG.numRuns, 
-                verbose: FAST_PROPERTY_CONFIG.verbose 
+                numRuns: PROPERTY_CONFIG.numRuns, 
+                verbose: PROPERTY_CONFIG.verbose 
             });
             
             console.log('  ✅ Property 2 validated: Environment variable mapping working correctly');
@@ -149,7 +150,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
 
     describe('Property 3: CLI Option Name Consistency', () => {
         it('should accept exact CLI option names and map to correct internal parameters', async function() {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
             
             console.log('\n  🧪 Property 3: CLI Option Name Consistency');
             console.log('  📝 For any CLI option defined in the parameter matrix, ConfigManager should accept that exact option name and map it correctly');
@@ -207,8 +208,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     return true;
                 }
             ), { 
-                numRuns: FAST_PROPERTY_CONFIG.numRuns, 
-                verbose: FAST_PROPERTY_CONFIG.verbose 
+                numRuns: PROPERTY_CONFIG.numRuns, 
+                verbose: PROPERTY_CONFIG.verbose 
             });
             
             console.log('  ✅ Property 3 validated: CLI option name consistency working correctly');
@@ -217,7 +218,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
 
     describe('Property 4: Package.json Filtering', () => {
         it('should ignore unsupported parameters in package.json', async function() {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
             
             console.log('\n  🧪 Property 4: Package.json Filtering');
             console.log('  📝 For any parameter not supported in package.json, ConfigManager should ignore it');
@@ -246,8 +247,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     return true;
                 }
             ), { 
-                numRuns: FAST_PROPERTY_CONFIG.numRuns, 
-                verbose: FAST_PROPERTY_CONFIG.verbose 
+                numRuns: PROPERTY_CONFIG.numRuns, 
+                verbose: PROPERTY_CONFIG.verbose 
             });
             
             console.log('  ✅ Property 4 validated: Package.json filtering working correctly');
@@ -256,7 +257,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
 
     describe('Property 5: Default Value Application', () => {
         it('should apply correct default values when no value provided', async function() {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
             
             console.log('\n  🧪 Property 5: Default Value Application');
             console.log('  📝 For any parameter with a defined default, ConfigManager should apply it when no value is provided');
@@ -282,8 +283,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     return true;
                 }
             ), { 
-                numRuns: FAST_PROPERTY_CONFIG.numRuns, 
-                verbose: FAST_PROPERTY_CONFIG.verbose 
+                numRuns: PROPERTY_CONFIG.numRuns, 
+                verbose: PROPERTY_CONFIG.verbose 
             });
             
             console.log('  ✅ Property 5 validated: Default value application working correctly');
@@ -292,7 +293,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
 
     describe('Property 6: Parameter Precedence Order', () => {
         it('should use value from highest precedence source', async function() {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
             
             console.log('\n  🧪 Property 6: Parameter Precedence Order');
             console.log('  📝 When same parameter provided through multiple sources, ConfigManager should use highest precedence value');
@@ -322,8 +323,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     return true;
                 }
             ), { 
-                numRuns: FAST_PROPERTY_CONFIG.numRuns, 
-                verbose: FAST_PROPERTY_CONFIG.verbose 
+                numRuns: PROPERTY_CONFIG.numRuns, 
+                verbose: PROPERTY_CONFIG.verbose 
             });
             
             console.log('  ✅ Property 6 validated: Parameter precedence order working correctly');
@@ -332,7 +333,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
 
     describe('Property 7: Non-Promptable Parameter Handling', () => {
         it('should handle non-promptable parameters without prompting', async function() {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
             
             console.log('\n  🧪 Property 7: Non-Promptable Parameter Handling');
             console.log('  📝 For non-promptable parameters, ConfigManager should use default or generate value without prompting');
@@ -357,8 +358,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     return true;
                 }
             ), { 
-                numRuns: FAST_PROPERTY_CONFIG.numRuns, 
-                verbose: FAST_PROPERTY_CONFIG.verbose 
+                numRuns: PROPERTY_CONFIG.numRuns, 
+                verbose: PROPERTY_CONFIG.verbose 
             });
             
             console.log('  ✅ Property 7 validated: Non-promptable parameter handling working correctly');
@@ -367,7 +368,7 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
 
     describe('Property 8: Required Parameter Validation', () => {
         it('should validate missing required parameters when skip-prompts is true', async function() {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
             
             console.log('\n  🧪 Property 8: Required Parameter Validation');
             console.log('  📝 For required parameters, ConfigManager should validate they are present when prompts are skipped');
@@ -396,8 +397,8 @@ describe('ConfigManager Property-Based Tests (Refactored)', () => {
                     return true;
                 }
             ), { 
-                numRuns: Math.min(50, FAST_PROPERTY_CONFIG.numRuns), 
-                verbose: FAST_PROPERTY_CONFIG.verbose 
+                numRuns: Math.min(50, PROPERTY_CONFIG.numRuns), 
+                verbose: PROPERTY_CONFIG.verbose 
             });
             
             console.log('  ✅ Property 8 validated: Required parameter validation working correctly');

@@ -17,12 +17,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import DeploymentRegistry from '../../src/lib/deployment-registry.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -117,7 +112,7 @@ describe('Feature: deployment-registry, Property 10: Export format structure and
      * in the output should have sensitive fields stripped.
      */
     it('exportEntries(null) returns correct format with only success entries and stripped sensitive fields', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         let iterCount = 0;
 
@@ -192,7 +187,7 @@ describe('Feature: deployment-registry, Property 10: Export format structure and
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -217,7 +212,7 @@ describe('Feature: deployment-registry, Property 11: Export single entry by ID',
      * exactly one entry matching that ID (with sensitive fields stripped).
      */
     it('exportEntries(id) returns exactly one entry matching that ID with sensitive fields stripped', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         let iterCount = 0;
 
@@ -287,6 +282,6 @@ describe('Feature: deployment-registry, Property 11: Export single entry by ID',
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

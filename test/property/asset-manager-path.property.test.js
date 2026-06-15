@@ -19,12 +19,7 @@ import assert from 'node:assert';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import AssetManager from '../../src/lib/asset-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -41,7 +36,7 @@ describe('Feature: deployment-registry, Property 3: Path derivation from profile
      * **Validates: Requirements 1.1, 8.7**
      */
     it('manifest path is {configDir}/manifests/{profileName}.json', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileName,
@@ -58,14 +53,14 @@ describe('Feature: deployment-registry, Property 3: Path derivation from profile
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
      * **Validates: Requirements 1.1, 8.7**
      */
     it('default configDir is ~/.ml-container-creator', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileName,
@@ -81,6 +76,6 @@ describe('Feature: deployment-registry, Property 3: Path derivation from profile
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

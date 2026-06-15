@@ -22,12 +22,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -127,7 +122,7 @@ describe('Feature: bootstrap-shared-infra, Property 2: Profile isolation — set
      * Validates: Requirements 8.5, 8.6
      */
     it('setting a new profile preserves all existing profiles, updates activeProfile, and has correct profile count', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbBootstrapConfig,
@@ -192,6 +187,6 @@ describe('Feature: bootstrap-shared-infra, Property 2: Profile isolation — set
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

@@ -23,12 +23,7 @@ import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
 import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -84,7 +79,7 @@ describe('Non-Diffusors Configs Exclude Diffusors Files Property-Based Tests', (
 
         console.log('\n🚀 Starting Non-Diffusors Exclude Diffusors Files Property Tests');
         console.log('📋 Testing: Non-diffusors configs exclude diffusors template files');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property`);
         console.log(`📦 Non-diffusors configs: ${nonDiffusorsConfigs.length} of ${allConfigs.length} total\n`);
     });
 
@@ -100,7 +95,7 @@ describe('Non-Diffusors Configs Exclude Diffusors Files Property-Based Tests', (
     describe('Property 5: Non-Diffusors Configs Exclude Diffusors Files', () => {
 
         it('all non-diffusors configs resolve to a non-diffusors architecture', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...nonDiffusorsConfigs),
@@ -114,11 +109,11 @@ describe('Non-Diffusors Configs Exclude Diffusors Files Property-Based Tests', (
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('ignorePatterns includes **/diffusors/** for any non-diffusors deployment config', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...nonDiffusorsConfigs),
@@ -134,11 +129,11 @@ describe('Non-Diffusors Configs Exclude Diffusors Files Property-Based Tests', (
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('ignorePatterns includes **/diffusors/** for any non-diffusors architecture', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...NON_DIFFUSORS_ARCHITECTURES),
@@ -153,7 +148,7 @@ describe('Non-Diffusors Configs Exclude Diffusors Files Property-Based Tests', (
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('diffusors architecture also has **/diffusors/** in ignorePatterns (unconditional exclusion)', () => {

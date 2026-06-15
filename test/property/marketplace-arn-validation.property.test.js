@@ -20,8 +20,9 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import CrossCuttingChecker from '../../src/lib/cross-cutting-checker.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, seed: 42, verbose: false };
+const PROPERTY_CONFIG = { numRuns: NUM_RUNS, timeout: 30000, seed: 42, verbose: false };
 
 const MOCHA_TIMEOUT = PROPERTY_CONFIG.timeout + 5000;
 

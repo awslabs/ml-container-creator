@@ -19,6 +19,7 @@ import { describe, it } from 'mocha';
 import { strict as assert } from 'node:assert';
 import fc from 'fast-check';
 import { runGenerator } from '../helpers/run-generator.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 // ── Arbitraries ──────────────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ describe('Feature: marketplace-model-packages, Property 1: JumpStart prefix reje
                     `Should contain migration message for: ${prefixedName}`
                 );
             }),
-            { numRuns: 10, seed: 42 }
+            { numRuns: NUM_RUNS, seed: 42 }
         );
     });
 
@@ -89,7 +90,7 @@ describe('Feature: marketplace-model-packages, Property 1: JumpStart prefix reje
                     `Should contain migration message for: ${prefixedName}`
                 );
             }),
-            { numRuns: 10, seed: 42 }
+            { numRuns: NUM_RUNS, seed: 42 }
         );
     });
 });

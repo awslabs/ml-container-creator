@@ -16,9 +16,10 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import PromptRunner from '../../src/lib/prompt-runner.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -53,7 +54,7 @@ describe('Feature: mcp-catalog-consolidation, Property 5: Architecture-based heu
                     `Architecture "${architecture}" should default to ${EXPECTED_DEFAULTS[architecture]}, got ${result}`
                 );
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -70,7 +71,7 @@ describe('Feature: mcp-catalog-consolidation, Property 5: Architecture-based heu
                     `Unknown architecture "${architecture}" should default to ml.g5.xlarge, got ${result}`
                 );
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -85,7 +86,7 @@ describe('Feature: mcp-catalog-consolidation, Property 5: Architecture-based heu
                     `Transformer architecture should get GPU instance, got ${result}`
                 );
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -100,7 +101,7 @@ describe('Feature: mcp-catalog-consolidation, Property 5: Architecture-based heu
                     `Predictor architecture should get CPU instance, got ${result}`
                 );
             }),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 });

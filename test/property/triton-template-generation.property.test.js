@@ -17,17 +17,12 @@ import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.j
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __testFilename = fileURLToPath(import.meta.url);
 const __testDir = dirname(__testFilename);
 const tritonBackendsCatalogPath = resolve(__testDir, '../../servers/lib/catalogs/triton-backends.json');
 const tritonBackends = JSON.parse(readFileSync(tritonBackendsCatalogPath, 'utf8'));
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -49,7 +44,7 @@ describe('Triton Template Generation Property-Based Tests', () => {
     before(() => {
         console.log('\n🚀 Starting Triton Template Generation Property Tests');
         console.log('📋 Testing: Model repository structure for Triton configs');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property`);
         console.log(`📦 Triton configs: ${TRITON_CONFIGS.length}\n`);
     });
 
@@ -66,7 +61,7 @@ describe('Triton Template Generation Property-Based Tests', () => {
     describe('Property 8: Triton Projects Contain Model Repository Structure', () => {
 
         it('all Triton configs decompose to triton architecture', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...TRITON_CONFIGS),
@@ -76,11 +71,11 @@ describe('Triton Template Generation Property-Based Tests', () => {
                         `Expected architecture 'triton' for ${deploymentConfig}, got '${parts.architecture}'`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('expected model repository paths are generated for any Triton config and model name', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...TRITON_CONFIGS),
@@ -109,11 +104,11 @@ describe('Triton Template Generation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('config.pbtxt references the correct backend for any Triton config', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...TRITON_CONFIGS),
@@ -136,11 +131,11 @@ describe('Triton Template Generation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('triton-python backend requires model.py in version directory', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...SAMPLE_MODEL_NAMES),
@@ -160,11 +155,11 @@ describe('Triton Template Generation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('non-python Triton backends do not include model.py in expected output', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const nonPythonTritonConfigs = TRITON_CONFIGS.filter(dc => dc !== 'triton-python');
 
@@ -180,7 +175,7 @@ describe('Triton Template Generation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

@@ -17,15 +17,10 @@ import assert from 'assert';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +61,7 @@ describe('Manifest Validation Property-Based Tests', () => {
          * name and version fields in package.json.
          */
         it('for every server, manifest.json name and version match package.json', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const serverDirs = getServerDirs();
             assert.ok(serverDirs.length > 0, 'Should find at least one server directory');
@@ -102,7 +97,7 @@ describe('Manifest Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -115,7 +110,7 @@ describe('Manifest Validation Property-Based Tests', () => {
          * relative to the server directory, and assert the file exists.
          */
         it('for every server, all manifest catalog paths resolve to existing files', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const serverDirs = getServerDirs();
             assert.ok(serverDirs.length > 0, 'Should find at least one server directory');
@@ -173,7 +168,7 @@ describe('Manifest Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

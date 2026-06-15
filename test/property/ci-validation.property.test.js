@@ -18,12 +18,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { validateServer } from '../../scripts/validate-servers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -135,11 +130,10 @@ describe('CI Validation Property-Based Tests', () => {
          * Validates: Requirements 8.2, 8.4, 8.6, 8.7
          */
 
-
         // ── Test 1: Bad manifest schema ──────────────────────────────────
 
         it('detects manifest schema violations for randomly generated bad manifests', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbManifestViolation,
@@ -200,13 +194,13 @@ describe('CI Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 2: Missing catalogs ─────────────────────────────────────
 
         it('detects missing catalog files referenced in manifest', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbCatalogName = fc.stringMatching(/^[a-z][a-z0-9-]{1,15}$/)
                 .filter(s => s.length >= 2);
@@ -248,13 +242,13 @@ describe('CI Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 3: Mismatched name/version ──────────────────────────────
 
         it('detects mismatched name or version between manifest and package.json', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbName,
@@ -310,13 +304,13 @@ describe('CI Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 4: Static mode with empty catalogs ──────────────────────
 
         it('detects static mode with empty catalogs', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbName,
@@ -351,13 +345,13 @@ describe('CI Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Test 5: Valid server passes ──────────────────────────────────
 
         it('valid server directory passes validation with no errors', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbName,
@@ -392,7 +386,7 @@ describe('CI Validation Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

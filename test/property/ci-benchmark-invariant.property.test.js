@@ -23,11 +23,7 @@ import {
     applyRecordDefaults,
     computeConfigId
 } from '../../src/lib/ci-register-helpers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -210,7 +206,7 @@ describe('Feature: ci-benchmark-pipeline, Property P4: Benchmark Stage Preserves
                 assert.strictEqual(updatedRecord.lastBenchmarkStatus, benchmarkStatus);
                 assert.strictEqual(updatedRecord.lastBenchmarkTimestamp, timestamp);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -240,7 +236,7 @@ describe('Feature: ci-benchmark-pipeline, Property P4: Benchmark Stage Preserves
                     `after benchmark with status '${benchmarkStatus}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -266,7 +262,7 @@ describe('Feature: ci-benchmark-pipeline, Property P4: Benchmark Stage Preserves
                     `Expected exactly 3 benchmark keys, got: ${JSON.stringify(keys)}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
 
@@ -324,7 +320,7 @@ describe('Feature: ci-benchmark-pipeline, Property P4: Backward Compatibility - 
                     `lastBenchmarkStatus should remain absent, got: ${result.lastBenchmarkStatus}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -354,7 +350,7 @@ describe('Feature: ci-benchmark-pipeline, Property P4: Backward Compatibility - 
                     `Default concurrency levels should be [1, 4, 8], got: ${JSON.stringify(result.benchmarkConcurrencyLevels)}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -386,6 +382,6 @@ describe('Feature: ci-benchmark-pipeline, Property P4: Backward Compatibility - 
                 assert.strictEqual(existingRecord.baseImage, originalBaseImage);
                 assert.strictEqual(existingRecord.createdAt, originalCreatedAt);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

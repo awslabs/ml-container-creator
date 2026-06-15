@@ -19,12 +19,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import SecretsCommandHandler from '../../src/lib/secrets-command-handler.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,7 +60,7 @@ describe('Feature: secrets-manager-integration, Property 6: Naming Convention En
      * For any valid type and label, the constructed name always starts with 'mlcc/'.
      */
     it('constructed name always starts with mlcc/ prefix', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbType,
@@ -77,7 +72,7 @@ describe('Feature: secrets-manager-integration, Property 6: Naming Convention En
                 assert.ok(result.startsWith('mlcc/'),
                     `Expected name to start with "mlcc/" but got "${result}"`);
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -87,7 +82,7 @@ describe('Feature: secrets-manager-integration, Property 6: Naming Convention En
      * the exact pattern mlcc/<type>/<label>.
      */
     it('constructed name matches pattern mlcc/<type>/<label> exactly', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbType,
@@ -100,7 +95,7 @@ describe('Feature: secrets-manager-integration, Property 6: Naming Convention En
                 assert.strictEqual(result, expected,
                     `Expected "${expected}" but got "${result}"`);
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -110,7 +105,7 @@ describe('Feature: secrets-manager-integration, Property 6: Naming Convention En
      * back from the constructed name by splitting on '/'.
      */
     it('type and label can be extracted back from the constructed name', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbType,
@@ -130,6 +125,6 @@ describe('Feature: secrets-manager-integration, Property 6: Naming Convention En
                 assert.strictEqual(parts[2], label,
                     `Third part should be label "${label}" but got "${parts[2]}"`);
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

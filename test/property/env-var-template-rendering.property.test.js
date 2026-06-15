@@ -17,8 +17,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import ejs from 'ejs';
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── EJS template snippets (extracted from actual templates) ──────────────────
 
@@ -170,7 +169,7 @@ describe('Feature: registry-to-server-migration, Property 5: Environment variabl
                     assert.strictEqual(trimmed, '',
                         `Dockerfile output must be empty for empty orderedEnvVars, got: "${trimmed}"`);
                 }
-            ), { numRuns: 10, verbose: PROPERTY_CONFIG.verbose });
+            ), PROPERTY_CONFIG);
         });
 
         it('when orderedEnvVars is empty, do/config renders no export lines and no header', function () {
@@ -184,7 +183,7 @@ describe('Feature: registry-to-server-migration, Property 5: Environment variabl
                     assert.strictEqual(trimmed, '',
                         `do/config output must be empty for empty orderedEnvVars, got: "${trimmed}"`);
                 }
-            ), { numRuns: 10, verbose: PROPERTY_CONFIG.verbose });
+            ), PROPERTY_CONFIG);
         });
 
         it('when orderedEnvVars is undefined, neither template renders the env var section', function () {

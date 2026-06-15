@@ -26,11 +26,7 @@ import {
     hammingDistance,
     CONFIG_DIMENSIONS
 } from '../../src/lib/path-prover-brain.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -112,7 +108,7 @@ describe('Feature: ci-benchmark-pipeline, Property P7: Substitution Algorithm Co
                     );
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -138,7 +134,7 @@ describe('Feature: ci-benchmark-pipeline, Property P7: Substitution Algorithm Co
                     );
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -166,7 +162,7 @@ describe('Feature: ci-benchmark-pipeline, Property P7: Substitution Algorithm Co
                     );
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -214,7 +210,7 @@ describe('Feature: ci-benchmark-pipeline, Property P7: Substitution Algorithm Co
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -241,7 +237,7 @@ describe('Feature: ci-benchmark-pipeline, Property P7: Substitution Algorithm Co
                     );
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -276,7 +272,7 @@ describe('Feature: ci-benchmark-pipeline, Property P7: Substitution Algorithm Co
                     `Message should mention distance, got: '${result.message}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -300,6 +296,6 @@ describe('Feature: ci-benchmark-pipeline, Property P7: Substitution Algorithm Co
                     `Expected at most 3 substitutions, got ${result.substitutions.length}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

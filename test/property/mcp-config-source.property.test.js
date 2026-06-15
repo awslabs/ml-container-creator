@@ -20,12 +20,7 @@ import ConfigManager from '../../src/lib/config-manager.js';
 import { McpClient, DEFAULT_TOOL_NAME, DEFAULT_LIMIT } from '../../src/lib/mcp-client.js';
 import PromptRunner from '../../src/lib/prompt-runner.js';
 import { createMockGenerator } from '../helpers/mock-generator.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 /**
  * Helper: create a temp directory with a config/mcp.json
@@ -79,7 +74,7 @@ describe('MCP Config Source Property-Based Tests', () => {
     // Feature: mcp-config-source, Property 3: Every Parameter Has a Valid Value Space Classification
     describe('Property 3: Every Parameter Has a Valid Value Space Classification', () => {
         it('every parameter in the matrix SHALL have a valueSpace of "bounded" or "unbounded"', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const paramNames = Object.keys(parameterMatrix);
 
@@ -98,13 +93,13 @@ describe('MCP Config Source Property-Based Tests', () => {
                     return true;
                 }
             ), {
-                numRuns: FAST_PROPERTY_CONFIG.numRuns,
-                verbose: FAST_PROPERTY_CONFIG.verbose
+                numRuns: PROPERTY_CONFIG.numRuns,
+                verbose: PROPERTY_CONFIG.verbose
             });
         });
 
         it('mcp flag is consistent with valueSpace classification', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const paramNames = Object.keys(parameterMatrix);
 
@@ -128,8 +123,8 @@ describe('MCP Config Source Property-Based Tests', () => {
                     return true;
                 }
             ), {
-                numRuns: FAST_PROPERTY_CONFIG.numRuns,
-                verbose: FAST_PROPERTY_CONFIG.verbose
+                numRuns: PROPERTY_CONFIG.numRuns,
+                verbose: PROPERTY_CONFIG.verbose
             });
         });
     });
@@ -137,7 +132,7 @@ describe('MCP Config Source Property-Based Tests', () => {
     // Feature: mcp-config-source, Property 16: MCP Response Parsing Extracts Values Correctly
     describe('Property 16: MCP Response Parsing Extracts Values Correctly', () => {
         it('for any valid MCP tool response containing values and/or choices, McpClient SHALL extract them without loss or corruption', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbValues = fc.dictionary(
                 fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9]{0,19}$/),
@@ -174,11 +169,11 @@ describe('MCP Config Source Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('responses with only values or only choices are parsed correctly', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.boolean(),
@@ -204,14 +199,14 @@ describe('MCP Config Source Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 9: Server Config Defaults Apply Correctly
     describe('Property 9: Server Config Defaults Apply Correctly', () => {
         it('for any server config that omits toolName, the system SHALL use "get_ml_config" as default', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbServerConfig = fc.record({
                 command: fc.stringMatching(/^[a-z][a-z0-9-]{0,19}$/),
@@ -227,11 +222,11 @@ describe('MCP Config Source Property-Based Tests', () => {
                 const client = new McpClient(serverConfig, {});
                 assert.strictEqual(client.toolName, DEFAULT_TOOL_NAME);
                 return true;
-            }), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            }), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('for any server config that omits limit, the system SHALL use the global default limit of 10', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbServerConfig = fc.record({
                 command: fc.stringMatching(/^[a-z][a-z0-9-]{0,19}$/),
@@ -242,11 +237,11 @@ describe('MCP Config Source Property-Based Tests', () => {
                 const client = new McpClient(serverConfig, {});
                 assert.strictEqual(client.limit, DEFAULT_LIMIT);
                 return true;
-            }), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            }), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('for any server config that provides toolName and limit, those values SHALL be used', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbServerConfig = fc.record({
                 command: fc.stringMatching(/^[a-z][a-z0-9-]{0,19}$/),
@@ -260,7 +255,7 @@ describe('MCP Config Source Property-Based Tests', () => {
                 assert.strictEqual(client.toolName, serverConfig.toolName);
                 assert.strictEqual(client.limit, serverConfig.limit);
                 return true;
-            }), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            }), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -273,7 +268,7 @@ describe('MCP Config Source Property-Based Tests', () => {
         });
 
         it('higher-precedence sources (env vars) SHALL override MCP values for unbounded parameters', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbInstanceType,
@@ -316,11 +311,11 @@ describe('MCP Config Source Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('MCP values SHALL override lower-precedence sources (config files, defaults)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbInstanceType,
@@ -345,14 +340,14 @@ describe('MCP Config Source Property-Based Tests', () => {
                     assert.strictEqual(cm.config.instanceType, mcpValue);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 2: Bounded Parameters Are Immune to MCP
     describe('Property 2: Bounded Parameters Are Immune to MCP', () => {
         it('for any bounded parameter, MCP values SHALL be discarded and the parameter unchanged', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const boundedParams = Object.entries(parameterMatrix)
                 .filter(([_, config]) => config.valueSpace === 'bounded')
@@ -380,14 +375,14 @@ describe('MCP Config Source Property-Based Tests', () => {
                     assert.strictEqual(cm.config[paramName], valueBefore);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 4: MCP Queries Only Unbounded Parameters
     describe('Property 4: MCP Queries Only Unbounded Parameters', () => {
         it('McpClient._getUnboundedParameterNames SHALL return only unbounded parameters', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             // This property is deterministic but we test it with arbitrary subsets
             const allParams = Object.keys(parameterMatrix);
@@ -415,14 +410,14 @@ describe('MCP Config Source Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 6: MCP Values Undergo Validation and Parsing
     describe('Property 6: MCP Values Undergo Validation and Parsing', () => {
         it('valid MCP values SHALL pass validation and be parsed correctly', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbInstanceType,
@@ -436,11 +431,11 @@ describe('MCP Config Source Property-Based Tests', () => {
                     assert.strictEqual(parsed, instanceType);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('invalid MCP values SHALL fail validation', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbInvalidInstanceType = fc.stringMatching(/^[a-z]{2,10}$/)
                 .filter(s => !s.startsWith('ml.'));
@@ -460,11 +455,11 @@ describe('MCP Config Source Property-Based Tests', () => {
                     assert.ok(threw, `Expected validation to fail for "${badValue}"`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('valid ARN values SHALL pass validation', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbRoleArn,
@@ -477,14 +472,14 @@ describe('MCP Config Source Property-Based Tests', () => {
                     assert.strictEqual(parsed, arn);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 7: Unknown Parameters From MCP Are Discarded
     describe('Property 7: Unknown Parameters From MCP Are Discarded', () => {
         it('parameters not in the matrix SHALL be discarded by _isSourceSupported', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const knownParams = new Set(Object.keys(parameterMatrix));
 
@@ -503,11 +498,11 @@ describe('MCP Config Source Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('merging unknown parameters SHALL not add them to config when filtered', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const knownParams = new Set(Object.keys(parameterMatrix));
 
@@ -541,14 +536,14 @@ describe('MCP Config Source Property-Based Tests', () => {
                     assert.strictEqual(cm.explicitConfig[unknownParam], undefined);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 8: MCP Response Truncation Respects Limit
     describe('Property 8: MCP Response Truncation Respects Limit', () => {
         it('choices lists exceeding the limit SHALL be truncated to exactly the limit', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.integer({ min: 1, max: 50 }),
@@ -569,11 +564,11 @@ describe('MCP Config Source Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('default limit of 10 SHALL apply when no per-server limit is set', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(arbInstanceType, { minLength: 11, maxLength: 30 }),
@@ -583,14 +578,14 @@ describe('MCP Config Source Property-Based Tests', () => {
                     assert.strictEqual(truncated.length, DEFAULT_LIMIT);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 10: Later MCP Servers Take Precedence
     describe('Property 10: Later MCP Servers Take Precedence', () => {
         it('for conflicting values from multiple servers, the later server SHALL win', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbInstanceType,
@@ -625,14 +620,14 @@ describe('MCP Config Source Property-Based Tests', () => {
                     assert.strictEqual(cm.mcpSources.instanceType.server, 'server-2');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 11: MCP Source Tracking Is Complete
     describe('Property 11: MCP Source Tracking Is Complete', () => {
         it('every MCP-resolved parameter SHALL appear in explicitConfig and getMcpSources()', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbInstanceType,
@@ -680,11 +675,10 @@ describe('MCP Config Source Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });
-
 
 // ============================================================================
 // MCP CLI Command Property Tests (Properties 12–15)
@@ -723,7 +717,7 @@ describe('MCP CLI Command Property-Based Tests', () => {
     // Feature: mcp-config-source, Property 12: mcp add Round-Trip
     describe('Property 12: mcp add Round-Trip', () => {
         it('for any valid server config, mcp add then mcp get SHALL return the same config', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbServerName = fc.stringMatching(/^[a-z][a-z0-9-]{0,14}$/);
             const arbCommand = fc.stringMatching(/^[a-z][a-z0-9-]{0,9}$/);
@@ -785,14 +779,14 @@ describe('MCP CLI Command Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 13: mcp add/remove Round-Trip Preserves Config
     describe('Property 13: mcp add/remove Round-Trip Preserves Config', () => {
         it('adding then removing a server SHALL preserve all non-MCP config keys', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbServerName = fc.stringMatching(/^[a-z][a-z0-9-]{0,14}$/);
             const arbExistingConfig = fc.dictionary(
@@ -843,14 +837,14 @@ describe('MCP CLI Command Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 14: mcp list Shows All Configured Servers
     describe('Property 14: mcp list Shows All Configured Servers', () => {
         it('for any N servers in mcpServers, mcp list SHALL include all N names', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbServerName = fc.stringMatching(/^[a-z][a-z0-9-]{0,14}$/);
             const arbServerNames = fc.uniqueArray(arbServerName, { minLength: 1, maxLength: 8 });
@@ -894,14 +888,14 @@ describe('MCP CLI Command Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: mcp-config-source, Property 15: mcp get Shows Full Server Configuration
     describe('Property 15: mcp get Shows Full Server Configuration', () => {
         it('for any configured server, mcp get SHALL display command, args, env, toolName, and limit', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbServerName = fc.stringMatching(/^[a-z][a-z0-9-]{0,14}$/);
             const arbCommand = fc.stringMatching(/^[a-z][a-z0-9-]{0,9}$/);
@@ -957,7 +951,7 @@ describe('MCP CLI Command Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -989,7 +983,7 @@ describe('MCP CLI Command Property-Based Tests', () => {
         }
 
         it('when MCP provides non-empty choices, prompt SHALL present MCP choices plus Custom option', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbMcpChoices = fc.array(arbInstanceType, { minLength: 1, maxLength: 10 });
 
@@ -1048,11 +1042,11 @@ describe('MCP CLI Command Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('when MCP is not configured or returns empty choices, prompt SHALL fall back to original choices', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbOriginalChoices = fc.array(
                 arbInstanceType,
@@ -1101,11 +1095,11 @@ describe('MCP CLI Command Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('when MCP errors (configManager has no mcpChoices), prompt SHALL fall back to original choices', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbOriginalChoices = fc.array(
                 arbInstanceType,
@@ -1156,7 +1150,7 @@ describe('MCP CLI Command Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

@@ -13,12 +13,7 @@ import fc from 'fast-check';
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import assert from 'node:assert';
 import RegistryCommandHandler from '../../src/lib/registry-command-handler.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -64,7 +59,7 @@ describe('Feature: deployment-registry, Property 17: Unknown subcommand handling
      * without throwing an unhandled exception.
      */
     it('unknown subcommands display error and help text without throwing', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const handler = new RegistryCommandHandler();
 
@@ -94,6 +89,6 @@ describe('Feature: deployment-registry, Property 17: Unknown subcommand handling
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

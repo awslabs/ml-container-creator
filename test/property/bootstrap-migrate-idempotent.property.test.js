@@ -23,14 +23,9 @@ import { join } from 'node:path';
 import os from 'node:os';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const STACK_NAME_PREFIX = 'mlcc-bootstrap';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -172,7 +167,7 @@ describe('Feature: multi-region-bootstrap, Property 5: Idempotent Migration', ()
      * "✅ All profiles already use current naming conventions."
      */
     it('second migration run detects no changes after first run applies fixes', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbConfigWithProfiles,
@@ -215,7 +210,7 @@ describe('Feature: multi-region-bootstrap, Property 5: Idempotent Migration', ()
                     `Second migration run should report no changes needed, but got: "${secondOutput}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -225,7 +220,7 @@ describe('Feature: multi-region-bootstrap, Property 5: Idempotent Migration', ()
      * and no profile has a sharedStackFrom field (renamed to sharedInfraFrom).
      */
     it('after migration all profiles satisfy naming conventions', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbConfigWithProfiles,
@@ -263,6 +258,6 @@ describe('Feature: multi-region-bootstrap, Property 5: Idempotent Migration', ()
                     );
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

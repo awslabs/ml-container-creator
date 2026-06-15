@@ -14,12 +14,7 @@ import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
 import TemplateManager from '../../src/lib/template-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -68,7 +63,7 @@ describe('TemplateManager Diffusors GPU Enforcement Property-Based Tests', () =>
     before(() => {
         console.log('\n🚀 Starting TemplateManager Diffusors GPU Enforcement Property Tests');
         console.log('📋 Testing: GPU enforcement for diffusors-vllm-omni deployment config');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property\n`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property\n`);
     });
 
     /**
@@ -83,7 +78,7 @@ describe('TemplateManager Diffusors GPU Enforcement Property-Based Tests', () =>
     describe('Property 3: GPU Enforcement for Diffusors', () => {
 
         it('validate() throws for diffusors-vllm-omni with any CPU-only instance type', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 cpuOnlyInstanceArb,
@@ -103,11 +98,11 @@ describe('TemplateManager Diffusors GPU Enforcement Property-Based Tests', () =>
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('validate() passes for diffusors-vllm-omni with GPU instance types', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...GPU_INSTANCES),
@@ -123,7 +118,7 @@ describe('TemplateManager Diffusors GPU Enforcement Property-Based Tests', () =>
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

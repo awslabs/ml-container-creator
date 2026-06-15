@@ -22,14 +22,9 @@ import { join } from 'node:path';
 import os from 'node:os';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const STACK_NAME_PREFIX = 'mlcc-bootstrap';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -167,7 +162,7 @@ describe('Feature: multi-region-bootstrap, Property 3: Account Match', () => {
      * never deploys to a different AWS account than what the profile specifies.
      */
     it('_handleUpdate never deploys when caller account differs from profile account', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -196,7 +191,7 @@ describe('Feature: multi-region-bootstrap, Property 3: Account Match', () => {
                     `profile="${profileAccount}" caller="${callerAccount}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -207,7 +202,7 @@ describe('Feature: multi-region-bootstrap, Property 3: Account Match', () => {
      * legitimate updates through.
      */
     it('_handleUpdate proceeds with deployment when caller account matches profile account', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -235,7 +230,7 @@ describe('Feature: multi-region-bootstrap, Property 3: Account Match', () => {
                     `Deployment was NOT attempted despite account match: accountId="${accountId}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -246,7 +241,7 @@ describe('Feature: multi-region-bootstrap, Property 3: Account Match', () => {
      * that _resourceExists is never called when accounts differ.
      */
     it('account mismatch halts before any resource checks', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -281,6 +276,6 @@ describe('Feature: multi-region-bootstrap, Property 3: Account Match', () => {
                     `profile="${profileAccount}" caller="${callerAccount}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

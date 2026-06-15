@@ -13,11 +13,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { extractBaseImageVersion, buildCiRecord, computeConfigId } from '../../src/lib/ci-register-helpers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -120,7 +116,7 @@ describe('Feature: ci-integration-harness, Property 4: Promoted attribute extrac
                 assert.strictEqual(record.projectName, parsed.projectName,
                     `Promoted projectName '${record.projectName}' should match configJson value '${parsed.projectName}'`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('extractBaseImageVersion correctly extracts version tag from image string', function () {
@@ -138,7 +134,7 @@ describe('Feature: ci-integration-harness, Property 4: Promoted attribute extrac
                 assert.ok(version.length > 0,
                     'Version should be non-empty for images with tags');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('extractBaseImageVersion returns empty string for images without tags', function () {
@@ -151,6 +147,6 @@ describe('Feature: ci-integration-harness, Property 4: Promoted attribute extrac
                 assert.strictEqual(version, '',
                     `extractBaseImageVersion('${baseImage}') should return '' for tagless image, got '${version}'`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

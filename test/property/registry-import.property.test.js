@@ -17,12 +17,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import DeploymentRegistry from '../../src/lib/deployment-registry.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -121,7 +116,7 @@ describe('Feature: deployment-registry, Property 12: Import sets metadata fields
      * filename on every imported entry.
      */
     it('importing sets metadata.source to "imported" and metadata.importedFrom to filename on all entries', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         let iterCount = 0;
 
@@ -166,10 +161,9 @@ describe('Feature: deployment-registry, Property 12: Import sets metadata fields
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
-
 
 describe('Feature: deployment-registry, Property 13: Import conflict resolution strategies', () => {
 
@@ -196,7 +190,7 @@ describe('Feature: deployment-registry, Property 13: Import conflict resolution 
      * of entries in the import.
      */
     it('skip strategy: conflicting entries are skipped, registry unchanged', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         let iterCount = 0;
 
@@ -240,11 +234,11 @@ describe('Feature: deployment-registry, Property 13: Import conflict resolution 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('merge strategy: both existing and imported entries are present', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         let iterCount = 0;
 
@@ -287,11 +281,11 @@ describe('Feature: deployment-registry, Property 13: Import conflict resolution 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('replace strategy: imported entry replaces existing one', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         let iterCount = 0;
 
@@ -344,11 +338,11 @@ describe('Feature: deployment-registry, Property 13: Import conflict resolution 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('non-conflicting entries are always added regardless of strategy', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         let iterCount = 0;
 
@@ -381,6 +375,6 @@ describe('Feature: deployment-registry, Property 13: Import conflict resolution 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
