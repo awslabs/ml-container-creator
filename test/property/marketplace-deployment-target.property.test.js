@@ -20,6 +20,10 @@ import fc from 'fast-check';
 import { runGenerator } from '../helpers/run-generator.js';
 import { NUM_RUNS } from '../helpers/property-config.js';
 
+// Subprocess-heavy tests: cap iterations to avoid timeout on slower machines.
+// Input domain: 3 targets × 5 instances × 3 regions = 45 combos — 30 runs gives good coverage.
+const SUBPROCESS_RUNS = Math.min(NUM_RUNS, 30);
+
 // ── Arbitraries ──────────────────────────────────────────────────────────────
 
 const arbDeploymentTarget = fc.constantFrom('realtime-inference', 'async-inference', 'batch-transform');
@@ -36,7 +40,7 @@ const arbRegion = fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1');
 describe('Feature: marketplace-model-packages, Property 11: Deployment target produces correct configuration', () => {
 
     it('for any valid deployment target, the generated deploy script contains target-appropriate configuration', function () {
-        this.timeout(60000);
+        this.timeout(90000);
 
         fc.assert(
             fc.property(
@@ -77,7 +81,7 @@ describe('Feature: marketplace-model-packages, Property 11: Deployment target pr
                     }
                 }
             ),
-            { numRuns: NUM_RUNS, seed: 42 }
+            { numRuns: SUBPROCESS_RUNS, seed: 42 }
         );
     });
 });

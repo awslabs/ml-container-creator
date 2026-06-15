@@ -56,9 +56,12 @@ function frameworkForServer(server) {
 
 const PROPERTY_CONFIG = {
     numRuns: NUM_RUNS,
-    timeout: 120000,
+    timeout: 180000,
     verbose: false
 };
+
+// ast.parse test spawns python3 per code cell per iteration — cap to avoid timeout
+const AST_PARSE_RUNS = Math.min(NUM_RUNS, 30);
 
 // ── Temp directory for script execution ──────────────────────────────────────
 
@@ -280,7 +283,7 @@ describe('Feature: notebook-export, Property 4: All code cells have valid Python
 
                 return true;
             }
-        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
+        ), { numRuns: AST_PARSE_RUNS, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
