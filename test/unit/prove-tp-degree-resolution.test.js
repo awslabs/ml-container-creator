@@ -167,9 +167,9 @@ describe('Feature: ftp-benchmark-support — Prove-Time TP Degree Auto-Resolutio
             assert.strictEqual(config._tpAutoResolved, true);
         });
 
-        it('resolves TP from real catalog for ml.p6-b200.48xlarge', () => {
+        it('resolves TP from real catalog for ml.g5.48xlarge', () => {
             const config = {
-                instance_type: 'ml.p6-b200.48xlarge',
+                instance_type: 'ml.g5.48xlarge',
                 deployment_config: 'transformers-vllm'
             };
             resolveProveTpDegree(config);
