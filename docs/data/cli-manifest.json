@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-06-14T02:14:26.531Z",
-  "version": "0.12.1",
+  "generatedAt": "2026-06-15T20:15:51.710Z",
+  "version": "0.13.3",
   "cliOptions": [],
   "deploymentConfigs": [
     {
@@ -685,15 +685,6 @@
       "memGb": 768,
       "family": "g5",
       "costTier": "medium"
-    },
-    "ml.p6-b200.48xlarge": {
-      "gpus": 8,
-      "gpuType": "NVIDIA B200",
-      "gpuMemoryGb": 180,
-      "vcpus": 192,
-      "memGb": 1536,
-      "family": "p6",
-      "costTier": "high"
     }
   },
   "deploymentTargets": [

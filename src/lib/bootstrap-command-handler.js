@@ -261,7 +261,7 @@ export default class BootstrapCommandHandler {
                 }
 
                 profileData.roleArn = stackOutputs.RoleArn;
-                profileData.ecrRepositoryName = stackOutputs.EcrRepositoryName;
+                profileData.ecrRepositoryName = stackOutputs.EcrRepositoryName || 'ml-container-creator';
                 profileData.stackName = stackName;
                 profileData.sharedInfraFrom = otherStack;  // Track that this profile reuses another's stack
                 if (stackOutputs.AsyncS3BucketName) profileData.asyncS3Bucket = stackOutputs.AsyncS3BucketName;

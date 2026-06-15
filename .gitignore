@@ -28,3 +28,6 @@ site/
 
 # npm pack artifacts
 *.tgz
+
+# CDK synth output
+cdk.out/

@@ -203,8 +203,8 @@ echo "AWS_REGION=\${AWS_REGION}"
         it('do/deploy uses the precedence pattern for ROLE_ARN', () => {
             const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
             assert.ok(
-                deployContent.includes('ROLE_ARN="${ROLE_ARN:-${_PROFILE[roleArn]'),
-                'do/deploy should use ROLE_ARN="${ROLE_ARN:-${_PROFILE[roleArn]..." pattern'
+                deployContent.includes('ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn'),
+                'do/deploy should use ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn..." pattern'
             );
         });
     });
@@ -340,15 +340,15 @@ echo "AWS_REGION=\${AWS_REGION}"
             );
         });
 
-        it('do/deploy uses _PROFILE[] for profile-resolved values', () => {
+        it('do/deploy uses _PROFILE_ variables for profile-resolved values', () => {
             const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
             assert.ok(
-                deployContent.includes('_PROFILE[roleArn]'),
-                'do/deploy should reference _PROFILE[roleArn] for role resolution'
+                deployContent.includes('_PROFILE_roleArn'),
+                'do/deploy should reference _PROFILE_roleArn for role resolution'
             );
             assert.ok(
-                deployContent.includes('_PROFILE[ecrRepositoryName]'),
-                'do/deploy should reference _PROFILE[ecrRepositoryName]'
+                deployContent.includes('_PROFILE_ecrRepositoryName'),
+                'do/deploy should reference _PROFILE_ecrRepositoryName'
             );
         });
 
@@ -382,27 +382,27 @@ echo "AWS_REGION=\${AWS_REGION}"
             if (result) result.cleanup();
         });
 
-        it('do/deploy references _PROFILE[roleArn] for ROLE_ARN resolution', () => {
+        it('do/deploy references _PROFILE_roleArn for ROLE_ARN resolution', () => {
             const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
             assert.ok(
-                deployContent.includes('_PROFILE[roleArn]'),
-                'do/deploy should use _PROFILE[roleArn] for role resolution'
+                deployContent.includes('_PROFILE_roleArn'),
+                'do/deploy should use _PROFILE_roleArn for role resolution'
             );
         });
 
-        it('do/deploy references _PROFILE[ecrRepositoryName] for ECR resolution', () => {
+        it('do/deploy references _PROFILE_ecrRepositoryName for ECR resolution', () => {
             const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
             assert.ok(
-                deployContent.includes('_PROFILE[ecrRepositoryName]'),
-                'do/deploy should use _PROFILE[ecrRepositoryName] for ECR resolution'
+                deployContent.includes('_PROFILE_ecrRepositoryName'),
+                'do/deploy should use _PROFILE_ecrRepositoryName for ECR resolution'
             );
         });
 
-        it('do/deploy references _PROFILE[awsRegion] for AWS_REGION resolution', () => {
+        it('do/deploy references _PROFILE_awsRegion for AWS_REGION resolution', () => {
             const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
             assert.ok(
-                deployContent.includes('_PROFILE[awsRegion]'),
-                'do/deploy should use _PROFILE[awsRegion] for region resolution'
+                deployContent.includes('_PROFILE_awsRegion'),
+                'do/deploy should use _PROFILE_awsRegion for region resolution'
             );
         });
 
