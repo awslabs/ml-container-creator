@@ -16,6 +16,10 @@ import fc from 'fast-check';
 import { runGenerator } from '../helpers/run-generator.js';
 import { NUM_RUNS } from '../helpers/property-config.js';
 
+// Subprocess-heavy tests: cap iterations to avoid timeout on slower machines.
+// Input domain: 3 instances × 2 regions = 6 combos — 30 runs gives full coverage.
+const SUBPROCESS_RUNS = Math.min(NUM_RUNS, 30);
+
 // ── Arbitraries ──────────────────────────────────────────────────────────────
 
 const arbInstanceType = fc.constantFrom(
@@ -31,7 +35,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
     describe('marketplace + async-inference produces AsyncInferenceConfig', () => {
 
         it('for any valid marketplace async config, deploy script contains async configuration', function () {
-            this.timeout(60000);
+            this.timeout(90000);
 
             fc.assert(
                 fc.property(arbInstanceType, arbRegion, (instanceType, region) => {
@@ -63,7 +67,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
                         result.cleanup();
                     }
                 }),
-                { numRuns: NUM_RUNS, seed: 42 }
+                { numRuns: SUBPROCESS_RUNS, seed: 42 }
             );
         });
 
@@ -98,7 +102,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
     describe('marketplace + batch-transform produces TransformJob config', () => {
 
         it('for any valid marketplace batch config, deploy script contains transform job configuration', function () {
-            this.timeout(60000);
+            this.timeout(90000);
 
             fc.assert(
                 fc.property(arbInstanceType, arbRegion, (instanceType, region) => {
@@ -129,7 +133,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
                         result.cleanup();
                     }
                 }),
-                { numRuns: NUM_RUNS, seed: 42 }
+                { numRuns: SUBPROCESS_RUNS, seed: 42 }
             );
         });
 
