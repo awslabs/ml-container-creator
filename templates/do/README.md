@@ -262,6 +262,43 @@ Clean everything:
 
 ---
 
+### `./do/stage`
+
+Pre-stage model weights from HuggingFace to S3 for faster builds and deploys.
+
+**What it does:**
+- Downloads model weights from HuggingFace using `huggingface-cli`
+- Uses `hf_transfer` for accelerated parallel downloads
+- Syncs downloaded weights to S3 (regional, fast access)
+- Records the staged S3 URI in `.mlcc/staged-assets.json`
+- Idempotent: skips if model is already staged (use `--force` to re-stage)
+
+**Prerequisites:**
+- AWS credentials configured
+- `huggingface-cli` installed (`pip install huggingface_hub[cli] hf_transfer`)
+- Bootstrap profile configured (`ml-container-creator bootstrap`)
+
+**Usage:**
+```bash
+# Stage model to S3
+./do/stage
+
+# Force re-stage even if already present
+./do/stage --force
+
+# Stage and update MODEL_NAME in do/config
+./do/stage --update-config
+
+# Submit as SageMaker Processing Job (for models >500GB)
+./do/stage --submit
+```
+
+**Output:**
+- Staged model S3 URI
+- Updated `.mlcc/staged-assets.json` tracking file
+
+---
+
 <% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
 ### `./do/benchmark`
 
