@@ -41,6 +41,8 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
+# Disable unbound-variable checking for associative array access (bash 3.2 compat)
+set +u
 ROLE_ARN="${ROLE_ARN:-${_PROFILE[roleArn]:-}}"
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE[ecrRepositoryName]:-ml-container-creator}}"
 export AWS_REGION="${AWS_REGION:-${_PROFILE[awsRegion]:-us-east-1}}"
@@ -49,6 +51,7 @@ export AWS_REGION="${AWS_REGION:-${_PROFILE[awsRegion]:-us-east-1}}"
 _BATCH_BUCKET="${_PROFILE[batchS3Bucket]:-mlcc-batch-${_PROFILE[accountId]:-unknown}-${_PROFILE[awsRegion]:-us-east-1}}"
 BATCH_INPUT_PATH="${BATCH_INPUT_PATH:-s3://${_BATCH_BUCKET}/${PROJECT_NAME}/input/}"
 BATCH_OUTPUT_PATH="${BATCH_OUTPUT_PATH:-s3://${_BATCH_BUCKET}/${PROJECT_NAME}/output/}"
+set -u
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"

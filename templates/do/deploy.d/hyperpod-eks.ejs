@@ -41,7 +41,10 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
+# Disable unbound-variable checking for associative array access (bash 3.2 compat)
+set +u
 export AWS_REGION="${AWS_REGION:-${_PROFILE[awsRegion]:-us-east-1}}"
+set -u
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"

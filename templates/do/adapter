@@ -21,7 +21,10 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
+# Disable unbound-variable checking for associative array access (bash 3.2 compat)
+set +u
 ADAPTER_S3_BUCKET="${ADAPTER_S3_BUCKET:-mlcc-adapters-${_PROFILE[accountId]:-unknown}-${_PROFILE[awsRegion]:-us-east-1}}"
+set -u
 
 source "${SCRIPT_DIR}/lib/wait.sh"
 
