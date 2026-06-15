@@ -15,12 +15,7 @@ import fc from 'fast-check';
 import { describe, it, before } from 'mocha';
 import assert from 'assert';
 import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 describe('DeploymentConfigResolver Property-Based Tests', () => {
 
@@ -39,7 +34,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
         console.log('\n🚀 Starting DeploymentConfigResolver Property Tests');
         console.log('📋 Testing: Universal correctness properties for deployment-config resolution');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property`);
         console.log(`📦 Total configs: ${allConfigs.length} (${tritonConfigs.length} triton, ${diffusorsConfigs.length} diffusors)\n`);
     });
 
@@ -53,7 +48,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
      */
     describe('Property 1: Decompose/Compose Round-Trip Identity', () => {
         it('compose(decompose(dc)) === dc for all valid deployment-config strings', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...allConfigs),
@@ -69,7 +64,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -84,7 +79,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
      */
     describe('Property 2: Validity Consistency', () => {
         it('isValid(dc) === true iff decompose(dc) does not throw for valid configs', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...allConfigs),
@@ -106,11 +101,11 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('isValid(s) === false implies decompose(s) throws for arbitrary strings', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.string({ minLength: 1, maxLength: 50 }),
@@ -132,7 +127,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('diffusors-vllm-omni is valid and decomposes without error', () => {
@@ -175,7 +170,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
      */
     describe('Property 2: Architecture Consistency for Triton Configs', () => {
         it('decompose(dc).architecture === "triton" for all triton-* configs', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...tritonConfigs),
@@ -190,7 +185,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -204,7 +199,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
      */
     describe('Property 3: isValid Correctness', () => {
         it('isValid returns true for all 15 valid configs', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...allConfigs),
@@ -217,11 +212,11 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('isValid returns false for arbitrary non-canonical strings', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const validSet = new Set(allConfigs);
 
@@ -241,7 +236,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -254,7 +249,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
      */
     describe('Property 4: Old Format Rejection', () => {
         it('isValid returns false for all old-format deployment-config strings', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const oldFormatConfigs = [
                 'sklearn-flask',
@@ -276,7 +271,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -290,7 +285,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
      */
     describe('Property 5: getConfigsForArchitecture Consistency', () => {
         it('every config returned by getConfigsForArchitecture(a) decomposes to architecture a', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...validArchitectures),
@@ -308,7 +303,7 @@ describe('DeploymentConfigResolver Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

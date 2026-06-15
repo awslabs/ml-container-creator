@@ -22,12 +22,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -151,7 +146,7 @@ describe('Feature: bootstrap-shared-infra, Property 8: Active profile resolution
      * return { name, config } for that profile.
      */
     it('returns the matching profile when activeProfile references an existing profile name', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbBootstrapConfigWithValidActive,
@@ -184,7 +179,7 @@ describe('Feature: bootstrap-shared-infra, Property 8: Active profile resolution
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -194,7 +189,7 @@ describe('Feature: bootstrap-shared-infra, Property 8: Active profile resolution
      * should return null.
      */
     it('returns null when activeProfile does not match any profile name', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbBootstrapConfigWithInvalidActive,
@@ -212,7 +207,7 @@ describe('Feature: bootstrap-shared-infra, Property 8: Active profile resolution
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -221,7 +216,7 @@ describe('Feature: bootstrap-shared-infra, Property 8: Active profile resolution
      * When the config has no profiles, getActiveProfile() should return null.
      */
     it('returns null when the config has no profiles', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileName,
@@ -242,7 +237,7 @@ describe('Feature: bootstrap-shared-infra, Property 8: Active profile resolution
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**

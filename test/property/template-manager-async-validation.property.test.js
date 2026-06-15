@@ -16,12 +16,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import TemplateManager from '../../src/lib/template-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -88,7 +83,7 @@ const arbInvalidMaxConcurrent = fc.oneof(
 describe('Feature: async-inference-endpoint, Property 1: Deployment target validation accepts exactly the supported set', () => {
 
     it('valid deployment targets always pass validation', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 1.2
@@ -110,11 +105,11 @@ describe('Feature: async-inference-endpoint, Property 1: Deployment target valid
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('invalid deployment targets always fail validation', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 1.2
@@ -133,7 +128,7 @@ describe('Feature: async-inference-endpoint, Property 1: Deployment target valid
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -142,7 +137,7 @@ describe('Feature: async-inference-endpoint, Property 1: Deployment target valid
 describe('Feature: async-inference-endpoint, Property 2: S3 output path validation', () => {
 
     it('S3 paths starting with s3:// are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.1
@@ -155,11 +150,11 @@ describe('Feature: async-inference-endpoint, Property 2: S3 output path validati
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('non-empty S3 paths NOT starting with s3:// are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.1
@@ -176,11 +171,11 @@ describe('Feature: async-inference-endpoint, Property 2: S3 output path validati
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('empty or null asyncS3OutputPath is accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.2
@@ -196,7 +191,7 @@ describe('Feature: async-inference-endpoint, Property 2: S3 output path validati
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -205,7 +200,7 @@ describe('Feature: async-inference-endpoint, Property 2: S3 output path validati
 describe('Feature: async-inference-endpoint, Property 3: SNS topic ARN validation', () => {
 
     it('valid SNS ARNs are accepted for success topic', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.3
@@ -218,11 +213,11 @@ describe('Feature: async-inference-endpoint, Property 3: SNS topic ARN validatio
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('valid SNS ARNs are accepted for error topic', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.4
@@ -235,11 +230,11 @@ describe('Feature: async-inference-endpoint, Property 3: SNS topic ARN validatio
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('invalid SNS ARNs are rejected for success topic', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.3
@@ -256,11 +251,11 @@ describe('Feature: async-inference-endpoint, Property 3: SNS topic ARN validatio
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('invalid SNS ARNs are rejected for error topic', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.4
@@ -277,11 +272,11 @@ describe('Feature: async-inference-endpoint, Property 3: SNS topic ARN validatio
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('empty or null SNS topic ARNs are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.3, 8.4
@@ -301,7 +296,7 @@ describe('Feature: async-inference-endpoint, Property 3: SNS topic ARN validatio
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -310,7 +305,7 @@ describe('Feature: async-inference-endpoint, Property 3: SNS topic ARN validatio
 describe('Feature: async-inference-endpoint, Property 4: Max concurrent invocations validation', () => {
 
     it('integers >= 1 are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.5
@@ -323,11 +318,11 @@ describe('Feature: async-inference-endpoint, Property 4: Max concurrent invocati
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('integers < 1 and non-integers are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.5
@@ -344,11 +339,11 @@ describe('Feature: async-inference-endpoint, Property 4: Max concurrent invocati
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('undefined asyncMaxConcurrentInvocations is accepted (uses default)', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.5

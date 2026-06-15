@@ -15,12 +15,7 @@ import { describe, it } from 'mocha';
 import assert from 'assert';
 import { filterRegions, AWS_REGIONS } from '../../servers/region-picker/index.js';
 import { extractJson } from '../../servers/lib/bedrock-client.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Shared arbitrary generators ──────────────────────────────────────────────
 
@@ -53,7 +48,7 @@ describe('Region Picker Server Property-Based Tests', () => {
     // Feature: region-picker-server, Property 1: Region Filtering Correctness
     describe('Property 1: Region Filtering Correctness', () => {
         it('every returned region code has its code or label contain the search term as a case-insensitive substring', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbSearchTerm,
@@ -75,11 +70,11 @@ describe('Region Picker Server Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('no search term returns all regions up to limit', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbLimit,
@@ -89,11 +84,11 @@ describe('Region Picker Server Property-Based Tests', () => {
                     assert.strictEqual(codes.length, Math.min(AWS_REGIONS.length, limit));
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('zero matches returns empty choices', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const result = filterRegions('zzzznonexistent', 10);
             assert.deepStrictEqual(result.choices.awsRegion, []);
@@ -104,7 +99,7 @@ describe('Region Picker Server Property-Based Tests', () => {
     // Feature: region-picker-server, Property 2: Response Format Invariant
     describe('Property 2: Response Format Invariant', () => {
         it('all choices are valid region codes, length <= limit, values.awsRegion === choices[0] when non-empty', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.option(arbSearchTerm, { nil: undefined }),
@@ -135,14 +130,14 @@ describe('Region Picker Server Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: region-picker-server, Property 3: Smart Mode Activation Guard
     describe('Property 3: Smart Mode Activation Guard', () => {
         it('BEDROCK_SMART values other than "true" do not activate smart mode', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             // This is a design-level property. Since SMART_MODE is evaluated at
             // module load time as `process.env.BEDROCK_SMART === 'true'`, we
@@ -165,14 +160,14 @@ describe('Region Picker Server Property-Based Tests', () => {
                         `BEDROCK_SMART="${envValue}" should not activate smart mode`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: region-picker-server, Property 4: Smart Mode Result Merging
     describe('Property 4: Smart Mode Result Merging', () => {
         it('Bedrock recommendation is first, no duplicates, total length <= limit', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbRegionCode,
@@ -198,14 +193,14 @@ describe('Region Picker Server Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: region-picker-server, Property 5: Bedrock Failure Falls Back to Static
     describe('Property 5: Bedrock Failure Falls Back to Static', () => {
         it('when Bedrock returns null, output is identical to static mode', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.option(arbSearchTerm, { nil: undefined }),
@@ -228,14 +223,14 @@ describe('Region Picker Server Property-Based Tests', () => {
                         'Fallback result should be identical to static mode');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: region-picker-server, Property 6: JSON Extraction Round-Trip
     describe('Property 6: JSON Extraction Round-Trip', () => {
         it('valid JSON with values field survives raw JSON and markdown-fenced wrapping', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbValuesObj = fc.dictionary(
                 fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9]{0,14}$/),
@@ -266,14 +261,14 @@ describe('Region Picker Server Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: region-picker-server, Property 7: Bedrock Errors Return Null
     describe('Property 7: Bedrock Errors Return Null', () => {
         it('extractJson returns null for malformed input without throwing', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbBadInput = fc.oneof(
                 fc.constant(null),
@@ -298,14 +293,14 @@ describe('Region Picker Server Property-Based Tests', () => {
                     // Result is either null or a parsed object (never throws)
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
     // Feature: region-picker-server, Property 8: Region Resolution Fallback Chain
     describe('Property 8: Region Resolution Fallback Chain', () => {
         it('effective region follows BEDROCK_REGION → AWS_REGION → us-east-1 precedence', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const arbRegion = fc.option(
                 fc.constantFrom('us-east-1', 'us-west-2', 'eu-west-1', 'ap-northeast-1'),
@@ -332,7 +327,7 @@ describe('Region Picker Server Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 

@@ -18,9 +18,10 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import TemplateManager from '../../src/lib/template-manager.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -84,7 +85,7 @@ const arbInvalidMaxPayload = fc.oneof(
 describe('Feature: batch-transform-endpoint, Property 1: Deployment target validation accepts exactly the supported set', () => {
 
     it('valid deployment targets always pass validation', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 1.2
@@ -111,11 +112,11 @@ describe('Feature: batch-transform-endpoint, Property 1: Deployment target valid
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('invalid deployment targets always fail validation', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 1.2
@@ -139,7 +140,7 @@ describe('Feature: batch-transform-endpoint, Property 1: Deployment target valid
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -148,7 +149,7 @@ describe('Feature: batch-transform-endpoint, Property 1: Deployment target valid
 describe('Feature: batch-transform-endpoint, Property 2: S3 path validation', () => {
 
     it('S3 input paths starting with s3:// are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.1
@@ -161,11 +162,11 @@ describe('Feature: batch-transform-endpoint, Property 2: S3 path validation', ()
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('S3 output paths starting with s3:// are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.2
@@ -178,11 +179,11 @@ describe('Feature: batch-transform-endpoint, Property 2: S3 path validation', ()
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('non-empty S3 input paths NOT starting with s3:// are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.1
@@ -199,11 +200,11 @@ describe('Feature: batch-transform-endpoint, Property 2: S3 path validation', ()
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('non-empty S3 output paths NOT starting with s3:// are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.2
@@ -220,11 +221,11 @@ describe('Feature: batch-transform-endpoint, Property 2: S3 path validation', ()
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('empty or null S3 paths are accepted (validation skipped)', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.1, 8.2
@@ -244,7 +245,7 @@ describe('Feature: batch-transform-endpoint, Property 2: S3 path validation', ()
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -253,7 +254,7 @@ describe('Feature: batch-transform-endpoint, Property 2: S3 path validation', ()
 describe('Feature: batch-transform-endpoint, Property 3: Batch instance count validation', () => {
 
     it('integers >= 1 are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.3
@@ -266,11 +267,11 @@ describe('Feature: batch-transform-endpoint, Property 3: Batch instance count va
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('integers < 1 and non-integers are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.3
@@ -287,7 +288,7 @@ describe('Feature: batch-transform-endpoint, Property 3: Batch instance count va
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('undefined batchInstanceCount is accepted (uses default)', () => {
@@ -307,7 +308,7 @@ describe('Feature: batch-transform-endpoint, Property 4: Bounded enum parameter 
     // ── batchSplitType ───────────────────────────────────────────────────────
 
     it('valid batchSplitType values are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.4
@@ -320,11 +321,11 @@ describe('Feature: batch-transform-endpoint, Property 4: Bounded enum parameter 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('invalid batchSplitType values are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.4
@@ -342,13 +343,13 @@ describe('Feature: batch-transform-endpoint, Property 4: Bounded enum parameter 
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     // ── batchStrategy ────────────────────────────────────────────────────────
 
     it('valid batchStrategy values are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.5
@@ -361,11 +362,11 @@ describe('Feature: batch-transform-endpoint, Property 4: Bounded enum parameter 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('invalid batchStrategy values are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.5
@@ -383,13 +384,13 @@ describe('Feature: batch-transform-endpoint, Property 4: Bounded enum parameter 
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     // ── batchJoinSource ──────────────────────────────────────────────────────
 
     it('valid batchJoinSource values are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.6
@@ -402,11 +403,11 @@ describe('Feature: batch-transform-endpoint, Property 4: Bounded enum parameter 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('invalid batchJoinSource values are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.6
@@ -424,7 +425,7 @@ describe('Feature: batch-transform-endpoint, Property 4: Bounded enum parameter 
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -433,7 +434,7 @@ describe('Feature: batch-transform-endpoint, Property 4: Bounded enum parameter 
 describe('Feature: batch-transform-endpoint, Property 5: Max concurrent transforms validation', () => {
 
     it('integers >= 0 are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.7
@@ -446,11 +447,11 @@ describe('Feature: batch-transform-endpoint, Property 5: Max concurrent transfor
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('integers < 0 and non-integers are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.7
@@ -467,7 +468,7 @@ describe('Feature: batch-transform-endpoint, Property 5: Max concurrent transfor
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('undefined batchMaxConcurrentTransforms is accepted (uses default)', () => {
@@ -485,7 +486,7 @@ describe('Feature: batch-transform-endpoint, Property 5: Max concurrent transfor
 describe('Feature: batch-transform-endpoint, Property 6: Max payload in MB validation', () => {
 
     it('integers between 0 and 100 inclusive are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.8
@@ -498,11 +499,11 @@ describe('Feature: batch-transform-endpoint, Property 6: Max payload in MB valid
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('integers outside 0-100 and non-integers are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 8.8
@@ -519,7 +520,7 @@ describe('Feature: batch-transform-endpoint, Property 6: Max payload in MB valid
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('undefined batchMaxPayloadInMB is accepted (uses default)', () => {

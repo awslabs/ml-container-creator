@@ -18,11 +18,7 @@ import {
     detectRegressions,
     KNOWN_DEPLOYMENT_CONFIGS
 } from '../../src/lib/ci-report-helpers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -101,7 +97,7 @@ describe('Feature: ci-integration-harness, Property 10: Coverage report arithmet
                 assert.strictEqual(report.total, KNOWN_DEPLOYMENT_CONFIGS.length,
                     `total should be ${KNOWN_DEPLOYMENT_CONFIGS.length}, got ${report.total}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('tested + untested always equals total', function () {
@@ -115,7 +111,7 @@ describe('Feature: ci-integration-harness, Property 10: Coverage report arithmet
                 assert.strictEqual(report.tested + report.untested, report.total,
                     `tested (${report.tested}) + untested (${report.untested}) should equal total (${report.total})`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('passing + failing does not exceed tested', function () {
@@ -129,7 +125,7 @@ describe('Feature: ci-integration-harness, Property 10: Coverage report arithmet
                 assert.ok(report.passing + report.failing <= report.tested,
                     `passing (${report.passing}) + failing (${report.failing}) should not exceed tested (${report.tested})`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('coverage percentage is correctly computed as (tested/total)*100', function () {
@@ -147,7 +143,7 @@ describe('Feature: ci-integration-harness, Property 10: Coverage report arithmet
                 assert.strictEqual(report.coveragePercent, expectedCoverage,
                     `coveragePercent should be ${expectedCoverage}, got ${report.coveragePercent}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('untested configs are exactly those known configs with no matching records', function () {
@@ -170,7 +166,7 @@ describe('Feature: ci-integration-harness, Property 10: Coverage report arithmet
                 assert.strictEqual(report.untestedConfigs.length, report.untested,
                     `untestedConfigs length (${report.untestedConfigs.length}) should equal untested count (${report.untested})`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('configurations array has exactly total entries', function () {
@@ -184,7 +180,7 @@ describe('Feature: ci-integration-harness, Property 10: Coverage report arithmet
                 assert.strictEqual(report.configurations.length, report.total,
                     `configurations array should have ${report.total} entries, got ${report.configurations.length}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
 
@@ -211,7 +207,7 @@ describe('Feature: ci-integration-harness, Property 11: Regression detection', (
                         `Regression record should have previousTestStatus=pass, got '${regression.previousTestStatus}'`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('records that were never pass are not flagged as regressions', function () {
@@ -232,7 +228,7 @@ describe('Feature: ci-integration-harness, Property 11: Regression detection', (
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('fail to fail transitions are not flagged as regressions', function () {
@@ -256,7 +252,7 @@ describe('Feature: ci-integration-harness, Property 11: Regression detection', (
                 assert.strictEqual(regressions.length, 0,
                     `fail→fail transitions should not be regressions, but found ${regressions.length}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('pass to pass transitions are not flagged as regressions', function () {
@@ -280,6 +276,6 @@ describe('Feature: ci-integration-harness, Property 11: Regression detection', (
                 assert.strictEqual(regressions.length, 0,
                     `pass→pass transitions should not be regressions, but found ${regressions.length}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

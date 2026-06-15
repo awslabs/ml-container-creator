@@ -19,11 +19,7 @@ import { runConfig, Semaphore } from '../../scripts/e2e-runner.js';
 import { mkdtemp, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -98,7 +94,7 @@ describe('Feature: e2e-validation-runner, Property 9: Aggregation produces struc
                 assert.strictEqual(output.tier, meta.tier,
                     `tier should be '${meta.tier}', got '${output.tier}'`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('passed count equals number of pass results in input', function () {
@@ -114,7 +110,7 @@ describe('Feature: e2e-validation-runner, Property 9: Aggregation produces struc
                 assert.strictEqual(output.passed, expectedPassed,
                     `passed should be ${expectedPassed}, got ${output.passed}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('failed count equals number of fail results in input', function () {
@@ -130,7 +126,7 @@ describe('Feature: e2e-validation-runner, Property 9: Aggregation produces struc
                 assert.strictEqual(output.failed, expectedFailed,
                     `failed should be ${expectedFailed}, got ${output.failed}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('passed + failed equals total number of results', function () {
@@ -145,7 +141,7 @@ describe('Feature: e2e-validation-runner, Property 9: Aggregation produces struc
                 assert.strictEqual(output.passed + output.failed, results.length,
                     `passed (${output.passed}) + failed (${output.failed}) should equal total results (${results.length})`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('duration is non-negative', function () {
@@ -160,7 +156,7 @@ describe('Feature: e2e-validation-runner, Property 9: Aggregation produces struc
                 assert.ok(output.duration >= 0,
                     `duration should be non-negative, got ${output.duration}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('per-config results preserve all required fields', function () {
@@ -196,7 +192,7 @@ describe('Feature: e2e-validation-runner, Property 9: Aggregation produces struc
                     assert.strictEqual(config.duration, results[i].duration);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('per-step results contain name, status, and duration', function () {
@@ -225,7 +221,7 @@ describe('Feature: e2e-validation-runner, Property 9: Aggregation produces struc
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('output results array is the same reference as input results', function () {
@@ -241,10 +237,9 @@ describe('Feature: e2e-validation-runner, Property 9: Aggregation produces struc
                 assert.strictEqual(output.results, results,
                     'output results should be the same array as input results');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
-
 
 // ── Property 10 ──────────────────────────────────────────────────────────────
 
@@ -311,11 +306,9 @@ describe('Feature: e2e-validation-runner, Property 10: Markdown summary contains
                     );
                 }
             }
-        ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), verbose: false });
+        ), PROPERTY_CONFIG);
     });
 });
-
-
 
 // ── Property 2 ──────────────────────────────────────────────────────────────
 
@@ -362,7 +355,7 @@ describe('Feature: e2e-validation-runner, Property 2: Tier filtering returns exa
                         `Expected tier "${tier}", got "${entry.tier}" for entry "${entry.id}"`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('no entries with the specified tier are missing from the result', function () {
@@ -384,7 +377,7 @@ describe('Feature: e2e-validation-runner, Property 2: Tier filtering returns exa
                         `Entry "${entry.id}" with tier "${tier}" should be in the result`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('count of returned entries equals count of entries with that tier in input', function () {
@@ -400,7 +393,7 @@ describe('Feature: e2e-validation-runner, Property 2: Tier filtering returns exa
                 assert.strictEqual(result.length, expectedCount,
                     `Expected ${expectedCount} entries for tier "${tier}", got ${result.length}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('returns empty array for null or invalid catalog', function () {
@@ -418,10 +411,9 @@ describe('Feature: e2e-validation-runner, Property 2: Tier filtering returns exa
                 assert.deepStrictEqual(filterByTier({ configs: 'not-array' }, tier), [],
                     'catalog with non-array configs should return empty array');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
-
 
 // ── Property 1 ──────────────────────────────────────────────────────────────
 
@@ -489,7 +481,7 @@ describe('Feature: e2e-validation-runner, Property 1: Catalog schema validation 
                 assert.strictEqual(result.valid, true,
                     `Valid catalog should pass validation but got errors: ${JSON.stringify(result.errors)}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('entries with invalid tier enum values fail validation', function () {
@@ -509,7 +501,7 @@ describe('Feature: e2e-validation-runner, Property 1: Catalog schema validation 
                 assert.ok(result.errors.length > 0,
                     'Should have at least one error');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('entries with invalid track enum values fail validation', function () {
@@ -529,7 +521,7 @@ describe('Feature: e2e-validation-runner, Property 1: Catalog schema validation 
                 assert.ok(result.errors.length > 0,
                     'Should have at least one error');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('entries missing required fields fail validation', function () {
@@ -552,7 +544,7 @@ describe('Feature: e2e-validation-runner, Property 1: Catalog schema validation 
                 assert.ok(result.errors.length > 0,
                     'Should have at least one error');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('entries with empty lifecycle array fail validation', function () {
@@ -571,7 +563,7 @@ describe('Feature: e2e-validation-runner, Property 1: Catalog schema validation 
                 assert.ok(result.errors.length > 0,
                     'Should have at least one error');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('entries with timeout below 60 fail validation', function () {
@@ -591,7 +583,7 @@ describe('Feature: e2e-validation-runner, Property 1: Catalog schema validation 
                 assert.ok(result.errors.length > 0,
                     'Should have at least one error');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('duplicate IDs fail validation', function () {
@@ -615,10 +607,9 @@ describe('Feature: e2e-validation-runner, Property 1: Catalog schema validation 
                 assert.ok(result.errors.some(e => e.message.includes('duplicate')),
                     'Should have a duplicate ID error');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
-
 
 // ── Property 7 ──────────────────────────────────────────────────────────────
 
@@ -727,7 +718,7 @@ describe('Feature: e2e-validation-runner, Property 7: Quota validator correctly 
                         `Expected ${count} for ${instanceType}, got ${result.get(instanceType)}`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('instance types from other tiers are not counted', function () {
@@ -761,7 +752,7 @@ describe('Feature: e2e-validation-runner, Property 7: Quota validator correctly 
                         `Instance type "${instanceType}" from another tier should not be in result`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('configs without --instance-type in args are skipped', function () {
@@ -789,10 +780,9 @@ describe('Feature: e2e-validation-runner, Property 7: Quota validator correctly 
                 assert.strictEqual(totalCount, entriesInTierWithInstance,
                     `Total instance count (${totalCount}) should equal entries in tier with instance type (${entriesInTierWithInstance})`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
-
 
 // ── Property 3 ──────────────────────────────────────────────────────────────
 
@@ -896,7 +886,7 @@ describe('Feature: e2e-validation-runner, Property 3: Fail-fast stops execution 
                         `Step ${i} name should be "${lifecycle[i]}"`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('the failing step is recorded with status=fail and error', function () {
@@ -919,7 +909,7 @@ describe('Feature: e2e-validation-runner, Property 3: Fail-fast stops execution 
                 assert.ok(typeof result.steps[failAtIndex].error === 'string',
                     'Error should be a string');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('steps after the failing step are not executed (skipped)', function () {
@@ -948,7 +938,7 @@ describe('Feature: e2e-validation-runner, Property 3: Fail-fast stops execution 
                         `Step "${skippedStep}" at index ${i} should be skipped`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('clean always runs as the last step regardless of failure', function () {
@@ -968,7 +958,7 @@ describe('Feature: e2e-validation-runner, Property 3: Fail-fast stops execution 
                 assert.strictEqual(lastStep.status, 'pass',
                     'Clean step should pass');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('overall result has status=fail with error recorded', function () {
@@ -991,7 +981,7 @@ describe('Feature: e2e-validation-runner, Property 3: Fail-fast stops execution 
                 assert.strictEqual(result.error, result.steps[failAtIndex].error,
                     'Overall error should match the failing step error');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('all executed steps have duration > 0', function () {
@@ -1012,7 +1002,7 @@ describe('Feature: e2e-validation-runner, Property 3: Fail-fast stops execution 
                 assert.ok(result.duration > 0,
                     `Overall duration should be > 0, got ${result.duration}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('executed step count equals failAtIndex + 1 (before clean)', function () {
@@ -1036,10 +1026,9 @@ describe('Feature: e2e-validation-runner, Property 3: Fail-fast stops execution 
                         `Step ${i} should be "${lifecycle[i]}", got "${stepsBeforeClean[i].name}"`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
-
 
 // ── Property 8 ──────────────────────────────────────────────────────────────
 
@@ -1161,7 +1150,7 @@ describe('Feature: e2e-validation-runner, Property 8: Lifecycle steps execute in
                     await rm(workspaceRoot, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+        ), PROPERTY_CONFIG);
     });
 
     it('arbitrary step names are executed without runner knowing them in advance', function () {
@@ -1204,10 +1193,9 @@ describe('Feature: e2e-validation-runner, Property 8: Lifecycle steps execute in
                     await rm(workspaceRoot, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+        ), PROPERTY_CONFIG);
     });
 });
-
 
 // ── Property 5 ──────────────────────────────────────────────────────────────
 
@@ -1281,7 +1269,7 @@ describe('Feature: e2e-validation-runner, Property 5: Clean always executes rega
                     await rm(tmpBase, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+        ), PROPERTY_CONFIG);
     });
 
     it('clean is always the last step in results when a step fails', async function () {
@@ -1347,7 +1335,7 @@ describe('Feature: e2e-validation-runner, Property 5: Clean always executes rega
                     await rm(tmpBase, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+        ), PROPERTY_CONFIG);
     });
 
     it('clean step is present exactly once in results', async function () {
@@ -1410,11 +1398,9 @@ describe('Feature: e2e-validation-runner, Property 5: Clean always executes rega
                     await rm(tmpBase, { recursive: true, force: true });
                 }
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+        ), PROPERTY_CONFIG);
     });
 });
-
-
 
 // ── Property 4 ──────────────────────────────────────────────────────────────
 
@@ -1459,7 +1445,7 @@ describe('Feature: e2e-validation-runner, Property 4: Bounded parallelism never 
                 assert.ok(maxActive <= C,
                     `Max active (${maxActive}) should never exceed concurrency limit (${C}) with ${N} tasks`);
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+        ), PROPERTY_CONFIG);
     });
 
     it('all tasks complete despite concurrency limiting', async function () {
@@ -1484,7 +1470,7 @@ describe('Feature: e2e-validation-runner, Property 4: Bounded parallelism never 
                 assert.strictEqual(completedCount, N,
                     `All ${N} tasks should complete, but only ${completedCount} did`);
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+        ), PROPERTY_CONFIG);
     });
 
     it('concurrency of 1 serializes execution (max active is always 1)', async function () {
@@ -1511,10 +1497,9 @@ describe('Feature: e2e-validation-runner, Property 4: Bounded parallelism never 
                 assert.strictEqual(maxActive, 1,
                     `With concurrency 1, max active should be exactly 1, got ${maxActive}`);
             }
-        ), { ...FAST_PROPERTY_CONFIG, numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+        ), PROPERTY_CONFIG);
     });
 });
-
 
 // ── Property 6 ──────────────────────────────────────────────────────────────
 
@@ -1590,7 +1575,7 @@ describe('Feature: e2e-validation-runner, Property 6: Exit code reflects failure
                 assert.strictEqual(exitCode, 0,
                     'Exit code should be 0 when all configs pass');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('exit code is 1 (failed > 0) when at least one config fails', function () {
@@ -1610,7 +1595,7 @@ describe('Feature: e2e-validation-runner, Property 6: Exit code reflects failure
                 assert.strictEqual(exitCode, 1,
                     'Exit code should be 1 when any config fails');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('failed count equals number of configs with status=fail for any mix', function () {
@@ -1632,7 +1617,7 @@ describe('Feature: e2e-validation-runner, Property 6: Exit code reflects failure
                 assert.strictEqual(actualExitCode, expectedExitCode,
                     `Exit code should be ${expectedExitCode}, got ${actualExitCode}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('exit code is deterministic for the same set of results', function () {
@@ -1651,7 +1636,7 @@ describe('Feature: e2e-validation-runner, Property 6: Exit code reflects failure
                 assert.strictEqual(exitCode1, exitCode2,
                     'Exit code should be deterministic for the same inputs');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('single failing config among many passing configs yields exit code 1', function () {
@@ -1693,6 +1678,6 @@ describe('Feature: e2e-validation-runner, Property 6: Exit code reflects failure
                 assert.strictEqual(exitCode, 1,
                     'Exit code should be 1 when a single config fails among many passing');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

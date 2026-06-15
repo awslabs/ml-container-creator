@@ -24,8 +24,7 @@ import {
     redactSensitiveValues,
     REDACTION_MARKER
 } from '../../src/lib/sensitive-redactor.js';
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Arbitrary generators ─────────────────────────────────────────────────────
 

@@ -17,6 +17,7 @@ import { readdirSync, readFileSync, existsSync, mkdtempSync, writeFileSync, mkdi
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -173,7 +174,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
 
         it('detects naming violations when package.json name does not follow convention', function () {
@@ -205,7 +206,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
 
         // ── Property: manifest.json name matches package.json name ───────
@@ -246,7 +247,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
 
         it('detects manifest name mismatch with package.json', function () {
@@ -285,7 +286,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
     });
 
@@ -397,7 +398,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
 
         // ── Property: mismatching names are detected as inconsistent ─────
@@ -446,7 +447,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
     });
 
@@ -620,7 +621,7 @@ describe('Repository-Level Namespace Property Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
 
         // ── Property: scanner detects bare yo invocation in generated content ──
@@ -643,7 +644,7 @@ describe('Repository-Level Namespace Property Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
 
         // ── Property: scanner finds nothing in clean content ─────────────
@@ -665,7 +666,7 @@ describe('Repository-Level Namespace Property Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
     });
 
@@ -811,7 +812,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
 
         // ── Property: directories without SDK dependency are excluded ─────
@@ -848,7 +849,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
 
         // ── Property: multiple servers with varying names all resolve by directory ──
@@ -908,7 +909,7 @@ describe('Repository-Level Namespace Property Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10) });
+            ), { numRuns: NUM_RUNS });
         });
     });
 });

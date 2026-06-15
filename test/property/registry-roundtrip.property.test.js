@@ -22,12 +22,7 @@ import { readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import DeploymentRegistry from '../../src/lib/deployment-registry.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -131,7 +126,7 @@ describe('Feature: deployment-registry, Property 1: Registry round-trip integrit
      * Validates: Requirements 16.2, 16.1, 16.3, 16.4
      */
     it('writing a registry then reading and writing again produces byte-equivalent files', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidRegistry,
@@ -190,6 +185,6 @@ describe('Feature: deployment-registry, Property 1: Registry round-trip integrit
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

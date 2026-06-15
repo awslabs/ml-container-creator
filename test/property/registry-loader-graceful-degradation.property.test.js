@@ -19,11 +19,10 @@ import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import RegistryLoader from '../../src/lib/registry-loader.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
 
 const TEMP_DIR = resolve(__dirname, '../../.tmp-graceful-degradation-test');
 

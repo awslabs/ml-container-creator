@@ -28,8 +28,7 @@ import {
     persistSubmissionState,
     generateJobName
 } from '../../src/lib/tune-config-state.js';
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 

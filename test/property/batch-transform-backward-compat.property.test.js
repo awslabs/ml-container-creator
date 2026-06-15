@@ -19,9 +19,10 @@ import { describe, it } from 'mocha';
 import assert from 'assert';
 import TemplateManager from '../../src/lib/template-manager.js';
 import ConfigManager from '../../src/lib/config-manager.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -111,7 +112,7 @@ const arbExistingTargetConfig = fc.oneof(
 describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility for existing deployment targets', () => {
 
     it('existing deployment targets pass validation with valid configurations', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 10.1, 10.2, 10.3
@@ -123,11 +124,11 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('batch-specific parameters do not interfere with existing deployment targets', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 10.1, 10.2, 10.3
@@ -153,7 +154,7 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('deploymentTarget defaults to realtime-inference in ConfigManager', () => {
@@ -177,7 +178,7 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
     });
 
     it('realtime-inference configs always pass validation regardless of deployment config choice', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 10.1
@@ -197,11 +198,11 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('async-inference configs always pass validation regardless of deployment config choice', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 10.2
@@ -221,11 +222,11 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('hyperpod-eks configs always pass validation with valid cluster settings', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 10.3
@@ -244,11 +245,11 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('GPU-requiring deployment configs still work with GPU instances for existing targets', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 10.1, 10.2
@@ -274,6 +275,6 @@ describe('Feature: batch-transform-endpoint, Property 7: Backward compatibility 
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

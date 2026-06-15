@@ -12,11 +12,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -82,7 +78,7 @@ describe('Feature: ci-integration-harness, Property 3: configJson opaque round-t
                 assert.strictEqual(roundTripped, configJson,
                     `Round-trip should produce byte-equivalent JSON.\nOriginal:     ${configJson}\nRound-tripped: ${roundTripped}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('deployment config JSON round-trips through stringify/parse without modification', function () {
@@ -98,7 +94,7 @@ describe('Feature: ci-integration-harness, Property 3: configJson opaque round-t
                 assert.strictEqual(roundTripped, configJson,
                     'Deployment config JSON should round-trip exactly');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('configJson stored in a CI record round-trips correctly', function () {
@@ -121,6 +117,6 @@ describe('Feature: ci-integration-harness, Property 3: configJson opaque round-t
                 assert.strictEqual(reStringified, configJson,
                     'configJson from CI record should round-trip exactly');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

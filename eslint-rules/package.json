@@ -1,0 +1,7 @@
+{
+  "name": "eslint-plugin-property-test-rules",
+  "version": "1.0.0",
+  "description": "Local ESLint rules for ML Container Creator property tests",
+  "main": "index.cjs",
+  "private": true
+}

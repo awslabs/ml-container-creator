@@ -18,9 +18,10 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import TemplateManager from '../../src/lib/template-manager.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 100,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -84,7 +85,7 @@ const arbAnyBaseConfig = fc.oneof(arbCpuSafeBaseConfig, arbGpuBaseConfig);
 describe('Feature: batch-transform-endpoint, Property 8: Container image reuse across deployment targets', () => {
 
     it('both realtime-inference and batch-transform pass validation with the same base configuration', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 11.1, 11.2
@@ -115,11 +116,11 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('TemplateManager does NOT add batch-specific file exclusions or modifications to the container build', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 11.1, 11.2
@@ -159,11 +160,11 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('both targets use the same instance type selection (verified by both passing validation with the same instanceType)', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 11.1, 11.2
@@ -199,11 +200,11 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('GPU-requiring configs work identically for both realtime-inference and batch-transform', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 11.1, 11.2
@@ -240,11 +241,11 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('GPU-requiring configs with CPU instances fail identically for both targets', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 11.1, 11.2
@@ -297,6 +298,6 @@ describe('Feature: batch-transform-endpoint, Property 8: Container image reuse a
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

@@ -17,15 +17,10 @@ import assert from 'assert';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 const baseImagePickerCatalogsDir = resolve(__dirname, '../../servers/lib/catalogs');
 const instanceRecommenderCatalogsDir = resolve(__dirname, '../../servers/lib/catalogs');
@@ -66,7 +61,7 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
          * value that deep-equals the original parsed result.
          */
         it('model-servers.json survives parse → stringify → parse round-trip', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const catalogFiles = [
                 { name: 'model-servers.json', data: modelServersCatalog },
@@ -90,11 +85,11 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('every entry in model-servers.json survives individual round-trip', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const catalog = modelServersCatalog.parsed;
             const serverNames = Object.keys(catalog);
@@ -123,11 +118,11 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('every entry in python-slim.json survives individual round-trip', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const catalog = pythonSlimCatalog.parsed;
 
@@ -146,7 +141,7 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -167,7 +162,7 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
          * original parsed result.
          */
         it('instances.json survives parse → stringify → parse round-trip', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constant(instancesCatalog),
@@ -185,11 +180,11 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('every catalog entry in instances.json survives individual round-trip', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const catalog = instancesCatalog.parsed.catalog;
             const instanceTypes = Object.keys(catalog);
@@ -209,11 +204,11 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('recommendations in instances.json survive round-trip', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const recommendations = instancesCatalog.parsed.recommendations;
 
@@ -232,7 +227,7 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -253,7 +248,7 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
          * original parsed result.
          */
         it('regions.json survives parse → stringify → parse round-trip', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constant(regionsCatalog),
@@ -271,11 +266,11 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('every RegionEntry in regions.json survives individual round-trip', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const catalog = regionsCatalog.parsed;
 
@@ -294,7 +289,7 @@ describe('Catalog JSON Round-Trip Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

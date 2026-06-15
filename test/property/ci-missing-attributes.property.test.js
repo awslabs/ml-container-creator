@@ -13,11 +13,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { applyRecordDefaults } from '../../src/lib/ci-register-helpers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -163,7 +159,7 @@ describe('Feature: ci-integration-harness, Property 2: Missing attribute gracefu
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('applyRecordDefaults preserves existing attribute values when present', function () {
@@ -197,6 +193,6 @@ describe('Feature: ci-integration-harness, Property 2: Missing attribute gracefu
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

@@ -19,15 +19,10 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -97,7 +92,7 @@ describe('Diffusors Model Name Substitution Property-Based Tests', () => {
     before(() => {
         console.log('\n🚀 Starting Diffusors Model Name Substitution Property Tests');
         console.log('📋 Testing: Model name substitution in Dockerfile template');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property\n`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property\n`);
 
         // Load the template once
         dockerfileTemplate = fs.readFileSync(DOCKERFILE_TEMPLATE_PATH, 'utf-8');
@@ -130,7 +125,7 @@ describe('Diffusors Model Name Substitution Property-Based Tests', () => {
         });
 
         it('any valid HuggingFace model name is correctly substituted into VLLM_MODEL', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 hfModelNameArb,
@@ -154,11 +149,11 @@ describe('Diffusors Model Name Substitution Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('model names with special characters (dots, underscores, hyphens) are preserved exactly', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             // Generate model names that specifically include dots, underscores, and hyphens
             const specialCharModelArb = fc.tuple(
@@ -192,11 +187,11 @@ describe('Diffusors Model Name Substitution Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('model name appears exactly once in the VLLM_MODEL assignment', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 hfModelNameArb,
@@ -222,7 +217,7 @@ describe('Diffusors Model Name Substitution Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

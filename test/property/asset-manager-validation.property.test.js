@@ -20,12 +20,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import AssetManager, { VALID_RESOURCE_TYPES, VALID_STATUSES } from '../../src/lib/asset-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -84,7 +79,7 @@ describe('Feature: deployment-registry, Property 4: Asset_Record schema validati
      * **Validates: Requirements 2.1–2.8**
      */
     it('valid records pass validation', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidRecord,
@@ -98,14 +93,14 @@ describe('Feature: deployment-registry, Property 4: Asset_Record schema validati
                 assert.strictEqual(result.errors.length, 0);
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
      * **Validates: Requirements 2.1–2.8**
      */
     it('records missing a required field are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidRecord,
@@ -126,14 +121,14 @@ describe('Feature: deployment-registry, Property 4: Asset_Record schema validati
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
      * **Validates: Requirements 2.1–2.8**
      */
     it('records with invalid resourceType are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const arbInvalidType = fc.stringMatching(/^[a-z]{3,20}$/)
             .filter(s => !VALID_RESOURCE_TYPES.includes(s));
@@ -148,14 +143,14 @@ describe('Feature: deployment-registry, Property 4: Asset_Record schema validati
                 assert.ok(result.errors.some(e => e.includes('Invalid resourceType')));
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
      * **Validates: Requirements 2.1–2.8**
      */
     it('records with invalid status are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const arbInvalidStatus = fc.stringMatching(/^[a-z]{3,15}$/)
             .filter(s => !VALID_STATUSES.includes(s));
@@ -170,14 +165,14 @@ describe('Feature: deployment-registry, Property 4: Asset_Record schema validati
                 assert.ok(result.errors.some(e => e.includes('Invalid status')));
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
      * **Validates: Requirements 2.1–2.8**
      */
     it('records with non-ISO-8601 timestamps are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const arbBadTimestamp = fc.constantFrom(
             'not-a-date', '2026/05/04', '05-04-2026',
@@ -195,14 +190,14 @@ describe('Feature: deployment-registry, Property 4: Asset_Record schema validati
                 assert.ok(result.errors.some(e => e.includes(`Invalid ${field}`)));
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
      * **Validates: Requirements 2.1–2.8**
      */
     it('records with non-object metadata are rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const arbBadMetadata = fc.oneof(
             fc.string(),
@@ -222,6 +217,6 @@ describe('Feature: deployment-registry, Property 4: Asset_Record schema validati
                 assert.strictEqual(result.valid, false);
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

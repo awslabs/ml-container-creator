@@ -20,12 +20,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import ConfigManager from '../../src/lib/config-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -54,8 +49,6 @@ const arbDataCapturePercent = fc.integer({ min: 0, max: 100 });
  */
 const arbCopyCount = fc.integer({ min: 0, max: 100 });
 
-
-
 // ── Helper to create a mock generator ────────────────────────────────────────
 
 function createMockGenerator(cliOptions = {}) {
@@ -78,7 +71,7 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
          */
 
         it('manifest records correct source for CLI parameters', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbInstanceCount,
@@ -118,11 +111,11 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('manifest records correct source for config-file parameters', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbInstanceCount,
@@ -164,11 +157,11 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('CLI source overrides config-file source in manifest', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbInstanceCount,
@@ -202,11 +195,11 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('manifest records "default" source for parameters with only defaults', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.constant(true),
@@ -241,11 +234,11 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('manifest records correct source for registry env vars', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.uniqueArray(
@@ -282,11 +275,11 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('CLI env vars override registry env vars in manifest', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.uniqueArray(
@@ -330,7 +323,7 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

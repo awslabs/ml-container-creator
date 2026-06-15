@@ -18,12 +18,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import { isSecretsManagerArn } from '../../src/lib/arn-detection.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const SECRETS_MANAGER_ARN_PREFIX = 'arn:aws:secretsmanager:';
 
@@ -75,7 +70,7 @@ describe('Feature: secrets-manager-integration, Property 11: ARN Detection Corre
      */
 
     it('returns true for any string starting with the Secrets Manager ARN prefix', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidArn,
@@ -87,11 +82,11 @@ describe('Feature: secrets-manager-integration, Property 11: ARN Detection Corre
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('returns false for any string that does not start with the Secrets Manager ARN prefix', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbNonArnString,
@@ -103,11 +98,11 @@ describe('Feature: secrets-manager-integration, Property 11: ARN Detection Corre
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('returns false for partial prefixes of the ARN pattern', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbPartialPrefix,
@@ -119,11 +114,11 @@ describe('Feature: secrets-manager-integration, Property 11: ARN Detection Corre
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('returns false for any non-string value', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbNonStringValue,
@@ -135,11 +130,11 @@ describe('Feature: secrets-manager-integration, Property 11: ARN Detection Corre
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('the biconditional holds: returns true iff string starts with prefix', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.string(),
@@ -153,6 +148,6 @@ describe('Feature: secrets-manager-integration, Property 11: ARN Detection Corre
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

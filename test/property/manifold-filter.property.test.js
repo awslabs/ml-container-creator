@@ -15,6 +15,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // --- Inline implementation of filter logic (mirrors coverage-manifold.js) ---
 
@@ -28,11 +29,6 @@ function filterPoints(points, filters) {
 }
 
 // --- Generators ---
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
 
 const DEPLOYMENT_CONFIGS = [
     'transformers-vllm', 'transformers-sglang', 'transformers-tensorrt-llm',
@@ -91,7 +87,7 @@ describe('Property P10: Filter Correctness', () => {
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('no matching point from the original set is excluded', () => {
@@ -118,7 +114,7 @@ describe('Property P10: Filter Correctness', () => {
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('result is a subset of the original set', () => {
@@ -130,7 +126,7 @@ describe('Property P10: Filter Correctness', () => {
                 assert.ok(result.length <= points.length,
                     `Filtered result (${result.length}) is larger than original (${points.length})`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('empty filter returns all points', () => {
@@ -142,7 +138,7 @@ describe('Property P10: Filter Correctness', () => {
                 assert.strictEqual(result.length, points.length,
                     `Empty filter should return all ${points.length} points, got ${result.length}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('filter result count equals manual count of matching points', () => {
@@ -166,6 +162,6 @@ describe('Property P10: Filter Correctness', () => {
                 assert.strictEqual(result.length, expectedCount,
                     `Filter returned ${result.length} points but expected ${expectedCount}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

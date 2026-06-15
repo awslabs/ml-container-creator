@@ -18,15 +18,10 @@ import addFormats from 'ajv-formats';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Schema loading ───────────────────────────────────────────────────────────
 
@@ -132,7 +127,7 @@ describe('Schema Validation Property-Based Tests', () => {
          */
 
         it('any valid ImageEntry passes image-catalog schema validation (flat array)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(arbImageEntry, { minLength: 1, maxLength: 10 }),
@@ -144,11 +139,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('any valid keyed image catalog passes image-catalog schema validation', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.dictionary(
@@ -163,11 +158,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('any valid instances catalog passes instances schema validation', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.record({
@@ -188,11 +183,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('any valid regions catalog passes regions schema validation', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.array(arbRegionEntry, { minLength: 1, maxLength: 20 }),
@@ -204,7 +199,7 @@ describe('Schema Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -317,7 +312,7 @@ describe('Schema Validation Property-Based Tests', () => {
         // ── ImageEntry rejection tests (via image-catalog schema) ─────────
 
         it('image catalog with missing required field in entry is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbImageEntryMissingField,
@@ -328,11 +323,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(validateImageCatalog.errors.length > 0, 'Should have validation errors');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('image catalog with wrong type in entry is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbImageEntryWrongType,
@@ -342,11 +337,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(validateImageCatalog.errors.length > 0, 'Should have validation errors');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('image catalog with invalid enum value in entry is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbImageEntryBadEnum,
@@ -356,11 +351,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(validateImageCatalog.errors.length > 0, 'Should have validation errors');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('keyed image catalog with invalid entry is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -374,13 +369,13 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(validateImageCatalog.errors.length > 0, 'Should have validation errors');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── instances rejection tests ────────────────────────────────────
 
         it('instances catalog with missing required field in entry is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbInstanceEntryMissingField,
@@ -399,11 +394,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(hasFieldRef, `Errors should reference "${removedField}" but got: ${JSON.stringify(allErrors)}`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('instances catalog with wrong type in entry is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbInstanceEntryWrongType,
@@ -417,11 +412,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(validateInstances.errors.length > 0, 'Should have validation errors');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('instances catalog missing top-level required field is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom('catalog', 'recommendations'),
@@ -439,13 +434,13 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(hasFieldRef, `Errors should reference missing "${field}"`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── regions rejection tests ──────────────────────────────────────
 
         it('regions catalog with missing required field is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbRegionEntryMissingField,
@@ -460,11 +455,11 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(hasFieldRef, `Errors should reference "${removedField}" but got: ${JSON.stringify(validateRegions.errors)}`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('regions catalog with invalid code pattern is rejected', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbRegionEntryBadPattern,
@@ -478,13 +473,13 @@ describe('Schema Validation Property-Based Tests', () => {
                     assert.ok(hasFieldRef, `Errors should reference "${violatedField}" but got: ${JSON.stringify(validateRegions.errors)}`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         // ── Empty / wrong top-level type tests ───────────────────────────
 
         it('empty object is rejected by image-catalog schema', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const valid = validateImageCatalog({});
             assert.strictEqual(valid, false, 'Empty object should fail image-catalog schema');
@@ -492,7 +487,7 @@ describe('Schema Validation Property-Based Tests', () => {
         });
 
         it('empty array is rejected by image-catalog schema', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const valid = validateImageCatalog([]);
             assert.strictEqual(valid, false, 'Empty array should fail image-catalog schema');
@@ -500,7 +495,7 @@ describe('Schema Validation Property-Based Tests', () => {
         });
 
         it('empty array is rejected by regions schema', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const valid = validateRegions([]);
             assert.strictEqual(valid, false, 'Empty array should fail regions schema');

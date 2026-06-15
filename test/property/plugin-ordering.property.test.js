@@ -12,12 +12,7 @@ import { describe, it } from 'mocha';
 import assert from 'assert';
 import SchemaValidationEngine from '../../src/lib/schema-validation-engine.js';
 import BaseValidator from '../../src/lib/validators/base-validator.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Test Validator Classes ───────────────────────────────────────────────────
 
@@ -141,7 +136,7 @@ describe('Plugin Ordering Property-Based Tests', () => {
          */
 
         it('smart validators receive all static findings in priorFindings', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.tuple(
@@ -219,11 +214,11 @@ describe('Plugin Ordering Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('static validators do not receive smart validator findings in priorFindings', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbStaticFindings,
@@ -255,11 +250,11 @@ describe('Plugin Ordering Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('smart validators do not run when smartMode is disabled', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbStaticFindings,
@@ -298,11 +293,11 @@ describe('Plugin Ordering Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('both-mode validators findings are passed to smart validators', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbStaticFindings,
@@ -349,7 +344,7 @@ describe('Plugin Ordering Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

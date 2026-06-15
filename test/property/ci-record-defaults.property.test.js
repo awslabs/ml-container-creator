@@ -14,11 +14,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { computeConfigId, buildCiRecord } from '../../src/lib/ci-register-helpers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -107,7 +103,7 @@ describe('Feature: ci-integration-harness, Property 1: Initial record defaults',
                 assert.strictEqual(record.schemaVersion, 1,
                     `schemaVersion should be 1, got ${record.schemaVersion}`);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });
 
@@ -173,6 +169,6 @@ describe('Feature: ci-integration-harness, Property 9: Re-registration resets st
                 assert.strictEqual(reRegisteredRecord.configId, configId,
                     'Re-registered record should have same configId');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

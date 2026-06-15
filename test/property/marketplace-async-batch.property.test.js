@@ -14,6 +14,7 @@
 import { describe, it } from 'mocha';
 import fc from 'fast-check';
 import { runGenerator } from '../helpers/run-generator.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 // ── Arbitraries ──────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
                         result.cleanup();
                     }
                 }),
-                { numRuns: 10, seed: 42 }
+                { numRuns: NUM_RUNS, seed: 42 }
             );
         });
 
@@ -128,7 +129,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
                         result.cleanup();
                     }
                 }),
-                { numRuns: 10, seed: 42 }
+                { numRuns: NUM_RUNS, seed: 42 }
             );
         });
 

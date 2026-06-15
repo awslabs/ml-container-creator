@@ -21,12 +21,13 @@ import ejs from 'ejs';
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
+    numRuns: NUM_RUNS,
     timeout: 30000,
     seed: 42,
     verbose: false

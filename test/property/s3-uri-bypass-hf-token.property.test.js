@@ -18,12 +18,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import PromptRunner from '../../src/lib/prompt-runner.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -97,7 +92,7 @@ describe('Feature: ftp-benchmark-support, Property 2: S3 URI Bypasses HuggingFac
      * for 'hf-token' classification — meaning HF token is NOT required.
      */
     it('S3 URI in modelName bypasses HF token requirement for all HF-dependent architectures', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const runner = createTestRunner();
         const classification = { identifier: 'hf-token', stages: ['build-time', 'runtime'] };
@@ -119,7 +114,7 @@ describe('Feature: ftp-benchmark-support, Property 2: S3 URI Bypasses HuggingFac
                     `Expected HF token NOT required for S3 URI "${s3Uri}" with architecture=${archConfig.architecture}, backend=${archConfig.backend}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -130,7 +125,7 @@ describe('Feature: ftp-benchmark-support, Property 2: S3 URI Bypasses HuggingFac
      * (customModelName is an alternative field used when user provides a custom model name)
      */
     it('S3 URI in customModelName bypasses HF token requirement for all HF-dependent architectures', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const runner = createTestRunner();
         const classification = { identifier: 'hf-token', stages: ['build-time', 'runtime'] };
@@ -152,7 +147,7 @@ describe('Feature: ftp-benchmark-support, Property 2: S3 URI Bypasses HuggingFac
                     `Expected HF token NOT required for customModelName S3 URI "${s3Uri}" with architecture=${archConfig.architecture}, backend=${archConfig.backend}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -162,7 +157,7 @@ describe('Feature: ftp-benchmark-support, Property 2: S3 URI Bypasses HuggingFac
      * DO require an HF token (ensuring the test setup is correct).
      */
     it('non-S3 model names still require HF token for HF-dependent architectures', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const runner = createTestRunner();
         const classification = { identifier: 'hf-token', stages: ['build-time', 'runtime'] };
@@ -195,6 +190,6 @@ describe('Feature: ftp-benchmark-support, Property 2: S3 URI Bypasses HuggingFac
                     `Expected HF token REQUIRED for non-S3 model "${modelName}" with architecture=${archConfig.architecture}, backend=${archConfig.backend}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

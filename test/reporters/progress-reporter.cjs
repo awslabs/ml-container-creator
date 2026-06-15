@@ -71,7 +71,7 @@ class ProgressReporter extends Base {
             console.log(`Completed ${totalTests} tests in ${seconds}s`);
             
             if (failedTests.length > 0) {
-                console.log('\n' + '─'.repeat(80));
+                console.log(`\n${  '─'.repeat(80)}`);
                 console.log('Failed Tests:\n');
                 
                 failedTests.forEach((test, index) => {

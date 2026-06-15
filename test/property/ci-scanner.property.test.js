@@ -12,11 +12,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Pure function mirroring scanner logic ────────────────────────────────────
 
@@ -116,7 +112,7 @@ describe('Feature: ci-integration-harness, Property 5: Scanner record selection 
                         `Scanner should never select running records, but selected configId=${record.configId}`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('scanner always selects untested records', function () {
@@ -134,7 +130,7 @@ describe('Feature: ci-integration-harness, Property 5: Scanner record selection 
                         `Untested record configId=${record.configId} should be selected`);
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('scanner selects non-running records with stale timestamps (>24h)', function () {
@@ -158,7 +154,7 @@ describe('Feature: ci-integration-harness, Property 5: Scanner record selection 
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('scanner does not select non-running, non-untested records with fresh timestamps (<24h)', function () {
@@ -182,6 +178,6 @@ describe('Feature: ci-integration-harness, Property 5: Scanner record selection 
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

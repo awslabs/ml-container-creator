@@ -17,12 +17,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import TemplateManager from '../../src/lib/template-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Shared arbitrary generators ──────────────────────────────────────────────
 
@@ -69,7 +64,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
     describe('Property 12: HyperPod Validation Rules', () => {
 
         it('valid HyperPod config always passes validation (Req 10.3, 10.4, 10.5)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbValidClusterName,
@@ -90,11 +85,11 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     manager.validate();
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('empty or missing hyperPodCluster always fails validation (Req 10.3)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.oneof(
@@ -123,11 +118,11 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('invalid namespace always fails validation (Req 10.4, 10.6)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbValidClusterName,
@@ -151,11 +146,11 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('invalid replicas always fails validation (Req 10.5, 10.6)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbValidClusterName,
@@ -179,11 +174,11 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('validation errors always include descriptive field name (Req 10.6)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             // Test cluster error message
             const clusterAnswers = {
@@ -223,7 +218,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
         });
 
         it('HyperPod validation is skipped for realtime-inference (Req 10.3, 10.4, 10.5)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constant('realtime-inference'),
@@ -241,7 +236,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     manager.validate();
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -250,7 +245,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
     describe('Property 13: Enum Validation', () => {
 
         it('valid buildTarget values always pass validation (Req 1.5, 10.1)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom('codebuild'),
@@ -266,11 +261,11 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     manager.validate();
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('invalid buildTarget values always fail validation (Req 1.5, 10.1)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.string({ minLength: 1, maxLength: 30 })
@@ -291,11 +286,11 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('valid deploymentTarget values always pass validation (Req 1.6, 10.2)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom('realtime-inference', 'hyperpod-eks'),
@@ -319,11 +314,11 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     manager.validate();
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('invalid deploymentTarget values always fail validation (Req 1.6, 10.2)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.string({ minLength: 1, maxLength: 30 })
@@ -343,7 +338,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
                     );
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

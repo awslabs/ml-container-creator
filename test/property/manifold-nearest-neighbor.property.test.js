@@ -16,6 +16,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // --- Inline implementation of nearest-neighbor logic (mirrors coverage-manifold.js) ---
 
@@ -38,11 +39,6 @@ function euclidean(a, b) {
 }
 
 // --- Generators ---
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
 
 const arbCoord = fc.double({ min: -20, max: 20, noNaN: true, noDefaultInfinity: true });
 
@@ -124,7 +120,7 @@ describe('Property P9: Nearest-Neighbor Correctness', () => {
                     }
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('result contains exactly k elements when enough proven points exist', () => {
@@ -148,7 +144,7 @@ describe('Property P9: Nearest-Neighbor Correctness', () => {
                 const result = findNearestProven(userPoint, provenPoints, 3);
                 assert.strictEqual(result.length, 3, 'Should return exactly 3 points when >= 3 proven points exist');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('distances in result are correct Euclidean distances', () => {
@@ -166,6 +162,6 @@ describe('Property P9: Nearest-Neighbor Correctness', () => {
                     );
                 }
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

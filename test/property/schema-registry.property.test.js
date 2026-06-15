@@ -16,12 +16,7 @@ import path from 'node:path';
 import os from 'node:os';
 import SchemaValidationEngine from '../../src/lib/schema-validation-engine.js';
 import { storeServiceModel, loadServiceModel } from '../../src/lib/schema-sync.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -108,7 +103,7 @@ describe('Property 13: Staleness detection correctness', () => {
                     assert.strictEqual(result.daysSinceSync, daysAgo);
                 }
             ),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 
@@ -201,7 +196,7 @@ describe('Property 21: Schema registry store-then-query round-trip', () => {
                     );
                 }
             ),
-            FAST_PROPERTY_CONFIG
+            PROPERTY_CONFIG
         );
     });
 });

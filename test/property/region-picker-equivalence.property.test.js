@@ -22,15 +22,10 @@ import {
     AWS_REGIONS,
     VALID_REGION_CODES
 } from '../../servers/region-picker/index.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Snapshot: load original catalog data directly from JSON files ─────────────
 // These represent the "ground truth" — the externalized JSON files that replaced
@@ -122,7 +117,7 @@ describe('Region Picker Response Equivalence Property-Based Tests', () => {
          * file would produce.
          */
         it('for any search term, filterRegions() output matches snapshot-based expected output', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbSearchTerm,
@@ -139,11 +134,11 @@ describe('Region Picker Response Equivalence Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('the loaded AWS_REGIONS matches the catalog JSON file content', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             assert.deepStrictEqual(
                 AWS_REGIONS,
@@ -153,7 +148,7 @@ describe('Region Picker Response Equivalence Property-Based Tests', () => {
         });
 
         it('the loaded VALID_REGION_CODES matches the catalog JSON file codes', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const expectedCodes = new Set(snapshotRegions.map(r => r.code));
             assert.deepStrictEqual(
@@ -164,7 +159,7 @@ describe('Region Picker Response Equivalence Property-Based Tests', () => {
         });
 
         it('for any keyword search, filterRegions returns only valid region codes', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...SEARCH_KEYWORDS),
@@ -182,11 +177,11 @@ describe('Region Picker Response Equivalence Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('for undefined search term, filterRegions returns all regions up to limit', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbLimit,
@@ -209,7 +204,7 @@ describe('Region Picker Response Equivalence Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

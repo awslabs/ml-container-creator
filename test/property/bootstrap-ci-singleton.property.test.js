@@ -22,12 +22,7 @@ import { join } from 'node:path';
 import os from 'node:os';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -152,7 +147,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
      * any OTHER profile is detected and blocked.
      */
     it('_findExistingCiProfile detects existing CI and blocks new CI deployment', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbExistingConfig,
@@ -183,7 +178,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
                     assert.strictEqual(ciConflict, null, 'Should not detect CI conflict when none exists');
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -198,7 +193,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
      * The resulting config must still have at most one CI profile.
      */
     it('check-and-set pattern ensures at most one CI profile across all configs', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbExistingConfig,
@@ -242,7 +237,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
                     `(profiles: ${JSON.stringify(Object.entries(finalConfig.profiles).filter(([, p]) => p.ciInfraProvisioned).map(([n]) => n))})`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -252,7 +247,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
      * ensuring a profile doesn't block itself from CI operations (e.g., updates).
      */
     it('_findExistingCiProfile excludes the specified profile from detection', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbProfileName,
@@ -279,7 +274,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
                     `Should not detect CI conflict for the excluded profile "${profileName}" itself`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -290,7 +285,7 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
      * enforcement always triggers when CI exists elsewhere.
      */
     it('_findExistingCiProfile always detects at least one CI profile in multi-CI configs', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbConfigWithMultipleCi,
@@ -326,6 +321,6 @@ describe('Feature: multi-region-bootstrap, Property 2: CI Singleton', () => {
                     `Detected profile "${result.name}" should be one of the CI profiles: ${ciNames.join(', ')}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

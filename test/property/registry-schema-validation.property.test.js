@@ -18,12 +18,7 @@ import { describe, it, before } from 'mocha';
 import assert from 'node:assert';
 import Ajv from 'ajv';
 import deploymentEntrySchema from '../../src/lib/deployment-entry-schema.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -200,7 +195,7 @@ describe('Feature: deployment-registry, Property 5: Schema validation rejects in
     // ── Valid entries should pass ─────────────────────────────────────
 
     it('any valid deployment entry passes schema validation', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidDeploymentEntry,
@@ -212,13 +207,13 @@ describe('Feature: deployment-registry, Property 5: Schema validation rejects in
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     // ── Missing required fields should fail ───────────────────────────
 
     it('entry with missing required top-level field is rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbEntryMissingField,
@@ -228,13 +223,13 @@ describe('Feature: deployment-registry, Property 5: Schema validation rejects in
                 assert.ok(validate.errors.length > 0, 'Should have validation errors');
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     // ── Invalid enum values should fail ───────────────────────────────
 
     it('entry with invalid status enum is rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbEntryBadStatus,
@@ -247,11 +242,11 @@ describe('Feature: deployment-registry, Property 5: Schema validation rejects in
                 assert.ok(hasStatusError, `Should have status-related error but got: ${JSON.stringify(validate.errors)}`);
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('entry with invalid architecture enum is rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbEntryBadArchitecture,
@@ -264,11 +259,11 @@ describe('Feature: deployment-registry, Property 5: Schema validation rejects in
                 assert.ok(hasArchError, `Should have architecture-related error but got: ${JSON.stringify(validate.errors)}`);
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('entry with invalid source enum is rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbEntryBadSource,
@@ -281,13 +276,13 @@ describe('Feature: deployment-registry, Property 5: Schema validation rejects in
                 assert.ok(hasSourceError, `Should have source-related error but got: ${JSON.stringify(validate.errors)}`);
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     // ── Invalid timestamps should fail ────────────────────────────────
 
     it('entry with non-ISO-8601 timestamp is rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbEntryBadTimestamp,
@@ -300,13 +295,13 @@ describe('Feature: deployment-registry, Property 5: Schema validation rejects in
                 assert.ok(hasTimestampError, `Should have timestamp-related error but got: ${JSON.stringify(validate.errors)}`);
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     // ── Invalid ID format should fail ─────────────────────────────────
 
     it('entry with invalid id format is rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbEntryBadId,
@@ -319,6 +314,6 @@ describe('Feature: deployment-registry, Property 5: Schema validation rejects in
                 assert.ok(hasIdError, `Should have id-related error but got: ${JSON.stringify(validate.errors)}`);
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

@@ -16,9 +16,10 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import TemplateManager from '../../src/lib/template-manager.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 25,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -79,7 +80,7 @@ const arbInvalidPositiveInt = fc.oneof(
 describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture gating (only transformers/diffusors accepted)', () => {
 
     it('includeBenchmark=true accepted for transformers/diffusors deploymentConfigs', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.1
@@ -96,11 +97,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture gating (o
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('includeBenchmark=true rejected for http/triton deploymentConfigs', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.1
@@ -121,7 +122,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture gating (o
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -130,7 +131,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture gating (o
 describe('Feature: sagemaker-ai-benchmarking, Property 2: Deployment target gating (hyperpod-eks rejected)', () => {
 
     it('includeBenchmark=true rejected when deploymentTarget=hyperpod-eks', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.6
@@ -156,11 +157,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 2: Deployment target gati
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('includeBenchmark=true accepted for non-hyperpod-eks deployment targets', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.6
@@ -177,7 +178,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property 2: Deployment target gati
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -186,7 +187,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property 2: Deployment target gati
 describe('Feature: sagemaker-ai-benchmarking, Property 3: Numeric parameter validation (concurrency, tokens >= 1)', () => {
 
     it('benchmarkConcurrency integers >= 1 are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.2
@@ -199,11 +200,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 3: Numeric parameter vali
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('benchmarkConcurrency < 1 or non-integer rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.2
@@ -220,11 +221,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 3: Numeric parameter vali
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('benchmarkInputTokensMean integers >= 1 are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.3
@@ -237,11 +238,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 3: Numeric parameter vali
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('benchmarkInputTokensMean < 1 or non-integer rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.3
@@ -258,11 +259,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 3: Numeric parameter vali
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('benchmarkOutputTokensMean integers >= 1 are accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.4
@@ -275,11 +276,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 3: Numeric parameter vali
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('benchmarkOutputTokensMean < 1 or non-integer rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.4
@@ -296,7 +297,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property 3: Numeric parameter vali
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -305,7 +306,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property 3: Numeric parameter vali
 describe('Feature: sagemaker-ai-benchmarking, Property 4: S3 path format validation', () => {
 
     it('benchmarkS3OutputPath starting with s3:// is accepted', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.5
@@ -318,11 +319,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 4: S3 path format validat
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('non-empty benchmarkS3OutputPath NOT starting with s3:// is rejected', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.5
@@ -339,11 +340,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 4: S3 path format validat
                 );
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('empty or null benchmarkS3OutputPath is accepted (uses default)', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
          * Validates: Requirements 9.5
@@ -359,6 +360,6 @@ describe('Feature: sagemaker-ai-benchmarking, Property 4: S3 path format validat
                 manager.validate();
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

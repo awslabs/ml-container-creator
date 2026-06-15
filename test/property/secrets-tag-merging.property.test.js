@@ -20,12 +20,7 @@ import fc from 'fast-check';
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import assert from 'node:assert';
 import SecretsCommandHandler from '../../src/lib/secrets-command-handler.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -115,7 +110,7 @@ describe('Feature: secrets-manager-integration, Property 5: Tag Merging Correctn
      * the three system tags with correct values.
      */
     it('merged result always contains system tags with correct values', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbUserTags,
@@ -142,7 +137,7 @@ describe('Feature: secrets-manager-integration, Property 5: Tag Merging Correctn
                 assert.strictEqual(secretTypeTag.Value, secretType,
                     `mlcc:secret-type must equal "${secretType}"`);
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -151,7 +146,7 @@ describe('Feature: secrets-manager-integration, Property 5: Tag Merging Correctn
      * All user tags without the mlcc: prefix are preserved in the result.
      */
     it('all user tags without mlcc: prefix are preserved in the result', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbUserTags,
@@ -169,7 +164,7 @@ describe('Feature: secrets-manager-integration, Property 5: Tag Merging Correctn
                         `User tag {Key: "${userTag.Key}", Value: "${userTag.Value}"} should be preserved in result`);
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -179,7 +174,7 @@ describe('Feature: secrets-manager-integration, Property 5: Tag Merging Correctn
      * (except the three system-defined ones with their correct values).
      */
     it('no user-provided mlcc: tags appear in result except system tags', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbUserTags,
@@ -206,7 +201,7 @@ describe('Feature: secrets-manager-integration, Property 5: Tag Merging Correctn
                 assert.strictEqual(mlccTagsInResult.length, 3,
                     `Expected exactly 3 mlcc: tags in result, got ${mlccTagsInResult.length}`);
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -216,7 +211,7 @@ describe('Feature: secrets-manager-integration, Property 5: Tag Merging Correctn
      * tags with the exact system tag keys, the system values always win.
      */
     it('system tags cannot be overridden by user-provided tags with same keys', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         // Generate user tags that specifically try to override system tags
         const arbOverrideTags = fc.array(
@@ -244,6 +239,6 @@ describe('Feature: secrets-manager-integration, Property 5: Tag Merging Correctn
                 const secretTypeTag = result.find(t => t.Key === 'mlcc:secret-type');
                 assert.strictEqual(secretTypeTag.Value, secretType);
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

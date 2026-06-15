@@ -27,11 +27,7 @@ import {
     classifyFailure,
     FAILURE_CATEGORIES
 } from '../../src/lib/path-prover-brain.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -141,7 +137,7 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     `Expected run_type='path_prove', got '${record.run_type}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('all records have run_type = path_prove (failure case)', function () {
@@ -157,7 +153,7 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     `Expected run_type='path_prove', got '${record.run_type}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -183,7 +179,7 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     `failure_reason must be non-empty for unfeasible records, got: '${record.failure_reason}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -213,7 +209,7 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     `failure_retryable must be boolean, got: ${typeof record.failure_retryable}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -235,7 +231,7 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     `failure_category '${record.failure_category}' not in ${JSON.stringify(FAILURE_CATEGORIES)}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -255,7 +251,7 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     `Expected status='completed' for success, got '${record.status}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -277,7 +273,7 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     `Expected status='failed' for retryable failure, got '${record.status}'`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -307,7 +303,7 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     `retryable must be boolean, got: ${typeof classification.retryable}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -330,6 +326,6 @@ describe('Feature: ci-benchmark-pipeline, Property P8: Path Prover Record Integr
                     'run_timestamp must be non-empty'
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

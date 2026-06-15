@@ -14,12 +14,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import { filterTransformerEnvVars, filterHttpEnvVars } from '../../src/lib/deployment-registry.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -144,7 +139,7 @@ describe('Feature: deployment-registry, Property 15: Env var filtering for trans
      * and HF_MODEL_ID if present. No other vars should be included.
      */
     it('filterTransformerEnvVars returns only prefixed vars plus HF_TOKEN and HF_MODEL_ID', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.constantFrom(...ENGINE_PREFIXES),
@@ -185,7 +180,7 @@ describe('Feature: deployment-registry, Property 15: Env var filtering for trans
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -200,7 +195,7 @@ describe('Feature: deployment-registry, Property 16: Env var filtering for http 
      * function should return all vars except the defined system vars.
      */
     it('filterHttpEnvVars excludes exactly the system vars and keeps everything else', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         const systemVarSet = new Set(HTTP_SYSTEM_VARS);
 
@@ -239,6 +234,6 @@ describe('Feature: deployment-registry, Property 16: Env var filtering for http 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

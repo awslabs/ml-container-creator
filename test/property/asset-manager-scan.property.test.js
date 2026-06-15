@@ -28,12 +28,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import AssetManager, { VALID_RESOURCE_TYPES, VALID_STATUSES } from '../../src/lib/asset-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -103,7 +98,7 @@ describe('Feature: deployment-registry, Properties 13–14: Scan deduplication a
      * 4. Verify: no duplicates after scan
      */
     it('scan does not add duplicate records for existing resourceIds', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.array(arbAssetRecord, { minLength: 0, maxLength: 8 })
@@ -170,7 +165,7 @@ describe('Feature: deployment-registry, Properties 13–14: Scan deduplication a
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -183,7 +178,7 @@ describe('Feature: deployment-registry, Properties 13–14: Scan deduplication a
      * createdAt timestamp, and a project field derived from the resource.
      */
     it('scan creates new records with status active, valid timestamp, and project field', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.array(arbAssetRecord, { minLength: 0, maxLength: 5 })
@@ -277,6 +272,6 @@ describe('Feature: deployment-registry, Properties 13–14: Scan deduplication a
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

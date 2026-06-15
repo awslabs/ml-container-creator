@@ -20,12 +20,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import ConfigManager from '../../src/lib/config-manager.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Parameter definitions with generators ────────────────────────────────────
 
@@ -106,7 +101,7 @@ describe('Infrastructure Parameter CLI Round-Trip Property-Based Tests', () => {
         describe('Endpoint parameters round-trip via CLI', () => {
             for (const param of ENDPOINT_PARAMS) {
                 it(`${param.name}: valid value passed via --${param.cliOption} appears in final config`, async function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     await fc.assert(fc.asyncProperty(
                         param.generator(),
@@ -124,7 +119,7 @@ describe('Infrastructure Parameter CLI Round-Trip Property-Based Tests', () => {
 
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });
@@ -132,7 +127,7 @@ describe('Infrastructure Parameter CLI Round-Trip Property-Based Tests', () => {
         describe('IC parameters round-trip via CLI', () => {
             for (const param of IC_PARAMS) {
                 it(`${param.name}: valid value passed via --${param.cliOption} appears in final config`, async function () {
-                    this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                    this.timeout(PROPERTY_CONFIG.timeout);
 
                     await fc.assert(fc.asyncProperty(
                         param.generator(),
@@ -150,7 +145,7 @@ describe('Infrastructure Parameter CLI Round-Trip Property-Based Tests', () => {
 
                             return true;
                         }
-                    ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                    ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
                 });
             }
         });

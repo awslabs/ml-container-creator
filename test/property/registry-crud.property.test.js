@@ -18,12 +18,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import DeploymentRegistry from '../../src/lib/deployment-registry.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -168,7 +163,7 @@ describe('Feature: deployment-registry, Property 14: Entry ID format', () => {
      * Validates: Requirements 15.1, 15.2
      */
     it('_generateId always returns an 8-character hexadecimal string', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidDeploymentEntry,
@@ -189,10 +184,9 @@ describe('Feature: deployment-registry, Property 14: Entry ID format', () => {
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
-
 
 // ── Property 6: Add then get round-trip ──────────────────────────────────────
 
@@ -221,7 +215,7 @@ describe('Feature: deployment-registry, Property 6: Add then get round-trip', ()
      * field values.
      */
     it('adding an entry and getting it by ID yields equivalent field values', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidEntryWithoutId,
@@ -255,7 +249,7 @@ describe('Feature: deployment-registry, Property 6: Add then get round-trip', ()
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -286,7 +280,7 @@ describe('Feature: deployment-registry, Property 7: Remove then get yields null'
      * and the registry length should decrease by exactly one.
      */
     it('removing an entry causes get to return null and decreases length by one', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidEntryWithoutId,
@@ -315,6 +309,6 @@ describe('Feature: deployment-registry, Property 7: Remove then get yields null'
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

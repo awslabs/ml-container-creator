@@ -1,6 +1,6 @@
 {
   "name": "@aws/ml-container-creator",
-  "version": "0.12.1",
+  "version": "0.13.1",
   "description": "Build and deploy custom ML containers on AWS SageMaker with minimal configuration.",
   "main": "src/index.js",
   "bin": {
@@ -102,7 +102,7 @@
     "validate:doc-commands": "node scripts/validate-docs-commands.js",
     "sbom": "sbom --format spdx --output sbom.json",
     "prepublishOnly": "npm run lint && npm run test:all",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.4.2",
@@ -120,11 +120,19 @@
     "@aws-sdk/client-service-quotas": "^3.700.0",
     "@microsoft/eslint-formatter-sarif": "^3.1.0",
     "eslint": "^8.57.0",
+    "eslint-plugin-property-test-rules": "file:eslint-rules",
     "fast-check": "^4.5.2",
+    "husky": "^9.1.7",
     "license-report": "^6.8.0",
+    "lint-staged": "^17.0.7",
     "mocha": "^10.2.0",
     "npm-force-resolutions": "^0.0.10",
     "nyc": "^15.1.0",
     "sbom": "^0.0.0"
+  },
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix --quiet --max-warnings 0"
+    ]
   }
 }

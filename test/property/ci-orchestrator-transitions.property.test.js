@@ -13,11 +13,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { computeTestStatus, STAGE_ORDER, ALWAYS_RUN_STAGES } from '../../src/lib/ci-stage-helpers.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Pure orchestrator state transition function ──────────────────────────────
 
@@ -128,7 +124,7 @@ describe('Feature: ci-integration-harness, Property 6: Orchestrator state transi
                 assert.strictEqual(runningRecord.testStatus, 'running',
                     'Record should have testStatus=running before build starts');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('orchestrator updates record with correct final testStatus after build', function () {
@@ -155,7 +151,7 @@ describe('Feature: ci-integration-harness, Property 6: Orchestrator state transi
                 assert.notStrictEqual(finalRecord.testStatus, 'running',
                     'Final testStatus should not be running after build completes');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('orchestrator records correct lastTestTimestamp and lastTestDuration', function () {
@@ -185,7 +181,7 @@ describe('Feature: ci-integration-harness, Property 6: Orchestrator state transi
                 assert.deepStrictEqual(finalRecord.stageResults, stageResults,
                     'stageResults should be stored in the final record');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     it('orchestrator sets testStatus=pass when all stages pass', function () {
@@ -214,6 +210,6 @@ describe('Feature: ci-integration-harness, Property 6: Orchestrator state transi
                 assert.strictEqual(finalRecord.testStatus, 'pass',
                     'testStatus should be pass when all stages pass');
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

@@ -23,15 +23,11 @@ import assert from 'assert';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference.ejs');
 const templateContent = readFileSync(TEMPLATE_PATH, 'utf-8');
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    verbose: false
-};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -150,7 +146,7 @@ describe('Feature: ci-benchmark-pipeline, Property P5: CI-Mode Structured Error 
                 assert.strictEqual(result.parsed.retryable, retryable);
                 assert.strictEqual(result.parsed.elapsed_seconds, elapsed);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -177,7 +173,7 @@ describe('Feature: ci-benchmark-pipeline, Property P5: CI-Mode Structured Error 
                     `error_type '${parsed.error_type}' not in valid set: ${VALID_ERROR_TYPES.join(', ')}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -204,7 +200,7 @@ describe('Feature: ci-benchmark-pipeline, Property P5: CI-Mode Structured Error 
                     `elapsed_seconds must be >= 0, got: ${parsed.elapsed_seconds}`
                 );
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -268,7 +264,7 @@ describe('Feature: ci-benchmark-pipeline, Property P5: CI-Mode Structured Error 
                 assert.strictEqual(result.parsed.retryable, true);
                 assert.ok(result.parsed.error.includes(instanceType));
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -292,7 +288,7 @@ describe('Feature: ci-benchmark-pipeline, Property P5: CI-Mode Structured Error 
                 assert.strictEqual(result.parsed.error_type, 'timeout');
                 assert.strictEqual(result.parsed.retryable, true);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 
     /**
@@ -316,6 +312,6 @@ describe('Feature: ci-benchmark-pipeline, Property P5: CI-Mode Structured Error 
                 assert.strictEqual(result.parsed.error_type, 'throttled');
                 assert.strictEqual(result.parsed.retryable, true);
             }
-        ), FAST_PROPERTY_CONFIG);
+        ), PROPERTY_CONFIG);
     });
 });

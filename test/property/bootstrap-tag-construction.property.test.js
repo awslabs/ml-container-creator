@@ -19,12 +19,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Property tests ───────────────────────────────────────────────────────────
 
@@ -34,7 +29,7 @@ describe('Feature: bootstrap-shared-infra, Property 4: Tag construction complete
      * Validates: Requirements 7.1, 7.2, 7.3
      */
     it('_buildResourceTags() always returns exactly 3 tags with correct keys and values', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             // Generate an arbitrary integer to create distinct handler instances per run
@@ -101,7 +96,7 @@ describe('Feature: bootstrap-shared-infra, Property 4: Tag construction complete
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -111,7 +106,7 @@ describe('Feature: bootstrap-shared-infra, Property 4: Tag construction complete
      * handler instances always produce the same tag set.
      */
     it('_buildResourceTags() produces consistent results across handler instances', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             fc.integer({ min: 2, max: 10 }),
@@ -134,6 +129,6 @@ describe('Feature: bootstrap-shared-infra, Property 4: Tag construction complete
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

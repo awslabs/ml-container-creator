@@ -17,8 +17,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
-
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, verbose: false };
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Arbitrary generators ─────────────────────────────────────────────────────
 
@@ -257,7 +256,7 @@ describe('Feature: registry-to-server-migration, Property 4: Environment variabl
                     assert.deepStrictEqual(merged, {},
                         'merging all empty sources must produce empty result');
                 }
-            ), { numRuns: 10, verbose: PROPERTY_CONFIG.verbose });
+            ), PROPERTY_CONFIG);
         });
 
         it('merging with only catalog defaults produces the defaults', function () {

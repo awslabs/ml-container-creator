@@ -15,12 +15,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import { CUSTOM_VALIDATORS } from '../../servers/lib/custom-validators.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Property tests ───────────────────────────────────────────────────────────
 
@@ -39,7 +34,7 @@ describe('Custom Value Validation Property-Based Tests', () => {
             const validator = CUSTOM_VALIDATORS['base-image-picker'];
 
             it('accepts valid container image references', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                this.timeout(PROPERTY_CONFIG.timeout);
 
                 const arbValidImage = fc.constantFrom(
                     'nginx:latest',
@@ -67,11 +62,11 @@ describe('Custom Value Validation Property-Based Tests', () => {
                         );
                         return true;
                     }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
             });
 
             it('rejects strings not matching image reference pattern', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                this.timeout(PROPERTY_CONFIG.timeout);
 
                 const arbInvalidImage = fc.constantFrom(
                     ':notag',
@@ -95,7 +90,7 @@ describe('Custom Value Validation Property-Based Tests', () => {
                         );
                         return true;
                     }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
             });
 
             it('rejects empty strings', () => {
@@ -114,7 +109,7 @@ describe('Custom Value Validation Property-Based Tests', () => {
             const validator = CUSTOM_VALIDATORS['instance-recommender'];
 
             it('accepts valid SageMaker instance type patterns', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                this.timeout(PROPERTY_CONFIG.timeout);
 
                 const arbValidInstance = fc.tuple(
                     fc.constant('ml.'),
@@ -134,11 +129,11 @@ describe('Custom Value Validation Property-Based Tests', () => {
                         );
                         return true;
                     }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
             });
 
             it('rejects strings not matching ml.<family>.<size> pattern', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                this.timeout(PROPERTY_CONFIG.timeout);
 
                 const arbInvalidInstance = fc.oneof(
                     // Missing ml. prefix
@@ -162,7 +157,7 @@ describe('Custom Value Validation Property-Based Tests', () => {
                         );
                         return true;
                     }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
             });
 
             it('rejects empty strings', () => {
@@ -181,7 +176,7 @@ describe('Custom Value Validation Property-Based Tests', () => {
             const validator = CUSTOM_VALIDATORS['region-picker'];
 
             it('accepts valid AWS region code patterns', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                this.timeout(PROPERTY_CONFIG.timeout);
 
                 const arbValidRegion = fc.tuple(
                     fc.stringMatching(/^[a-z]{2,4}$/),
@@ -202,11 +197,11 @@ describe('Custom Value Validation Property-Based Tests', () => {
                         );
                         return true;
                     }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
             });
 
             it('rejects strings not matching region code pattern', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                this.timeout(PROPERTY_CONFIG.timeout);
 
                 const arbInvalidRegion = fc.oneof(
                     // Uppercase
@@ -230,7 +225,7 @@ describe('Custom Value Validation Property-Based Tests', () => {
                         );
                         return true;
                     }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
             });
 
             it('rejects empty strings', () => {
@@ -249,7 +244,7 @@ describe('Custom Value Validation Property-Based Tests', () => {
             const validator = CUSTOM_VALIDATORS['hyperpod-cluster-picker'];
 
             it('accepts any non-empty string', function () {
-                this.timeout(FAST_PROPERTY_CONFIG.timeout);
+                this.timeout(PROPERTY_CONFIG.timeout);
 
                 const arbNonEmpty = fc.string({ minLength: 1, maxLength: 100 })
                     .filter(s => s.trim().length > 0);
@@ -265,7 +260,7 @@ describe('Custom Value Validation Property-Based Tests', () => {
                         );
                         return true;
                     }
-                ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+                ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
             });
 
             it('rejects empty strings', () => {

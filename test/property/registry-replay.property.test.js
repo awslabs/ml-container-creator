@@ -14,12 +14,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import { reconstructReplayFlags } from '../../src/lib/deployment-registry.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -122,7 +117,7 @@ describe('Feature: deployment-registry, Property 8: Replay reconstructs correct 
      * omitted for transformers architecture.
      */
     it('reconstructReplayFlags produces correct CLI flags from entry fields', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidDeploymentEntry,
@@ -213,11 +208,11 @@ describe('Feature: deployment-registry, Property 8: Replay reconstructs correct 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('null fields are omitted from the reconstructed flags', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidDeploymentEntry,
@@ -240,7 +235,7 @@ describe('Feature: deployment-registry, Property 8: Replay reconstructs correct 
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });
 
@@ -254,7 +249,7 @@ describe('Feature: deployment-registry, Property 9: Replay override precedence',
      * provided, and the stored entry value otherwise.
      */
     it('user overrides take precedence over stored entry values', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbValidDeploymentEntry,
@@ -290,6 +285,6 @@ describe('Feature: deployment-registry, Property 9: Replay override precedence',
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

@@ -18,12 +18,7 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Validation Function ──────────────────────────────────────────────────────
 
@@ -81,7 +76,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
      * validation MUST produce an error.
      */
     it('produces an error when both --hf-token and --hf-token-arn are provided', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbNonEmptyToken,
@@ -104,7 +99,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
                     `Error message should mention --hf-token-arn: "${result.error}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -114,7 +109,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
      * validation MUST produce an error.
      */
     it('produces an error when both --ngc-token and --ngc-token-arn are provided', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbNonEmptyToken,
@@ -137,7 +132,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
                     `Error message should mention --ngc-token-arn: "${result.error}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -147,7 +142,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
      * validation MUST pass (return null).
      */
     it('passes validation when only --hf-token is provided without --hf-token-arn', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbNonEmptyToken,
@@ -162,7 +157,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
                     `Expected no error when only hfToken is provided, but got: ${JSON.stringify(result)}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -172,7 +167,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
      * validation MUST pass (return null).
      */
     it('passes validation when only --hf-token-arn is provided without --hf-token', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbFalsyValue,
@@ -187,7 +182,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
                     `Expected no error when only hfTokenArn is provided, but got: ${JSON.stringify(result)}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -197,7 +192,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
      * validation MUST pass (return null).
      */
     it('passes validation when only --ngc-token is provided without --ngc-token-arn', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbNonEmptyToken,
@@ -212,7 +207,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
                     `Expected no error when only ngcToken is provided, but got: ${JSON.stringify(result)}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -222,7 +217,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
      * validation MUST pass (return null).
      */
     it('passes validation when only --ngc-token-arn is provided without --ngc-token', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbFalsyValue,
@@ -237,7 +232,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
                     `Expected no error when only ngcTokenArn is provided, but got: ${JSON.stringify(result)}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -247,7 +242,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
      * validation MUST pass (return null).
      */
     it('passes validation when no token flags are provided', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbFalsyValue,
@@ -264,7 +259,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
                     `Expected no error when no token flags are provided, but got: ${JSON.stringify(result)}`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -274,7 +269,7 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
      * the first conflict (hf-token) is reported.
      */
     it('reports hf-token conflict first when both pairs conflict simultaneously', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbNonEmptyToken,
@@ -296,6 +291,6 @@ describe('Feature: secrets-manager-integration, Property 9: Mutual Exclusion of 
                     `Error should report hf-token conflict first: "${result.error}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

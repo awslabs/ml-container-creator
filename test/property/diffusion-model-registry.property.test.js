@@ -16,6 +16,7 @@ import assert from 'assert';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __testFilename = fileURLToPath(import.meta.url);
 const __testDir = dirname(__testFilename);
@@ -43,12 +44,6 @@ function loadModelRegistryFromCatalogs() {
 
 const modelRegistry = loadModelRegistryFromCatalogs();
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
-
 // ── Constants ────────────────────────────────────────────────────────────────
 
 /**
@@ -67,7 +62,7 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
     before(() => {
         console.log('\n🚀 Starting Diffusion Model Registry Property Tests');
         console.log('📋 Testing: Diffusion model registry entry completeness');
-        console.log(`🔧 Configuration: ${FAST_PROPERTY_CONFIG.numRuns} iterations per property`);
+        console.log(`🔧 Configuration: ${PROPERTY_CONFIG.numRuns} iterations per property`);
         console.log(`📦 Diffusion model entries: ${DIFFUSION_MODEL_KEYS.length} (${DIFFUSION_MODEL_KEYS.join(', ')})\n`);
     });
 
@@ -100,7 +95,7 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
                 this.skip(); // catalog trimmed to golden-path models only — no diffusion models
                 return;
             }
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...DIFFUSION_MODEL_KEYS),
@@ -123,7 +118,7 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('all diffusion model entries have a valid vllm-omni version range in frameworkCompatibility', function () {
@@ -131,7 +126,7 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
                 this.skip(); // catalog trimmed to golden-path models only — no diffusion models
                 return;
             }
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom(...DIFFUSION_MODEL_KEYS),
@@ -166,11 +161,11 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('all diffusion model entries with profiles have non-empty profiles with displayName', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             const keysWithProfiles = DIFFUSION_MODEL_KEYS.filter(
                 key => modelRegistry[key].profiles && Object.keys(modelRegistry[key].profiles).length > 0
@@ -208,7 +203,7 @@ describe('Diffusion Model Registry Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

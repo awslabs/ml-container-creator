@@ -17,12 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadCatalog } from '../../servers/base-image-picker/index.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // Resolve the __dirname of the server module for path assertions
 const serverDir = path.dirname(new URL(import.meta.resolve('../../servers/base-image-picker/index.js')).pathname);
@@ -72,7 +67,7 @@ describe('loadCatalog() Property-Based Tests', () => {
          * includes the resolved file path.
          */
         it('for any non-existent path, loadCatalog throws with the path in the error message', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.string({ minLength: 1 }),
@@ -100,7 +95,7 @@ describe('loadCatalog() Property-Based Tests', () => {
                     assert.ok(threw, `loadCatalog should have thrown for missing path: ${JSON.stringify(safePath)}`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -114,7 +109,7 @@ describe('loadCatalog() Property-Based Tests', () => {
          * includes the file path.
          */
         it('for any non-JSON string written to a file, loadCatalog throws with the file path in the error message', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.string().filter(s => !isValidJSON(s)),
@@ -143,7 +138,7 @@ describe('loadCatalog() Property-Based Tests', () => {
                     assert.ok(threw, `loadCatalog should have thrown for invalid JSON content: ${JSON.stringify(invalidContent)}`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

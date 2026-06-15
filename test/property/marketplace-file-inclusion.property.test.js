@@ -26,8 +26,9 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import { runGenerator } from '../helpers/run-generator.js';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
-const PROPERTY_CONFIG = { numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10), timeout: 30000, seed: 42, verbose: false };
+const PROPERTY_CONFIG = { numRuns: NUM_RUNS, timeout: 30000, seed: 42, verbose: false };
 
 // ── Expected file sets ───────────────────────────────────────────────────────
 

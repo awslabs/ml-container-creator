@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+# 0. Check for hardcoded numRuns in staged property tests (fast grep check)
+if git diff --cached --name-only | grep -q "test/property/.*\.test\.js$"; then
+    if git diff --cached -U0 -- test/property/ | grep '^+' | grep -v '^+++' | grep 'numRuns: *[0-9]' > /dev/null 2>&1; then
+        echo "❌ Hardcoded numRuns found in staged property test changes."
+        echo "   Use: import { NUM_RUNS } from '../helpers/property-config.js'"
+        exit 1
+    fi
+fi
+
+# 1. Lint staged JS files (fast — only changed files)
+npx lint-staged
+
+# 2. Codegen parity check (ensures schema-manifest + generated files are fresh)
+#    Only run full codegen if schema/source files that affect generation are staged.
+#    Otherwise just verify no unstaged drift exists in generated dirs.
+CODEGEN_TRIGGERS="config/parameter-schema-v2.json|scripts/codegen-|servers/lib/catalogs/"
+if git diff --cached --name-only | grep -qE "$CODEGEN_TRIGGERS"; then
+    npm run codegen --silent
+    if ! git diff --exit-code --quiet -I "// Generated:" -I "\"generatedAt\"" -- docs/data/ src/lib/generated/ 2>/dev/null; then
+        echo "❌ Generated files are stale. Run: npm run codegen"
+        echo "   Then stage the updated files and commit again."
+        exit 1
+    fi
+fi
+
+# 3. Command generator sync check
+node scripts/sync-command-generator.js --check

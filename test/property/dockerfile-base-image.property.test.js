@@ -18,6 +18,7 @@ import ejs from 'ejs';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { NUM_RUNS } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,8 +28,8 @@ const dockerfileTemplate = readFileSync(
     'utf8'
 );
 
-const FAST_PROPERTY_CONFIG = {
-    numRuns: 50,
+const PROPERTY_CONFIG = {
+    numRuns: NUM_RUNS,
     timeout: 30000,
     verbose: false
 };
@@ -69,7 +70,7 @@ const TRANSFORMER_MODEL_SERVERS = ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl
 describe('Property 11: Dockerfile renders baseImage in correct directive', () => {
 
     it('non-transformer Dockerfile contains FROM <baseImage> for any non-empty baseImage', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbBaseImage,
@@ -95,11 +96,11 @@ describe('Property 11: Dockerfile renders baseImage in correct directive', () =>
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     it('transformer Dockerfile contains ARG BASE_IMAGE=<baseImage> for any non-empty baseImage', function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         fc.assert(fc.property(
             arbBaseImage,
@@ -126,6 +127,6 @@ describe('Property 11: Dockerfile renders baseImage in correct directive', () =>
 
                 return true;
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

@@ -23,14 +23,9 @@ import { join } from 'node:path';
 import os from 'node:os';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const STACK_NAME_PREFIX = 'mlcc-bootstrap';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -174,7 +169,7 @@ describe('Feature: multi-region-bootstrap, Property 1: Stack Name Invariant', ()
      * was found and reused, or a fresh deployment occurred.
      */
     it('stackName always equals mlcc-bootstrap-{profileName} after interactive setup', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -239,7 +234,7 @@ describe('Feature: multi-region-bootstrap, Property 1: Stack Name Invariant', ()
                     );
                 }
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
     /**
@@ -249,7 +244,7 @@ describe('Feature: multi-region-bootstrap, Property 1: Stack Name Invariant', ()
      * the prefix is always 'mlcc-bootstrap-' and the suffix is always the exact profile name.
      */
     it('stack name prefix is always mlcc-bootstrap- regardless of profile name', async function () {
-        this.timeout(FAST_PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -294,6 +289,6 @@ describe('Feature: multi-region-bootstrap, Property 1: Stack Name Invariant', ()
                     `Stack name suffix must be the profile name "${profileName}" but got "${suffix}"`
                 );
             }
-        ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+        ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 });

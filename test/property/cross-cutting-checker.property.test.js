@@ -15,12 +15,7 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import CrossCuttingChecker from '../../src/lib/cross-cutting-checker.js';
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -172,7 +167,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
          */
 
         it('reports error iff NumberOfAcceleratorDevicesRequired != instance GPU count', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbGpuInstanceType, arbGpuCount),
@@ -201,11 +196,11 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('no error for CPU instances regardless of IC_GPU_COUNT', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbCpuInstanceType, arbGpuCount),
@@ -223,7 +218,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                         'CPU instances should not trigger GPU consistency check');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -235,7 +230,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
          */
 
         it('reports error if TP size, accelerator devices, and instance GPUs are not all equal', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -274,11 +269,11 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('no error when model server is not vLLM or SGLang', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -302,7 +297,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                         'Non-vLLM/SGLang servers should not trigger tensor parallelism check');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -314,7 +309,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
          */
 
         it('reports error iff MODEL_ARTIFACT_URI is empty/unset for artifact-requiring sources', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -351,11 +346,11 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('no error when model source does not require artifact URI', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.constantFrom('huggingface', 'local', 'custom', 'none'),
@@ -372,7 +367,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                         `Model source "${modelSource}" should not require MODEL_ARTIFACT_URI`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -384,7 +379,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
          */
 
         it('reports error iff intersection of instance CUDA versions with base image CUDA major version is empty', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -419,11 +414,11 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('no error when instance has no CUDA versions (CPU instance)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbCpuInstanceType, arbCudaVersion),
@@ -440,7 +435,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                         'CPU instances with null cudaVersions should not trigger CUDA check');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -452,7 +447,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
          */
 
         it('reports warning iff model type is predictor and instance is GPU', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(
@@ -487,11 +482,11 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                     }
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('no warning for predictor models on CPU instances', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 arbCpuInstanceType,
@@ -508,7 +503,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                         'Predictor model on CPU instance should produce no warnings');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 
@@ -520,7 +515,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
          */
 
         it('compatible model_type produces no findings', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbModelServer, arbFrameworkVersion, arbModelType),
@@ -541,11 +536,11 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                         `Compatible model_type "${modelType}" with ${server} ${version} should produce no findings`);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('incompatible model_type produces a warning finding', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbModelServer, arbFrameworkVersion, arbModelType),
@@ -574,11 +569,11 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                     assert.strictEqual(findings[0].constraint.version, version);
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('empty supportedModelTypes produces no findings (graceful skip)', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbModelServer, arbFrameworkVersion, arbModelType),
@@ -598,11 +593,11 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                         'Empty supportedModelTypes should skip check and produce no findings');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('missing model_type produces no findings', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
                 fc.tuple(arbModelServer, arbFrameworkVersion),
@@ -623,7 +618,7 @@ describe('Cross-Cutting Checker Property-Based Tests', () => {
                         'Missing model_type should skip check and produce no findings');
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });

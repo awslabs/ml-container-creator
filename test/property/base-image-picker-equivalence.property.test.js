@@ -23,15 +23,10 @@ import {
     PYTHON_SLIM_CATALOG,
     StaticCatalogResolver
 } from '../../servers/base-image-picker/index.js';
+import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const FAST_PROPERTY_CONFIG = {
-    numRuns: parseInt(process.env.PROPERTY_NUM_RUNS || '100', 10),
-    timeout: 30000,
-    verbose: false
-};
 
 // ── Snapshot: load original catalog data directly from JSON files ─────────────
 // These represent the "ground truth" — the externalized JSON files that replaced
@@ -137,7 +132,7 @@ describe('Base Image Picker Response Equivalence Property-Based Tests', () => {
          * JSON files would produce.
          */
         it('for any valid context, resolveBaseImage() output matches snapshot-based expected output', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 arbContext,
@@ -169,11 +164,11 @@ describe('Base Image Picker Response Equivalence Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('the loaded TRANSFORMER_IMAGE_CATALOG matches the catalog JSON file content', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             // Verify the module-level loaded catalog is identical to the raw file
             assert.deepStrictEqual(
@@ -184,7 +179,7 @@ describe('Base Image Picker Response Equivalence Property-Based Tests', () => {
         });
 
         it('the loaded PYTHON_SLIM_CATALOG matches the catalog JSON file content', function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             // Verify the module-level loaded catalog is identical to the raw file
             assert.deepStrictEqual(
@@ -195,7 +190,7 @@ describe('Base Image Picker Response Equivalence Property-Based Tests', () => {
         });
 
         it('for any transformer model server, resolveBaseImage returns correct catalog entries', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.constantFrom(...MODEL_SERVERS),
@@ -233,11 +228,11 @@ describe('Base Image Picker Response Equivalence Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
         it('for any non-transformer framework, resolveBaseImage returns python-slim entries', async function () {
-            this.timeout(FAST_PROPERTY_CONFIG.timeout);
+            this.timeout(PROPERTY_CONFIG.timeout);
 
             await fc.assert(fc.asyncProperty(
                 fc.constantFrom(...NON_TRANSFORMER_FRAMEWORKS),
@@ -264,7 +259,7 @@ describe('Base Image Picker Response Equivalence Property-Based Tests', () => {
 
                     return true;
                 }
-            ), { numRuns: FAST_PROPERTY_CONFIG.numRuns, verbose: FAST_PROPERTY_CONFIG.verbose });
+            ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
     });
 });
