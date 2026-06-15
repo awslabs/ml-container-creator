@@ -12,7 +12,10 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
+# Disable unbound-variable checking for associative array access (bash 3.2 compat)
+set +u
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE[ecrRepositoryName]:-ml-container-creator}}"
+set -u
 
 # ── Derived variables (env var > computed default) ────────────────────────────
 CODEBUILD_PROJECT_NAME="${CODEBUILD_PROJECT_NAME:-${PROJECT_NAME}-build-$(date +%Y%m%d)}"
