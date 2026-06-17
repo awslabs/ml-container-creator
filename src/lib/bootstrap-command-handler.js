@@ -170,7 +170,7 @@ export default class BootstrapCommandHandler {
         console.log('\n🚀 Bootstrap — Shared AWS Infrastructure Setup\n');
 
         // Verify AWS CLI v2 is installed
-        if (!this.provisioners._verifyCliV2()) {
+        if (!this._verifyCliV2()) {
             return;
         }
 
