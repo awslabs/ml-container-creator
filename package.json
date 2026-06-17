@@ -1,6 +1,6 @@
 {
   "name": "@aws/ml-container-creator",
-  "version": "0.13.3",
+  "version": "0.13.4",
   "description": "Build and deploy custom ML containers on AWS SageMaker with minimal configuration.",
   "main": "src/index.js",
   "bin": {
@@ -119,7 +119,7 @@
     "@aws-sdk/client-sagemaker": "^3.700.0",
     "@aws-sdk/client-service-quotas": "^3.700.0",
     "@microsoft/eslint-formatter-sarif": "^3.1.0",
-    "eslint": "^8.57.0",
+    "eslint": "^8.57.1",
     "eslint-plugin-property-test-rules": "file:eslint-rules",
     "fast-check": "^4.5.2",
     "husky": "^9.1.7",

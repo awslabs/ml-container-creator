@@ -5,7 +5,7 @@
  * Profile Loader Unit Tests
  *
  * Tests that templates/do/lib/profile.sh correctly loads bootstrap profile
- * values into the _PROFILE associative array and handles missing/invalid configs.
+ * values into _PROFILE_<key> variables and handles missing/invalid configs.
  *
  * Requirements: PROF-1
  */
@@ -54,11 +54,11 @@ describe('profile.sh — missing config.json', () => {
         assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing');
     });
 
-    it('should have _PROFILE declared but with no populated keys', () => {
+    it('should have no _PROFILE_ variables set when config is missing', () => {
         const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
 
-        const output = runProfileLoader(tempHome, 'echo "KEY_COUNT=${#_PROFILE[@]}"');
-        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`);
+        const output = runProfileLoader(tempHome, 'echo "VARS=$(env | grep -c "^_PROFILE_" || echo 0)"');
+        assert.ok(output.includes('VARS=0'), `Expected 0 _PROFILE_ vars, got: ${output.trim()}`);
     });
 
     it('should not crash when .ml-container-creator directory exists but config.json is missing', () => {
@@ -69,15 +69,15 @@ describe('profile.sh — missing config.json', () => {
         assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing');
     });
 
-    it('should have empty _PROFILE keys when config.json is missing', () => {
+    it('should have empty _PROFILE_ values when config.json is missing', () => {
         const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
         mkdirSync(join(tempHome, '.ml-container-creator'), { recursive: true });
 
         const output = runProfileLoader(tempHome, `
-echo "REGION=\${_PROFILE[awsRegion]:-EMPTY}"
-echo "ACCOUNT=\${_PROFILE[accountId]:-EMPTY}"
-echo "ROLE=\${_PROFILE[roleArn]:-EMPTY}"
-echo "ECR=\${_PROFILE[ecrRepositoryName]:-EMPTY}"
+echo "REGION=\${_PROFILE_awsRegion:-EMPTY}"
+echo "ACCOUNT=\${_PROFILE_accountId:-EMPTY}"
+echo "ROLE=\${_PROFILE_roleArn:-EMPTY}"
+echo "ECR=\${_PROFILE_ecrRepositoryName:-EMPTY}"
 `);
         assert.ok(output.includes('REGION=EMPTY'), `awsRegion should be empty, got: ${output}`);
         assert.ok(output.includes('ACCOUNT=EMPTY'), `accountId should be empty, got: ${output}`);
@@ -91,12 +91,8 @@ echo "ECR=\${_PROFILE[ecrRepositoryName]:-EMPTY}"
         mkdirSync(configDir, { recursive: true });
         writeFileSync(join(configDir, 'config.json'), '');
 
-        const output = runProfileLoader(tempHome, `
-echo "EXIT_OK"
-echo "KEY_COUNT=\${#_PROFILE[@]}"
-`);
+        const output = runProfileLoader(tempHome, 'echo "EXIT_OK"');
         assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing');
-        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`);
     });
 
     it('should not crash when config.json contains invalid JSON', () => {
@@ -105,11 +101,35 @@ echo "KEY_COUNT=\${#_PROFILE[@]}"
         mkdirSync(configDir, { recursive: true });
         writeFileSync(join(configDir, 'config.json'), 'not valid json {{{');
 
-        const output = runProfileLoader(tempHome, `
-echo "EXIT_OK"
-echo "KEY_COUNT=\${#_PROFILE[@]}"
-`);
+        const output = runProfileLoader(tempHome, 'echo "EXIT_OK"');
         assert.ok(output.includes('EXIT_OK'), 'Script should complete without crashing');
-        assert.ok(output.includes('KEY_COUNT=0'), `Expected 0 keys in _PROFILE, got: ${output.trim()}`);
+    });
+
+    it('should load values from a valid config.json', () => {
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
+        const configDir = join(tempHome, '.ml-container-creator');
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(join(configDir, 'config.json'), JSON.stringify({
+            activeProfile: 'test',
+            profiles: {
+                test: {
+                    awsRegion: 'us-west-2',
+                    accountId: '123456789012',
+                    roleArn: 'arn:aws:iam::123456789012:role/test-role',
+                    ecrRepositoryName: 'my-ecr-repo'
+                }
+            }
+        }));
+
+        const output = runProfileLoader(tempHome, `
+echo "REGION=\${_PROFILE_awsRegion:-EMPTY}"
+echo "ACCOUNT=\${_PROFILE_accountId:-EMPTY}"
+echo "ROLE=\${_PROFILE_roleArn:-EMPTY}"
+echo "ECR=\${_PROFILE_ecrRepositoryName:-EMPTY}"
+`);
+        assert.ok(output.includes('REGION=us-west-2'), `awsRegion should be us-west-2, got: ${output}`);
+        assert.ok(output.includes('ACCOUNT=123456789012'), `accountId should be 123456789012, got: ${output}`);
+        assert.ok(output.includes('ROLE=arn:aws:iam::123456789012:role/test-role'), `roleArn should be the ARN, got: ${output}`);
+        assert.ok(output.includes('ECR=my-ecr-repo'), `ecrRepositoryName should be my-ecr-repo, got: ${output}`);
     });
 });

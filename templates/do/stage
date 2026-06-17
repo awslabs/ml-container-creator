@@ -28,37 +28,37 @@ source "${SCRIPT_DIR}/lib/staged-assets.sh"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 FORCE=false
-UPDATE_CONFIG=false
+UPDATE_CONFIG=true
 SUBMIT_MODE=false
 NO_WAIT=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE=true; shift ;;
-        --update-config) UPDATE_CONFIG=true; shift ;;
+        --update-config) UPDATE_CONFIG=true; shift ;; # default, kept for backward compat
+        --no-update-config) UPDATE_CONFIG=false; shift ;;
         --submit) SUBMIT_MODE=true; shift ;;
         --no-wait) NO_WAIT=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/stage [--force] [--update-config] [--submit] [--no-wait]"
+            echo "Usage: ./do/stage [--force] [--no-update-config] [--submit] [--no-wait]"
             echo ""
             echo "Pre-stage model weights from HuggingFace to S3."
+            echo "On success, updates MODEL_NAME in do/config so subsequent tasks"
+            echo "(submit, deploy) pull from S3 with HuggingFace as fallback."
             echo ""
             echo "Modes:"
             echo "  (default)    Download locally then sync to S3"
             echo "  --submit     Submit as SageMaker Processing Job (for models >500GB)"
             echo ""
             echo "Options:"
-            echo "  --force          Re-stage even if model already exists in S3"
-            echo "  --update-config  Update MODEL_NAME in do/config to the staged S3 URI"
-            echo "  --no-wait        (with --submit) Exit without polling for completion"
+            echo "  --force             Re-stage even if model already exists in S3"
+            echo "  --no-update-config  Do NOT update MODEL_NAME in do/config after staging"
+            echo "  --no-wait           (with --submit) Exit without polling for completion"
             echo ""
             echo "Environment:"
             echo "  HF_TOKEN   HuggingFace token (for gated models)"
             echo ""
             echo "The staged S3 URI will be printed on completion."
-            echo "Pass --update-config to automatically update do/config for S3-backed deploys."
-            echo ""
-            echo "The --submit mode uses a SageMaker Processing Job with 2TB attached"
-            echo "storage, suitable for very large models that exceed local disk capacity."
+            echo "MODEL_NAME in do/config is updated automatically unless --no-update-config is passed."
             exit 0
             ;;
         *) shift ;;
@@ -128,11 +128,16 @@ echo "Target: ${S3_OUTPUT_URI}"
 echo ""
 
 # Install dependencies
-echo "📦 Installing huggingface-cli and hf_transfer..."
-pip install -q huggingface_hub[cli] hf_transfer
+echo "📦 Checking huggingface-cli and hf_transfer..."
+pip install -q huggingface_hub[cli] hf_transfer 2>/dev/null || true
 
-# Enable fast parallel downloads
-export HF_HUB_ENABLE_HF_TRANSFER=1
+# Enable fast parallel downloads only if hf_transfer is available
+if python3 -c "import hf_transfer" 2>/dev/null; then
+    export HF_HUB_ENABLE_HF_TRANSFER=1
+else
+    echo "   ℹ️  hf_transfer not available — using standard download (install with: pip install hf_transfer)"
+    unset HF_HUB_ENABLE_HF_TRANSFER 2>/dev/null || true
+fi
 
 # Set HF token if provided
 if [ -n "${HF_TOKEN:-}" ]; then
@@ -326,15 +331,11 @@ print(d.get('FailureReason', ''))
                     CONFIG_FILE="${SCRIPT_DIR}/config"
                     sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
                     rm -f "${CONFIG_FILE}.bak"
-                    echo "   ✅ Updated MODEL_NAME in do/config → ${MODEL_S3_URI}"
-                    echo ""
-                    echo "   Re-deploy with S3-backed model: ./do/deploy"
+                    echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
+                    echo "   Subsequent tasks (submit, deploy) will pull from S3."
                 else
                     echo "   To use this staged model, update do/config:"
                     echo "   export MODEL_NAME=\"${MODEL_S3_URI}\""
-                    echo ""
-                    echo "   Or re-run with --update-config:"
-                    echo "   ./do/stage --submit --update-config"
                 fi
                 return 0
                 ;;
@@ -433,7 +434,7 @@ if [ "${FORCE}" = false ]; then
             CONFIG_FILE="${SCRIPT_DIR}/config"
             sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
             rm -f "${CONFIG_FILE}.bak"
-            echo "   ✅ Updated MODEL_NAME in do/config → ${MODEL_S3_URI}"
+            echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
         else
             echo "   To use this staged model, set in do/config:"
             echo "   export MODEL_NAME=\"${MODEL_S3_URI}\""
@@ -474,13 +475,21 @@ fi
 
 # ── Download model from HuggingFace ──────────────────────────────────────────
 echo "⬇️  Downloading model from HuggingFace: ${MODEL_NAME}"
-echo "   Using hf_transfer for fast parallel downloads..."
+if python3 -c "import hf_transfer" 2>/dev/null; then
+    echo "   Using hf_transfer for fast parallel downloads..."
+else
+    echo "   Using standard downloads (install hf_transfer for faster staging)..."
+fi
 echo ""
 
-# Enable fast parallel downloads via hf_transfer
-export HF_HUB_ENABLE_HF_TRANSFER=1
+# Enable fast parallel downloads via hf_transfer (if available)
+if python3 -c "import hf_transfer" 2>/dev/null; then
+    export HF_HUB_ENABLE_HF_TRANSFER=1
+else
+    unset HF_HUB_ENABLE_HF_TRANSFER 2>/dev/null || true
+fi
 
-# Download to HF cache (huggingface-cli manages cache location)
+# Download to HF cache
 DOWNLOAD_ARGS=("${MODEL_NAME}")
 if [ -n "${HF_TOKEN:-}" ]; then
     DOWNLOAD_ARGS+=("--token" "${HF_TOKEN}")
@@ -555,15 +564,9 @@ if [ "${UPDATE_CONFIG}" = true ]; then
     CONFIG_FILE="${SCRIPT_DIR}/config"
     sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
     rm -f "${CONFIG_FILE}.bak"
-    echo "   ✅ Updated MODEL_NAME in do/config → ${MODEL_S3_URI}"
-    echo ""
-    echo "   Re-deploy with S3-backed model: ./do/deploy"
+    echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
+    echo "   Subsequent tasks (submit, deploy) will pull from S3."
 else
     echo "   To use this staged model, update do/config:"
     echo "   export MODEL_NAME=\"${MODEL_S3_URI}\""
-    echo ""
-    echo "   Or re-run with --update-config to do it automatically:"
-    echo "   ./do/stage --update-config"
-    echo ""
-    echo "   Then re-deploy: ./do/deploy"
 fi

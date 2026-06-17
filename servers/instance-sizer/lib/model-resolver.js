@@ -2,137 +2,124 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Model Metadata Resolver
+ * Model Metadata Resolver for the instance-sizer MCP server.
  *
- * Three-tier resolution strategy for model metadata:
- * 1. Check model-sizes catalog (exact match or glob pattern match)
- * 2. If discover mode enabled, fetch HuggingFace config.json
- * 3. If neither available, return null (caller handles fallback)
+ * Resolution pipeline:
+ *   1. Load model-sizes catalog (pre-built, offline-safe)
+ *   2. Attempt catalog lookup via glob pattern matching
+ *   3. If discover=true and no catalog hit, fetch config.json from HuggingFace Hub
+ *   4. Extract/estimate parameter count, dtype, architecture, context length
+ *
+ * Exports:
+ *   - resolveModelMetadata(modelName, options) — full resolution pipeline
+ *   - globMatch(pattern, string) — glob-style pattern matching (case-insensitive)
+ *   - loadCatalog(path) — loads the model-sizes JSON catalog
+ *   - catalogLookup(modelName, catalog) — finds a model in the catalog
+ *   - estimateParamsFromConfig(config) — estimates params from architecture dimensions
+ *   - extractFromHuggingFaceConfig(config) — extracts metadata from HF config.json
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-
-// ── Constants ────────────────────────────────────────────────────────────────
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const DEFAULT_CATALOG_PATH = join(__dirname, '..', '..', 'lib', 'catalogs', 'models.json');
-const HUGGINGFACE_BASE_URL = 'https://huggingface.co';
-const HUGGINGFACE_TIMEOUT_MS = 5000;
-
-// ── Glob Pattern Matching ────────────────────────────────────────────────────
+const DEFAULT_CATALOG_PATH = resolve(__dirname, '../../lib/catalogs/model-sizes.json');
 
 /**
- * Simple glob pattern matcher supporting * wildcards.
- * Case-insensitive matching.
- *
- * @param {string} pattern - Glob pattern (e.g., 'meta-llama/Llama-2-7b*')
- * @param {string} text - Text to match against
- * @returns {boolean} Whether the text matches the pattern
+ * Known protocol prefixes that indicate non-HuggingFace model sources.
+ * Models with these prefixes are never fetched from HuggingFace Hub.
  */
-const globMatch = (pattern, text) => {
-    const regexStr = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*');
-    const regex = new RegExp(`^${regexStr}$`, 'i');
-    return regex.test(text);
-};
-
-// ── Catalog Lookup ───────────────────────────────────────────────────────────
+export const PROTOCOL_PREFIXES = [
+    's3://',
+    'registry://',
+    'marketplace://',
+    'jumpstart://',
+    'jumpstart-hub://'
+];
 
 /**
- * Load the model-sizes catalog from disk.
+ * Determine if a model name matches the HuggingFace pattern: org/model-name.
+ * Must contain exactly one `/` and must NOT start with a protocol prefix.
  *
- * @param {string} [catalogPath] - Path to catalog JSON file
- * @returns {Promise<object|null>} Parsed catalog or null on failure
+ * @param {string} modelName - The model identifier to test
+ * @returns {boolean} Whether the model name is a HuggingFace model ID
  */
-const loadCatalog = async (catalogPath) => {
+export function isHuggingFacePattern(modelName) {
+    if (!modelName || typeof modelName !== 'string') {
+        return false;
+    }
+    if (PROTOCOL_PREFIXES.some(prefix => modelName.startsWith(prefix))) {
+        return false;
+    }
+    const slashCount = (modelName.match(/\//g) || []).length;
+    return slashCount === 1;
+}
+
+/**
+ * Glob-style pattern matching (case-insensitive).
+ * Supports `*` as a wildcard that matches any sequence of characters.
+ *
+ * @param {string} pattern - Pattern with optional `*` wildcards
+ * @param {string} string - String to test against the pattern
+ * @returns {boolean} Whether the string matches the pattern
+ */
+export function globMatch(pattern, string) {
+    // Escape regex special characters except `*`
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    // Replace `*` with `.*` for regex matching
+    const regex = new RegExp(`^${escaped.replace(/\*/g, '.*')}$`, 'i');
+    return regex.test(string);
+}
+
+/**
+ * Load the model-sizes catalog from a JSON file.
+ *
+ * @param {string} [catalogPath] - Absolute path to the catalog JSON file
+ * @returns {Promise<Object|null>} Parsed catalog object, or null if file not found/invalid
+ */
+export async function loadCatalog(catalogPath = DEFAULT_CATALOG_PATH) {
     try {
-        const raw = await readFile(catalogPath || DEFAULT_CATALOG_PATH, 'utf-8');
+        const raw = readFileSync(catalogPath, 'utf8');
         return JSON.parse(raw);
     } catch {
         return null;
     }
-};
+}
 
 /**
- * Look up a model in the catalog by exact match or glob pattern.
+ * Look up a model in the catalog using glob pattern matching.
+ * Iterates over catalog keys (which may contain `*` wildcards) and
+ * returns the first matching entry.
  *
- * @param {string} modelName - HuggingFace model ID or catalog key
- * @param {object} catalog - Parsed catalog object (flat or with .models wrapper)
- * @returns {object|null} Catalog entry or null if not found
+ * @param {string} modelName - HuggingFace model ID (e.g., "meta-llama/Llama-3.1-8B-Instruct")
+ * @param {Object|null} catalog - Loaded catalog object with a `models` field
+ * @returns {Object|null} Matching catalog entry, or null
  */
-const catalogLookup = (modelName, catalog) => {
-    if (!catalog) {
+export function catalogLookup(modelName, catalog) {
+    if (!catalog || !catalog.models) {
         return null;
     }
 
-    // Support both flat catalog (models.json) and wrapped format ({ models: {...} })
-    const models = catalog.models || catalog;
-
-    // Try exact match first
-    if (models[modelName]) {
-        return models[modelName];
-    }
-
-    // Try glob pattern matching
-    for (const pattern of Object.keys(models)) {
+    for (const [pattern, entry] of Object.entries(catalog.models)) {
         if (globMatch(pattern, modelName)) {
-            return models[pattern];
+            return entry;
         }
     }
 
     return null;
-};
-
-// ── HuggingFace API ──────────────────────────────────────────────────────────
+}
 
 /**
- * Fetch model config.json from HuggingFace Hub.
+ * Estimate parameter count from model architecture dimensions.
+ * Uses the approximation: hidden_size × num_hidden_layers × 12.
  *
- * @param {string} modelName - HuggingFace model ID (e.g., 'meta-llama/Llama-2-7b-chat-hf')
- * @returns {Promise<object|null>} Parsed config or null on failure
+ * @param {Object} config - Model configuration (HuggingFace config.json format)
+ * @returns {number|null} Estimated parameter count, or null if dimensions are missing
  */
-const fetchHuggingFaceConfig = async (modelName) => {
-    const url = `${HUGGINGFACE_BASE_URL}/${modelName}/resolve/main/config.json`;
-
-    try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), HUGGINGFACE_TIMEOUT_MS);
-
-        const response = await fetch(url, {
-            signal: controller.signal,
-            headers: { 'Accept': 'application/json' }
-        });
-
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-            return null;
-        }
-
-        return await response.json();
-    } catch {
-        return null;
-    }
-};
-
-/**
- * Estimate parameter count from architecture dimensions.
- * Uses the approximation: hidden_size × num_hidden_layers × 12
- *
- * This accounts for:
- * - Attention weights (Q, K, V, O projections = 4 × hidden_size²)
- * - FFN weights (typically 8 × hidden_size²)
- * - Embeddings and other components
- *
- * @param {object} config - HuggingFace config.json contents
- * @returns {number|null} Estimated parameter count or null if dimensions unavailable
- */
-const estimateParamsFromConfig = (config) => {
+export function estimateParamsFromConfig(config) {
     const hiddenSize = config.hidden_size;
     const numLayers = config.num_hidden_layers;
 
@@ -141,20 +128,18 @@ const estimateParamsFromConfig = (config) => {
     }
 
     return hiddenSize * numLayers * 12;
-};
+}
 
 /**
- * Extract model metadata from a HuggingFace config.json.
+ * Extract model metadata from a HuggingFace config.json object.
  *
- * @param {object} config - Parsed HuggingFace config.json
- * @returns {object} Extracted metadata
+ * @param {Object} config - Parsed config.json from HuggingFace Hub
+ * @returns {Object} Extracted metadata with parameterCount, dtype, architecture, maxPositionEmbeddings, source
  */
-const extractFromHuggingFaceConfig = (config) => {
-    const parameterCount = config.num_parameters
-        ?? estimateParamsFromConfig(config);
-
+export function extractFromHuggingFaceConfig(config) {
+    const parameterCount = config.num_parameters || estimateParamsFromConfig(config);
     const dtype = config.torch_dtype || 'float16';
-    const architecture = config.architectures?.[0] || 'unknown';
+    const architecture = (config.architectures && config.architectures[0]) || 'unknown';
     const maxPositionEmbeddings = config.max_position_embeddings || 4096;
 
     return {
@@ -164,106 +149,63 @@ const extractFromHuggingFaceConfig = (config) => {
         maxPositionEmbeddings,
         source: 'huggingface_api'
     };
-};
-
-// ── In-memory cache for discover mode ────────────────────────────────────────
-
-const discoverCache = new Map();
-
-// ── Protocol prefix detection ────────────────────────────────────────────────
-
-const PROTOCOL_PREFIXES = ['jumpstart://', 'jumpstart-hub://', 's3://', 'registry://'];
+}
 
 /**
- * Check if a model name matches the HuggingFace org/model-name pattern.
- * Must contain exactly one `/` and no protocol prefix.
+ * Resolve model metadata through the full pipeline:
+ *   1. Catalog lookup (offline, fast)
+ *   2. HuggingFace Hub fetch (if discover=true and no catalog hit)
  *
- * @param {string} modelName - Model identifier to check
- * @returns {boolean} True if it matches the HuggingFace pattern
+ * @param {string} modelName - HuggingFace model ID
+ * @param {Object} [options] - Resolution options
+ * @param {string} [options.catalogPath] - Path to model-sizes catalog
+ * @param {boolean} [options.discover=true] - Whether to fetch from HuggingFace Hub on cache miss
+ * @param {number} [options.timeout=5000] - HTTP timeout for HuggingFace API (ms)
+ * @returns {Promise<Object|null>} Resolved metadata, or null if unresolvable
  */
-const isHuggingFacePattern = (modelName) => {
-    if (!modelName || typeof modelName !== 'string') return false;
-    // Must not have a protocol prefix
-    if (PROTOCOL_PREFIXES.some(prefix => modelName.startsWith(prefix))) return false;
-    // Must contain exactly one `/` (org/model-name)
-    const slashCount = (modelName.match(/\//g) || []).length;
-    return slashCount === 1;
-};
+export async function resolveModelMetadata(modelName, options = {}) {
+    const {
+        catalogPath = DEFAULT_CATALOG_PATH,
+        discover = true,
+        timeout = 5000
+    } = options;
 
-// ── Main Resolver ────────────────────────────────────────────────────────────
-
-/**
- * Resolve model metadata from available sources.
- *
- * Three-tier resolution:
- * 1. Check model-sizes catalog (exact match or pattern match)
- * 2. If discover mode enabled AND model matches HuggingFace pattern, fetch config.json
- * 3. If neither available, return null
- *
- * @param {string} modelName - HuggingFace model ID or catalog key
- * @param {object} [options={}]
- * @param {boolean} [options.discover=false] - Enable HuggingFace API lookups
- * @param {string} [options.catalogPath] - Path to model-sizes catalog (for testing)
- * @returns {Promise<{ parameterCount: number, dtype: string, architecture: string, maxPositionEmbeddings: number, source: string } | null>}
- */
-const resolveModelMetadata = async (modelName, options = {}) => {
-    const { discover = true, catalogPath } = options;
-
-    // Tier 1: Catalog lookup
+    // Step 1: Try catalog lookup
     const catalog = await loadCatalog(catalogPath);
     const catalogEntry = catalogLookup(modelName, catalog);
 
     if (catalogEntry) {
-        // Only use catalog entry if it has a usable parameterCount for VRAM estimation.
-        // If parameterCount is missing, fall through to HuggingFace API (tier 2).
-        if (catalogEntry.parameterCount) {
-            return {
-                parameterCount: catalogEntry.parameterCount,
-                dtype: catalogEntry.defaultDtype,
-                architecture: catalogEntry.architecture,
-                maxPositionEmbeddings: catalogEntry.maxPositionEmbeddings,
-                source: 'catalog'
-            };
-        }
+        return {
+            parameterCount: catalogEntry.parameterCount,
+            dtype: catalogEntry.defaultDtype || 'float16',
+            architecture: catalogEntry.architecture || 'unknown',
+            maxPositionEmbeddings: catalogEntry.maxPositionEmbeddings || 4096,
+            source: 'catalog'
+        };
     }
 
-    // Tier 2: HuggingFace API (only in discover mode, only for org/model-name pattern)
+    // Step 2: If discover mode, try HuggingFace Hub
     if (discover && isHuggingFacePattern(modelName)) {
-        // Check in-memory cache first
-        if (discoverCache.has(modelName)) {
-            return discoverCache.get(modelName);
-        }
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeout);
 
-        const config = await fetchHuggingFaceConfig(modelName);
+            const url = `https://huggingface.co/${modelName}/resolve/main/config.json`;
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: { 'User-Agent': 'ml-container-creator/instance-sizer' }
+            });
 
-        if (config) {
-            const metadata = extractFromHuggingFaceConfig(config);
+            clearTimeout(timer);
 
-            // Only return if we got a usable parameter count
-            if (metadata.parameterCount) {
-                // Cache for session duration
-                discoverCache.set(modelName, metadata);
-                return metadata;
+            if (response.ok) {
+                const config = await response.json();
+                return extractFromHuggingFaceConfig(config);
             }
+        } catch {
+            // Network error or timeout — fall through to null
         }
     }
 
-    // Tier 3: No metadata available
     return null;
-};
-
-export {
-    resolveModelMetadata,
-    globMatch,
-    loadCatalog,
-    catalogLookup,
-    fetchHuggingFaceConfig,
-    estimateParamsFromConfig,
-    extractFromHuggingFaceConfig,
-    isHuggingFacePattern,
-    discoverCache,
-    PROTOCOL_PREFIXES,
-    DEFAULT_CATALOG_PATH,
-    HUGGINGFACE_BASE_URL,
-    HUGGINGFACE_TIMEOUT_MS
-};
+}

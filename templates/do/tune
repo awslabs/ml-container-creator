@@ -16,10 +16,7 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
-# Disable unbound-variable checking for associative array access (bash 3.2 compat)
-set +u
-TUNE_S3_BUCKET="${TUNE_S3_BUCKET:-mlcc-tune-${_PROFILE[accountId]:-unknown}-${_PROFILE[awsRegion]:-us-east-1}}"
-set -u
+TUNE_S3_BUCKET="${TUNE_S3_BUCKET:-mlcc-tune-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}"
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 CATALOG_FILE="${SCRIPT_DIR}/.tune_catalog.json"

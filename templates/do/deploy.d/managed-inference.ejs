@@ -214,12 +214,9 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
-# Disable unbound-variable checking for associative array access (bash 3.2 compat)
-set +u
-ROLE_ARN="${ROLE_ARN:-${_PROFILE[roleArn]:-}}"
-ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE[ecrRepositoryName]:-ml-container-creator}}"
-export AWS_REGION="${AWS_REGION:-${_PROFILE[awsRegion]:-us-east-1}}"
-set -u
+ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn:-}}"
+ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
+export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"
@@ -329,6 +326,18 @@ if [ -z "${ROLE_ARN:-}" ]; then
     echo "  • ECR image access"
     echo "  • S3 access (if using model artifacts)"
     echo "  • CloudWatch Logs"
+    exit 3
+fi
+
+# Validate ROLE_ARN looks like an IAM role ARN
+if ! echo "${ROLE_ARN}" | grep -qE '^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+'; then
+    echo "❌ ROLE_ARN is not a valid IAM role ARN:"
+    echo "   Got: ${ROLE_ARN}"
+    echo "   Expected format: arn:aws:iam::123456789012:role/RoleName"
+    echo ""
+    echo "   This may indicate a misconfigured bootstrap profile."
+    echo "   Check ~/.ml-container-creator/config.json 'roleArn' field,"
+    echo "   or set the correct value: export ROLE_ARN=arn:aws:iam::ACCOUNT:role/YOUR_ROLE"
     exit 3
 fi
 

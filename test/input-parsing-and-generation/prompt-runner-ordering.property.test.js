@@ -303,12 +303,14 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
         it('should run modulePrompts after all ML configuration prompts', function() {
             this.timeout(10000);
 
-            const moduleRunPhasePos = findPosition(/_runPhase\(modulePrompts/);
+            // modulePrompts is now used via .filter() for specific prompts (e.g., includeSampleModel)
+            // rather than as a full _runPhase(modulePrompts, ...) call
+            const moduleRunPhasePos = findPosition(/modulePrompts\.filter/);
             const infraBuildRunPhasePos = findPosition(/_runPhase\(infraBuildPrompts/);
 
             assert.ok(
                 moduleRunPhasePos !== -1,
-                '_runPhase(modulePrompts) must exist'
+                'modulePrompts.filter() usage must exist'
             );
             assert.ok(
                 infraBuildRunPhasePos !== -1,
@@ -330,13 +332,13 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
         it('should run projectPrompts and destinationPrompts after module selection', function() {
             this.timeout(10000);
 
-            const moduleRunPhasePos = findPosition(/_runPhase\(modulePrompts/);
+            const moduleRunPhasePos = findPosition(/modulePrompts\.filter/);
             const projectRunPhasePos = findPosition(/_runPhase\(projectPrompts/);
             const destinationRunPhasePos = findPosition(/_runPhase\(destinationPrompts/);
 
             assert.ok(
                 moduleRunPhasePos !== -1,
-                '_runPhase(modulePrompts) must exist'
+                'modulePrompts.filter() usage must exist'
             );
             assert.ok(
                 projectRunPhasePos !== -1,

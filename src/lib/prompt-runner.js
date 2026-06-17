@@ -18,8 +18,6 @@ import {
     modelLoadStrategyPrompts,
     modelProfilePrompts,
     modulePrompts,
-    loraPrompts,
-    benchmarkPrompts,
     infraRegionAndTargetPrompts,
     infraExistingEndpointPrompts,
     infraInstancePrompts,
@@ -521,38 +519,23 @@ export default class PromptRunner {
         const ngcApiKeyAnswers = { ngcApiKey: secretAnswers.ngcApiKey, ngcTokenArn: secretAnswers.ngcTokenArn };
 
         // Module selection
-        const moduleAnswers = await this._runPhase(modulePrompts, { ...frameworkAnswers, ...engineAnswers }, explicitConfig, existingConfig);
-        
-        // Ensure transformers, diffusors, and ineligible Triton backends don't get sample model
-        if (frameworkAnswers.architecture === 'transformers' ||
-            frameworkAnswers.architecture === 'diffusors' ||
-            (frameworkAnswers.architecture === 'triton' && 
-             !this._tritonBackends[frameworkAnswers.backend]?.supportsSampleModel)) {
+        // Only ask about sample model for non-transformers/diffusors (Triton etc.)
+        const moduleAnswers = {};
+        if (frameworkAnswers.architecture !== 'transformers' &&
+            frameworkAnswers.architecture !== 'diffusors') {
+            const sampleModelAnswers = await this._runPhase(
+                modulePrompts.filter(p => p.name === 'includeSampleModel'),
+                { ...frameworkAnswers, ...engineAnswers }, explicitConfig, existingConfig
+            );
+            Object.assign(moduleAnswers, sampleModelAnswers);
+        } else {
             moduleAnswers.includeSampleModel = false;
         }
 
-        // Benchmark prompts — derive includeBenchmark from testTypes selection or CLI flag
-        // Requirements: 1.1, 1.2
-        let benchmarkAnswers = {};
-        if (frameworkAnswers.architecture === 'transformers' || frameworkAnswers.architecture === 'diffusors') {
-            const testTypes = moduleAnswers.testTypes || [];
-            const includeBenchmark = testTypes.includes('sagemaker-ai-automated-benchmarking') ||
-                explicitConfig.includeBenchmark === true ||
-                explicitConfig.includeBenchmark === 'true';
-            benchmarkAnswers.includeBenchmark = includeBenchmark;
-            if (includeBenchmark) {
-                const subAnswers = await this._runPhase(benchmarkPrompts, { ...frameworkAnswers, ...moduleAnswers, includeBenchmark }, explicitConfig, existingConfig);
-                benchmarkAnswers = { ...benchmarkAnswers, ...subAnswers };
-            }
-        }
-
-        // LoRA adapter prompts — only for transformers with vllm/sglang/djl-lmi
-        // Requirements: 1.1, 1.2, 1.4
-        let loraAnswers = {};
-        const loraSubAnswers = await this._runPhase(loraPrompts, { ...frameworkAnswers, ...engineAnswers }, explicitConfig, existingConfig);
-        if (loraSubAnswers.enableLora !== undefined) {
-            loraAnswers = loraSubAnswers;
-        }
+        // Test types, benchmark, and LoRA are always-on (BL-122)
+        moduleAnswers.testTypes = ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
+        const benchmarkAnswers = { includeBenchmark: true };
+        const loraAnswers = { enableLora: true };
 
         // Validate instance type against framework requirements (now that framework version is known)
         const finalInstanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;

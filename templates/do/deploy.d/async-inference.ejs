@@ -41,18 +41,15 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
-# Disable unbound-variable checking for associative array access (bash 3.2 compat)
-set +u
-ROLE_ARN="${ROLE_ARN:-${_PROFILE[roleArn]:-}}"
-ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE[ecrRepositoryName]:-ml-container-creator}}"
-export AWS_REGION="${AWS_REGION:-${_PROFILE[awsRegion]:-us-east-1}}"
+ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn:-}}"
+ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
+export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
 # Async-specific derived variables
-_ASYNC_BUCKET="${_PROFILE[asyncS3Bucket]:-mlcc-async-${_PROFILE[accountId]:-unknown}-${_PROFILE[awsRegion]:-us-east-1}}"
+_ASYNC_BUCKET="${_PROFILE_asyncS3Bucket:-mlcc-async-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}"
 ASYNC_S3_OUTPUT_PATH="${ASYNC_S3_OUTPUT_PATH:-s3://${_ASYNC_BUCKET}/${PROJECT_NAME}/output/}"
-ASYNC_SNS_SUCCESS_TOPIC="${ASYNC_SNS_SUCCESS_TOPIC:-arn:aws:sns:${_PROFILE[awsRegion]:-us-east-1}:${_PROFILE[accountId]:-unknown}:ml-container-creator-${PROJECT_NAME}-async-success}"
-ASYNC_SNS_ERROR_TOPIC="${ASYNC_SNS_ERROR_TOPIC:-arn:aws:sns:${_PROFILE[awsRegion]:-us-east-1}:${_PROFILE[accountId]:-unknown}:ml-container-creator-${PROJECT_NAME}-async-error}"
-set -u
+ASYNC_SNS_SUCCESS_TOPIC="${ASYNC_SNS_SUCCESS_TOPIC:-arn:aws:sns:${_PROFILE_awsRegion:-us-east-1}:${_PROFILE_accountId:-unknown}:ml-container-creator-${PROJECT_NAME}-async-success}"
+ASYNC_SNS_ERROR_TOPIC="${ASYNC_SNS_ERROR_TOPIC:-arn:aws:sns:${_PROFILE_awsRegion:-us-east-1}:${_PROFILE_accountId:-unknown}:ml-container-creator-${PROJECT_NAME}-async-error}"
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"

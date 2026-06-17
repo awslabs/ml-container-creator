@@ -31,6 +31,17 @@ const BYTES_IN_GB = 1024 ** 3;
 const DEFAULT_MAX_SEQUENCE_LENGTH = 4096;
 const DEFAULT_BATCH_SIZE = 1;
 const OVERHEAD_FACTOR = 0.1;
+const MIN_USEFUL_CONTEXT_LEN = 2048;
+
+const KV_CACHE_DTYPE_BYTES = {
+    'auto': 2,      // fp16/bf16
+    'fp16': 2,
+    'bfloat16': 2,
+    'fp8': 1,
+    'fp8_e5m2': 1,
+    'fp8_e4m3': 1,
+    'int8': 1
+};
 
 // ── Helper Functions ─────────────────────────────────────────────────────────
 
@@ -132,6 +143,78 @@ const estimateVram = (modelInfo) => {
     };
 };
 
+// ── Max Model Length Computation ─────────────────────────────────────────────
+
+/**
+ * Compute the maximum model length (context window) that fits in available KV cache memory.
+ *
+ * KV cache per token = 2 × num_layers × num_kv_heads × head_dim × dtype_bytes
+ * Available KV memory = (gpu_memory × gpu_count × utilization) - model_weight_memory - overhead
+ * max_model_len = available_kv_memory / kv_per_token
+ *
+ * For GQA models (like Llama 3.2), num_kv_heads is the GQA head count, not the
+ * full attention head count.
+ *
+ * @param {object} params
+ * @param {number} params.modelWeightGb - Model weight memory in GB
+ * @param {number} params.totalGpuMemoryGb - Total GPU memory for the instance
+ * @param {number} params.gpuCount - Number of GPUs
+ * @param {number} [params.gpuMemoryUtilization=0.9] - vLLM gpu_memory_utilization
+ * @param {number} params.numLayers - Number of transformer layers
+ * @param {number} params.numKvHeads - Number of KV attention heads (after GQA)
+ * @param {number} params.headDim - Dimension per head
+ * @param {string} [params.kvCacheDtype='auto'] - KV cache dtype
+ * @param {number} [params.overheadFactor=0.15] - Fraction for activations/CUDA overhead (conservative)
+ * @returns {{ maxModelLen: number, availableForKvGb: number } | null}
+ */
+const computeMaxModelLen = (params) => {
+    const {
+        modelWeightGb,
+        totalGpuMemoryGb,
+        gpuCount = 1,
+        gpuMemoryUtilization = 0.9,
+        numLayers,
+        numKvHeads,
+        headDim,
+        kvCacheDtype = 'auto',
+        overheadFactor = 0.15
+    } = params;
+
+    // Require architecture params — graceful degradation if missing
+    if (!numLayers || !numKvHeads || !headDim) {
+        return null;
+    }
+    if (!totalGpuMemoryGb || !modelWeightGb) {
+        return null;
+    }
+
+    // Compute available memory for KV cache
+    // Conservative: gpu_memory_utilization × (1 - overhead) gives usable memory
+    const usableMemoryGb = totalGpuMemoryGb * gpuCount * gpuMemoryUtilization * (1 - overheadFactor);
+    const availableForKvGb = usableMemoryGb - modelWeightGb;
+
+    if (availableForKvGb <= 0) {
+        return { maxModelLen: 0, availableForKvGb: 0 };
+    }
+
+    // KV cache per token (bytes)
+    // Formula: 2 (K+V) × num_layers × num_kv_heads × head_dim × dtype_bytes
+    // For TP: heads are distributed but so is memory — net effect is the same per-GPU
+    const dtypeBytes = KV_CACHE_DTYPE_BYTES[kvCacheDtype] || 2;
+    const kvPerTokenBytes = 2 * numLayers * numKvHeads * headDim * dtypeBytes;
+
+    // Convert available GB to bytes and divide
+    const availableBytes = availableForKvGb * BYTES_IN_GB;
+    const maxModelLen = Math.floor(availableBytes / kvPerTokenBytes);
+
+    return {
+        maxModelLen: Math.max(0, maxModelLen),
+        availableForKvGb
+    };
+};
+
+// ── Confidence ───────────────────────────────────────────────────────────────
+
 /**
  * Determine confidence level based on which parameters were explicitly provided.
  *
@@ -165,13 +248,16 @@ const determineConfidence = (modelInfo) => {
 
 export {
     estimateVram,
+    computeMaxModelLen,
     bytesPerParam,
     estimateKvCache,
     determineConfidence,
     BYTES_PER_PARAM,
     QUANTIZATION_BYTES,
+    KV_CACHE_DTYPE_BYTES,
     DEFAULT_MAX_SEQUENCE_LENGTH,
     DEFAULT_BATCH_SIZE,
     OVERHEAD_FACTOR,
+    MIN_USEFUL_CONTEXT_LEN,
     BYTES_IN_GB
 };
