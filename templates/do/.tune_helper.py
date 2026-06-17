@@ -1510,8 +1510,6 @@ def cmd_discover(args):
 
     Returns: {"models": [str], "count": int}
     """
-    import boto3
-
     region = args.region or os.environ.get('AWS_REGION', 'us-east-1')
 
     family = args.family or ""
@@ -1527,6 +1525,11 @@ def cmd_discover(args):
     prefix = FAMILY_PREFIX_MAP.get(family, args.filter or "")
     if not prefix:
         _error_exit("No family or filter provided for discovery")
+
+    try:
+        import boto3
+    except ImportError:
+        _error_exit("Hub discovery failed: boto3 is not installed. Install with: pip install boto3")
 
     try:
         client = boto3.client("sagemaker", region_name=region)
