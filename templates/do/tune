@@ -225,7 +225,8 @@ _show_help() {
     echo ""
     echo "Required:"
     echo "  --technique <t>       Customization technique: sft, dpo, rlaif, rlvr"
-    echo "  --dataset <source>    Dataset: s3://bucket/path.jsonl or hf://org/name[/split]"
+    echo "  --dataset <source>    Dataset: s3://bucket/path.jsonl or hf://org/name[/split][?file=pattern]"
+    echo "                        ⚠️  Quote the URI if it contains ? or * to prevent shell expansion"
     echo ""
     echo "Model selection:"
     echo "  --model <id>          JumpStart Hub content name to use for fine-tuning."
@@ -262,6 +263,9 @@ _show_help() {
     echo "  --column-map <map>    Rename columns (e.g., prompt=question,completion=answer)"
     echo "  --take <n>            Take only the first N records from the dataset"
     echo ""
+    echo "  Note: Always quote --dataset values containing ? or * characters."
+    echo "  Unquoted, bash may interpret ? as a glob and * as a wildcard expansion."
+    echo ""
     echo "Discovery and diagnostics:"
     echo "  --discover [filter]   Query JumpStart Hub for tune-eligible models."
     echo "                        Without a filter, shows models for the current family."
@@ -289,6 +293,9 @@ _show_help() {
     echo ""
     echo "  # Take only 500 records for a quick test run:"
     echo "  ./do/tune --technique sft --dataset hf://timdettmers/openassistant-guanaco --take 500"
+    echo ""
+    echo "  # Filter files in a multi-file dataset (quote to prevent shell glob expansion):"
+    echo "  ./do/tune --technique sft --dataset \"hf://Open-Orca/OpenOrca?file=1M-GPT4\""
     echo ""
     echo "  # Discover available models:"
     echo "  ./do/tune --discover                    # Models for current family"
@@ -910,7 +917,8 @@ _validate_dataset() {
 
     else
         echo "❌ Invalid dataset format: ${dataset}"
-        echo "   Expected: s3://bucket/path.jsonl or hf://org/name[/split]"
+        echo "   Expected: s3://bucket/path.jsonl or hf://org/name[/split][?file=pattern]"
+        echo "   Hint: Quote the value if it contains ? or * (e.g., \"hf://org/name?file=pattern\")"
         exit 1
     fi
 }

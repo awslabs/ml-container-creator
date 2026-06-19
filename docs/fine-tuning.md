@@ -291,6 +291,9 @@ Without a file filter, the pipeline detects this mismatch and fails with a clear
 
 Append `?file=<pattern>` to your `hf://` URI to filter:
 
+!!! warning "Always quote URIs containing `?` or `*`"
+    Bash interprets `?` as a single-character glob and `*` as a wildcard. Without quotes, your shell may expand these before `do/tune` sees them — causing silent argument corruption or "no matches found" errors.
+
 ```bash
 # Glob pattern (fnmatch semantics)
 ./do/tune --technique dpo --dataset "hf://nvidia/When2Call?file=*call*"
@@ -402,7 +405,7 @@ ML Container Creator offers two paths for model customization:
 | Flag | Values | Description |
 |---|---|---|
 | `--technique` | `sft`, `dpo`, `rlaif`, `rlvr` | Customization technique to apply |
-| `--dataset` | S3 URI or `hf://org/name[/split][?file=pattern]` | Training dataset location |
+| `--dataset` | S3 URI or `hf://org/name[/split][?file=pattern]` | Training dataset location. **Quote if URI contains `?` or `*`** |
 
 ### Training type
 
