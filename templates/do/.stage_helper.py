@@ -28,7 +28,7 @@ import time
 def _check_sagemaker_core():
     """Verify sagemaker-core is installed."""
     try:
-        from sagemaker_core.resources import ProcessingJob  # noqa: F401
+        from sagemaker.core.resources import ProcessingJob  # noqa: F401
     except ImportError:
         _error_exit(
             "sagemaker-core is not installed. "
@@ -74,15 +74,15 @@ echo "Target: ${S3_OUTPUT_URI}"
 echo ""
 
 # Install dependencies
-echo "Installing huggingface-cli and hf_transfer..."
-pip install -q huggingface_hub[cli] hf_transfer 2>/dev/null || true
+echo "Installing huggingface_hub and hf_transfer..."
+pip install -q huggingface_hub hf_transfer 2>/dev/null || true
 
 # Enable fast parallel downloads only if hf_transfer is available
 if python3 -c "import hf_transfer" 2>/dev/null; then
-    export HF_HUB_ENABLE_HF_TRANSFER=1
+    export HF_XET_HIGH_PERFORMANCE=1
 else
     echo "hf_transfer not available - using standard download"
-    unset HF_HUB_ENABLE_HF_TRANSFER 2>/dev/null || true
+    unset HF_XET_HIGH_PERFORMANCE 2>/dev/null || true
 fi
 
 # Set HF token if provided
@@ -93,23 +93,35 @@ fi
 # Download model from HuggingFace
 echo ""
 echo "Downloading model: ${MODEL_ID}"
-DOWNLOAD_ARGS="${MODEL_ID}"
+
+# Use 'hf' CLI if available (modern), fall back to python snapshot_download
+DOWNLOAD_CMD=""
+if command -v hf &>/dev/null; then
+    DOWNLOAD_CMD="hf"
+fi
+
+DOWNLOAD_ARGS="${MODEL_ID} --local-dir /opt/ml/processing/model"
 if [ -n "${HF_TOKEN:-}" ]; then
     DOWNLOAD_ARGS="${DOWNLOAD_ARGS} --token ${HF_TOKEN}"
 fi
-huggingface-cli download ${DOWNLOAD_ARGS}
+
+if [ -n "${DOWNLOAD_CMD}" ]; then
+    ${DOWNLOAD_CMD} download ${DOWNLOAD_ARGS}
+else
+    # Fallback: use Python API directly
+    python3 -c "
+from huggingface_hub import snapshot_download
+import os
+token = os.environ.get('HF_TOKEN', None)
+snapshot_download('${MODEL_ID}', local_dir='/opt/ml/processing/model', token=token)
+"
+fi
 
 echo ""
 echo "Download complete"
 
-# Locate downloaded files
-CACHE_PATH=$(python3 -c "
-from huggingface_hub import snapshot_download
-path = snapshot_download('${MODEL_ID}', local_files_only=True)
-print(path)
-")
-
-echo "Cache path: ${CACHE_PATH}"
+CACHE_PATH="/opt/ml/processing/model"
+echo "Model path: ${CACHE_PATH}"
 
 # Sync to S3
 echo ""
@@ -136,7 +148,7 @@ def cmd_submit(args):
     _check_boto3()
 
     import boto3
-    from sagemaker_core.resources import ProcessingJob
+    from sagemaker.core.resources import ProcessingJob
 
     # Validate AWS credentials
     try:
@@ -217,19 +229,19 @@ def cmd_submit(args):
         ProcessingJob.create(
             processing_job_name=job_name,
             processing_resources={
-                "ClusterConfig": {
-                    "InstanceCount": 1,
-                    "InstanceType": args.instance_type,
-                    "VolumeSizeInGB": args.volume_size_gb,
+                "cluster_config": {
+                    "instance_count": 1,
+                    "instance_type": args.instance_type,
+                    "volume_size_in_gb": args.volume_size_gb,
                 }
             },
             app_specification={
-                "ImageUri": container_image,
-                "ContainerEntrypoint": ["bash", "-c", entrypoint_cmd],
+                "image_uri": container_image,
+                "container_entrypoint": ["bash", "-c", entrypoint_cmd],
             },
             environment=environment,
             role_arn=args.role_arn,
-            stopping_condition={"MaxRuntimeInSeconds": 86400},
+            stopping_condition={"max_runtime_in_seconds": 86400},
         )
     except Exception as e:
         error_msg = str(e)
@@ -259,7 +271,7 @@ def _poll_job(job_name, s3_uri, region):
     On success: output JSON to stdout.
     On failure: print failure_reason to stderr, exit 1.
     """
-    from sagemaker_core.resources import ProcessingJob
+    from sagemaker.core.resources import ProcessingJob
 
     print(f"Polling Processing Job status (every 30s)...", file=sys.stderr)
 
@@ -307,7 +319,7 @@ def cmd_status(args):
     """
     _check_sagemaker_core()
 
-    from sagemaker_core.resources import ProcessingJob
+    from sagemaker.core.resources import ProcessingJob
 
     try:
         job_desc = ProcessingJob.get(processing_job_name=args.job_name)
@@ -334,7 +346,7 @@ def cmd_cancel(args):
     """
     _check_sagemaker_core()
 
-    from sagemaker_core.resources import ProcessingJob
+    from sagemaker.core.resources import ProcessingJob
 
     try:
         job_desc = ProcessingJob.get(processing_job_name=args.job_name)

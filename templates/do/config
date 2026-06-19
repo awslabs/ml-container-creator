@@ -214,6 +214,9 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 # Framework-specific configuration
 <% if (framework === 'transformers') { %>
 export MODEL_NAME="<%= modelName %>"
+# HuggingFace Model ID — preserved even after do/stage rewrites MODEL_NAME to S3.
+# Used by do/benchmark (tokenizer), do/tune (model catalog), and do/test (chat template).
+export HF_MODEL_ID="<%= modelName %>"
 # Secrets Manager integration: when an ARN is configured, do-scripts resolve the
 # secret at the appropriate stage (build-time or runtime). When a plaintext value
 # is configured, it is exported directly. The _ARN suffix signals resolution is needed.
@@ -253,6 +256,7 @@ export TUNE_MODEL_ID="<%= tuneModelId %>"
 
 <% if (framework === 'diffusors') { %>
 export MODEL_NAME="<%= modelName %>"
+export HF_MODEL_ID="<%= modelName %>"
 # Secrets Manager integration: when an ARN is configured, do-scripts resolve the
 # secret at the appropriate stage (build-time or runtime). When a plaintext value
 # is configured, it is exported directly. The _ARN suffix signals resolution is needed.

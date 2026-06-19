@@ -51,7 +51,7 @@ def _output(data):
 def _check_sagemaker_core():
     """Verify sagemaker-core is installed."""
     try:
-        from sagemaker_core.resources import ProcessingJob  # noqa: F401
+        from sagemaker.core.resources import ProcessingJob  # noqa: F401
     except ImportError:
         _error_exit(
             "sagemaker-core is not installed. "
@@ -165,7 +165,7 @@ def cmd_stage_from_tune(args):
     _check_sagemaker_core()
     _check_boto3()
 
-    from sagemaker_core.resources import ProcessingJob
+    from sagemaker.core.resources import ProcessingJob
 
     # Validate required arguments
     if not args.training_output_s3_uri:
@@ -213,36 +213,36 @@ def cmd_stage_from_tune(args):
         job = ProcessingJob.create(
             processing_job_name=job_name,
             processing_resources={
-                "ClusterConfig": {
-                    "InstanceCount": 1,
-                    "InstanceType": INSTANCE_TYPE,
-                    "VolumeSizeInGB": VOLUME_SIZE_GB,
+                "cluster_config": {
+                    "instance_count": 1,
+                    "instance_type": INSTANCE_TYPE,
+                    "volume_size_in_gb": VOLUME_SIZE_GB,
                 }
             },
             processing_inputs=[{
-                "InputName": "adapter",
-                "S3Input": {
-                    "S3Uri": training_output_s3_uri,
-                    "S3DataType": "S3Prefix",
-                    "LocalPath": "/opt/ml/processing/input/adapter",
+                "input_name": "adapter",
+                "s3_input": {
+                    "s3_uri": training_output_s3_uri,
+                    "s3_data_type": "S3Prefix",
+                    "local_path": "/opt/ml/processing/input/adapter",
                 }
             }],
             processing_output_config={
-                "Outputs": [{
-                    "OutputName": "adapter",
-                    "S3Output": {
-                        "S3Uri": adapter_s3_uri,
-                        "S3UploadMode": "EndOfJob",
-                        "LocalPath": "/opt/ml/processing/output",
+                "outputs": [{
+                    "output_name": "adapter",
+                    "s3_output": {
+                        "s3_uri": adapter_s3_uri,
+                        "s3_upload_mode": "EndOfJob",
+                        "local_path": "/opt/ml/processing/output",
                     }
                 }]
             },
             app_specification={
-                "ImageUri": container_image,
-                "ContainerEntrypoint": ["bash", "-c", entrypoint_cmd],
+                "image_uri": container_image,
+                "container_entrypoint": ["bash", "-c", entrypoint_cmd],
             },
             role_arn=args.role_arn,
-            stopping_condition={"MaxRuntimeInSeconds": MAX_RUNTIME_SECONDS},
+            stopping_condition={"max_runtime_in_seconds": MAX_RUNTIME_SECONDS},
         )
     except Exception as e:
         error_msg = str(e)
@@ -320,7 +320,7 @@ def cmd_status(args):
     """
     _check_sagemaker_core()
 
-    from sagemaker_core.resources import ProcessingJob
+    from sagemaker.core.resources import ProcessingJob
 
     if not args.job_name:
         _error_exit("--job-name is required")

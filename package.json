@@ -76,7 +76,9 @@
     "README.md",
     "LICENSE",
     "LICENSE-THIRD-PARTY",
-    "NOTICE"
+    "NOTICE",
+    "requirements.txt",
+    "pyproject.toml"
   ],
   "type": "module",
   "license": "Apache-2.0",

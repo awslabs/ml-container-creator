@@ -11,7 +11,7 @@ ML Container Creator includes a `do/tune` command that wraps SageMaker AI Manage
 | Framework | `transformers` only |
 | Deployment target | Any target except `batch-transform` |
 | Bootstrapped account | Run `ml-container-creator bootstrap` to provision IAM permissions and tune S3 bucket |
-| Python SDK | `sagemaker>=2.232.0` installed in your Python environment |
+| Python SDK | `sagemaker-core>=1.0.0` — install via `uv pip install -r requirements.txt` |
 
 !!! note "Supported Models Only"
     `do/tune` works with models in the Supported Model Catalog. If your model isn't supported, the script will tell you which models are available and suggest `do/train` for custom training workflows.
@@ -561,12 +561,13 @@ Run `ml-container-creator bootstrap` to provision the required IAM permissions. 
 
 ### Python SDK not installed
 
-The script requires `sagemaker>=2.232.0`. Install it:
+The `do/tune` script requires `sagemaker>=3.0.0` and several other Python packages. These are installed automatically when you run `npm install`. If you manage Python environments manually:
 
 ```bash
-pip install "sagemaker>=2.232.0"
+pip install -r requirements.txt
 ```
 
+See [`requirements.txt`](https://github.com/awslabs/ml-container-creator/blob/main/requirements.txt) for the full list.
 ### Job failed — how to retry
 
 When a job fails, the script displays the failure reason. Fix the underlying issue and re-run with `--force`:

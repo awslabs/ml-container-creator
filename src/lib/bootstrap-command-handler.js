@@ -459,39 +459,49 @@ export default class BootstrapCommandHandler {
 
                     // --no-rollback prevents rollback on AlreadyExists errors for IAM roles
                     // that may pre-exist from a prior deployment or another region.
-                    // Check if benchmark bucket already exists (from a prior torn-down stack with RETAIN policy)
-                    let importBucketCtx = '';
+                    // Check if benchmark results bucket already exists.
+                    // If it does, skip CDK deploy for benchmark infra — just update the profile.
+                    let benchmarkBucketExists = false;
                     if (options.benchmarkInfra) {
+                        const resultsBucketName = `mlcc-benchmark-results-${profileData.accountId}-${profileData.awsRegion}`;
                         try {
                             execSync(
-                                `aws s3api head-bucket --bucket mlcc-benchmark-results-${profileData.accountId}-${profileData.awsRegion}${profileData.awsProfile ? ` --profile ${profileData.awsProfile}` : ''} --region ${profileData.awsRegion}`,
+                                `aws s3api head-bucket --bucket ${resultsBucketName}${profileData.awsProfile ? ` --profile ${profileData.awsProfile}` : ''} --region ${profileData.awsRegion}`,
                                 { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
                             );
-                            importBucketCtx = ' -c importExistingBenchmarkBucket=true';
-                            console.log('  ℹ️  Benchmark results bucket already exists — importing into stack');
+                            benchmarkBucketExists = true;
+                            console.log(`  ✅ Benchmark results bucket already exists: ${resultsBucketName}`);
+                            console.log('     Skipping CDK deploy for benchmark infra — updating profile only.');
+                            profileData.benchmarkInfraProvisioned = true;
+                            profileData.ciGlueDatabase = profileData.ciGlueDatabase || 'mlcc_ci';
+                            profileData.ciBenchmarkResultsBucket = resultsBucketName;
                         } catch {
                             // Bucket doesn't exist — will be created fresh
                         }
                     }
-                    const cdkDeployCmd = options.benchmarkInfra
-                        ? `npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback --parameters MlccCiHarnessStack:CreateBenchmarkInfra=true${importBucketCtx}`
-                        : 'npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback';
-                    execSync(
-                        cdkDeployCmd,
-                        {
-                            cwd: ciHarnessDir,
-                            encoding: 'utf8',
-                            stdio: 'inherit',
-                            env: {
-                                ...process.env,
-                                AWS_REGION: profileData.awsRegion,
-                                CDK_DEFAULT_REGION: profileData.awsRegion,
-                                CDK_DEFAULT_ACCOUNT: profileData.accountId,
-                                AWS_PROFILE: profileData.awsProfile
+
+                    // Only run CDK deploy if we actually need to create infrastructure
+                    if (!benchmarkBucketExists || !options.benchmarkInfra) {
+                        const cdkDeployCmd = options.benchmarkInfra
+                            ? 'npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback --parameters MlccCiHarnessStack:CreateBenchmarkInfra=true'
+                            : 'npx cdk deploy MlccCiHarnessStack --require-approval never --no-rollback';
+                        execSync(
+                            cdkDeployCmd,
+                            {
+                                cwd: ciHarnessDir,
+                                encoding: 'utf8',
+                                stdio: 'inherit',
+                                env: {
+                                    ...process.env,
+                                    AWS_REGION: profileData.awsRegion,
+                                    CDK_DEFAULT_REGION: profileData.awsRegion,
+                                    CDK_DEFAULT_ACCOUNT: profileData.accountId,
+                                    AWS_PROFILE: profileData.awsProfile
+                                }
                             }
-                        }
-                    );
-                    console.log('  ✅ CI harness stack deployed');
+                        );
+                        console.log('  ✅ CI harness stack deployed');
+                    }
 
                     profileData.ciInfraProvisioned = true;
                     profileData.ciTableName = 'mlcc-ci-table';

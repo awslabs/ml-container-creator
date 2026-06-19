@@ -29,6 +29,12 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 warnings.filterwarnings("ignore", message=".*charset_normalizer.*")
 
+# Suppress ALL logging to prevent sagemaker-core/rich from writing to stdout.
+# This script outputs JSON on stdout — any other stdout output corrupts parsing.
+import logging as _logging
+_logging.disable(_logging.CRITICAL)
+os.environ.setdefault("SAGEMAKER_LOG_LEVEL", "CRITICAL")
+
 # ── Inline dependency check ───────────────────────────────────────────────────
 MIN_SAGEMAKER_VERSION = "3.0"
 
@@ -69,6 +75,34 @@ def _output(data):
     """Print JSON result to stdout."""
     print(json.dumps(data))
     sys.exit(0)
+
+
+def _sanitize_for_json(value):
+    """Convert sagemaker-core Unassigned sentinel values to None for JSON serialization.
+
+    sagemaker-core uses an 'Unassigned' type instead of None for unset fields.
+    This function converts any non-standard types to JSON-safe values.
+    """
+    if value is None:
+        return None
+    # Check for Unassigned type from sagemaker-core
+    type_name = type(value).__name__
+    if type_name == "Unassigned" or type_name == "UnassignedValue":
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {k: _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(v) for v in value]
+    # For other types, try str conversion as fallback
+    try:
+        # Check if it's JSON serializable as-is
+        import json as _json
+        _json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return str(value) if value else None
 
 
 # ── Subcommand: submit ────────────────────────────────────────────────────────
@@ -174,7 +208,7 @@ def cmd_submit(args):
             # Using sagemaker-core ModelPackageGroup.create() per SDK v3 policy
             mpg_name = args.model_package_group or f"{args.project_name}-tune-models"
             try:
-                from sagemaker_core.resources import ModelPackageGroup
+                from sagemaker.core.resources import ModelPackageGroup
                 from botocore.exceptions import ClientError as _ClientError
                 try:
                     ModelPackageGroup.get(model_package_group_name=mpg_name)
@@ -350,7 +384,7 @@ def cmd_status(args):
     Returns: {"status": str, "failure_reason": str|None,
               "metrics": dict|None, "elapsed_seconds": int}
     """
-    from sagemaker_core.resources import TrainingJob
+    from sagemaker.core.resources import TrainingJob
     from botocore.exceptions import ClientError
 
     # Try exact name first via sagemaker-core
@@ -397,6 +431,11 @@ def cmd_status(args):
     # Calculate elapsed time
     start_time = getattr(job, "training_start_time", None)
     end_time = getattr(job, "training_end_time", None)
+    # Convert Unassigned sentinel to None
+    if start_time and type(start_time).__name__ in ("Unassigned", "UnassignedValue"):
+        start_time = None
+    if end_time and type(end_time).__name__ in ("Unassigned", "UnassignedValue"):
+        end_time = None
     elapsed_seconds = 0
 
     if start_time:
@@ -408,6 +447,8 @@ def cmd_status(args):
     # Extract final metrics if available
     metrics = None
     final_metrics = getattr(job, "final_metric_data_list", None)
+    if final_metrics and type(final_metrics).__name__ in ("Unassigned", "UnassignedValue"):
+        final_metrics = None
     if final_metrics:
         metrics = {}
         for metric in final_metrics:
@@ -424,11 +465,11 @@ def cmd_status(args):
             output_path = getattr(model_artifacts, "s3_model_artifacts", None)
 
     _output({
-        "status": status,
-        "failure_reason": failure_reason,
-        "metrics": metrics,
+        "status": _sanitize_for_json(status),
+        "failure_reason": _sanitize_for_json(failure_reason),
+        "metrics": _sanitize_for_json(metrics),
         "elapsed_seconds": elapsed_seconds,
-        "output_path": output_path,
+        "output_path": _sanitize_for_json(output_path),
     })
 
 
@@ -444,7 +485,7 @@ def cmd_resolve(args):
     Returns: {"artifact_path": str, "model_package_arn": str|None,
               "output_type": str}
     """
-    from sagemaker_core.resources import TrainingJob
+    from sagemaker.core.resources import TrainingJob
 
     try:
         job = TrainingJob.get(training_job_name=args.job_name)
@@ -500,8 +541,8 @@ def cmd_resolve(args):
             pass
 
     _output({
-        "artifact_path": artifact_path,
-        "model_package_arn": model_package_arn,
+        "artifact_path": _sanitize_for_json(artifact_path),
+        "model_package_arn": _sanitize_for_json(model_package_arn),
         "output_type": output_type,
     })
 
@@ -789,11 +830,12 @@ def _get_schema_types(technique):
     return schemas.get(technique, {"prompt": "string", "completion": "string"})
 
 
-def _validate_dataset_columns(first_record, technique, column_map_str, dataset_id):
+def _validate_dataset_columns(first_record, technique, column_map_str, dataset_id, take=None):
     """Validate that the first record has required columns after mapping.
 
     Returns (mapped_record, column_map_dict) on success.
     Calls _error_exit with helpful suggestions on failure.
+    If take is provided, includes --take N in the suggested command.
     """
     column_map = _parse_column_map(column_map_str)
     mapped = _apply_column_map(first_record, column_map)
@@ -818,12 +860,14 @@ def _validate_dataset_columns(first_record, technique, column_map_str, dataset_i
     if suggestion:
         lines.append(f"")
         lines.append(f"   💡 Suggested fix:")
-        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {suggestion}")
+        take_suffix = f" --take {take}" if take else ""
+        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {suggestion}{take_suffix}")
     else:
         lines.append(f"")
         lines.append(f"   💡 Use --column-map to rename columns:")
         example_map = ",".join(f"{r}=<your_column>" for r in missing)
-        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {example_map}")
+        take_suffix = f" --take {take}" if take else ""
+        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {example_map}{take_suffix}")
 
     lines.append(f"")
     lines.append(f"   First record sample:")
@@ -833,6 +877,16 @@ def _validate_dataset_columns(first_record, technique, column_map_str, dataset_i
         lines.append(f"      {k}: {val_str}")
 
     _error_exit("\n".join(lines))
+
+
+def _check_empty_fields(record, required_columns):
+    """Return list of required column names that are empty/blank in this record."""
+    empty = []
+    for col in required_columns:
+        value = record.get(col, "")
+        if value is None or (isinstance(value, str) and not value.strip()):
+            empty.append(col)
+    return empty
 
 
 def cmd_stage_hf(args):
@@ -878,21 +932,35 @@ def cmd_stage_hf(args):
 
         # Find the appropriate data file for the split
         data_files = _find_data_files(repo_files, split)
+
+        # Apply file filter if --hf-file is provided
+        hf_file_pattern = getattr(args, 'hf_file', None)
+
+        if not data_files and hf_file_pattern:
+            # Split-based lookup found nothing, but user specified a file filter.
+            # Fall back to filtering directly from all data files in the repo.
+            all_data_files = [
+                f for f in repo_files
+                if f.endswith(('.parquet', '.jsonl', '.json'))
+                and not f.startswith('.')
+            ]
+            if all_data_files:
+                data_files = _filter_data_files(all_data_files, hf_file_pattern)
+        elif hf_file_pattern and data_files:
+            # Normal case: apply file filter to split-matched results
+            data_files = _filter_data_files(data_files, hf_file_pattern)
+
         if not data_files:
             _error_exit(
                 f"No data files found for split '{split}' in dataset {dataset_id}. "
                 f"Available files: {', '.join(repo_files[:20])}"
             )
 
-        # Apply file filter if --hf-file is provided
-        hf_file_pattern = getattr(args, 'hf_file', None)
-        if hf_file_pattern:
-            data_files = _filter_data_files(data_files, hf_file_pattern)
-
         # Download and upload to S3
         s3_client = boto3.client("s3", region_name=args.region)
         s3_prefix = f"{args.project_name}/datasets/{org}/{name}/{split}"
         num_records = 0
+        empty_field_counts = {}  # Track empty required fields: {field_name: count}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Schema divergence check (skip for single file)
@@ -931,7 +999,7 @@ def cmd_stage_hf(args):
                         no_transform = getattr(args, 'no_transform', False)
                         batches = table.to_batches(max_chunksize=1)
                         first_record = batches[0].to_pylist()[0] if batches else {}
-                        _validate_dataset_columns(first_record, technique, getattr(args, 'column_map', None), f"{org}/{name}")
+                        _validate_dataset_columns(first_record, technique, getattr(args, 'column_map', None), f"{org}/{name}", take=getattr(args, 'take', None))
 
                         # Apply column map to first record for detection
                         mapped_first = _apply_column_map(first_record, column_map)
@@ -968,16 +1036,31 @@ def cmd_stage_hf(args):
                                 f"   Detected format: {strategy_desc}"
                             )
 
+                        take_limit = getattr(args, 'take', None)
                         with open(jsonl_path, "w", encoding="utf-8") as out_f:
                             for batch in table.to_batches():
                                 for row in batch.to_pylist():
+                                    if take_limit and num_records >= take_limit:
+                                        break
                                     mapped_row = _apply_column_map(row, column_map)
                                     if chat_columns and not no_transform:
                                         mapped_row = _flatten_record(mapped_row, chat_columns)
+                                    # Track empty required fields
+                                    for col in _check_empty_fields(mapped_row, required_columns):
+                                        empty_field_counts[col] = empty_field_counts.get(col, 0) + 1
                                     out_f.write(json_mod.dumps(mapped_row, ensure_ascii=False) + "\n")
                                     num_records += 1
+                                if take_limit and num_records >= take_limit:
+                                    break
 
                         # Upload converted JSONL
+                        # Verify file has content before uploading
+                        file_size = os.path.getsize(jsonl_path)
+                        if file_size == 0:
+                            _error_exit(
+                                f"Converted JSONL file is empty (0 bytes) after processing "
+                                f"{num_records} records. This is a bug — please report it."
+                            )
                         s3_key = f"{s3_prefix}/{jsonl_filename}"
                         s3_client.upload_file(jsonl_path, args.output_bucket, s3_key)
 
@@ -999,7 +1082,7 @@ def cmd_stage_hf(args):
                         first_line = f.readline().strip()
                         if first_line:
                             first_record = json_mod.loads(first_line)
-                            _validate_dataset_columns(first_record, technique, getattr(args, 'column_map', None), f"{org}/{name}")
+                            _validate_dataset_columns(first_record, technique, getattr(args, 'column_map', None), f"{org}/{name}", take=getattr(args, 'take', None))
 
                             # Apply column map to first record for detection
                             mapped_first = _apply_column_map(first_record, column_map)
@@ -1038,11 +1121,14 @@ def cmd_stage_hf(args):
 
                     # Rewrite the file with mapped (and optionally flattened) columns
                     should_flatten = bool(chat_columns) and not no_transform
-                    if column_map or should_flatten:
+                    take_limit = getattr(args, 'take', None)
+                    if column_map or should_flatten or take_limit:
                         mapped_path = local_path + ".mapped"
                         with open(local_path, "r", encoding="utf-8", errors="replace") as f_in, \
                              open(mapped_path, "w", encoding="utf-8") as f_out:
                             for line in f_in:
+                                if take_limit and num_records >= take_limit:
+                                    break
                                 line = line.strip()
                                 if not line:
                                     continue
@@ -1050,15 +1136,32 @@ def cmd_stage_hf(args):
                                 mapped_record = _apply_column_map(record, column_map)
                                 if should_flatten:
                                     mapped_record = _flatten_record(mapped_record, chat_columns)
+                                # Track empty required fields
+                                for col in _check_empty_fields(mapped_record, _get_required_columns(technique)):
+                                    empty_field_counts[col] = empty_field_counts.get(col, 0) + 1
                                 f_out.write(json_mod.dumps(mapped_record, ensure_ascii=False) + "\n")
                                 num_records += 1
                         local_path = mapped_path
                     else:
-                        # Count records
-                        with open(local_path, "r", encoding="utf-8", errors="replace") as f:
-                            for line in f:
-                                if line.strip():
-                                    num_records += 1
+                        # Count records (and truncate if --take specified)
+                        take_limit = getattr(args, 'take', None)
+                        if take_limit:
+                            # Need to rewrite the file truncated
+                            mapped_path = local_path + ".mapped"
+                            with open(local_path, "r", encoding="utf-8", errors="replace") as f_in, \
+                                 open(mapped_path, "w", encoding="utf-8") as f_out:
+                                for line in f_in:
+                                    if num_records >= take_limit:
+                                        break
+                                    if line.strip():
+                                        f_out.write(line)
+                                        num_records += 1
+                            local_path = mapped_path
+                        else:
+                            with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+                                for line in f:
+                                    if line.strip():
+                                        num_records += 1
 
                     # Upload to S3
                     s3_key = f"{s3_prefix}/{os.path.basename(data_file)}"
@@ -1071,6 +1174,19 @@ def cmd_stage_hf(args):
         else:
             output_filename = os.path.basename(first_file)
         s3_uri = f"s3://{args.output_bucket}/{s3_prefix}/{output_filename}"
+
+        # Warn if required columns have many empty values
+        if num_records > 0 and empty_field_counts:
+            for field, count in empty_field_counts.items():
+                pct = (count / num_records) * 100
+                if pct > 30:
+                    print(
+                        f"\u26a0\ufe0f  Warning: {pct:.0f}% of records ({count}/{num_records}) "
+                        f"have empty '{field}' after column mapping.\n"
+                        f"   SageMaker may reject these as invalid samples.\n"
+                        f"   Consider using a different --column-map or dataset.",
+                        file=sys.stderr,
+                    )
 
         _output({
             "s3_uri": s3_uri,
@@ -1148,12 +1264,12 @@ def _find_data_files(repo_files, split):
         if pattern in repo_files:
             return [pattern]
 
-    # Prefix match for sharded files
-    matches = []
+    # Prefix match for sharded files (deduplicate via set)
+    matches = set()
     for f in repo_files:
         for pattern in patterns[4:]:
             if pattern in f:
-                matches.append(f)
+                matches.add(f)
 
     if matches:
         return sorted(matches)
@@ -1680,6 +1796,8 @@ def main():
                                  help="Customization technique (determines required columns)")
     stage_hf_parser.add_argument("--no-transform", action="store_true", default=False,
                                  help="Disable automatic chat-format flattening")
+    stage_hf_parser.add_argument("--take", type=int, default=None,
+                                 help="Take only the first N records from the dataset")
 
     # ── validate ──────────────────────────────────────────────────────────────
     validate_parser = subparsers.add_parser("validate",
