@@ -256,13 +256,13 @@ See [CI Integration](ci-integration.md) for automated validation workflows and t
 For models >30B parameters, downloading from HuggingFace at deploy time can cause 30-60 minute startup delays or timeout failures. Pre-stage weights to your MCC S3 bucket first:
 
 ```bash
-./do/stage
+./do/stage              # Default: SageMaker Processing Job (no local disk usage)
+./do/stage --local      # Download locally then sync to S3 (legacy behavior)
 ```
 
 This downloads model weights from HuggingFace and uploads to `s3://{bucket}/{project}/models/{model-slug}/` (the model name is sanitized — `/` is replaced with `-` for safe S3 paths). Subsequent deploys load from S3 (seconds instead of minutes).
 
 After staging, `MODEL_NAME` in `do/config` is updated to the S3 URI. The original HuggingFace identifier is preserved as `HF_MODEL_ID` — this is used by `do/benchmark` for tokenizer resolution and by the benchmark writer for Athena partition paths.
-
 The script is idempotent — if weights are already staged, it skips the download.
 
 For models >500GB, use `--submit` to run as a SageMaker Processing Job with 2TB attached storage:

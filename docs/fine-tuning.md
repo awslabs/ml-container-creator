@@ -66,6 +66,8 @@ When `do/tune` completes, it stores the output artifact path in `do/config` and 
 
 The `--from-tune` flag reads the output path from `do/config` automatically — no need to copy S3 URIs manually.
 
+By default, `--from-tune` stages adapter weights via a **SageMaker Processing Job** (no local disk usage). Use `--local` to download and package locally instead.
+
 ### Adapter output (LoRA)
 
 ```bash
@@ -77,6 +79,9 @@ The `--from-tune` flag reads the output path from `do/config` automatically — 
 
 # Or pass the S3 path explicitly
 ./do/adapter add tuned-sft --weights s3://mlcc-tune-123456789012-us-east-1/output/adapter.tar.gz
+
+# Stage locally instead of via Processing Job
+./do/adapter add tuned-sft --from-tune --local
 ```
 
 ### Full model output
