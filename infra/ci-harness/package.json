@@ -21,7 +21,7 @@
     "@aws-sdk/client-sqs": "^3.1041.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.15.0",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "mocha": "^11.7.5",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"

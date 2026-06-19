@@ -129,7 +129,7 @@
     "lint-staged": "^17.0.7",
     "mocha": "^10.2.0",
     "npm-force-resolutions": "^0.0.10",
-    "nyc": "^15.1.0",
+    "nyc": "^18.0.0",
     "sbom": "^0.0.0"
   },
   "lint-staged": {
