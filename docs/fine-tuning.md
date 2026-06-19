@@ -11,7 +11,7 @@ ML Container Creator includes a `do/tune` command that wraps SageMaker AI Manage
 | Framework | `transformers` only |
 | Deployment target | Any target except `batch-transform` |
 | Bootstrapped account | Run `ml-container-creator bootstrap` to provision IAM permissions and tune S3 bucket |
-| Python SDK | `sagemaker>=2.232.0` installed in your Python environment |
+| Python SDK | `sagemaker-core>=1.0.0` — install via `uv pip install -r requirements.txt` |
 
 !!! note "Supported Models Only"
     `do/tune` works with models in the Supported Model Catalog. If your model isn't supported, the script will tell you which models are available and suggest `do/train` for custom training workflows.
@@ -66,6 +66,8 @@ When `do/tune` completes, it stores the output artifact path in `do/config` and 
 
 The `--from-tune` flag reads the output path from `do/config` automatically — no need to copy S3 URIs manually.
 
+By default, `--from-tune` stages adapter weights via a **SageMaker Processing Job** (no local disk usage). Use `--local` to download and package locally instead.
+
 ### Adapter output (LoRA)
 
 ```bash
@@ -77,6 +79,9 @@ The `--from-tune` flag reads the output path from `do/config` automatically — 
 
 # Or pass the S3 path explicitly
 ./do/adapter add tuned-sft --weights s3://mlcc-tune-123456789012-us-east-1/output/adapter.tar.gz
+
+# Stage locally instead of via Processing Job
+./do/adapter add tuned-sft --from-tune --local
 ```
 
 ### Full model output
@@ -291,6 +296,9 @@ Without a file filter, the pipeline detects this mismatch and fails with a clear
 
 Append `?file=<pattern>` to your `hf://` URI to filter:
 
+!!! warning "Always quote URIs containing `?` or `*`"
+    Bash interprets `?` as a single-character glob and `*` as a wildcard. Without quotes, your shell may expand these before `do/tune` sees them — causing silent argument corruption or "no matches found" errors.
+
 ```bash
 # Glob pattern (fnmatch semantics)
 ./do/tune --technique dpo --dataset "hf://nvidia/When2Call?file=*call*"
@@ -402,7 +410,7 @@ ML Container Creator offers two paths for model customization:
 | Flag | Values | Description |
 |---|---|---|
 | `--technique` | `sft`, `dpo`, `rlaif`, `rlvr` | Customization technique to apply |
-| `--dataset` | S3 URI or `hf://org/name[/split][?file=pattern]` | Training dataset location |
+| `--dataset` | S3 URI or `hf://org/name[/split][?file=pattern]` | Training dataset location. **Quote if URI contains `?` or `*`** |
 
 ### Training type
 
@@ -561,12 +569,13 @@ Run `ml-container-creator bootstrap` to provision the required IAM permissions. 
 
 ### Python SDK not installed
 
-The script requires `sagemaker>=2.232.0`. Install it:
+The `do/tune` script requires `sagemaker>=3.0.0` and several other Python packages. These are installed automatically when you run `npm install`. If you manage Python environments manually:
 
 ```bash
-pip install "sagemaker>=2.232.0"
+pip install -r requirements.txt
 ```
 
+See [`requirements.txt`](https://github.com/awslabs/ml-container-creator/blob/main/requirements.txt) for the full list.
 ### Job failed — how to retry
 
 When a job fails, the script displays the failure reason. Fix the underlying issue and re-run with `--force`:

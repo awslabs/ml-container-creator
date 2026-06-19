@@ -1,0 +1,21 @@
+[project]
+name = "ml-container-creator"
+version = "0.13.4"
+description = "Python dependencies for ml-container-creator do/ lifecycle scripts"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3>=1.35.0",
+    "huggingface-hub>=0.25.0",
+    "hf-transfer>=0.1.8",
+    "pyarrow>=17.0.0",
+    "sagemaker-core>=1.0.0",
+    "sagemaker[train]>=3.0.0",
+    "sagemaker[serve]>=3.0.0",
+    "packaging>=24.0",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]

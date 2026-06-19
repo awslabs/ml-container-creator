@@ -3,18 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # do/stage — Pre-stage model weights from HuggingFace to S3
-# Downloads the model using huggingface-cli and syncs to S3 so that
-# vLLM can load directly from S3 at deploy time (fast cold-start).
+# Submits a SageMaker Processing Job that downloads from HuggingFace
+# and writes directly to S3 — no local disk usage.
 #
 # Idempotent: if the model is already staged (config.json exists at
 # the target S3 path), the script exits early.
 #
 # Usage:
-#   ./do/stage                       Stage model to S3
+#   ./do/stage                       Submit Processing Job to stage model (default)
+#   ./do/stage --local               Download locally then sync to S3
+#   ./do/stage --no-wait             Submit and exit without polling
 #   ./do/stage --force               Re-stage even if already present in S3
-#   ./do/stage --update-config       Stage and update MODEL_NAME in do/config
-#   ./do/stage --submit              Submit as SageMaker Processing Job (for models >500GB)
-#   ./do/stage --submit --no-wait    Submit and exit without polling
 
 set -e
 set -u
@@ -29,30 +28,32 @@ source "${SCRIPT_DIR}/lib/staged-assets.sh"
 # ── Parse flags ───────────────────────────────────────────────────────────────
 FORCE=false
 UPDATE_CONFIG=true
-SUBMIT_MODE=false
+LOCAL_MODE=false
 NO_WAIT=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE=true; shift ;;
         --update-config) UPDATE_CONFIG=true; shift ;; # default, kept for backward compat
         --no-update-config) UPDATE_CONFIG=false; shift ;;
-        --submit) SUBMIT_MODE=true; shift ;;
+        --local) LOCAL_MODE=true; shift ;;
+        --submit) shift ;; # Deprecated — now the default; kept for backward compat
         --no-wait) NO_WAIT=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/stage [--force] [--no-update-config] [--submit] [--no-wait]"
+            echo "Usage: ./do/stage [--force] [--local] [--no-wait] [--no-update-config]"
             echo ""
             echo "Pre-stage model weights from HuggingFace to S3."
             echo "On success, updates MODEL_NAME in do/config so subsequent tasks"
             echo "(submit, deploy) pull from S3 with HuggingFace as fallback."
             echo ""
             echo "Modes:"
-            echo "  (default)    Download locally then sync to S3"
-            echo "  --submit     Submit as SageMaker Processing Job (for models >500GB)"
+            echo "  (default)    Submit SageMaker Processing Job (no local disk usage)"
+            echo "  --local      Download locally then sync to S3 (legacy behavior)"
+            echo "  --submit     Deprecated — Processing Job is now the default"
             echo ""
             echo "Options:"
             echo "  --force             Re-stage even if model already exists in S3"
             echo "  --no-update-config  Do NOT update MODEL_NAME in do/config after staging"
-            echo "  --no-wait           (with --submit) Exit without polling for completion"
+            echo "  --no-wait           Return immediately with job name (Processing Job mode)"
             echo ""
             echo "Environment:"
             echo "  HF_TOKEN   HuggingFace token (for gated models)"
@@ -65,10 +66,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# ── Processing Job submission function ────────────────────────────────────────
-# Submits a SageMaker Processing Job that downloads model weights from HuggingFace
-# and syncs them to S3. Uses 2TB attached storage to handle any model size.
-POLL_INTERVAL=30
+# ── Processing Job submission via .stage_helper.py ────────────────────────────
 PROCESSING_JOB_INSTANCE_TYPE="ml.m5.xlarge"
 PROCESSING_JOB_VOLUME_GB=2048
 
@@ -80,19 +78,12 @@ _submit_processing_job() {
     echo "   Storage: ${PROCESSING_JOB_VOLUME_GB} GB"
     echo ""
 
-    # Validate AWS credentials
-    if ! aws sts get-caller-identity &>/dev/null; then
-        echo "❌ AWS credentials not configured or expired."
-        echo "   Run: aws configure"
-        exit 4
-    fi
-
     # Resolve execution role from profile
     local execution_role
     execution_role=$(echo "${_PROFILE_JSON}" | python3 -c "
 import sys, json
 p = json.load(sys.stdin)
-print(p.get('executionRoleArn', ''))
+print(p.get('roleArn', ''))
 " 2>/dev/null) || execution_role=""
 
     if [ -z "${execution_role}" ]; then
@@ -102,267 +93,88 @@ print(p.get('executionRoleArn', ''))
         exit 1
     fi
 
-    # Resolve HF token ARN for the processing job (optional — for gated models)
+    # Resolve HF token (optional — for gated models)
+    local hf_token_value=""
     local hf_token_secret_arn="${HF_TOKEN_ARN:-}"
-
-    # Generate job name with timestamp
-    local timestamp
-    timestamp=$(date +%Y%m%d-%H%M%S)
-    local job_name="mlcc-stage-${PROJECT_NAME}-${timestamp}"
-    # SageMaker job names max 63 chars, must match [a-zA-Z0-9](-*[a-zA-Z0-9])*
-    job_name=$(echo "${job_name}" | cut -c1-63 | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/-*$//')
-
-    echo "   Job name: ${job_name}"
-    echo ""
-
-    # Build the entrypoint script that runs inside the processing container
-    local entrypoint_script
-    entrypoint_script=$(cat <<'ENTRYPOINT_EOF'
-#!/bin/bash
-set -e
-set -o pipefail
-
-echo "=== MCC Model Staging Processing Job ==="
-echo "Model: ${MODEL_ID}"
-echo "Target: ${S3_OUTPUT_URI}"
-echo ""
-
-# Install dependencies
-echo "📦 Checking huggingface-cli and hf_transfer..."
-pip install -q huggingface_hub[cli] hf_transfer 2>/dev/null || true
-
-# Enable fast parallel downloads only if hf_transfer is available
-if python3 -c "import hf_transfer" 2>/dev/null; then
-    export HF_HUB_ENABLE_HF_TRANSFER=1
-else
-    echo "   ℹ️  hf_transfer not available — using standard download (install with: pip install hf_transfer)"
-    unset HF_HUB_ENABLE_HF_TRANSFER 2>/dev/null || true
-fi
-
-# Set HF token if provided
-if [ -n "${HF_TOKEN:-}" ]; then
-    echo "🔐 Using provided HuggingFace token"
-fi
-
-# Download model from HuggingFace
-echo ""
-echo "⬇️  Downloading model: ${MODEL_ID}"
-DOWNLOAD_ARGS="${MODEL_ID}"
-if [ -n "${HF_TOKEN:-}" ]; then
-    DOWNLOAD_ARGS="${DOWNLOAD_ARGS} --token ${HF_TOKEN}"
-fi
-huggingface-cli download ${DOWNLOAD_ARGS}
-
-echo ""
-echo "✅ Download complete"
-
-# Locate downloaded files
-CACHE_PATH=$(python3 -c "
-from huggingface_hub import snapshot_download
-path = snapshot_download('${MODEL_ID}', local_files_only=True)
-print(path)
-")
-
-echo "📁 Cache path: ${CACHE_PATH}"
-
-# Sync to S3
-echo ""
-echo "☁️  Syncing to S3: ${S3_OUTPUT_URI}"
-aws s3 sync "${CACHE_PATH}" "${S3_OUTPUT_URI}" \
-    --no-progress \
-    --exclude "*.lock" \
-    --exclude ".gitattributes"
-
-echo ""
-echo "✅ Model staged successfully to: ${S3_OUTPUT_URI}"
-ENTRYPOINT_EOF
-)
-
-    # Build environment variables for the container
-    local env_vars="MODEL_ID=${MODEL_NAME},S3_OUTPUT_URI=${MODEL_S3_URI}"
     if [ -n "${hf_token_secret_arn}" ]; then
-        # Resolve token and pass as env var to the job
-        local hf_token_value=""
         hf_token_value=$(aws secretsmanager get-secret-value \
             --secret-id "${hf_token_secret_arn}" \
             --query SecretString --output text 2>/dev/null) || hf_token_value=""
-        if [ -n "${hf_token_value}" ]; then
-            env_vars="${env_vars},HF_TOKEN=${hf_token_value}"
-        fi
     elif [ -n "${HF_TOKEN:-}" ]; then
-        env_vars="${env_vars},HF_TOKEN=${HF_TOKEN}"
+        hf_token_value="${HF_TOKEN}"
     fi
 
-    # Write entrypoint to a temp file for the processing job input
-    local entrypoint_s3_key="staging-jobs/${job_name}/entrypoint.sh"
-    local entrypoint_s3_uri="s3://${STAGE_S3_BUCKET}/${entrypoint_s3_key}"
-
-    echo "📤 Uploading entrypoint script..."
-    echo "${entrypoint_script}" | aws s3 cp - "${entrypoint_s3_uri}" --region "${AWS_REGION}"
-
-    # Create the processing job
-    # Uses a lightweight Python image with AWS CLI pre-installed
-    local container_image="763104351884.dkr.ecr.${AWS_REGION}.amazonaws.com/pytorch-training:2.1.0-cpu-py310-ubuntu20.04-sagemaker"
-
-    local processing_request
-    processing_request=$(python3 -c "
-import json, sys
-
-job = {
-    'ProcessingJobName': '${job_name}',
-    'ProcessingResources': {
-        'ClusterConfig': {
-            'InstanceCount': 1,
-            'InstanceType': '${PROCESSING_JOB_INSTANCE_TYPE}',
-            'VolumeSizeInGB': ${PROCESSING_JOB_VOLUME_GB}
-        }
-    },
-    'AppSpecification': {
-        'ImageUri': '${container_image}',
-        'ContainerEntrypoint': ['bash', '-c'],
-        'ContainerArguments': ['aws s3 cp ${entrypoint_s3_uri} /tmp/entrypoint.sh && chmod +x /tmp/entrypoint.sh && /tmp/entrypoint.sh']
-    },
-    'Environment': dict(item.split('=', 1) for item in '${env_vars}'.split(',')),
-    'RoleArn': '${execution_role}',
-    'StoppingCondition': {
-        'MaxRuntimeInSeconds': 86400
-    }
-}
-
-print(json.dumps(job, indent=2))
-")
-
-    # Write request JSON to temp file
-    local request_file="/tmp/mlcc-stage-request-${timestamp}.json"
-    echo "${processing_request}" > "${request_file}"
-
-    echo "🚀 Creating Processing Job: ${job_name}"
-    echo ""
-
-    local create_output
-    local create_exit_code
-    create_output=$(aws sagemaker create-processing-job \
-        --cli-input-json "file://${request_file}" \
-        --region "${AWS_REGION}" 2>&1) || create_exit_code=$?
-    create_exit_code=${create_exit_code:-0}
-
-    rm -f "${request_file}"
-
-    if [ ${create_exit_code} -ne 0 ]; then
-        echo "❌ Failed to create Processing Job"
-        echo "   ${create_output}"
-        echo ""
-        if echo "${create_output}" | grep -q "AccessDeniedException"; then
-            echo "   Remediation: ensure the execution role has sagemaker:CreateProcessingJob permission"
-        fi
-        exit 1
+    # Build helper arguments
+    local helper_args=(
+        submit
+        --model-name "${MODEL_NAME}"
+        --bucket "${STAGE_S3_BUCKET}"
+        --project "${PROJECT_NAME}"
+        --role-arn "${execution_role}"
+        --region "${AWS_REGION}"
+        --instance-type "${PROCESSING_JOB_INSTANCE_TYPE}"
+        --volume-size-gb "${PROCESSING_JOB_VOLUME_GB}"
+    )
+    if [ -n "${hf_token_value}" ]; then
+        helper_args+=(--hf-token "${hf_token_value}")
     fi
-
-    echo "   ✅ Processing Job submitted: ${job_name}"
-    echo ""
-
-    # Handle --no-wait
+    if [ "${FORCE}" = true ]; then
+        helper_args+=(--force)
+    fi
     if [ "${NO_WAIT}" = true ]; then
+        helper_args+=(--no-wait)
+    fi
+
+    # Call .stage_helper.py (sagemaker-core ProcessingJob.create())
+    # stdout = JSON result, stderr = progress messages (piped to user)
+    local json_output
+    local helper_exit_code=0
+    json_output=$(python3 "${SCRIPT_DIR}/.stage_helper.py" "${helper_args[@]}") || helper_exit_code=$?
+
+    if [ ${helper_exit_code} -ne 0 ]; then
+        echo ""
+        echo "❌ Processing Job failed"
+        echo "   To retry: ./do/stage --force"
+        exit ${helper_exit_code}
+    fi
+
+    # Parse JSON output
+    local job_status
+    local job_name
+    local s3_uri
+    job_status=$(echo "${json_output}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null) || job_status=""
+    job_name=$(echo "${json_output}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('job_name',''))" 2>/dev/null) || job_name=""
+    s3_uri=$(echo "${json_output}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || s3_uri="${MODEL_S3_URI}"
+
+    if [ "${job_status}" = "AlreadyStaged" ]; then
+        echo "✅ Model already staged at: ${s3_uri}"
+        echo "   Use --force to re-stage."
+    elif [ "${job_status}" = "Submitted" ]; then
+        echo "   ✅ Processing Job submitted: ${job_name}"
+        echo ""
         echo "   --no-wait specified. Job submitted, exiting without polling."
         echo ""
         echo "   Check status:"
-        echo "     aws sagemaker describe-processing-job --processing-job-name ${job_name} --region ${AWS_REGION}"
+        echo "     python3 ${SCRIPT_DIR}/.stage_helper.py status --job-name ${job_name}"
         echo ""
         echo "   On completion, the staged model will be at:"
-        echo "     ${MODEL_S3_URI}"
-        return 0
+        echo "     ${s3_uri}"
+    elif [ "${job_status}" = "Completed" ]; then
+        echo ""
+        echo "✅ Processing Job completed: ${job_name}"
+        echo ""
+        echo "   S3 URI: ${s3_uri}"
     fi
 
-    # Poll for completion
-    _poll_processing_job "${job_name}"
-}
-
-# ── Poll Processing Job status ────────────────────────────────────────────────
-_poll_processing_job() {
-    local job_name="$1"
-
-    echo "⏳ Polling Processing Job status (every ${POLL_INTERVAL}s)..."
-    echo "   (Ctrl+C to stop polling — job continues in background)"
-    echo ""
-
-    while true; do
-        local describe_output
-        local describe_exit_code
-        describe_output=$(aws sagemaker describe-processing-job \
-            --processing-job-name "${job_name}" \
-            --region "${AWS_REGION}" 2>&1) || describe_exit_code=$?
-        describe_exit_code=${describe_exit_code:-0}
-
-        if [ ${describe_exit_code} -ne 0 ]; then
-            echo "   ⚠️  Failed to describe job (will retry): ${describe_output}"
-            sleep "${POLL_INTERVAL}"
-            continue
-        fi
-
-        # Parse status from response
-        local job_status
-        local failure_reason
-        job_status=$(echo "${describe_output}" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print(d.get('ProcessingJobStatus', 'Unknown'))
-" 2>/dev/null) || job_status="Unknown"
-
-        failure_reason=$(echo "${describe_output}" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print(d.get('FailureReason', ''))
-" 2>/dev/null) || failure_reason=""
-
-        # Print status
-        local now
-        now=$(date +%H:%M:%S)
-        echo "   [${now}] Status: ${job_status}"
-
-        # Handle terminal states
-        case "${job_status}" in
-            Completed)
-                echo ""
-                echo "✅ Processing Job completed: ${job_name}"
-                echo ""
-                echo "   S3 URI: ${MODEL_S3_URI}"
-                echo ""
-                if [ "${UPDATE_CONFIG}" = true ]; then
-                    CONFIG_FILE="${SCRIPT_DIR}/config"
-                    sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
-                    rm -f "${CONFIG_FILE}.bak"
-                    echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
-                    echo "   Subsequent tasks (submit, deploy) will pull from S3."
-                else
-                    echo "   To use this staged model, update do/config:"
-                    echo "   export MODEL_NAME=\"${MODEL_S3_URI}\""
-                fi
-                return 0
-                ;;
-            Failed)
-                echo ""
-                echo "❌ Processing Job failed: ${job_name}"
-                if [ -n "${failure_reason}" ]; then
-                    echo "   Reason: ${failure_reason}"
-                fi
-                echo ""
-                echo "   Check CloudWatch logs:"
-                echo "     /aws/sagemaker/ProcessingJobs/${job_name}"
-                echo ""
-                echo "   To retry: ./do/stage --submit --force"
-                return 1
-                ;;
-            Stopped)
-                echo ""
-                echo "⏹️  Processing Job was stopped: ${job_name}"
-                echo ""
-                echo "   To retry: ./do/stage --submit --force"
-                return 2
-                ;;
-        esac
-
-        sleep "${POLL_INTERVAL}"
-    done
+    # Update config if requested and we have a valid S3 URI
+    if [ "${UPDATE_CONFIG}" = true ] && [ -n "${s3_uri}" ] && [ "${job_status}" != "Submitted" ]; then
+        CONFIG_FILE="${SCRIPT_DIR}/config"
+        sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${s3_uri}\"|" "${CONFIG_FILE}"
+        rm -f "${CONFIG_FILE}.bak"
+        echo ""
+        echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
+        echo "   Subsequent tasks (submit, deploy) will pull from S3."
+    fi
 }
 
 # ── Check if model is already an S3 URI ──────────────────────────────────────
@@ -410,21 +222,28 @@ if [ -z "${STAGE_S3_BUCKET}" ]; then
     exit 1
 fi
 
-# Target S3 path for staged model
-MODEL_S3_URI="s3://${STAGE_S3_BUCKET}/models/${PROJECT_NAME}/"
+# Target S3 path for staged model: s3://{bucket}/{project}/models/{model-slug}/
+# Sanitize MODEL_NAME for use as an S3 path segment:
+#   - Replace / with -- (e.g., "nvidia/Nemotron-3-Ultra..." → "nvidia--Nemotron-3-Ultra...")
+#   - This prevents HF org/repo IDs from creating nested S3 prefixes
+MODEL_SLUG="${MODEL_NAME//\//-}"
+MODEL_S3_URI="s3://${STAGE_S3_BUCKET}/${PROJECT_NAME}/models/${MODEL_SLUG}/"
 
 echo "   Target: ${MODEL_S3_URI}"
 echo ""
 
-# ── Submit mode: SageMaker Processing Job ─────────────────────────────────────
-# For very large models (>500GB) that exceed local disk, submit a Processing Job
-# with 2TB attached storage. The job downloads from HuggingFace and syncs to S3.
-if [ "${SUBMIT_MODE}" = true ]; then
+# ── Default mode: SageMaker Processing Job via .stage_helper.py ───────────────
+# Submits a Processing Job that downloads model weights from HuggingFace and
+# syncs to S3 directly — no local disk usage. Uses sagemaker-core SDK v3.
+if [ "${LOCAL_MODE}" = false ]; then
     _submit_processing_job
     exit $?
 fi
 
-# ── Idempotency: check if model is already staged ────────────────────────────
+# ── Local mode: download locally then sync to S3 (--local flag) ───────────────
+# Preserved for offline work, debugging, or when Processing Jobs are unavailable.
+
+# Idempotency: check if model is already staged
 if [ "${FORCE}" = false ]; then
     if aws s3 ls "${MODEL_S3_URI}config.json" --region "${AWS_REGION}" &>/dev/null; then
         echo "✅ Model already staged at: ${MODEL_S3_URI}"
@@ -443,7 +262,7 @@ if [ "${FORCE}" = false ]; then
     fi
 fi
 
-# ── Validate prerequisites ───────────────────────────────────────────────────
+# Validate prerequisites
 if ! command -v huggingface-cli &>/dev/null; then
     echo "❌ huggingface-cli is not installed"
     echo "   Install: pip install huggingface_hub[cli] hf_transfer"

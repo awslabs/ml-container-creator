@@ -6,12 +6,16 @@ This guide covers installation and two end-to-end walkthroughs: deploying a pred
 
 | Tool | Version | Purpose |
 |---|---|---|
-| [Node.js](https://nodejs.org/) | 24.11.1+ | Runs the CLI |
-| [Python](https://www.python.org/) | 3.8+ | Model serving code |
+| [Node.js](https://nodejs.org/) | 24+ | Runs the CLI |
+| [Python](https://www.python.org/) | 3.10+ | `do/` lifecycle scripts and model serving |
 | [Docker](https://docs.docker.com/get-docker/) | 20+ | Local container builds |
 | [AWS CLI](https://aws.amazon.com/cli/) | 2+ | AWS resource management |
 
-You also need an AWS IAM role with permissions for ECR, SageMaker AI, and (optionally) CodeBuild. Verify your setup:
+You also need an AWS IAM role with permissions for ECR, SageMaker AI, and (optionally) CodeBuild.
+
+**Python dependencies** (`boto3`, `sagemaker>=3.0`, `huggingface_hub`, `pyarrow`, `hf_transfer`, `packaging`, `PyYAML`) are installed automatically when you run `npm install`. If you use a virtual environment or pyenv, activate it before running `npm install` so dependencies land in the correct location. The full list is in [`requirements.txt`](https://github.com/awslabs/ml-container-creator/blob/main/requirements.txt).
+
+Verify your setup:
 
 ```bash
 node --version

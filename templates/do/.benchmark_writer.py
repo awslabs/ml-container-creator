@@ -1385,6 +1385,7 @@ def _load_config_file(config_path):
                 shell_map = {
                     'PROJECT_NAME': 'project_name',
                     'MODEL_NAME': 'model_name',
+                    'HF_MODEL_ID': 'hf_model_id',
                     'INSTANCE_TYPE': 'instance_type',
                     'DEPLOYMENT_CONFIG': 'deployment_config',
                     'DEPLOYMENT_TARGET': 'deployment_target',
@@ -1401,6 +1402,18 @@ def _load_config_file(config_path):
 
     except Exception:
         pass
+
+    # Prefer HF_MODEL_ID over MODEL_NAME for the model_name field.
+    # After do/stage runs, MODEL_NAME is rewritten to an S3 URI which is
+    # unsuitable for S3 result paths (nested s3:// in path) and model family
+    # derivation.  HF_MODEL_ID preserves the original HuggingFace repo ID.
+    if context.get('hf_model_id'):
+        context['model_name'] = context.pop('hf_model_id')
+    elif context.get('model_name', '').startswith('s3://'):
+        # Fallback: if no HF_MODEL_ID but MODEL_NAME is an S3 URI, extract
+        # the model slug from the S3 path (last non-empty segment)
+        parts = context['model_name'].rstrip('/').split('/')
+        context['model_name'] = parts[-1] if parts else context['model_name']
 
     return context
 

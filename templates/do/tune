@@ -48,6 +48,7 @@ ARG_NO_STALE_WARNING=false
 ARG_DISCOVER=false
 ARG_DISCOVER_FILTER=""
 ARG_COLUMN_MAP=""
+ARG_TAKE=""
 ARG_ACCEPT_EULA=false
 
 
@@ -162,6 +163,12 @@ _parse_args() {
                     shift
                 fi
                 ;;
+            --take)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --take requires an integer value"
+                    exit 1
+                fi
+                ARG_TAKE="$2"; shift 2 ;;
             *)
                 echo "❌ Unknown option: $1"
                 echo "   Run ./do/tune --help for usage."
@@ -218,7 +225,8 @@ _show_help() {
     echo ""
     echo "Required:"
     echo "  --technique <t>       Customization technique: sft, dpo, rlaif, rlvr"
-    echo "  --dataset <source>    Dataset: s3://bucket/path.jsonl or hf://org/name[/split]"
+    echo "  --dataset <source>    Dataset: s3://bucket/path.jsonl or hf://org/name[/split][?file=pattern]"
+    echo "                        ⚠️  Quote the URI if it contains ? or * to prevent shell expansion"
     echo ""
     echo "Model selection:"
     echo "  --model <id>          JumpStart Hub content name to use for fine-tuning."
@@ -251,6 +259,13 @@ _show_help() {
     echo "  --no-wait             Submit and exit without polling for completion"
     echo "  --status              Show status of all tracked tune jobs"
     echo ""
+    echo "Dataset options:"
+    echo "  --column-map <map>    Rename columns (e.g., prompt=question,completion=answer)"
+    echo "  --take <n>            Take only the first N records from the dataset"
+    echo ""
+    echo "  Note: Always quote --dataset values containing ? or * characters."
+    echo "  Unquoted, bash may interpret ? as a glob and * as a wildcard expansion."
+    echo ""
     echo "Discovery and diagnostics:"
     echo "  --discover [filter]   Query JumpStart Hub for tune-eligible models."
     echo "                        Without a filter, shows models for the current family."
@@ -275,6 +290,12 @@ _show_help() {
     echo ""
     echo "  # Fine-tune a gated model (Meta Llama) — requires EULA acceptance:"
     echo "  ./do/tune --technique dpo --dataset hf://argilla/ultrafeedback-binarized-preferences-cleaned --accept-eula"
+    echo ""
+    echo "  # Take only 500 records for a quick test run:"
+    echo "  ./do/tune --technique sft --dataset hf://timdettmers/openassistant-guanaco --take 500"
+    echo ""
+    echo "  # Filter files in a multi-file dataset (quote to prevent shell glob expansion):"
+    echo "  ./do/tune --technique sft --dataset \"hf://Open-Orca/OpenOrca?file=1M-GPT4\""
     echo ""
     echo "  # Discover available models:"
     echo "  ./do/tune --discover                    # Models for current family"
@@ -329,13 +350,47 @@ _show_status() {
                 echo "     Elapsed: ${mins}m ${secs}s"
             fi
 
-            # Show output path if completed
+            # Show output path if completed — resolve if not yet set
             local output_var="TUNE_ADAPTER_PATH_$(echo "${technique}" | tr '[:lower:]' '[:upper:]')"
             local model_var="TUNE_MODEL_PATH_$(echo "${technique}" | tr '[:lower:]' '[:upper:]')"
             if [ -n "${!output_var:-}" ]; then
                 echo "     Output (adapter): ${!output_var}"
             elif [ -n "${!model_var:-}" ]; then
                 echo "     Output (model): ${!model_var}"
+            elif [ "${status}" = "Completed" ]; then
+                # Job is complete but output path not set — resolve now
+                echo "     🔄 Resolving artifacts..."
+                local training_type="${TUNE_TRAINING_TYPE:-lora}"
+                local resolve_result
+                resolve_result=$(python3 "${HELPER_SCRIPT}" resolve \
+                    --job-name "${job_name}" \
+                    --region "${AWS_REGION}" \
+                    --training-type "${training_type}" \
+                    --model-package-group "${PROJECT_NAME}-tune-models" 2>/dev/null) || resolve_result=""
+
+                if [ -n "${resolve_result}" ]; then
+                    local artifact_path
+                    artifact_path=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_path',''))" 2>/dev/null) || artifact_path=""
+                    local output_type
+                    output_type=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('output_type',''))" 2>/dev/null) || output_type=""
+
+                    if [ -n "${artifact_path}" ]; then
+                        local technique_upper
+                        technique_upper=$(echo "${technique}" | tr '[:lower:]' '[:upper:]')
+
+                        # Update config
+                        if [ "${output_type}" = "adapter" ]; then
+                            _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}" "${artifact_path}"
+                            echo "     Output (adapter): ${artifact_path}"
+                        else
+                            _update_config_var "TUNE_MODEL_PATH_${technique_upper}" "${artifact_path}"
+                            echo "     Output (model): ${artifact_path}"
+                        fi
+                        _update_config_var "TUNE_OUTPUT_PATH_LATEST" "${artifact_path}"
+                        _update_config_var "TUNE_OUTPUT_TYPE_LATEST" "${output_type}"
+                        echo "     ✅ Updated do/config with output paths"
+                    fi
+                fi
             fi
             echo ""
         fi
@@ -826,6 +881,9 @@ _validate_dataset() {
             stage_args+=(--column-map "${ARG_COLUMN_MAP}")
         fi
         stage_args+=(--technique "${ARG_TECHNIQUE}")
+        if [ -n "${ARG_TAKE}" ]; then
+            stage_args+=(--take "${ARG_TAKE}")
+        fi
         if [ -n "${hf_file}" ]; then
             stage_args+=(--hf-file "${hf_file}")
         fi
@@ -859,7 +917,8 @@ _validate_dataset() {
 
     else
         echo "❌ Invalid dataset format: ${dataset}"
-        echo "   Expected: s3://bucket/path.jsonl or hf://org/name[/split]"
+        echo "   Expected: s3://bucket/path.jsonl or hf://org/name[/split][?file=pattern]"
+        echo "   Hint: Quote the value if it contains ? or * (e.g., \"hf://org/name?file=pattern\")"
         exit 1
     fi
 }
@@ -1229,9 +1288,7 @@ _handle_interrupt() {
     echo ""
     echo "⚠️  Interrupted — job continues running in background"
     echo "   Job: ${job_name}"
-    echo ""
-    echo "   Resume monitoring: ./do/tune --technique ${ARG_TECHNIQUE} --dataset ${ARG_DATASET}"
-    echo "   Check status:      ./do/tune --status"
+    echo "   Check status: ./do/tune --status"
     exit 130
 }
 

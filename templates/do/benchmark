@@ -12,10 +12,12 @@ set -o pipefail
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 CLEAN_AFTER=false
 FORCE=false
+ARG_STATUS=false
 IC_ARG=""
 ADAPTER_ARG=""
 ARG_NO_STALE_WARNING=false
@@ -24,20 +26,23 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --clean) CLEAN_AFTER=true; shift ;;
         --force) FORCE=true; shift ;;
+        --status) ARG_STATUS=true; shift ;;
         --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
         --workload) shift; ARG_WORKLOAD="${1:-}"; shift ;;
         --ic) shift; IC_ARG="${1:-}"; shift ;;
         --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
         --help|-h)
-            echo "Usage: ./do/benchmark [--workload <name>] [--ic <name>] [--adapter <name>] [--force] [--clean] [--no-stale-warning]"
+            echo "Usage: ./do/benchmark [--workload <name>] [--status] [--ic <name>] [--adapter <name>] [--force] [--clean]"
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
             echo "Options:"
+            echo "  --status            Check job status; if completed, download results + write to Athena"
             echo "  --ic <name>         Benchmark a specific inference component"
             echo "  --adapter <name>    Benchmark a specific LoRA adapter IC"
             echo "  --force             Create a new benchmark job even if one is already running"
             echo "  --clean             Delete workload config and benchmark job after displaying results"
+            echo "  --no-stale-warning  Suppress schema registry staleness warning"
             echo "  --no-stale-warning  Suppress schema registry staleness warning"
             echo ""
             echo "IC resolution:"
@@ -45,9 +50,9 @@ while [ $# -gt 0 ]; do
             echo "  --ic <name>      Use IC_DEPLOYED_NAME from do/ic/<name>.conf"
             echo "  (no flag)        Use first IC in do/ic/ alphabetically, or legacy config"
             echo ""
-            echo "Idempotency:"
-            echo "  If a benchmark job is already in progress, re-running without --force"
-            echo "  will resume waiting for the existing job and display its results."
+            echo "Status:"
+            echo "  After interrupting a running benchmark, use --status to check completion"
+            echo "  and trigger results download + Athena write."
             echo ""
             echo "Prerequisites:"
             echo "  • Endpoint must be deployed and InService (run ./do/deploy first)"
@@ -57,6 +62,112 @@ while [ $# -gt 0 ]; do
         *) shift ;;
     esac
 done
+
+
+# ── Handle --status (early exit) ─────────────────────────────────────────────
+# Query the tracked benchmark job, display status, and if completed:
+# download results, display metrics, and write to Athena (if not already done).
+if [ "${ARG_STATUS}" = true ]; then
+    JOB_NAME="${BENCHMARK_JOB_NAME:-}"
+    if [ -z "${JOB_NAME}" ]; then
+        echo "❌ No benchmark job tracked"
+        echo "   Run ./do/benchmark --workload <name> to start one."
+        exit 1
+    fi
+
+    echo "📊 Benchmark Job Status"
+    echo ""
+    echo "   Job: ${JOB_NAME}"
+
+    STATUS=$(aws sagemaker describe-ai-benchmark-job \
+        --ai-benchmark-job-name "${JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'AIBenchmarkJobStatus' \
+        --output text 2>/dev/null) || STATUS=""
+
+    if [ -z "${STATUS}" ]; then
+        echo "   Status: Unknown (job not found or credentials expired)"
+        exit 1
+    fi
+
+    echo "   Status: ${STATUS}"
+
+    case "${STATUS}" in
+        Completed)
+            # Check if results already exist locally
+            PROJECT_ROOT="${SCRIPT_DIR}/.."
+            LOCAL_RESULTS_DIR="${PROJECT_ROOT}/benchmarks/${JOB_NAME}"
+            RESULTS_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1)
+
+            if [ -z "${RESULTS_JSONL}" ]; then
+                echo ""
+                echo "   📥 Downloading results..."
+                RESULTS_S3_PATH=$(aws sagemaker describe-ai-benchmark-job \
+                    --ai-benchmark-job-name "${JOB_NAME}" \
+                    --region "${AWS_REGION}" \
+                    --query 'OutputConfig.S3OutputLocation' \
+                    --output text 2>/dev/null)
+
+                if [ -n "${RESULTS_S3_PATH}" ]; then
+                    mkdir -p "${LOCAL_RESULTS_DIR}/output"
+                    aws s3 sync "${RESULTS_S3_PATH}" "${LOCAL_RESULTS_DIR}/output/" \
+                        --region "${AWS_REGION}" --quiet
+                    # Untar if output.tar.gz exists
+                    local tar_file
+                    tar_file=$(find "${LOCAL_RESULTS_DIR}" -name "output.tar.gz" -type f 2>/dev/null | head -1)
+                    if [ -n "${tar_file}" ]; then
+                        tar -xzf "${tar_file}" --strip-components=1 -C "${LOCAL_RESULTS_DIR}/output/" 2>/dev/null || true
+                    fi
+                    # Re-search after extraction
+                    RESULTS_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1)
+                    echo "   ✅ Results downloaded to: benchmarks/${JOB_NAME}/"
+                fi
+            else
+                echo "   ✅ Results already available locally"
+            fi
+
+            # Write to Athena if CI bucket is configured and results exist
+            if [ -n "${CI_BENCHMARK_RESULTS_BUCKET:-}" ]; then
+                _WRITER_INPUT=""
+                if [ -n "${RESULTS_JSONL}" ] && [ -f "${RESULTS_JSONL}" ]; then
+                    _WRITER_INPUT="${RESULTS_JSONL}"
+                else
+                    _WRITER_INPUT=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export_aiperf.json" -type f 2>/dev/null | head -1)
+                fi
+
+                if [ -n "${_WRITER_INPUT}" ]; then
+                    echo ""
+                    echo "   📊 Writing to Athena..."
+                    if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
+                        --results-file "${_WRITER_INPUT}" \
+                        --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
+                        --project-name "${PROJECT_NAME}" \
+                        --workload "${BENCHMARK_WORKLOAD:-manual}" \
+                        --concurrency "${BENCHMARK_CONCURRENCY:-2}" \
+                        --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
+                        --region "${AWS_REGION:-${REGION}}"; then
+                        echo "   ✅ Results persisted to Athena"
+                    else
+                        echo "   ⚠️  Athena write failed (non-fatal)"
+                    fi
+                fi
+            fi
+            ;;
+        InProgress|Starting|Pending)
+            echo ""
+            echo "   Job is still running. Check again with: ./do/benchmark --status"
+            ;;
+        Failed)
+            FAILURE_REASON=$(aws sagemaker describe-ai-benchmark-job \
+                --ai-benchmark-job-name "${JOB_NAME}" \
+                --region "${AWS_REGION}" \
+                --query 'FailureReason' \
+                --output text 2>/dev/null) || FAILURE_REASON="unknown"
+            echo "   Reason: ${FAILURE_REASON}"
+            ;;
+    esac
+    exit 0
+fi
 
 
 # ── Require --workload flag ───────────────────────────────────────────────────
@@ -172,8 +283,11 @@ print(f's3://{bucket}/${PROJECT_NAME}/')
 
 CI_BENCHMARK_RESULTS_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ciBenchmarkResultsBucket', ''))" 2>/dev/null) || CI_BENCHMARK_RESULTS_BUCKET=""
 
-# Derive job names at runtime (unique per invocation)
-BENCHMARK_JOB_NAME="${PROJECT_NAME}-benchmark-$(date +%Y%m%d-%H%M%S)"
+ROLE_ARN=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('roleArn', ''))" 2>/dev/null) || ROLE_ARN=""
+
+# Derive job names at runtime (unique per invocation).
+# Preserve BENCHMARK_JOB_NAME if already set (from do/config or env) for resume logic.
+BENCHMARK_JOB_NAME="${BENCHMARK_JOB_NAME:-${PROJECT_NAME}-benchmark-$(date +%Y%m%d-%H%M%S)}"
 BENCHMARK_WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config-$(date +%Y%m%d-%H%M%S)"
 
 # Ensure benchmark params have defaults (in case workload catalog wasn't found)
@@ -228,7 +342,15 @@ if [ -n "${BENCHMARK_CONCURRENCY_LEVELS:-}" ] && [ -z "${_BENCHMARK_SINGLE_LEVEL
             if [ -n "${IC_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --ic ${IC_ARG}"; fi
             if [ -n "${ADAPTER_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --adapter ${ADAPTER_ARG}"; fi
 
-            if "${BASH_SOURCE[0]}" ${_REINVOKE_ARGS}; then
+            _CHILD_EXIT=0
+            "${BASH_SOURCE[0]}" ${_REINVOKE_ARGS} || _CHILD_EXIT=$?
+
+            if [ ${_CHILD_EXIT} -eq 130 ]; then
+                # Child was interrupted (Ctrl+C) — propagate cleanly
+                exit 130
+            fi
+
+            if [ ${_CHILD_EXIT} -eq 0 ]; then
                 # Copy results to aggregation directory — find the child's results
                 # Try the marker file first (set by child), then fall back to ls -td
                 _LATEST_JOB_DIR=""
@@ -747,7 +869,10 @@ echo ""
 echo "⚙️  Step 1: Creating AI Workload Config: ${WORKLOAD_CONFIG_NAME}"
 
 # Build parameters block
-PARAMS_JSON="{\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN},\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${MODEL_NAME}\""
+# Use HF_MODEL_ID for tokenizer (the original HuggingFace repo ID, e.g. "Qwen/Qwen3-0.6B").
+# MODEL_NAME may have been rewritten to an S3 URI by do/stage, which AIPerf can't use as a tokenizer source.
+BENCHMARK_TOKENIZER="${HF_MODEL_ID:-${MODEL_NAME}}"
+PARAMS_JSON="{\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN},\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${BENCHMARK_TOKENIZER}\""
 
 # Add optional request_count if specified
 if [ -n "${BENCHMARK_REQUEST_COUNT:-}" ]; then
@@ -856,6 +981,18 @@ fi  # end of RESUME_EXISTING=false block
 # Skip polling if we already know the job completed (resumed a finished job)
 if [ "${JOB_STATUS:-}" != "Completed" ] && [ "${JOB_STATUS:-}" != "Failed" ] && [ "${JOB_STATUS:-}" != "Stopped" ]; then
 
+# Handle Ctrl+C during polling — exit cleanly without stopping the remote job.
+_handle_benchmark_interrupt() {
+    echo ""
+    echo ""
+    echo "⚠️  Interrupted — job continues running in background"
+    echo "   Job: ${BENCHMARK_JOB_NAME}"
+    echo ""
+    echo "   Check status:      aws sagemaker describe-ai-benchmark-job --ai-benchmark-job-name ${BENCHMARK_JOB_NAME} --region ${AWS_REGION}"
+    exit 130
+}
+trap '_handle_benchmark_interrupt' INT
+
 echo "⏳ Step 3: Waiting for benchmark to complete..."
 echo "   Polling every ${POLL_INTERVAL}s (max ${MAX_POLL_ATTEMPTS} attempts = 30 min)"
 echo ""
@@ -897,13 +1034,14 @@ while [ ${POLL_COUNT} -lt ${MAX_POLL_ATTEMPTS} ]; do
     esac
 done
 
+trap - INT
+
 # Check for timeout
 if [ ${POLL_COUNT} -ge ${MAX_POLL_ATTEMPTS} ]; then
     echo ""
     echo "⚠️  Benchmark timed out after 30 minutes (status: ${JOB_STATUS})"
-    echo "   The job may still be running. Re-run ./do/benchmark to resume waiting."
-    echo "   Or check status manually:"
-    echo "   aws sagemaker describe-ai-benchmark-job --ai-benchmark-job-name ${BENCHMARK_JOB_NAME} --region ${AWS_REGION}"
+    echo "   The job may still be running."
+    echo "   Check status: ./do/benchmark --status"
     exit 1
 fi
 
@@ -949,7 +1087,7 @@ if [ "${JOB_STATUS}" = "Completed" ]; then
             # Extract any tar.gz archives (benchmark service packages results as output.tar.gz)
             for ARCHIVE in $(find "${LOCAL_RESULTS_DIR}" -name "*.tar.gz" -type f 2>/dev/null); do
                 ARCHIVE_DIR=$(dirname "${ARCHIVE}")
-                tar -xzf "${ARCHIVE}" -C "${ARCHIVE_DIR}" 2>/dev/null || true
+                tar -xzf "${ARCHIVE}" --strip-components=1 -C "${ARCHIVE_DIR}" 2>/dev/null || true
             done
 
             # Look for specific result files (priority: JSONL > aiperf JSON)

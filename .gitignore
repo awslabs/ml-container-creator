@@ -21,6 +21,7 @@ config/mcp.json
 __pycache__/
 *.pyc
 *.pyo
+.venv/
 config/mcp.json
 
 # MkDocs build output

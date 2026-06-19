@@ -87,11 +87,29 @@ Full documentation is available at [awslabs.github.io/ml-container-creator](http
 
 ## Prerequisites
 
-| Tool | Version | Purpose |
-|---|---|---|
-| [Node.js](https://nodejs.org/) | 24+ | Runs the CLI |
-| [Docker](https://docs.docker.com/get-docker/) | 20+ | Container builds |
-| [AWS CLI](https://aws.amazon.com/cli/) | 2+ | AWS resource management |
+| Tool | Version | Purpose | Required |
+|---|---|---|---|
+| [Node.js](https://nodejs.org/) | 24+ | Runs the CLI | Yes |
+| [Python](https://www.python.org/) | 3.10+ | `do/` lifecycle scripts (stage, tune, benchmark) | Yes |
+| [uv](https://docs.astral.sh/uv/) | latest | Fast Python package installer | Recommended |
+| [Docker](https://docs.docker.com/get-docker/) | 20+ | Container builds | Yes |
+| [AWS CLI](https://aws.amazon.com/cli/) | 2+ | AWS resource management | Yes |
+
+### Python dependencies
+
+The `do/` lifecycle scripts (`do/tune`, `do/stage`, `do/adapter`) require Python packages. Install them in your Python environment before first use:
+
+```bash
+# Recommended (fast):
+uv pip install -r requirements.txt
+
+# Or with pip:
+pip install -r requirements.txt
+```
+
+If you use virtual environments, activate yours first. See [`requirements.txt`](requirements.txt) for the full list (`boto3`, `sagemaker-core`, `huggingface_hub`, `pyarrow`, etc.).
+
+> **Tip:** Install [uv](https://docs.astral.sh/uv/) for 10-50x faster Python package installs: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ## Contributing
 

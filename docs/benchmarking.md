@@ -9,6 +9,7 @@ Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf)
 | Endpoint status | Must be `InService` (run `./do/deploy` first) |
 | Architecture | Transformers or Diffusors only (HTTP and Triton not supported) |
 | Deployment target | `realtime-inference` only (HyperPod EKS is not supported) |
+| Python dependencies | Installed automatically via `npm install` (see `requirements.txt`) |
 | AWS credentials | Must be configured for the deployment region |
 | Bootstrap | Recommended — provides the IAM role with benchmarking permissions and S3 bucket for results |
 
@@ -39,12 +40,13 @@ Deploy and benchmark:
 ## Usage
 
 ```bash
-./do/benchmark --workload <name> [--ic <name>] [--adapter <name>] [--force] [--clean] [--no-stale-warning]
+./do/benchmark --workload <name> [--status] [--ic <name>] [--adapter <name>] [--force] [--clean]
 ```
 
 | Flag | Description |
 |---|---|
 | `--workload <name>` | **Required.** Workload profile from the workload-picker MCP server |
+| `--status` | Check job status; if completed, download results and write to Athena |
 | `--ic <name>` | Benchmark a specific inference component (from `do/ic/<name>.conf`) |
 | `--adapter <name>` | Benchmark a specific LoRA adapter IC (from `do/adapters/<name>.conf`) |
 | `--force` | Create a new benchmark job even if one is already running |
@@ -89,7 +91,8 @@ When you run `./do/benchmark --workload multi_turn_chat`:
 1. **Workload params** — `do/benchmark` queries the workload-picker MCP server for the named profile, which returns concurrency, input/output token counts, streaming mode, and request count
 2. **S3 paths** — Read from the bootstrap profile (`~/.ml-container-creator/config.json`): `benchmarkS3Bucket` for raw results, `ciBenchmarkResultsBucket` for Athena Parquet
 3. **Job names** — Derived at runtime: `${PROJECT_NAME}-benchmark-${timestamp}`
-4. **Project identity** — From `do/config`: `PROJECT_NAME`, `ENDPOINT_NAME`, `MODEL_NAME`, `INSTANCE_TYPE`, `AWS_REGION`
+4. **Project identity** — From `do/config`: `PROJECT_NAME`, `ENDPOINT_NAME`, `HF_MODEL_ID`, `INSTANCE_TYPE`, `AWS_REGION`
+5. **Tokenizer** — AIPerf uses `HF_MODEL_ID` (the original HuggingFace model identifier) for client-side tokenization. This is distinct from `MODEL_NAME`, which may be rewritten to an S3 URI after `do/stage` runs.
 
 If the MCP server is unavailable, defaults are applied: concurrency=10, input=550, output=150, streaming=true.
 
@@ -126,10 +129,43 @@ All other benchmark parameters (concurrency, tokens, streaming) are resolved at 
 
 ## Idempotency
 
-`do/benchmark` is idempotent:
+`do/benchmark` tracks its state in `do/config` and is designed for interrupted workflows:
 
-- If a benchmark job is already running, re-running (without `--force`) will resume polling the existing job and display its results when complete.
+- The benchmark job name is persisted to `do/config` after creation.
 - Use `--force` to create a new job even if one exists.
+
+### Interrupting a Running Benchmark
+
+You can safely **Ctrl+C** during the polling loop. The benchmark job continues running on SageMaker — only the local monitoring is interrupted:
+
+```
+⚠️  Interrupted — job continues running in background
+   Job: qwen3-06b-test-benchmark-20260619-105120
+
+   Check status:      ./do/benchmark --status
+```
+
+### Checking Status & Completing Athena Writes
+
+After interrupting (or if you want to check a job's progress), use `--status`:
+
+```bash
+./do/benchmark --status
+```
+
+This will:
+
+1. Query the tracked benchmark job's status
+2. If **Completed**: download results from S3 (if not already local) and write to Athena
+3. If **InProgress**: display current status and remind you to check again later
+4. If **Failed**: display the failure reason
+
+This is the recommended workflow for long-running benchmarks:
+
+```bash
+./do/benchmark --workload multi_turn_chat   # Start the job, Ctrl+C when you want
+./do/benchmark --status                     # Check later; auto-resolves on completion
+```
 
 ## Cleanup
 
@@ -220,11 +256,13 @@ See [CI Integration](ci-integration.md) for automated validation workflows and t
 For models >30B parameters, downloading from HuggingFace at deploy time can cause 30-60 minute startup delays or timeout failures. Pre-stage weights to your MCC S3 bucket first:
 
 ```bash
-./do/stage
+./do/stage              # Default: SageMaker Processing Job (no local disk usage)
+./do/stage --local      # Download locally then sync to S3 (legacy behavior)
 ```
 
-This downloads model weights from HuggingFace and uploads to `s3://${_PROFILE[benchmarkS3Bucket]}/models/${PROJECT_NAME}/`. Subsequent deploys load from S3 (seconds instead of minutes).
+This downloads model weights from HuggingFace and uploads to `s3://{bucket}/{project}/models/{model-slug}/` (the model name is sanitized — `/` is replaced with `-` for safe S3 paths). Subsequent deploys load from S3 (seconds instead of minutes).
 
+After staging, `MODEL_NAME` in `do/config` is updated to the S3 URI. The original HuggingFace identifier is preserved as `HF_MODEL_ID` — this is used by `do/benchmark` for tokenizer resolution and by the benchmark writer for Athena partition paths.
 The script is idempotent — if weights are already staged, it skips the download.
 
 For models >500GB, use `--submit` to run as a SageMaker Processing Job with 2TB attached storage:

@@ -44,5 +44,10 @@ except:
     fi
 fi
 
+# Map commonly-used profile values to the variable names scripts expect.
+# Explicit env vars take precedence (${X:-...} pattern).
+ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn:-}}"
+CI_BENCHMARK_RESULTS_BUCKET="${CI_BENCHMARK_RESULTS_BUCKET:-${_PROFILE_ciBenchmarkResultsBucket:-}}"
+
 # NOTE: set -u is NOT re-enabled here. The caller is responsible for managing
 # their own shell options.
