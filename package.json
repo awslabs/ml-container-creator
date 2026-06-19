@@ -1,6 +1,6 @@
 {
   "name": "@aws/ml-container-creator",
-  "version": "0.14.0",
+  "version": "0.13.5",
   "description": "Build and deploy custom ML containers on AWS SageMaker with minimal configuration.",
   "main": "src/index.js",
   "bin": {
