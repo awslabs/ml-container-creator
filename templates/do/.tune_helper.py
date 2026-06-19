@@ -171,20 +171,25 @@ def cmd_submit(args):
                 trainer_kwargs["accept_eula"] = True
 
             # Resolve model package group — create if it doesn't exist
+            # Using sagemaker-core ModelPackageGroup.create() per SDK v3 policy
             mpg_name = args.model_package_group or f"{args.project_name}-tune-models"
             try:
-                import boto3 as _boto3
-                _sm = _boto3.client("sagemaker", region_name=args.region or os.environ.get("AWS_REGION", "us-west-2"))
-                _sm.describe_model_package_group(ModelPackageGroupName=mpg_name)
-            except Exception as _mpg_err:
-                if "does not exist" in str(_mpg_err) or "ValidationException" in str(_mpg_err):
-                    try:
-                        _sm.create_model_package_group(
-                            ModelPackageGroupName=mpg_name,
-                            ModelPackageGroupDescription=f"Fine-tuned models for {args.project_name}",
-                        )
-                    except Exception:
-                        pass  # May already exist or lack permissions — let the trainer handle it
+                from sagemaker_core.resources import ModelPackageGroup
+                from botocore.exceptions import ClientError as _ClientError
+                try:
+                    ModelPackageGroup.get(model_package_group_name=mpg_name)
+                except (_ClientError, Exception) as _mpg_err:
+                    if "does not exist" in str(_mpg_err) or "ValidationException" in str(_mpg_err):
+                        try:
+                            ModelPackageGroup.create(
+                                model_package_group_name=mpg_name,
+                                model_package_group_description=f"Fine-tuned models for {args.project_name}",
+                            )
+                        except Exception:
+                            pass  # May already exist or lack permissions — let the trainer handle it
+            except ImportError:
+                # sagemaker-core not available — skip MPG creation, let trainer handle it
+                pass
             trainer_kwargs["model_package_group"] = mpg_name
 
             trainer = trainer_cls(**trainer_kwargs)
@@ -267,7 +272,9 @@ def cmd_submit(args):
             job_arn = job_arn or getattr(latest_job, 'arn', None)
 
         # If we still don't have the actual job name (SDK appends suffix),
-        # query ListTrainingJobs to find it by our base_job_name prefix
+        # query ListTrainingJobs to find it by our base_job_name prefix.
+        # Note: list_training_jobs with NameContains filter is not available
+        # via sagemaker-core resource API, so boto3 is retained here.
         if not job_name or job_name == args.job_name:
             import boto3 as _boto3
             _sm = _boto3.client("sagemaker", region_name=args.region or os.environ.get("AWS_REGION", "us-west-2"))
@@ -335,23 +342,22 @@ def cmd_submit(args):
 
 
 def cmd_status(args):
-    """Query job status via DescribeTrainingJob.
+    """Query job status via sagemaker-core TrainingJob.get().
 
-    Falls back to ListTrainingJobs with name-contains if exact name not found
+    Falls back to boto3 ListTrainingJobs with name-contains if exact name not found
     (SDK v3 appends a timestamp suffix to the base job name).
 
     Returns: {"status": str, "failure_reason": str|None,
               "metrics": dict|None, "elapsed_seconds": int}
     """
-    import boto3
+    from sagemaker_core.resources import TrainingJob
+    from botocore.exceptions import ClientError
 
-    client = boto3.client("sagemaker", region_name=args.region)
-
-    # Try exact name first
-    response = None
+    # Try exact name first via sagemaker-core
+    job = None
     try:
-        response = client.describe_training_job(TrainingJobName=args.job_name)
-    except client.exceptions.ClientError as e:
+        job = TrainingJob.get(training_job_name=args.job_name)
+    except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code != "ValidationException":
             _error_exit(f"Failed to describe training job: {e}")
@@ -360,8 +366,13 @@ def cmd_status(args):
         _error_exit(f"Failed to describe training job: {e}")
 
     # Fallback: search by name prefix (SDK appends timestamp suffix)
-    if response is None:
+    # Note: TrainingJob.get_all() with name_contains is not available in
+    # sagemaker-core for list operations, so we use boto3 list_training_jobs
+    # to find the actual name, then call TrainingJob.get() with it.
+    if job is None:
         try:
+            import boto3
+            client = boto3.client("sagemaker", region_name=args.region)
             list_response = client.list_training_jobs(
                 NameContains=args.job_name,
                 SortBy="CreationTime",
@@ -371,18 +382,21 @@ def cmd_status(args):
             summaries = list_response.get("TrainingJobSummaries", [])
             if summaries:
                 actual_name = summaries[0]["TrainingJobName"]
-                response = client.describe_training_job(TrainingJobName=actual_name)
+                job = TrainingJob.get(training_job_name=actual_name)
             else:
                 _error_exit(f"Training job not found: {args.job_name}")
         except Exception as e:
             _error_exit(f"Failed to find training job: {e}")
 
-    status = response.get("TrainingJobStatus", "Unknown")
-    failure_reason = response.get("FailureReason")
+    # Read status attributes directly from the TrainingJob resource object.
+    # sagemaker-core returns status values in the same casing as the API
+    # (e.g., "InProgress", "Completed", "Failed", "Stopped").
+    status = getattr(job, "training_job_status", "Unknown") or "Unknown"
+    failure_reason = getattr(job, "failure_reason", None)
 
     # Calculate elapsed time
-    start_time = response.get("TrainingStartTime")
-    end_time = response.get("TrainingEndTime")
+    start_time = getattr(job, "training_start_time", None)
+    end_time = getattr(job, "training_end_time", None)
     elapsed_seconds = 0
 
     if start_time:
@@ -393,17 +407,21 @@ def cmd_status(args):
 
     # Extract final metrics if available
     metrics = None
-    final_metrics = response.get("FinalMetricDataList")
+    final_metrics = getattr(job, "final_metric_data_list", None)
     if final_metrics:
         metrics = {}
         for metric in final_metrics:
-            metrics[metric["MetricName"]] = metric["Value"]
+            # sagemaker-core returns metrics as objects with snake_case attributes
+            metric_name = getattr(metric, "metric_name", None) or metric.get("MetricName", "")
+            metric_value = getattr(metric, "value", None) or metric.get("Value", 0)
+            metrics[metric_name] = metric_value
 
     # Get output path if completed
     output_path = None
     if status == "Completed":
-        model_artifacts = response.get("ModelArtifacts", {})
-        output_path = model_artifacts.get("S3ModelArtifacts")
+        model_artifacts = getattr(job, "model_artifacts", None)
+        if model_artifacts:
+            output_path = getattr(model_artifacts, "s3_model_artifacts", None)
 
     _output({
         "status": status,
@@ -420,28 +438,31 @@ def cmd_status(args):
 def cmd_resolve(args):
     """Resolve artifact path within S3 output directory.
 
+    Uses sagemaker-core TrainingJob.get() to read model_artifacts and
+    output_data_config. Uses ModelPackage for model package lookup.
+
     Returns: {"artifact_path": str, "model_package_arn": str|None,
               "output_type": str}
     """
-    import boto3
-
-    client = boto3.client("sagemaker", region_name=args.region)
+    from sagemaker_core.resources import TrainingJob
 
     try:
-        response = client.describe_training_job(TrainingJobName=args.job_name)
+        job = TrainingJob.get(training_job_name=args.job_name)
     except Exception as e:
         _error_exit(f"Failed to describe training job: {e}")
 
-    status = response.get("TrainingJobStatus")
+    status = getattr(job, "training_job_status", None)
     if status != "Completed":
         _error_exit(
             f"Cannot resolve artifacts for job in status: {status}. "
             f"Job must be Completed."
         )
 
-    # Get the S3 model artifacts path
-    model_artifacts = response.get("ModelArtifacts", {})
-    artifact_path = model_artifacts.get("S3ModelArtifacts", "")
+    # Get the S3 model artifacts path from TrainingJob resource
+    model_artifacts = getattr(job, "model_artifacts", None)
+    artifact_path = ""
+    if model_artifacts:
+        artifact_path = getattr(model_artifacts, "s3_model_artifacts", "") or ""
 
     if not artifact_path:
         _error_exit("No model artifacts found in training job output.")
@@ -461,6 +482,9 @@ def cmd_resolve(args):
     model_package_arn = None
     if args.model_package_group:
         try:
+            # Use boto3 for list_model_packages since sagemaker-core ModelPackage
+            # doesn't have a direct list-by-group method with sort/limit
+            import boto3
             mp_client = boto3.client("sagemaker", region_name=args.region)
             packages = mp_client.list_model_packages(
                 ModelPackageGroupName=args.model_package_group,
@@ -1508,6 +1532,10 @@ def _build_expected_format(schema):
 def cmd_discover(args):
     """Query JumpStart Hub for tune-eligible models matching a family.
 
+    NOTE: This subcommand intentionally stays on boto3.client('sagemaker')
+    because list_hub_contents / Hub API is NOT available in sagemaker-core.
+    This is a documented exception per the SDK v3 migration policy.
+
     Returns: {"models": [str], "count": int}
     """
     region = args.region or os.environ.get('AWS_REGION', 'us-east-1')
@@ -1532,6 +1560,8 @@ def cmd_discover(args):
         _error_exit("Hub discovery failed: boto3 is not installed. Install with: pip install boto3")
 
     try:
+        # Documented exception: Hub API (list_hub_contents) is not available in
+        # sagemaker-core, so we retain boto3.client('sagemaker') here.
         client = boto3.client("sagemaker", region_name=region)
         models = []
         paginator = client.get_paginator('list_hub_contents')

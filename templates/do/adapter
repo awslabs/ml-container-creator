@@ -43,12 +43,16 @@ _usage() {
     echo ""
     echo "Options:"
     echo "  --help, -h    Show this help message"
+    echo "  --local       Use local aws s3 cp instead of Processing Job (--from-tune)"
+    echo "  --no-wait     Submit Processing Job and return immediately (--from-tune)"
     echo ""
     echo "Examples:"
     echo "  ./do/adapter add ectsum --weights s3://my-bucket/adapters/ectsum/adapter.tar.gz"
     echo "  ./do/adapter add ectsum --from-hub predibase/llama-3.1-8b-ectsum"
     echo "  ./do/adapter add tuned-sft --from-tune"
     echo "  ./do/adapter add tuned-sft --from-tune sft"
+    echo "  ./do/adapter add tuned-sft --from-tune --local"
+    echo "  ./do/adapter add tuned-sft --from-tune --no-wait"
     echo "  ./do/adapter list"
     echo "  ./do/adapter remove ectsum"
     echo "  ./do/adapter update ectsum --weights s3://my-bucket/adapters/ectsum-v2/adapter.tar.gz"
@@ -367,6 +371,8 @@ _adapter_add() {
     local from_hub=""
     local from_tune=""
     local from_tune_technique=""
+    local use_local=""
+    local no_wait=""
 
     # Parse add arguments
     shift  # remove 'add' from args
@@ -400,6 +406,14 @@ _adapter_add() {
                     shift
                 fi
                 ;;
+            --local)
+                use_local="true"
+                shift
+                ;;
+            --no-wait)
+                no_wait="true"
+                shift
+                ;;
             --help|-h)
                 echo "Usage: ./do/adapter add <name> --weights <s3-uri>"
                 echo "       ./do/adapter add <name> --from-hub <hf-repo-id>"
@@ -414,6 +428,8 @@ _adapter_add() {
                 echo "  --from-tune [technique]     Use adapter output from do/tune"
                 echo "                              Without technique: uses latest tune output"
                 echo "                              With technique (e.g., sft, dpo): uses technique-specific output"
+                echo "  --local                     Use local aws s3 cp instead of Processing Job (--from-tune only)"
+                echo "  --no-wait                   Submit Processing Job and return immediately (--from-tune only)"
                 echo ""
                 echo "Note: --weights, --from-hub, and --from-tune are mutually exclusive."
                 echo ""
@@ -422,6 +438,8 @@ _adapter_add() {
                 echo "  ./do/adapter add ectsum --from-hub predibase/llama-3.1-8b-ectsum"
                 echo "  ./do/adapter add tuned-sft --from-tune"
                 echo "  ./do/adapter add tuned-sft --from-tune sft"
+                echo "  ./do/adapter add tuned-sft --from-tune --local"
+                echo "  ./do/adapter add tuned-sft --from-tune --no-wait"
                 exit 0
                 ;;
             -*)
@@ -528,6 +546,89 @@ _adapter_add() {
             echo "📦 Using latest tune adapter output: ${weights_uri}"
         fi
         echo ""
+
+        # ── Route to Processing Job helper (default) or local path ────────
+        if [ -z "${use_local}" ]; then
+            # Default: use Processing Job via .adapter_helper.py
+            echo "🚀 Submitting Processing Job to stage adapter..."
+            echo ""
+
+            # Resolve execution role
+            local exec_role="${EXECUTION_ROLE_ARN:-}"
+            if [ -z "${exec_role}" ]; then
+                exec_role="${SAGEMAKER_ROLE_ARN:-}"
+            fi
+            if [ -z "${exec_role}" ]; then
+                echo "❌ No execution role found."
+                echo ""
+                echo "   Set EXECUTION_ROLE_ARN or SAGEMAKER_ROLE_ARN in do/config."
+                exit 1
+            fi
+
+            # Resolve S3 bucket
+            local adapter_bucket="${ADAPTER_S3_BUCKET:-}"
+            if [ -z "${adapter_bucket}" ]; then
+                local account_id
+                account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+                if [ -z "${account_id}" ]; then
+                    echo "❌ Could not determine AWS account ID."
+                    echo "   Ensure AWS credentials are configured."
+                    exit 4
+                fi
+                adapter_bucket="mlcc-adapters-${account_id}-${AWS_REGION}"
+            fi
+
+            # Build helper args
+            local helper_args=(
+                "stage-from-tune"
+                "--training-output-s3-uri" "${weights_uri}"
+                "--adapter-name" "${adapter_name}"
+                "--bucket" "${adapter_bucket}"
+                "--project" "${PROJECT_NAME}"
+                "--role-arn" "${exec_role}"
+                "--region" "${AWS_REGION}"
+            )
+            if [ -n "${no_wait}" ]; then
+                helper_args+=("--no-wait")
+            fi
+
+            # Invoke the Python helper
+            local helper_output
+            if ! helper_output=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" "${helper_args[@]}"); then
+                echo "❌ Processing Job failed. See error above."
+                exit 1
+            fi
+
+            # Parse JSON output from helper
+            local job_status
+            job_status=$(echo "${helper_output}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('status',''))" 2>/dev/null || echo "")
+
+            if [ "${job_status}" = "Completed" ] || [ "${job_status}" = "InProgress" ]; then
+                echo "${helper_output}"
+                # Extract adapter_s3_uri for downstream use
+                local staged_adapter_uri
+                staged_adapter_uri=$(echo "${helper_output}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('adapter_s3_uri',''))" 2>/dev/null || echo "")
+
+                if [ -n "${no_wait}" ]; then
+                    echo ""
+                    echo "✅ Processing Job submitted. Check status with:"
+                    echo "   python3 ${SCRIPT_DIR}/.adapter_helper.py status --job-name <job-name>"
+                    echo ""
+                    echo "   Once complete, re-run without --no-wait to register the adapter."
+                    exit 0
+                fi
+
+                # Update weights_uri to point to the staged adapter
+                weights_uri="${staged_adapter_uri}"
+                echo ""
+                echo "✅ Adapter staged via Processing Job: ${weights_uri}"
+            else
+                echo "❌ Unexpected status from Processing Job helper: ${job_status}"
+                echo "   Output: ${helper_output}"
+                exit 1
+            fi
+        else
+            # ── --local flag: Package tune artifacts locally (original behavior) ──
 
         # ── Package tune artifacts as tar.gz if needed ────────────────────
         # Tune output is an S3 path that may be:
@@ -677,6 +778,7 @@ _adapter_add() {
             weights_uri="${s3_tar_path}"
         fi
         echo ""
+        fi  # end --local else branch
     fi
 
     # ── Validate HF repo ID format (if --from-hub) ───────────────────────
