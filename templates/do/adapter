@@ -556,12 +556,16 @@ _adapter_add() {
             # Resolve execution role
             local exec_role="${EXECUTION_ROLE_ARN:-}"
             if [ -z "${exec_role}" ]; then
+                exec_role="${ROLE_ARN:-}"
+            fi
+            if [ -z "${exec_role}" ]; then
                 exec_role="${SAGEMAKER_ROLE_ARN:-}"
             fi
             if [ -z "${exec_role}" ]; then
                 echo "❌ No execution role found."
                 echo ""
-                echo "   Set EXECUTION_ROLE_ARN or SAGEMAKER_ROLE_ARN in do/config."
+                echo "   Run 'ml-container-creator bootstrap' to set up your profile,"
+                echo "   or set ROLE_ARN / EXECUTION_ROLE_ARN in do/config."
                 exit 1
             fi
 
@@ -594,20 +598,22 @@ _adapter_add() {
 
             # Invoke the Python helper
             local helper_output
-            if ! helper_output=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" "${helper_args[@]}"); then
+            if ! helper_output=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" "${helper_args[@]}" 2>/dev/null); then
                 echo "❌ Processing Job failed. See error above."
                 exit 1
             fi
 
-            # Parse JSON output from helper
+            # Parse JSON output from helper (extract only the JSON line, skip any log noise)
+            local json_line
+            json_line=$(echo "${helper_output}" | grep -E '^\{' | tail -1)
             local job_status
-            job_status=$(echo "${helper_output}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('status',''))" 2>/dev/null || echo "")
+            job_status=$(echo "${json_line}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('status',''))" 2>/dev/null || echo "")
 
             if [ "${job_status}" = "Completed" ] || [ "${job_status}" = "InProgress" ]; then
-                echo "${helper_output}"
+                echo "${json_line}"
                 # Extract adapter_s3_uri for downstream use
                 local staged_adapter_uri
-                staged_adapter_uri=$(echo "${helper_output}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('adapter_s3_uri',''))" 2>/dev/null || echo "")
+                staged_adapter_uri=$(echo "${json_line}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('adapter_s3_uri',''))" 2>/dev/null || echo "")
 
                 if [ -n "${no_wait}" ]; then
                     echo ""

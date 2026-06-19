@@ -32,7 +32,7 @@ def _check_sagemaker_core():
     except ImportError:
         _error_exit(
             "sagemaker-core is not installed. "
-            "Please install: pip install sagemaker-core"
+            "Please install: pip install 'sagemaker>=3.0.0' (includes sagemaker-core)"
         )
 
 

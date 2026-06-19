@@ -113,8 +113,10 @@ if [ "${ARG_STATUS}" = true ]; then
                     aws s3 sync "${RESULTS_S3_PATH}" "${LOCAL_RESULTS_DIR}/output/" \
                         --region "${AWS_REGION}" --quiet
                     # Untar if output.tar.gz exists
-                    if [ -f "${LOCAL_RESULTS_DIR}/output/output.tar.gz" ]; then
-                        tar -xzf "${LOCAL_RESULTS_DIR}/output/output.tar.gz" --strip-components=1 -C "${LOCAL_RESULTS_DIR}/output/" 2>/dev/null || true
+                    local tar_file
+                    tar_file=$(find "${LOCAL_RESULTS_DIR}" -name "output.tar.gz" -type f 2>/dev/null | head -1)
+                    if [ -n "${tar_file}" ]; then
+                        tar -xzf "${tar_file}" --strip-components=1 -C "${LOCAL_RESULTS_DIR}/output/" 2>/dev/null || true
                     fi
                     # Re-search after extraction
                     RESULTS_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1)

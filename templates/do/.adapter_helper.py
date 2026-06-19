@@ -14,6 +14,7 @@ Uses sagemaker-core ProcessingJob.create() / ProcessingJob.get() per SDK v3 poli
 """
 
 import argparse
+import logging
 import json
 import os
 import sys
@@ -23,6 +24,11 @@ import warnings
 # Suppress noisy dependency version warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*urllib3.*")
+
+# Suppress sagemaker-core INFO/WARNING logging that pollutes stdout
+logging.getLogger("sagemaker.config").setLevel(logging.ERROR)
+logging.getLogger("sagemaker.core").setLevel(logging.ERROR)
+logging.getLogger("sagemaker").setLevel(logging.ERROR)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 POLL_INTERVAL_SECONDS = 30
@@ -55,7 +61,7 @@ def _check_sagemaker_core():
     except ImportError:
         _error_exit(
             "sagemaker-core is not installed. "
-            "Please install: pip install sagemaker-core"
+            "Please install: pip install 'sagemaker>=3.0.0' (includes sagemaker-core)"
         )
 
 
@@ -196,11 +202,10 @@ def cmd_stage_from_tune(args):
     # Upload entrypoint script to S3
     entrypoint_s3_uri = _upload_entrypoint(args.bucket, job_name, region)
 
-    # Build entrypoint command
+    # Build entrypoint command — download script from S3 then execute
     entrypoint_cmd = (
-        "bash /opt/ml/processing/input/adapter/entrypoint.sh || "
-        "bash -c 'cp -r /opt/ml/processing/input/adapter/* /opt/ml/processing/output/ 2>/dev/null || "
-        "cp -r /opt/ml/processing/input/adapter/. /opt/ml/processing/output/'"
+        f"aws s3 cp {entrypoint_s3_uri} /tmp/entrypoint.sh && "
+        "chmod +x /tmp/entrypoint.sh && /tmp/entrypoint.sh"
     )
 
     # Normalize training output S3 URI (ensure trailing slash for S3Prefix)
@@ -224,12 +229,13 @@ def cmd_stage_from_tune(args):
                 "s3_input": {
                     "s3_uri": training_output_s3_uri,
                     "s3_data_type": "S3Prefix",
+                    "s3_input_mode": "File",
                     "local_path": "/opt/ml/processing/input/adapter",
                 }
             }],
             processing_output_config={
                 "outputs": [{
-                    "output_name": "adapter",
+                    "output_name": "staged-adapter",
                     "s3_output": {
                         "s3_uri": adapter_s3_uri,
                         "s3_upload_mode": "EndOfJob",

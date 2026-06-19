@@ -1288,9 +1288,7 @@ _handle_interrupt() {
     echo ""
     echo "⚠️  Interrupted — job continues running in background"
     echo "   Job: ${job_name}"
-    echo ""
-    echo "   Resume monitoring: ./do/tune --technique ${ARG_TECHNIQUE} --dataset ${ARG_DATASET}"
-    echo "   Check status:      ./do/tune --status"
+    echo "   Check status: ./do/tune --status"
     exit 130
 }
 
