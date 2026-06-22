@@ -1650,7 +1650,7 @@ for ds in data.get('datasets', []):
     fi
     echo ""
     echo "  Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
-    echo "  Use:      ./do/tune --technique sft --dataset-name <name>"
+    echo "  Use:      ./do/tune --technique sft --dataset <name>"
     echo ""
     exit 0
 fi

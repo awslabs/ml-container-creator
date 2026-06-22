@@ -93,6 +93,8 @@ EVALUATOR_TYPE=""
 EVALUATOR_ARN_OR_URI=""
 EVALUATOR_TECHNIQUE=""
 EVALUATOR_DESCRIPTION=""
+EXCLUDE_ADAPTERS=""
+BASE_ONLY=false
 
 # ── Dataset subcommand arg parsing ────────────────────────────────────────────
 if [ "${SUBCOMMAND}" = "dataset" ]; then
@@ -291,6 +293,18 @@ else
             ;;
         --benchmark-run-id=*)
             BENCHMARK_RUN_ID="${1#*=}"
+            shift
+            ;;
+        --exclude)
+            EXCLUDE_ADAPTERS="${EXCLUDE_ADAPTERS:+${EXCLUDE_ADAPTERS},}$2"
+            shift 2
+            ;;
+        --exclude=*)
+            EXCLUDE_ADAPTERS="${EXCLUDE_ADAPTERS:+${EXCLUDE_ADAPTERS},}${1#*=}"
+            shift
+            ;;
+        --base-only)
+            BASE_ONLY=true
             shift
             ;;
         *)
@@ -1229,108 +1243,100 @@ fi
 # SFTTrainer may auto-register — do/register supplements with deployment metadata.
 # Registration failure is non-fatal (warning only, AC-1.6 applies).
 
-ADAPTER_DETECTED=false
-ADAPTER_DATA_URL=""
+# ── Register ALL adapters into MPG ────────────────────────────────────────────
+# Loop over do/adapters/*.conf and register each one as a linked ModelPackage version.
+# Use --exclude to skip specific adapters (comma-separated or repeated flag).
+# Use --base-only to skip all adapter registration.
 
-# Check 1: TUNE_OUTPUT_PATH_LATEST set (from do/tune completion)
-if [ -n "${TUNE_OUTPUT_PATH_LATEST:-}" ]; then
-    ADAPTER_DETECTED=true
-    ADAPTER_DATA_URL="${TUNE_OUTPUT_PATH_LATEST}"
-fi
+_is_excluded() {
+    local name="$1"
+    IFS=',' read -ra _excl_list <<< "${EXCLUDE_ADAPTERS}"
+    for _excl in "${_excl_list[@]}"; do
+        [ "${_excl}" = "${name}" ] && return 0
+    done
+    return 1
+}
 
-# Check 2: Adapter conf files exist in do/adapters/
-if [ "${ADAPTER_DETECTED}" = false ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
+if [ "${BASE_ONLY}" = true ]; then
+    echo ""
+    echo "ℹ️  --base-only: skipping adapter registration"
+elif [ -n "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
+    ADAPTERS_REGISTERED=0
+    ADAPTERS_SKIPPED=0
+
     for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
         [ -f "${conf}" ] || continue
         [[ "$(basename "${conf}")" == ".gitkeep" ]] && continue
-        ADAPTER_DETECTED=true
-        # Try to read adapter weights URI from the first conf file
-        ADAPTER_WEIGHTS_URI=""
-        eval "$(grep '^export ADAPTER_WEIGHTS_URI=' "${conf}" 2>/dev/null)" 2>/dev/null || true
-        if [ -n "${ADAPTER_WEIGHTS_URI:-}" ]; then
-            ADAPTER_DATA_URL="${ADAPTER_WEIGHTS_URI}"
+
+        _ADAPTER_NAME=$(basename "${conf}" .conf)
+
+        # Check exclude list
+        if _is_excluded "${_ADAPTER_NAME}"; then
+            echo "   ⏭️  Skipping excluded adapter: ${_ADAPTER_NAME}"
+            ADAPTERS_SKIPPED=$((ADAPTERS_SKIPPED + 1))
+            continue
         fi
-        break
-    done
-fi
 
-if [ "${ADAPTER_DETECTED}" = true ] && [ -n "${MODEL_PKG_ARN:-}" ]; then
-    echo ""
-    echo "📦 Adapter detected — registering to SageMaker Model Package Group..."
+        # Read adapter config
+        ADAPTER_WEIGHTS_URI=""
+        ADAPTER_TECHNIQUE=""
+        eval "$(grep '^export ADAPTER_WEIGHTS_URI=' "${conf}" 2>/dev/null)" 2>/dev/null || true
+        eval "$(grep '^export ADAPTER_TECHNIQUE=' "${conf}" 2>/dev/null)" 2>/dev/null || true
 
-    # Build register-adapter args
-    ADAPTER_REG_ARGS=(
-        "register-adapter"
-        "--project-name" "${PROJECT_NAME}"
-        "--parent-version-arn" "${MODEL_PKG_ARN}"
-        "--deployment-config" "${DEPLOYMENT_CONFIG}"
-        "--container-image" "${CONTAINER_IMAGE_URI}"
-        "--instance-type" "${INSTANCE_TYPE}"
-        "--architecture" "${ARCHITECTURE}"
-        "--backend" "${BACKEND}"
-    )
+        _ADAPTER_DATA_URL="${ADAPTER_WEIGHTS_URI:-}"
+        _ADAPTER_TECHNIQUE="${ADAPTER_TECHNIQUE:-${TUNE_TECHNIQUE:-}}"
 
-    # Tune technique (sft/dpo/rlvr) — read from TUNE_TECHNIQUE config var if available
-    if [ -n "${TUNE_TECHNIQUE:-}" ]; then
-        ADAPTER_REG_ARGS+=("--tune-technique" "${TUNE_TECHNIQUE}")
-    fi
+        echo ""
+        echo "📦 Registering adapter: ${_ADAPTER_NAME}"
 
-    # Dataset S3 URI if available
-    if [ -n "${TUNE_DATASET_S3_URI:-}" ]; then
-        ADAPTER_REG_ARGS+=("--dataset-s3-uri" "${TUNE_DATASET_S3_URI}")
-    fi
+        # Build register-adapter args
+        ADAPTER_REG_ARGS=(
+            "register-adapter"
+            "--project-name" "${PROJECT_NAME}"
+            "--parent-version-arn" "${MODEL_PKG_ARN}"
+            "--deployment-config" "${DEPLOYMENT_CONFIG}"
+            "--container-image" "${CONTAINER_IMAGE_URI}"
+            "--instance-type" "${INSTANCE_TYPE}"
+            "--architecture" "${ARCHITECTURE}"
+            "--backend" "${BACKEND}"
+        )
 
-    # Adapter model data URL
-    if [ -n "${ADAPTER_DATA_URL}" ]; then
-        ADAPTER_REG_ARGS+=("--model-data-url" "${ADAPTER_DATA_URL}")
-    fi
+        [ -n "${_ADAPTER_TECHNIQUE}" ] && ADAPTER_REG_ARGS+=("--tune-technique" "${_ADAPTER_TECHNIQUE}")
+        [ -n "${_ADAPTER_DATA_URL}" ] && ADAPTER_REG_ARGS+=("--model-data-url" "${_ADAPTER_DATA_URL}")
+        [ -n "${MODEL_NAME:-}" ] && ADAPTER_REG_ARGS+=("--model-name" "${MODEL_NAME}")
+        [ -n "${BASE_IMAGE:-}" ] && ADAPTER_REG_ARGS+=("--base-image" "${BASE_IMAGE}")
+        [ -n "${MODEL_FORMAT:-}" ] && ADAPTER_REG_ARGS+=("--model-format" "${MODEL_FORMAT}")
+        [ -n "${GENERATOR_VERSION:-}" ] && ADAPTER_REG_ARGS+=("--generator-version" "${GENERATOR_VERSION}")
+        [ -n "${AWS_REGION:-}" ] && ADAPTER_REG_ARGS+=("--region" "${AWS_REGION}")
+        [ -n "${ROLE_ARN:-}" ] && ADAPTER_REG_ARGS+=("--role-arn" "${ROLE_ARN}")
 
-    if [ -n "${MODEL_NAME:-}" ]; then
-        ADAPTER_REG_ARGS+=("--model-name" "${MODEL_NAME}")
-    fi
+        # Call .register_helper.py register-adapter — non-fatal on failure
+        if adapter_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${ADAPTER_REG_ARGS[@]}" 2>/dev/null); then
+            adapter_json=$(echo "${adapter_output}" | grep -E '^\{' | tail -1)
+            if [ -n "${adapter_json}" ]; then
+                _PKG_ARN=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn',''))" 2>/dev/null || echo "")
+                _VERSION=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',0))" 2>/dev/null || echo "0")
 
-    if [ -n "${BASE_IMAGE:-}" ]; then
-        ADAPTER_REG_ARGS+=("--base-image" "${BASE_IMAGE}")
-    fi
-
-    if [ -n "${MODEL_FORMAT:-}" ]; then
-        ADAPTER_REG_ARGS+=("--model-format" "${MODEL_FORMAT}")
-    fi
-
-    if [ -n "${GENERATOR_VERSION}" ]; then
-        ADAPTER_REG_ARGS+=("--generator-version" "${GENERATOR_VERSION}")
-    fi
-
-    if [ -n "${AWS_REGION:-}" ]; then
-        ADAPTER_REG_ARGS+=("--region" "${AWS_REGION}")
-    fi
-
-    if [ -n "${ROLE_ARN:-}" ]; then
-        ADAPTER_REG_ARGS+=("--role-arn" "${ROLE_ARN}")
-    fi
-
-    # Call .register_helper.py register-adapter — non-fatal on failure
-    if adapter_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${ADAPTER_REG_ARGS[@]}" 2>/dev/null); then
-        adapter_json=$(echo "${adapter_output}" | grep -E '^\{' | tail -1)
-        if [ -n "${adapter_json}" ]; then
-            ADAPTER_PKG_ARN=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn',''))" 2>/dev/null || echo "")
-            ADAPTER_VERSION=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',0))" 2>/dev/null || echo "0")
-            ADAPTER_PARENT=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('parent_version_arn',''))" 2>/dev/null || echo "")
-
-            if [ -n "${ADAPTER_PKG_ARN}" ] && [ "${ADAPTER_PKG_ARN}" != "" ]; then
-                echo "✅ Adapter registered: version ${ADAPTER_VERSION}"
-                echo "   Package ARN: ${ADAPTER_PKG_ARN}"
-                echo "   Parent ARN:  ${ADAPTER_PARENT}"
+                if [ -n "${_PKG_ARN}" ] && [ "${_PKG_ARN}" != "" ]; then
+                    echo "   ✅ Registered: version ${_VERSION} (${_PKG_ARN})"
+                    ADAPTERS_REGISTERED=$((ADAPTERS_REGISTERED + 1))
+                else
+                    echo "   ⚠️  Registration returned incomplete data (non-fatal)"
+                fi
             else
-                echo "⚠️  Adapter registration returned incomplete data (non-fatal)"
+                echo "   ⚠️  Registration returned no JSON output (non-fatal)"
             fi
         else
-            echo "⚠️  Adapter registration returned no JSON output (non-fatal)"
+            echo "   ⚠️  Registration failed for ${_ADAPTER_NAME} (non-fatal)"
         fi
-    else
-        echo "⚠️  Adapter registration failed (non-fatal) — local registry is the primary record"
-    fi
-elif [ "${ADAPTER_DETECTED}" = true ] && [ -z "${MODEL_PKG_ARN:-}" ]; then
+
+        unset ADAPTER_WEIGHTS_URI ADAPTER_TECHNIQUE
+    done
+
     echo ""
-    echo "⚠️  Adapter detected but no parent model version ARN available — skipping adapter registration"
+    echo "📋 Adapter registration summary: ${ADAPTERS_REGISTERED} registered, ${ADAPTERS_SKIPPED} skipped"
+
+elif [ -z "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
+    echo ""
+    echo "⚠️  Adapters detected but no parent model version ARN — skipping adapter registration"
 fi
