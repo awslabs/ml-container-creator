@@ -216,6 +216,12 @@ export default class McpQueryRunner {
                 if (parsed.choices?.instanceType?.length > 0) {
                     this.runner._instanceSizerMetadata = parsed.metadata || null;
 
+                    // Store maxModelLen from sizer if context was capped (AC-1.7)
+                    if (parsed.values?.maxModelLen) {
+                        this.runner._sizerMaxModelLen = parsed.values.maxModelLen;
+                        console.log(`   ✓ Context length capped: max_model_len=${parsed.values.maxModelLen}`);
+                    }
+
                     // Build display labels with VRAM estimate and utilization percentage
                     const recommendations = parsed.metadata?.recommendations || [];
                     const estimatedVramGb = parsed.metadata?.estimatedVramGb;

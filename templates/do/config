@@ -211,6 +211,26 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 <% }); %>
 <% } %>
 
+<% if (typeof icEnvVars !== 'undefined' && icEnvVars && Object.keys(icEnvVars).length > 0) { %>
+# Deploy-time IC environment variables (applied at IC creation via SDK v3, not baked into image)
+# Max 16 vars, max 1024 chars per key/value
+# WARNING: Do not store raw secrets here. Use Secrets Manager ARN pattern instead:
+#   export IC_ENV_HF_TOKEN_ARN=arn:aws:secretsmanager:REGION:ACCOUNT:secret:NAME
+#   Runtime code resolves the ARN to the secret value (same pattern as HF_TOKEN_ARN in do/build).
+<% Object.entries(icEnvVars).forEach(([key, value]) => { %>
+export IC_ENV_<%= key %>=${IC_ENV_<%= key %>:-<%= value %>}
+<% }); %>
+<% } else if (deploymentTarget === 'realtime-inference') { %>
+# ─── Deploy-time IC environment variables (uncomment to configure) ─────────────
+# These are passed as the Environment field in InferenceComponent.create() at deploy time.
+# They do NOT affect the Docker build — build-time env vars remain in Dockerfile via ENV.
+# Max 16 vars, max 1024 chars per key/value.
+# WARNING: Do not store raw secrets here. Use Secrets Manager ARN pattern instead:
+#   export IC_ENV_HF_TOKEN_ARN=arn:aws:secretsmanager:REGION:ACCOUNT:secret:NAME
+# export IC_ENV_VLLM_MAX_MODEL_LEN=8192
+# export IC_ENV_VLLM_GPU_MEMORY_UTILIZATION=0.85
+<% } %>
+
 # Framework-specific configuration
 <% if (framework === 'transformers') { %>
 export MODEL_NAME="<%= modelName %>"

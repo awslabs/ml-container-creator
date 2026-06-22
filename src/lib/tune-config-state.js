@@ -74,22 +74,35 @@ export function persistSubmissionState(configPath, { technique, trainingType, da
  * Simulate the config writes that happen after a job completes successfully.
  * This mirrors the behavior in do/tune's _handle_completion() function.
  *
+ * Writes three levels of tracking (AC-4.1, AC-4.2):
+ * - Level 1: TUNE_OUTPUT_PATH_LATEST (always the last run, any technique)
+ * - Level 2: TUNE_ADAPTER_PATH_<TECHNIQUE> (last run per technique)
+ * - Level 3: TUNE_ADAPTER_PATH_<TECHNIQUE>_<SLUG> (per technique + dataset slug)
+ *
  * @param {string} configPath - Path to the config file
  * @param {object} params - Completion parameters
  * @param {string} params.technique - Technique (sft, dpo, rlaif, rlvr)
  * @param {string} params.trainingType - Training type (lora, full-rank)
  * @param {string} params.artifactPath - S3 path to the output artifact
  * @param {string} params.outputType - Output type (adapter, full-model)
+ * @param {string} [params.datasetSlug] - Optional dataset slug for per-technique-per-dataset tracking
  */
-export function persistCompletionState(configPath, { technique, trainingType, artifactPath, outputType }) {
+export function persistCompletionState(configPath, { technique, trainingType, artifactPath, outputType, datasetSlug }) {
     const techniqueUpper = technique.toUpperCase();
 
     if (trainingType === 'lora') {
+        // Level 2: per-technique
         updateConfigVar(configPath, `TUNE_ADAPTER_PATH_${techniqueUpper}`, artifactPath);
+        // Level 3: per-technique + per-dataset (if slug available)
+        if (datasetSlug) {
+            const slugUpper = datasetSlug.toUpperCase().replace(/-/g, '_');
+            updateConfigVar(configPath, `TUNE_ADAPTER_PATH_${techniqueUpper}_${slugUpper}`, artifactPath);
+        }
     } else if (trainingType === 'full-rank') {
         updateConfigVar(configPath, `TUNE_MODEL_PATH_${techniqueUpper}`, artifactPath);
     }
 
+    // Level 1: latest
     updateConfigVar(configPath, 'TUNE_OUTPUT_PATH_LATEST', artifactPath);
     updateConfigVar(configPath, 'TUNE_OUTPUT_TYPE_LATEST', outputType);
 }

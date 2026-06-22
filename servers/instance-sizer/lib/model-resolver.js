@@ -142,13 +142,27 @@ export function extractFromHuggingFaceConfig(config) {
     const architecture = (config.architectures && config.architectures[0]) || 'unknown';
     const maxPositionEmbeddings = config.max_position_embeddings || 4096;
 
-    return {
+    // Extract architecture params for KV cache computation (computeMaxModelLen)
+    const numLayers = config.num_hidden_layers || null;
+    const numKvHeads = config.num_key_value_heads || config.num_attention_heads || null;
+    const headDim = config.head_dim || (config.hidden_size && config.num_attention_heads
+        ? Math.floor(config.hidden_size / config.num_attention_heads)
+        : null);
+
+    const result = {
         parameterCount,
         dtype,
         architecture,
         maxPositionEmbeddings,
         source: 'huggingface_api'
     };
+
+    // Only include architecture params if available (graceful degradation)
+    if (numLayers) result.numLayers = numLayers;
+    if (numKvHeads) result.numKvHeads = numKvHeads;
+    if (headDim) result.headDim = headDim;
+
+    return result;
 }
 
 /**
@@ -175,13 +189,25 @@ export async function resolveModelMetadata(modelName, options = {}) {
     const catalogEntry = catalogLookup(modelName, catalog);
 
     if (catalogEntry) {
-        return {
+        const result = {
             parameterCount: catalogEntry.parameterCount,
             dtype: catalogEntry.defaultDtype || 'float16',
             architecture: catalogEntry.architecture || 'unknown',
             maxPositionEmbeddings: catalogEntry.maxPositionEmbeddings || 4096,
             source: 'catalog'
         };
+
+        // Pass through recommendedInstances for NFR-1 guard
+        if (catalogEntry.recommendedInstances) {
+            result.recommendedInstances = catalogEntry.recommendedInstances;
+        }
+
+        // Pass through architecture params if available in catalog
+        if (catalogEntry.numLayers) result.numLayers = catalogEntry.numLayers;
+        if (catalogEntry.numKvHeads) result.numKvHeads = catalogEntry.numKvHeads;
+        if (catalogEntry.headDim) result.headDim = catalogEntry.headDim;
+
+        return result;
     }
 
     // Step 2: If discover mode, try HuggingFace Hub

@@ -526,24 +526,72 @@ _adapter_add() {
     # ── Resolve --from-tune to weights_uri ────────────────────────────────
     if [ -n "${from_tune}" ]; then
         if [ -n "${from_tune_technique}" ]; then
-            # Technique-specific: read TUNE_ADAPTER_PATH_<TECHNIQUE>
-            local technique_upper
-            technique_upper=$(echo "${from_tune_technique}" | tr '[:lower:]' '[:upper:]')
-            local tune_var="TUNE_ADAPTER_PATH_${technique_upper}"
-            local tune_path="${!tune_var:-}"
+            # Check if technique contains a hyphen — may be technique-dataset compound
+            if [[ "${from_tune_technique}" == *-* ]]; then
+                # Try compound key: TUNE_ADAPTER_PATH_<TECHNIQUE>_<SLUG>
+                local compound_technique="${from_tune_technique%%-*}"
+                local compound_slug="${from_tune_technique#*-}"
+                local compound_technique_upper
+                compound_technique_upper=$(echo "${compound_technique}" | tr '[:lower:]' '[:upper:]')
+                local compound_slug_upper
+                compound_slug_upper=$(echo "${compound_slug}" | tr '[:lower:]' '[:upper:]' | sed 's/-/_/g')
+                local compound_var="TUNE_ADAPTER_PATH_${compound_technique_upper}_${compound_slug_upper}"
+                local compound_path="${!compound_var:-}"
 
-            if [ -z "${tune_path}" ]; then
-                echo "❌ No adapter output found for technique: ${from_tune_technique}"
-                echo ""
-                echo "   ${tune_var} is not set in do/config."
-                echo ""
-                echo "   Run a tune job first:"
-                echo "   ./do/tune --technique ${from_tune_technique} --dataset <source>"
-                exit 1
+                if [ -n "${compound_path}" ]; then
+                    weights_uri="${compound_path}"
+                    echo "📦 Using tune adapter output for technique '${compound_technique}' dataset '${compound_slug}': ${weights_uri}"
+                else
+                    # Fallback: try as technique-only
+                    local technique_upper
+                    technique_upper=$(echo "${from_tune_technique}" | tr '[:lower:]' '[:upper:]' | sed 's/-/_/g')
+                    local tune_var="TUNE_ADAPTER_PATH_${technique_upper}"
+                    local tune_path="${!tune_var:-}"
+
+                    if [ -n "${tune_path}" ]; then
+                        echo "⚠️  ${compound_var} not found, falling back to ${tune_var}"
+                        weights_uri="${tune_path}"
+                        echo "📦 Using tune adapter output for technique '${from_tune_technique}': ${weights_uri}"
+                    else
+                        # Try the technique part alone as final fallback
+                        local fallback_var="TUNE_ADAPTER_PATH_${compound_technique_upper}"
+                        local fallback_path="${!fallback_var:-}"
+
+                        if [ -n "${fallback_path}" ]; then
+                            echo "⚠️  ${compound_var} not found, falling back to ${fallback_var}"
+                            weights_uri="${fallback_path}"
+                            echo "📦 Using tune adapter output for technique '${compound_technique}': ${weights_uri}"
+                        else
+                            echo "❌ No adapter output found for: ${from_tune_technique}"
+                            echo ""
+                            echo "   Tried: ${compound_var}, ${fallback_var}"
+                            echo ""
+                            echo "   Run a tune job first:"
+                            echo "   ./do/tune --technique ${compound_technique} --dataset <source>"
+                            exit 1
+                        fi
+                    fi
+                fi
+            else
+                # Technique-only: read TUNE_ADAPTER_PATH_<TECHNIQUE>
+                local technique_upper
+                technique_upper=$(echo "${from_tune_technique}" | tr '[:lower:]' '[:upper:]')
+                local tune_var="TUNE_ADAPTER_PATH_${technique_upper}"
+                local tune_path="${!tune_var:-}"
+
+                if [ -z "${tune_path}" ]; then
+                    echo "❌ No adapter output found for technique: ${from_tune_technique}"
+                    echo ""
+                    echo "   ${tune_var} is not set in do/config."
+                    echo ""
+                    echo "   Run a tune job first:"
+                    echo "   ./do/tune --technique ${from_tune_technique} --dataset <source>"
+                    exit 1
+                fi
+
+                weights_uri="${tune_path}"
+                echo "📦 Using tune adapter output for technique '${from_tune_technique}': ${weights_uri}"
             fi
-
-            weights_uri="${tune_path}"
-            echo "📦 Using tune adapter output for technique '${from_tune_technique}': ${weights_uri}"
         else
             # No technique: read TUNE_OUTPUT_PATH_LATEST and verify type
             if [ -z "${TUNE_OUTPUT_PATH_LATEST:-}" ]; then
@@ -1101,9 +1149,16 @@ EOF
 
     # Add tune-specific metadata if --from-tune was used
     if [ -n "${from_tune}" ]; then
+        local tune_technique_meta="${from_tune_technique:-latest}"
+        local tune_dataset_meta=""
+        if [ -n "${from_tune_technique}" ] && [[ "${from_tune_technique}" == *-* ]]; then
+            tune_technique_meta="${from_tune_technique%%-*}"
+            tune_dataset_meta="${from_tune_technique#*-}"
+        fi
         cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
 export ADAPTER_SOURCE="tune"
-export ADAPTER_TUNE_TECHNIQUE="${from_tune_technique:-latest}"
+export ADAPTER_TUNE_TECHNIQUE="${tune_technique_meta}"
+export ADAPTER_TUNE_DATASET="${tune_dataset_meta}"
 EOF
     fi
 
@@ -1222,7 +1277,31 @@ _adapter_list() {
             ownership=" (external)"
         fi
 
-        output_lines="${output_lines}$(printf '%-14s%-12s%s%s' "${display_name}" "${status}" "${weights_url}" "${ownership}")\n"
+        # Check for tuning metadata in conf file
+        local tune_info=""
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            for conf_file in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${conf_file}" ] || continue
+                local conf_ic
+                conf_ic=$(grep "^export ADAPTER_IC_NAME=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+                if [ "${conf_ic}" = "${ic_name}" ]; then
+                    local conf_technique
+                    conf_technique=$(grep "^export ADAPTER_TUNE_TECHNIQUE=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_TUNE_TECHNIQUE="//' | sed 's/"$//' || echo "")
+                    local conf_dataset
+                    conf_dataset=$(grep "^export ADAPTER_TUNE_DATASET=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_TUNE_DATASET="//' | sed 's/"$//' || echo "")
+                    if [ -n "${conf_technique}" ]; then
+                        if [ -n "${conf_dataset}" ]; then
+                            tune_info=" (from tune: ${conf_technique} / ${conf_dataset})"
+                        else
+                            tune_info=" (from tune: ${conf_technique})"
+                        fi
+                    fi
+                    break
+                fi
+            done
+        fi
+
+        output_lines="${output_lines}$(printf '%-14s%-12s%s%s%s' "${display_name}" "${status}" "${weights_url}" "${ownership}" "${tune_info}")\n"
         found_adapters=$((found_adapters + 1))
     done
 

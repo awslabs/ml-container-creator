@@ -23,7 +23,6 @@ ml-container-creator vllm-benchmark-demo \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
   --deployment-target=realtime-inference \
   --instance-type=ml.g5.2xlarge \
-  --include-benchmark \
   --skip-prompts
 ```
 
@@ -117,13 +116,12 @@ ml-container-creator my-project \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-4B \
   --instance-type=ml.g5.xlarge \
-  --include-benchmark \
   --skip-prompts
 ```
 
 | Parameter | CLI Flag | Default | Description |
 |---|---|---|---|
-| `includeBenchmark` | `--include-benchmark` | `false` | Include the `do/benchmark` script in the generated project |
+| `includeBenchmark` | `--include-benchmark` | `true` | Include the `do/benchmark` script in the generated project. Disable with `--include-benchmark=false` |
 
 All other benchmark parameters (concurrency, tokens, streaming) are resolved at **runtime** from the workload profile — not baked into the project at generation time.
 
@@ -283,7 +281,6 @@ ml-container-creator my-benchmark-project \
   --model-name s3://my-bucket/models/gemma-4-31b/ \
   --instance-type ml.p6-b200.48xlarge \
   --capacity-reservation-arn "arn:aws:sagemaker:us-east-2:ACCOUNT:training-plan/tp-XXX" \
-  --include-benchmark \
   --skip-prompts
 ```
 

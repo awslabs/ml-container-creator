@@ -265,6 +265,21 @@ export default class ConfigLoader {
                 return;
             }
 
+            // Handle icEnvVars object (deploy-time IC environment variables)
+            if (key === 'icEnvVars' && typeof value === 'object' && value !== null) {
+                if (!this.manager.config.icEnvVars) {
+                    this.manager.config.icEnvVars = {};
+                }
+                const cliIcEnvVars = (this.manager.explicitConfig && this.manager.explicitConfig.icEnvVars) || {};
+                Object.entries(value).forEach(([envKey, envValue]) => {
+                    if (!(envKey in cliIcEnvVars)) {
+                        this.manager.config.icEnvVars[envKey] = envValue;
+                        this.manager._recordSource(`icEnvVars.${envKey}`, envValue, 'config-file');
+                    }
+                });
+                return;
+            }
+
             if (this.manager._isSourceSupported(key, 'configFile')) {
                 filteredConfig[key] = this.manager._parseValue(key, value);
                 this.manager._recordSource(key, this.manager._parseValue(key, value), 'config-file');
@@ -342,6 +357,9 @@ export default class ConfigLoader {
 
         // Parse --server-env KEY=VALUE pairs
         this._parseEnvVarOptions('server-env', 'serverEnvVars');
+
+        // Parse --ic-env KEY=VALUE pairs (deploy-time IC environment variables)
+        this._parseEnvVarOptions('ic-env', 'icEnvVars');
     }
 
     /**

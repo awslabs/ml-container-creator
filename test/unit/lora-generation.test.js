@@ -452,7 +452,7 @@ describe('Feature: lora-adapter-lifecycle — do/adapter script generation (Req 
         });
     });
 
-    // ── enableLora=false → do/adapter absent ─────────────────────────────
+    // ── enableLora=false (explicit opt-out) → do/adapter absent ─────────────────────────────
 
     describe('enableLora=false → do/adapter script absent', () => {
         let result;
@@ -465,7 +465,8 @@ describe('Feature: lora-adapter-lifecycle — do/adapter script generation (Req 
                 'model-name': 'meta-llama/Llama-3.1-8B-Instruct',
                 'build-target': 'codebuild',
                 'instance-type': 'ml.g5.xlarge',
-                'region': 'us-east-1'
+                'region': 'us-east-1',
+                'enable-lora': false
             });
         });
 

@@ -288,7 +288,6 @@ ml-container-creator vllm-benchmark-demo \
   --instance-type=ml.g5.2xlarge \
   --build-target=codebuild \
   --region=us-east-1 \
-  --include-benchmark \
   --benchmark-concurrency=10 \
   --benchmark-input-tokens=550 \
   --benchmark-output-tokens=150 \

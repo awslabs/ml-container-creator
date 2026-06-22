@@ -232,7 +232,7 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
         artifactUri: '',
         modelLoadStrategy: 'runtime',
         existingEndpointName: null,
-        enableLora: false,
+        enableLora: true,
         maxLoras: 30,
         maxLoraRank: 64
     };
@@ -259,6 +259,20 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
         } else {
             answers.testTypes = ['local-model-cli', 'local-model-server', 'hosted-model-endpoint'];
         }
+    }
+
+    // Always include benchmarking by default (AC-2.3 — enabled for all architectures).
+    // Only set when not explicitly provided by user (AC-2.4, AC-2.7 — respect explicit opt-out).
+    if (answers.includeBenchmark === undefined) {
+        answers.includeBenchmark = true;
+    }
+
+    // Enforce enableLora scoping: only LoRA-capable servers get enableLora=true
+    // (AC-2.1, NFR-2). All incompatible backends are forced to false.
+    const loraCapableServers = ['vllm', 'sglang', 'djl-lmi', 'lmi', 'djl'];
+    const resolvedBackend = answers.backend || answers.modelServer;
+    if (!loraCapableServers.includes(resolvedBackend)) {
+        answers.enableLora = false;
     }
 
     // Merge catalog env vars into answers.envVars with correct precedence
@@ -445,6 +459,35 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
         }
     }
 
+    // Propagate max_model_len from instance-sizer context capping to env vars (AC-1.7).
+    // The instance-sizer sets sizerMaxModelLen when the model's full context doesn't fit
+    // on the recommended instance. Write as VLLM_MAX_MODEL_LEN or SGLANG_MAX_MODEL_LEN.
+    const _MAX_MODEL_LEN_ENGINE_MAP = {
+        'vllm': 'VLLM_MAX_MODEL_LEN',
+        'vllm-omni': 'VLLM_MAX_MODEL_LEN',
+        'sglang': 'SGLANG_MAX_MODEL_LEN'
+    };
+
+    if (answers.sizerMaxModelLen) {
+        const maxLenEngine = answers.backend || answers.modelServer;
+        const maxLenEnvKey = maxLenEngine ? _MAX_MODEL_LEN_ENGINE_MAP[maxLenEngine] : null;
+        if (maxLenEnvKey) {
+            // Only set if user hasn't explicitly provided this env var
+            const userServerEnvVars = answers.serverEnvVars || {};
+            const userExplicitlySetMaxLen = (
+                userServerEnvVars['MAX_MODEL_LEN'] !== undefined ||
+                userServerEnvVars[maxLenEnvKey] !== undefined
+            );
+            if (!userExplicitlySetMaxLen && (!answers.envVars || !answers.envVars[maxLenEnvKey])) {
+                if (!answers.envVars) {
+                    answers.envVars = {};
+                }
+                answers.envVars[maxLenEnvKey] = String(answers.sizerMaxModelLen);
+                console.log(`    ℹ️  max_model_len: ${answers.sizerMaxModelLen} (context capped by instance-sizer)`);
+            }
+        }
+    }
+
     // Determine tune support based on model presence in the tune catalog.
     // Used by the do/config template to write TUNE_SUPPORTED=true|false.
     if (answers.tuneSupported === undefined) {
@@ -480,5 +523,12 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
         if (!answers.tuneModelId) {
             answers.tuneModelId = null;
         }
+    }
+
+    // Propagate --ic-env KEY=VALUE pairs to icEnvVars for do/config template rendering.
+    // These are rendered as IC_ENV_* exports in do/config, which inference-component.sh
+    // reads at deploy time and passes as the Environment field in InferenceComponent.create().
+    if (!answers.icEnvVars) {
+        answers.icEnvVars = {};
     }
 }

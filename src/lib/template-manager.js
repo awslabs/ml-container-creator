@@ -314,13 +314,6 @@ export default class TemplateManager {
     _validateBenchmarkConfig() {
         if (!this.answers.includeBenchmark) return;
 
-        // Gate to supported architectures
-        const dc = this.answers.deploymentConfig;
-        const arch = dc ? dc.split('-')[0] : this.answers.architecture;
-        if (arch !== 'transformers' && arch !== 'diffusors') {
-            throw new Error('⚠️  Benchmarking is only supported with transformers and diffusors architectures.');
-        }
-
         // Gate to supported deployment targets
         if (this.answers.deploymentTarget === 'hyperpod-eks') {
             throw new Error('⚠️  Benchmarking is only supported with managed-inference, async-inference, and batch-transform deployment targets');

@@ -6,6 +6,50 @@
 #   PROJECT_NAME, ENDPOINT_NAME, ECR_REPOSITORY, AWS_REGION, CONTAINER_ENV_JSON
 # Also expects _update_config_var() to be available (from wait.sh).
 
+# _collect_ic_env_vars()
+#   Reads IC_ENV_* prefixed variables from the environment (sourced from do/config),
+#   strips the IC_ENV_ prefix, validates constraints, and outputs JSON key-value pairs.
+#   Constraints: max 16 entries, max 1024 chars per key/value.
+#   IC_ENV_* overrides take precedence over CONTAINER_ENV_JSON.
+#
+#   Sets IC_ENV_OVERRIDE in the caller's scope.
+_collect_ic_env_vars() {
+    IC_ENV_OVERRIDE=""
+    local ic_env_count=0
+
+    while IFS='=' read -r full_key value; do
+        # Skip empty lines
+        [ -z "${full_key}" ] && continue
+
+        local stripped_key="${full_key#IC_ENV_}"
+
+        # Validate key length (AC-3.4)
+        if [ ${#stripped_key} -gt 1024 ]; then
+            echo "⚠️  IC_ENV_${stripped_key}: key exceeds 1024 chars, skipping" >&2
+            continue
+        fi
+
+        # Validate value length (AC-3.4)
+        if [ ${#value} -gt 1024 ]; then
+            echo "⚠️  IC_ENV_${stripped_key}: value exceeds 1024 chars, skipping" >&2
+            continue
+        fi
+
+        ic_env_count=$((ic_env_count + 1))
+
+        # Max 16 env vars (AC-3.3)
+        if [ ${ic_env_count} -gt 16 ]; then
+            echo "⚠️  More than 16 IC_ENV_* variables defined. Using first 16 only." >&2
+            break
+        fi
+
+        if [ -n "${IC_ENV_OVERRIDE}" ]; then
+            IC_ENV_OVERRIDE="${IC_ENV_OVERRIDE},"
+        fi
+        IC_ENV_OVERRIDE="${IC_ENV_OVERRIDE}\"${stripped_key}\":\"${value}\""
+    done < <(env | grep "^IC_ENV_" | sort)
+}
+
 # create_inference_component <ic_config_file>
 #   Creates an inference component from a per-IC config file.
 #
@@ -16,6 +60,10 @@
 #     IC_MIN_MEMORY_MB   — minimum memory in MB (default: 1024)
 #     IC_STARTUP_TIMEOUT — container startup health check timeout in seconds (default: 900)
 #     IC_CONTAINER_ENV_EXTRA — optional extra env vars in "KEY":"value" format
+#
+#   IC_ENV_* prefixed vars from do/config are collected, validated, and passed
+#   as the Environment field in InferenceComponent.create() via SDK v3.
+#   Precedence: IC_ENV_* > IC_CONTAINER_ENV_EXTRA > CONTAINER_ENV_JSON
 #
 #   Multi-spec support (for heterogeneous instance pools):
 #     IC_MULTI_SPEC      — set to "true" to use Specifications (plural) array
@@ -38,6 +86,9 @@ create_inference_component() {
     # Source the IC config to get per-IC settings
     source "${ic_conf}"
 
+    # Collect IC_ENV_* overrides from environment (sourced from do/config)
+    _collect_ic_env_vars
+
     local ic_timestamp
     ic_timestamp=$(date +%s)
     local ic_basename
@@ -48,9 +99,11 @@ create_inference_component() {
     local container_spec="{\"Image\":\"${ECR_REPOSITORY}:${IC_IMAGE_TAG:-${PROJECT_NAME}-latest}\""
     # Always inject IC name for CW log forwarder
     local ic_env="\"INFERENCE_COMPONENT_NAME\":\"${ic_name}\""
-    if [ -n "${CONTAINER_ENV_JSON}${IC_CONTAINER_ENV_EXTRA:-}" ]; then
-        local env_json="${CONTAINER_ENV_JSON}"
-        [ -n "${IC_CONTAINER_ENV_EXTRA:-}" ] && env_json="${env_json:+${env_json},}${IC_CONTAINER_ENV_EXTRA}"
+    # Build environment JSON with precedence: IC_ENV_* > IC_CONTAINER_ENV_EXTRA > CONTAINER_ENV_JSON
+    local env_json="${CONTAINER_ENV_JSON}"
+    [ -n "${IC_CONTAINER_ENV_EXTRA:-}" ] && env_json="${env_json:+${env_json},}${IC_CONTAINER_ENV_EXTRA}"
+    [ -n "${IC_ENV_OVERRIDE:-}" ] && env_json="${env_json:+${env_json},}${IC_ENV_OVERRIDE}"
+    if [ -n "${env_json}" ]; then
         container_spec="${container_spec},\"Environment\":{${ic_env},${env_json}}"
     else
         container_spec="${container_spec},\"Environment\":{${ic_env}}"

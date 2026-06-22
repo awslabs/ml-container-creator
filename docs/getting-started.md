@@ -187,7 +187,6 @@ ml-container-creator qwen3-demo \
   --model-name=Qwen/Qwen3-4B \
   --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
-  --enable-lora \
   --region=us-east-1 \
   --skip-prompts
 ```
@@ -269,7 +268,7 @@ The endpoint serves an OpenAI-compatible API — you can use it with any OpenAI 
 
 ### Next: Fine-Tune and Add an Adapter
 
-Your endpoint supports LoRA adapter hot-swapping (we passed `--enable-lora` during generation). You can fine-tune Qwen3-4B and attach the resulting adapter without redeploying:
+Your endpoint supports LoRA adapter hot-swapping (enabled by default). You can fine-tune Qwen3-4B and attach the resulting adapter without redeploying:
 
 ```bash
 # Fine-tune with SageMaker AI managed customization

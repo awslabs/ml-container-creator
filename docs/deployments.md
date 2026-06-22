@@ -126,7 +126,7 @@ The `./do/deploy --dry-run` flag also runs schema validation as part of its pre-
 
 ## Benchmarking
 
-For transformer and diffusor architectures, MCC can generate a `do/benchmark` script that measures endpoint performance using the SageMaker AI Benchmarking service (NVIDIA AIPerf). Enable it with `--include-benchmark` during project generation.
+For transformer and diffusor architectures, MCC generates a `do/benchmark` script by default that measures endpoint performance using the SageMaker AI Benchmarking service (NVIDIA AIPerf). Disable with `--include-benchmark=false` during project generation.
 
 See the dedicated [Benchmarking](benchmarking.md) guide for prerequisites, parameter tuning, and interpreting results.
 

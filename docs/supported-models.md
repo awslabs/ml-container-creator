@@ -83,7 +83,6 @@ ml-container-creator my-model \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-8B \
   --instance-type=ml.g5.xlarge \
-  --enable-lora \
   --skip-prompts
 ```
 

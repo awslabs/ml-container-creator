@@ -1364,6 +1364,56 @@ _handle_interrupt() {
     exit 130
 }
 
+# ── _derive_dataset_slug() ────────────────────────────────────────────────────
+# Derive a short slug from the dataset argument for config variable naming.
+# Rules: lowercase, strip non-alphanumeric (keep hyphens), truncate to 20 chars,
+# collapse consecutive hyphens, strip leading/trailing hyphens.
+#
+# Examples:
+#   hf://tatsu-lab/alpaca           → alpaca
+#   hf://Open-Orca/OpenOrca         → openorca
+#   s3://bucket/path/train.jsonl    → train
+#   s3://bucket/path/file.parquet   → file
+_derive_dataset_slug() {
+    local dataset="${1:-}"
+    local slug=""
+
+    if [ -z "${dataset}" ]; then
+        echo ""
+        return
+    fi
+
+    if [[ "${dataset}" == hf://* ]]; then
+        # HuggingFace format: hf://org/name or hf://org/name?file=...
+        # Strip query params
+        local hf_path="${dataset#hf://}"
+        hf_path="${hf_path%%\?*}"
+        # Take the last component (dataset name, not org)
+        slug="${hf_path##*/}"
+    elif [[ "${dataset}" == s3://* ]]; then
+        # S3 format: s3://bucket/path/file.ext → slug from filename without extension
+        local filename="${dataset##*/}"
+        slug="${filename%.*}"
+    else
+        # Fallback: use the last path component without extension
+        local filename="${dataset##*/}"
+        slug="${filename%.*}"
+    fi
+
+    # Slugification: lowercase, strip non-alphanumeric (keep hyphens)
+    slug=$(echo "${slug}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+    # Collapse consecutive hyphens
+    slug=$(echo "${slug}" | sed 's/-\{2,\}/-/g')
+    # Strip leading/trailing hyphens
+    slug=$(echo "${slug}" | sed 's/^-//;s/-$//')
+    # Truncate to 20 chars
+    slug="${slug:0:20}"
+    # Strip trailing hyphen after truncation
+    slug=$(echo "${slug}" | sed 's/-$//')
+
+    echo "${slug}"
+}
+
 # ── _handle_completion() ──────────────────────────────────────────────────────
 # Store output paths, detect output type, print next-step commands.
 _handle_completion() {
@@ -1423,6 +1473,14 @@ _handle_completion() {
     # Store output paths in config
     if [ "${output_type}" = "adapter" ]; then
         _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}" "${artifact_path}"
+        # Write dataset-specific adapter path if dataset slug is available
+        local dataset_slug
+        dataset_slug=$(_derive_dataset_slug "${ARG_DATASET:-}")
+        if [ -n "${dataset_slug}" ]; then
+            local slug_upper
+            slug_upper=$(echo "${dataset_slug}" | tr '[:lower:]' '[:upper:]' | sed 's/-/_/g')
+            _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}_${slug_upper}" "${artifact_path}"
+        fi
     else
         _update_config_var "TUNE_MODEL_PATH_${technique_upper}" "${artifact_path}"
     fi
@@ -1433,9 +1491,14 @@ _handle_completion() {
     echo "📋 Next steps:"
     echo ""
     if [ "${output_type}" = "adapter" ]; then
+        local dataset_slug
+        dataset_slug=$(_derive_dataset_slug "${ARG_DATASET:-}")
         echo "   Deploy as LoRA adapter:"
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --from-tune"
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --from-tune ${ARG_TECHNIQUE}"
+        if [ -n "${dataset_slug}" ]; then
+            echo "     ./do/adapter add tuned-${ARG_TECHNIQUE}-${dataset_slug} --from-tune ${ARG_TECHNIQUE}-${dataset_slug}"
+        fi
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --weights ${artifact_path}"
     else
         echo "   Deploy as new inference component:"
