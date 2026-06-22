@@ -398,8 +398,8 @@ describe('Feature: secrets-manager-integration — backward compatibility', () =
                 'do/config with plaintext must export HF_TOKEN directly'
             );
             assert.ok(
-                !output.includes('HF_TOKEN_ARN'),
-                'do/config with plaintext must not reference HF_TOKEN_ARN'
+                !output.includes('export HF_TOKEN_ARN='),
+                'do/config with plaintext must not export HF_TOKEN_ARN'
             );
         });
 

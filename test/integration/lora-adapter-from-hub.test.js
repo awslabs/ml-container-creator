@@ -349,7 +349,7 @@ describe('Feature: lora-adapter-lifecycle — --from-hub and search integration 
         it('checks for mutual exclusivity in add subcommand', () => {
             const addSection = getAddSection();
             assert.ok(
-                addSection.includes('--weights, --from-hub, and --from-tune are mutually exclusive'),
+                addSection.includes('--weights, --from-hub, --from-tune, and --from-registry are mutually exclusive'),
                 'Must show mutual exclusivity error in add'
             );
         });
@@ -378,7 +378,7 @@ describe('Feature: lora-adapter-lifecycle — --from-hub and search integration 
         it('requires at least one of --weights or --from-hub', () => {
             const addSection = getAddSection();
             assert.ok(
-                addSection.includes('One of --weights, --from-hub, or --from-tune is required'),
+                addSection.includes('One of --weights, --from-hub, --from-tune, or --from-registry is required'),
                 'Must require at least one source option'
             );
         });
