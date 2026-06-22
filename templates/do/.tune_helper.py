@@ -105,6 +105,136 @@ def _sanitize_for_json(value):
         return str(value) if value else None
 
 
+# ── Registry resolution helpers ───────────────────────────────────────────────
+
+
+def _resolve_dataset_name(dataset_name):
+    """Resolve a registered dataset name to S3 URI (or ARN) via .register_helper.py.
+
+    Calls the resolve-dataset subcommand of .register_helper.py and returns
+    the resolved value. If the response contains an 'arn' field (Backlog #023,
+    AI Registry mode), returns the ARN for use with SFTTrainer(training_dataset=arn).
+    Otherwise returns the S3 URI for backward compatibility.
+    """
+    import subprocess
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    helper_path = os.path.join(script_dir, ".register_helper.py")
+
+    if not os.path.exists(helper_path):
+        _error_exit(
+            f"Cannot resolve dataset '{dataset_name}': .register_helper.py not found. "
+            f"Register datasets first with: ./do/register --dataset"
+        )
+
+    try:
+        result = subprocess.run(
+            ["python3", helper_path, "resolve-dataset", "--name", dataset_name],
+            capture_output=True, text=True, timeout=30
+        )
+    except subprocess.TimeoutExpired:
+        _error_exit(f"Timeout resolving dataset '{dataset_name}' from registry")
+    except Exception as e:
+        _error_exit(f"Failed to resolve dataset '{dataset_name}': {e}")
+
+    if result.returncode != 0:
+        _error_exit(
+            f"Dataset '{dataset_name}' not found in registry. "
+            f"Register it first: ./do/register --dataset --dataset-name {dataset_name} --dataset-s3-uri s3://..."
+        )
+
+    # Parse JSON output from resolve-dataset
+    try:
+        output = json.loads(result.stdout.strip())
+    except (json.JSONDecodeError, ValueError):
+        _error_exit(
+            f"Failed to parse registry response for dataset '{dataset_name}'. "
+            f"Raw output: {result.stdout[:200]}"
+        )
+
+    if "error" in output:
+        _error_exit(
+            f"Dataset '{dataset_name}' not found in registry: {output['error']}. "
+            f"Register it first: ./do/register --dataset --dataset-name {dataset_name} --dataset-s3-uri s3://..."
+        )
+
+    # Prefer ARN if available (Backlog #023 — AI Registry mode)
+    # When arn is present, use it directly with SFTTrainer(training_dataset=arn)
+    arn = output.get("arn")
+    if arn:
+        return arn
+
+    # Fallback: use S3 URI
+    s3_uri = output.get("s3_uri", "")
+    if not s3_uri:
+        _error_exit(
+            f"Dataset '{dataset_name}' resolved but has no S3 URI or ARN. "
+            f"Re-register with: ./do/register --dataset --dataset-name {dataset_name} --dataset-s3-uri s3://..."
+        )
+
+    return s3_uri
+
+
+def _resolve_evaluator_name(evaluator_name):
+    """Resolve a registered evaluator name to type and ARN/URI via .register_helper.py.
+
+    Returns (evaluator_type, arn_or_uri) tuple.
+    evaluator_type is "lambda" for RLVR or "model" for RLAIF.
+    """
+    import subprocess
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    helper_path = os.path.join(script_dir, ".register_helper.py")
+
+    if not os.path.exists(helper_path):
+        _error_exit(
+            f"Cannot resolve evaluator '{evaluator_name}': .register_helper.py not found. "
+            f"Register evaluators first with: ./do/register --evaluator"
+        )
+
+    try:
+        result = subprocess.run(
+            ["python3", helper_path, "resolve-evaluator", "--name", evaluator_name],
+            capture_output=True, text=True, timeout=30
+        )
+    except subprocess.TimeoutExpired:
+        _error_exit(f"Timeout resolving evaluator '{evaluator_name}' from registry")
+    except Exception as e:
+        _error_exit(f"Failed to resolve evaluator '{evaluator_name}': {e}")
+
+    if result.returncode != 0:
+        _error_exit(
+            f"Evaluator '{evaluator_name}' not found in registry. "
+            f"Register it first: ./do/register --evaluator --evaluator-name {evaluator_name} ..."
+        )
+
+    # Parse JSON output from resolve-evaluator
+    try:
+        output = json.loads(result.stdout.strip())
+    except (json.JSONDecodeError, ValueError):
+        _error_exit(
+            f"Failed to parse registry response for evaluator '{evaluator_name}'. "
+            f"Raw output: {result.stdout[:200]}"
+        )
+
+    if "error" in output:
+        _error_exit(
+            f"Evaluator '{evaluator_name}' not found in registry: {output['error']}. "
+            f"Register it first: ./do/register --evaluator --evaluator-name {evaluator_name} ..."
+        )
+
+    ev_type = output.get("type", "")
+    arn_or_uri = output.get("arn_or_uri", "")
+
+    if not arn_or_uri:
+        _error_exit(
+            f"Evaluator '{evaluator_name}' resolved but has no ARN/URI. "
+            f"Re-register with: ./do/register --evaluator --evaluator-name {evaluator_name} ..."
+        )
+
+    return ev_type, arn_or_uri
+
+
 # ── Subcommand: submit ────────────────────────────────────────────────────────
 
 
@@ -123,6 +253,26 @@ def cmd_submit(args):
     if region:
         os.environ["AWS_DEFAULT_REGION"] = region
         os.environ.setdefault("AWS_REGION", region)
+
+    # ── Resolve --dataset-name from registry (AC-2b.4) ────────────────────────
+    # --dataset-s3-uri wins if both are provided (backward compatible override)
+    if not args.dataset_s3_uri and args.dataset_name:
+        resolved_uri = _resolve_dataset_name(args.dataset_name)
+        args.dataset_s3_uri = resolved_uri
+    elif not args.dataset_s3_uri and not args.dataset_name:
+        _error_exit(
+            "Either --dataset-s3-uri or --dataset-name is required. "
+            "Provide an S3 URI directly or a registered dataset name."
+        )
+
+    # ── Resolve --evaluator-name from registry (AC-2c.3, AC-2c.4) ────────────
+    # --reward-function / --reward-prompt win if provided (backward compatible override)
+    if args.evaluator_name and not args.reward_function and not args.reward_prompt:
+        ev_type, ev_arn_or_uri = _resolve_evaluator_name(args.evaluator_name)
+        if ev_type == "lambda":
+            args.reward_function = ev_arn_or_uri
+        else:
+            args.reward_prompt = ev_arn_or_uri
 
     _check_sagemaker_sdk()
 
@@ -384,6 +534,12 @@ def cmd_status(args):
     Returns: {"status": str, "failure_reason": str|None,
               "metrics": dict|None, "elapsed_seconds": int}
     """
+    # Set region before any sagemaker import (creates boto3 clients at import time)
+    region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
+    if region:
+        os.environ['AWS_DEFAULT_REGION'] = region
+        os.environ.setdefault('AWS_REGION', region)
+
     from sagemaker.core.resources import TrainingJob
     from botocore.exceptions import ClientError
 
@@ -485,6 +641,12 @@ def cmd_resolve(args):
     Returns: {"artifact_path": str, "model_package_arn": str|None,
               "output_type": str}
     """
+    # Set region before any sagemaker import (creates boto3 clients at import time)
+    region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
+    if region:
+        os.environ['AWS_DEFAULT_REGION'] = region
+        os.environ.setdefault('AWS_REGION', region)
+
     from sagemaker.core.resources import TrainingJob
 
     try:
@@ -1719,8 +1881,10 @@ def main():
     submit_parser.add_argument("--training-type", required=True,
                                choices=["lora", "full-rank"],
                                help="Training type (lora or full-rank)")
-    submit_parser.add_argument("--dataset-s3-uri", required=True,
-                               help="S3 URI of the training dataset")
+    submit_parser.add_argument("--dataset-s3-uri", required=False, default=None,
+                               help="S3 URI of the training dataset (direct override)")
+    submit_parser.add_argument("--dataset-name", default=None,
+                               help="Registered dataset name to resolve from registry")
     submit_parser.add_argument("--output-bucket", required=True,
                                help="S3 bucket for output artifacts")
     submit_parser.add_argument("--role-arn", required=True,
@@ -1747,6 +1911,8 @@ def main():
                                help="Lambda ARN for reward function (RLVR)")
     submit_parser.add_argument("--reward-prompt", default=None,
                                help="S3 URI for reward prompt (RLAIF)")
+    submit_parser.add_argument("--evaluator-name", default=None,
+                               help="Registered evaluator name to resolve from registry")
     submit_parser.add_argument("--accept-eula", action="store_true", default=False,
                                help="Accept model EULA for gated models (e.g., Llama)")
 

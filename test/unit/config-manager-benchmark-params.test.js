@@ -78,9 +78,9 @@ describe('ConfigManager Benchmark Parameter Matrix Entries', () => {
             assert.equal(matrix.includeBenchmark.configFile, true);
         });
 
-        it('should default to false', () => {
+        it('should default to true', () => {
             const matrix = getParameterMatrix();
-            assert.equal(matrix.includeBenchmark.default, false);
+            assert.equal(matrix.includeBenchmark.default, true);
         });
 
         it('should load from CLI option', async () => {

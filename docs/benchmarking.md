@@ -23,7 +23,6 @@ ml-container-creator vllm-benchmark-demo \
   --model-name=meta-llama/Llama-3.1-8B-Instruct \
   --deployment-target=realtime-inference \
   --instance-type=ml.g5.2xlarge \
-  --include-benchmark \
   --skip-prompts
 ```
 
@@ -117,13 +116,12 @@ ml-container-creator my-project \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-4B \
   --instance-type=ml.g5.xlarge \
-  --include-benchmark \
   --skip-prompts
 ```
 
 | Parameter | CLI Flag | Default | Description |
 |---|---|---|---|
-| `includeBenchmark` | `--include-benchmark` | `false` | Include the `do/benchmark` script in the generated project |
+| `includeBenchmark` | `--include-benchmark` | `true` | Include the `do/benchmark` script in the generated project. Disable with `--include-benchmark=false` |
 
 All other benchmark parameters (concurrency, tokens, streaming) are resolved at **runtime** from the workload profile — not baked into the project at generation time.
 
@@ -166,6 +164,26 @@ This is the recommended workflow for long-running benchmarks:
 ./do/benchmark --workload multi_turn_chat   # Start the job, Ctrl+C when you want
 ./do/benchmark --status                     # Check later; auto-resolves on completion
 ```
+
+### Adapter Benchmarks
+
+To benchmark a LoRA adapter instead of the base model, pass `--adapter`:
+
+```bash
+./do/benchmark --adapter my-adapter --workload multi_turn_chat
+```
+
+This routes requests through the adapter's inference component and records `adapter_name` in the Athena results. To differentiate adapter vs base model runs in queries:
+
+```sql
+SELECT * FROM mlcc_ci.benchmark_results
+WHERE model_name = 'meta-llama_Llama-3.2-1B-Instruct'
+  AND adapter_name = 'my-adapter';
+```
+
+!!! important
+    When using `--status` to complete an adapter benchmark, you must pass `--adapter` again:
+    `./do/benchmark --status --adapter my-adapter`
 
 ## Cleanup
 
@@ -283,7 +301,6 @@ ml-container-creator my-benchmark-project \
   --model-name s3://my-bucket/models/gemma-4-31b/ \
   --instance-type ml.p6-b200.48xlarge \
   --capacity-reservation-arn "arn:aws:sagemaker:us-east-2:ACCOUNT:training-plan/tp-XXX" \
-  --include-benchmark \
   --skip-prompts
 ```
 

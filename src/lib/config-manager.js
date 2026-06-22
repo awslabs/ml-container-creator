@@ -183,6 +183,9 @@ export default class ConfigManager {
         if (this.config.serverEnvVars && typeof this.config.serverEnvVars === 'object') {
             finalConfig.serverEnvVars = { ...this.config.serverEnvVars };
         }
+        if (this.config.icEnvVars && typeof this.config.icEnvVars === 'object') {
+            finalConfig.icEnvVars = { ...this.config.icEnvVars };
+        }
 
         // Ensure all parameters from the matrix are included in final config
         // This is important for optional parameters that might be null
@@ -411,7 +414,8 @@ export default class ConfigManager {
             ...endpointParams,
             ...icParams,
             'modelEnvVars',
-            'serverEnvVars'
+            'serverEnvVars',
+            'icEnvVars'
         ]);
         const core = {};
         for (const [key, value] of Object.entries(this.config)) {
@@ -426,6 +430,7 @@ export default class ConfigManager {
             icConfig,
             modelEnvVars: { ...(this.config.modelEnvVars || {}) },
             serverEnvVars: { ...(this.config.serverEnvVars || {}) },
+            icEnvVars: { ...(this.config.icEnvVars || {}) },
             manifest: [...this._sourceManifest]
         };
     }

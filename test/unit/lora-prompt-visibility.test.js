@@ -211,10 +211,10 @@ describe('LoRA Prompt Visibility', () => {
         });
     });
 
-    describe('enableLora prompt defaults to false (Requirement 1.1)', () => {
-        it('should default to false', () => {
+    describe('enableLora prompt defaults to true (Requirement 2.1)', () => {
+        it('should default to true', () => {
             const prompt = findPrompt(loraPrompts, 'enableLora');
-            assert.equal(prompt.default, false);
+            assert.equal(prompt.default, true);
         });
 
         it('should be a confirm type prompt', () => {

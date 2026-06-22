@@ -46,10 +46,13 @@ ARG_DRY_RUN=false
 ARG_LIST_MODELS=false
 ARG_NO_STALE_WARNING=false
 ARG_DISCOVER=false
+ARG_LIST_DATASETS=false
 ARG_DISCOVER_FILTER=""
 ARG_COLUMN_MAP=""
 ARG_TAKE=""
 ARG_ACCEPT_EULA=false
+ARG_DATASET_NAME=""
+ARG_EVALUATOR_NAME=""
 
 
 # ── _parse_args() ─────────────────────────────────────────────────────────────
@@ -148,6 +151,7 @@ _parse_args() {
             --help|-h) ARG_HELP=true; shift ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
             --list-models) ARG_LIST_MODELS=true; shift ;;
+            --list-datasets) ARG_LIST_DATASETS=true; shift ;;
             --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
             --column-map)
                 if [ -z "${2:-}" ]; then
@@ -169,6 +173,18 @@ _parse_args() {
                     exit 1
                 fi
                 ARG_TAKE="$2"; shift 2 ;;
+            --dataset-name)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --dataset-name requires a registered dataset name"
+                    exit 1
+                fi
+                ARG_DATASET_NAME="$2"; shift 2 ;;
+            --evaluator-name)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --evaluator-name requires a registered evaluator name"
+                    exit 1
+                fi
+                ARG_EVALUATOR_NAME="$2"; shift 2 ;;
             *)
                 echo "❌ Unknown option: $1"
                 echo "   Run ./do/tune --help for usage."
@@ -775,10 +791,51 @@ else:
 _validate_dataset() {
     local dataset="${ARG_DATASET}"
 
+    # If --dataset-name is set, resolve from registry (AC-2b.4)
+    # --dataset-name takes precedence over --dataset for named registry lookup
+    if [ -n "${ARG_DATASET_NAME}" ]; then
+        echo "🔍 Resolving dataset '${ARG_DATASET_NAME}' from registry..."
+        local resolve_result
+        resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
+            --name "${ARG_DATASET_NAME}" 2>/dev/null) || resolve_result=""
+
+        if [ -n "${resolve_result}" ]; then
+            local resolved_uri
+            resolved_uri=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || resolved_uri=""
+            if [ -n "${resolved_uri}" ]; then
+                echo "   Resolved to: ${resolved_uri}"
+                dataset="${resolved_uri}"
+                ARG_DATASET="${resolved_uri}"
+            else
+                echo "❌ Dataset '${ARG_DATASET_NAME}' not found in registry"
+                echo "   Register it first: ./do/register --dataset --dataset-name ${ARG_DATASET_NAME} --dataset-s3-uri s3://..."
+                exit 1
+            fi
+        else
+            echo "❌ Failed to resolve dataset '${ARG_DATASET_NAME}' from registry"
+            echo "   Register it first: ./do/register --dataset --dataset-name ${ARG_DATASET_NAME} --dataset-s3-uri s3://..."
+            exit 1
+        fi
+    fi
+
+    # If --dataset value is not an S3 URI or HF reference, treat as a registry name
+    if [ -z "${ARG_DATASET_NAME}" ] && [ -n "${dataset}" ] && \
+       [[ "${dataset}" != s3://* ]] && [[ "${dataset}" != hf://* ]]; then
+        # Looks like a name — resolve from registry
+        ARG_DATASET_NAME="${dataset}"
+        dataset=""
+    fi
+
     if [ -z "${dataset}" ]; then
-        echo "❌ --dataset is required"
-        echo "   Provide an S3 URI (s3://bucket/path.jsonl) or HF reference (hf://org/name)"
-        exit 1
+        if [ -n "${ARG_DATASET_NAME}" ]; then
+            # Name-based resolution happens below via resolve-dataset
+            :
+        else
+            echo "❌ --dataset is required"
+            echo "   Provide an S3 URI (s3://bucket/path.jsonl), HF reference (hf://org/name), or registered name"
+            echo "   Run ./do/tune --list-datasets to see available registered datasets."
+            exit 1
+        fi
     fi
 
     # Determine dataset type
@@ -908,11 +965,10 @@ _validate_dataset() {
         fi
 
         RESOLVED_DATASET_S3_URI=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['s3_uri'])" 2>/dev/null)
-        local num_records
-        num_records=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('num_records',0))" 2>/dev/null) || num_records="0"
+        RESOLVED_DATASET_ROW_COUNT=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('num_records',0))" 2>/dev/null) || RESOLVED_DATASET_ROW_COUNT="0"
 
         echo "   ✅ Staged to: ${RESOLVED_DATASET_S3_URI}"
-        echo "   Records: ${num_records}"
+        echo "   Records: ${RESOLVED_DATASET_ROW_COUNT}"
         echo ""
 
     else
@@ -1126,6 +1182,37 @@ print(entry.get('provider', ''))
     if [ -n "${ARG_REWARD_PROMPT}" ]; then
         submit_args+=(--reward-prompt "${ARG_REWARD_PROMPT}")
     fi
+
+    # Resolve evaluator from registry if --evaluator-name is set (AC-2c.3, AC-2c.4)
+    if [ -n "${ARG_EVALUATOR_NAME}" ] && [ -z "${ARG_REWARD_FUNCTION}" ] && [ -z "${ARG_REWARD_PROMPT}" ]; then
+        echo "🔍 Resolving evaluator '${ARG_EVALUATOR_NAME}' from registry..."
+        local ev_resolve_result
+        ev_resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-evaluator \
+            --name "${ARG_EVALUATOR_NAME}" 2>/dev/null) || ev_resolve_result=""
+
+        if [ -n "${ev_resolve_result}" ]; then
+            local ev_type ev_arn_or_uri
+            ev_type=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('type',''))" 2>/dev/null) || ev_type=""
+            ev_arn_or_uri=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('arn_or_uri',''))" 2>/dev/null) || ev_arn_or_uri=""
+
+            if [ -n "${ev_arn_or_uri}" ]; then
+                echo "   Resolved evaluator: ${ev_type} → ${ev_arn_or_uri}"
+                if [ "${ev_type}" = "lambda" ]; then
+                    submit_args+=(--reward-function "${ev_arn_or_uri}")
+                else
+                    submit_args+=(--reward-prompt "${ev_arn_or_uri}")
+                fi
+            else
+                echo "⚠️  Evaluator '${ARG_EVALUATOR_NAME}' not found in registry"
+                echo "   Register it first: ./do/register --evaluator --evaluator-name ${ARG_EVALUATOR_NAME} ..."
+                exit 1
+            fi
+        else
+            echo "⚠️  Failed to resolve evaluator '${ARG_EVALUATOR_NAME}' from registry"
+            echo "   Register it first: ./do/register --evaluator --evaluator-name ${ARG_EVALUATOR_NAME} ..."
+            exit 1
+        fi
+    fi
     if [ "${ARG_ACCEPT_EULA}" = true ]; then
         submit_args+=(--accept-eula)
     fi
@@ -1217,6 +1304,14 @@ print(entry.get('provider', ''))
     _update_config_var "TUNE_TECHNIQUE" "${ARG_TECHNIQUE}"
     _update_config_var "TUNE_TRAINING_TYPE" "${ARG_TRAINING_TYPE}"
     _update_config_var "TUNE_DATASET_PATH" "${ARG_DATASET}"
+    _update_config_var "TUNE_DATASET_S3_URI" "${RESOLVED_DATASET_S3_URI:-}"
+    _update_config_var "TUNE_DATASET_ROW_COUNT" "${RESOLVED_DATASET_ROW_COUNT:-0}"
+    _update_config_var "TUNE_DATASET_SOURCE" "${ARG_DATASET}"
+    _update_config_var "TUNE_LAST_JOB_NAME" "${JOB_NAME}"
+    # Technique-specific dataset vars (allows --from-tune <technique> resolution)
+    _update_config_var "TUNE_DATASET_S3_URI_${technique_upper}" "${RESOLVED_DATASET_S3_URI:-}"
+    _update_config_var "TUNE_DATASET_ROW_COUNT_${technique_upper}" "${RESOLVED_DATASET_ROW_COUNT:-0}"
+    _update_config_var "TUNE_DATASET_SOURCE_${technique_upper}" "${ARG_DATASET}"
 }
 
 
@@ -1292,6 +1387,56 @@ _handle_interrupt() {
     exit 130
 }
 
+# ── _derive_dataset_slug() ────────────────────────────────────────────────────
+# Derive a short slug from the dataset argument for config variable naming.
+# Rules: lowercase, strip non-alphanumeric (keep hyphens), truncate to 20 chars,
+# collapse consecutive hyphens, strip leading/trailing hyphens.
+#
+# Examples:
+#   hf://tatsu-lab/alpaca           → alpaca
+#   hf://Open-Orca/OpenOrca         → openorca
+#   s3://bucket/path/train.jsonl    → train
+#   s3://bucket/path/file.parquet   → file
+_derive_dataset_slug() {
+    local dataset="${1:-}"
+    local slug=""
+
+    if [ -z "${dataset}" ]; then
+        echo ""
+        return
+    fi
+
+    if [[ "${dataset}" == hf://* ]]; then
+        # HuggingFace format: hf://org/name or hf://org/name?file=...
+        # Strip query params
+        local hf_path="${dataset#hf://}"
+        hf_path="${hf_path%%\?*}"
+        # Take the last component (dataset name, not org)
+        slug="${hf_path##*/}"
+    elif [[ "${dataset}" == s3://* ]]; then
+        # S3 format: s3://bucket/path/file.ext → slug from filename without extension
+        local filename="${dataset##*/}"
+        slug="${filename%.*}"
+    else
+        # Fallback: use the last path component without extension
+        local filename="${dataset##*/}"
+        slug="${filename%.*}"
+    fi
+
+    # Slugification: lowercase, strip non-alphanumeric (keep hyphens)
+    slug=$(echo "${slug}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+    # Collapse consecutive hyphens
+    slug=$(echo "${slug}" | sed 's/-\{2,\}/-/g')
+    # Strip leading/trailing hyphens
+    slug=$(echo "${slug}" | sed 's/^-//;s/-$//')
+    # Truncate to 20 chars
+    slug="${slug:0:20}"
+    # Strip trailing hyphen after truncation
+    slug=$(echo "${slug}" | sed 's/-$//')
+
+    echo "${slug}"
+}
+
 # ── _handle_completion() ──────────────────────────────────────────────────────
 # Store output paths, detect output type, print next-step commands.
 _handle_completion() {
@@ -1351,6 +1496,14 @@ _handle_completion() {
     # Store output paths in config
     if [ "${output_type}" = "adapter" ]; then
         _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}" "${artifact_path}"
+        # Write dataset-specific adapter path if dataset slug is available
+        local dataset_slug
+        dataset_slug=$(_derive_dataset_slug "${ARG_DATASET:-}")
+        if [ -n "${dataset_slug}" ]; then
+            local slug_upper
+            slug_upper=$(echo "${dataset_slug}" | tr '[:lower:]' '[:upper:]' | sed 's/-/_/g')
+            _update_config_var "TUNE_ADAPTER_PATH_${technique_upper}_${slug_upper}" "${artifact_path}"
+        fi
     else
         _update_config_var "TUNE_MODEL_PATH_${technique_upper}" "${artifact_path}"
     fi
@@ -1361,9 +1514,14 @@ _handle_completion() {
     echo "📋 Next steps:"
     echo ""
     if [ "${output_type}" = "adapter" ]; then
+        local dataset_slug
+        dataset_slug=$(_derive_dataset_slug "${ARG_DATASET:-}")
         echo "   Deploy as LoRA adapter:"
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --from-tune"
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --from-tune ${ARG_TECHNIQUE}"
+        if [ -n "${dataset_slug}" ]; then
+            echo "     ./do/adapter add tuned-${ARG_TECHNIQUE}-${dataset_slug} --from-tune ${ARG_TECHNIQUE}-${dataset_slug}"
+        fi
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --weights ${artifact_path}"
     else
         echo "   Deploy as new inference component:"
@@ -1457,6 +1615,43 @@ fi
 # Handle --discover flag (before requiring --technique and --dataset)
 if [ "${ARG_DISCOVER}" = true ]; then
     _run_discover "${ARG_DISCOVER_FILTER}"
+    exit 0
+fi
+
+# Handle --list-datasets (before requiring --technique and --dataset)
+if [ "${ARG_LIST_DATASETS}" = true ]; then
+    echo ""
+    echo "📦 Registered datasets:"
+    echo ""
+
+    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets 2>/dev/null) || _ds_output=""
+    _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1)
+
+    if [ -n "${_ds_json}" ]; then
+        _ds_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('datasets',[])))" 2>/dev/null) || _ds_count=0
+        if [ "${_ds_count}" -gt 0 ]; then
+            printf "  %-25s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "ROWS" "S3 URI"
+            printf "  %-25s %-10s %-8s %s\n" "----" "---------" "----" "------"
+            echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for ds in data.get('datasets', []):
+    name = ds.get('name','')[:25]
+    tech = ds.get('technique','')[:10]
+    rows = str(ds.get('row_count',''))[:8]
+    uri = ds.get('s3_uri','')
+    print(f'  {name:<25} {tech:<10} {rows:<8} {uri}')
+" 2>/dev/null
+        else
+            echo "  (none registered)"
+        fi
+    else
+        echo "  (none registered)"
+    fi
+    echo ""
+    echo "  Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
+    echo "  Use:      ./do/tune --technique sft --dataset <name>"
+    echo ""
     exit 0
 fi
 

@@ -315,7 +315,7 @@
             "envVar": "ML_ENABLE_LORA",
             "templateVar": "enableLora",
             "configKey": "enableLora",
-            "default": false,
+            "default": true,
             "validation": {},
             "phase": "features",
             "group": "lora",
@@ -429,7 +429,7 @@
             "envVar": "ML_INCLUDE_BENCHMARK",
             "templateVar": "includeBenchmark",
             "configKey": "includeBenchmark",
-            "default": false,
+            "default": true,
             "validation": {},
             "phase": "features",
             "group": "benchmark",
@@ -438,8 +438,7 @@
                     "managed-inference"
                 ],
                 "architectures": [
-                    "transformers",
-                    "diffusors"
+                    "*"
                 ]
             },
             "widget": {
@@ -1833,6 +1832,35 @@
             "repeatable": true,
             "deprecated": false,
             "since": "0.5.0"
+        },
+        "icEnv": {
+            "type": "string",
+            "description": "Deploy-time environment variable for inference components (IC_ENV_* prefix), repeatable (e.g. VLLM_MAX_MODEL_LEN=8192)",
+            "cliFlag": "--ic-env",
+            "cliArgName": "KEY=VALUE",
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "icEnv",
+            "default": [],
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "inference-component",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "env-vars",
+                "inputType": "repeatable-kv"
+            },
+            "prompt": null,
+            "repeatable": true,
+            "deprecated": false,
+            "since": "0.12.0"
         },
         "includeSample": {
             "type": "boolean",

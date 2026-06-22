@@ -25,8 +25,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { resolveModelMetadata } from './lib/model-resolver.js';
-import { estimateVram } from './lib/vram-estimator.js';
-import { filterAndRankInstances, applyAvailabilityRanking } from './lib/instance-ranker.js';
+import { estimateVram, computeMaxModelLen } from './lib/vram-estimator.js';
+import { filterAndRankInstances, applyAvailabilityRanking, getPerGpuMemoryGb } from './lib/instance-ranker.js';
 import { QuotaResolver } from './lib/quota-resolver.js';
 import { queryBedrock } from '../lib/bedrock-client.js';
 
@@ -393,6 +393,66 @@ async function handleGetInstanceRecommendation(params) {
         { limit }
     );
 
+    // Step 3-max_model_len: When no instance fits at full context, try capping context length
+    // NFR-1 guard: skip this logic for models with recommendedInstances in catalog
+    let suggestedMaxModelLen = null;
+    let contextLengthCapped = false;
+    let originalMaxPositionEmbeddings = null;
+
+    if (recommendations.length === 0 && !modelMetadata.recommendedInstances && modelMetadata.maxPositionEmbeddings) {
+        // Find the largest available GPU instance
+        const gpuInstances = Object.entries(effectiveCatalog)
+            .filter(([, meta]) => meta.category === 'gpu' && meta.gpus > 0)
+            .map(([name, meta]) => {
+                const perGpu = getPerGpuMemoryGb(meta);
+                return { name, meta, totalVramGb: perGpu ? perGpu * meta.gpus : 0 };
+            })
+            .filter(i => i.totalVramGb > 0)
+            .sort((a, b) => b.totalVramGb - a.totalVramGb);
+
+        if (gpuInstances.length > 0) {
+            const bestInstance = gpuInstances[0];
+
+            // Compute model weight memory for computeMaxModelLen
+            const weightsGb = vramEstimate.breakdown.weightsGb;
+
+            const safeLen = computeMaxModelLen({
+                modelWeightGb: weightsGb,
+                totalGpuMemoryGb: bestInstance.meta.gpuMemoryGb || (bestInstance.totalVramGb / bestInstance.meta.gpus),
+                gpuCount: bestInstance.meta.gpus,
+                numLayers: modelMetadata.numLayers,
+                numKvHeads: modelMetadata.numKvHeads,
+                headDim: modelMetadata.headDim
+            });
+
+            if (safeLen && safeLen.maxModelLen >= 2048) {
+                // Re-estimate VRAM with capped sequence length
+                const cappedEstimate = estimateVram({
+                    parameterCount: modelMetadata.parameterCount,
+                    dtype: modelMetadata.dtype,
+                    quantization: quantization || undefined,
+                    maxSequenceLength: safeLen.maxModelLen,
+                    batchSize: effectiveBatchSize || undefined
+                });
+
+                // Re-filter instances with the reduced VRAM requirement
+                recommendations = filterAndRankInstances(
+                    cappedEstimate.vramGb,
+                    effectiveCatalog,
+                    { limit }
+                );
+
+                suggestedMaxModelLen = safeLen.maxModelLen;
+                contextLengthCapped = true;
+                originalMaxPositionEmbeddings = modelMetadata.maxPositionEmbeddings;
+                log(`Context capped: ${modelMetadata.maxPositionEmbeddings} → ${safeLen.maxModelLen} for ${modelName}`);
+            } else {
+                // AC-1.6: safeLen < 2048 or null — recommend larger instance instead
+                log(`Model ${modelName} cannot fit 2048 context on ${bestInstance.name}, recommending larger instance`);
+            }
+        }
+    }
+
     // Step 3a: Quota & availability filtering (discover mode only)
     let preQuotaFilterCount = 0;
     let allFilteredByQuota = false;
@@ -521,7 +581,10 @@ async function handleGetInstanceRecommendation(params) {
         content: [{
             type: 'text',
             text: JSON.stringify({
-                values: { instanceType: topRecommendation },
+                values: {
+                    instanceType: topRecommendation,
+                    ...(suggestedMaxModelLen ? { maxModelLen: suggestedMaxModelLen } : {})
+                },
                 choices: { instanceType: rankedList },
                 metadata: {
                     modelName,
@@ -533,7 +596,12 @@ async function handleGetInstanceRecommendation(params) {
                     recommendations: finalRecommendations,
                     source: modelMetadata.source,
                     smartModeUsed,
-                    allFilteredByQuota
+                    allFilteredByQuota,
+                    ...(contextLengthCapped ? {
+                        suggestedMaxModelLen,
+                        contextLengthCapped: true,
+                        originalMaxPositionEmbeddings
+                    } : {})
                 }
             })
         }]

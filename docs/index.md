@@ -19,7 +19,6 @@ ml-container-creator my-llm \
   --deployment-config=transformers-vllm \
   --model-name=Qwen/Qwen3-4B \
   --instance-type=ml.g5.xlarge \
-  --enable-lora \
   --skip-prompts
 
 # Build, deploy, and test

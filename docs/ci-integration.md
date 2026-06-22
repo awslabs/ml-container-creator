@@ -341,7 +341,6 @@ ml-container-creator <project-name> \
   --model-name=<hf-id> \
   --instance-type=<instance> \
   --region=us-west-2 \
-  --enable-lora \
   --skip-prompts
 ```
 
@@ -694,7 +693,7 @@ Each entry in `scripts/e2e-catalog.json`:
   "id": "rt-qwen3-4b",
   "tier": "ci",
   "track": "realtime",
-  "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2 --deployment-target=realtime-inference --enable-lora",
+  "args": "--deployment-config=transformers-vllm --model-name=Qwen/Qwen3-4B --instance-type=ml.g5.xlarge --region=us-west-2 --deployment-target=realtime-inference",
   "lifecycle": ["build", "push", "deploy", "test", "tune-sft", "adapter-add", "test-adapter", "clean"],
   "timeout": 1800,
   "tuneTimeout": 3600,

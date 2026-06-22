@@ -710,6 +710,11 @@ export default class PromptRunner {
             delete combinedAnswers.customHyperPodCluster;
         }
 
+        // Propagate max_model_len from instance-sizer context capping (AC-1.7)
+        if (this._sizerMaxModelLen) {
+            combinedAnswers.sizerMaxModelLen = this._sizerMaxModelLen;
+        }
+
         // Apply CUDA version selection → inference AMI override
         if (combinedAnswers._resolvedInferenceAmiVersion) {
             combinedAnswers.inferenceAmiVersion = combinedAnswers._resolvedInferenceAmiVersion;

@@ -31,9 +31,6 @@ const LORA_INCOMPATIBLE_BACKENDS = [
 /** Architectures used in generation */
 const ARCHITECTURES = ['transformers', 'diffusors', 'triton', 'http'];
 
-/** Test type selections a user might make */
-const TEST_TYPE_OPTIONS = ['local-model-cli', 'local-model-server', 'hosted-model-endpoint', ''];
-
 // ── Property 1: LoRA always enabled for compatible backends ──────────────────
 
 describe('Feature: lora-benchmark-simplification, Property 1: LoRA always enabled for compatible backends', () => {
@@ -158,15 +155,14 @@ describe('Feature: lora-benchmark-simplification, Property 2: LoRA excluded for 
 
 describe('Feature: lora-benchmark-simplification, Property 3: Benchmark always generated', () => {
 
-    it('for any combination of testTypes, includeBenchmark is always true', { timeout: 30000 }, async () => {
+    it('for any backend and architecture, includeBenchmark defaults to true when not explicitly set', { timeout: 30000 }, async () => {
         /**
-         * **Validates: Requirements 2.2**
+         * **Validates: Requirements 2.2, 2.4**
          */
         await fc.assert(fc.asyncProperty(
-            fc.subarray(TEST_TYPE_OPTIONS),
             fc.constantFrom(...LORA_COMPATIBLE_BACKENDS, ...LORA_INCOMPATIBLE_BACKENDS),
             fc.constantFrom(...ARCHITECTURES),
-            async (testTypes, backend, architecture) => {
+            async (backend, architecture) => {
                 const answers = {
                     projectName: 'test-project',
                     architecture,
@@ -175,21 +171,21 @@ describe('Feature: lora-benchmark-simplification, Property 3: Benchmark always g
                     deploymentConfig: `${architecture}-${backend}`,
                     awsRegion: 'us-east-1',
                     instanceType: 'ml.g5.xlarge',
-                    deploymentTarget: 'realtime-inference',
-                    testTypes: testTypes.filter(t => t !== '')
+                    deploymentTarget: 'realtime-inference'
+                    // includeBenchmark NOT set — should default to true
                 };
 
                 await _ensureTemplateVariables(answers, null);
 
                 assert.strictEqual(answers.includeBenchmark, true,
-                    `includeBenchmark must always be true regardless of testTypes ${JSON.stringify(testTypes)}, but got ${answers.includeBenchmark}`);
+                    `includeBenchmark must default to true for backend "${backend}", architecture "${architecture}"`);
             }
         ), { numRuns: PROPERTY_CONFIG.numRuns });
     });
 
-    it('for any backend and architecture, includeBenchmark is true even when explicitly set to false', { timeout: 30000 }, async () => {
+    it('for any backend and architecture, explicit includeBenchmark=false is respected (AC-2.7)', { timeout: 30000 }, async () => {
         /**
-         * **Validates: Requirements 2.2**
+         * **Validates: Requirements 2.4, 2.7**
          */
         await fc.assert(fc.asyncProperty(
             fc.constantFrom(...LORA_COMPATIBLE_BACKENDS, ...LORA_INCOMPATIBLE_BACKENDS),
@@ -204,13 +200,13 @@ describe('Feature: lora-benchmark-simplification, Property 3: Benchmark always g
                     awsRegion: 'us-east-1',
                     instanceType: 'ml.g5.xlarge',
                     deploymentTarget: 'realtime-inference',
-                    includeBenchmark: false // explicitly set to false — resolver should override
+                    includeBenchmark: false // explicitly set to false — resolver should respect
                 };
 
                 await _ensureTemplateVariables(answers, null);
 
-                assert.strictEqual(answers.includeBenchmark, true,
-                    `includeBenchmark must be overridden to true for backend "${backend}", architecture "${architecture}"`);
+                assert.strictEqual(answers.includeBenchmark, false,
+                    `includeBenchmark=false must be respected when explicitly set for backend "${backend}", architecture "${architecture}"`);
             }
         ), { numRuns: PROPERTY_CONFIG.numRuns });
     });

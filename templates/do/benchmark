@@ -39,16 +39,17 @@ while [ $# -gt 0 ]; do
             echo "Options:"
             echo "  --status            Check job status; if completed, download results + write to Athena"
             echo "  --ic <name>         Benchmark a specific inference component"
-            echo "  --adapter <name>    Benchmark a specific LoRA adapter IC"
+            echo "  --adapter <name>    Benchmark a specific LoRA adapter (routes via adapter IC, records adapter_name in Athena)"
             echo "  --force             Create a new benchmark job even if one is already running"
             echo "  --clean             Delete workload config and benchmark job after displaying results"
-            echo "  --no-stale-warning  Suppress schema registry staleness warning"
             echo "  --no-stale-warning  Suppress schema registry staleness warning"
             echo ""
             echo "IC resolution:"
             echo "  --adapter <name> Use ADAPTER_IC_NAME from do/adapters/<name>.conf"
             echo "  --ic <name>      Use IC_DEPLOYED_NAME from do/ic/<name>.conf"
             echo "  (no flag)        Use first IC in do/ic/ alphabetically, or legacy config"
+            echo ""
+            echo "Adapter benchmarks are differentiated from base model runs in Athena via the adapter_name column."
             echo ""
             echo "Status:"
             echo "  After interrupting a running benchmark, use --status to check completion"
@@ -113,10 +114,17 @@ if [ "${ARG_STATUS}" = true ]; then
                     aws s3 sync "${RESULTS_S3_PATH}" "${LOCAL_RESULTS_DIR}/output/" \
                         --region "${AWS_REGION}" --quiet
                     # Untar if output.tar.gz exists
-                    local tar_file
+                    tar_file=""
                     tar_file=$(find "${LOCAL_RESULTS_DIR}" -name "output.tar.gz" -type f 2>/dev/null | head -1)
                     if [ -n "${tar_file}" ]; then
-                        tar -xzf "${tar_file}" --strip-components=1 -C "${LOCAL_RESULTS_DIR}/output/" 2>/dev/null || true
+                        # Detect whether tar has a leading directory prefix
+                        _tar_first=""
+                        _tar_first=$(tar -tzf "${tar_file}" 2>/dev/null | head -1)
+                        if echo "${_tar_first}" | grep -qE '^[^/]+/$'; then
+                            tar -xzf "${tar_file}" --strip-components=1 -C "${LOCAL_RESULTS_DIR}/output/" 2>/dev/null || true
+                        else
+                            tar -xzf "${tar_file}" -C "${LOCAL_RESULTS_DIR}/output/" 2>/dev/null || true
+                        fi
                     fi
                     # Re-search after extraction
                     RESULTS_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1)
@@ -145,7 +153,8 @@ if [ "${ARG_STATUS}" = true ]; then
                         --workload "${BENCHMARK_WORKLOAD:-manual}" \
                         --concurrency "${BENCHMARK_CONCURRENCY:-2}" \
                         --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
-                        --region "${AWS_REGION:-${REGION}}"; then
+                        --region "${AWS_REGION:-${REGION}}" \
+                        ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
                         echo "   ✅ Results persisted to Athena"
                     else
                         echo "   ⚠️  Athena write failed (non-fatal)"
@@ -549,7 +558,8 @@ print(f'Combined {n_metrics} concurrency level results')
                 --project-name "${PROJECT_NAME}" \
                 --workload "${BENCHMARK_WORKLOAD:-manual}" \
                 --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
-                --region "${AWS_REGION:-${REGION}}"; then
+                --region "${AWS_REGION:-${REGION}}" \
+                ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
                 echo "✅ Multi-level benchmark results persisted to S3"
             else
                 echo "⚠️  Failed to persist multi-level benchmark results to Athena (non-fatal)"
@@ -1087,7 +1097,16 @@ if [ "${JOB_STATUS}" = "Completed" ]; then
             # Extract any tar.gz archives (benchmark service packages results as output.tar.gz)
             for ARCHIVE in $(find "${LOCAL_RESULTS_DIR}" -name "*.tar.gz" -type f 2>/dev/null); do
                 ARCHIVE_DIR=$(dirname "${ARCHIVE}")
-                tar -xzf "${ARCHIVE}" --strip-components=1 -C "${ARCHIVE_DIR}" 2>/dev/null || true
+                # Detect whether tar has a leading directory prefix to strip.
+                # Some AIPerf versions wrap in output/, others are flat.
+                _TAR_FIRST=$(tar -tzf "${ARCHIVE}" 2>/dev/null | head -1)
+                if echo "${_TAR_FIRST}" | grep -qE '^[^/]+/$'; then
+                    # Leading directory (e.g., "output/") — strip it
+                    tar -xzf "${ARCHIVE}" --strip-components=1 -C "${ARCHIVE_DIR}" 2>/dev/null || true
+                else
+                    # Flat archive — extract as-is
+                    tar -xzf "${ARCHIVE}" -C "${ARCHIVE_DIR}" 2>/dev/null || true
+                fi
             done
 
             # Look for specific result files (priority: JSONL > aiperf JSON)
@@ -1346,7 +1365,8 @@ except Exception as e:
             --workload "${BENCHMARK_WORKLOAD:-manual}" \
             --concurrency "${BENCHMARK_CONCURRENCY}" \
             --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
-            --region "${AWS_REGION:-${REGION}}"; then
+            --region "${AWS_REGION:-${REGION}}" \
+            ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
             echo "✅ Benchmark results persisted to S3"
         else
             echo "⚠️  Failed to persist benchmark results to Athena (non-fatal)"

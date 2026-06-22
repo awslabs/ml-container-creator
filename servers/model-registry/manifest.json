@@ -1,0 +1,14 @@
+{
+    "name": "@amzn/ml-container-creator-model-registry",
+    "version": "1.0.0",
+    "description": "MCP server that queries registered models, adapters, datasets, and evaluators from the SageMaker Model Registry.",
+    "modes": {
+        "static": false,
+        "smart": false,
+        "discover": true
+    },
+    "catalogs": {},
+    "tool": {
+        "name": "get_model_registry"
+    }
+}

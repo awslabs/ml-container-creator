@@ -189,6 +189,18 @@ curl -X POST http://localhost:8080/invocations \
 
 ## LoRA Adapter Issues
 
+!!! tip "Testing a specific adapter"
+    To test a specific adapter by name, use either syntax:
+    ```bash
+    # Positional (adapter name as argument)
+    ./do/test my-adapter
+
+    # Flag syntax
+    ./do/test --adapter my-adapter
+    ./do/test -a my-adapter
+    ```
+    Both route the request through the adapter's inference component and override the model name in the payload.
+
 ### "Not Found" Error on First Adapter Invocation
 
 **Symptoms:** After `do/adapter add`, the first `do/test` returns `{"detail":"Not Found"}` but a second attempt works.

@@ -10,6 +10,15 @@ The deployment registry tracks every configuration you deploy — model, instanc
 # Register a successful deployment
 ./do/register
 
+# Register base model only (skip adapters)
+./do/register --base-only
+
+# Register a dataset from the last tune job
+./do/register dataset --from-tune sft
+
+# Register an evaluator
+./do/register evaluator my-reward --type lambda --arn arn:aws:lambda:... --technique rlvr
+
 # Register with notes
 ./do/register --notes "Upgraded to vLLM 0.8.5, 20% latency improvement"
 
@@ -59,6 +68,8 @@ Every registration records:
 | `--ci-table <name>` | Override CI table name (default: `mlcc-ci-table`) |
 | `--build-strategy <value>` | Record how the image was built (default: `codebuild-submit`) |
 | `--project` | Include project-level metadata |
+| `--base-only` | Register the base model only — skip adapter registration loop |
+| `--exclude <name>` | Skip specific adapters (repeatable or comma-separated) |
 
 ---
 
@@ -67,6 +78,87 @@ Every registration records:
 ### Local Registry (Default)
 
 Without `--ci`, `do/register` calls `ml-container-creator registry log` which appends to the local registry. Use `ml-container-creator registry` subcommands to query it:
+
+---
+
+## Subcommands
+
+`do/register` supports three subcommands: **model** (default), **dataset**, and **evaluator**.
+
+### Model Registration (default)
+
+When called without a subcommand (or with `model`), registers the deployed model as a versioned Model Package in SageMaker, then registers all adapters from `do/adapters/*.conf`:
+
+```bash
+# Register base model + all adapters
+./do/register
+
+# Register base model only
+./do/register --base-only
+
+# Register all adapters except a specific one
+./do/register --exclude llama-factory
+
+# Exclude multiple adapters
+./do/register --exclude "llama-factory,experimental-v1"
+```
+
+Each adapter in `do/adapters/*.conf` is registered as a linked ModelPackage version with `isAdapter=true` and `parentModelVersionArn` pointing to the base model version.
+
+### Dataset Registration
+
+Register a training dataset to the SageMaker AI Registry (with local JSON fallback):
+
+```bash
+# Register from the last tune job (auto-derives name, URI, technique, row count)
+./do/register dataset --from-tune sft
+./do/register dataset --from-tune dpo
+
+# With a custom name override
+./do/register dataset my-custom-name --from-tune sft
+
+# Fully explicit registration
+./do/register dataset alpaca-sft-1k \
+  --s3-uri s3://my-bucket/datasets/train.jsonl \
+  --technique sft \
+  --format jsonl \
+  --row-count 1000
+```
+
+| Flag | Description |
+|---|---|
+| `<name>` | Dataset name (positional, or use `--name`) |
+| `--s3-uri <uri>` | S3 URI of the dataset file (required unless `--from-tune`) |
+| `--format <fmt>` | Format: `jsonl`, `parquet`, `csv` (default: `jsonl`) |
+| `--technique <tech>` | Technique: `sft`, `dpo`, `rlaif`, `rlvr` (default: `sft`) |
+| `--row-count <n>` | Number of records |
+| `--column-schema <json>` | Column schema as JSON string |
+| `--from-tune [technique]` | Auto-populate from the last tune job's persisted state |
+
+### Evaluator Registration
+
+Register a reward function (RLVR) or preference model (RLAIF):
+
+```bash
+./do/register evaluator my-reward-fn \
+  --type lambda \
+  --arn arn:aws:lambda:us-west-2:123456789012:function:my-reward \
+  --technique rlvr \
+  --description "Custom reward function for code quality"
+```
+
+| Flag | Description |
+|---|---|
+| `<name>` | Evaluator name (positional, or use `--name`) |
+| `--type <type>` | Type: `lambda` or `model` (required) |
+| `--arn <arn>` | Lambda ARN or model S3 URI (required) |
+| `--technique <tech>` | Technique: `rlvr` or `rlaif` (required) |
+| `--description <text>` | Optional description |
+
+!!! note "Backward Compatibility"
+    The older flag-based syntax (`./do/register --dataset --dataset-name ...` and `./do/register --evaluator --evaluator-name ...`) still works but is deprecated in favor of subcommands.
+
+---
 
 ```bash
 # List all registered deployments

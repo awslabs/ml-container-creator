@@ -487,6 +487,7 @@ def enrich_records(config, results, run_timestamp=None):
             'mcc_version': mcc_version,
             'run_timestamp': run_timestamp.isoformat(),
             'region': region,
+            'adapter_name': config.get('adapter_name', ''),
         }
         records.append(record)
 
@@ -859,6 +860,7 @@ def get_parquet_schema():
         pa.field("mcc_version", pa.string()),
         pa.field("run_timestamp", pa.string()),
         pa.field("region", pa.string()),
+        pa.field("adapter_name", pa.string()),
     ])
 
 
@@ -1177,6 +1179,8 @@ def cmd_write(args):
         input_data['workload'] = args.workload
     if args.region:
         input_data['region'] = args.region
+    if args.adapter_name:
+        input_data['adapter_name'] = args.adapter_name
 
     # ── Validate before any S3 interaction ────────────────────────────────
     errors = validate_benchmark_input(input_data)
@@ -1462,6 +1466,11 @@ def main():
         '--region',
         help='AWS region'
     )
+    write_parser.add_argument(
+        '--adapter-name', dest='adapter_name', default=None,
+        help='LoRA adapter name (differentiates adapter benchmarks from base model in Athena)'
+    )
+
     write_parser.add_argument(
         '--dry-run', dest='dry_run', action='store_true',
         help='Output enriched records as JSON without writing to S3'

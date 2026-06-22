@@ -90,7 +90,7 @@ const loraPrompts = [
         type: 'confirm',
         name: 'enableLora',
         message: 'Enable LoRA adapter serving?',
-        default: false,
+        default: true,
         when: (answers) => {
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
             const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-');

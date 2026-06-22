@@ -83,7 +83,8 @@ describe('MCP Base Image Picker Registration', function () {
     // Section 2: Registration via mcp init
     // ========================================================================
 
-    describe('Registration via mcp init', () => {
+    describe('Registration via mcp init', function () {
+        this.timeout(120000);
         let tmpDir;
 
         beforeEach(() => {

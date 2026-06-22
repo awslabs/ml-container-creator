@@ -1034,6 +1034,7 @@ export class MlccCiHarnessStack extends cdk.Stack {
                         { name: 'mcc_version', type: 'string', comment: 'MCC version' },
                         { name: 'run_timestamp', type: 'string', comment: 'ISO 8601 UTC timestamp' },
                         { name: 'region', type: 'string', comment: 'AWS region' },
+                        { name: 'adapter_name', type: 'string', comment: 'LoRA adapter name (empty for base model)' },
                     ],
                     location: `s3://mlcc-benchmark-results-${this.account}-${this.region}/results/`,
                     inputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
@@ -1074,8 +1075,13 @@ export class MlccCiHarnessStack extends cdk.Stack {
         });
 
         // S3 bucket for benchmark results (Parquet files partitioned by region/year/month)
-        const benchmarkResultsBucket = new s3.Bucket(this, 'BenchmarkResultsBucket', {
-            bucketName: `mlcc-benchmark-results-${this.account}-${this.region}`,
+        const importExistingBucket = this.node.tryGetContext('importExistingBenchmarkBucket') === 'true'
+            || this.node.tryGetContext('importExistingBenchmarkBucket') === true;
+        const benchmarkResultsBucketName = `mlcc-benchmark-results-${this.account}-${this.region}`;
+        const benchmarkResultsBucket = importExistingBucket
+            ? s3.Bucket.fromBucketName(this, 'BenchmarkResultsBucket', benchmarkResultsBucketName)
+            : new s3.Bucket(this, 'BenchmarkResultsBucket', {
+            bucketName: benchmarkResultsBucketName,
             removalPolicy: cdk.RemovalPolicy.RETAIN,
             lifecycleRules: [
                 {
@@ -1090,9 +1096,11 @@ export class MlccCiHarnessStack extends cdk.Stack {
             ],
         });
 
-        // Apply the benchmark condition to the S3 bucket
-        const cfnBenchmarkBucket = benchmarkResultsBucket.node.defaultChild as cdk.CfnResource;
-        cfnBenchmarkBucket.cfnOptions.condition = benchmarkInfraCondition;
+        // Apply the benchmark condition to the S3 bucket (only for new buckets, not imported ones)
+        if (!importExistingBucket) {
+            const cfnBenchmarkBucket = benchmarkResultsBucket.node.defaultChild as cdk.CfnResource;
+            cfnBenchmarkBucket.cfnOptions.condition = benchmarkInfraCondition;
+        }
 
         // Output the benchmark results bucket ARN (conditional)
         new cdk.CfnOutput(this, 'BenchmarkResultsBucketArn', {

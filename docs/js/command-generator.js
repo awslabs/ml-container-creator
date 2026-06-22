@@ -2,19 +2,20 @@
  * MCC Interactive Command Generator
  * Generates full deployment scripts with multi-IC and adapter support.
  */
+/* eslint-env browser */
 (function () {
     'use strict';
 
     // State
     let catalogs = {};
-    let state = {
+    const state = {
         projectName: 'my-project',
         model: '',
         deploymentConfig: 'transformers-vllm',
         serverVersion: '',
         instanceType: '',
         deploymentTarget: 'managed-inference',
-        features: { lora: false, benchmark: false, secrets: false },
+        features: { lora: true, benchmark: true, secrets: false },
         lora: { maxLoras: 30, maxLoraRank: 64 },
         benchmark: { concurrency: 10, inputTokens: 550, outputTokens: 150, streaming: true },
         server: { tp: 1, maxModelLen: 4096, gpuMemUtil: 0.9, maxNumSeqs: 256, prefixCaching: true },
@@ -75,19 +76,12 @@
 
     // Get server versions for a config
     function getServerVersions() {
-        const serverKey = state.deploymentConfig.split('-').slice(1).join('-')
-            .replace('tensorrt-llm', 'tensorrt-llm')
-            .replace('vllm-omni', 'vllm-omni')
-            .replace('vllm', 'vllm')
-            .replace('sglang', 'sglang')
-            .replace('lmi', 'lmi')
-            .replace('djl', 'djl');
         const key = state.deploymentConfig.includes('vllm-omni') ? 'vllm-omni'
             : state.deploymentConfig.includes('tensorrt') ? 'tensorrt-llm'
-            : state.deploymentConfig.includes('sglang') ? 'sglang'
-            : state.deploymentConfig.includes('lmi') ? 'lmi'
-            : state.deploymentConfig.includes('djl') ? 'djl'
-            : 'vllm';
+                : state.deploymentConfig.includes('sglang') ? 'sglang'
+                    : state.deploymentConfig.includes('lmi') ? 'lmi'
+                        : state.deploymentConfig.includes('djl') ? 'djl'
+                            : 'vllm';
         const versions = catalogs.modelServers?.[key] || [];
         return versions.map(v => ({
             value: v.tag,
@@ -137,14 +131,15 @@
         if (state.model) cmd += ` \\\n  --model-name=${state.model}`;
         if (state.instanceType) cmd += ` \\\n  --instance-type=${state.instanceType}`;
         cmd += ` \\\n  --deployment-target=${state.deploymentTarget}`;
-        if (state.features.benchmark) cmd += ` \\\n  --include-benchmark`;
+        if (!state.features.lora) cmd += ' \\\n  --enable-lora=false';
+        if (!state.features.benchmark) cmd += ' \\\n  --include-benchmark=false';
         if (state.features.benchmark) {
             cmd += ` \\\n  --benchmark-concurrency=${state.benchmark.concurrency}`;
             cmd += ` \\\n  --benchmark-input-tokens=${state.benchmark.inputTokens}`;
             cmd += ` \\\n  --benchmark-output-tokens=${state.benchmark.outputTokens}`;
-            if (state.benchmark.streaming) cmd += ` \\\n  --benchmark-streaming`;
+            if (state.benchmark.streaming) cmd += ' \\\n  --benchmark-streaming';
         }
-        cmd += ` \\\n  --skip-prompts`;
+        cmd += ' \\\n  --skip-prompts';
         lines.push(cmd);
         lines.push('');
 
@@ -154,9 +149,9 @@
         if (state.server.maxModelLen !== 4096) envLines.push(`VLLM_MAX_MODEL_LEN=${state.server.maxModelLen}`);
         if (state.server.gpuMemUtil !== 0.9) envLines.push(`VLLM_GPU_MEMORY_UTILIZATION=${state.server.gpuMemUtil}`);
         if (state.server.maxNumSeqs !== 256) envLines.push(`VLLM_MAX_NUM_SEQS=${state.server.maxNumSeqs}`);
-        if (!state.server.prefixCaching) envLines.push(`VLLM_ENABLE_PREFIX_CACHING=false`);
+        if (!state.server.prefixCaching) envLines.push('VLLM_ENABLE_PREFIX_CACHING=false');
         if (state.features.lora) {
-            envLines.push(`VLLM_ENABLE_LORA=true`);
+            envLines.push('VLLM_ENABLE_LORA=true');
             envLines.push(`VLLM_MAX_LORAS=${state.lora.maxLoras}`);
             envLines.push(`VLLM_MAX_LORA_RANK=${state.lora.maxLoraRank}`);
         }
@@ -194,7 +189,7 @@
             const icConf = [];
             icConf.push(`# do/ic/ic-${i + 2}.conf:`);
             icConf.push(`# IC_IMAGE_TAG="${state.projectName}-latest"`);
-            if (ic.model) icConf.push(`# IC_CONTAINER_ENV_EXTRA='"VLLM_MODEL":"${ic.model}"${ic.tp ? ',"VLLM_TENSOR_PARALLEL_SIZE":"' + ic.tp + '"' : ''}${ic.maxModelLen ? ',"VLLM_MAX_MODEL_LEN":"' + ic.maxModelLen + '"' : ''}${ic.envOverrides ? ',' + ic.envOverrides.split(',').map(e => { const [k,v] = e.split('='); return `"${k.trim()}":"${(v||'').trim()}"`; }).join(',') : ''}'`);
+            if (ic.model) icConf.push(`# IC_CONTAINER_ENV_EXTRA='"VLLM_MODEL":"${ic.model}"${ic.tp ? `,"VLLM_TENSOR_PARALLEL_SIZE":"${  ic.tp  }"` : ''}${ic.maxModelLen ? `,"VLLM_MAX_MODEL_LEN":"${  ic.maxModelLen  }"` : ''}${ic.envOverrides ? `,${  ic.envOverrides.split(',').map(e => { const [k,v] = e.split('='); return `"${k.trim()}":"${(v||'').trim()}"`; }).join(',')}` : ''}'`);
             if (ic.gpuCount) icConf.push(`# IC_GPU_COUNT=${ic.gpuCount}`);
             if (ic.copyCount) icConf.push(`# IC_COPY_COUNT=${ic.copyCount}`);
             if (ic.minMemory) icConf.push(`# IC_MIN_MEMORY_MB=${ic.minMemory}`);
@@ -371,7 +366,7 @@
                                     <label>Target IC
                                         <select data-idx="${i}" data-field="targetIc" class="mcc-adapter-input">
                                             <option value="primary" ${a.targetIc === 'primary' ? 'selected' : ''}>Primary IC</option>
-                                            ${state.additionalICs.map((ic, j) => `<option value="ic-${j + 2}" ${a.targetIc === 'ic-' + (j+2) ? 'selected' : ''}>IC ${j + 2}${ic.model ? ' (' + ic.model.split('/').pop() + ')' : ''}</option>`).join('')}
+                                            ${state.additionalICs.map((ic, j) => `<option value="ic-${j + 2}" ${a.targetIc === `ic-${  j+2}` ? 'selected' : ''}>IC ${j + 2}${ic.model ? ` (${  ic.model.split('/').pop()  })` : ''}</option>`).join('')}
                                         </select>
                                     </label>
                                     <label>Base Model (optional override)
@@ -495,7 +490,7 @@
                     instance_family: instanceFamily,
                     quantization: 'none',
                     tp_degree: String(state.server.tp || 1),
-                    enable_lora: String(state.features.lora || false),
+                    enable_lora: String(state.features.lora !== false),
                     deployment_target: target
                 };
                 window.CoverageManifold.plotConfig(config);

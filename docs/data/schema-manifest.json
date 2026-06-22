@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-06-15T20:16:03.914Z",
+  "generatedAt": "2026-06-22T13:49:00.887Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "0.13.3",
+  "version": "0.13.5",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -225,7 +225,7 @@
         "inputType": "checkbox",
         "placeholder": null,
         "datalist": null,
-        "default": false,
+        "default": true,
         "validation": {},
         "group": "lora",
         "appliesTo": {
@@ -291,7 +291,7 @@
         "inputType": "checkbox",
         "placeholder": null,
         "datalist": null,
-        "default": false,
+        "default": true,
         "validation": {},
         "group": "benchmark",
         "appliesTo": {
@@ -299,8 +299,7 @@
             "managed-inference"
           ],
           "architectures": [
-            "transformers",
-            "diffusors"
+            "*"
           ]
         }
       },
@@ -433,6 +432,26 @@
         "appliesTo": {
           "deploymentTargets": [
             "*"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "icEnv",
+        "cliFlag": "--ic-env",
+        "type": "string",
+        "description": "Deploy-time environment variable for inference components (IC_ENV_* prefix), repeatable (e.g. VLLM_MAX_MODEL_LEN=8192)",
+        "inputType": "repeatable-kv",
+        "placeholder": null,
+        "datalist": null,
+        "default": [],
+        "validation": {},
+        "group": "inference-component",
+        "appliesTo": {
+          "deploymentTargets": [
+            "managed-inference"
           ],
           "architectures": [
             "*"
@@ -1039,6 +1058,16 @@
       "type": "string",
       "group": "model",
       "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "icEnv",
+      "cliFlag": "--ic-env",
+      "description": "Deploy-time environment variable for inference components (IC_ENV_* prefix), repeatable (e.g. VLLM_MAX_MODEL_LEN=8192)",
+      "type": "string",
+      "group": "inference-component",
+      "phase": "infrastructure",
       "deprecated": false,
       "hasWidget": true
     },

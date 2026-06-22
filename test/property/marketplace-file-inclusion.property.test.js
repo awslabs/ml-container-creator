@@ -45,7 +45,10 @@ const BASE_DO_SCRIPTS = new Set([
     'register',
     'ci',
     'manifest',
-    'stage'
+    'stage',
+    'benchmark',
+    '.benchmark_writer.py',
+    'optimize'
 ]);
 
 /**

@@ -101,7 +101,7 @@ All 68 parameters supported by MCC, organized by category. Each can be set via C
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `enableLora` | `--enable-lora` | boolean | `false` | Enable LoRA adapter serving (env: `ML_ENABLE_LORA`) |
+| `enableLora` | `--enable-lora` | boolean | `true` | Enable LoRA adapter serving (env: `ML_ENABLE_LORA`). Disable with `--enable-lora=false` |
 | `maxLoras` | `--max-loras` | integer | `30` | Maximum concurrent LoRA adapters in GPU memory (env: `ML_MAX_LORAS`) |
 | `maxLoraRank` | `--max-lora-rank` | integer | `64` | Maximum LoRA rank (env: `ML_MAX_LORA_RANK`) |
 
@@ -149,7 +149,7 @@ All 68 parameters supported by MCC, organized by category. Each can be set via C
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `includeBenchmark` | `--include-benchmark` | boolean | `false` | Include `do/benchmark` script in the generated project (env: `ML_INCLUDE_BENCHMARK`) |
+| `includeBenchmark` | `--include-benchmark` | boolean | `true` | Include `do/benchmark` script in the generated project (env: `ML_INCLUDE_BENCHMARK`). Disable with `--include-benchmark=false` |
 
 !!! note "Runtime resolution"
     Benchmark parameters (concurrency, token counts, streaming, S3 paths) are **not** set at generation time. They are resolved at runtime by `do/benchmark --workload <name>` from the workload-picker MCP server and the bootstrap profile. See [Benchmarking](benchmarking.md) for workload profiles and the full runtime flow.
