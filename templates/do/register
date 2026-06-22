@@ -27,6 +27,7 @@ _show_usage() {
     echo "Usage: ./do/register [model] [options]        Register the deployed model to MPG"
     echo "       ./do/register dataset <name> [options] Register a dataset to the registry"
     echo "       ./do/register evaluator <name> [options] Register an evaluator to the registry"
+    echo "       ./do/register --benchmark-status <completed|failed|in-progress> --benchmark-run-id <run-id>"
     echo ""
     echo "Subcommands:"
     echo "  model       (default) Register the current deployment as a Model Package version"

@@ -276,6 +276,58 @@ Datasets can be provided from two sources:
 
 When using a Hugging Face dataset, the script downloads it to S3 automatically before submitting the job. If the dataset requires authentication, set `HF_TOKEN` in your environment or configure it via `do/secrets`.
 
+### Dataset registry
+
+Datasets can be registered for reuse across tuning jobs. Once registered, reference them by name instead of raw S3 URIs:
+
+```bash
+# List all registered datasets
+./do/tune --list-datasets
+
+# Use a registered dataset by name
+./do/tune --technique sft --dataset alpaca-sft-1000
+```
+
+The `--list-datasets` flag shows a table of available datasets:
+
+```
+📦 Registered datasets:
+
+  NAME                      TECHNIQUE  ROWS     S3 URI
+  ----                      ---------  ----     ------
+  alpaca-sft-1000           sft        1000     s3://mlcc-tune-.../train.jsonl
+  orca-dpo-pairs-dpo-1000   dpo        1000     s3://mlcc-tune-.../orca_rlhf.jsonl
+```
+
+#### Registration workflow
+
+The typical workflow is: stage a dataset via `do/tune`, then register it for future reuse:
+
+```bash
+# 1. Stage and use a dataset (ad-hoc — not registered)
+./do/tune --technique sft --dataset hf://tatsu-lab/alpaca --take 1000
+
+# 2. Register the dataset used in the last tune job
+./do/register dataset --from-tune sft
+
+# 3. Now use it by name in future jobs
+./do/tune --technique sft --dataset alpaca-sft-1000
+```
+
+The `--from-tune` flag auto-derives the dataset name, S3 URI, technique, and row count from the most recent tune job. Pass a technique (`sft`, `dpo`) to resolve a specific technique's dataset when you've run multiple jobs.
+
+You can also register datasets explicitly:
+
+```bash
+./do/register dataset my-custom-data \
+  --s3-uri s3://my-bucket/datasets/custom.jsonl \
+  --technique sft \
+  --format jsonl \
+  --row-count 5000
+```
+
+See [Deployment Registry](deployment-registry.md) for full `do/register dataset` documentation.
+
 ### File selection for multi-file datasets
 
 Some HuggingFace datasets contain multiple files under the same split with different schemas. For example, `nvidia/When2Call` has files for tool-calling and general conversation — with different columns in each.

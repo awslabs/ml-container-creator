@@ -165,6 +165,26 @@ This is the recommended workflow for long-running benchmarks:
 ./do/benchmark --status                     # Check later; auto-resolves on completion
 ```
 
+### Adapter Benchmarks
+
+To benchmark a LoRA adapter instead of the base model, pass `--adapter`:
+
+```bash
+./do/benchmark --adapter my-adapter --workload multi_turn_chat
+```
+
+This routes requests through the adapter's inference component and records `adapter_name` in the Athena results. To differentiate adapter vs base model runs in queries:
+
+```sql
+SELECT * FROM mlcc_ci.benchmark_results
+WHERE model_name = 'meta-llama_Llama-3.2-1B-Instruct'
+  AND adapter_name = 'my-adapter';
+```
+
+!!! important
+    When using `--status` to complete an adapter benchmark, you must pass `--adapter` again:
+    `./do/benchmark --status --adapter my-adapter`
+
 ## Cleanup
 
 ```bash
