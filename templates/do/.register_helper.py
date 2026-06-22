@@ -514,6 +514,12 @@ def cmd_register_dataset(args):
     column_schema = args.column_schema
     project_name = args.project_name or ""
 
+    # Set region before any sagemaker import (creates boto3 clients at import time)
+    region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
+    if region:
+        os.environ['AWS_DEFAULT_REGION'] = region
+        os.environ.setdefault('AWS_REGION', region)
+
     if not name:
         _error_exit("--name is required", code="MISSING_ARGUMENT")
     if not s3_uri:
@@ -530,12 +536,19 @@ def cmd_register_dataset(args):
     if _check_ai_registry():
         try:
             from sagemaker.ai_registry.dataset import DataSet
+            from sagemaker.ai_registry.dataset import CustomizationTechnique
+
+            # Map technique string to enum
+            technique_enum = None
+            technique_map = {t.name.lower(): t for t in CustomizationTechnique}
+            if technique.lower() in technique_map:
+                technique_enum = technique_map[technique.lower()]
 
             print(f"Registering dataset '{name}' via SageMaker AI Registry...", file=sys.stderr)
             dataset = DataSet.create(
                 name=name,
                 source=s3_uri,
-                customization_technique=technique.upper(),  # SFT, DPO, RLAIF, RLVR
+                customization_technique=technique_enum,
             )
             dataset_arn = dataset.arn
 
@@ -614,6 +627,22 @@ def _write_dataset_to_local_registry(*, name, s3_uri, data_format, technique,
         entries.append(entry)
 
     _save_registry(_DATASETS_REGISTRY, entries)
+
+
+# ── Subcommand: list-datasets ─────────────────────────────────────────────────
+
+
+def cmd_list_datasets(args):
+    """List all registered datasets from the local registry.
+
+    Returns JSON: {"datasets": [...]}
+    """
+    entries = _load_registry(_DATASETS_REGISTRY)
+    # Filter by technique if provided
+    technique = getattr(args, 'technique', None)
+    if technique:
+        entries = [e for e in entries if e.get('technique') == technique]
+    _output({"datasets": entries})
 
 
 # ── Subcommand: register-evaluator ───────────────────────────────────────────
@@ -1036,6 +1065,14 @@ def main():
                                 help="Column schema as JSON string")
     dataset_parser.add_argument("--project-name", default=None, help="Project name for context")
 
+    # ── list-datasets ─────────────────────────────────────────────────────────
+    list_datasets_parser = subparsers.add_parser(
+        "list-datasets",
+        help="List all registered datasets from the local registry",
+    )
+    list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlaif", "rlvr"],
+                                      help="Filter by tuning technique")
+
     # ── register-evaluator ────────────────────────────────────────────────
     evaluator_parser = subparsers.add_parser(
         "register-evaluator",
@@ -1104,6 +1141,8 @@ def main():
         cmd_register_adapter(args)
     elif args.command == "register-dataset":
         cmd_register_dataset(args)
+    elif args.command == "list-datasets":
+        cmd_list_datasets(args)
     elif args.command == "register-evaluator":
         cmd_register_evaluator(args)
     elif args.command == "list-adapters":

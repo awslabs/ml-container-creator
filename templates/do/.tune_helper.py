@@ -534,6 +534,12 @@ def cmd_status(args):
     Returns: {"status": str, "failure_reason": str|None,
               "metrics": dict|None, "elapsed_seconds": int}
     """
+    # Set region before any sagemaker import (creates boto3 clients at import time)
+    region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
+    if region:
+        os.environ['AWS_DEFAULT_REGION'] = region
+        os.environ.setdefault('AWS_REGION', region)
+
     from sagemaker.core.resources import TrainingJob
     from botocore.exceptions import ClientError
 
@@ -635,6 +641,12 @@ def cmd_resolve(args):
     Returns: {"artifact_path": str, "model_package_arn": str|None,
               "output_type": str}
     """
+    # Set region before any sagemaker import (creates boto3 clients at import time)
+    region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
+    if region:
+        os.environ['AWS_DEFAULT_REGION'] = region
+        os.environ.setdefault('AWS_REGION', region)
+
     from sagemaker.core.resources import TrainingJob
 
     try:

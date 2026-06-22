@@ -19,7 +19,60 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 # Register deployment to the deployment registry
 # ============================================================
 
-# Parse command line arguments
+# ── Subcommand routing ────────────────────────────────────────────────────────
+# Supports: model (default), dataset, evaluator
+# Backward-compat: --dataset and --evaluator flags still work
+
+_show_usage() {
+    echo "Usage: ./do/register [model] [options]        Register the deployed model to MPG"
+    echo "       ./do/register dataset <name> [options] Register a dataset to the registry"
+    echo "       ./do/register evaluator <name> [options] Register an evaluator to the registry"
+    echo ""
+    echo "Subcommands:"
+    echo "  model       (default) Register the current deployment as a Model Package version"
+    echo "  dataset     Register a training dataset for reuse across tuning jobs"
+    echo "  evaluator   Register a reward function or preference model for RL tuning"
+    echo ""
+    echo "Dataset options:"
+    echo "  <name>              Dataset name (required, positional)"
+    echo "  --s3-uri <uri>      S3 URI of the dataset file (required)"
+    echo "  --format <fmt>      Format: jsonl, parquet, csv (default: jsonl)"
+    echo "  --technique <tech>  Technique: sft, dpo, rlaif, rlvr (default: sft)"
+    echo "  --row-count <n>     Number of records"
+    echo "  --column-schema <j> Column schema as JSON string"
+    echo ""
+    echo "Evaluator options:"
+    echo "  <name>              Evaluator name (required, positional)"
+    echo "  --type <type>       Type: lambda or model (required)"
+    echo "  --arn <arn>         Lambda ARN or model S3 URI (required)"
+    echo "  --technique <tech>  Technique: rlvr or rlaif (required)"
+    echo "  --description <d>   Optional description"
+    echo ""
+    echo "Model options:"
+    echo "  --notes \"text\"      Optional deployment notes"
+    echo "  --status <s>        Deployment status: success|partial|failed (default: success)"
+    echo "  --json              Output JSON"
+    echo "  --ci                CI mode (writes to DynamoDB)"
+    echo ""
+    echo "Examples:"
+    echo "  ./do/register                              # Register model (default)"
+    echo "  ./do/register dataset alpaca-sft-1k --s3-uri s3://bucket/data.jsonl --technique sft --row-count 1000"
+    echo "  ./do/register evaluator my-reward --type lambda --arn arn:aws:lambda:... --technique rlvr"
+}
+
+# Detect subcommand or legacy flags
+SUBCOMMAND="model"
+case "${1:-}" in
+    dataset)   SUBCOMMAND="dataset"; shift ;;
+    evaluator) SUBCOMMAND="evaluator"; shift ;;
+    model)     SUBCOMMAND="model"; shift ;;
+    --help|-h) _show_usage; exit 0 ;;
+    --dataset) SUBCOMMAND="dataset"; shift ;;  # backward compat
+    --evaluator) SUBCOMMAND="evaluator"; shift ;;  # backward compat
+esac
+
+# ── Parse remaining arguments per subcommand ──────────────────────────────────
+
 NOTES=""
 STATUS="success"
 PROJECT_FLAG=""
@@ -29,8 +82,6 @@ CI_TABLE_NAME="${CI_TABLE_NAME:-mlcc-ci-table}"
 CI_BUILD_STRATEGY="codebuild-submit"
 BENCHMARK_STATUS=""
 BENCHMARK_RUN_ID=""
-REGISTER_DATASET_MODE=false
-REGISTER_EVALUATOR_MODE=false
 DATASET_NAME=""
 DATASET_S3_URI=""
 DATASET_FORMAT="jsonl"
@@ -43,104 +94,144 @@ EVALUATOR_ARN_OR_URI=""
 EVALUATOR_TECHNIQUE=""
 EVALUATOR_DESCRIPTION=""
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --dataset)
-            REGISTER_DATASET_MODE=true
-            shift
-            ;;
-        --evaluator)
-            REGISTER_EVALUATOR_MODE=true
-            shift
-            ;;
-        --dataset-name)
-            DATASET_NAME="$2"
-            shift 2
-            ;;
-        --dataset-name=*)
-            DATASET_NAME="${1#*=}"
-            shift
-            ;;
-        --dataset-s3-uri)
-            DATASET_S3_URI="$2"
-            shift 2
-            ;;
-        --dataset-s3-uri=*)
-            DATASET_S3_URI="${1#*=}"
-            shift
-            ;;
-        --dataset-format)
-            DATASET_FORMAT="$2"
-            shift 2
-            ;;
-        --dataset-format=*)
-            DATASET_FORMAT="${1#*=}"
-            shift
-            ;;
-        --dataset-technique)
-            DATASET_TECHNIQUE="$2"
-            shift 2
-            ;;
-        --dataset-technique=*)
-            DATASET_TECHNIQUE="${1#*=}"
-            shift
-            ;;
-        --dataset-row-count)
-            DATASET_ROW_COUNT="$2"
-            shift 2
-            ;;
-        --dataset-row-count=*)
-            DATASET_ROW_COUNT="${1#*=}"
-            shift
-            ;;
-        --dataset-column-schema)
-            DATASET_COLUMN_SCHEMA="$2"
-            shift 2
-            ;;
-        --dataset-column-schema=*)
-            DATASET_COLUMN_SCHEMA="${1#*=}"
-            shift
-            ;;
-        --evaluator-name)
-            EVALUATOR_NAME="$2"
-            shift 2
-            ;;
-        --evaluator-name=*)
-            EVALUATOR_NAME="${1#*=}"
-            shift
-            ;;
-        --evaluator-type)
-            EVALUATOR_TYPE="$2"
-            shift 2
-            ;;
-        --evaluator-type=*)
-            EVALUATOR_TYPE="${1#*=}"
-            shift
-            ;;
-        --evaluator-arn-or-uri)
-            EVALUATOR_ARN_OR_URI="$2"
-            shift 2
-            ;;
-        --evaluator-arn-or-uri=*)
-            EVALUATOR_ARN_OR_URI="${1#*=}"
-            shift
-            ;;
-        --evaluator-technique)
-            EVALUATOR_TECHNIQUE="$2"
-            shift 2
-            ;;
-        --evaluator-technique=*)
-            EVALUATOR_TECHNIQUE="${1#*=}"
-            shift
-            ;;
-        --evaluator-description)
-            EVALUATOR_DESCRIPTION="$2"
-            shift 2
-            ;;
-        --evaluator-description=*)
-            EVALUATOR_DESCRIPTION="${1#*=}"
-            shift
-            ;;
+# ── Dataset subcommand arg parsing ────────────────────────────────────────────
+if [ "${SUBCOMMAND}" = "dataset" ]; then
+    FROM_TUNE_FLAG=""
+    FROM_TUNE_TECHNIQUE=""
+    # First positional arg is the dataset name
+    if [ $# -gt 0 ] && [[ "${1}" != -* ]]; then
+        DATASET_NAME="$1"; shift
+    fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --from-tune)
+                FROM_TUNE_FLAG="true"
+                # Check if next arg is a technique (not another flag)
+                if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
+                    FROM_TUNE_TECHNIQUE="$2"; shift 2
+                else
+                    shift
+                fi
+                ;;
+            --s3-uri)       DATASET_S3_URI="$2"; shift 2 ;;
+            --s3-uri=*)     DATASET_S3_URI="${1#*=}"; shift ;;
+            --format)       DATASET_FORMAT="$2"; shift 2 ;;
+            --format=*)     DATASET_FORMAT="${1#*=}"; shift ;;
+            --technique)    DATASET_TECHNIQUE="$2"; shift 2 ;;
+            --technique=*)  DATASET_TECHNIQUE="${1#*=}"; shift ;;
+            --row-count)    DATASET_ROW_COUNT="$2"; shift 2 ;;
+            --row-count=*)  DATASET_ROW_COUNT="${1#*=}"; shift ;;
+            --column-schema) DATASET_COLUMN_SCHEMA="$2"; shift 2 ;;
+            --column-schema=*) DATASET_COLUMN_SCHEMA="${1#*=}"; shift ;;
+            --name)         DATASET_NAME="$2"; shift 2 ;;  # alternate to positional
+            --name=*)       DATASET_NAME="${1#*=}"; shift ;;
+            # Legacy compat: --dataset-* prefixed args
+            --dataset-name) DATASET_NAME="$2"; shift 2 ;;
+            --dataset-s3-uri) DATASET_S3_URI="$2"; shift 2 ;;
+            --dataset-format) DATASET_FORMAT="$2"; shift 2 ;;
+            --dataset-technique) DATASET_TECHNIQUE="$2"; shift 2 ;;
+            --dataset-row-count) DATASET_ROW_COUNT="$2"; shift 2 ;;
+            --dataset-column-schema) DATASET_COLUMN_SCHEMA="$2"; shift 2 ;;
+            --help|-h) _show_usage; exit 0 ;;
+            *) echo "⚠️  Unknown dataset option: $1"; _show_usage; exit 1 ;;
+        esac
+    done
+
+    # ── Resolve --from-tune: populate vars from do/config ──────────────────────
+    if [ "${FROM_TUNE_FLAG}" = "true" ]; then
+        # Resolve technique-specific or latest vars
+        _resolve_technique="${FROM_TUNE_TECHNIQUE:-${TUNE_TECHNIQUE:-}}"
+        _resolve_technique_upper=""
+        if [ -n "${_resolve_technique}" ]; then
+            _resolve_technique_upper=$(echo "${_resolve_technique}" | tr '[:lower:]' '[:upper:]')
+        fi
+
+        # Try technique-specific vars first, then fall back to latest
+        _resolve_s3_uri=""
+        _resolve_row_count=""
+        _resolve_source=""
+        if [ -n "${_resolve_technique_upper}" ]; then
+            _var_s3="TUNE_DATASET_S3_URI_${_resolve_technique_upper}"
+            _var_rows="TUNE_DATASET_ROW_COUNT_${_resolve_technique_upper}"
+            _var_src="TUNE_DATASET_SOURCE_${_resolve_technique_upper}"
+            _resolve_s3_uri="${!_var_s3:-}"
+            _resolve_row_count="${!_var_rows:-}"
+            _resolve_source="${!_var_src:-}"
+        fi
+        # Fall back to latest (non-technique-specific)
+        [ -z "${_resolve_s3_uri}" ] && _resolve_s3_uri="${TUNE_DATASET_S3_URI:-}"
+        [ -z "${_resolve_row_count}" ] && _resolve_row_count="${TUNE_DATASET_ROW_COUNT:-}"
+        [ -z "${_resolve_source}" ] && _resolve_source="${TUNE_DATASET_SOURCE:-}"
+
+        if [ -z "${_resolve_s3_uri}" ]; then
+            echo "❌ No staged dataset found in do/config"
+            echo "   Run ./do/tune --dataset <uri> first to stage a dataset."
+            exit 1
+        fi
+
+        # Fill in from persisted tune state (don't override explicit flags)
+        [ -z "${DATASET_S3_URI}" ] && DATASET_S3_URI="${_resolve_s3_uri}"
+        [ "${DATASET_TECHNIQUE}" = "sft" ] && DATASET_TECHNIQUE="${_resolve_technique:-sft}"
+        [ -z "${DATASET_ROW_COUNT}" ] && DATASET_ROW_COUNT="${_resolve_row_count}"
+
+        # Derive name from source if not provided
+        if [ -z "${DATASET_NAME}" ]; then
+            _source="${_resolve_source}"
+            _slug=""
+            if [[ "${_source}" == hf://* ]]; then
+                # Strip hf:// and take the repo name part
+                _slug="${_source#hf://}"
+                _slug="${_slug%%\?*}"       # remove ?file= params
+                _slug="${_slug%%/*}"         # take org (if org/name, take org)
+                # Actually take the name part after /
+                if [[ "${TUNE_DATASET_SOURCE}" == */* ]]; then
+                    _slug="${TUNE_DATASET_SOURCE#hf://*/}"
+                    _slug="${_slug%%\?*}"
+                    _slug="${_slug%%/*}"
+                fi
+            elif [[ "${_source}" == s3://* ]]; then
+                _slug=$(basename "${_source}" .jsonl)
+            fi
+            _slug=$(echo "${_slug}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+            DATASET_NAME="${_slug:-dataset}-${TUNE_TECHNIQUE:-sft}-${TUNE_DATASET_ROW_COUNT:-0}"
+        fi
+    fi
+
+# ── Evaluator subcommand arg parsing ──────────────────────────────────────────
+elif [ "${SUBCOMMAND}" = "evaluator" ]; then
+    # First positional arg is the evaluator name
+    if [ $# -gt 0 ] && [[ "${1}" != -* ]]; then
+        EVALUATOR_NAME="$1"; shift
+    fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type)         EVALUATOR_TYPE="$2"; shift 2 ;;
+            --type=*)       EVALUATOR_TYPE="${1#*=}"; shift ;;
+            --arn)          EVALUATOR_ARN_OR_URI="$2"; shift 2 ;;
+            --arn=*)        EVALUATOR_ARN_OR_URI="${1#*=}"; shift ;;
+            --arn-or-uri)   EVALUATOR_ARN_OR_URI="$2"; shift 2 ;;
+            --arn-or-uri=*) EVALUATOR_ARN_OR_URI="${1#*=}"; shift ;;
+            --technique)    EVALUATOR_TECHNIQUE="$2"; shift 2 ;;
+            --technique=*)  EVALUATOR_TECHNIQUE="${1#*=}"; shift ;;
+            --description)  EVALUATOR_DESCRIPTION="$2"; shift 2 ;;
+            --description=*) EVALUATOR_DESCRIPTION="${1#*=}"; shift ;;
+            --name)         EVALUATOR_NAME="$2"; shift 2 ;;  # alternate to positional
+            --name=*)       EVALUATOR_NAME="${1#*=}"; shift ;;
+            # Legacy compat
+            --evaluator-name) EVALUATOR_NAME="$2"; shift 2 ;;
+            --evaluator-type) EVALUATOR_TYPE="$2"; shift 2 ;;
+            --evaluator-arn-or-uri) EVALUATOR_ARN_OR_URI="$2"; shift 2 ;;
+            --evaluator-technique) EVALUATOR_TECHNIQUE="$2"; shift 2 ;;
+            --evaluator-description) EVALUATOR_DESCRIPTION="$2"; shift 2 ;;
+            --help|-h) _show_usage; exit 0 ;;
+            *) echo "⚠️  Unknown evaluator option: $1"; _show_usage; exit 1 ;;
+        esac
+    done
+
+# ── Model subcommand arg parsing (default) ────────────────────────────────────
+else
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
         --notes)
             NOTES="$2"
             shift 2
@@ -204,13 +295,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "⚠️  Unknown option: $1"
-            echo ""
-            echo "Usage: ./do/register [--notes \"text\"] [--status success|partial|failed] [--project] [--json] [--ci] [--ci-table <name>] [--build-strategy <strategy>]"
-            echo "       ./do/register --benchmark-status <completed|failed|in-progress> --benchmark-run-id <run-id>"
+            _show_usage
             exit 1
             ;;
     esac
 done
+fi
 
 # ============================================================
 # Handle --benchmark-status mode (Stage 2 failure isolation)
@@ -286,13 +376,15 @@ fi
 # Handle --dataset mode (register dataset, AC-2b.1)
 # ============================================================
 
-if [ "${REGISTER_DATASET_MODE}" = true ]; then
+if [ "${SUBCOMMAND}" = "dataset" ]; then
     if [ -z "${DATASET_NAME}" ]; then
-        echo "❌ --dataset-name is required when using --dataset"
+        echo "❌ Dataset name is required"
+        echo "   Usage: ./do/register dataset <name> --s3-uri <uri>"
         exit 1
     fi
     if [ -z "${DATASET_S3_URI}" ]; then
-        echo "❌ --dataset-s3-uri is required when using --dataset"
+        echo "❌ --s3-uri is required"
+        echo "   Usage: ./do/register dataset <name> --s3-uri <uri>"
         exit 1
     fi
 
@@ -342,21 +434,22 @@ fi
 # Handle --evaluator mode (register evaluator, AC-2c.1)
 # ============================================================
 
-if [ "${REGISTER_EVALUATOR_MODE}" = true ]; then
+if [ "${SUBCOMMAND}" = "evaluator" ]; then
     if [ -z "${EVALUATOR_NAME}" ]; then
-        echo "❌ --evaluator-name is required when using --evaluator"
+        echo "❌ Evaluator name is required"
+        echo "   Usage: ./do/register evaluator <name> --type <lambda|model> --arn <arn> --technique <rlvr|rlaif>"
         exit 1
     fi
     if [ -z "${EVALUATOR_TYPE}" ]; then
-        echo "❌ --evaluator-type is required when using --evaluator (lambda/model)"
+        echo "❌ --type is required (lambda or model)"
         exit 1
     fi
     if [ -z "${EVALUATOR_ARN_OR_URI}" ]; then
-        echo "❌ --evaluator-arn-or-uri is required when using --evaluator"
+        echo "❌ --arn is required (Lambda ARN or model S3 URI)"
         exit 1
     fi
     if [ -z "${EVALUATOR_TECHNIQUE}" ]; then
-        echo "❌ --evaluator-technique is required when using --evaluator (rlvr/rlaif)"
+        echo "❌ --technique is required (rlvr or rlaif)"
         exit 1
     fi
 

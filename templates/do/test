@@ -16,8 +16,18 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 # SageMaker Real-Time Inference Testing
 # ============================================================
 
-# Parse arguments: ./do/test [<ic-name>]
-IC_ARG="${1:-}"
+# Parse arguments: ./do/test [<ic-name>] or ./do/test --adapter <name>
+IC_ARG=""
+if [ "${1:-}" = "--adapter" ] || [ "${1:-}" = "-a" ]; then
+    if [ -z "${2:-}" ]; then
+        echo "❌ --adapter requires an adapter name argument"
+        echo "   Usage: ./do/test --adapter <name>"
+        exit 1
+    fi
+    IC_ARG="$2"
+else
+    IC_ARG="${1:-}"
+fi
 
 # Determine test mode based on ENDPOINT_NAME in config
 if [ -z "${ENDPOINT_NAME:-}" ]; then

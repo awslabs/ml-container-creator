@@ -46,6 +46,7 @@ ARG_DRY_RUN=false
 ARG_LIST_MODELS=false
 ARG_NO_STALE_WARNING=false
 ARG_DISCOVER=false
+ARG_LIST_DATASETS=false
 ARG_DISCOVER_FILTER=""
 ARG_COLUMN_MAP=""
 ARG_TAKE=""
@@ -150,6 +151,7 @@ _parse_args() {
             --help|-h) ARG_HELP=true; shift ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
             --list-models) ARG_LIST_MODELS=true; shift ;;
+            --list-datasets) ARG_LIST_DATASETS=true; shift ;;
             --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
             --column-map)
                 if [ -z "${2:-}" ]; then
@@ -816,10 +818,24 @@ _validate_dataset() {
         fi
     fi
 
+    # If --dataset value is not an S3 URI or HF reference, treat as a registry name
+    if [ -z "${ARG_DATASET_NAME}" ] && [ -n "${dataset}" ] && \
+       [[ "${dataset}" != s3://* ]] && [[ "${dataset}" != hf://* ]]; then
+        # Looks like a name — resolve from registry
+        ARG_DATASET_NAME="${dataset}"
+        dataset=""
+    fi
+
     if [ -z "${dataset}" ]; then
-        echo "❌ --dataset is required"
-        echo "   Provide an S3 URI (s3://bucket/path.jsonl) or HF reference (hf://org/name)"
-        exit 1
+        if [ -n "${ARG_DATASET_NAME}" ]; then
+            # Name-based resolution happens below via resolve-dataset
+            :
+        else
+            echo "❌ --dataset is required"
+            echo "   Provide an S3 URI (s3://bucket/path.jsonl), HF reference (hf://org/name), or registered name"
+            echo "   Run ./do/tune --list-datasets to see available registered datasets."
+            exit 1
+        fi
     fi
 
     # Determine dataset type
@@ -949,11 +965,10 @@ _validate_dataset() {
         fi
 
         RESOLVED_DATASET_S3_URI=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['s3_uri'])" 2>/dev/null)
-        local num_records
-        num_records=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('num_records',0))" 2>/dev/null) || num_records="0"
+        RESOLVED_DATASET_ROW_COUNT=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('num_records',0))" 2>/dev/null) || RESOLVED_DATASET_ROW_COUNT="0"
 
         echo "   ✅ Staged to: ${RESOLVED_DATASET_S3_URI}"
-        echo "   Records: ${num_records}"
+        echo "   Records: ${RESOLVED_DATASET_ROW_COUNT}"
         echo ""
 
     else
@@ -1289,6 +1304,14 @@ print(entry.get('provider', ''))
     _update_config_var "TUNE_TECHNIQUE" "${ARG_TECHNIQUE}"
     _update_config_var "TUNE_TRAINING_TYPE" "${ARG_TRAINING_TYPE}"
     _update_config_var "TUNE_DATASET_PATH" "${ARG_DATASET}"
+    _update_config_var "TUNE_DATASET_S3_URI" "${RESOLVED_DATASET_S3_URI:-}"
+    _update_config_var "TUNE_DATASET_ROW_COUNT" "${RESOLVED_DATASET_ROW_COUNT:-0}"
+    _update_config_var "TUNE_DATASET_SOURCE" "${ARG_DATASET}"
+    _update_config_var "TUNE_LAST_JOB_NAME" "${JOB_NAME}"
+    # Technique-specific dataset vars (allows --from-tune <technique> resolution)
+    _update_config_var "TUNE_DATASET_S3_URI_${technique_upper}" "${RESOLVED_DATASET_S3_URI:-}"
+    _update_config_var "TUNE_DATASET_ROW_COUNT_${technique_upper}" "${RESOLVED_DATASET_ROW_COUNT:-0}"
+    _update_config_var "TUNE_DATASET_SOURCE_${technique_upper}" "${ARG_DATASET}"
 }
 
 
@@ -1592,6 +1615,43 @@ fi
 # Handle --discover flag (before requiring --technique and --dataset)
 if [ "${ARG_DISCOVER}" = true ]; then
     _run_discover "${ARG_DISCOVER_FILTER}"
+    exit 0
+fi
+
+# Handle --list-datasets (before requiring --technique and --dataset)
+if [ "${ARG_LIST_DATASETS}" = true ]; then
+    echo ""
+    echo "📦 Registered datasets:"
+    echo ""
+
+    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets 2>/dev/null) || _ds_output=""
+    _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1)
+
+    if [ -n "${_ds_json}" ]; then
+        _ds_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('datasets',[])))" 2>/dev/null) || _ds_count=0
+        if [ "${_ds_count}" -gt 0 ]; then
+            printf "  %-25s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "ROWS" "S3 URI"
+            printf "  %-25s %-10s %-8s %s\n" "----" "---------" "----" "------"
+            echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for ds in data.get('datasets', []):
+    name = ds.get('name','')[:25]
+    tech = ds.get('technique','')[:10]
+    rows = str(ds.get('row_count',''))[:8]
+    uri = ds.get('s3_uri','')
+    print(f'  {name:<25} {tech:<10} {rows:<8} {uri}')
+" 2>/dev/null
+        else
+            echo "  (none registered)"
+        fi
+    else
+        echo "  (none registered)"
+    fi
+    echo ""
+    echo "  Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
+    echo "  Use:      ./do/tune --technique sft --dataset-name <name>"
+    echo ""
     exit 0
 fi
 
