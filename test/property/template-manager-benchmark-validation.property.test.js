@@ -75,9 +75,9 @@ const arbInvalidPositiveInt = fc.oneof(
     fc.double({ min: 0.1, max: 99.9, noNaN: true }).filter(v => !Number.isInteger(v))
 );
 
-// ── Property 1: Architecture gating ─────────────────────────────────────────
+// ── Property 1: Architecture independence ────────────────────────────────────
 
-describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture gating (only transformers/diffusors accepted)', () => {
+describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture independence (all architectures accepted)', () => {
 
     it('includeBenchmark=true accepted for transformers/diffusors deploymentConfigs', function () {
         this.timeout(PROPERTY_CONFIG.timeout);
@@ -100,11 +100,11 @@ describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture gating (o
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
-    it('includeBenchmark=true rejected for http/triton deploymentConfigs', function () {
+    it('includeBenchmark=true accepted for http/triton deploymentConfigs (AC-2.3 all architectures)', function () {
         this.timeout(PROPERTY_CONFIG.timeout);
 
         /**
-         * Validates: Requirements 9.1
+         * Validates: AC-2.3 (benchmark enabled for ALL architectures)
          */
         fc.assert(fc.property(
             fc.constantFrom(...BENCHMARK_UNSUPPORTED_CONFIGS),
@@ -115,11 +115,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture gating (o
                     includeBenchmark: true
                 };
                 const manager = new TemplateManager(answers);
-                assert.throws(
-                    () => manager.validate(),
-                    /Benchmarking is only supported with transformers and diffusors architectures/,
-                    `deploymentConfig "${deploymentConfig}" with includeBenchmark=true should fail validation`
-                );
+                manager.validate();
                 return true;
             }
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
