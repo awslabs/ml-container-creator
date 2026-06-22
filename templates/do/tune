@@ -50,6 +50,8 @@ ARG_DISCOVER_FILTER=""
 ARG_COLUMN_MAP=""
 ARG_TAKE=""
 ARG_ACCEPT_EULA=false
+ARG_DATASET_NAME=""
+ARG_EVALUATOR_NAME=""
 
 
 # ── _parse_args() ─────────────────────────────────────────────────────────────
@@ -169,6 +171,18 @@ _parse_args() {
                     exit 1
                 fi
                 ARG_TAKE="$2"; shift 2 ;;
+            --dataset-name)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --dataset-name requires a registered dataset name"
+                    exit 1
+                fi
+                ARG_DATASET_NAME="$2"; shift 2 ;;
+            --evaluator-name)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --evaluator-name requires a registered evaluator name"
+                    exit 1
+                fi
+                ARG_EVALUATOR_NAME="$2"; shift 2 ;;
             *)
                 echo "❌ Unknown option: $1"
                 echo "   Run ./do/tune --help for usage."
@@ -775,6 +789,33 @@ else:
 _validate_dataset() {
     local dataset="${ARG_DATASET}"
 
+    # If --dataset-name is set, resolve from registry (AC-2b.4)
+    # --dataset-name takes precedence over --dataset for named registry lookup
+    if [ -n "${ARG_DATASET_NAME}" ]; then
+        echo "🔍 Resolving dataset '${ARG_DATASET_NAME}' from registry..."
+        local resolve_result
+        resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
+            --name "${ARG_DATASET_NAME}" 2>/dev/null) || resolve_result=""
+
+        if [ -n "${resolve_result}" ]; then
+            local resolved_uri
+            resolved_uri=$(echo "${resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || resolved_uri=""
+            if [ -n "${resolved_uri}" ]; then
+                echo "   Resolved to: ${resolved_uri}"
+                dataset="${resolved_uri}"
+                ARG_DATASET="${resolved_uri}"
+            else
+                echo "❌ Dataset '${ARG_DATASET_NAME}' not found in registry"
+                echo "   Register it first: ./do/register --dataset --dataset-name ${ARG_DATASET_NAME} --dataset-s3-uri s3://..."
+                exit 1
+            fi
+        else
+            echo "❌ Failed to resolve dataset '${ARG_DATASET_NAME}' from registry"
+            echo "   Register it first: ./do/register --dataset --dataset-name ${ARG_DATASET_NAME} --dataset-s3-uri s3://..."
+            exit 1
+        fi
+    fi
+
     if [ -z "${dataset}" ]; then
         echo "❌ --dataset is required"
         echo "   Provide an S3 URI (s3://bucket/path.jsonl) or HF reference (hf://org/name)"
@@ -1125,6 +1166,37 @@ print(entry.get('provider', ''))
     fi
     if [ -n "${ARG_REWARD_PROMPT}" ]; then
         submit_args+=(--reward-prompt "${ARG_REWARD_PROMPT}")
+    fi
+
+    # Resolve evaluator from registry if --evaluator-name is set (AC-2c.3, AC-2c.4)
+    if [ -n "${ARG_EVALUATOR_NAME}" ] && [ -z "${ARG_REWARD_FUNCTION}" ] && [ -z "${ARG_REWARD_PROMPT}" ]; then
+        echo "🔍 Resolving evaluator '${ARG_EVALUATOR_NAME}' from registry..."
+        local ev_resolve_result
+        ev_resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-evaluator \
+            --name "${ARG_EVALUATOR_NAME}" 2>/dev/null) || ev_resolve_result=""
+
+        if [ -n "${ev_resolve_result}" ]; then
+            local ev_type ev_arn_or_uri
+            ev_type=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('type',''))" 2>/dev/null) || ev_type=""
+            ev_arn_or_uri=$(echo "${ev_resolve_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('arn_or_uri',''))" 2>/dev/null) || ev_arn_or_uri=""
+
+            if [ -n "${ev_arn_or_uri}" ]; then
+                echo "   Resolved evaluator: ${ev_type} → ${ev_arn_or_uri}"
+                if [ "${ev_type}" = "lambda" ]; then
+                    submit_args+=(--reward-function "${ev_arn_or_uri}")
+                else
+                    submit_args+=(--reward-prompt "${ev_arn_or_uri}")
+                fi
+            else
+                echo "⚠️  Evaluator '${ARG_EVALUATOR_NAME}' not found in registry"
+                echo "   Register it first: ./do/register --evaluator --evaluator-name ${ARG_EVALUATOR_NAME} ..."
+                exit 1
+            fi
+        else
+            echo "⚠️  Failed to resolve evaluator '${ARG_EVALUATOR_NAME}' from registry"
+            echo "   Register it first: ./do/register --evaluator --evaluator-name ${ARG_EVALUATOR_NAME} ..."
+            exit 1
+        fi
     fi
     if [ "${ARG_ACCEPT_EULA}" = true ]; then
         submit_args+=(--accept-eula)

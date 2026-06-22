@@ -124,6 +124,71 @@ fi
 echo ""
 
 # ============================================================
+# Query model registry for available versions (AC-5.1)
+# Non-intrusive: if registry query fails, skip silently
+# ============================================================
+REGISTRY_MODELS_JSON=""
+REGISTRY_MODEL_COUNT=0
+REGISTRY_SELECTED_MODEL_DATA=""
+REGISTRY_SELECTED_IMAGE=""
+
+if [ -z "${MODEL_DATA}" ]; then
+    # Only query registry if MODEL_DATA was not already provided via --from-tune or --model-data
+    if [ -t 0 ]; then
+        # Interactive mode: query registry for available models
+        _registry_json=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-models \
+            --project-name "${PROJECT_NAME}" \
+            --region "${AWS_REGION:-us-east-1}" 2>/dev/null || echo "")
+
+        _registry_line=$(echo "${_registry_json}" | grep -E '^\{' | tail -1)
+
+        if [ -n "${_registry_line}" ]; then
+            REGISTRY_MODEL_COUNT=$(echo "${_registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(len(data.get('models',[])))" 2>/dev/null || echo "0")
+
+            if [ "${REGISTRY_MODEL_COUNT}" -gt 0 ]; then
+                REGISTRY_MODELS_JSON="${_registry_line}"
+
+                echo "📦 Available registered models:"
+                echo ""
+                printf '  %-4s%-10s%-12s%-38s%s\n' "#" "VERSION" "CONFIG" "MODEL" "INSTANCE"
+
+                _i=0
+                while [ "${_i}" -lt "${REGISTRY_MODEL_COUNT}" ]; do
+                    _v=$(echo "${REGISTRY_MODELS_JSON}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['models'][${_i}].get('version','?'))" 2>/dev/null)
+                    _c=$(echo "${REGISTRY_MODELS_JSON}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['models'][${_i}].get('deploymentConfig','?'))" 2>/dev/null)
+                    _m=$(echo "${REGISTRY_MODELS_JSON}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); m=data['models'][${_i}].get('modelName','?'); print(m[:36]+'…' if len(m)>36 else m)" 2>/dev/null)
+                    _inst=$(echo "${REGISTRY_MODELS_JSON}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['models'][${_i}].get('instanceType','?'))" 2>/dev/null)
+
+                    _num=$((_i + 1))
+                    printf '  %-4s%-10s%-12s%-38s%s\n' "${_num}" "v${_v}" "${_c}" "${_m}" "${_inst}"
+                    _i=$((_i + 1))
+                done
+
+                echo ""
+                read -p "Select a model (1-${REGISTRY_MODEL_COUNT}) or press Enter to specify manually: " _selection
+
+                if [ -n "${_selection}" ]; then
+                    # Validate selection
+                    if echo "${_selection}" | grep -qE '^[0-9]+$' && [ "${_selection}" -ge 1 ] && [ "${_selection}" -le "${REGISTRY_MODEL_COUNT}" ]; then
+                        _sel_idx=$((_selection - 1))
+                        REGISTRY_SELECTED_MODEL_DATA=$(echo "${REGISTRY_MODELS_JSON}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['models'][${_sel_idx}].get('modelDataUrl',''))" 2>/dev/null || echo "")
+                        REGISTRY_SELECTED_IMAGE=$(echo "${REGISTRY_MODELS_JSON}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); img=data['models'][${_sel_idx}].get('containerImage',''); print(img.split('/')[-1] if '/' in img else img)" 2>/dev/null || echo "")
+
+                        echo ""
+                        echo "✅ Selected registry model v$(echo "${REGISTRY_MODELS_JSON}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['models'][${_sel_idx}].get('version','?'))" 2>/dev/null)"
+                        echo ""
+                    else
+                        echo "   ⚠️  Invalid selection, proceeding with manual entry."
+                        echo ""
+                    fi
+                fi
+                # If user pressed Enter without selection, proceed with manual entry
+            fi
+        fi
+    fi
+fi
+
+# ============================================================
 # Prompt for IC name (if not provided as argument)
 # ============================================================
 if [ -z "${IC_NAME}" ]; then
@@ -169,11 +234,28 @@ else
 fi
 
 # ============================================================
-# Prompt for image tag
+# Prompt for image tag (AC-5.2, AC-5.3: pre-fill from registry, user can override)
 # ============================================================
-DEFAULT_IMAGE_TAG="${PROJECT_NAME}-latest"
+if [ -n "${REGISTRY_SELECTED_IMAGE}" ]; then
+    DEFAULT_IMAGE_TAG="${REGISTRY_SELECTED_IMAGE}"
+else
+    DEFAULT_IMAGE_TAG="${PROJECT_NAME}-latest"
+fi
 read -p "Image tag [${DEFAULT_IMAGE_TAG}]: " IC_IMAGE_TAG
 IC_IMAGE_TAG="${IC_IMAGE_TAG:-${DEFAULT_IMAGE_TAG}}"
+
+# ============================================================
+# Prompt for model data URL (AC-5.2, AC-5.3: pre-fill from registry, user can override)
+# ============================================================
+if [ -z "${MODEL_DATA}" ] && [ -n "${REGISTRY_SELECTED_MODEL_DATA}" ]; then
+    # Pre-fill from registry selection — user can override (AC-5.3)
+    read -p "Model data URL [${REGISTRY_SELECTED_MODEL_DATA}]: " _model_data_input
+    MODEL_DATA="${_model_data_input:-${REGISTRY_SELECTED_MODEL_DATA}}"
+elif [ -z "${MODEL_DATA}" ]; then
+    # No registry selection — offer manual entry (optional)
+    read -p "Model data URL (S3 URI, optional — press Enter to skip): " _model_data_input
+    MODEL_DATA="${_model_data_input:-}"
+fi
 
 # ============================================================
 # Prompt for GPU count
@@ -232,7 +314,7 @@ export IC_MIN_MEMORY_MB=${IC_MIN_MEMORY_MB}
 export IC_STARTUP_TIMEOUT=900
 EOF
 
-# Add model data if provided (from --from-tune or --model-data)
+# Add model data if provided (from --from-tune, --model-data, or registry selection)
 if [ -n "${MODEL_DATA}" ]; then
     cat >> "${IC_CONF_PATH}" <<EOF
 export IC_MODEL_DATA="${MODEL_DATA}"

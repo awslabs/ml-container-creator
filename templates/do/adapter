@@ -35,6 +35,7 @@ _usage() {
     echo "  add <name> --weights <s3-uri>        Add a new LoRA adapter from S3"
     echo "  add <name> --from-hub <hf-repo-id>   Add a new LoRA adapter from HuggingFace Hub"
     echo "  add <name> --from-tune [technique]   Add adapter from do/tune output"
+    echo "  add <name> --from-registry [arn]     Add adapter from model registry"
     echo "  list                                  List all adapters on the endpoint"
     echo "  remove <name>                         Remove an adapter"
     echo "  update <name> --weights <new-s3-uri>  Update adapter weights from S3"
@@ -53,6 +54,8 @@ _usage() {
     echo "  ./do/adapter add tuned-sft --from-tune sft"
     echo "  ./do/adapter add tuned-sft --from-tune --local"
     echo "  ./do/adapter add tuned-sft --from-tune --no-wait"
+    echo "  ./do/adapter add my-adapter --from-registry"
+    echo "  ./do/adapter add my-adapter --from-registry arn:aws:sagemaker:...:model-package/proj/2"
     echo "  ./do/adapter list"
     echo "  ./do/adapter remove ectsum"
     echo "  ./do/adapter update ectsum --weights s3://my-bucket/adapters/ectsum-v2/adapter.tar.gz"
@@ -60,7 +63,7 @@ _usage() {
     echo ""
     echo "Adapter metadata is stored in do/adapters/<name>.conf"
     echo ""
-    echo "Note: --weights, --from-hub, and --from-tune are mutually exclusive."
+    echo "Note: --weights, --from-hub, --from-tune, and --from-registry are mutually exclusive."
 }
 
 # ── Validate LoRA is enabled ──────────────────────────────────────────────────
@@ -371,6 +374,8 @@ _adapter_add() {
     local from_hub=""
     local from_tune=""
     local from_tune_technique=""
+    local from_registry=""
+    local registry_arn=""
     local use_local=""
     local no_wait=""
 
@@ -406,6 +411,16 @@ _adapter_add() {
                     shift
                 fi
                 ;;
+            --from-registry)
+                from_registry="true"
+                # Check if next argument is an ARN (starts with arn:)
+                if [ -n "${2:-}" ] && [[ "${2}" == arn:* ]]; then
+                    registry_arn="$2"
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
             --local)
                 use_local="true"
                 shift
@@ -418,6 +433,7 @@ _adapter_add() {
                 echo "Usage: ./do/adapter add <name> --weights <s3-uri>"
                 echo "       ./do/adapter add <name> --from-hub <hf-repo-id>"
                 echo "       ./do/adapter add <name> --from-tune [technique]"
+                echo "       ./do/adapter add <name> --from-registry [version-arn]"
                 echo ""
                 echo "Add a new LoRA adapter to the endpoint."
                 echo ""
@@ -428,10 +444,13 @@ _adapter_add() {
                 echo "  --from-tune [technique]     Use adapter output from do/tune"
                 echo "                              Without technique: uses latest tune output"
                 echo "                              With technique (e.g., sft, dpo): uses technique-specific output"
+                echo "  --from-registry [arn]       Add adapter from model registry"
+                echo "                              Without ARN: presents interactive selection"
+                echo "                              With ARN: adds directly using specified version ARN"
                 echo "  --local                     Use local aws s3 cp instead of Processing Job (--from-tune only)"
                 echo "  --no-wait                   Submit Processing Job and return immediately (--from-tune only)"
                 echo ""
-                echo "Note: --weights, --from-hub, and --from-tune are mutually exclusive."
+                echo "Note: --weights, --from-hub, --from-tune, and --from-registry are mutually exclusive."
                 echo ""
                 echo "Examples:"
                 echo "  ./do/adapter add ectsum --weights s3://bucket/adapters/ectsum/adapter.tar.gz"
@@ -440,6 +459,8 @@ _adapter_add() {
                 echo "  ./do/adapter add tuned-sft --from-tune sft"
                 echo "  ./do/adapter add tuned-sft --from-tune --local"
                 echo "  ./do/adapter add tuned-sft --from-tune --no-wait"
+                echo "  ./do/adapter add my-adapter --from-registry"
+                echo "  ./do/adapter add my-adapter --from-registry arn:aws:sagemaker:...:model-package/proj/2"
                 exit 0
                 ;;
             -*)
@@ -447,6 +468,7 @@ _adapter_add() {
                 echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
                 echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
                 echo "          ./do/adapter add <name> --from-tune [technique]"
+                echo "          ./do/adapter add <name> --from-registry [version-arn]"
                 exit 1
                 ;;
             *)
@@ -457,6 +479,7 @@ _adapter_add() {
                     echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
                     echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
                     echo "          ./do/adapter add <name> --from-tune [technique]"
+                    echo "          ./do/adapter add <name> --from-registry [version-arn]"
                     exit 1
                 fi
                 shift
@@ -478,22 +501,25 @@ _adapter_add() {
     [ -n "${weights_uri}" ] && source_count=$((source_count + 1))
     [ -n "${from_hub}" ] && source_count=$((source_count + 1))
     [ -n "${from_tune}" ] && source_count=$((source_count + 1))
+    [ -n "${from_registry}" ] && source_count=$((source_count + 1))
 
     if [ "${source_count}" -gt 1 ]; then
-        echo "❌ --weights, --from-hub, and --from-tune are mutually exclusive"
+        echo "❌ --weights, --from-hub, --from-tune, and --from-registry are mutually exclusive"
         echo ""
         echo "   Use one of:"
         echo "   ./do/adapter add ${adapter_name} --weights <s3-uri>"
         echo "   ./do/adapter add ${adapter_name} --from-hub <hf-repo-id>"
         echo "   ./do/adapter add ${adapter_name} --from-tune [technique]"
+        echo "   ./do/adapter add ${adapter_name} --from-registry [version-arn]"
         exit 1
     fi
 
     if [ "${source_count}" -eq 0 ]; then
-        echo "❌ One of --weights, --from-hub, or --from-tune is required"
+        echo "❌ One of --weights, --from-hub, --from-tune, or --from-registry is required"
         echo "   Usage: ./do/adapter add <name> --weights <s3-uri>"
         echo "          ./do/adapter add <name> --from-hub <hf-repo-id>"
         echo "          ./do/adapter add <name> --from-tune [technique]"
+        echo "          ./do/adapter add <name> --from-registry [version-arn]"
         exit 1
     fi
 
@@ -787,6 +813,136 @@ _adapter_add() {
         fi  # end --local else branch
     fi
 
+    # ── Resolve --from-registry to weights_uri ────────────────────────────
+    if [ -n "${from_registry}" ]; then
+        if [ -z "${registry_arn}" ]; then
+            # Interactive mode: query registry and present selection (AC-4.2)
+            # Check if stdin is a TTY (AC-4.4)
+            if [ ! -t 0 ]; then
+                echo "Error: --from-registry requires an explicit version ARN in non-interactive mode."
+                echo "Usage: ./do/adapter add <name> --from-registry <version-arn>"
+                exit 1
+            fi
+
+            echo "📦 Querying model registry for available adapters..."
+            echo ""
+
+            local adapters_json
+            adapters_json=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-adapters \
+                --project-name "${PROJECT_NAME}" \
+                --region "${AWS_REGION}" 2>/dev/null)
+
+            # Extract JSON line (filter out any non-JSON noise)
+            local json_line
+            json_line=$(echo "${adapters_json}" | grep -E '^\{' | tail -1)
+
+            if [ -z "${json_line}" ]; then
+                echo "❌ Failed to query model registry."
+                echo "   Check that your AWS credentials are configured and the project has registered adapters."
+                exit 1
+            fi
+
+            # Parse adapter count
+            local adapter_count
+            adapter_count=$(echo "${json_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(len(data.get('adapters',[])))" 2>/dev/null || echo "0")
+
+            if [ "${adapter_count}" -eq 0 ]; then
+                echo "❌ No adapters found in the model registry for project: ${PROJECT_NAME}"
+                echo ""
+                echo "   Register an adapter first with: ./do/register (after do/tune)"
+                echo "   Or use --weights or --from-hub to add an adapter manually."
+                exit 1
+            fi
+
+            # Display selection menu
+            echo "Available adapters in registry (${adapter_count} found):"
+            echo ""
+            printf '  %-4s%-10s%-12s%-20s%s\n' "#" "VERSION" "TECHNIQUE" "CREATED" "PARENT MODEL"
+
+            local i=0
+            while [ "${i}" -lt "${adapter_count}" ]; do
+                local version technique created_at parent_arn
+                version=$(echo "${json_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['adapters'][${i}].get('version','?'))" 2>/dev/null)
+                technique=$(echo "${json_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['adapters'][${i}].get('tuneTechnique','?'))" 2>/dev/null)
+                created_at=$(echo "${json_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); t=data['adapters'][${i}].get('createdAt',''); print(t[:10] if t else '?')" 2>/dev/null)
+                parent_arn=$(echo "${json_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); a=data['adapters'][${i}].get('parentModelVersionArn',''); print(a.split('/')[-2]+'/'+a.split('/')[-1] if '/' in a else a[:40])" 2>/dev/null)
+
+                local num=$((i + 1))
+                printf '  %-4s%-10s%-12s%-20s%s\n' "${num}" "v${version}" "${technique}" "${created_at}" "${parent_arn}"
+                i=$((i + 1))
+            done
+
+            echo ""
+            echo -n "Select adapter (1-${adapter_count}): "
+            read -r selection
+
+            # Validate selection
+            if ! echo "${selection}" | grep -qE '^[0-9]+$'; then
+                echo "❌ Invalid selection: ${selection}"
+                exit 1
+            fi
+            if [ "${selection}" -lt 1 ] || [ "${selection}" -gt "${adapter_count}" ]; then
+                echo "❌ Selection out of range. Choose 1-${adapter_count}."
+                exit 1
+            fi
+
+            # Get the ARN of the selected adapter
+            local sel_idx=$((selection - 1))
+            registry_arn=$(echo "${json_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['adapters'][${sel_idx}]['arn'])" 2>/dev/null)
+
+            if [ -z "${registry_arn}" ]; then
+                echo "❌ Failed to retrieve ARN for selected adapter."
+                exit 1
+            fi
+
+            echo ""
+            echo "✅ Selected: ${registry_arn}"
+            echo ""
+        fi
+
+        # Direct mode (AC-4.3): use the provided or selected ARN to get version details
+        echo "📦 Retrieving adapter details from registry: ${registry_arn}"
+        echo ""
+
+        local version_json
+        version_json=$(python3 "${SCRIPT_DIR}/.register_helper.py" get-version \
+            --arn "${registry_arn}" \
+            --region "${AWS_REGION}" 2>/dev/null)
+
+        local version_line
+        version_line=$(echo "${version_json}" | grep -E '^\{' | tail -1)
+
+        if [ -z "${version_line}" ]; then
+            echo "❌ Failed to get version details for: ${registry_arn}"
+            echo ""
+            echo "   Check that the ARN is correct and you have sagemaker:DescribeModelPackage permission."
+            echo "   Run ./do/adapter list to see available registry adapters."
+            exit 1
+        fi
+
+        # Check for error in response
+        local version_error
+        version_error=$(echo "${version_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data.get('error',''))" 2>/dev/null || echo "")
+        if [ -n "${version_error}" ]; then
+            echo "❌ Registry error: ${version_error}"
+            exit 1
+        fi
+
+        # Extract model data URL (weights path)
+        weights_uri=$(echo "${version_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data.get('modelDataUrl',''))" 2>/dev/null || echo "")
+
+        if [ -z "${weights_uri}" ]; then
+            echo "❌ No model data URL found for registry version: ${registry_arn}"
+            echo ""
+            echo "   The registered adapter does not have a model data URL."
+            echo "   Use --weights with an explicit S3 URI instead."
+            exit 1
+        fi
+
+        echo "✅ Resolved adapter weights from registry: ${weights_uri}"
+        echo ""
+    fi
+
     # ── Validate HF repo ID format (if --from-hub) ───────────────────────
     if [ -n "${from_hub}" ]; then
         # Valid formats: "org/name" or "name" (alphanumeric, hyphens, underscores, dots)
@@ -813,7 +969,7 @@ _adapter_add() {
     fi
 
     # ── Validate S3 URI format (only when --weights is explicitly used) ──
-    if [ -n "${weights_uri}" ] && [ -z "${from_hub}" ] && [ -z "${from_tune}" ]; then
+    if [ -n "${weights_uri}" ] && [ -z "${from_hub}" ] && [ -z "${from_tune}" ] && [ -z "${from_registry}" ]; then
         if ! echo "${weights_uri}" | grep -qE '^s3://.*\.tar\.gz$'; then
             echo "❌ Invalid S3 URI: ${weights_uri}"
             echo ""
@@ -841,6 +997,9 @@ _adapter_add() {
         echo "   Source: HuggingFace Hub (${from_hub})"
     elif [ -n "${from_tune}" ]; then
         echo "   Source: do/tune output"
+        echo "   Weights: ${weights_uri}"
+    elif [ -n "${from_registry}" ]; then
+        echo "   Source: Model Registry (${registry_arn})"
         echo "   Weights: ${weights_uri}"
     else
         echo "   Weights: ${weights_uri}"
@@ -948,6 +1107,14 @@ export ADAPTER_TUNE_TECHNIQUE="${from_tune_technique:-latest}"
 EOF
     fi
 
+    # Add registry-specific metadata if --from-registry was used
+    if [ -n "${from_registry}" ]; then
+        cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
+export ADAPTER_SOURCE="registry"
+export ADAPTER_REGISTRY_ARN="${registry_arn}"
+EOF
+    fi
+
     echo ""
     echo "✅ Adapter added successfully!"
     echo ""
@@ -959,6 +1126,8 @@ EOF
         echo "   Source: HuggingFace Hub (${from_hub})"
     elif [ -n "${from_tune}" ]; then
         echo "   Source: do/tune (${from_tune_technique:-latest})"
+    elif [ -n "${from_registry}" ]; then
+        echo "   Source: Model Registry (${registry_arn})"
     fi
     echo "   Created: ${created_at}"
     echo ""
@@ -1061,12 +1230,56 @@ _adapter_list() {
         echo "No adapters found on this endpoint."
         echo ""
         echo "Add one with: ./do/adapter add <name> --weights <s3-uri>"
+    fi
+
+    if [ "${found_adapters}" -gt 0 ]; then
+        # ── Print table ───────────────────────────────────────────────────────
+        printf '%-14s%-12s%s\n' "NAME" "STATUS" "WEIGHTS"
+        echo -e "${output_lines}" | sed '$ { /^$/d; }'
+    fi
+
+    # ── Show registry adapters (isAdapter=true) alongside local ones ──────
+    echo ""
+    echo "📦 Registry adapters:"
+    echo ""
+
+    local registry_json
+    registry_json=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-adapters \
+        --project-name "${PROJECT_NAME}" \
+        --region "${AWS_REGION}" 2>/dev/null || echo "")
+
+    local registry_line
+    registry_line=$(echo "${registry_json}" | grep -E '^\{' | tail -1)
+
+    if [ -z "${registry_line}" ]; then
+        echo "   (could not query registry — check AWS credentials)"
         return 0
     fi
 
-    # ── Print table ───────────────────────────────────────────────────────
-    printf '%-14s%-12s%s\n' "NAME" "STATUS" "WEIGHTS"
-    echo -e "${output_lines}" | sed '$ { /^$/d; }'
+    local registry_count
+    registry_count=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(len(data.get('adapters',[])))" 2>/dev/null || echo "0")
+
+    if [ "${registry_count}" -eq 0 ]; then
+        echo "   (none found)"
+        return 0
+    fi
+
+    printf '  %-10s%-12s%-14s%s\n' "VERSION" "TECHNIQUE" "CREATED" "PARENT MODEL"
+
+    local ri=0
+    while [ "${ri}" -lt "${registry_count}" ]; do
+        local rv rt rc rp
+        rv=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['adapters'][${ri}].get('version','?'))" 2>/dev/null)
+        rt=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['adapters'][${ri}].get('tuneTechnique','?'))" 2>/dev/null)
+        rc=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); t=data['adapters'][${ri}].get('createdAt',''); print(t[:10] if t else '?')" 2>/dev/null)
+        rp=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); a=data['adapters'][${ri}].get('parentModelVersionArn',''); print(a.split('/')[-2]+'/'+a.split('/')[-1] if '/' in a else a[:40])" 2>/dev/null)
+
+        printf '  %-10s%-12s%-14s%s\n' "v${rv}" "${rt}" "${rc}" "${rp}"
+        ri=$((ri + 1))
+    done
+
+    echo ""
+    echo "Add from registry: ./do/adapter add <name> --from-registry [version-arn]"
 }
 
 _adapter_remove() {

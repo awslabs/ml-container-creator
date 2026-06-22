@@ -29,9 +29,118 @@ CI_TABLE_NAME="${CI_TABLE_NAME:-mlcc-ci-table}"
 CI_BUILD_STRATEGY="codebuild-submit"
 BENCHMARK_STATUS=""
 BENCHMARK_RUN_ID=""
+REGISTER_DATASET_MODE=false
+REGISTER_EVALUATOR_MODE=false
+DATASET_NAME=""
+DATASET_S3_URI=""
+DATASET_FORMAT="jsonl"
+DATASET_TECHNIQUE="sft"
+DATASET_ROW_COUNT=""
+DATASET_COLUMN_SCHEMA=""
+EVALUATOR_NAME=""
+EVALUATOR_TYPE=""
+EVALUATOR_ARN_OR_URI=""
+EVALUATOR_TECHNIQUE=""
+EVALUATOR_DESCRIPTION=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dataset)
+            REGISTER_DATASET_MODE=true
+            shift
+            ;;
+        --evaluator)
+            REGISTER_EVALUATOR_MODE=true
+            shift
+            ;;
+        --dataset-name)
+            DATASET_NAME="$2"
+            shift 2
+            ;;
+        --dataset-name=*)
+            DATASET_NAME="${1#*=}"
+            shift
+            ;;
+        --dataset-s3-uri)
+            DATASET_S3_URI="$2"
+            shift 2
+            ;;
+        --dataset-s3-uri=*)
+            DATASET_S3_URI="${1#*=}"
+            shift
+            ;;
+        --dataset-format)
+            DATASET_FORMAT="$2"
+            shift 2
+            ;;
+        --dataset-format=*)
+            DATASET_FORMAT="${1#*=}"
+            shift
+            ;;
+        --dataset-technique)
+            DATASET_TECHNIQUE="$2"
+            shift 2
+            ;;
+        --dataset-technique=*)
+            DATASET_TECHNIQUE="${1#*=}"
+            shift
+            ;;
+        --dataset-row-count)
+            DATASET_ROW_COUNT="$2"
+            shift 2
+            ;;
+        --dataset-row-count=*)
+            DATASET_ROW_COUNT="${1#*=}"
+            shift
+            ;;
+        --dataset-column-schema)
+            DATASET_COLUMN_SCHEMA="$2"
+            shift 2
+            ;;
+        --dataset-column-schema=*)
+            DATASET_COLUMN_SCHEMA="${1#*=}"
+            shift
+            ;;
+        --evaluator-name)
+            EVALUATOR_NAME="$2"
+            shift 2
+            ;;
+        --evaluator-name=*)
+            EVALUATOR_NAME="${1#*=}"
+            shift
+            ;;
+        --evaluator-type)
+            EVALUATOR_TYPE="$2"
+            shift 2
+            ;;
+        --evaluator-type=*)
+            EVALUATOR_TYPE="${1#*=}"
+            shift
+            ;;
+        --evaluator-arn-or-uri)
+            EVALUATOR_ARN_OR_URI="$2"
+            shift 2
+            ;;
+        --evaluator-arn-or-uri=*)
+            EVALUATOR_ARN_OR_URI="${1#*=}"
+            shift
+            ;;
+        --evaluator-technique)
+            EVALUATOR_TECHNIQUE="$2"
+            shift 2
+            ;;
+        --evaluator-technique=*)
+            EVALUATOR_TECHNIQUE="${1#*=}"
+            shift
+            ;;
+        --evaluator-description)
+            EVALUATOR_DESCRIPTION="$2"
+            shift 2
+            ;;
+        --evaluator-description=*)
+            EVALUATOR_DESCRIPTION="${1#*=}"
+            shift
+            ;;
         --notes)
             NOTES="$2"
             shift 2
@@ -167,6 +276,125 @@ if [ -n "${BENCHMARK_STATUS}" ]; then
         echo "✅ Benchmark status recorded: ${BENCHMARK_STATUS}"
     else
         echo "❌ Failed to write benchmark status for configId: ${CONFIG_ID}"
+        exit 1
+    fi
+
+    exit 0
+fi
+
+# ============================================================
+# Handle --dataset mode (register dataset, AC-2b.1)
+# ============================================================
+
+if [ "${REGISTER_DATASET_MODE}" = true ]; then
+    if [ -z "${DATASET_NAME}" ]; then
+        echo "❌ --dataset-name is required when using --dataset"
+        exit 1
+    fi
+    if [ -z "${DATASET_S3_URI}" ]; then
+        echo "❌ --dataset-s3-uri is required when using --dataset"
+        exit 1
+    fi
+
+    echo "📋 Registering dataset: ${DATASET_NAME}"
+    echo "   S3 URI:    ${DATASET_S3_URI}"
+    echo "   Format:    ${DATASET_FORMAT}"
+    echo "   Technique: ${DATASET_TECHNIQUE}"
+    echo ""
+
+    # Build register-dataset args
+    DS_ARGS=(
+        "register-dataset"
+        "--name" "${DATASET_NAME}"
+        "--s3-uri" "${DATASET_S3_URI}"
+        "--format" "${DATASET_FORMAT}"
+        "--technique" "${DATASET_TECHNIQUE}"
+    )
+
+    if [ -n "${DATASET_ROW_COUNT}" ]; then
+        DS_ARGS+=("--row-count" "${DATASET_ROW_COUNT}")
+    fi
+
+    if [ -n "${DATASET_COLUMN_SCHEMA}" ]; then
+        DS_ARGS+=("--column-schema" "${DATASET_COLUMN_SCHEMA}")
+    fi
+
+    DS_ARGS+=("--project-name" "${PROJECT_NAME}")
+
+    # Call .register_helper.py register-dataset
+    if ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${DS_ARGS[@]}" 2>/dev/null); then
+        ds_json=$(echo "${ds_output}" | grep -E '^\{' | tail -1)
+        if [ -n "${ds_json}" ]; then
+            echo "✅ Dataset registered successfully"
+            echo "${ds_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${ds_json}"
+        else
+            echo "⚠️  Dataset registration returned no JSON output"
+        fi
+    else
+        echo "❌ Dataset registration failed"
+        exit 1
+    fi
+
+    exit 0
+fi
+
+# ============================================================
+# Handle --evaluator mode (register evaluator, AC-2c.1)
+# ============================================================
+
+if [ "${REGISTER_EVALUATOR_MODE}" = true ]; then
+    if [ -z "${EVALUATOR_NAME}" ]; then
+        echo "❌ --evaluator-name is required when using --evaluator"
+        exit 1
+    fi
+    if [ -z "${EVALUATOR_TYPE}" ]; then
+        echo "❌ --evaluator-type is required when using --evaluator (lambda/model)"
+        exit 1
+    fi
+    if [ -z "${EVALUATOR_ARN_OR_URI}" ]; then
+        echo "❌ --evaluator-arn-or-uri is required when using --evaluator"
+        exit 1
+    fi
+    if [ -z "${EVALUATOR_TECHNIQUE}" ]; then
+        echo "❌ --evaluator-technique is required when using --evaluator (rlvr/rlaif)"
+        exit 1
+    fi
+
+    echo "📋 Registering evaluator: ${EVALUATOR_NAME}"
+    echo "   Type:        ${EVALUATOR_TYPE}"
+    echo "   ARN/URI:     ${EVALUATOR_ARN_OR_URI}"
+    echo "   Technique:   ${EVALUATOR_TECHNIQUE}"
+    if [ -n "${EVALUATOR_DESCRIPTION}" ]; then
+        echo "   Description: ${EVALUATOR_DESCRIPTION}"
+    fi
+    echo ""
+
+    # Build register-evaluator args
+    EV_ARGS=(
+        "register-evaluator"
+        "--name" "${EVALUATOR_NAME}"
+        "--type" "${EVALUATOR_TYPE}"
+        "--arn-or-uri" "${EVALUATOR_ARN_OR_URI}"
+        "--technique" "${EVALUATOR_TECHNIQUE}"
+    )
+
+    if [ -n "${EVALUATOR_DESCRIPTION}" ]; then
+        EV_ARGS+=("--description" "${EVALUATOR_DESCRIPTION}")
+    fi
+
+    EV_ARGS+=("--project-name" "${PROJECT_NAME}")
+
+    # Call .register_helper.py register-evaluator
+    if ev_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${EV_ARGS[@]}" 2>/dev/null); then
+        ev_json=$(echo "${ev_output}" | grep -E '^\{' | tail -1)
+        if [ -n "${ev_json}" ]; then
+            echo "✅ Evaluator registered successfully"
+            echo "${ev_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${ev_json}"
+        else
+            echo "⚠️  Evaluator registration returned no JSON output"
+        fi
+    else
+        echo "❌ Evaluator registration failed"
         exit 1
     fi
 
@@ -795,3 +1023,221 @@ fi
 
 echo "📝 Writing to registry..."
 ml-container-creator "${CMD_ARGS[@]}"
+
+# ============================================================
+# Register to SageMaker Model Package Group (non-fatal, AC-1.6)
+# ============================================================
+
+# Container image URI for the deployed model
+CONTAINER_IMAGE_URI="${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-latest"
+if [ -n "${BASE_IMAGE:-}" ]; then
+    CONTAINER_IMAGE_URI="${BASE_IMAGE}"
+fi
+
+# Model data S3 URI (from do/config if set)
+MODEL_S3_URI="${MODEL_DATA_URL:-${MODEL_S3_URI:-}}"
+
+# Build register-model args
+REG_ARGS=(
+    "register-model"
+    "--project-name" "${PROJECT_NAME}"
+    "--deployment-config" "${DEPLOYMENT_CONFIG}"
+    "--container-image" "${CONTAINER_IMAGE_URI}"
+    "--instance-type" "${INSTANCE_TYPE}"
+    "--architecture" "${ARCHITECTURE}"
+    "--backend" "${BACKEND}"
+)
+
+if [ -n "${MODEL_NAME:-}" ]; then
+    REG_ARGS+=("--model-name" "${MODEL_NAME}")
+fi
+
+if [ -n "${MODEL_S3_URI:-}" ]; then
+    REG_ARGS+=("--model-data-url" "${MODEL_S3_URI}")
+fi
+
+if [ -n "${BASE_IMAGE:-}" ]; then
+    REG_ARGS+=("--base-image" "${BASE_IMAGE}")
+fi
+
+if [ -n "${MODEL_FORMAT:-}" ]; then
+    REG_ARGS+=("--model-format" "${MODEL_FORMAT}")
+fi
+
+if [ -n "${GENERATOR_VERSION}" ]; then
+    REG_ARGS+=("--generator-version" "${GENERATOR_VERSION}")
+fi
+
+if [ -n "${AWS_REGION:-}" ]; then
+    REG_ARGS+=("--region" "${AWS_REGION}")
+fi
+
+if [ -n "${ROLE_ARN:-}" ]; then
+    REG_ARGS+=("--role-arn" "${ROLE_ARN}")
+fi
+
+echo ""
+echo "📦 Registering to SageMaker Model Package Group..."
+
+# Call .register_helper.py — non-fatal on failure (AC-1.6)
+# Use robust JSON extraction pattern (design lesson #4)
+if helper_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${REG_ARGS[@]}" 2>/dev/null); then
+    json_line=$(echo "${helper_output}" | grep -E '^\{' | tail -1)
+    if [ -n "${json_line}" ]; then
+        # Extract fields from JSON response
+        MPG_ARN=$(echo "${json_line}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mpg_arn',''))" 2>/dev/null || echo "")
+        MODEL_PKG_ARN=$(echo "${json_line}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn',''))" 2>/dev/null || echo "")
+        MPG_VERSION=$(echo "${json_line}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',0))" 2>/dev/null || echo "0")
+
+        if [ -n "${MODEL_PKG_ARN}" ] && [ "${MODEL_PKG_ARN}" != "" ]; then
+            echo "✅ Model registered: version ${MPG_VERSION}"
+            echo "   MPG ARN: ${MPG_ARN}"
+            echo "   Package ARN: ${MODEL_PKG_ARN}"
+
+            # Update local deployment registry entry with MPG ARN and version (AC-1.5)
+            # Patch the most recent entry in the registry JSON file
+            REGISTRY_FILE="${HOME}/.ml-container-creator/registry.json"
+            if [ -f "${REGISTRY_FILE}" ]; then
+                python3 -c "
+import json, sys
+try:
+    with open('${REGISTRY_FILE}', 'r') as f:
+        data = json.load(f)
+    entries = data.get('entries', data) if isinstance(data, dict) else data
+    if isinstance(entries, list) and len(entries) > 0:
+        entries[-1]['modelPackageArn'] = '${MODEL_PKG_ARN}'
+        entries[-1]['modelPackageVersion'] = ${MPG_VERSION}
+        if isinstance(data, dict):
+            data['entries'] = entries
+            with open('${REGISTRY_FILE}', 'w') as f:
+                json.dump(data, f, indent=2)
+        else:
+            with open('${REGISTRY_FILE}', 'w') as f:
+                json.dump(entries, f, indent=2)
+except Exception as e:
+    print(f'Warning: Could not update registry with MPG info: {e}', file=sys.stderr)
+" 2>/dev/null || true
+            fi
+        else
+            echo "⚠️  MPG registration returned incomplete data (non-fatal)"
+        fi
+    else
+        echo "⚠️  MPG registration returned no JSON output (non-fatal)"
+    fi
+else
+    echo "⚠️  MPG registration failed (non-fatal) — local registry is the primary record"
+fi
+
+# ============================================================
+# Register adapter into same MPG if detected (AC-2.1, AC-2.4)
+# ============================================================
+# Adapter presence: TUNE_OUTPUT_PATH_LATEST set (from do/tune)
+# OR adapter conf files exist in do/adapters/
+# SFTTrainer may auto-register — do/register supplements with deployment metadata.
+# Registration failure is non-fatal (warning only, AC-1.6 applies).
+
+ADAPTER_DETECTED=false
+ADAPTER_DATA_URL=""
+
+# Check 1: TUNE_OUTPUT_PATH_LATEST set (from do/tune completion)
+if [ -n "${TUNE_OUTPUT_PATH_LATEST:-}" ]; then
+    ADAPTER_DETECTED=true
+    ADAPTER_DATA_URL="${TUNE_OUTPUT_PATH_LATEST}"
+fi
+
+# Check 2: Adapter conf files exist in do/adapters/
+if [ "${ADAPTER_DETECTED}" = false ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
+    for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+        [ -f "${conf}" ] || continue
+        [[ "$(basename "${conf}")" == ".gitkeep" ]] && continue
+        ADAPTER_DETECTED=true
+        # Try to read adapter weights URI from the first conf file
+        ADAPTER_WEIGHTS_URI=""
+        eval "$(grep '^export ADAPTER_WEIGHTS_URI=' "${conf}" 2>/dev/null)" 2>/dev/null || true
+        if [ -n "${ADAPTER_WEIGHTS_URI:-}" ]; then
+            ADAPTER_DATA_URL="${ADAPTER_WEIGHTS_URI}"
+        fi
+        break
+    done
+fi
+
+if [ "${ADAPTER_DETECTED}" = true ] && [ -n "${MODEL_PKG_ARN:-}" ]; then
+    echo ""
+    echo "📦 Adapter detected — registering to SageMaker Model Package Group..."
+
+    # Build register-adapter args
+    ADAPTER_REG_ARGS=(
+        "register-adapter"
+        "--project-name" "${PROJECT_NAME}"
+        "--parent-version-arn" "${MODEL_PKG_ARN}"
+        "--deployment-config" "${DEPLOYMENT_CONFIG}"
+        "--container-image" "${CONTAINER_IMAGE_URI}"
+        "--instance-type" "${INSTANCE_TYPE}"
+        "--architecture" "${ARCHITECTURE}"
+        "--backend" "${BACKEND}"
+    )
+
+    # Tune technique (sft/dpo/rlvr) — read from TUNE_TECHNIQUE config var if available
+    if [ -n "${TUNE_TECHNIQUE:-}" ]; then
+        ADAPTER_REG_ARGS+=("--tune-technique" "${TUNE_TECHNIQUE}")
+    fi
+
+    # Dataset S3 URI if available
+    if [ -n "${TUNE_DATASET_S3_URI:-}" ]; then
+        ADAPTER_REG_ARGS+=("--dataset-s3-uri" "${TUNE_DATASET_S3_URI}")
+    fi
+
+    # Adapter model data URL
+    if [ -n "${ADAPTER_DATA_URL}" ]; then
+        ADAPTER_REG_ARGS+=("--model-data-url" "${ADAPTER_DATA_URL}")
+    fi
+
+    if [ -n "${MODEL_NAME:-}" ]; then
+        ADAPTER_REG_ARGS+=("--model-name" "${MODEL_NAME}")
+    fi
+
+    if [ -n "${BASE_IMAGE:-}" ]; then
+        ADAPTER_REG_ARGS+=("--base-image" "${BASE_IMAGE}")
+    fi
+
+    if [ -n "${MODEL_FORMAT:-}" ]; then
+        ADAPTER_REG_ARGS+=("--model-format" "${MODEL_FORMAT}")
+    fi
+
+    if [ -n "${GENERATOR_VERSION}" ]; then
+        ADAPTER_REG_ARGS+=("--generator-version" "${GENERATOR_VERSION}")
+    fi
+
+    if [ -n "${AWS_REGION:-}" ]; then
+        ADAPTER_REG_ARGS+=("--region" "${AWS_REGION}")
+    fi
+
+    if [ -n "${ROLE_ARN:-}" ]; then
+        ADAPTER_REG_ARGS+=("--role-arn" "${ROLE_ARN}")
+    fi
+
+    # Call .register_helper.py register-adapter — non-fatal on failure
+    if adapter_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${ADAPTER_REG_ARGS[@]}" 2>/dev/null); then
+        adapter_json=$(echo "${adapter_output}" | grep -E '^\{' | tail -1)
+        if [ -n "${adapter_json}" ]; then
+            ADAPTER_PKG_ARN=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_package_arn',''))" 2>/dev/null || echo "")
+            ADAPTER_VERSION=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',0))" 2>/dev/null || echo "0")
+            ADAPTER_PARENT=$(echo "${adapter_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('parent_version_arn',''))" 2>/dev/null || echo "")
+
+            if [ -n "${ADAPTER_PKG_ARN}" ] && [ "${ADAPTER_PKG_ARN}" != "" ]; then
+                echo "✅ Adapter registered: version ${ADAPTER_VERSION}"
+                echo "   Package ARN: ${ADAPTER_PKG_ARN}"
+                echo "   Parent ARN:  ${ADAPTER_PARENT}"
+            else
+                echo "⚠️  Adapter registration returned incomplete data (non-fatal)"
+            fi
+        else
+            echo "⚠️  Adapter registration returned no JSON output (non-fatal)"
+        fi
+    else
+        echo "⚠️  Adapter registration failed (non-fatal) — local registry is the primary record"
+    fi
+elif [ "${ADAPTER_DETECTED}" = true ] && [ -z "${MODEL_PKG_ARN:-}" ]; then
+    echo ""
+    echo "⚠️  Adapter detected but no parent model version ARN available — skipping adapter registration"
+fi
