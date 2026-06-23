@@ -89,6 +89,8 @@ def _truncate_metadata(props):
     result = {}
     for key, value in props.items():
         str_val = str(value) if value is not None else ""
+        if not str_val:
+            continue  # SageMaker requires min length 1 for metadata values — skip empty
         if len(str_val) > MAX_METADATA_VALUE_LEN:
             _warn(f"Metadata '{key}' truncated ({len(str_val)} → {MAX_METADATA_VALUE_LEN} chars)")
             str_val = str_val[: MAX_METADATA_VALUE_LEN - 1] + "…"
@@ -264,33 +266,41 @@ def cmd_register_model(args):
     container_image = args.container_image or ""
     model_data_url = args.model_data_url or ""
 
-    inference_spec = {
-        "Containers": [
-            {
-                "Image": container_image,
-            }
-        ],
-        "SupportedContentTypes": ["application/json"],
-        "SupportedResponseMIMETypes": ["application/json"],
-    }
-    # Only include ModelDataUrl if provided
-    if model_data_url:
-        inference_spec["Containers"][0]["ModelDataUrl"] = model_data_url
-
     # Step 4: Create Model Package version (AC-1.2, AC-1.7)
     description = f"{args.deployment_config or 'model'} on {args.instance_type or 'unknown'}"
 
     print(f"Registering model version in {project_name}...", file=sys.stderr)
     try:
-        pkg = ModelPackage.create(
-            model_package_group_name=project_name,
-            model_package_description=description,
-            inference_specification=inference_spec,
-            customer_metadata_properties=metadata,
-            model_approval_status="Approved",
-        )
+        # Use boto3 directly — sagemaker-core v2.14 has a KeyError bug in ModelPackage.create()
+        # where it tries to read response["ModelPackageName"] but the API returns "ModelPackageArn".
+        import boto3
+        sm_client = boto3.client("sagemaker", region_name=region)
 
-        model_package_arn = pkg.model_package_arn
+        create_params = {
+            "ModelPackageGroupName": project_name,
+            "ModelPackageDescription": description,
+            "ModelApprovalStatus": "Approved",
+        }
+        if container_image:
+            create_params["InferenceSpecification"] = {
+                "Containers": [{"Image": container_image}],
+                "SupportedContentTypes": ["application/json"],
+                "SupportedResponseMIMETypes": ["application/json"],
+            }
+            if model_data_url:
+                create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
+        if model_data_url:
+            if "InferenceSpecification" not in create_params:
+                # Store model data URL in metadata if no container image
+                if not metadata:
+                    metadata = {}
+                metadata["modelDataUrl"] = model_data_url[:1024]
+        if metadata:
+            create_params["CustomerMetadataProperties"] = metadata
+
+        response = sm_client.create_model_package(**create_params)
+        model_package_arn = response["ModelPackageArn"]
+
         # Extract version number from ARN (format: .../project-name/version)
         version = _extract_version_from_arn(model_package_arn)
 
@@ -407,33 +417,39 @@ def cmd_register_adapter(args):
     container_image = args.container_image or ""
     model_data_url = args.model_data_url or ""
 
-    inference_spec = {
-        "Containers": [
-            {
-                "Image": container_image,
-            }
-        ],
-        "SupportedContentTypes": ["application/json"],
-        "SupportedResponseMIMETypes": ["application/json"],
-    }
-    if model_data_url:
-        inference_spec["Containers"][0]["ModelDataUrl"] = model_data_url
-
     # Step 4: Create adapter Model Package version (AC-2.1)
     technique = args.tune_technique or "unknown"
     description = f"adapter ({technique}) on {args.instance_type or 'unknown'}, parent: {parent_version_arn}"
 
     print(f"Registering adapter version in {project_name}...", file=sys.stderr)
     try:
-        pkg = ModelPackage.create(
-            model_package_group_name=project_name,
-            model_package_description=description,
-            inference_specification=inference_spec,
-            customer_metadata_properties=metadata,
-            model_approval_status="Approved",
-        )
+        # Use boto3 directly — sagemaker-core v2.14 has a KeyError bug in ModelPackage.create()
+        import boto3
+        sm_client = boto3.client("sagemaker", region_name=region)
 
-        model_package_arn = pkg.model_package_arn
+        create_params = {
+            "ModelPackageGroupName": project_name,
+            "ModelPackageDescription": description,
+            "ModelApprovalStatus": "Approved",
+        }
+        if container_image:
+            create_params["InferenceSpecification"] = {
+                "Containers": [{"Image": container_image}],
+                "SupportedContentTypes": ["application/json"],
+                "SupportedResponseMIMETypes": ["application/json"],
+            }
+            if model_data_url:
+                create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
+        elif model_data_url:
+            if not metadata:
+                metadata = {}
+            metadata["modelDataUrl"] = model_data_url[:1024]
+        if metadata:
+            create_params["CustomerMetadataProperties"] = metadata
+
+        response = sm_client.create_model_package(**create_params)
+        model_package_arn = response["ModelPackageArn"]
+
         version = _extract_version_from_arn(model_package_arn)
 
         print(f"Registered adapter version {version}: {model_package_arn}", file=sys.stderr)
@@ -1132,6 +1148,12 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    # Set region before any sagemaker-core import (creates boto3 clients at import time)
+    region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
+    if region:
+        os.environ['AWS_DEFAULT_REGION'] = region
+        os.environ.setdefault('AWS_REGION', region)
 
     if args.command == "create-mpg":
         cmd_create_mpg(args)

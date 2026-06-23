@@ -143,9 +143,23 @@ class McpClient {
         // Build context from bounded parameters that have defaults
         const context = this._buildContext();
 
+        // Auto-discover tool name if using the default (get_ml_config)
+        // Each server registers its own tool name (e.g. get_base_images, get_inference_endpoints)
+        let toolName = this.toolName;
+        if (toolName === DEFAULT_TOOL_NAME) {
+            try {
+                const toolList = await this._client.listTools();
+                if (toolList && toolList.tools && toolList.tools.length > 0) {
+                    toolName = toolList.tools[0].name;
+                }
+            } catch (_listErr) {
+                // Fall through to use default tool name
+            }
+        }
+
         // Call the configured tool
         const result = await this._client.callTool({
-            name: this.toolName,
+            name: toolName,
             arguments: {
                 parameters: unboundedParams,
                 limit: this.limit,

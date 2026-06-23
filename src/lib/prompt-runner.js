@@ -224,25 +224,39 @@ export default class PromptRunner {
         // Requirements: 3.3, 4.3, 4.4 — endpoint-picker MCP query
         let existingEndpointAnswers = {};
         if (regionAndTargetAnswers.deploymentTarget === 'realtime-inference') {
-            // Query endpoint-picker MCP server for available endpoints
-            const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
-            await this.mcpQueryRunner._queryMcpForEndpoints({ ...regionAndTargetAnswers, awsRegion: resolvedRegion }, explicitConfig);
-
-            const endpointPreviousAnswers = {
-                ...regionAndTargetAnswers,
-                ...(this._mcpEndpointChoices ? { _mcpEndpointChoices: this._mcpEndpointChoices } : {})
-            };
-            existingEndpointAnswers = await this._runPhase(
-                infraExistingEndpointPrompts,
-                endpointPreviousAnswers,
+            // First ask if user wants to attach to existing endpoint (no MCP call yet)
+            const attachAnswer = await this._runPhase(
+                [infraExistingEndpointPrompts[0]],
+                { ...regionAndTargetAnswers },
                 explicitConfig,
                 existingConfig
             );
 
-            // Resolve custom endpoint name
-            if (existingEndpointAnswers.customExistingEndpointName) {
-                existingEndpointAnswers.existingEndpointName = existingEndpointAnswers.customExistingEndpointName;
-                delete existingEndpointAnswers.customExistingEndpointName;
+            if (attachAnswer.useExistingEndpoint === 'yes') {
+                // Only now query endpoint-picker MCP server
+                const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
+                await this.mcpQueryRunner._queryMcpForEndpoints({ ...regionAndTargetAnswers, awsRegion: resolvedRegion }, explicitConfig);
+
+                const endpointPreviousAnswers = {
+                    ...regionAndTargetAnswers,
+                    ...attachAnswer,
+                    ...(this._mcpEndpointChoices ? { _mcpEndpointChoices: this._mcpEndpointChoices } : {})
+                };
+                existingEndpointAnswers = await this._runPhase(
+                    infraExistingEndpointPrompts.slice(1),
+                    endpointPreviousAnswers,
+                    explicitConfig,
+                    existingConfig
+                );
+                existingEndpointAnswers.useExistingEndpoint = 'yes';
+
+                // Resolve custom endpoint name
+                if (existingEndpointAnswers.customExistingEndpointName) {
+                    existingEndpointAnswers.existingEndpointName = existingEndpointAnswers.customExistingEndpointName;
+                    delete existingEndpointAnswers.customExistingEndpointName;
+                }
+            } else {
+                existingEndpointAnswers = attachAnswer;
             }
         }
 
@@ -376,11 +390,12 @@ export default class PromptRunner {
             const sizerRecs = this._instanceSizerMetadata.recommendations || [];
             const finalInstanceType = instanceAnswers.customInstanceType || instanceAnswers.instanceType;
             const matchingRec = sizerRecs.find(r => r.instanceType === finalInstanceType);
-            const tpRec = matchingRec || sizerRecs[0];
-            if (tpRec && tpRec.tensorParallelism > 1) {
-                this._autoTensorParallelism = tpRec.tensorParallelism;
-                this._autoGpuCount = tpRec.gpuCount;
-                console.log(`   ✓ Auto-set tensor parallelism: TP=${tpRec.tensorParallelism} (${tpRec.gpuCount} GPUs)`);
+            // Only use sizer TP recommendation if user selected a recommended instance
+            // Custom instances resolve TP from the instance catalog in template-variable-resolver
+            if (matchingRec && matchingRec.tensorParallelism > 1) {
+                this._autoTensorParallelism = matchingRec.tensorParallelism;
+                this._autoGpuCount = matchingRec.gpuCount;
+                console.log(`   ✓ Auto-set tensor parallelism: TP=${matchingRec.tensorParallelism} (${matchingRec.gpuCount} GPUs)`);
             }
 
             // Display capacity type confirmation for selected instance

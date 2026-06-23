@@ -78,6 +78,7 @@ function getGpusForInstance(instanceType) {
 let _SageMakerClient = null;
 let _ListEndpointsCommand = null;
 let _DescribeEndpointCommand = null;
+let _DescribeEndpointConfigCommand = null;
 let _ListInferenceComponentsCommand = null;
 let _fromIni = null;
 
@@ -90,6 +91,7 @@ async function _ensureSdkLoaded() {
     _SageMakerClient = sdk.SageMakerClient;
     _ListEndpointsCommand = sdk.ListEndpointsCommand;
     _DescribeEndpointCommand = sdk.DescribeEndpointCommand;
+    _DescribeEndpointConfigCommand = sdk.DescribeEndpointConfigCommand;
     _ListInferenceComponentsCommand = sdk.ListInferenceComponentsCommand;
     try {
         const credentialProviders = await import('@aws-sdk/credential-providers');
@@ -197,9 +199,24 @@ async function fetchEndpoints(client, { limit = 10, showFull = false } = {}) {
             const primaryVariant = variants[0] || {};
 
             const variantName = primaryVariant.VariantName || 'AllTraffic';
-            const instanceType = primaryVariant.CurrentInstanceCount !== null && primaryVariant.CurrentInstanceCount !== undefined
-                ? (primaryVariant.InstanceType || detail.ProductionVariants?.[0]?.InstanceType || 'unknown')
-                : (primaryVariant.InstanceType || 'unknown');
+            let instanceType = primaryVariant.InstanceType || null;
+
+            // For IC-based endpoints, InstanceType may not be in the variant runtime response.
+            // Fall back to DescribeEndpointConfig which always has it.
+            if (!instanceType && detail.EndpointConfigName) {
+                try {
+                    const ecCmd = new _DescribeEndpointConfigCommand({ EndpointConfigName: detail.EndpointConfigName });
+                    const ecDetail = await client.send(ecCmd);
+                    const ecVariant = (ecDetail.ProductionVariants || [])[0];
+                    if (ecVariant?.InstanceType) {
+                        instanceType = ecVariant.InstanceType;
+                    }
+                } catch (ecErr) {
+                    log(`Warning: could not describe endpoint config for "${endpointName}": ${ecErr.message}`);
+                }
+            }
+            instanceType = instanceType || 'unknown';
+
             const instanceCount = primaryVariant.CurrentInstanceCount ?? primaryVariant.DesiredInstanceCount ?? 1;
             const hasInstancePools = !!(primaryVariant.InstancePools && primaryVariant.InstancePools.length > 0);
 
@@ -387,17 +404,9 @@ server.tool(
         limit: z.number().int().positive().default(10).describe('Maximum number of endpoints to return'),
         context: z.record(z.string(), z.any()).optional().describe('Current configuration context (awsRegion, awsProfile, deploymentTarget)')
     },
-    async ({ parameters, limit, context }) => {
-        // Only respond if parameters includes endpointName AND context.deploymentTarget is realtime-inference
-        if (!parameters.includes('endpointName')) {
-            return {
-                content: [{
-                    type: 'text',
-                    text: JSON.stringify({ values: {}, choices: {} })
-                }]
-            };
-        }
-
+    async ({ parameters: _parameters, limit, context }) => {
+        // Only respond if context.deploymentTarget is realtime-inference
+        // Note: parameters may be empty when called on-demand via queryMcpServer()
         if (context?.deploymentTarget && context.deploymentTarget !== 'realtime-inference') {
             return {
                 content: [{

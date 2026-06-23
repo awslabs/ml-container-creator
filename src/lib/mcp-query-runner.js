@@ -371,9 +371,13 @@ export default class McpQueryRunner {
         console.log('   🔍 Querying endpoint-picker...');
 
         try {
+            // Pass awsProfile from bootstrap config for credential resolution
+            const awsProfile = this.runner.configManager?.config?.awsProfile
+                || this.runner.options?.profile || process.env.AWS_PROFILE || null;
             const result = await cm.queryMcpServer('endpoint-picker', {
                 awsRegion: infraAnswers.awsRegion,
-                deploymentTarget: 'realtime-inference'
+                deploymentTarget: 'realtime-inference',
+                ...(awsProfile ? { awsProfile } : {})
             });
 
             if (result && result.choices?.endpointName?.length > 0) {

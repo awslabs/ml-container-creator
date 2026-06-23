@@ -1,3 +1,18 @@
+!!! info "Two Model Package Groups per project"
+    Each project creates **two separate MPGs** in SageMaker:
+
+    | MPG | Created by | Purpose |
+    |-----|-----------|---------|
+    | `{project-name}` | `do/register` | **Deployment registry** — base model + adapters with full deployment context (container image, instance type, benchmark data, adapter lineage) |
+    | `{project-name}-tune-models` | SageMaker `SFTTrainer`/`DPOTrainer` | **Training artifacts** — raw tuning outputs auto-registered by the managed customization service |
+
+    These serve complementary purposes:
+
+    - **Tune MPG** is auto-managed by SageMaker training. You don't control its schema or metadata — it's the training system's record of what was produced.
+    - **Deployment MPG** is your explicit, schema-controlled registry. It records what's actually deployed, with full metadata for governance, reproducibility, and post-v1 features (`do/import`, `do/update`).
+
+    Adapters appear in **both** — the tune MPG records the raw artifact, and `do/register` records the deployment with additional context (which endpoint, which instance, benchmark results, parent model linkage).
+
 # Deployment Registry
 
 The deployment registry tracks every configuration you deploy — model, instance, region, parameters, and status. Use it to audit what's running, compare configurations across environments, and feed the CI system with testable configurations.
