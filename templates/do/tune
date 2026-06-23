@@ -829,7 +829,25 @@ _validate_dataset() {
     if [ -z "${dataset}" ]; then
         if [ -n "${ARG_DATASET_NAME}" ]; then
             # Name-based resolution happens below via resolve-dataset
-            :
+            echo "🔍 Resolving dataset '${ARG_DATASET_NAME}' from registry..."
+            local resolve_result
+            resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
+                --name "${ARG_DATASET_NAME}" 2>/dev/null) || resolve_result=""
+
+            if [ -n "${resolve_result}" ]; then
+                local resolved_uri
+                resolved_uri=$(echo "${resolve_result}" | grep -E '^\{' | tail -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || resolved_uri=""
+                if [ -n "${resolved_uri}" ]; then
+                    echo "   Resolved to: ${resolved_uri}"
+                    dataset="${resolved_uri}"
+                    RESOLVED_DATASET_S3_URI="${resolved_uri}"
+                    return 0
+                fi
+            fi
+            echo "❌ Dataset '${ARG_DATASET_NAME}' not found in registry"
+            echo "   Run ./do/tune --list-datasets to see available datasets."
+            echo "   Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
+            exit 1
         else
             echo "❌ --dataset is required"
             echo "   Provide an S3 URI (s3://bucket/path.jsonl), HF reference (hf://org/name), or registered name"
