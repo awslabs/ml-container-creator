@@ -266,11 +266,6 @@ def cmd_register_model(args):
     container_image = args.container_image or ""
     model_data_url = args.model_data_url or ""
 
-    from sagemaker.core.shapes.model_card_shapes import InferenceSpecification, ContainersItem
-
-    container_item = ContainersItem(image=container_image or None, model_data_url=model_data_url or None)
-    inference_spec = InferenceSpecification(containers=[container_item])
-
     # Step 4: Create Model Package version (AC-1.2, AC-1.7)
     description = f"{args.deployment_config or 'model'} on {args.instance_type or 'unknown'}"
 
@@ -284,15 +279,22 @@ def cmd_register_model(args):
         create_params = {
             "ModelPackageGroupName": project_name,
             "ModelPackageDescription": description,
-            "InferenceSpecification": {
+            "ModelApprovalStatus": "Approved",
+        }
+        if container_image:
+            create_params["InferenceSpecification"] = {
                 "Containers": [{"Image": container_image}],
                 "SupportedContentTypes": ["application/json"],
                 "SupportedResponseMIMETypes": ["application/json"],
-            },
-            "ModelApprovalStatus": "Approved",
-        }
+            }
+            if model_data_url:
+                create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
         if model_data_url:
-            create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
+            if "InferenceSpecification" not in create_params:
+                # Store model data URL in metadata if no container image
+                if not metadata:
+                    metadata = {}
+                metadata["modelDataUrl"] = model_data_url[:1024]
         if metadata:
             create_params["CustomerMetadataProperties"] = metadata
 
@@ -415,11 +417,6 @@ def cmd_register_adapter(args):
     container_image = args.container_image or ""
     model_data_url = args.model_data_url or ""
 
-    from sagemaker.core.shapes.model_card_shapes import InferenceSpecification, ContainersItem
-
-    container_item = ContainersItem(image=container_image or None, model_data_url=model_data_url or None)
-    inference_spec = InferenceSpecification(containers=[container_item])
-
     # Step 4: Create adapter Model Package version (AC-2.1)
     technique = args.tune_technique or "unknown"
     description = f"adapter ({technique}) on {args.instance_type or 'unknown'}, parent: {parent_version_arn}"
@@ -433,15 +430,20 @@ def cmd_register_adapter(args):
         create_params = {
             "ModelPackageGroupName": project_name,
             "ModelPackageDescription": description,
-            "InferenceSpecification": {
+            "ModelApprovalStatus": "Approved",
+        }
+        if container_image:
+            create_params["InferenceSpecification"] = {
                 "Containers": [{"Image": container_image}],
                 "SupportedContentTypes": ["application/json"],
                 "SupportedResponseMIMETypes": ["application/json"],
-            },
-            "ModelApprovalStatus": "Approved",
-        }
-        if model_data_url:
-            create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
+            }
+            if model_data_url:
+                create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
+        elif model_data_url:
+            if not metadata:
+                metadata = {}
+            metadata["modelDataUrl"] = model_data_url[:1024]
         if metadata:
             create_params["CustomerMetadataProperties"] = metadata
 

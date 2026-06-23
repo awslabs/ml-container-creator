@@ -152,6 +152,55 @@ graph TD
 
 ## Golden-Path Models (E2E Catalog)
 
+### What is the Golden Path?
+
+The "golden path" refers to models that have been **validated against SageMaker AI's managed offerings**. These are the models MCC ships in its catalog — they are guaranteed to work end-to-end with:
+
+- **Managed Fine-Tuning** — SFTTrainer / DPOTrainer / RLAIF / RLVR via serverless model customization
+- **EAGLE Speculative Decoding** — SageMaker trains EAGLE draft heads from your model's hidden representations
+- **LoRA Adapter Hot-Swap** — runtime adapter loading without redeployment
+
+Any model can be *deployed* to a SageMaker endpoint via BYOC — MCC generates valid containers regardless. The golden path distinction is about what **SageMaker manages for you** beyond basic serving.
+
+#### Why These Models?
+
+The MCC catalog ships models that SageMaker AI has validated for its managed services. Specifically, the following architectures have confirmed support:
+
+| Architecture Class | EAGLE Version | Model Families |
+|---|---|---|
+| `LlamaForCausalLM` | EAGLE 3 | Llama 3.1, 3.2, 3.3, DeepSeek R1 Distill-Llama, Nemotron (Llama-based) |
+| `Qwen3ForCausalLM` | EAGLE 3 | Qwen3 0.6B–32B |
+| `Qwen3MoeForCausalLM` | EAGLE 3 | Qwen3 30B-A3B (Coder), Qwen3 235B-A22B |
+| `Qwen2ForCausalLM` | EAGLE 3 | Qwen2.5, DeepSeek R1 Distill-Qwen |
+| `GptOssForCausalLM` | EAGLE 3 | GPT-OSS 20B, 120B |
+| `Qwen3NextForCausalLM` | EAGLE 2 | Qwen3.5, Qwen3.6 |
+
+All models in the E2E catalog below belong to these architecture classes and have validated managed fine-tuning support.
+
+#### Adding Models Outside the Golden Path
+
+MCC can generate projects for **any** model — the catalog is not a hard constraint. However, models outside the golden path may not have support for:
+
+- `do/tune` — requires SageMaker managed fine-tuning support (SFTTrainer/DPOTrainer)
+- EAGLE speculative decoding — requires a supported architecture class for head training
+- P-EAGLE one-click deploy — currently limited to GPT-OSS 120B/20B, Qwen3-Coder-30B-A3B, and Gemma-4-31B-IT
+
+Models like Gemma 4, Mistral, Phi-4, and Llama 4 can still be deployed and served, but `do/tune` will not work and EAGLE heads must be trained externally (community checkpoints exist for many of these on HuggingFace).
+
+!!! info "The catalog is expanding"
+    AWS adds ~2-4 model families per quarter to managed fine-tuning and EAGLE support. When a new architecture class is added, all models sharing that class immediately gain coverage. MCC's CI catalog is updated accordingly.
+
+#### Manual Optimization (Always Available)
+
+Regardless of golden path status, all MCC projects can apply manual inference tuning via `do/config`:
+
+- Quantization (`VLLM_QUANTIZATION=awq|gptq|fp8`)
+- Tensor parallelism (`VLLM_TENSOR_PARALLEL_SIZE`)
+- Speculative decoding (`VLLM_SPECULATIVE_MODEL`)
+- KV cache dtype (`VLLM_KV_CACHE_DTYPE`)
+
+The `do/optimize` script (Epic 11, post-v1) will automate the search over these dimensions using Bayesian optimization, seeded from Athena benchmark history.
+
 The E2E catalog (`scripts/e2e-catalog.json`) defines 22 models organized in three tiers:
 
 ### Tier: CI (daily — 11 models, ~$8/run)
@@ -170,6 +219,8 @@ The E2E catalog (`scripts/e2e-catalog.json`) defines 22 models organized in thre
 | DS R1 Distill-Qwen 7B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B` | ml.g5.xlarge |
 | DS R1 Distill-Llama 8B | `deepseek-ai/DeepSeek-R1-Distill-Llama-8B` | ml.g5.xlarge |
 
+!!! note "Tier 1 = daily validation target for v1 release gate (≥ 10/11 must pass)"
+
 ### Tier: Nightly (7 models, ~$35/run)
 
 | Model | HuggingFace ID | Instance |
@@ -181,8 +232,13 @@ The E2E catalog (`scripts/e2e-catalog.json`) defines 22 models organized in thre
 | Qwen 3 32B | `Qwen/Qwen3-32B` | ml.g5.12xlarge |
 | Qwen 2.5 32B | `Qwen/Qwen2.5-32B-Instruct` | ml.g5.12xlarge |
 | DS R1 Distill-Qwen 32B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-32B` | ml.g5.12xlarge |
+| Qwen 3.5 4B | `Qwen/Qwen3.5-4B` | ml.g5.xlarge |
+| Qwen 3.5 9B | `Qwen/Qwen3.5-9B` | ml.g5.2xlarge |
+| Qwen 3.5 27B | `Qwen/Qwen3.5-27B` | ml.g5.12xlarge |
+| Qwen 3.6 27B | `Qwen/Qwen3.6-27B` | ml.g5.12xlarge |
+| Nemotron 3 Nano 30B | `nvidia/Nemotron-3-Nano-A3B-BF16-30B` | ml.g5.12xlarge |
 
-### Tier: Weekly (4 models, ~$150/run)
+### Tier: Weekly (5 models, ~$150/run)
 
 | Model | HuggingFace ID | Instance |
 |---|---|---|
@@ -190,6 +246,7 @@ The E2E catalog (`scripts/e2e-catalog.json`) defines 22 models organized in thre
 | Llama 3.3 70B | `meta-llama/Llama-3.3-70B-Instruct` | ml.g5.48xlarge |
 | DS R1 Distill-Llama 70B | `deepseek-ai/DeepSeek-R1-Distill-Llama-70B` | ml.g5.48xlarge |
 | GPT-OSS 120B | `openai/gpt-oss-120b` | ml.g5.48xlarge |
+| Nemotron 3 Nano 30B (TP4) | `nvidia/Nemotron-3-Nano-A3B-BF16-30B` | ml.g5.48xlarge |
 
 All models use:
 - **Serving engine**: vLLM

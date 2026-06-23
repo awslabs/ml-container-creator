@@ -1137,9 +1137,14 @@ ml-container-creator "${CMD_ARGS[@]}"
 # ============================================================
 
 # Container image URI for the deployed model
-CONTAINER_IMAGE_URI="${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-latest"
-if [ -n "${BASE_IMAGE:-}" ]; then
-    CONTAINER_IMAGE_URI="${BASE_IMAGE}"
+# Build full ECR URI from profile (accountId + region + repoName + tag)
+_ACCOUNT_ID="${_PROFILE_accountId:-}"
+_REGION="${AWS_DEFAULT_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
+if [ -n "${_ACCOUNT_ID}" ] && [ -n "${ECR_REPOSITORY_NAME}" ]; then
+    CONTAINER_IMAGE_URI="${_ACCOUNT_ID}.dkr.ecr.${_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-latest"
+else
+    # No ECR info available — MPG will be registered without InferenceSpecification
+    CONTAINER_IMAGE_URI=""
 fi
 
 # Model data S3 URI (from do/config if set)

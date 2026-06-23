@@ -893,7 +893,7 @@
                 ]
             },
             "widget": null,
-            "prompt": null,
+            "prompt": "external",
             "deprecated": false,
             "since": "0.3.0"
         },
