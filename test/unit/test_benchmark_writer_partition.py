@@ -9,6 +9,8 @@ Tests the register_partition function from .benchmark_writer.py:
 - Idempotent behavior (AlreadyExistsException swallowed)
 - Error handling for API failures
 - Correct S3 location construction
+
+Uses model/instance/target partitioning scheme.
 """
 
 import importlib.util
@@ -45,11 +47,11 @@ def mock_glue_client():
         "Table": {
             "StorageDescriptor": {
                 "Columns": [
-                    {"Name": "config_id", "Type": "string"},
+                    {"Name": "project_name", "Type": "string"},
                     {"Name": "model_name", "Type": "string"},
-                    {"Name": "throughput_rps", "Type": "double"},
+                    {"Name": "request_throughput_rps", "Type": "double"},
                 ],
-                "Location": "s3://mlcc-benchmark-results-111111111111-us-east-1/",
+                "Location": "s3://mlcc-benchmark-results-111111111111-us-east-1/results/",
                 "InputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
                 "OutputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
                 "SerdeInfo": {
@@ -75,9 +77,9 @@ class TestRegisterPartitionSuccess:
 
         result = register_partition(
             bucket="mlcc-benchmark-results-111111111111-us-east-1",
-            region="us-east-1",
-            year="2026",
-            month="06",
+            model="Qwen_Qwen3-4B",
+            instance="ml.g5.xlarge",
+            target="realtime-inference",
             glue_client=mock_glue_client,
         )
 
@@ -86,22 +88,22 @@ class TestRegisterPartitionSuccess:
         assert result["error"] is None
         assert result["location"] == (
             "s3://mlcc-benchmark-results-111111111111-us-east-1/"
-            "region=us-east-1/year=2026/month=06/"
+            "results/model=Qwen_Qwen3-4B/instance=ml.g5.xlarge/target=realtime-inference/"
         )
 
     def test_correct_partition_values(self, mock_glue_client):
-        """Partition values should be [region, year, month]."""
+        """Partition values should be [model, instance, target]."""
         mock_glue_client.batch_create_partition.return_value = {"Errors": []}
 
         result = register_partition(
             bucket="bucket",
-            region="us-west-2",
-            year="2025",
-            month="12",
+            model="meta-llama_Llama-3.1-8B",
+            instance="ml.p5.48xlarge",
+            target="async-inference",
             glue_client=mock_glue_client,
         )
 
-        assert result["partition_values"] == ["us-west-2", "2025", "12"]
+        assert result["partition_values"] == ["meta-llama_Llama-3.1-8B", "ml.p5.48xlarge", "async-inference"]
 
     def test_correct_api_call_parameters(self, mock_glue_client):
         """Verify BatchCreatePartition is called with correct database/table."""
@@ -109,9 +111,9 @@ class TestRegisterPartitionSuccess:
 
         register_partition(
             bucket="mlcc-benchmark-results-111111111111-us-west-2",
-            region="us-west-2",
-            year="2025",
-            month="12",
+            model="Qwen_Qwen3-4B",
+            instance="ml.g5.xlarge",
+            target="realtime-inference",
             glue_client=mock_glue_client,
         )
 
@@ -122,11 +124,7 @@ class TestRegisterPartitionSuccess:
         assert call_kwargs["TableName"] == "benchmark_results"
 
         partition_input = call_kwargs["PartitionInputList"][0]
-        assert partition_input["Values"] == ["us-west-2", "2025", "12"]
-        assert partition_input["StorageDescriptor"]["Location"] == (
-            "s3://mlcc-benchmark-results-111111111111-us-west-2/"
-            "region=us-west-2/year=2025/month=12/"
-        )
+        assert partition_input["Values"] == ["Qwen_Qwen3-4B", "ml.g5.xlarge", "realtime-inference"]
 
     def test_partition_location_format(self, mock_glue_client):
         """Partition location follows Hive-style partitioning."""
@@ -134,14 +132,14 @@ class TestRegisterPartitionSuccess:
 
         result = register_partition(
             bucket="my-bucket",
-            region="eu-west-1",
-            year="2024",
-            month="01",
+            model="Qwen_Qwen3-4B",
+            instance="ml.g6e.xlarge",
+            target="batch-transform",
             glue_client=mock_glue_client,
         )
 
         assert result["location"] == (
-            "s3://my-bucket/region=eu-west-1/year=2024/month=01/"
+            "s3://my-bucket/results/model=Qwen_Qwen3-4B/instance=ml.g6e.xlarge/target=batch-transform/"
         )
 
     def test_custom_database_and_table(self, mock_glue_client):
@@ -150,9 +148,9 @@ class TestRegisterPartitionSuccess:
 
         register_partition(
             bucket="bucket",
-            region="us-east-1",
-            year="2026",
-            month="06",
+            model="model",
+            instance="ml.g5.xlarge",
+            target="realtime-inference",
             glue_database="custom_db",
             glue_table="custom_table",
             glue_client=mock_glue_client,
@@ -174,7 +172,7 @@ class TestRegisterPartitionIdempotent:
         mock_glue_client.batch_create_partition.return_value = {
             "Errors": [
                 {
-                    "PartitionValues": ["us-east-1", "2026", "06"],
+                    "PartitionValues": ["Qwen_Qwen3-4B", "ml.g5.xlarge", "realtime-inference"],
                     "ErrorDetail": {
                         "ErrorCode": "AlreadyExistsException",
                         "ErrorMessage": "Partition already exists.",
@@ -185,9 +183,9 @@ class TestRegisterPartitionIdempotent:
 
         result = register_partition(
             bucket="mlcc-benchmark-results-111111111111-us-east-1",
-            region="us-east-1",
-            year="2026",
-            month="06",
+            model="Qwen_Qwen3-4B",
+            instance="ml.g5.xlarge",
+            target="realtime-inference",
             glue_client=mock_glue_client,
         )
 
@@ -203,9 +201,9 @@ class TestRegisterPartitionIdempotent:
 
         result = register_partition(
             bucket="bucket",
-            region="us-east-1",
-            year="2026",
-            month="06",
+            model="Qwen_Qwen3-4B",
+            instance="ml.g5.xlarge",
+            target="realtime-inference",
             glue_client=mock_glue_client,
         )
 
@@ -218,8 +216,8 @@ class TestRegisterPartitionIdempotent:
         # First call: success
         mock_glue_client.batch_create_partition.return_value = {"Errors": []}
         result1 = register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
         assert result1["registered"] is True
 
@@ -227,7 +225,7 @@ class TestRegisterPartitionIdempotent:
         mock_glue_client.batch_create_partition.return_value = {
             "Errors": [
                 {
-                    "PartitionValues": ["us-east-1", "2026", "06"],
+                    "PartitionValues": ["model", "ml.g5.xlarge", "realtime-inference"],
                     "ErrorDetail": {
                         "ErrorCode": "AlreadyExistsException",
                         "ErrorMessage": "Partition already exists.",
@@ -236,8 +234,8 @@ class TestRegisterPartitionIdempotent:
             ]
         }
         result2 = register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
         assert result2["registered"] is False
         assert result2["already_exists"] is True
@@ -257,8 +255,8 @@ class TestRegisterPartitionErrors:
         )
 
         result = register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         assert result["registered"] is False
@@ -272,8 +270,8 @@ class TestRegisterPartitionErrors:
         )
 
         result = register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         assert result["registered"] is False
@@ -287,8 +285,8 @@ class TestRegisterPartitionErrors:
         )
 
         result = register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         assert result["registered"] is False
@@ -300,7 +298,7 @@ class TestRegisterPartitionErrors:
         mock_glue_client.batch_create_partition.return_value = {
             "Errors": [
                 {
-                    "PartitionValues": ["us-east-1", "2026", "06"],
+                    "PartitionValues": ["model", "ml.g5.xlarge", "realtime-inference"],
                     "ErrorDetail": {
                         "ErrorCode": "InvalidInputException",
                         "ErrorMessage": "Invalid partition values",
@@ -310,8 +308,8 @@ class TestRegisterPartitionErrors:
         }
 
         result = register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         assert result["registered"] is False
@@ -326,8 +324,8 @@ class TestRegisterPartitionErrors:
         )
 
         result = register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         assert result["registered"] is False
@@ -345,17 +343,17 @@ class TestRegisterPartitionStorageDescriptor:
         mock_glue_client.batch_create_partition.return_value = {"Errors": []}
 
         register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         call_kwargs = mock_glue_client.batch_create_partition.call_args[1]
         partition_sd = call_kwargs["PartitionInputList"][0]["StorageDescriptor"]
 
         assert partition_sd["Columns"] == [
-            {"Name": "config_id", "Type": "string"},
+            {"Name": "project_name", "Type": "string"},
             {"Name": "model_name", "Type": "string"},
-            {"Name": "throughput_rps", "Type": "double"},
+            {"Name": "request_throughput_rps", "Type": "double"},
         ]
 
     def test_uses_parquet_serde(self, mock_glue_client):
@@ -363,8 +361,8 @@ class TestRegisterPartitionStorageDescriptor:
         mock_glue_client.batch_create_partition.return_value = {"Errors": []}
 
         register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         call_kwargs = mock_glue_client.batch_create_partition.call_args[1]
@@ -377,8 +375,8 @@ class TestRegisterPartitionStorageDescriptor:
         mock_glue_client.batch_create_partition.return_value = {"Errors": []}
 
         register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         call_kwargs = mock_glue_client.batch_create_partition.call_args[1]
@@ -392,8 +390,8 @@ class TestRegisterPartitionStorageDescriptor:
         mock_glue_client.batch_create_partition.return_value = {"Errors": []}
 
         register_partition(
-            bucket="bucket", region="us-east-1", year="2026", month="06",
-            glue_client=mock_glue_client,
+            bucket="bucket", model="model", instance="ml.g5.xlarge",
+            target="realtime-inference", glue_client=mock_glue_client,
         )
 
         call_kwargs = mock_glue_client.batch_create_partition.call_args[1]

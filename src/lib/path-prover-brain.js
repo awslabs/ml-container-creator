@@ -16,6 +16,24 @@ const __dirname = dirname(__filename);
  * classifies failures, gates tune/adapter stages, and builds
  * Athena-compatible records with run_type='path_prove'.
  *
+ * ## Module Status (AC-1.4)
+ *
+ * ALL exported functions are FULLY FUNCTIONAL:
+ * - `identifyGaps()` — Cartesian product gap finder, prioritized by neighbor count
+ * - `findNearestSubstitution()` — Hamming distance nearest-neighbor, same-family constraint
+ * - `classifyFailure()` — regex pattern matching to 6 categories (capacity, timeout, oom, code_bug, model_incompatibility, service_limitation)
+ * - `shouldExecuteTuneStages()` — gating logic for tune/adapter stages
+ * - `hammingDistance()` — config vector comparison across CONFIG_DIMENSIONS
+ * - `buildPathProverRecord()` — Athena record construction with run_type='path_prove'
+ * - `findUnfeasibleRecord()` — checks if a config is known-unfeasible to prevent repeated attempts
+ * - `getNextPriorityConfig()` — priority queue management for v1 validation mode
+ * - `updatePriorityStatus()` — updates target status after prove attempts
+ * - `getPriorityQueueStatus()` — summary counts for priority queue
+ * - `loadPriorityTargets()` — file-based priority target loading
+ * - `resolveProveTpDegree()` — TP degree auto-resolution from instance catalog
+ *
+ * This is stabilization (tests + docs), not implementation. No new logic needed.
+ *
  * Feature: ci-benchmark-pipeline
  * Requirements: 8.1–8.12
  */
@@ -609,6 +627,45 @@ export function loadPriorityTargets(configPath) {
     } catch {
         return null;
     }
+}
+
+// ── Optimization Space Schema (Task 3 — AC-3.5) ─────────────────────────────
+
+/**
+ * Load the optimization search space schema from config/optimization-space.json.
+ *
+ * Returns the parsed schema with dimensions, version, and description.
+ * Used by gap identification to enumerate sweepable dimensions and their
+ * allowed values for the optimization/prove sweep.
+ *
+ * @returns {object|null} Parsed schema object, or null if file not found/invalid
+ */
+export function loadOptimizationSpace() {
+    try {
+        const schemaPath = resolve(__dirname, '..', '..', 'config', 'optimization-space.json');
+        const raw = readFileSync(schemaPath, 'utf8');
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Get the list of sweepable dimension names from the optimization space schema.
+ *
+ * Filters dimensions by status === 'sweepable' and returns their keys.
+ * Useful for verifying sync between CONFIG_DIMENSIONS and the schema.
+ *
+ * @param {object} [schema] - Pre-loaded schema (loads from file if omitted)
+ * @returns {string[]} Array of sweepable dimension names
+ */
+export function getSweepableDimensions(schema = null) {
+    const data = schema || loadOptimizationSpace();
+    if (!data || !data.dimensions) return [];
+
+    return Object.keys(data.dimensions).filter(
+        key => data.dimensions[key].status === 'sweepable'
+    );
 }
 
 // ── TP Degree Auto-Resolution at Prove-Time (Task 6.5) ──────────────────────

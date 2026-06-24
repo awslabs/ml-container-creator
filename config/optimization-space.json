@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "description": "Configuration dimensions for prove/optimization sweep",
+  "dimensions": {
+    "quantization": {
+      "type": "categorical",
+      "values": ["fp16", "bf16", "fp8", "int8", "int4", "awq", "gptq"],
+      "default": "bf16",
+      "status": "sweepable",
+      "description": "Model weight quantization method"
+    },
+    "tensor_parallelism": {
+      "type": "categorical",
+      "values": [1, 2, 4, 8],
+      "default": 1,
+      "status": "sweepable",
+      "description": "Number of GPUs for tensor parallel sharding"
+    },
+    "max_model_len": {
+      "type": "categorical",
+      "values": [2048, 4096, 8192, 16384, 32768, 65536, 131072],
+      "default": 4096,
+      "status": "sweepable",
+      "description": "Maximum context length (KV cache allocation cap)"
+    },
+    "batching": {
+      "type": "categorical",
+      "values": ["continuous", "static"],
+      "default": "continuous",
+      "status": "future",
+      "description": "Request batching strategy (not configurable in current do/ scripts)"
+    },
+    "max_batch_size": {
+      "type": "range",
+      "min": 1,
+      "max": 256,
+      "default": 32,
+      "status": "future",
+      "description": "Maximum concurrent batch size (not configurable in current do/ scripts)"
+    },
+    "kv_cache_dtype": {
+      "type": "categorical",
+      "values": ["auto", "fp16", "fp8", "int8"],
+      "default": "auto",
+      "status": "sweepable",
+      "description": "KV cache data type (fp8 saves memory at minor quality cost)"
+    },
+    "speculative_decoding": {
+      "type": "categorical",
+      "values": ["off", "eagle", "draft_model"],
+      "default": "off",
+      "status": "future",
+      "description": "Speculative decoding strategy (EAGLE supported on golden-path models, not yet in do/ scripts)"
+    }
+  }
+}
