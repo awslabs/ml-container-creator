@@ -70,7 +70,8 @@ const arbSizeGb = fc.float({ min: Math.fround(0.1), max: Math.fround(2000), noNa
 const arbTimestamp = fc.date({
     min: new Date('2024-01-01T00:00:00Z'),
     max: new Date('2030-12-31T23:59:59Z')
-}).map(d => d.toISOString().replace(/\.\d{3}Z$/, 'Z'));
+}).filter(d => !isNaN(d.getTime()))
+    .map(d => d.toISOString().replace(/\.\d{3}Z$/, 'Z'));
 
 // Build a valid staged-assets JSON string with a staged_uri
 const arbValidStagedAssetsJson = fc.tuple(arbS3Uri, arbModelSource, arbRegion, arbSizeGb, arbTimestamp)
