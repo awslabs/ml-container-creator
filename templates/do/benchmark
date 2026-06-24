@@ -117,10 +117,12 @@ if [ "${ARG_STATUS}" = true ]; then
                     tar_file=""
                     tar_file=$(find "${LOCAL_RESULTS_DIR}" -name "output.tar.gz" -type f 2>/dev/null | head -1)
                     if [ -n "${tar_file}" ]; then
-                        # Detect whether tar has a leading directory prefix
-                        _tar_first=""
-                        _tar_first=$(tar -tzf "${tar_file}" 2>/dev/null | head -1)
-                        if echo "${_tar_first}" | grep -qE '^[^/]+/$'; then
+                        # Detect whether ALL entries share a common leading directory prefix
+                        _tar_prefix_count=""
+                        _tar_prefix_count=$(tar -tzf "${tar_file}" 2>/dev/null | sed 's|/.*||' | sort -u | wc -l | tr -d ' ')
+                        _tar_first_dir=""
+                        _tar_first_dir=$(tar -tzf "${tar_file}" 2>/dev/null | head -1)
+                        if [ "${_tar_prefix_count}" = "1" ] && echo "${_tar_first_dir}" | grep -qE '^[^/]+/$'; then
                             tar -xzf "${tar_file}" --strip-components=1 -C "${LOCAL_RESULTS_DIR}/output/" 2>/dev/null || true
                         else
                             tar -xzf "${tar_file}" -C "${LOCAL_RESULTS_DIR}/output/" 2>/dev/null || true
@@ -1097,11 +1099,14 @@ if [ "${JOB_STATUS}" = "Completed" ]; then
             # Extract any tar.gz archives (benchmark service packages results as output.tar.gz)
             for ARCHIVE in $(find "${LOCAL_RESULTS_DIR}" -name "*.tar.gz" -type f 2>/dev/null); do
                 ARCHIVE_DIR=$(dirname "${ARCHIVE}")
-                # Detect whether tar has a leading directory prefix to strip.
-                # Some AIPerf versions wrap in output/, others are flat.
-                _TAR_FIRST=$(tar -tzf "${ARCHIVE}" 2>/dev/null | head -1)
-                if echo "${_TAR_FIRST}" | grep -qE '^[^/]+/$'; then
-                    # Leading directory (e.g., "output/") — strip it
+                # Detect whether ALL entries share a common leading directory prefix.
+                # Only strip if every entry starts with the same dir (e.g., "output/file1", "output/file2").
+                # A flat archive with mixed top-level files/dirs (e.g., "plots/", "profile_export.jsonl")
+                # must NOT be stripped.
+                _TAR_PREFIX=$(tar -tzf "${ARCHIVE}" 2>/dev/null | sed 's|/.*||' | sort -u | wc -l | tr -d ' ')
+                _TAR_FIRST_DIR=$(tar -tzf "${ARCHIVE}" 2>/dev/null | head -1)
+                if [ "${_TAR_PREFIX}" = "1" ] && echo "${_TAR_FIRST_DIR}" | grep -qE '^[^/]+/$'; then
+                    # Single common leading directory (e.g., all under "output/") — strip it
                     tar -xzf "${ARCHIVE}" --strip-components=1 -C "${ARCHIVE_DIR}" 2>/dev/null || true
                 else
                     # Flat archive — extract as-is

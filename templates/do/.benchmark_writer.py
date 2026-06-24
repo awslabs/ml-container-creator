@@ -1401,8 +1401,18 @@ def _load_config_file(config_path):
                     'BASE_IMAGE_VERSION': 'base_image_version',
                     'BENCHMARK_CONCURRENCY': 'benchmark_concurrency',
                 }
+                # Also capture IC_ENV_* serving config vars
+                ic_env_map = {
+                    'IC_ENV_VLLM_MAX_MODEL_LEN': 'max_model_len',
+                    'IC_ENV_VLLM_QUANTIZATION': 'quantization',
+                    'IC_ENV_VLLM_GPU_MEMORY_UTILIZATION': 'gpu_memory_utilization',
+                    'IC_ENV_VLLM_KV_CACHE_DTYPE': 'kv_cache_dtype',
+                    'IC_ENV_VLLM_TENSOR_PARALLEL_SIZE': 'tensor_parallel_degree',
+                }
                 if key in shell_map:
                     context[shell_map[key]] = value
+                elif key in ic_env_map:
+                    context[ic_env_map[key]] = value
 
     except Exception:
         pass
@@ -1418,6 +1428,30 @@ def _load_config_file(config_path):
         # the model slug from the S3 path (last non-empty segment)
         parts = context['model_name'].rstrip('/').split('/')
         context['model_name'] = parts[-1] if parts else context['model_name']
+
+    # Also scan IC config files (do/ic/*.conf) for IC_ENV_* serving params
+    # These override do/config values for serving-specific settings
+    try:
+        import glob
+        config_dir = os.path.dirname(os.path.abspath(config_path))
+        ic_dir = os.path.join(config_dir, 'ic')
+        ic_env_map = {
+            'IC_ENV_VLLM_MAX_MODEL_LEN': 'max_model_len',
+            'IC_ENV_VLLM_QUANTIZATION': 'quantization',
+            'IC_ENV_VLLM_GPU_MEMORY_UTILIZATION': 'gpu_memory_utilization',
+            'IC_ENV_VLLM_KV_CACHE_DTYPE': 'kv_cache_dtype',
+            'IC_ENV_VLLM_TENSOR_PARALLEL_SIZE': 'tensor_parallel_degree',
+        }
+        for conf_file in sorted(glob.glob(os.path.join(ic_dir, '*.conf'))):
+            with open(conf_file, 'r') as f:
+                for line in f:
+                    match = re.match(r'^export\s+([A-Z_][A-Z0-9_]*)=["\']?([^"\']*)["\']?\s*$', line.strip())
+                    if match:
+                        key, value = match.group(1), match.group(2)
+                        if key in ic_env_map and value:
+                            context[ic_env_map[key]] = value
+    except Exception:
+        pass  # IC config scanning is best-effort
 
     return context
 
