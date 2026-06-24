@@ -102,7 +102,15 @@ Without `--ci`, `do/register` calls `ml-container-creator registry log` which ap
 
 ### Model Registration (default)
 
-When called without a subcommand (or with `model`), registers the deployed model as a versioned Model Package in SageMaker, then registers all adapters from `do/adapters/*.conf`:
+When called without a subcommand (or with `model`), registers the deployed model as a versioned Model Package in SageMaker, then registers all adapters from `do/adapters/*.conf`.
+
+!!! note "ECR image optional"
+    MPG registration works even if the container hasn't been pushed to ECR yet. When no valid ECR image URI is available (e.g. before `do/build` + `do/push`), the Model Package is created **without an InferenceSpecification** — metadata (instance type, deployment config, model name) is still captured in `CustomerMetadataProperties`. The local registry always records the full entry regardless.
+
+    If MPG registration fails for any reason, `do/register` continues with a warning:
+    ```
+    ⚠️  MPG registration failed (non-fatal) — local registry is the primary record
+    ```
 
 ```bash
 # Register base model + all adapters

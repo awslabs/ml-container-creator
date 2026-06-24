@@ -203,37 +203,39 @@ The `do/optimize` script (Epic 11, post-v1) will automate the search over these 
 
 The E2E catalog (`scripts/e2e-catalog.json`) defines 22 models organized in three tiers:
 
-### Tier: CI (daily — 11 models, ~$8/run)
+### Tier: CI (daily — 6 models, ~$4/run)
 
-| Model | HuggingFace ID | Instance |
-|---|---|---|
-| Qwen 3 0.6B | `Qwen/Qwen3-0.6B` | ml.g5.xlarge |
-| Qwen 3 1.7B | `Qwen/Qwen3-1.7B` | ml.g5.xlarge |
-| Qwen 3 4B | `Qwen/Qwen3-4B` | ml.g5.xlarge |
-| Qwen 3 8B | `Qwen/Qwen3-8B` | ml.g5.xlarge |
-| Qwen 2.5 7B | `Qwen/Qwen2.5-7B-Instruct` | ml.g5.xlarge |
-| Llama 3.2 1B | `meta-llama/Llama-3.2-1B-Instruct` | ml.g5.xlarge |
-| Llama 3.2 3B | `meta-llama/Llama-3.2-3B-Instruct` | ml.g5.xlarge |
-| Llama 3.1 8B | `meta-llama/Llama-3.1-8B-Instruct` | ml.g5.xlarge |
-| DS R1 Distill-Qwen 1.5B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B` | ml.g5.xlarge |
-| DS R1 Distill-Qwen 7B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B` | ml.g5.xlarge |
-| DS R1 Distill-Llama 8B | `deepseek-ai/DeepSeek-R1-Distill-Llama-8B` | ml.g5.xlarge |
+| Model | HuggingFace ID | Instance | max_model_len |
+|---|---|---|---|
+| Qwen 3 0.6B | `Qwen/Qwen3-0.6B` | ml.g5.xlarge | — (native 32K fits) |
+| Qwen 3 1.7B | `Qwen/Qwen3-1.7B` | ml.g5.xlarge | — (native 32K fits) |
+| Qwen 3 4B | `Qwen/Qwen3-4B` | ml.g5.xlarge | 4096 |
+| Llama 3.2 1B | `meta-llama/Llama-3.2-1B-Instruct` | ml.g5.xlarge | — (native 128K fits) |
+| Llama 3.2 3B | `meta-llama/Llama-3.2-3B-Instruct` | ml.g5.xlarge | — (native 128K fits) |
+| DS R1 Distill-Qwen 1.5B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B` | ml.g5.xlarge | — (native 128K fits) |
 
-!!! note "Tier 1 = daily validation target for v1 release gate (≥ 10/11 must pass)"
+!!! note "Tier 1 = daily validation target for v1 release gate (≥ 5/6 must pass)"
 
-### Tier: Nightly (7 models, ~$35/run)
+Models requiring `max_model_len` are clamped because their native context (32K–128K) exceeds the KV cache capacity of a single A10G (24GB). Set via `IC_ENV_VLLM_MAX_MODEL_LEN=4096` in `do/ic/default.conf`.
 
-| Model | HuggingFace ID | Instance |
-|---|---|---|
-| Qwen 3 14B | `Qwen/Qwen3-14B` | ml.g5.2xlarge |
-| Qwen 2.5 14B | `Qwen/Qwen2.5-14B-Instruct` | ml.g5.2xlarge |
-| DS R1 Distill-Qwen 14B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B` | ml.g5.2xlarge |
-| GPT-OSS 20B | `openai/gpt-oss-20b` | ml.g5.12xlarge |
-| Qwen 3 32B | `Qwen/Qwen3-32B` | ml.g5.12xlarge |
-| Qwen 2.5 32B | `Qwen/Qwen2.5-32B-Instruct` | ml.g5.12xlarge |
-| DS R1 Distill-Qwen 32B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-32B` | ml.g5.12xlarge |
-| Qwen 3.5 4B | `Qwen/Qwen3.5-4B` | ml.g5.xlarge |
-| Qwen 3.5 9B | `Qwen/Qwen3.5-9B` | ml.g5.2xlarge |
+### Tier: Nightly (12 models, ~$44/run)
+
+| Model | HuggingFace ID | Instance | Notes |
+|---|---|---|---|
+| Qwen 2.5 7B | `Qwen/Qwen2.5-7B-Instruct` | ml.g5.12xlarge | Moved from daily (OOM on xlarge) |
+| Qwen 3 8B | `Qwen/Qwen3-8B` | ml.g5.12xlarge | Moved from daily (OOM on xlarge) |
+| Llama 3.1 8B | `meta-llama/Llama-3.1-8B-Instruct` | ml.g5.12xlarge | Moved from daily (OOM on xlarge) |
+| DS R1 Distill-Llama 8B | `deepseek-ai/DeepSeek-R1-Distill-Llama-8B` | ml.g5.12xlarge | Moved from daily (OOM on xlarge) |
+| DS R1 Distill-Qwen 7B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B` | ml.g5.12xlarge | Moved from daily (OOM on xlarge) |
+| Qwen 3 14B | `Qwen/Qwen3-14B` | ml.g5.12xlarge | TP=2 (~28GB FP16) |
+| Qwen 2.5 14B | `Qwen/Qwen2.5-14B-Instruct` | ml.g5.12xlarge | TP=2 (~28GB FP16) |
+| DS R1 Distill-Qwen 14B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B` | ml.g5.12xlarge | TP=2 (~28GB FP16) |
+| GPT-OSS 20B | `openai/gpt-oss-20b` | ml.g5.12xlarge | |
+| Qwen 3 32B | `Qwen/Qwen3-32B` | ml.g5.12xlarge | |
+| Qwen 2.5 32B | `Qwen/Qwen2.5-32B-Instruct` | ml.g5.12xlarge | |
+| DS R1 Distill-Qwen 32B | `deepseek-ai/DeepSeek-R1-Distill-Qwen-32B` | ml.g5.12xlarge | |
+| Qwen 3.5 4B | `Qwen/Qwen3.5-4B` | ml.g5.xlarge | |
+| Qwen 3.5 9B | `Qwen/Qwen3.5-9B` | ml.g5.2xlarge | |
 | Qwen 3.5 27B | `Qwen/Qwen3.5-27B` | ml.g5.12xlarge |
 | Qwen 3.6 27B | `Qwen/Qwen3.6-27B` | ml.g5.12xlarge |
 | Nemotron 3 Nano 30B | `nvidia/Nemotron-3-Nano-A3B-BF16-30B` | ml.g5.12xlarge |
