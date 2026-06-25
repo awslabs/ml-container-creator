@@ -1288,9 +1288,10 @@ elif [ -n "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
         ADAPTER_TECHNIQUE=""
         eval "$(grep '^export ADAPTER_WEIGHTS_URI=' "${conf}" 2>/dev/null)" 2>/dev/null || true
         eval "$(grep '^export ADAPTER_TECHNIQUE=' "${conf}" 2>/dev/null)" 2>/dev/null || true
+        eval "$(grep '^export ADAPTER_TUNE_TECHNIQUE=' "${conf}" 2>/dev/null)" 2>/dev/null || true
 
         _ADAPTER_DATA_URL="${ADAPTER_WEIGHTS_URI:-}"
-        _ADAPTER_TECHNIQUE="${ADAPTER_TECHNIQUE:-${TUNE_TECHNIQUE:-}}"
+        _ADAPTER_TECHNIQUE="${ADAPTER_TECHNIQUE:-${ADAPTER_TUNE_TECHNIQUE:-${TUNE_TECHNIQUE:-}}}"
 
         echo ""
         echo "📦 Registering adapter: ${_ADAPTER_NAME}"

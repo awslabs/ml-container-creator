@@ -366,5 +366,37 @@ describe('Feature: managed-model-customization — --from-tune integration (Req 
                 'Must store ADAPTER_TUNE_TECHNIQUE in conf file'
             );
         });
+
+        it('do/adapter stores ADAPTER_PARENT_MODEL_ARN in conf when --from-tune is used', () => {
+            const addSection = getAdapterAddSection();
+            assert.ok(
+                addSection.includes('ADAPTER_PARENT_MODEL_ARN'),
+                'Must store ADAPTER_PARENT_MODEL_ARN in conf file for compat check'
+            );
+        });
+
+        it('do/adapter stores ADAPTER_PARENT_MODEL_SLUG in conf when --from-tune is used', () => {
+            const addSection = getAdapterAddSection();
+            assert.ok(
+                addSection.includes('ADAPTER_PARENT_MODEL_SLUG'),
+                'Must store ADAPTER_PARENT_MODEL_SLUG in conf file for compat check'
+            );
+        });
+
+        it('do/adapter resolves parent model ARN from MODEL_PKG_ARN or list-models', () => {
+            const addSection = getAdapterAddSection();
+            assert.ok(
+                addSection.includes('MODEL_PKG_ARN') || addSection.includes('list-models'),
+                'Must resolve parent model ARN from MODEL_PKG_ARN or deployment MPG'
+            );
+        });
+
+        it('do/adapter uses MODEL_NAME as parent model slug', () => {
+            const addSection = getAdapterAddSection();
+            assert.ok(
+                addSection.includes('MODEL_NAME') && addSection.includes('parent_model_slug'),
+                'Must use MODEL_NAME from do/config as the parent model slug'
+            );
+        });
     });
 });

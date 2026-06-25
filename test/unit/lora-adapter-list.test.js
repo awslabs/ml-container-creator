@@ -8,7 +8,7 @@
  * - Calls ListInferenceComponents with EndpointNameEquals
  * - Filters ICs to only those with BaseInferenceComponentName (adapters)
  * - Calls DescribeInferenceComponent for each IC to get details
- * - Displays table with NAME, STATUS, WEIGHTS columns
+ * - Displays table with NAME, SOURCE, STATUS columns
  * - Checks local do/adapters/*.conf for ownership (marks others as "external")
  * - Handles empty endpoint (no adapters found)
  * - Uses jq for JSON parsing
@@ -135,14 +135,14 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
 
     describe('Table output format', () => {
 
-        it('displays header with NAME, STATUS, WEIGHTS columns', () => {
+        it('displays header with NAME, SOURCE, STATUS columns', () => {
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
                 listSection.includes('NAME') &&
                 listSection.includes('STATUS') &&
-                listSection.includes('WEIGHTS'),
-                'Must display table header with NAME, STATUS, WEIGHTS'
+                listSection.includes('SOURCE'),
+                'Must display table header with NAME, SOURCE, STATUS'
             );
         });
 
@@ -165,9 +165,9 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
         });
     });
 
-    // ── Adapter status and weights extraction ────────────────────────────
+    // ── Adapter status and source extraction ────────────────────────────
 
-    describe('Adapter status and weights extraction', () => {
+    describe('Adapter status and source extraction', () => {
 
         it('extracts InferenceComponentStatus from describe output', () => {
             const rendered = renderAdapter();
@@ -178,12 +178,12 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             );
         });
 
-        it('extracts Container.ArtifactUrl from describe output', () => {
+        it('extracts ADAPTER_SOURCE from conf files for source column', () => {
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('ArtifactUrl'),
-                'Must extract Container.ArtifactUrl for weights'
+                listSection.includes('ADAPTER_SOURCE'),
+                'Must extract ADAPTER_SOURCE from conf for source column'
             );
         });
 

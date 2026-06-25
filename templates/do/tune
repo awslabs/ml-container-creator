@@ -53,6 +53,7 @@ ARG_TAKE=""
 ARG_ACCEPT_EULA=false
 ARG_DATASET_NAME=""
 ARG_EVALUATOR_NAME=""
+ARG_NO_REGISTER=false
 
 
 # ── _parse_args() ─────────────────────────────────────────────────────────────
@@ -147,6 +148,7 @@ _parse_args() {
             --force) ARG_FORCE=true; shift ;;
             --accept-eula) ARG_ACCEPT_EULA=true; shift ;;
             --no-wait) ARG_NO_WAIT=true; shift ;;
+            --no-register) ARG_NO_REGISTER=true; shift ;;
             --status) ARG_STATUS=true; shift ;;
             --help|-h) ARG_HELP=true; shift ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
@@ -273,6 +275,8 @@ _show_help() {
     echo "  --force               Force new job even if one exists for this technique"
     echo "  --accept-eula         Accept model EULA (required for gated models like Llama)"
     echo "  --no-wait             Submit and exit without polling for completion"
+    echo "  --no-register         Skip auto-stage and auto-register after completion"
+    echo "                        (prints next-step commands instead)"
     echo "  --status              Show status of all tracked tune jobs"
     echo ""
     echo "Dataset options:"
@@ -1528,12 +1532,59 @@ _handle_completion() {
     _update_config_var "TUNE_OUTPUT_PATH_LATEST" "${artifact_path}"
     _update_config_var "TUNE_OUTPUT_TYPE_LATEST" "${output_type}"
 
-    # Print next-step commands
-    echo "📋 Next steps:"
-    echo ""
-    if [ "${output_type}" = "adapter" ]; then
+    # Auto-register or print next-step commands
+    if [ "${output_type}" = "adapter" ] && [ "${ARG_NO_REGISTER}" != true ]; then
+        # Auto-register: stage adapter and register in deployment MPG
         local dataset_slug
         dataset_slug=$(_derive_dataset_slug "${ARG_DATASET:-}")
+        local adapter_name="tuned-${ARG_TECHNIQUE}-${dataset_slug}"
+        if [ -z "${dataset_slug}" ]; then
+            adapter_name="tuned-${ARG_TECHNIQUE}"
+        fi
+
+        echo "🔄 Auto-registering adapter: ${adapter_name}"
+        echo ""
+
+        # Step 1: Stage the adapter via do/adapter add
+        local adapter_add_output
+        if adapter_add_output=$("${SCRIPT_DIR}/adapter" add "${adapter_name}" --from-tune "${ARG_TECHNIQUE}" 2>&1); then
+            echo "   ✅ Adapter staged: ${adapter_name}"
+
+            # Step 2: Register in deployment MPG via do/register
+            local register_output
+            if register_output=$("${SCRIPT_DIR}/register" 2>&1); then
+                echo "   ✅ Registration complete"
+
+                # Step 3: Extract adapter deployment ARN from register output
+                local adapter_deploy_arn
+                adapter_deploy_arn=$(echo "${register_output}" | grep "${adapter_name}" | grep -E '^\{' | tail -1 | jq -r '.model_package_arn' 2>/dev/null) || adapter_deploy_arn=""
+
+                if [ -n "${adapter_deploy_arn}" ] && [ "${adapter_deploy_arn}" != "null" ]; then
+                    _update_config_var "TUNE_ADAPTER_DEPLOY_ARN_${technique_upper}" "${adapter_deploy_arn}"
+                    echo "   ✅ Deployment ARN stored: ${adapter_deploy_arn}"
+                else
+                    echo "   ⚠️  Could not extract adapter deployment ARN from register output"
+                    echo "      (adapter was staged and registered — ARN can be found via do/register --status)"
+                fi
+                echo ""
+            else
+                echo "   ⚠️  Registration failed (adapter was staged successfully)"
+                echo "      Run manually: ./do/register"
+                echo ""
+            fi
+        else
+            echo "   ⚠️  Adapter staging failed"
+            echo "      Run manually:"
+            echo "        ./do/adapter add ${adapter_name} --from-tune ${ARG_TECHNIQUE}"
+            echo "        ./do/register"
+            echo ""
+        fi
+    elif [ "${output_type}" = "adapter" ]; then
+        # --no-register: print next steps as before
+        local dataset_slug
+        dataset_slug=$(_derive_dataset_slug "${ARG_DATASET:-}")
+        echo "📋 Next steps:"
+        echo ""
         echo "   Deploy as LoRA adapter:"
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --from-tune"
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --from-tune ${ARG_TECHNIQUE}"
@@ -1541,13 +1592,16 @@ _handle_completion() {
             echo "     ./do/adapter add tuned-${ARG_TECHNIQUE}-${dataset_slug} --from-tune ${ARG_TECHNIQUE}-${dataset_slug}"
         fi
         echo "     ./do/adapter add tuned-${ARG_TECHNIQUE} --weights ${artifact_path}"
+        echo ""
     else
+        echo "📋 Next steps:"
+        echo ""
         echo "   Deploy as new inference component:"
         echo "     ./do/add-ic tuned-v1 --from-tune"
         echo "     ./do/add-ic tuned-v1 --model-data ${artifact_path}"
         echo "     ./do/deploy --force-ic --model-data ${artifact_path}"
+        echo ""
     fi
-    echo ""
 }
 
 
