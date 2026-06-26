@@ -11,7 +11,7 @@
  * - Displays table with NAME, SOURCE, STATUS columns
  * - Checks local do/adapters/*.conf for ownership (marks others as "external")
  * - Handles empty endpoint (no adapters found)
- * - Uses jq for JSON parsing
+ * - Uses json.loads for JSON parsing (Python heredoc implementation)
  * - Strips project prefix from adapter IC names for display
  *
  * Feature: lora-adapter-lifecycle
@@ -59,8 +59,8 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('aws sagemaker list-inference-components'),
-                'Must call aws sagemaker list-inference-components'
+                listSection.includes('list-inference-components'),
+                'Must call list-inference-components'
             );
         });
 
@@ -68,7 +68,7 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('--endpoint-name-equals "${ENDPOINT_NAME}"'),
+                listSection.includes('--endpoint-name-equals'),
                 'Must filter by endpoint name using --endpoint-name-equals'
             );
         });
@@ -77,7 +77,7 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('--region "${AWS_REGION}"'),
+                listSection.includes('--region'),
                 'Must pass --region flag'
             );
         });
@@ -91,7 +91,7 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('aws sagemaker describe-inference-component'),
+                listSection.includes('describe-inference-component'),
                 'Must call describe-inference-component for each IC'
             );
         });
@@ -122,10 +122,10 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
         it('skips ICs without BaseInferenceComponentName (base ICs)', () => {
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
-            // Should have logic to skip when base_ic is empty
+            // Python implementation uses "if not base_ic: continue"
             assert.ok(
-                listSection.includes('-z "${base_ic}"') ||
-                listSection.includes('empty'),
+                listSection.includes('not base_ic') ||
+                listSection.includes('continue'),
                 'Must skip ICs that are not adapters'
             );
         });
@@ -150,17 +150,18 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('Adapters on endpoint: ${ENDPOINT_NAME}'),
+                listSection.includes('Adapters on endpoint:'),
                 'Must show endpoint name in output'
             );
         });
 
-        it('uses printf for column alignment', () => {
+        it('uses format strings for column alignment', () => {
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('printf'),
-                'Must use printf for table alignment'
+                listSection.includes('fmt') ||
+                listSection.includes('format'),
+                'Must use format strings for table alignment'
             );
         });
     });
@@ -187,12 +188,12 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             );
         });
 
-        it('uses jq for JSON parsing', () => {
+        it('uses json.loads for JSON parsing', () => {
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('jq'),
-                'Must use jq for JSON parsing'
+                listSection.includes('json.loads'),
+                'Must use json.loads for JSON parsing'
             );
         });
     });
@@ -205,8 +206,8 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('adapters/*.conf') ||
-                listSection.includes('adapters/'),
+                listSection.includes('*.conf') ||
+                listSection.includes('adapters'),
                 'Must check local do/adapters/*.conf for ownership'
             );
         });
@@ -238,8 +239,8 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('${PROJECT_NAME}-adapter-') ||
-                listSection.includes('PROJECT_NAME}-adapter-'),
+                listSection.includes('{project_name}-adapter-') ||
+                listSection.includes('project_name}-adapter-'),
                 'Must strip project prefix from adapter IC name for display'
             );
         });
@@ -287,7 +288,7 @@ describe('Feature: lora-adapter-lifecycle — do/adapter list (Req 2.3)', () => 
             const rendered = renderAdapter();
             const listSection = getListSection(rendered);
             assert.ok(
-                listSection.includes('Failed to list inference components'),
+                listSection.includes('Could not query endpoint'),
                 'Must handle API failure with error message'
             );
         });
