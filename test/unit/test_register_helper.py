@@ -1411,21 +1411,22 @@ class TestAIRegistryDataset:
         return Namespace(**defaults)
 
     def test_register_dataset_uses_ai_registry_when_available(self, capsys, tmp_path):
-        """register-dataset calls DataSet.create() when AI Registry is available."""
+        """register-dataset targets hub when profile has hub name (AC-2.2)."""
         args = self._make_dataset_args()
 
-        mock_dataset = MagicMock()
-        mock_dataset.arn = "arn:aws:sagemaker:us-west-2:123:dataset/sft-train-v1"
-        mock_dataset.name = "sft-train-v1"
+        # Set up config with hub name
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "aiRegistryHubName": "mlcc-registry-123456789012",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
 
-        mock_DataSet = MagicMock()
-        mock_DataSet.create.return_value = mock_dataset
-
-        with patch.object(_register_helper, "_check_ai_registry", return_value=True):
-            with patch.dict("sys.modules", {
-                "sagemaker.ai_registry": MagicMock(),
-                "sagemaker.ai_registry.dataset": MagicMock(DataSet=mock_DataSet),
-            }):
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            with patch.object(_register_helper, "_register_to_hub", return_value="arn:aws:sagemaker:us-west-2:123:hub/mlcc-registry-123/dataset/sft-train-v1") as mock_hub:
                 with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
                     with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
                         with pytest.raises(SystemExit) as exc_info:
@@ -1435,17 +1436,12 @@ class TestAIRegistryDataset:
                         captured = capsys.readouterr()
                         output = json.loads(captured.out)
                         assert output["name"] == "sft-train-v1"
-                        assert output["arn"] == "arn:aws:sagemaker:us-west-2:123:dataset/sft-train-v1"
+                        assert output["arn"] == "arn:aws:sagemaker:us-west-2:123:hub/mlcc-registry-123/dataset/sft-train-v1"
                         assert output["registered"] is True
                         assert output["version"] == "1.0.0"
 
-        # Verify DataSet.create was called with correct args (now includes description)
-        mock_DataSet.create.assert_called_once_with(
-            name="sft-train-v1",
-            source="s3://my-bucket/datasets/train.jsonl",
-            customization_technique=None,
-            description="",
-        )
+        # Verify _register_to_hub was called with hub name
+        mock_hub.assert_called_once()
 
     def test_register_dataset_falls_back_to_local_when_api_unavailable(self, capsys, tmp_path):
         """register-dataset falls back to local JSON when AI Registry import fails."""
@@ -1465,39 +1461,30 @@ class TestAIRegistryDataset:
                     assert output["registered"] is True
 
     def test_register_dataset_technique_uppercased_for_api(self, capsys, tmp_path):
-        """register-dataset passes technique enum to DataSet.create() when available."""
+        """register-dataset passes technique to _register_to_hub when hub is configured."""
         args = self._make_dataset_args(technique="dpo")
 
-        mock_dataset = MagicMock()
-        mock_dataset.arn = "arn:aws:sagemaker:us-west-2:123:dataset/sft-train-v1"
+        # Set up config with hub name
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "aiRegistryHubName": "mlcc-registry-123456789012",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
 
-        mock_DataSet = MagicMock()
-        mock_DataSet.create.return_value = mock_dataset
-
-        # Create a mock CustomizationTechnique enum that can be iterated
-        from enum import Enum
-        MockTechnique = Enum("CustomizationTechnique", {"SFT": "SFT", "DPO": "DPO", "RLAIF": "RLAIF", "RLVR": "RLVR"})
-
-        mock_ai_module = MagicMock()
-        mock_ai_module.DataSet = mock_DataSet
-        mock_ai_module.CustomizationTechnique = MockTechnique
-
-        with patch.object(_register_helper, "_check_ai_registry", return_value=True):
-            with patch.dict("sys.modules", {
-                "sagemaker.ai_registry": MagicMock(),
-                "sagemaker.ai_registry.dataset": mock_ai_module,
-            }):
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            with patch.object(_register_helper, "_register_to_hub", return_value="arn:hub:dataset") as mock_hub:
                 with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
                     with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
                         with pytest.raises(SystemExit):
                             _register_helper.cmd_register_dataset(args)
 
-        mock_DataSet.create.assert_called_once_with(
-            name="sft-train-v1",
-            source="s3://my-bucket/datasets/train.jsonl",
-            customization_technique=MockTechnique.DPO,
-            description="",
-        )
+        # Verify technique was passed through
+        call_args = mock_hub.call_args
+        assert call_args[0][3] == "dpo"  # technique is 4th positional arg
 
     def test_register_dataset_falls_back_on_api_error(self, capsys, tmp_path):
         """register-dataset falls back to local if DataSet.create() raises."""
@@ -2677,3 +2664,382 @@ class TestListDatasetVersions:
             captured = capsys.readouterr()
             output = json.loads(captured.out)
             assert output["code"] == "DATASET_NOT_FOUND"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Hub Targeting Tests (US-2: AC-2.1 through AC-2.5)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_get_hub_name_from_profile = _register_helper._get_hub_name_from_profile
+_register_to_hub = _register_helper._register_to_hub
+
+
+class TestGetHubNameFromProfile:
+    """Test _get_hub_name_from_profile reads hub name from bootstrap config.
+
+    Validates: Requirements AC-2.1
+    """
+
+    def test_reads_hub_name_from_matching_region_profile(self, tmp_path):
+        """Returns hub name from profile matching the given region."""
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "awsRegion": "us-west-2",
+                    "aiRegistryHubName": "mlcc-registry-123456789012",
+                    "aiRegistryHubArn": "arn:aws:sagemaker:us-west-2:123456789012:hub/mlcc-registry-123456789012",
+                },
+                "us-east-1-999888777666": {
+                    "awsRegion": "us-east-1",
+                    "aiRegistryHubName": "mlcc-registry-999888777666",
+                },
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            result = _get_hub_name_from_profile("us-west-2")
+            assert result == "mlcc-registry-123456789012"
+
+    def test_returns_none_when_no_config_file(self, tmp_path):
+        """Returns None when config.json doesn't exist (legacy install)."""
+        config_path = tmp_path / "nonexistent" / "config.json"
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            result = _get_hub_name_from_profile("us-west-2")
+            assert result is None
+
+    def test_returns_none_when_no_hub_name_in_profile(self, tmp_path):
+        """Returns None when profile exists but has no aiRegistryHubName (AC-2.3)."""
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "awsRegion": "us-west-2",
+                    "bucketName": "mlcc-123456789012",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            result = _get_hub_name_from_profile("us-west-2")
+            assert result is None
+
+    def test_returns_none_when_profiles_empty(self, tmp_path):
+        """Returns None when profiles dict is empty."""
+        config = {"profiles": {}}
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            result = _get_hub_name_from_profile("us-west-2")
+            assert result is None
+
+    def test_fallback_to_first_profile_with_hub_name(self, tmp_path):
+        """When region doesn't match, returns first profile with hub name."""
+        config = {
+            "profiles": {
+                "eu-west-1-111222333444": {
+                    "awsRegion": "eu-west-1",
+                    "aiRegistryHubName": "mlcc-registry-111222333444",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            # Region doesn't match any profile key
+            result = _get_hub_name_from_profile("us-west-2")
+            assert result == "mlcc-registry-111222333444"
+
+    def test_returns_none_when_no_region_and_no_hub(self, tmp_path):
+        """Returns None when no region provided and no profiles have hub name."""
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "awsRegion": "us-west-2",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            result = _get_hub_name_from_profile(None)
+            assert result is None
+
+    def test_handles_malformed_json(self, tmp_path):
+        """Returns None gracefully on malformed JSON."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text("not valid json {{{")
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            result = _get_hub_name_from_profile("us-west-2")
+            assert result is None
+
+    def test_handles_non_dict_profile_entry(self, tmp_path):
+        """Skips non-dict profile entries without crashing."""
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": "not-a-dict",
+                "us-east-1-999888777666": {
+                    "aiRegistryHubName": "mlcc-registry-999888777666",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            result = _get_hub_name_from_profile("us-west-2")
+            # Should skip the non-dict entry and find the valid one
+            assert result == "mlcc-registry-999888777666"
+
+
+class TestRegisterToHub:
+    """Test _register_to_hub targets specific hub by name.
+
+    Validates: Requirements AC-2.2, AC-2.4, AC-2.5
+    """
+
+    @patch("boto3.client")
+    def test_successful_registration_returns_arn(self, mock_boto_client):
+        """Successful create_hub_content returns the hub content ARN."""
+        mock_sm = MagicMock()
+        mock_sm.create_hub_content.return_value = {
+            "HubContentArn": "arn:aws:sagemaker:us-west-2:123:hub/mlcc-registry-123/dataset/my-dataset"
+        }
+        mock_boto_client.return_value = mock_sm
+
+        result = _register_to_hub(
+            hub_name="mlcc-registry-123",
+            name="my-dataset",
+            s3_uri="s3://bucket/data.jsonl",
+            technique="sft",
+            description="[hash:abc123]",
+            region="us-west-2",
+        )
+
+        assert result == "arn:aws:sagemaker:us-west-2:123:hub/mlcc-registry-123/dataset/my-dataset"
+        mock_sm.create_hub_content.assert_called_once()
+        call_kwargs = mock_sm.create_hub_content.call_args[1]
+        assert call_kwargs["HubName"] == "mlcc-registry-123"
+        assert call_kwargs["HubContentName"] == "my-dataset"
+        assert call_kwargs["HubContentType"] == "Dataset"
+
+    @patch("boto3.client")
+    def test_hub_not_found_returns_none_with_message(self, mock_boto_client, capsys):
+        """Hub not found returns None and prints actionable message (AC-2.5)."""
+        mock_sm = MagicMock()
+        mock_sm.create_hub_content.side_effect = Exception(
+            "An error occurred (ResourceNotFound): Hub mlcc-registry-123 does not exist"
+        )
+        mock_boto_client.return_value = mock_sm
+
+        result = _register_to_hub(
+            hub_name="mlcc-registry-123",
+            name="my-dataset",
+            s3_uri="s3://bucket/data.jsonl",
+            technique="sft",
+            description="",
+            region="us-west-2",
+        )
+
+        assert result is None
+        captured = capsys.readouterr()
+        assert "ml-container-creator bootstrap" in captured.err
+        assert "Falling back to local JSON registry" in captured.err
+
+    @patch("boto3.client")
+    def test_already_exists_is_idempotent(self, mock_boto_client):
+        """Already-exists error is treated as success (idempotent)."""
+        mock_sm = MagicMock()
+        mock_sm.create_hub_content.side_effect = Exception(
+            "An error occurred (ResourceInUse): Hub content 'my-dataset' already exists"
+        )
+        mock_sm.describe_hub_content.return_value = {
+            "HubContentArn": "arn:aws:sagemaker:us-west-2:123:hub/mlcc-registry-123/dataset/my-dataset"
+        }
+        mock_boto_client.return_value = mock_sm
+
+        result = _register_to_hub(
+            hub_name="mlcc-registry-123",
+            name="my-dataset",
+            s3_uri="s3://bucket/data.jsonl",
+            technique="sft",
+            description="",
+            region="us-west-2",
+        )
+
+        assert result == "arn:aws:sagemaker:us-west-2:123:hub/mlcc-registry-123/dataset/my-dataset"
+
+    @patch("boto3.client")
+    def test_other_error_returns_none_with_helpful_message(self, mock_boto_client, capsys):
+        """Other errors return None and print helpful error message."""
+        mock_sm = MagicMock()
+        mock_sm.create_hub_content.side_effect = Exception(
+            "An error occurred (AccessDenied): User is not authorized"
+        )
+        mock_boto_client.return_value = mock_sm
+
+        result = _register_to_hub(
+            hub_name="mlcc-registry-123",
+            name="my-dataset",
+            s3_uri="s3://bucket/data.jsonl",
+            technique="sft",
+            description="",
+            region="us-west-2",
+        )
+
+        assert result is None
+        captured = capsys.readouterr()
+        assert "Failed to register dataset to hub" in captured.err
+        assert "ml-container-creator bootstrap" in captured.err
+
+
+class TestCmdRegisterDatasetHubIntegration:
+    """Test cmd_register_dataset integration with hub targeting.
+
+    Validates: Requirements AC-2.1 through AC-2.5
+    """
+
+    def _make_dataset_args(self, **kwargs):
+        """Create a Namespace with all required register-dataset args."""
+        defaults = {
+            "command": "register-dataset",
+            "name": "sft-train-v1",
+            "s3_uri": "s3://my-bucket/datasets/train.jsonl",
+            "format": "jsonl",
+            "technique": "sft",
+            "row_count": 5000,
+            "column_schema": None,
+            "project_name": "test-project",
+            "region": "us-west-2",
+            "force": False,
+        }
+        defaults.update(kwargs)
+        return Namespace(**defaults)
+
+    def test_uses_hub_when_profile_has_hub_name(self, tmp_path, capsys):
+        """When profile has hub name, registration targets that hub (AC-2.2)."""
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "aiRegistryHubName": "mlcc-registry-123456789012",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        args = self._make_dataset_args()
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                    with patch.object(_register_helper, "_register_to_hub", return_value="arn:hub:content") as mock_hub:
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        mock_hub.assert_called_once_with(
+                            "mlcc-registry-123456789012",
+                            "sft-train-v1",
+                            "s3://my-bucket/datasets/train.jsonl",
+                            "sft",
+                            ANY,  # description (hash string)
+                            "us-west-2",
+                        )
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        assert output["arn"] == "arn:hub:content"
+
+    def test_falls_back_to_local_json_when_no_hub_name(self, tmp_path, capsys):
+        """When no hub name in profile (legacy), uses local JSON only (AC-2.3)."""
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "awsRegion": "us-west-2",
+                    # No aiRegistryHubName
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        args = self._make_dataset_args()
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                    with patch.object(_register_helper, "_register_to_hub") as mock_hub:
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        mock_hub.assert_not_called()
+                        captured = capsys.readouterr()
+                        assert "No AI Registry hub configured" in captured.err
+
+    def test_falls_back_to_local_json_when_hub_registration_fails(self, tmp_path, capsys):
+        """When hub registration fails, falls back to local JSON (AC-2.5)."""
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "aiRegistryHubName": "mlcc-registry-123456789012",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        args = self._make_dataset_args()
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                    # Simulate hub registration failure
+                    with patch.object(_register_helper, "_register_to_hub", return_value=None):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        # ARN should be None since hub registration failed
+                        assert output["arn"] is None
+                        # But dataset is still registered locally
+                        assert output["registered"] is True
+
+    def test_local_json_written_regardless_of_hub_result(self, tmp_path):
+        """Local JSON registry is always written, even when hub succeeds."""
+        config = {
+            "profiles": {
+                "us-west-2-123456789012": {
+                    "aiRegistryHubName": "mlcc-registry-123456789012",
+                }
+            }
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config))
+
+        args = self._make_dataset_args()
+        registry_file = str(tmp_path / "datasets.json")
+
+        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+            with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                    with patch.object(_register_helper, "_register_to_hub", return_value="arn:hub:content"):
+                        with pytest.raises(SystemExit):
+                            _register_helper.cmd_register_dataset(args)
+
+        # Verify local registry was written
+        assert os.path.exists(registry_file)
+        with open(registry_file) as f:
+            data = json.load(f)
+        assert len(data) == 1
+        assert data[0]["name"] == "sft-train-v1"
+        assert data[0]["arn"] == "arn:hub:content"

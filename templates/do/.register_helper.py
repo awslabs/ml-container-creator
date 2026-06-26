@@ -496,6 +496,7 @@ def cmd_register_adapter(args):
 # TODO: Once an evaluator registry API is available, upgrade evaluators too.
 
 _REGISTRY_DIR = os.path.join(os.path.expanduser("~"), ".ml-container-creator")
+_CONFIG_PATH = os.path.join(_REGISTRY_DIR, "config.json")
 _DATASETS_REGISTRY = os.path.join(_REGISTRY_DIR, "datasets.json")
 _EVALUATORS_REGISTRY = os.path.join(_REGISTRY_DIR, "evaluators.json")
 
@@ -510,6 +511,146 @@ def _check_ai_registry():
         # Other exceptions: module exists but fails at import (e.g., NoRegionError
         # from boto3 client created at class-definition time in AIRHub)
         return False
+
+
+def _get_hub_name_from_profile(region=None):
+    """Read aiRegistryHubName from the bootstrap profile config.
+
+    Looks up ~/.ml-container-creator/config.json and finds the profile
+    matching the given region. If no region is provided or no matching
+    profile is found, returns the first profile with an aiRegistryHubName.
+
+    Args:
+        region: AWS region to match against profile keys (format: <region>-<accountId>)
+
+    Returns:
+        Hub name string (e.g., "mlcc-registry-123456789012") or None if not found.
+    """
+    try:
+        with open(_CONFIG_PATH) as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, IOError):
+        return None
+
+    profiles = config.get("profiles", {})
+    if not profiles:
+        return None
+
+    # Try to find a profile matching the region
+    if region:
+        for profile_key, profile_data in profiles.items():
+            if not isinstance(profile_data, dict):
+                continue
+            # Profile key format: <region>-<accountId>
+            if profile_key.startswith(region):
+                hub_name = profile_data.get("aiRegistryHubName")
+                if hub_name:
+                    return hub_name
+
+    # Fallback: return the first profile that has an aiRegistryHubName
+    for profile_data in profiles.values():
+        if not isinstance(profile_data, dict):
+            continue
+        hub_name = profile_data.get("aiRegistryHubName")
+        if hub_name:
+            return hub_name
+
+    return None
+
+
+def _register_to_hub(hub_name, name, s3_uri, technique, description, region):
+    """Register dataset to a specific hub by name.
+
+    Two-phase approach (AC-2.4):
+      Phase 1: Check if DataSet.create() accepts a hub_name/config option.
+      Phase 2: If no SDK option, use boto3 create_hub_content directly.
+
+    Must target the specific hub by name — never relies on SDK auto-discovery (AC-2.2).
+
+    Args:
+        hub_name: The hub name to target (e.g., "mlcc-registry-123456789012")
+        name: Dataset name
+        s3_uri: S3 URI of the dataset
+        technique: Tuning technique string (e.g., "sft")
+        description: Dataset description (may contain hash tag)
+        region: AWS region
+
+    Returns:
+        str: Hub content ARN if successful, None if failed (caller should fall back)
+    """
+    # ── Phase 1: Check if DataSet.create() accepts hub config ─────────────
+    # The sagemaker.ai_registry.dataset.DataSet.create() API signature is:
+    #   DataSet.create(name=, source=, customization_technique=, description=)
+    # It does NOT accept a hub_name, hub_config, or similar parameter.
+    # There is no documented env var or session config to override the target hub.
+    # Conclusion: SDK DataSet.create() cannot target a specific hub by name.
+    # Proceed to Phase 2.
+
+    # ── Phase 2: Use boto3 create_hub_content directly ────────────────────
+    try:
+        import boto3
+
+        sm_client = boto3.client("sagemaker", region_name=region)
+
+        # Build the document schema for the dataset hub content
+        hub_content_document = json.dumps({
+            "Source": s3_uri,
+            "CustomizationTechnique": technique or "sft",
+        })
+
+        create_params = {
+            "HubName": hub_name,
+            "HubContentName": name,
+            "HubContentType": "Dataset",
+            "DocumentSchemaVersion": "1.0.0",
+            "HubContentDocument": hub_content_document,
+        }
+
+        if description:
+            create_params["HubContentDescription"] = description
+
+        response = sm_client.create_hub_content(**create_params)
+        hub_content_arn = response.get("HubContentArn", "")
+        print(f"Registered dataset '{name}' to hub '{hub_name}' (ARN: {hub_content_arn})", file=sys.stderr)
+        return hub_content_arn
+
+    except Exception as e:
+        error_msg = str(e).lower()
+
+        # Hub not found — clear actionable message (AC-2.5)
+        if ("resourcenotfound" in error_msg or "resource not found" in error_msg
+                or "does not exist" in error_msg or "hub" in error_msg and "not found" in error_msg):
+            _warn(
+                f"Hub '{hub_name}' not found. "
+                "Run `ml-container-creator bootstrap` to provision the AI Registry hub."
+            )
+            print(
+                "    Falling back to local JSON registry.",
+                file=sys.stderr,
+            )
+            return None
+
+        # Already exists — idempotent, treat as success
+        if "already exists" in error_msg or "resourceinuse" in error_msg:
+            print(f"Dataset '{name}' already exists in hub '{hub_name}' (idempotent)", file=sys.stderr)
+            # Try to retrieve the ARN
+            try:
+                describe_resp = sm_client.describe_hub_content(
+                    HubName=hub_name,
+                    HubContentName=name,
+                    HubContentType="Dataset",
+                )
+                return describe_resp.get("HubContentArn", "")
+            except Exception:
+                return ""
+
+        # Any other error — warn and fall back
+        _warn(
+            f"Failed to register dataset to hub '{hub_name}': {e}\n"
+            "    If this persists, run `ml-container-creator bootstrap` to verify hub provisioning.\n"
+            "    Falling back to local JSON registry."
+        )
+        return None
 
 
 def _ensure_registry_dir():
@@ -764,32 +905,24 @@ def cmd_register_dataset(args):
     description = f"[hash:{content_hash}]" if content_hash else ""
     dataset_arn = None
 
-    if _check_ai_registry():
-        try:
-            from sagemaker.ai_registry.dataset import DataSet
-            from sagemaker.ai_registry.dataset import CustomizationTechnique
+    # ── Step 4a: Try hub-targeted registration (AC-2.1, AC-2.2) ───────────
+    hub_name = _get_hub_name_from_profile(region)
 
-            # Map technique string to enum
-            technique_enum = None
-            technique_map = {t.name.lower(): t for t in CustomizationTechnique}
-            if technique.lower() in technique_map:
-                technique_enum = technique_map[technique.lower()]
-
-            print(f"Registering dataset '{name}' v{ordinal} via SageMaker AI Registry...", file=sys.stderr)
-            dataset = DataSet.create(
-                name=name,
-                source=s3_uri,
-                customization_technique=technique_enum,
-                description=description,
-            )
-            dataset_arn = dataset.arn
-            print(f"Registered '{name}' v{ordinal} → {s3_uri} (ARN: {dataset_arn})", file=sys.stderr)
-        except Exception as e:
-            _warn(f"AI Registry registration failed: {e}. Falling back to local registry.")
+    if hub_name:
+        # Hub name available in profile — target it explicitly (never auto-discover)
+        print(f"Targeting hub '{hub_name}' for dataset registration...", file=sys.stderr)
+        hub_arn = _register_to_hub(hub_name, name, s3_uri, technique, description, region)
+        if hub_arn is not None:
+            dataset_arn = hub_arn
+        else:
+            # Hub registration failed — fall back to local JSON only (AC-2.5)
+            print("Continuing with local JSON registry only.", file=sys.stderr)
     else:
+        # No hub name in profile (legacy/pre-bootstrap) — local JSON only (AC-2.3)
         _warn(
-            "sagemaker.ai_registry.dataset.DataSet not available (older SDK). "
-            "Using local registry fallback."
+            "No AI Registry hub configured in profile. "
+            "Using local JSON registry only.\n"
+            "    To enable hub registration, run `ml-container-creator bootstrap`."
         )
 
     # ── Step 5: Write to local registry with versioning (AC-1.8) ──────────────

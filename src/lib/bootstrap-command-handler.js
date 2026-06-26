@@ -52,6 +52,7 @@ export default class BootstrapCommandHandler {
     _setupS3Buckets() { return this.provisioners._setupS3Buckets(); }
     _createS3Bucket(name, tags) { return this.provisioners._createS3Bucket(name, tags); }
     _verifyCliV2() { return this.provisioners._verifyCliV2(); }
+    _provisionAiRegistryHub(profileData) { return this.provisioners.provisionAiRegistryHub(profileData); }
 
     // ── ProfileManager delegations (backward compat for tests) ──────
 
@@ -356,6 +357,9 @@ export default class BootstrapCommandHandler {
             console.log(`  ⚠️  MLflow App setup skipped: ${error.message}`);
             console.log('     Tune jobs will still work but experiment tracking may not be available.');
         }
+
+        // Step 4c: AI Registry Hub
+        await this._provisionAiRegistryHub(profileData);
 
         // Step 5: CI Infrastructure setup (separate CDK stack — unchanged)
         this._displayProgress('🧪', 'CI Testing Infrastructure...');
@@ -713,6 +717,10 @@ export default class BootstrapCommandHandler {
         } catch (error) {
             console.log(`  ⚠️  MLflow App setup skipped: ${error.message}`);
         }
+
+        // Ensure AI Registry hub exists
+        this._currentProfile = profileConfig.awsProfile;
+        await this._provisionAiRegistryHub(profileConfig);
 
         // Save updated profile
         this.config.setProfile(name, profileConfig);

@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Benchmark Writer — Converts do/benchmark output to enriched Parquet for Athena.
@@ -375,7 +373,11 @@ def enrich_records(config, results, run_timestamp=None, instance_catalog=None):
 
     # Optional context fields
     deployment_target = config.get('deployment_target', 'realtime-inference')
-    tensor_parallel_degree = config.get('tensor_parallel_degree', 1)
+    try:
+        tensor_parallel_degree = int(config.get('tensor_parallel_degree', 1))
+    except (ValueError, TypeError):
+        tensor_parallel_degree = 1
+
     quantization = config.get('quantization', 'none')
     enable_lora = config.get('enable_lora', False)
     base_image = config.get('base_image', '')
@@ -1263,6 +1265,9 @@ def cmd_write(args):
     if args.adapter_name:
         input_data['adapter_name'] = args.adapter_name
 
+    if getattr(args, 'instance_type', None):
+        input_data['instance_type'] = args.instance_type
+
     # ── Validate before any S3 interaction ────────────────────────────────
     errors = validate_benchmark_input(input_data)
     if errors:
@@ -1472,6 +1477,8 @@ def _load_config_file(config_path):
                     'MODEL_NAME': 'model_name',
                     'HF_MODEL_ID': 'hf_model_id',
                     'INSTANCE_TYPE': 'instance_type',
+                    'INSTANCE_POOLS': 'instance_pools',
+                    'BENCHMARK_INSTANCE_TYPE': 'benchmark_instance_type',
                     'DEPLOYMENT_CONFIG': 'deployment_config',
                     'DEPLOYMENT_TARGET': 'deployment_target',
                     'AWS_REGION': 'region',
@@ -1509,6 +1516,24 @@ def _load_config_file(config_path):
         # the model slug from the S3 path (last non-empty segment)
         parts = context['model_name'].rstrip('/').split('/')
         context['model_name'] = parts[-1] if parts else context['model_name']
+
+    # Resolve instance_type precedence:
+    #   BENCHMARK_INSTANCE_TYPE (live-resolved, persisted by do/benchmark) > INSTANCE_TYPE > INSTANCE_POOLS fallback
+    if context.get('benchmark_instance_type'):
+        context['instance_type'] = context.pop('benchmark_instance_type')
+    # Fall back to INSTANCE_POOLS when neither is set.
+    # Heterogeneous pool configs may not have a standalone INSTANCE_TYPE value
+    # but always define INSTANCE_POOLS as a JSON array with Priority fields.
+    if not context.get('instance_type') and context.get('instance_pools'):
+        try:
+            pools = json.loads(context['instance_pools'])
+            if pools:
+                # Pick the highest-priority (lowest number) instance
+                best = min(pools, key=lambda p: p.get('Priority', 999))
+                context['instance_type'] = best.get('InstanceType', '')
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+    context.pop('instance_pools', None)  # Don't leak raw JSON into record
 
     # Also scan IC config files (do/ic/*.conf) for IC_ENV_* serving params
     # These override do/config values for serving-specific settings
@@ -1586,6 +1611,10 @@ def main():
         help='LoRA adapter name (differentiates adapter benchmarks from base model in Athena)'
     )
 
+    write_parser.add_argument(
+        '--instance-type', dest='instance_type', default=None,
+        help='Override instance type (use when actual provisioned instance differs from config, e.g. heterogeneous pools)'
+    )
     write_parser.add_argument(
         '--dry-run', dest='dry_run', action='store_true',
         help='Output enriched records as JSON without writing to S3'

@@ -172,6 +172,23 @@ export default class BootstrapProfileManager {
             }
         }
 
+        // Check AI Registry hub status
+        if (profile.config.aiRegistryHubName) {
+            try {
+                const hubExists = this.handler._resourceExists(
+                    `sagemaker describe-hub --hub-name ${profile.config.aiRegistryHubName} --region ${profile.config.awsRegion}`,
+                    profile.config.awsProfile
+                );
+                console.log(hubExists
+                    ? `  ✅ AI Registry hub: ${profile.config.aiRegistryHubName}`
+                    : `  ⚠️  AI Registry hub: ${profile.config.aiRegistryHubName} — missing`);
+            } catch {
+                console.log(`  ⚠️  AI Registry hub: ${profile.config.aiRegistryHubName} — could not validate`);
+            }
+        } else {
+            console.log('  ℹ️  AI Registry hub: not provisioned (run bootstrap to create)');
+        }
+
         // Display deployed resources from manifest
         console.log('\n📦 Deployed Resources:');
 
