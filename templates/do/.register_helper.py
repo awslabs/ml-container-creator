@@ -8,15 +8,29 @@ Subcommands:
     create-mpg       - Create a Model Package Group (idempotent)
     register-model   - Register a model as a versioned Model Package
     register-adapter - Register an adapter as a versioned Model Package linked to base model
+    register-dataset - Register a dataset with content-aware versioning
+    resolve-dataset  - Resolve a dataset by name (with optional version)
 
 Uses sagemaker-core ModelPackageGroup and ModelPackage resource APIs (SDK v3).
 No boto3 sagemaker client per NFR-3.
 
 All output is JSON on stdout for bash consumption.
 Diagnostic messages go to stderr.
+
+Dataset Versioning (F4 Research Spike Findings):
+    - DataSet.create() in sagemaker.ai_registry.dataset does NOT accept a `hub_content_version`
+      parameter directly. The API signature is: DataSet.create(name=, source=, customization_technique=).
+    - DataSet.get() does NOT accept a version filter — it retrieves by name only (latest).
+    - There is no `list_hub_content_versions` equivalent for DataSet objects.
+    - Conclusion: Native versioning is NOT supported via the DataSet API.
+    - Implementation approach: Use description field to embed hash (`[hash:<hex>] description`)
+      and local JSON registry with `versions[]` array for version tracking.
+    - Multipart S3 ETags (format: `hash-parts`) are not true content hashes but serve as
+      change-detection proxies. This is documented and acceptable per design.
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -133,7 +147,7 @@ def _build_adapter_metadata(args):
     """Build customer_metadata_properties dict for adapter registration.
 
     Includes all standard fields plus adapter-specific fields (AC-2.2):
-    isAdapter, parentModelVersionArn, tuneTechnique, datasetS3Uri.
+    isAdapter, parentModelVersionArn, tuneTechnique, datasetS3Uri, datasetVersion.
     """
     props = {
         "deploymentConfig": args.deployment_config or "",
@@ -151,6 +165,11 @@ def _build_adapter_metadata(args):
         "tuneTechnique": args.tune_technique or "",
         "datasetS3Uri": args.dataset_s3_uri or "",
     }
+
+    # Include dataset version lineage if available (AC-2.7)
+    dataset_version = getattr(args, "dataset_version", "") or ""
+    if dataset_version:
+        props["datasetVersion"] = dataset_version
 
     return _truncate_metadata(props)
 
@@ -281,7 +300,10 @@ def cmd_register_model(args):
             "ModelPackageDescription": description,
             "ModelApprovalStatus": "Approved",
         }
-        if container_image:
+        # Only include InferenceSpecification if container image is a valid ECR URI.
+        # Non-ECR images (e.g., vllm/vllm-openai:v0.20.2 from DockerHub) cause
+        # ValidationException: "Provided image is not a valid ECR image."
+        if container_image and ".dkr.ecr." in container_image:
             create_params["InferenceSpecification"] = {
                 "Containers": [{"Image": container_image}],
                 "SupportedContentTypes": ["application/json"],
@@ -432,7 +454,10 @@ def cmd_register_adapter(args):
             "ModelPackageDescription": description,
             "ModelApprovalStatus": "Approved",
         }
-        if container_image:
+        # Only include InferenceSpecification if container image is a valid ECR URI.
+        # Non-ECR images (e.g., vllm/vllm-openai:v0.20.2 from DockerHub) cause
+        # ValidationException: "Provided image is not a valid ECR image."
+        if container_image and ".dkr.ecr." in container_image:
             create_params["InferenceSpecification"] = {
                 "Containers": [{"Image": container_image}],
                 "SupportedContentTypes": ["application/json"],
@@ -511,16 +536,154 @@ def _save_registry(path, entries):
         json.dump(entries, f, indent=2)
 
 
+# ── Dataset Versioning Helpers ─────────────────────────────────────────────────
+
+
+def _parse_s3_uri(s3_uri):
+    """Parse an S3 URI into (bucket, key) tuple.
+
+    Args:
+        s3_uri: S3 URI in format s3://bucket/key or s3://bucket/prefix/
+
+    Returns:
+        Tuple of (bucket, key)
+    """
+    if not s3_uri.startswith("s3://"):
+        raise ValueError(f"Invalid S3 URI: {s3_uri}")
+    parts = s3_uri[5:].split("/", 1)
+    bucket = parts[0]
+    key = parts[1] if len(parts) > 1 else ""
+    return bucket, key
+
+
+def _is_s3_prefix(key):
+    """Determine if an S3 key represents a prefix (directory) vs single file.
+
+    Heuristic: ends with '/' or has no file extension in the last path component.
+    """
+    if not key or key.endswith("/"):
+        return True
+    last_part = key.rstrip("/").split("/")[-1]
+    return "." not in last_part
+
+
+def _compute_content_hash(s3_uri, region):
+    """Compute a content hash for a dataset at an S3 URI.
+
+    Single file: S3 ETag (truncated to 16 chars). For non-multipart uploads,
+    the ETag is the MD5 of the content. For multipart uploads, ETag is in
+    format `hash-parts` — not a true content hash but serves as a change-detection proxy.
+
+    Directory/prefix: Sort all object keys under prefix, concatenate
+    "key:etag" strings, then SHA256 the result. Truncated to 16 hex chars.
+
+    Args:
+        s3_uri: S3 URI (s3://bucket/key or s3://bucket/prefix/)
+        region: AWS region for the S3 client
+
+    Returns:
+        16-character hex hash string
+    """
+    import boto3
+
+    s3 = boto3.client("s3", region_name=region)
+    bucket, key = _parse_s3_uri(s3_uri)
+
+    if _is_s3_prefix(key):
+        # Prefix/directory — list and hash all objects
+        paginator = s3.get_paginator("list_objects_v2")
+        etags = []
+        prefix = key if key.endswith("/") else key + "/"
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                etag = obj["ETag"].strip('"')
+                etags.append(f"{obj['Key']}:{etag}")
+        if not etags:
+            # Try without trailing slash (might be a single object path without extension)
+            head = s3.head_object(Bucket=bucket, Key=key)
+            return head["ETag"].strip('"')[:16]
+        etags.sort()
+        return hashlib.sha256("\n".join(etags).encode()).hexdigest()[:16]
+    else:
+        # Single file — use ETag directly
+        head = s3.head_object(Bucket=bucket, Key=key)
+        return head["ETag"].strip('"')[:16]
+
+
+def _get_latest_version(name):
+    """Get the latest version info for a dataset from the local registry.
+
+    Checks local JSON registry for the most recent version of a named dataset.
+    Returns the latest version string and its content hash, or None if not found.
+
+    Args:
+        name: Dataset name to look up
+
+    Returns:
+        dict with keys: version (str), hash (str|None), ordinal (int)
+        or None if dataset not found
+    """
+    entries = _load_registry(_DATASETS_REGISTRY)
+
+    for entry in entries:
+        if entry.get("name") == name:
+            versions = entry.get("versions")
+            if versions and len(versions) > 0:
+                # Return the last version (most recent)
+                latest = versions[-1]
+                return {
+                    "version": latest.get("version", "1.0.0"),
+                    "hash": latest.get("hash"),
+                    "ordinal": len(versions),
+                }
+            else:
+                # Legacy entry without versions — treat as v1.0.0 with hash=null (NFR-3)
+                return {
+                    "version": "1.0.0",
+                    "hash": None,
+                    "ordinal": 1,
+                }
+
+    return None
+
+
+def _increment_version(version_str):
+    """Increment a semver-like version string (minor bump).
+
+    1.0.0 → 1.1.0, 1.1.0 → 1.2.0, etc.
+
+    Args:
+        version_str: Current version string (e.g., "1.0.0")
+
+    Returns:
+        New version string with minor incremented
+    """
+    parts = version_str.split(".")
+    if len(parts) != 3:
+        return "1.1.0"
+    major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+    return f"{major}.{minor + 1}.{patch}"
+
+
 # ── Subcommand: register-dataset ─────────────────────────────────────────────
 
 
 def cmd_register_dataset(args):
-    """Register a dataset into SageMaker AI Registry (preferred) or local registry (fallback).
+    """Register a dataset with content-aware versioning.
+
+    Version logic (AC-1.1 through AC-1.8):
+    1. Compute content hash of the S3 URI
+    2. Look up latest version for this name
+    3. If no existing entry → create version 1.0.0
+    4. If hash matches latest → skip (print "Dataset unchanged (v{N})")
+    5. If hash differs → create new version (minor increment)
+    6. --force flag bypasses hash comparison (always creates new version)
 
     Uses sagemaker.ai_registry.dataset.DataSet API (SDK v3) when available.
-    Falls back to local JSON registry if the API is not installed (Backlog #023).
+    Falls back to local JSON registry if the API is not installed.
 
-    Returns JSON: {"name": str, "s3_uri": str, "format": str, "technique": str, "arn": str|null, "registered": bool}
+    Returns JSON: {"name": str, "s3_uri": str, "format": str, "technique": str,
+                   "version": str, "hash": str|null, "arn": str|null, "registered": bool, "skipped": bool}
     """
     name = args.name
     s3_uri = args.s3_uri
@@ -529,6 +692,7 @@ def cmd_register_dataset(args):
     row_count = args.row_count
     column_schema = args.column_schema
     project_name = args.project_name or ""
+    force = getattr(args, "force", False)
 
     # Set region before any sagemaker import (creates boto3 clients at import time)
     region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
@@ -548,7 +712,58 @@ def cmd_register_dataset(args):
         except json.JSONDecodeError:
             _error_exit("--column-schema must be valid JSON", code="INVALID_ARGUMENT")
 
-    # Try SageMaker AI Registry API first (Backlog #023)
+    # ── Step 1: Compute content hash (AC-1.5) ─────────────────────────────────
+    content_hash = None
+    if region:
+        try:
+            content_hash = _compute_content_hash(s3_uri, region)
+            print(f"Content hash: {content_hash}", file=sys.stderr)
+        except Exception as e:
+            _warn(f"Could not compute content hash: {e}. Proceeding without hash.")
+    else:
+        _warn("No region specified — skipping content hash computation.")
+
+    # ── Step 2: Get latest version (AC-1.2) ───────────────────────────────────
+    latest = _get_latest_version(name)
+
+    # ── Step 3: Version decision (AC-1.3, AC-1.4, AC-1.7) ────────────────────
+    if latest is None:
+        # First registration — version 1.0.0 (AC-1.1)
+        new_version = "1.0.0"
+        ordinal = 1
+        print(f"First registration of '{name}' → v1 ({new_version})", file=sys.stderr)
+    else:
+        latest_hash = latest["hash"]
+        latest_version = latest["version"]
+        ordinal = latest["ordinal"]
+
+        if not force and content_hash is not None and latest_hash is not None and content_hash == latest_hash:
+            # Hash matches — skip (AC-1.3)
+            print(f"Dataset unchanged (v{ordinal})", file=sys.stderr)
+            _output({
+                "name": name,
+                "s3_uri": s3_uri,
+                "format": data_format,
+                "technique": technique,
+                "version": latest_version,
+                "hash": latest_hash,
+                "arn": None,
+                "registered": False,
+                "skipped": True,
+            })
+
+        # Hash differs or force — create new version (AC-1.4, AC-1.7)
+        new_version = _increment_version(latest_version)
+        ordinal = ordinal + 1
+        if force:
+            print(f"Force re-registration of '{name}' → v{ordinal} ({new_version})", file=sys.stderr)
+        else:
+            print(f"Dataset changed — new version v{ordinal} ({new_version})", file=sys.stderr)
+
+    # ── Step 4: Register via AI Registry (preferred) ──────────────────────────
+    description = f"[hash:{content_hash}]" if content_hash else ""
+    dataset_arn = None
+
     if _check_ai_registry():
         try:
             from sagemaker.ai_registry.dataset import DataSet
@@ -560,86 +775,132 @@ def cmd_register_dataset(args):
             if technique.lower() in technique_map:
                 technique_enum = technique_map[technique.lower()]
 
-            print(f"Registering dataset '{name}' via SageMaker AI Registry...", file=sys.stderr)
+            print(f"Registering dataset '{name}' v{ordinal} via SageMaker AI Registry...", file=sys.stderr)
             dataset = DataSet.create(
                 name=name,
                 source=s3_uri,
                 customization_technique=technique_enum,
+                description=description,
             )
             dataset_arn = dataset.arn
-
-            # Also write to local registry for offline fallback
-            _write_dataset_to_local_registry(
-                name=name, s3_uri=s3_uri, data_format=data_format,
-                technique=technique, row_count=row_count,
-                column_schema=column_schema, project_name=project_name,
-                arn=dataset_arn,
-            )
-
-            print(f"Registered dataset '{name}' → {s3_uri} (ARN: {dataset_arn})", file=sys.stderr)
-            _output({
-                "name": name,
-                "s3_uri": s3_uri,
-                "format": data_format,
-                "technique": technique,
-                "arn": dataset_arn,
-                "registered": True,
-            })
+            print(f"Registered '{name}' v{ordinal} → {s3_uri} (ARN: {dataset_arn})", file=sys.stderr)
         except Exception as e:
             _warn(f"AI Registry registration failed: {e}. Falling back to local registry.")
-            # Fall through to local registry below
     else:
         _warn(
             "sagemaker.ai_registry.dataset.DataSet not available (older SDK). "
             "Using local registry fallback."
         )
 
-    # Fallback: local JSON registry
-    _write_dataset_to_local_registry(
+    # ── Step 5: Write to local registry with versioning (AC-1.8) ──────────────
+    _write_dataset_version_to_local_registry(
         name=name, s3_uri=s3_uri, data_format=data_format,
         technique=technique, row_count=row_count,
         column_schema=column_schema, project_name=project_name,
-        arn=None,
+        arn=dataset_arn, version=new_version, content_hash=content_hash,
     )
 
-    print(f"Registered dataset '{name}' → {s3_uri} (local registry)", file=sys.stderr)
+    print(f"Registered dataset '{name}' v{ordinal} ({new_version}) → {s3_uri}", file=sys.stderr)
     _output({
         "name": name,
         "s3_uri": s3_uri,
         "format": data_format,
         "technique": technique,
-        "arn": None,
+        "version": new_version,
+        "hash": content_hash,
+        "arn": dataset_arn,
         "registered": True,
+        "skipped": False,
     })
 
 
-def _write_dataset_to_local_registry(*, name, s3_uri, data_format, technique,
-                                      row_count, column_schema, project_name, arn):
-    """Write a dataset entry to the local JSON registry (for offline fallback)."""
+def _write_dataset_version_to_local_registry(*, name, s3_uri, data_format, technique,
+                                              row_count, column_schema, project_name,
+                                              arn, version, content_hash):
+    """Write a versioned dataset entry to the local JSON registry.
+
+    Schema (AC-1.8, backward compatible):
+    - Each dataset has a `versions[]` array
+    - Existing entries without `versions` are treated as v1.0.0 with hash=null (NFR-3)
+    - New versions are appended to the array
+
+    Args:
+        name: Dataset name
+        s3_uri: S3 URI of the dataset
+        data_format: Format (jsonl/parquet/csv)
+        technique: Tuning technique
+        row_count: Number of rows (optional)
+        column_schema: Column schema JSON string (optional)
+        project_name: Project name for context
+        arn: AI Registry ARN (if registered there)
+        version: Version string (e.g., "1.0.0")
+        content_hash: Content hash string (16-char hex) or None
+    """
     import datetime
 
     entries = _load_registry(_DATASETS_REGISTRY)
 
-    entry = {
-        "name": name,
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+    version_entry = {
+        "version": version,
         "s3_uri": s3_uri,
-        "format": data_format,
+        "hash": content_hash,
         "technique": technique,
-        "row_count": row_count,
-        "column_schema": column_schema,
-        "project_name": project_name,
-        "arn": arn,
-        "registered_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "rows": row_count,
+        "registered_at": now,
     }
 
-    # Upsert: replace existing entry with same name, or append
-    updated = False
+    # Find existing entry for this name
+    found = False
     for i, existing in enumerate(entries):
         if existing.get("name") == name:
-            entries[i] = entry
-            updated = True
+            found = True
+            # Migrate legacy entry (no versions array) to new schema
+            if "versions" not in existing:
+                legacy_version = {
+                    "version": "1.0.0",
+                    "s3_uri": existing.get("s3_uri", ""),
+                    "hash": None,
+                    "technique": existing.get("technique", ""),
+                    "rows": existing.get("row_count"),
+                    "registered_at": existing.get("registered_at", now),
+                }
+                existing["versions"] = [legacy_version]
+
+            # Append new version
+            existing["versions"].append(version_entry)
+
+            # Update top-level fields to reflect latest
+            existing["s3_uri"] = s3_uri
+            existing["format"] = data_format
+            existing["technique"] = technique
+            existing["row_count"] = row_count
+            existing["column_schema"] = column_schema
+            existing["project_name"] = project_name
+            existing["arn"] = arn
+            existing["registered_at"] = now
+            existing["latest_version"] = version
+            existing["content_hash"] = content_hash
+            entries[i] = existing
             break
-    if not updated:
+
+    if not found:
+        # New dataset entry
+        entry = {
+            "name": name,
+            "s3_uri": s3_uri,
+            "format": data_format,
+            "technique": technique,
+            "row_count": row_count,
+            "column_schema": column_schema,
+            "project_name": project_name,
+            "arn": arn,
+            "registered_at": now,
+            "latest_version": version,
+            "content_hash": content_hash,
+            "versions": [version_entry],
+        }
         entries.append(entry)
 
     _save_registry(_DATASETS_REGISTRY, entries)
@@ -649,16 +910,88 @@ def _write_dataset_to_local_registry(*, name, s3_uri, data_format, technique,
 
 
 def cmd_list_datasets(args):
-    """List all registered datasets from the local registry.
+    """List all registered datasets grouped by name with version summary (AC-3.1).
 
-    Returns JSON: {"datasets": [...]}
+    Enhanced output includes version_count and latest_version per dataset entry.
+    Groups by name and shows: NAME, TECHNIQUE, VERSIONS (count), LATEST, ROWS, S3_URI.
+
+    Returns JSON: {"datasets": [{..., "version_count": int, "latest_version": str}, ...]}
     """
     entries = _load_registry(_DATASETS_REGISTRY)
+
     # Filter by technique if provided
     technique = getattr(args, 'technique', None)
     if technique:
         entries = [e for e in entries if e.get('technique') == technique]
-    _output({"datasets": entries})
+
+    # Enhance each entry with version_count and latest_version (AC-3.1)
+    enhanced = []
+    for entry in entries:
+        item = dict(entry)
+        versions = entry.get("versions", [])
+        if versions:
+            item["version_count"] = len(versions)
+            item["latest_version"] = versions[-1].get("version", "1.0.0")
+        else:
+            # Legacy entry without versions array — treat as v1.0.0 (NFR-3)
+            item["version_count"] = 1
+            item["latest_version"] = item.get("latest_version", "1.0.0")
+        enhanced.append(item)
+
+    _output({"datasets": enhanced})
+
+
+# ── Subcommand: list-dataset-versions ─────────────────────────────────────────
+
+
+def cmd_list_dataset_versions(args):
+    """List all versions for a specific dataset by name (AC-3.3).
+
+    Returns all versions with: VERSION, HASH, DATE, ROWS, S3_URI.
+
+    Args (via argparse):
+        --name: Dataset name (required)
+
+    Returns JSON: {"name": str, "versions": [{"version": str, "hash": str|null,
+                   "date": str, "rows": int|null, "s3_uri": str}, ...]}
+    or error if dataset not found.
+    """
+    name = args.name
+    if not name:
+        _error_exit("--name is required", code="MISSING_ARGUMENT")
+
+    entries = _load_registry(_DATASETS_REGISTRY)
+
+    for entry in entries:
+        if entry.get("name") == name:
+            versions = entry.get("versions", [])
+            if not versions:
+                # Legacy entry without versions array — present as single v1.0.0 (NFR-3)
+                versions = [{
+                    "version": "1.0.0",
+                    "hash": None,
+                    "registered_at": entry.get("registered_at", ""),
+                    "rows": entry.get("row_count"),
+                    "s3_uri": entry.get("s3_uri", ""),
+                }]
+
+            # Normalize output format
+            result_versions = []
+            for v in versions:
+                result_versions.append({
+                    "version": v.get("version", "1.0.0"),
+                    "hash": v.get("hash"),
+                    "date": v.get("registered_at", ""),
+                    "rows": v.get("rows"),
+                    "s3_uri": v.get("s3_uri", ""),
+                })
+
+            _output({
+                "name": name,
+                "versions": result_versions,
+            })
+
+    _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
 
 
 # ── Subcommand: register-evaluator ───────────────────────────────────────────
@@ -941,18 +1274,30 @@ def cmd_get_version(args):
 
 
 def cmd_resolve_dataset(args):
-    """Resolve a registered dataset by name.
+    """Resolve a registered dataset by name (with optional version pinning).
 
     Uses SageMaker AI Registry DataSet.get() when available, falls back to
     local JSON registry. Includes ARN in output when available (Backlog #023).
 
-    Returns JSON: {"name": str, "s3_uri": str, "arn": str|null, "format": str, "technique": str, ...}
+    Version resolution (AC-2.1, AC-2.4):
+    - --version N: resolve the Nth version (ordinal, 1-based) for this name
+    - No --version: resolve latest (existing behavior)
+    - If requested version doesn't exist: print available versions and exit 1 (AC-2.5)
+
+    Returns JSON: {"name": str, "s3_uri": str, "arn": str|null, "format": str, "technique": str, "version": str|null, "ordinal": int|null}
     or error if not found.
     """
     name = args.name
+    version_ordinal = getattr(args, "version", None)
+
     if not name:
         _error_exit("--name is required", code="MISSING_ARGUMENT")
 
+    # If version is specified, use version-aware resolution
+    if version_ordinal is not None:
+        return _resolve_dataset_version(name, version_ordinal)
+
+    # No version — resolve latest (existing behavior)
     # Try SageMaker AI Registry API first
     if _check_ai_registry():
         try:
@@ -966,6 +1311,8 @@ def cmd_resolve_dataset(args):
                 "arn": dataset.arn if hasattr(dataset, 'arn') else None,
                 "format": "jsonl",  # AI Registry may not store format
                 "technique": getattr(dataset, 'customization_technique', '').lower() if hasattr(dataset, 'customization_technique') else "",
+                "version": None,
+                "ordinal": None,
             })
         except Exception as e:
             # AI Registry lookup failed — fall through to local registry
@@ -979,8 +1326,89 @@ def cmd_resolve_dataset(args):
             output = dict(entry)
             if "arn" not in output:
                 output["arn"] = None
+            # Include latest version info if available
+            versions = entry.get("versions")
+            if versions and len(versions) > 0:
+                latest = versions[-1]
+                output["s3_uri"] = latest.get("s3_uri", output.get("s3_uri", ""))
+                output["version"] = latest.get("version")
+                output["ordinal"] = len(versions)
+            else:
+                output["version"] = None
+                output["ordinal"] = None
             _output(output)
+            return
 
+    _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+
+
+def _resolve_dataset_version(name, version_ordinal):
+    """Resolve a specific version (by ordinal) of a named dataset.
+
+    Ordinal is 1-based: @v1 = first registered version, @v2 = second, etc.
+    Internally, versions may be semver strings (1.0.0, 1.1.0, 1.2.0).
+
+    If the version doesn't exist, prints available versions and exits 1 (AC-2.5).
+
+    Args:
+        name: Dataset name
+        version_ordinal: 1-based version ordinal (e.g., 2 for the 2nd version)
+    """
+    # Load local registry
+    entries = _load_registry(_DATASETS_REGISTRY)
+
+    for entry in entries:
+        if entry.get("name") == name:
+            versions = entry.get("versions", [])
+
+            if not versions:
+                # Legacy entry without versions array — treat as v1
+                if version_ordinal == 1:
+                    output = dict(entry)
+                    output["version"] = "1.0.0"
+                    output["ordinal"] = 1
+                    if "arn" not in output:
+                        output["arn"] = None
+                    _output(output)
+                else:
+                    print(f"Error: Version v{version_ordinal} not found for dataset '{name}'", file=sys.stderr)
+                    print(f"Available versions: v1 (1.0.0)", file=sys.stderr)
+                    print(json.dumps({
+                        "error": f"Version v{version_ordinal} not found for dataset '{name}'",
+                        "code": "VERSION_NOT_FOUND",
+                        "available_versions": [{"ordinal": 1, "version": "1.0.0"}],
+                    }))
+                    sys.exit(1)
+
+            # Check if requested ordinal is valid (1-based index)
+            if version_ordinal < 1 or version_ordinal > len(versions):
+                print(f"Error: Version v{version_ordinal} not found for dataset '{name}'", file=sys.stderr)
+                available = []
+                for i, v in enumerate(versions, 1):
+                    ver_str = v.get("version", f"{i}.0.0")
+                    available.append({"ordinal": i, "version": ver_str})
+                    print(f"  v{i} ({ver_str})", file=sys.stderr)
+                print(json.dumps({
+                    "error": f"Version v{version_ordinal} not found for dataset '{name}'",
+                    "code": "VERSION_NOT_FOUND",
+                    "available_versions": available,
+                }))
+                sys.exit(1)
+
+            # Resolve the specific version (0-based index from 1-based ordinal)
+            target_version = versions[version_ordinal - 1]
+            _output({
+                "name": name,
+                "s3_uri": target_version.get("s3_uri", entry.get("s3_uri", "")),
+                "arn": entry.get("arn"),
+                "format": target_version.get("format", entry.get("format", "jsonl")),
+                "technique": target_version.get("technique", entry.get("technique", "")),
+                "version": target_version.get("version", "1.0.0"),
+                "ordinal": version_ordinal,
+                "hash": target_version.get("hash"),
+            })
+
+    # Dataset name not found at all
     _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
 
 
@@ -1052,6 +1480,7 @@ def main():
     adapter_parser.add_argument("--parent-version-arn", required=True, help="Base model version ARN in the same MPG")
     adapter_parser.add_argument("--tune-technique", default="", help="Tune technique (sft/dpo/rlvr)")
     adapter_parser.add_argument("--dataset-s3-uri", default="", help="Training dataset S3 URI")
+    adapter_parser.add_argument("--dataset-version", default="", help="Dataset version ordinal (lineage: trained on dataset X version N)")
     adapter_parser.add_argument("--deployment-config", default="", help="Deployment config (e.g., gpu-vllm)")
     adapter_parser.add_argument("--container-image", default="", help="Container image URI")
     adapter_parser.add_argument("--model-data-url", default="", help="Model/adapter data S3 URI")
@@ -1068,7 +1497,7 @@ def main():
     # ── register-dataset ─────────────────────────────────────────────────
     dataset_parser = subparsers.add_parser(
         "register-dataset",
-        help="Register a dataset into the local registry (AI Registry fallback)",
+        help="Register a dataset with content-aware versioning",
     )
     dataset_parser.add_argument("--name", required=True, help="Dataset name (unique identifier)")
     dataset_parser.add_argument("--s3-uri", required=True, help="S3 URI of the dataset")
@@ -1080,6 +1509,9 @@ def main():
     dataset_parser.add_argument("--column-schema", default=None,
                                 help="Column schema as JSON string")
     dataset_parser.add_argument("--project-name", default=None, help="Project name for context")
+    dataset_parser.add_argument("--region", default=None, help="AWS region (for S3 hash computation)")
+    dataset_parser.add_argument("--force", action="store_true", default=False,
+                                help="Force new version even if content hash matches (AC-1.7)")
 
     # ── list-datasets ─────────────────────────────────────────────────────────
     list_datasets_parser = subparsers.add_parser(
@@ -1088,6 +1520,13 @@ def main():
     )
     list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlaif", "rlvr"],
                                       help="Filter by tuning technique")
+
+    # ── list-dataset-versions ─────────────────────────────────────────────
+    list_dataset_versions_parser = subparsers.add_parser(
+        "list-dataset-versions",
+        help="List all versions for a specific dataset by name (AC-3.3)",
+    )
+    list_dataset_versions_parser.add_argument("--name", required=True, help="Dataset name to list versions for")
 
     # ── register-evaluator ────────────────────────────────────────────────
     evaluator_parser = subparsers.add_parser(
@@ -1134,6 +1573,8 @@ def main():
         help="Resolve a registered dataset by name",
     )
     resolve_dataset_parser.add_argument("--name", required=True, help="Dataset name to resolve")
+    resolve_dataset_parser.add_argument("--version", type=int, default=None,
+                                        help="Version ordinal to resolve (e.g., 2 for the 2nd version). Default: latest.")
 
     # ── resolve-evaluator ─────────────────────────────────────────────────
     resolve_evaluator_parser = subparsers.add_parser(
@@ -1165,6 +1606,8 @@ def main():
         cmd_register_dataset(args)
     elif args.command == "list-datasets":
         cmd_list_datasets(args)
+    elif args.command == "list-dataset-versions":
+        cmd_list_dataset_versions(args)
     elif args.command == "register-evaluator":
         cmd_register_evaluator(args)
     elif args.command == "list-adapters":

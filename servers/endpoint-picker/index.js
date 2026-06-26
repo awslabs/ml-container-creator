@@ -200,22 +200,37 @@ async function fetchEndpoints(client, { limit = 10, showFull = false } = {}) {
 
             const variantName = primaryVariant.VariantName || 'AllTraffic';
             let instanceType = primaryVariant.InstanceType || null;
+            let instancePools = primaryVariant.InstancePools || null;
 
             // For IC-based endpoints, InstanceType may not be in the variant runtime response.
-            // Fall back to DescribeEndpointConfig which always has it.
-            if (!instanceType && detail.EndpointConfigName) {
+            // Fall back to DescribeEndpointConfig which has either InstanceType or InstancePools.
+            if (!instanceType && !instancePools && detail.EndpointConfigName) {
                 try {
                     const ecCmd = new _DescribeEndpointConfigCommand({ EndpointConfigName: detail.EndpointConfigName });
                     const ecDetail = await client.send(ecCmd);
                     const ecVariant = (ecDetail.ProductionVariants || [])[0];
                     if (ecVariant?.InstanceType) {
                         instanceType = ecVariant.InstanceType;
+                    } else if (ecVariant?.InstancePools && ecVariant.InstancePools.length > 0) {
+                        instancePools = ecVariant.InstancePools;
                     }
                 } catch (ecErr) {
                     log(`Warning: could not describe endpoint config for "${endpointName}": ${ecErr.message}`);
                 }
             }
-            instanceType = instanceType || 'unknown';
+
+            // Resolve instanceType display string from pools if needed
+            if (!instanceType && instancePools && instancePools.length > 0) {
+                // Sort by priority, use highest-priority (lowest number) for GPU lookup
+                const sorted = [...instancePools].sort((a, b) => (a.Priority || 99) - (b.Priority || 99));
+                instanceType = sorted[0].InstanceType || 'unknown';
+                // Build display string showing the pool: "ml.g5.12xl (pool: 3 types)"
+                if (sorted.length > 1) {
+                    instanceType = `${instanceType} (pool: ${sorted.length} types)`;
+                }
+            } else {
+                instanceType = instanceType || 'unknown';
+            }
 
             const instanceCount = primaryVariant.CurrentInstanceCount ?? primaryVariant.DesiredInstanceCount ?? 1;
             const hasInstancePools = !!(primaryVariant.InstancePools && primaryVariant.InstancePools.length > 0);
@@ -244,7 +259,12 @@ async function fetchEndpoints(client, { limit = 10, showFull = false } = {}) {
             } while (icNextToken);
 
             // Capacity estimation
-            const gpusPerInstance = getGpusForInstance(instanceType);
+            // For pool endpoints, instanceType may be "ml.g5.12xlarge (pool: 3 types)"
+            // Extract the raw type for catalog lookup
+            const instanceTypeForLookup = instanceType.includes(' (pool:')
+                ? instanceType.split(' (pool:')[0]
+                : instanceType;
+            const gpusPerInstance = getGpusForInstance(instanceTypeForLookup);
             let availableGpus;
             if (gpusPerInstance === null) {
                 availableGpus = '?';

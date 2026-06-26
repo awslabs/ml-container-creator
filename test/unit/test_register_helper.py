@@ -36,6 +36,11 @@ _truncate_metadata = _register_helper._truncate_metadata
 _build_metadata = _register_helper._build_metadata
 _build_adapter_metadata = _register_helper._build_adapter_metadata
 _extract_version_from_arn = _register_helper._extract_version_from_arn
+_parse_s3_uri = _register_helper._parse_s3_uri
+_is_s3_prefix = _register_helper._is_s3_prefix
+_compute_content_hash = _register_helper._compute_content_hash
+_get_latest_version = _register_helper._get_latest_version
+_increment_version = _register_helper._increment_version
 MAX_METADATA_VALUE_LEN = _register_helper.MAX_METADATA_VALUE_LEN
 
 
@@ -1399,6 +1404,8 @@ class TestAIRegistryDataset:
             "row_count": 5000,
             "column_schema": '{"prompt": "string", "completion": "string"}',
             "project_name": "test-project",
+            "region": None,
+            "force": False,
         }
         defaults.update(kwargs)
         return Namespace(**defaults)
@@ -1430,12 +1437,14 @@ class TestAIRegistryDataset:
                         assert output["name"] == "sft-train-v1"
                         assert output["arn"] == "arn:aws:sagemaker:us-west-2:123:dataset/sft-train-v1"
                         assert output["registered"] is True
+                        assert output["version"] == "1.0.0"
 
-        # Verify DataSet.create was called with correct args
+        # Verify DataSet.create was called with correct args (now includes description)
         mock_DataSet.create.assert_called_once_with(
             name="sft-train-v1",
             source="s3://my-bucket/datasets/train.jsonl",
-            customization_technique="SFT",
+            customization_technique=None,
+            description="",
         )
 
     def test_register_dataset_falls_back_to_local_when_api_unavailable(self, capsys, tmp_path):
@@ -1456,7 +1465,7 @@ class TestAIRegistryDataset:
                     assert output["registered"] is True
 
     def test_register_dataset_technique_uppercased_for_api(self, capsys, tmp_path):
-        """register-dataset passes technique in uppercase to DataSet.create()."""
+        """register-dataset passes technique enum to DataSet.create() when available."""
         args = self._make_dataset_args(technique="dpo")
 
         mock_dataset = MagicMock()
@@ -1465,10 +1474,18 @@ class TestAIRegistryDataset:
         mock_DataSet = MagicMock()
         mock_DataSet.create.return_value = mock_dataset
 
+        # Create a mock CustomizationTechnique enum that can be iterated
+        from enum import Enum
+        MockTechnique = Enum("CustomizationTechnique", {"SFT": "SFT", "DPO": "DPO", "RLAIF": "RLAIF", "RLVR": "RLVR"})
+
+        mock_ai_module = MagicMock()
+        mock_ai_module.DataSet = mock_DataSet
+        mock_ai_module.CustomizationTechnique = MockTechnique
+
         with patch.object(_register_helper, "_check_ai_registry", return_value=True):
             with patch.dict("sys.modules", {
                 "sagemaker.ai_registry": MagicMock(),
-                "sagemaker.ai_registry.dataset": MagicMock(DataSet=mock_DataSet),
+                "sagemaker.ai_registry.dataset": mock_ai_module,
             }):
                 with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
                     with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
@@ -1478,7 +1495,8 @@ class TestAIRegistryDataset:
         mock_DataSet.create.assert_called_once_with(
             name="sft-train-v1",
             source="s3://my-bucket/datasets/train.jsonl",
-            customization_technique="DPO",
+            customization_technique=MockTechnique.DPO,
+            description="",
         )
 
     def test_register_dataset_falls_back_on_api_error(self, capsys, tmp_path):
@@ -1763,3 +1781,899 @@ class TestAdapterDedup:
                     mock_resources.ModelPackage.create.assert_called_once()
                     # Verify warning was printed
                     assert "Dedup check failed" in captured.err
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 17. Dataset Versioning (US-1: AC-1.1 through AC-1.8)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestParseS3Uri:
+    """Test _parse_s3_uri utility function."""
+
+    def test_simple_file(self):
+        """Parses a single-file S3 URI."""
+        bucket, key = _parse_s3_uri("s3://my-bucket/path/to/file.jsonl")
+        assert bucket == "my-bucket"
+        assert key == "path/to/file.jsonl"
+
+    def test_prefix_with_slash(self):
+        """Parses a prefix S3 URI with trailing slash."""
+        bucket, key = _parse_s3_uri("s3://my-bucket/datasets/train/")
+        assert bucket == "my-bucket"
+        assert key == "datasets/train/"
+
+    def test_bucket_only(self):
+        """Parses a bucket-only URI."""
+        bucket, key = _parse_s3_uri("s3://my-bucket/")
+        assert bucket == "my-bucket"
+        assert key == ""
+
+    def test_invalid_uri_raises(self):
+        """Non-S3 URI raises ValueError."""
+        with pytest.raises(ValueError):
+            _parse_s3_uri("https://example.com/file.txt")
+
+
+class TestIsS3Prefix:
+    """Test _is_s3_prefix heuristic."""
+
+    def test_trailing_slash_is_prefix(self):
+        assert _is_s3_prefix("datasets/train/") is True
+
+    def test_file_with_extension_is_not_prefix(self):
+        assert _is_s3_prefix("datasets/train.jsonl") is False
+
+    def test_no_extension_is_prefix(self):
+        assert _is_s3_prefix("datasets/train") is True
+
+    def test_empty_key_is_prefix(self):
+        assert _is_s3_prefix("") is True
+
+
+class TestIncrementVersion:
+    """Test _increment_version semver minor bump logic."""
+
+    def test_initial_version(self):
+        """1.0.0 → 1.1.0"""
+        assert _increment_version("1.0.0") == "1.1.0"
+
+    def test_subsequent_version(self):
+        """1.1.0 → 1.2.0"""
+        assert _increment_version("1.1.0") == "1.2.0"
+
+    def test_high_minor(self):
+        """1.9.0 → 1.10.0"""
+        assert _increment_version("1.9.0") == "1.10.0"
+
+    def test_invalid_format_returns_default(self):
+        """Invalid format returns 1.1.0."""
+        assert _increment_version("bad") == "1.1.0"
+
+
+class TestComputeContentHash:
+    """Test _compute_content_hash with mocked S3 calls.
+
+    Validates: AC-1.5
+    """
+
+    def test_single_file_returns_etag_truncated(self):
+        """Single file: returns S3 ETag truncated to 16 chars."""
+        mock_s3 = MagicMock()
+        mock_s3.head_object.return_value = {"ETag": '"abcdef1234567890abcdef1234567890"'}
+
+        with patch("boto3.client", return_value=mock_s3):
+            result = _compute_content_hash("s3://bucket/file.jsonl", "us-west-2")
+
+        assert result == "abcdef1234567890"
+        assert len(result) == 16
+        mock_s3.head_object.assert_called_once_with(Bucket="bucket", Key="file.jsonl")
+
+    def test_prefix_returns_sha256_of_sorted_etags(self):
+        """Prefix: returns SHA256 of sorted key:etag strings, truncated to 16 chars."""
+        mock_s3 = MagicMock()
+        mock_paginator = MagicMock()
+        mock_s3.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {"Contents": [
+                {"Key": "prefix/b.jsonl", "ETag": '"etag_b"'},
+                {"Key": "prefix/a.jsonl", "ETag": '"etag_a"'},
+            ]}
+        ]
+
+        with patch("boto3.client", return_value=mock_s3):
+            result = _compute_content_hash("s3://bucket/prefix/", "us-west-2")
+
+        # Expected: sort by key, concat, SHA256, truncate
+        import hashlib
+        expected_input = "prefix/a.jsonl:etag_a\nprefix/b.jsonl:etag_b"
+        expected = hashlib.sha256(expected_input.encode()).hexdigest()[:16]
+        assert result == expected
+        assert len(result) == 16
+
+    def test_same_content_same_hash(self):
+        """Same S3 content always produces the same hash (deterministic)."""
+        mock_s3 = MagicMock()
+        mock_s3.head_object.return_value = {"ETag": '"consistent_etag_value_here"'}
+
+        with patch("boto3.client", return_value=mock_s3):
+            result1 = _compute_content_hash("s3://bucket/file.jsonl", "us-west-2")
+            result2 = _compute_content_hash("s3://bucket/file.jsonl", "us-west-2")
+
+        assert result1 == result2
+
+
+class TestGetLatestVersion:
+    """Test _get_latest_version reads from local registry.
+
+    Validates: AC-1.2, NFR-3 (backward compat)
+    """
+
+    def test_returns_none_for_unknown_dataset(self, tmp_path):
+        """Returns None when dataset is not in registry."""
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            result = _get_latest_version("nonexistent")
+        assert result is None
+
+    def test_returns_latest_version_from_versions_array(self, tmp_path):
+        """Returns the last entry from the versions array."""
+        registry_file = str(tmp_path / "datasets.json")
+        data = [{
+            "name": "my-dataset",
+            "versions": [
+                {"version": "1.0.0", "hash": "aaa", "s3_uri": "s3://a"},
+                {"version": "1.1.0", "hash": "bbb", "s3_uri": "s3://b"},
+            ]
+        }]
+        with open(registry_file, "w") as f:
+            json.dump(data, f)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            result = _get_latest_version("my-dataset")
+
+        assert result["version"] == "1.1.0"
+        assert result["hash"] == "bbb"
+        assert result["ordinal"] == 2
+
+    def test_legacy_entry_without_versions_returns_v1(self, tmp_path):
+        """Legacy entries (no versions array) treated as v1.0.0 with hash=null (NFR-3)."""
+        registry_file = str(tmp_path / "datasets.json")
+        data = [{"name": "old-dataset", "s3_uri": "s3://old/data.jsonl"}]
+        with open(registry_file, "w") as f:
+            json.dump(data, f)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            result = _get_latest_version("old-dataset")
+
+        assert result["version"] == "1.0.0"
+        assert result["hash"] is None
+        assert result["ordinal"] == 1
+
+
+class TestDatasetVersioning:
+    """Test the full dataset versioning flow in cmd_register_dataset.
+
+    Validates: Requirements US-1 (AC-1.1 through AC-1.8)
+    """
+
+    def _make_versioned_args(self, **kwargs):
+        """Create args for versioned dataset registration."""
+        defaults = {
+            "command": "register-dataset",
+            "name": "my-dataset",
+            "s3_uri": "s3://bucket/datasets/train.jsonl",
+            "format": "jsonl",
+            "technique": "sft",
+            "row_count": 1000,
+            "column_schema": None,
+            "project_name": "test-project",
+            "region": "us-west-2",
+            "force": False,
+        }
+        defaults.update(kwargs)
+        return Namespace(**defaults)
+
+    def test_first_registration_creates_v1(self, capsys, tmp_path):
+        """First registration of a dataset creates version 1.0.0 (AC-1.1)."""
+        args = self._make_versioned_args()
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch.object(_register_helper, "_compute_content_hash", return_value="abc123def4567890"):
+                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        assert output["version"] == "1.0.0"
+                        assert output["hash"] == "abc123def4567890"
+                        assert output["registered"] is True
+                        assert output["skipped"] is False
+
+    def test_unchanged_dataset_skipped(self, capsys, tmp_path):
+        """Re-registration with same hash is skipped (AC-1.3)."""
+        registry_file = str(tmp_path / "datasets.json")
+        # Pre-populate registry with existing version
+        data = [{
+            "name": "my-dataset",
+            "s3_uri": "s3://bucket/datasets/train.jsonl",
+            "versions": [
+                {"version": "1.0.0", "hash": "abc123def4567890", "s3_uri": "s3://bucket/datasets/train.jsonl",
+                 "technique": "sft", "rows": 1000, "registered_at": "2026-01-01T00:00:00Z"}
+            ],
+            "latest_version": "1.0.0",
+            "content_hash": "abc123def4567890",
+        }]
+        with open(registry_file, "w") as f:
+            json.dump(data, f)
+
+        args = self._make_versioned_args()
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch.object(_register_helper, "_compute_content_hash", return_value="abc123def4567890"):
+                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        assert output["skipped"] is True
+                        assert output["registered"] is False
+                        assert output["version"] == "1.0.0"
+                        assert "unchanged" in captured.err.lower()
+
+    def test_changed_dataset_increments_version(self, capsys, tmp_path):
+        """Changed content creates new version with minor bump (AC-1.4)."""
+        registry_file = str(tmp_path / "datasets.json")
+        data = [{
+            "name": "my-dataset",
+            "s3_uri": "s3://bucket/datasets/old.jsonl",
+            "versions": [
+                {"version": "1.0.0", "hash": "oldhash000000000", "s3_uri": "s3://bucket/datasets/old.jsonl",
+                 "technique": "sft", "rows": 1000, "registered_at": "2026-01-01T00:00:00Z"}
+            ],
+            "latest_version": "1.0.0",
+            "content_hash": "oldhash000000000",
+        }]
+        with open(registry_file, "w") as f:
+            json.dump(data, f)
+
+        args = self._make_versioned_args()
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch.object(_register_helper, "_compute_content_hash", return_value="newhash111111111"):
+                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        assert output["version"] == "1.1.0"
+                        assert output["hash"] == "newhash111111111"
+                        assert output["registered"] is True
+                        assert output["skipped"] is False
+
+    def test_force_flag_creates_version_even_if_unchanged(self, capsys, tmp_path):
+        """--force bypasses hash comparison and creates new version (AC-1.7)."""
+        registry_file = str(tmp_path / "datasets.json")
+        data = [{
+            "name": "my-dataset",
+            "s3_uri": "s3://bucket/datasets/train.jsonl",
+            "versions": [
+                {"version": "1.0.0", "hash": "abc123def4567890", "s3_uri": "s3://bucket/datasets/train.jsonl",
+                 "technique": "sft", "rows": 1000, "registered_at": "2026-01-01T00:00:00Z"}
+            ],
+            "latest_version": "1.0.0",
+            "content_hash": "abc123def4567890",
+        }]
+        with open(registry_file, "w") as f:
+            json.dump(data, f)
+
+        args = self._make_versioned_args(force=True)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch.object(_register_helper, "_compute_content_hash", return_value="abc123def4567890"):
+                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        assert output["version"] == "1.1.0"
+                        assert output["registered"] is True
+                        assert output["skipped"] is False
+
+    def test_local_registry_stores_versions_array(self, tmp_path):
+        """Local registry file contains versions[] array per dataset (AC-1.8)."""
+        registry_file = str(tmp_path / "datasets.json")
+        args = self._make_versioned_args()
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch.object(_register_helper, "_compute_content_hash", return_value="hash1111"):
+                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                        with pytest.raises(SystemExit):
+                            _register_helper.cmd_register_dataset(args)
+
+        with open(registry_file) as f:
+            data = json.load(f)
+
+        assert len(data) == 1
+        entry = data[0]
+        assert entry["name"] == "my-dataset"
+        assert "versions" in entry
+        assert len(entry["versions"]) == 1
+        assert entry["versions"][0]["version"] == "1.0.0"
+        assert entry["versions"][0]["hash"] == "hash1111"
+        assert entry["latest_version"] == "1.0.0"
+
+    def test_legacy_entry_migrated_on_new_version(self, capsys, tmp_path):
+        """Existing unversioned entry is migrated with v1.0.0 + hash=null (NFR-3)."""
+        registry_file = str(tmp_path / "datasets.json")
+        # Legacy format: no versions array
+        data = [{
+            "name": "my-dataset",
+            "s3_uri": "s3://bucket/old.jsonl",
+            "format": "jsonl",
+            "technique": "sft",
+            "row_count": 500,
+            "registered_at": "2025-01-01T00:00:00Z",
+        }]
+        with open(registry_file, "w") as f:
+            json.dump(data, f)
+
+        args = self._make_versioned_args()
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch.object(_register_helper, "_compute_content_hash", return_value="newhash222222222"):
+                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        # Should be v1.1.0 (since legacy is v1.0.0, but hash=null means never auto-skipped)
+                        assert output["version"] == "1.1.0"
+
+        # Verify the registry was migrated
+        with open(registry_file) as f:
+            registry_data = json.load(f)
+
+        entry = registry_data[0]
+        assert "versions" in entry
+        assert len(entry["versions"]) == 2
+        # First version is the legacy migration
+        assert entry["versions"][0]["version"] == "1.0.0"
+        assert entry["versions"][0]["hash"] is None
+        # Second version is the new one
+        assert entry["versions"][1]["version"] == "1.1.0"
+        assert entry["versions"][1]["hash"] == "newhash222222222"
+
+    def test_no_region_skips_hash_computation(self, capsys, tmp_path):
+        """Without region, hash computation is skipped but registration proceeds."""
+        args = self._make_versioned_args(region=None)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                    with pytest.raises(SystemExit) as exc_info:
+                        _register_helper.cmd_register_dataset(args)
+
+                    assert exc_info.value.code == 0
+                    captured = capsys.readouterr()
+                    output = json.loads(captured.out)
+                    assert output["version"] == "1.0.0"
+                    assert output["hash"] is None
+                    assert output["registered"] is True
+
+    def test_hash_computation_failure_proceeds_without_hash(self, capsys, tmp_path):
+        """If hash computation fails, registration proceeds with hash=null."""
+        args = self._make_versioned_args()
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch.object(_register_helper, "_compute_content_hash",
+                                  side_effect=Exception("S3 access denied")):
+                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_dataset(args)
+
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        assert output["hash"] is None
+                        assert output["registered"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Dataset Version Resolution (AC-2.1, AC-2.4, AC-2.5)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+_resolve_dataset_version = _register_helper._resolve_dataset_version
+cmd_resolve_dataset = _register_helper.cmd_resolve_dataset
+
+
+class TestResolveDatasetVersion:
+    """Tests for version-pinned dataset resolution (@v<N> syntax).
+
+    **Validates: Requirements AC-2.1, AC-2.4, AC-2.5**
+    """
+
+    def _make_registry_with_versions(self, tmp_path, name="alpaca-sft"):
+        """Create a local registry JSON with multiple versions."""
+        registry = [
+            {
+                "name": name,
+                "s3_uri": "s3://bucket/datasets/alpaca-sft/v1/train.jsonl",
+                "format": "jsonl",
+                "technique": "sft",
+                "versions": [
+                    {
+                        "version": "1.0.0",
+                        "s3_uri": "s3://bucket/datasets/alpaca-sft/v1/train.jsonl",
+                        "hash": "abc123",
+                        "technique": "sft",
+                        "format": "jsonl",
+                        "registered_at": "2026-06-24T12:00:00Z",
+                    },
+                    {
+                        "version": "1.1.0",
+                        "s3_uri": "s3://bucket/datasets/alpaca-sft/v2/train.jsonl",
+                        "hash": "def456",
+                        "technique": "sft",
+                        "format": "jsonl",
+                        "registered_at": "2026-06-28T14:30:00Z",
+                    },
+                    {
+                        "version": "1.2.0",
+                        "s3_uri": "s3://bucket/datasets/alpaca-sft/v3/train.jsonl",
+                        "hash": "ghi789",
+                        "technique": "sft",
+                        "format": "jsonl",
+                        "registered_at": "2026-07-01T10:00:00Z",
+                    },
+                ],
+            }
+        ]
+        registry_file = tmp_path / "datasets.json"
+        registry_file.write_text(json.dumps(registry))
+        return str(registry_file)
+
+    def test_resolve_v1_returns_first_version(self, capsys, tmp_path):
+        """@v1 resolves to the first registered version (AC-2.1)."""
+        registry_file = self._make_registry_with_versions(tmp_path)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_dataset_version("alpaca-sft", 1)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["name"] == "alpaca-sft"
+            assert output["s3_uri"] == "s3://bucket/datasets/alpaca-sft/v1/train.jsonl"
+            assert output["version"] == "1.0.0"
+            assert output["ordinal"] == 1
+            assert output["hash"] == "abc123"
+
+    def test_resolve_v2_returns_second_version(self, capsys, tmp_path):
+        """@v2 resolves to the second registered version (AC-2.1)."""
+        registry_file = self._make_registry_with_versions(tmp_path)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_dataset_version("alpaca-sft", 2)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["name"] == "alpaca-sft"
+            assert output["s3_uri"] == "s3://bucket/datasets/alpaca-sft/v2/train.jsonl"
+            assert output["version"] == "1.1.0"
+            assert output["ordinal"] == 2
+            assert output["hash"] == "def456"
+
+    def test_resolve_v3_returns_third_version(self, capsys, tmp_path):
+        """@v3 resolves to the third registered version."""
+        registry_file = self._make_registry_with_versions(tmp_path)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_dataset_version("alpaca-sft", 3)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["s3_uri"] == "s3://bucket/datasets/alpaca-sft/v3/train.jsonl"
+            assert output["version"] == "1.2.0"
+            assert output["ordinal"] == 3
+
+    def test_resolve_nonexistent_version_exits_with_error(self, capsys, tmp_path):
+        """Requesting a version that doesn't exist prints available versions and exits 1 (AC-2.5)."""
+        registry_file = self._make_registry_with_versions(tmp_path)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_dataset_version("alpaca-sft", 5)
+
+            assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["code"] == "VERSION_NOT_FOUND"
+            assert "v5" in output["error"]
+            # Should list available versions
+            assert len(output["available_versions"]) == 3
+
+    def test_resolve_v0_exits_with_error(self, capsys, tmp_path):
+        """@v0 is invalid (ordinals are 1-based) and exits with error (AC-2.5)."""
+        registry_file = self._make_registry_with_versions(tmp_path)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_dataset_version("alpaca-sft", 0)
+
+            assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["code"] == "VERSION_NOT_FOUND"
+
+    def test_resolve_unknown_dataset_exits_with_error(self, capsys, tmp_path):
+        """Requesting a version for an unknown dataset exits with DATASET_NOT_FOUND."""
+        registry_file = self._make_registry_with_versions(tmp_path)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_dataset_version("nonexistent-dataset", 1)
+
+            assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["code"] == "DATASET_NOT_FOUND"
+
+    def test_resolve_legacy_entry_v1_works(self, capsys, tmp_path):
+        """Legacy entries (no versions array) can be resolved as v1."""
+        registry = [{"name": "legacy-ds", "s3_uri": "s3://bucket/data.jsonl", "format": "jsonl", "technique": "sft"}]
+        registry_file = tmp_path / "datasets.json"
+        registry_file.write_text(json.dumps(registry))
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(registry_file)):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_dataset_version("legacy-ds", 1)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["version"] == "1.0.0"
+            assert output["ordinal"] == 1
+
+    def test_resolve_legacy_entry_v2_exits_error(self, capsys, tmp_path):
+        """Legacy entries with only 1 version can't resolve @v2."""
+        registry = [{"name": "legacy-ds", "s3_uri": "s3://bucket/data.jsonl", "format": "jsonl", "technique": "sft"}]
+        registry_file = tmp_path / "datasets.json"
+        registry_file.write_text(json.dumps(registry))
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(registry_file)):
+            with pytest.raises(SystemExit) as exc_info:
+                _resolve_dataset_version("legacy-ds", 2)
+
+            assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["code"] == "VERSION_NOT_FOUND"
+
+    def test_cmd_resolve_dataset_with_version_arg(self, capsys, tmp_path):
+        """cmd_resolve_dataset dispatches to version resolution when --version is provided (AC-2.4)."""
+        registry_file = self._make_registry_with_versions(tmp_path)
+        args = Namespace(name="alpaca-sft", version=2)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                with pytest.raises(SystemExit) as exc_info:
+                    cmd_resolve_dataset(args)
+
+                assert exc_info.value.code == 0
+                captured = capsys.readouterr()
+                output = json.loads(captured.out)
+                assert output["s3_uri"] == "s3://bucket/datasets/alpaca-sft/v2/train.jsonl"
+                assert output["ordinal"] == 2
+
+    def test_cmd_resolve_dataset_without_version_resolves_latest(self, capsys, tmp_path):
+        """cmd_resolve_dataset without --version resolves latest (AC-2.2)."""
+        registry_file = self._make_registry_with_versions(tmp_path)
+        args = Namespace(name="alpaca-sft", version=None)
+
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                with pytest.raises(SystemExit) as exc_info:
+                    cmd_resolve_dataset(args)
+
+                assert exc_info.value.code == 0
+                captured = capsys.readouterr()
+                output = json.loads(captured.out)
+                # Latest should be the last version's s3_uri
+                assert output["s3_uri"] == "s3://bucket/datasets/alpaca-sft/v3/train.jsonl"
+                assert output["version"] == "1.2.0"
+                assert output["ordinal"] == 3
+
+
+class TestAdapterMetadataDatasetVersion:
+    """Tests for dataset version lineage in adapter metadata (AC-2.7).
+
+    **Validates: Requirements AC-2.7**
+    """
+
+    def test_adapter_metadata_includes_dataset_version(self):
+        """Adapter metadata includes datasetVersion when provided."""
+        args = Namespace(
+            deployment_config="gpu-vllm",
+            architecture="transformers",
+            backend="vllm",
+            instance_type="ml.g5.2xlarge",
+            model_name="test-model",
+            base_image="",
+            model_format="safetensors",
+            generator_version="1.0.0",
+            project_name="test-project",
+            parent_version_arn="arn:aws:sagemaker:us-west-2:123:model-package/test/1",
+            tune_technique="sft",
+            dataset_s3_uri="s3://bucket/data.jsonl",
+            dataset_version="2",
+        )
+        result = _build_adapter_metadata(args)
+        assert result["datasetVersion"] == "2"
+
+    def test_adapter_metadata_omits_dataset_version_when_empty(self):
+        """Adapter metadata does not include datasetVersion when not provided."""
+        args = Namespace(
+            deployment_config="gpu-vllm",
+            architecture="transformers",
+            backend="vllm",
+            instance_type="ml.g5.2xlarge",
+            model_name="test-model",
+            base_image="",
+            model_format="safetensors",
+            generator_version="1.0.0",
+            project_name="test-project",
+            parent_version_arn="arn:aws:sagemaker:us-west-2:123:model-package/test/1",
+            tune_technique="sft",
+            dataset_s3_uri="s3://bucket/data.jsonl",
+            dataset_version="",
+        )
+        result = _build_adapter_metadata(args)
+        assert "datasetVersion" not in result
+
+    def test_adapter_metadata_handles_missing_dataset_version_attr(self):
+        """Adapter metadata works when dataset_version attribute is absent (backward compat)."""
+        args = Namespace(
+            deployment_config="gpu-vllm",
+            architecture="transformers",
+            backend="vllm",
+            instance_type="ml.g5.2xlarge",
+            model_name="test-model",
+            base_image="",
+            model_format="safetensors",
+            generator_version="1.0.0",
+            project_name="test-project",
+            parent_version_arn="arn:aws:sagemaker:us-west-2:123:model-package/test/1",
+            tune_technique="sft",
+            dataset_s3_uri="s3://bucket/data.jsonl",
+        )
+        # No dataset_version attribute — should not error
+        result = _build_adapter_metadata(args)
+        assert "datasetVersion" not in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Enhanced Dataset Listing (Task 3 — AC-3.1, AC-3.3)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestListDatasetsEnhanced:
+    """Test enhanced cmd_list_datasets with version info (AC-3.1).
+
+    Validates: Requirements AC-3.1
+    """
+
+    def test_list_datasets_includes_version_count_and_latest(self, capsys, tmp_path):
+        """cmd_list_datasets returns version_count and latest_version per dataset."""
+        registry_file = str(tmp_path / "datasets.json")
+        entries = [
+            {
+                "name": "alpaca-sft",
+                "s3_uri": "s3://bucket/alpaca/v2.jsonl",
+                "format": "jsonl",
+                "technique": "sft",
+                "row_count": 2500,
+                "versions": [
+                    {"version": "1.0.0", "hash": "abc123", "s3_uri": "s3://bucket/alpaca/v1.jsonl",
+                     "technique": "sft", "rows": 1000, "registered_at": "2026-06-24T12:00:00Z"},
+                    {"version": "1.1.0", "hash": "def456", "s3_uri": "s3://bucket/alpaca/v2.jsonl",
+                     "technique": "sft", "rows": 2500, "registered_at": "2026-06-28T14:30:00Z"},
+                ],
+            },
+        ]
+        with open(registry_file, "w") as f:
+            json.dump(entries, f)
+
+        args = Namespace(command="list-datasets", technique=None)
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _register_helper.cmd_list_datasets(args)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert len(output["datasets"]) == 1
+            ds = output["datasets"][0]
+            assert ds["version_count"] == 2
+            assert ds["latest_version"] == "1.1.0"
+
+    def test_list_datasets_legacy_entry_shows_version_count_1(self, capsys, tmp_path):
+        """Legacy entries without versions array show version_count=1."""
+        registry_file = str(tmp_path / "datasets.json")
+        entries = [
+            {
+                "name": "old-dataset",
+                "s3_uri": "s3://bucket/old.jsonl",
+                "format": "jsonl",
+                "technique": "dpo",
+                "row_count": 500,
+            },
+        ]
+        with open(registry_file, "w") as f:
+            json.dump(entries, f)
+
+        args = Namespace(command="list-datasets", technique=None)
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _register_helper.cmd_list_datasets(args)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            ds = output["datasets"][0]
+            assert ds["version_count"] == 1
+            assert ds["latest_version"] == "1.0.0"
+
+    def test_list_datasets_filter_by_technique(self, capsys, tmp_path):
+        """cmd_list_datasets filters by technique when provided."""
+        registry_file = str(tmp_path / "datasets.json")
+        entries = [
+            {"name": "sft-data", "technique": "sft", "s3_uri": "s3://a",
+             "versions": [{"version": "1.0.0", "hash": "aaa", "s3_uri": "s3://a",
+                           "technique": "sft", "rows": 100, "registered_at": "2026-01-01T00:00:00Z"}]},
+            {"name": "dpo-data", "technique": "dpo", "s3_uri": "s3://b",
+             "versions": [{"version": "1.0.0", "hash": "bbb", "s3_uri": "s3://b",
+                           "technique": "dpo", "rows": 200, "registered_at": "2026-01-01T00:00:00Z"}]},
+        ]
+        with open(registry_file, "w") as f:
+            json.dump(entries, f)
+
+        args = Namespace(command="list-datasets", technique="sft")
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _register_helper.cmd_list_datasets(args)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert len(output["datasets"]) == 1
+            assert output["datasets"][0]["name"] == "sft-data"
+
+    def test_list_datasets_empty_registry(self, capsys, tmp_path):
+        """cmd_list_datasets returns empty list for empty registry."""
+        registry_file = str(tmp_path / "datasets.json")
+        with open(registry_file, "w") as f:
+            json.dump([], f)
+
+        args = Namespace(command="list-datasets", technique=None)
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _register_helper.cmd_list_datasets(args)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["datasets"] == []
+
+
+class TestListDatasetVersions:
+    """Test cmd_list_dataset_versions subcommand (AC-3.3).
+
+    Validates: Requirements AC-3.3
+    """
+
+    def test_list_versions_returns_all_versions(self, capsys, tmp_path):
+        """list-dataset-versions returns all versions for a given name."""
+        registry_file = str(tmp_path / "datasets.json")
+        entries = [
+            {
+                "name": "alpaca-sft",
+                "s3_uri": "s3://bucket/alpaca/v2.jsonl",
+                "technique": "sft",
+                "versions": [
+                    {"version": "1.0.0", "hash": "abc123", "s3_uri": "s3://bucket/alpaca/v1.jsonl",
+                     "technique": "sft", "rows": 1000, "registered_at": "2026-06-24T12:00:00Z"},
+                    {"version": "1.1.0", "hash": "def456", "s3_uri": "s3://bucket/alpaca/v2.jsonl",
+                     "technique": "sft", "rows": 2500, "registered_at": "2026-06-28T14:30:00Z"},
+                ],
+            },
+        ]
+        with open(registry_file, "w") as f:
+            json.dump(entries, f)
+
+        args = Namespace(command="list-dataset-versions", name="alpaca-sft")
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _register_helper.cmd_list_dataset_versions(args)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["name"] == "alpaca-sft"
+            assert len(output["versions"]) == 2
+            v1 = output["versions"][0]
+            assert v1["version"] == "1.0.0"
+            assert v1["hash"] == "abc123"
+            assert v1["date"] == "2026-06-24T12:00:00Z"
+            assert v1["rows"] == 1000
+            assert v1["s3_uri"] == "s3://bucket/alpaca/v1.jsonl"
+            v2 = output["versions"][1]
+            assert v2["version"] == "1.1.0"
+            assert v2["hash"] == "def456"
+
+    def test_list_versions_legacy_entry(self, capsys, tmp_path):
+        """Legacy entry without versions array is presented as single v1.0.0."""
+        registry_file = str(tmp_path / "datasets.json")
+        entries = [
+            {
+                "name": "old-dataset",
+                "s3_uri": "s3://bucket/old.jsonl",
+                "technique": "sft",
+                "row_count": 500,
+                "registered_at": "2026-01-01T00:00:00Z",
+            },
+        ]
+        with open(registry_file, "w") as f:
+            json.dump(entries, f)
+
+        args = Namespace(command="list-dataset-versions", name="old-dataset")
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _register_helper.cmd_list_dataset_versions(args)
+
+            assert exc_info.value.code == 0
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["name"] == "old-dataset"
+            assert len(output["versions"]) == 1
+            assert output["versions"][0]["version"] == "1.0.0"
+            assert output["versions"][0]["hash"] is None
+            assert output["versions"][0]["rows"] == 500
+
+    def test_list_versions_not_found(self, capsys, tmp_path):
+        """list-dataset-versions errors when dataset name not found."""
+        registry_file = str(tmp_path / "datasets.json")
+        with open(registry_file, "w") as f:
+            json.dump([], f)
+
+        args = Namespace(command="list-dataset-versions", name="nonexistent")
+        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+            with pytest.raises(SystemExit) as exc_info:
+                _register_helper.cmd_list_dataset_versions(args)
+
+            assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            output = json.loads(captured.out)
+            assert output["code"] == "DATASET_NOT_FOUND"

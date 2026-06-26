@@ -52,6 +52,7 @@ ARG_COLUMN_MAP=""
 ARG_TAKE=""
 ARG_ACCEPT_EULA=false
 ARG_DATASET_NAME=""
+ARG_DATASET_VERSION=""
 ARG_EVALUATOR_NAME=""
 ARG_NO_REGISTER=false
 
@@ -795,13 +796,26 @@ else:
 _validate_dataset() {
     local dataset="${ARG_DATASET}"
 
+    # ── Parse @v<N> version suffix (AC-2.1, AC-2.3) ──────────────────────────
+    # Syntax: dataset-name@v2 → name="dataset-name", version ordinal=2
+    if [[ "${dataset}" =~ ^(.+)@v([0-9]+)$ ]]; then
+        ARG_DATASET_NAME="${BASH_REMATCH[1]}"
+        ARG_DATASET_VERSION="${BASH_REMATCH[2]}"
+        dataset=""  # Clear so name-based resolution takes over
+    fi
+
     # If --dataset-name is set, resolve from registry (AC-2b.4)
     # --dataset-name takes precedence over --dataset for named registry lookup
     if [ -n "${ARG_DATASET_NAME}" ]; then
         echo "🔍 Resolving dataset '${ARG_DATASET_NAME}' from registry..."
+        local resolve_args=("--name" "${ARG_DATASET_NAME}")
+        if [ -n "${ARG_DATASET_VERSION}" ]; then
+            resolve_args+=("--version" "${ARG_DATASET_VERSION}")
+            echo "   Version: v${ARG_DATASET_VERSION}"
+        fi
         local resolve_result
         resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
-            --name "${ARG_DATASET_NAME}" 2>/dev/null) || resolve_result=""
+            "${resolve_args[@]}" 2>/dev/null) || resolve_result=""
 
         if [ -n "${resolve_result}" ]; then
             local resolved_uri
@@ -834,9 +848,14 @@ _validate_dataset() {
         if [ -n "${ARG_DATASET_NAME}" ]; then
             # Name-based resolution happens below via resolve-dataset
             echo "🔍 Resolving dataset '${ARG_DATASET_NAME}' from registry..."
+            local resolve_args=("--name" "${ARG_DATASET_NAME}")
+            if [ -n "${ARG_DATASET_VERSION}" ]; then
+                resolve_args+=("--version" "${ARG_DATASET_VERSION}")
+                echo "   Version: v${ARG_DATASET_VERSION}"
+            fi
             local resolve_result
             resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
-                --name "${ARG_DATASET_NAME}" 2>/dev/null) || resolve_result=""
+                "${resolve_args[@]}" 2>/dev/null) || resolve_result=""
 
             if [ -n "${resolve_result}" ]; then
                 local resolved_uri
@@ -1334,6 +1353,10 @@ print(entry.get('provider', ''))
     _update_config_var "TUNE_DATASET_S3_URI_${technique_upper}" "${RESOLVED_DATASET_S3_URI:-}"
     _update_config_var "TUNE_DATASET_ROW_COUNT_${technique_upper}" "${RESOLVED_DATASET_ROW_COUNT:-0}"
     _update_config_var "TUNE_DATASET_SOURCE_${technique_upper}" "${ARG_DATASET}"
+    # Store dataset version ordinal if pinned (AC-2.6)
+    if [ -n "${ARG_DATASET_VERSION}" ]; then
+        _update_config_var "TUNE_DATASET_VERSION_${technique_upper}" "${ARG_DATASET_VERSION}"
+    fi
 }
 
 
@@ -1702,17 +1725,21 @@ if [ "${ARG_LIST_DATASETS}" = true ]; then
     if [ -n "${_ds_json}" ]; then
         _ds_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('datasets',[])))" 2>/dev/null) || _ds_count=0
         if [ "${_ds_count}" -gt 0 ]; then
-            printf "  %-25s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "ROWS" "S3 URI"
-            printf "  %-25s %-10s %-8s %s\n" "----" "---------" "----" "------"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
             echo "${_ds_json}" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for ds in data.get('datasets', []):
-    name = ds.get('name','')[:25]
+    name = ds.get('name','')[:20]
     tech = ds.get('technique','')[:10]
-    rows = str(ds.get('row_count',''))[:8]
+    latest = ds.get('latest_version','')[:10]
+    ver_count = ds.get('version_count', 1)
+    if ver_count > 1:
+        latest = f'{latest} ({ver_count}v)'
+    rows = str(ds.get('row_count','') or '')[:8]
     uri = ds.get('s3_uri','')
-    print(f'  {name:<25} {tech:<10} {rows:<8} {uri}')
+    print(f'  {name:<20} {tech:<10} {latest:<10} {rows:<8} {uri}')
 " 2>/dev/null
         else
             echo "  (none registered)"
@@ -1723,6 +1750,7 @@ for ds in data.get('datasets', []):
     echo ""
     echo "  Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
     echo "  Use:      ./do/tune --technique sft --dataset <name>"
+    echo "  Versions: python3 .register_helper.py list-dataset-versions --name <name>"
     echo ""
     exit 0
 fi
