@@ -8,7 +8,7 @@
  * and verifying the rendered do/adapter script contains correct logic for:
  * - add: creates conf file with expected fields (ADAPTER_NAME, ADAPTER_IC_NAME,
  *         ADAPTER_WEIGHTS_URI, ADAPTER_CREATED_AT)
- * - list: output includes adapter name and status (NAME, STATUS, WEIGHTS columns)
+ * - list: output includes adapter name and status (NAME, SOURCE, STATUS columns)
  * - remove: deletes conf file (rm -f of do/adapters/<name>.conf)
  * - update: changes ADAPTER_WEIGHTS_URI in conf via sed
  *
@@ -175,11 +175,11 @@ describe('Feature: lora-adapter-lifecycle — Integration tests for adapter life
             );
         });
 
-        it('displays table header with WEIGHTS column', () => {
+        it('displays table header with SOURCE column', () => {
             const listSection = getListSection(adapterScript);
             assert.ok(
-                listSection.includes('WEIGHTS'),
-                'list output must include WEIGHTS column header'
+                listSection.includes('SOURCE'),
+                'list output must include SOURCE column header'
             );
         });
 
@@ -216,11 +216,11 @@ describe('Feature: lora-adapter-lifecycle — Integration tests for adapter life
             );
         });
 
-        it('extracts ArtifactUrl for weights display', () => {
+        it('extracts ADAPTER_SOURCE for source display', () => {
             const listSection = getListSection(adapterScript);
             assert.ok(
-                listSection.includes('ArtifactUrl'),
-                'list must extract ArtifactUrl for weights column'
+                listSection.includes('ADAPTER_SOURCE'),
+                'list must extract ADAPTER_SOURCE for source column'
             );
         });
 
@@ -375,6 +375,53 @@ describe('Feature: lora-adapter-lifecycle — Integration tests for adapter life
             assert.ok(
                 adapterScript.startsWith('#!/bin/bash'),
                 'do/adapter must start with #!/bin/bash shebang'
+            );
+        });
+    });
+
+    // ── Parent model metadata persisted in conf (US-3 prerequisite) ──────
+
+    describe('do/adapter add stores parent model metadata in conf for compat check', () => {
+
+        it('writes ADAPTER_PARENT_MODEL_ARN to conf when --from-registry is used', () => {
+            assert.ok(
+                adapterScript.includes('ADAPTER_PARENT_MODEL_ARN'),
+                'Must write ADAPTER_PARENT_MODEL_ARN to conf file'
+            );
+        });
+
+        it('writes ADAPTER_PARENT_MODEL_SLUG to conf when --from-registry is used', () => {
+            assert.ok(
+                adapterScript.includes('ADAPTER_PARENT_MODEL_SLUG'),
+                'Must write ADAPTER_PARENT_MODEL_SLUG to conf file'
+            );
+        });
+
+        it('extracts parentModelVersionArn from registry version metadata', () => {
+            assert.ok(
+                adapterScript.includes('parentModelVersionArn'),
+                'Must extract parentModelVersionArn from registry metadata'
+            );
+        });
+
+        it('extracts modelName from registry version metadata for slug', () => {
+            assert.ok(
+                adapterScript.includes('modelName'),
+                'Must extract modelName from registry metadata for parent slug'
+            );
+        });
+
+        it('uses export keyword for ADAPTER_PARENT_MODEL_ARN', () => {
+            assert.ok(
+                adapterScript.includes('export ADAPTER_PARENT_MODEL_ARN='),
+                'ADAPTER_PARENT_MODEL_ARN must use export keyword'
+            );
+        });
+
+        it('uses export keyword for ADAPTER_PARENT_MODEL_SLUG', () => {
+            assert.ok(
+                adapterScript.includes('export ADAPTER_PARENT_MODEL_SLUG='),
+                'ADAPTER_PARENT_MODEL_SLUG must use export keyword'
             );
         });
     });

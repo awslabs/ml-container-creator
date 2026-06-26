@@ -107,7 +107,7 @@ function createMockHandlerForSetup(configPath, { accountId, region }) {
     handler.config = new BootstrapConfig(configPath);
 
     // Mock provisioners._verifyCliV2
-    handler.provisioners = { _verifyCliV2: () => true };
+    handler.provisioners = { _verifyCliV2: () => true, provisionAiRegistryHub: async () => {} };
 
     // Mock _displayProgress
     handler._displayProgress = () => {};

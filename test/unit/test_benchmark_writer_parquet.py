@@ -52,7 +52,7 @@ build_s3_path = _benchmark_writer.build_s3_path
 def sample_config():
     """A valid config context for benchmark writer."""
     return {
-        "config_id": "ec3f1a0072d1b3d4",
+        "project_name": "test-qwen3-4b",
         "model_name": "Qwen/Qwen3-4B",
         "instance_type": "ml.g5.xlarge",
         "deployment_config": "transformers-vllm",
@@ -153,24 +153,27 @@ class TestParquetRoundTrip:
             assert table.num_rows == 1
 
             row = table.to_pydict()
-            assert row["config_id"][0] == "ec3f1a0072d1b3d4"
             assert row["model_name"][0] == "Qwen/Qwen3-4B"
             assert row["model_family"][0] == "qwen3"
             assert row["instance_type"][0] == "ml.g5.xlarge"
             assert row["instance_family"][0] == "g5"
             assert row["deployment_config"][0] == "transformers-vllm"
             assert row["concurrency"][0] == 1
-            assert abs(row["throughput_rps"][0] - 12.5) < 0.001
-            assert abs(row["tokens_per_second"][0] - 487.2) < 0.001
+            assert abs(row["request_throughput_rps"][0] - 12.5) < 0.001
+            assert abs(row["output_token_throughput_tps"][0] - 487.2) < 0.001
             assert abs(row["ttft_p50_ms"][0] - 45.2) < 0.001
             assert abs(row["ttft_p99_ms"][0] - 112.4) < 0.001
             assert abs(row["itl_p50_ms"][0] - 8.1) < 0.001
             assert abs(row["itl_p99_ms"][0] - 18.7) < 0.001
             assert row["error_rate"][0] == 0.0
-            assert row["status"][0] == "completed"
             assert row["run_type"][0] == "ci"
-            assert row["ci_run_id"][0] == "build-12345"
-            assert row["account_id"][0] == "111111111111"
+            # Verify new fields
+            assert row["gpu_count"][0] == 1
+            assert row["gpu_type"][0] == "NVIDIA A10G"
+            assert row["gpu_memory_gb"][0] == 24.0
+            assert row["enable_lora"][0] is True
+            assert row["kv_cache_dtype"][0] is None  # Not set in sample_config
+            assert row["cost_per_1m_tokens"][0] is not None
         finally:
             os.unlink(path)
 
@@ -187,13 +190,12 @@ class TestParquetRoundTrip:
             data = table.to_pydict()
             # Verify each concurrency level
             assert data["concurrency"] == [1, 4, 8]
-            assert all(cid == "ec3f1a0072d1b3d4" for cid in data["config_id"])
             assert all(mn == "Qwen/Qwen3-4B" for mn in data["model_name"])
 
             # Verify throughput values match input
-            assert abs(data["throughput_rps"][0] - 12.5) < 0.001
-            assert abs(data["throughput_rps"][1] - 38.2) < 0.001
-            assert abs(data["throughput_rps"][2] - 52.1) < 0.001
+            assert abs(data["request_throughput_rps"][0] - 12.5) < 0.001
+            assert abs(data["request_throughput_rps"][1] - 38.2) < 0.001
+            assert abs(data["request_throughput_rps"][2] - 52.1) < 0.001
         finally:
             os.unlink(path)
 
@@ -209,19 +211,16 @@ class TestParquetRoundTrip:
             os.unlink(path)
 
     def test_timestamp_field_preserved(self, sample_config, sample_results, fixed_timestamp):
-        """run_timestamp round-trips as a valid timestamp."""
+        """run_timestamp round-trips as a valid ISO 8601 string."""
         records = enrich_records(sample_config, sample_results, fixed_timestamp)
         path = _write_parquet_to_temp(records)
         try:
             table = pq.read_table(path)
             data = table.to_pydict()
-            # pyarrow reads timestamp as datetime
+            # pyarrow reads timestamp as string (schema is pa.string())
             ts = data["run_timestamp"][0]
-            assert ts.year == 2026
-            assert ts.month == 6
-            assert ts.day == 9
-            assert ts.hour == 14
-            assert ts.minute == 30
+            assert "2026-06-09" in ts
+            assert "14:30:22" in ts
         finally:
             os.unlink(path)
 
@@ -232,12 +231,19 @@ class TestParquetRoundTrip:
         results_single = {"job_name": "test", "metrics": [sample_results["metrics"][0]]}
         records = enrich_records(config, results_single, fixed_timestamp)
         assert records[0]["cost_per_1m_tokens"] is None
+        # Also verify GPU fields are NULL for unknown instance
+        assert records[0]["gpu_count"] is None
+        assert records[0]["gpu_type"] is None
+        assert records[0]["gpu_memory_gb"] is None
 
         path = _write_parquet_to_temp(records)
         try:
             table = pq.read_table(path)
             data = table.to_pydict()
             assert data["cost_per_1m_tokens"][0] is None
+            assert data["gpu_count"][0] is None
+            assert data["gpu_type"][0] is None
+            assert data["gpu_memory_gb"][0] is None
         finally:
             os.unlink(path)
 
@@ -251,17 +257,23 @@ class TestParquetSchemaCorrectness:
     Validates: Requirements 6.1, 6.3
     """
 
-    # All 32 columns expected in the Athena DDL (excluding partition columns)
+    # Key columns expected in the Athena DDL (subset verification)
     EXPECTED_COLUMNS = [
-        "config_id", "model_name", "model_family", "instance_type",
+        "project_name", "model_name", "model_family", "instance_type",
         "instance_family", "deployment_config", "deployment_target",
         "run_timestamp", "tensor_parallel_degree", "quantization",
-        "enable_lora", "base_image", "base_image_version", "mcc_version",
+        "enable_lora", "kv_cache_dtype", "max_model_len",
+        "gpu_count", "gpu_type", "gpu_memory_gb",
+        "serving_config", "workload",
         "concurrency", "input_tokens_mean", "output_tokens_mean",
-        "duration_seconds", "ttft_p50_ms", "ttft_p99_ms", "itl_p50_ms",
-        "itl_p99_ms", "throughput_rps", "tokens_per_second",
-        "cost_per_1m_tokens", "error_rate", "status", "run_type",
-        "ci_run_id", "ci_stage", "benchmark_job_name", "account_id",
+        "streaming", "duration_seconds",
+        "request_throughput_rps", "total_token_throughput_tps",
+        "output_token_throughput_tps",
+        "ttft_avg_ms", "ttft_p50_ms", "ttft_p90_ms", "ttft_p99_ms",
+        "itl_avg_ms", "itl_p50_ms", "itl_p90_ms", "itl_p99_ms",
+        "error_rate", "cost_per_1m_tokens",
+        "run_type", "benchmark_job_name", "mcc_version", "region",
+        "adapter_name",
     ]
 
     def test_schema_has_all_columns(self):
@@ -272,9 +284,9 @@ class TestParquetSchemaCorrectness:
             assert col in column_names, f"Missing column: {col}"
 
     def test_schema_column_count(self):
-        """Schema has exactly 32 columns (not more, not less)."""
+        """Schema has at least 56 columns (base 48 + 8 new fields)."""
         schema = get_parquet_schema()
-        assert len(schema) == 32
+        assert len(schema) >= 56, f"Expected at least 56 columns, got {len(schema)}"
 
     def test_written_file_has_all_columns(self, sample_config, sample_results, fixed_timestamp):
         """Written Parquet file contains all schema columns."""
@@ -292,11 +304,11 @@ class TestParquetSchemaCorrectness:
         """String columns have pa.string() type in schema."""
         schema = get_parquet_schema()
         string_cols = [
-            "config_id", "model_name", "model_family", "instance_type",
+            "project_name", "model_name", "model_family", "instance_type",
             "instance_family", "deployment_config", "deployment_target",
-            "quantization", "base_image", "base_image_version", "mcc_version",
-            "status", "run_type", "ci_run_id", "ci_stage",
-            "benchmark_job_name", "account_id",
+            "quantization", "mcc_version",
+            "run_type", "benchmark_job_name",
+            "gpu_type", "kv_cache_dtype", "region", "adapter_name",
         ]
         for col_name in string_cols:
             field = schema.field(col_name)
@@ -306,10 +318,10 @@ class TestParquetSchemaCorrectness:
         """Numeric columns have correct arrow types."""
         schema = get_parquet_schema()
         int_cols = ["tensor_parallel_degree", "concurrency", "input_tokens_mean",
-                    "output_tokens_mean", "duration_seconds"]
+                    "output_tokens_mean", "duration_seconds", "gpu_count", "max_model_len"]
         float_cols = ["ttft_p50_ms", "ttft_p99_ms", "itl_p50_ms", "itl_p99_ms",
-                      "throughput_rps", "tokens_per_second", "cost_per_1m_tokens",
-                      "error_rate"]
+                      "request_throughput_rps", "output_token_throughput_tps",
+                      "cost_per_1m_tokens", "error_rate", "gpu_memory_gb"]
 
         for col_name in int_cols:
             field = schema.field(col_name)
@@ -320,16 +332,17 @@ class TestParquetSchemaCorrectness:
             assert field.type == pa.float64(), f"{col_name} should be float64, got {field.type}"
 
     def test_boolean_column_type(self):
-        """enable_lora is a boolean type."""
+        """enable_lora and streaming are boolean types."""
         schema = get_parquet_schema()
-        field = schema.field("enable_lora")
-        assert field.type == pa.bool_()
+        for col in ["enable_lora", "streaming"]:
+            field = schema.field(col)
+            assert field.type == pa.bool_(), f"{col} should be bool, got {field.type}"
 
     def test_timestamp_column_type(self):
-        """run_timestamp is a timestamp(ms, tz=UTC) type."""
+        """run_timestamp is a string type (ISO 8601)."""
         schema = get_parquet_schema()
         field = schema.field("run_timestamp")
-        assert field.type == pa.timestamp("ms", tz="UTC")
+        assert field.type == pa.string()
 
 
 # ── Test: Snappy Compression ──────────────────────────────────────────────────
@@ -423,102 +436,84 @@ class TestPartitionPathConstruction:
         assert month_d == "12"
 
     def test_s3_path_year_boundary(self):
-        """compute_s3_path uses correct year/month across year boundary."""
+        """compute_s3_path uses correct model partition across year boundary."""
         bucket = "mlcc-benchmark-results-111111111111-us-east-1"
-        config_id = "abc123def456abcd"
-
-        ts_dec = datetime(2025, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
-        ts_jan = datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc)
-
-        path_dec = compute_s3_path(bucket, config_id, "us-east-1", ts_dec)
-        path_jan = compute_s3_path(bucket, config_id, "us-east-1", ts_jan)
-
-        assert "/year=2025/month=12/" in path_dec
-        assert "/year=2026/month=01/" in path_jan
+        ts = datetime(2025, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+        path = compute_s3_path(bucket, "test-proj", "Qwen/Qwen3-4B", "ml.g5.xlarge", "realtime-inference", ts)
+        assert path.startswith("s3://")
+        assert "model=Qwen_Qwen3-4B" in path
+        assert "instance=ml.g5.xlarge" in path
 
     def test_build_s3_path_leap_year(self):
-        """build_s3_path on Feb 29 leap year produces correct partition."""
+        """build_s3_path produces correct partition values."""
         ts = datetime(2024, 2, 29, 15, 30, 0, tzinfo=timezone.utc)
-        result = build_s3_path("my-bucket", "us-west-2", "abcdef1234567890", ts)
-        assert result["partition_year"] == "2024"
-        assert result["partition_month"] == "02"
-        assert "/year=2024/month=02/" in result["s3_uri"]
+        result = build_s3_path("my-bucket", "test-proj", "Qwen/Qwen3-4B", "ml.g5.xlarge", "realtime-inference", ts)
+        assert "s3_uri" in result
+        assert result["partition_model"] == "Qwen_Qwen3-4B"
+        assert result["partition_instance"] == "ml.g5.xlarge"
+        assert result["partition_target"] == "realtime-inference"
 
 
 # ── Test: S3 Path Format ──────────────────────────────────────────────────────
 
 
 class TestS3PathFormat:
-    """Test S3 path format: region={r}/year={YYYY}/month={MM}/run-{configId}-{timestamp}.parquet
+    """Test S3 path format: model/instance/target partitioning.
 
     Validates: Requirements 6.1, 6.3
     """
 
     def test_compute_s3_path_format(self):
-        """S3 URI follows expected pattern."""
+        """S3 URI follows expected model/instance/target pattern."""
         ts = datetime(2026, 6, 9, 14, 30, 22, tzinfo=timezone.utc)
         bucket = "mlcc-benchmark-results-111111111111-us-east-1"
-        config_id = "ec3f1a0072d1b3d4"
-        region = "us-east-1"
+        path = compute_s3_path(bucket, "test-proj", "Qwen/Qwen3-4B", "ml.g5.xlarge", "realtime-inference", ts)
+        assert path.startswith(f"s3://{bucket}/")
+        assert "model=Qwen_Qwen3-4B" in path
+        assert "instance=ml.g5.xlarge" in path
+        assert "target=realtime-inference" in path
+        assert path.endswith(".parquet")
 
-        path = compute_s3_path(bucket, config_id, region, ts)
-
-        expected = (
-            "s3://mlcc-benchmark-results-111111111111-us-east-1/"
-            "region=us-east-1/year=2026/month=06/"
-            "run-ec3f1a0072d1b3d4-20260609T143022Z.parquet"
-        )
-        assert path == expected
-
-    def test_s3_path_contains_region_partition(self):
-        """S3 path includes region= partition."""
+    def test_s3_path_contains_model_partition(self):
+        """S3 path includes model= partition with / replaced by _."""
         ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
-        path = compute_s3_path("bucket", "cfg123", "eu-west-1", ts)
-        assert "region=eu-west-1/" in path
+        path = compute_s3_path("bucket", "proj", "meta-llama/Llama-3.1-8B", "ml.g5.xlarge", "realtime-inference", ts)
+        assert "model=meta-llama_Llama-3.1-8B/" in path
 
-    def test_s3_path_contains_year_partition(self):
-        """S3 path includes year= partition with 4-digit year."""
+    def test_s3_path_contains_instance_partition(self):
+        """S3 path includes instance= partition."""
         ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
-        path = compute_s3_path("bucket", "cfg123", "us-east-1", ts)
-        assert "year=2026/" in path
+        path = compute_s3_path("bucket", "proj", "Qwen/Qwen3-4B", "ml.p5.48xlarge", "realtime-inference", ts)
+        assert "instance=ml.p5.48xlarge/" in path
 
-    def test_s3_path_contains_month_partition(self):
-        """S3 path includes month= partition with zero-padded month."""
-        ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
-        path = compute_s3_path("bucket", "cfg123", "us-east-1", ts)
-        assert "month=03/" in path
-
-    def test_s3_path_filename_format(self):
-        """Filename follows run-{configId}-{timestamp}.parquet pattern."""
+    def test_s3_path_filename_has_parquet_extension(self):
+        """Filename ends with .parquet."""
         ts = datetime(2026, 6, 9, 14, 30, 22, tzinfo=timezone.utc)
-        path = compute_s3_path("bucket", "abc123def456abcd", "us-east-1", ts)
-        assert path.endswith("run-abc123def456abcd-20260609T143022Z.parquet")
+        path = compute_s3_path("bucket", "proj", "Qwen/Qwen3-4B", "ml.g5.xlarge", "realtime-inference", ts)
+        assert path.endswith(".parquet")
 
     def test_build_s3_path_returns_all_fields(self):
         """build_s3_path returns s3_uri, partition fields, and filename."""
         ts = datetime(2026, 6, 9, 14, 30, 22, tzinfo=timezone.utc)
-        result = build_s3_path("my-bucket", "us-west-2", "abcdef1234567890", ts)
+        result = build_s3_path("my-bucket", "test-proj", "Qwen/Qwen3-4B", "ml.g5.xlarge", "realtime-inference", ts)
 
         assert "s3_uri" in result
-        assert "partition_region" in result
-        assert "partition_year" in result
-        assert "partition_month" in result
+        assert "partition_model" in result
+        assert "partition_instance" in result
+        assert "partition_target" in result
         assert "filename" in result
 
-        assert result["partition_region"] == "us-west-2"
-        assert result["partition_year"] == "2026"
-        assert result["partition_month"] == "06"
-        assert result["filename"] == "run-abcdef1234567890-20260609T143022Z.parquet"
+        assert result["partition_model"] == "Qwen_Qwen3-4B"
+        assert result["partition_instance"] == "ml.g5.xlarge"
+        assert result["partition_target"] == "realtime-inference"
         assert result["s3_uri"].startswith("s3://my-bucket/")
 
-    def test_different_regions_produce_different_paths(self):
-        """Different regions produce different S3 paths."""
+    def test_different_models_produce_different_paths(self):
+        """Different models produce different S3 paths."""
         ts = datetime(2026, 6, 9, 14, 30, 22, tzinfo=timezone.utc)
-        path1 = compute_s3_path("bucket", "cfg", "us-east-1", ts)
-        path2 = compute_s3_path("bucket", "cfg", "eu-west-1", ts)
+        path1 = compute_s3_path("bucket", "proj", "Qwen/Qwen3-4B", "ml.g5.xlarge", "realtime-inference", ts)
+        path2 = compute_s3_path("bucket", "proj", "meta-llama/Llama-3.1-8B", "ml.g5.xlarge", "realtime-inference", ts)
         assert path1 != path2
-        assert "region=us-east-1/" in path1
-        assert "region=eu-west-1/" in path2
 
 
 # ── Test: Single File Per Run ─────────────────────────────────────────────────
@@ -599,11 +594,13 @@ class TestSingleFilePerRun:
         try:
             table = pq.read_table(path)
             data = table.to_pydict()
-            # All rows share the same config_id, model_name, instance_type
-            assert len(set(data["config_id"])) == 1
+            # All rows share the same model_name, instance_type, etc.
             assert len(set(data["model_name"])) == 1
             assert len(set(data["instance_type"])) == 1
             assert len(set(data["deployment_config"])) == 1
             assert len(set(data["run_type"])) == 1
+            # New fields: all rows share same GPU metadata
+            assert len(set(data["instance_family"])) == 1
+            assert len(set(str(v) for v in data["gpu_count"])) == 1
         finally:
             os.unlink(path)

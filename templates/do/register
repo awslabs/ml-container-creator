@@ -41,6 +41,7 @@ _show_usage() {
     echo "  --technique <tech>  Technique: sft, dpo, rlaif, rlvr (default: sft)"
     echo "  --row-count <n>     Number of records"
     echo "  --column-schema <j> Column schema as JSON string"
+    echo "  --force             Force new version even if content is unchanged"
     echo ""
     echo "Evaluator options:"
     echo "  <name>              Evaluator name (required, positional)"
@@ -89,6 +90,7 @@ DATASET_FORMAT="jsonl"
 DATASET_TECHNIQUE="sft"
 DATASET_ROW_COUNT=""
 DATASET_COLUMN_SCHEMA=""
+DATASET_FORCE=false
 EVALUATOR_NAME=""
 EVALUATOR_TYPE=""
 EVALUATOR_ARN_OR_URI=""
@@ -135,6 +137,7 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
             --dataset-technique) DATASET_TECHNIQUE="$2"; shift 2 ;;
             --dataset-row-count) DATASET_ROW_COUNT="$2"; shift 2 ;;
             --dataset-column-schema) DATASET_COLUMN_SCHEMA="$2"; shift 2 ;;
+            --force)        DATASET_FORCE=true; shift ;;
             --help|-h) _show_usage; exit 0 ;;
             *) echo "⚠️  Unknown dataset option: $1"; _show_usage; exit 1 ;;
         esac
@@ -196,7 +199,10 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
                 _slug=$(basename "${_source}" .jsonl)
             fi
             _slug=$(echo "${_slug}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
-            DATASET_NAME="${_slug:-dataset}-${TUNE_TECHNIQUE:-sft}-${TUNE_DATASET_ROW_COUNT:-0}"
+            # Salt with 4-char hash of S3 URI to prevent slug conflicts for
+            # same repo with different preprocessing/split/technique
+            _salt=$(echo "${DATASET_S3_URI}" | shasum | cut -c1-4)
+            DATASET_NAME="${_slug:-dataset}-${_salt}"
         fi
     fi
 
@@ -427,6 +433,11 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
     fi
 
     DS_ARGS+=("--project-name" "${PROJECT_NAME}")
+    DS_ARGS+=("--region" "${AWS_REGION}")
+
+    if [ "${DATASET_FORCE}" = true ]; then
+        DS_ARGS+=("--force")
+    fi
 
     # Call .register_helper.py register-dataset
     if ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${DS_ARGS[@]}" 2>/dev/null); then
@@ -1288,9 +1299,10 @@ elif [ -n "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
         ADAPTER_TECHNIQUE=""
         eval "$(grep '^export ADAPTER_WEIGHTS_URI=' "${conf}" 2>/dev/null)" 2>/dev/null || true
         eval "$(grep '^export ADAPTER_TECHNIQUE=' "${conf}" 2>/dev/null)" 2>/dev/null || true
+        eval "$(grep '^export ADAPTER_TUNE_TECHNIQUE=' "${conf}" 2>/dev/null)" 2>/dev/null || true
 
         _ADAPTER_DATA_URL="${ADAPTER_WEIGHTS_URI:-}"
-        _ADAPTER_TECHNIQUE="${ADAPTER_TECHNIQUE:-${TUNE_TECHNIQUE:-}}"
+        _ADAPTER_TECHNIQUE="${ADAPTER_TECHNIQUE:-${ADAPTER_TUNE_TECHNIQUE:-${TUNE_TECHNIQUE:-}}}"
 
         echo ""
         echo "📦 Registering adapter: ${_ADAPTER_NAME}"
@@ -1315,6 +1327,21 @@ elif [ -n "${MODEL_PKG_ARN:-}" ] && [ -d "${SCRIPT_DIR}/adapters" ]; then
         [ -n "${GENERATOR_VERSION:-}" ] && ADAPTER_REG_ARGS+=("--generator-version" "${GENERATOR_VERSION}")
         [ -n "${AWS_REGION:-}" ] && ADAPTER_REG_ARGS+=("--region" "${AWS_REGION}")
         [ -n "${ROLE_ARN:-}" ] && ADAPTER_REG_ARGS+=("--role-arn" "${ROLE_ARN}")
+
+        # Include dataset lineage from tune state (AC-2.7: version reference for reproducibility)
+        if [ -n "${TUNE_DATASET_S3_URI:-}" ]; then
+            ADAPTER_REG_ARGS+=("--dataset-s3-uri" "${TUNE_DATASET_S3_URI}")
+        fi
+        # Resolve dataset version from technique-specific or generic config var
+        _ds_version=""
+        if [ -n "${_ADAPTER_TECHNIQUE}" ]; then
+            _ds_ver_var="TUNE_DATASET_VERSION_$(echo "${_ADAPTER_TECHNIQUE}" | tr '[:lower:]' '[:upper:]')"
+            _ds_version="${!_ds_ver_var:-}"
+        fi
+        [ -z "${_ds_version}" ] && _ds_version="${TUNE_DATASET_VERSION:-}"
+        if [ -n "${_ds_version}" ]; then
+            ADAPTER_REG_ARGS+=("--dataset-version" "${_ds_version}")
+        fi
 
         # Call .register_helper.py register-adapter — non-fatal on failure
         if adapter_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${ADAPTER_REG_ARGS[@]}" 2>/dev/null); then

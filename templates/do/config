@@ -46,7 +46,7 @@ export INSTANCE_TYPE="<%= instanceType %>"
 <% if (typeof instancePools !== 'undefined' && instancePools && instancePools.length > 1) { %>
 # Instance pools: heterogeneous instance types with priority-based fallback
 # Priority = selection order (1 = preferred, higher = fallback)
-export INSTANCE_POOLS='<%= JSON.stringify(instancePools) %>'
+export INSTANCE_POOLS='<%- JSON.stringify(instancePools) %>'
 <% } else { %>
 # Instance pools: heterogeneous instance types with priority-based fallback (uncomment to enable)
 # Format: [{"InstanceType":"ml.g6e.48xlarge","Priority":1},{"InstanceType":"ml.g5.48xlarge","Priority":2}]

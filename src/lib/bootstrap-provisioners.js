@@ -406,6 +406,54 @@ export default class BootstrapProvisioners {
     }
 
     /**
+     * Provision a deterministic SageMaker AI Registry Hub.
+     * Idempotent: checks if `mlcc-registry-{accountId}` already exists before creating.
+     * Non-fatal: catches all errors and prints a warning — bootstrap continues regardless.
+     *
+     * @param {object} profileData - Profile data object (mutated in place with hub info)
+     */
+    async provisionAiRegistryHub(profileData) {
+        const hubName = `mlcc-registry-${profileData.accountId}`;
+        const region = profileData.awsRegion;
+
+        console.log('\n📦 Provisioning AI Registry hub...');
+
+        try {
+            // Check if hub already exists (idempotent)
+            const hubExists = this.handler._resourceExists(
+                `sagemaker describe-hub --hub-name ${hubName} --region ${region}`,
+                this.handler._currentProfile
+            );
+
+            if (hubExists) {
+                const hubInfo = this.handler._execAws(
+                    `sagemaker describe-hub --hub-name ${hubName} --region ${region}`,
+                    this.handler._currentProfile
+                );
+                console.log(`  ✅ AI Registry hub already provisioned: ${hubName}`);
+                profileData.aiRegistryHubName = hubName;
+                profileData.aiRegistryHubArn = hubInfo.HubArn;
+                return;
+            }
+
+            // Create new hub (always — no adopt-existing logic)
+            const tags = this._buildResourceTags();
+            const tagsFile = this.handler._formatTagsForCli(tags);
+            const createResult = this.handler._execAws(
+                `sagemaker create-hub --hub-name ${hubName} --hub-display-name "MCC AI Registry" --hub-description "Dataset, evaluator, and model versioning for ml-container-creator" --tags ${tagsFile} --region ${region}`,
+                this.handler._currentProfile
+            );
+            console.log(`  ✅ AI Registry hub "${hubName}" — created`);
+            profileData.aiRegistryHubName = hubName;
+            profileData.aiRegistryHubArn = createResult.HubArn;
+        } catch (err) {
+            const message = err.message || String(err);
+            console.log(`  ⚠️  Could not provision AI Registry hub (non-fatal): ${message}`);
+            console.log('     Dataset registration will use local JSON registry.');
+        }
+    }
+
+    /**
      * Build the standard resource tag set.
      * @returns {Array<{Key: string, Value: string}>} Tag array
      */

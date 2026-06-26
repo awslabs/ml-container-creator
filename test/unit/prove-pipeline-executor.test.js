@@ -22,6 +22,7 @@ import {
     STAGING_STATES,
     isAlreadyStaged,
     getStagingState,
+    executeStageStep,
     isValidLifecycleStage,
     validateStagesArray,
     formatStagingStatus,
@@ -314,6 +315,120 @@ describe('prove-pipeline-executor', () => {
             const status = buildTargetStatus(target, testDir, stepResults);
             assert.strictEqual(status.stagingState, 'stage-failed');
             assert.strictEqual(status.stagingStatus, '✗ stage-failed');
+        });
+
+        it('handles target with empty stages array', () => {
+            const target = {
+                model_name: 'Qwen/Qwen3-0.6B',
+                stages: []
+            };
+            const status = buildTargetStatus(target, testDir);
+            assert.strictEqual(status.includesStageStep, false);
+        });
+    });
+
+    // ── executeStageStep Idempotency Tests ───────────────────────────────────
+
+    describe('executeStageStep', () => {
+        it('skips execution when model is already staged (idempotency)', async () => {
+            // **Validates: Requirements 5.4 — idempotency check**
+            writeStagedAssets(testDir, {
+                version: '1',
+                models: {
+                    default: {
+                        source: 'Qwen/Qwen3-0.6B',
+                        staged_uri: 's3://mlcc-models-123456789012-us-west-2/models/qwen3-06b/',
+                        staged_at: '2025-01-01T00:00:00Z',
+                        region: 'us-west-2',
+                        size_gb: 1.2
+                    }
+                },
+                adapters: {}
+            });
+
+            const result = await executeStageStep(testDir);
+
+            assert.strictEqual(result.name, 'stage');
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+            assert.strictEqual(result.stagingState, STAGING_STATES.STAGED);
+            assert.ok(result.message.includes('already staged'));
+        });
+
+        it('returns fail when do/stage command does not exist', async () => {
+            // **Validates: Requirements 5.2, 5.3 — fail on non-zero exit**
+            const result = await executeStageStep(testDir, { timeout: 5 });
+
+            assert.strictEqual(result.name, 'stage');
+            assert.strictEqual(result.status, 'fail');
+            assert.strictEqual(result.stagingState, STAGING_STATES.STAGE_FAILED);
+            assert.ok(result.error);
+        });
+
+        it('result includes duration in milliseconds', async () => {
+            // **Validates: Requirements 5.2**
+            writeStagedAssets(testDir, {
+                version: '1',
+                models: {
+                    default: {
+                        staged_uri: 's3://bucket/models/project/'
+                    }
+                }
+            });
+
+            const result = await executeStageStep(testDir);
+
+            assert.strictEqual(typeof result.duration, 'number');
+            assert.ok(result.duration >= 0);
+        });
+
+        it('idempotent skip has near-zero duration', async () => {
+            // **Validates: Requirements 5.4**
+            writeStagedAssets(testDir, {
+                version: '1',
+                models: {
+                    default: {
+                        staged_uri: 's3://bucket/models/project/'
+                    }
+                }
+            });
+
+            const result = await executeStageStep(testDir);
+
+            // Skipped execution should be very fast (< 100ms)
+            assert.ok(result.duration < 100, `Expected fast skip, got ${result.duration}ms`);
+        });
+    });
+
+    // ── validateStagesArray Extended Tests ───────────────────────────────────
+
+    describe('validateStagesArray (extended)', () => {
+        it('rejects non-string entries in the array', () => {
+            const result = validateStagesArray(['generate', 42, 'build']);
+            assert.strictEqual(result.valid, false);
+            assert.ok(result.errors.some(e => e.includes('expected string')));
+        });
+
+        it('validates single-stage array', () => {
+            const result = validateStagesArray(['clean']);
+            assert.strictEqual(result.valid, true);
+            assert.deepStrictEqual(result.errors, []);
+        });
+
+        it('reports multiple errors for multiple invalid stages', () => {
+            const result = validateStagesArray(['generate', 'foo', 'bar', 'build']);
+            assert.strictEqual(result.valid, false);
+            assert.strictEqual(result.errors.length, 2);
+        });
+
+        it('rejects null input', () => {
+            const result = validateStagesArray(null);
+            assert.strictEqual(result.valid, false);
+        });
+
+        it('rejects object input', () => {
+            const result = validateStagesArray({ stage: 'generate' });
+            assert.strictEqual(result.valid, false);
         });
     });
 });

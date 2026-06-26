@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Benchmark Writer — Converts do/benchmark output to enriched Parquet for Athena.
@@ -340,7 +338,7 @@ def _extract_base_image_version(base_image):
     return ''
 
 
-def enrich_records(config, results, run_timestamp=None):
+def enrich_records(config, results, run_timestamp=None, instance_catalog=None):
     """Build enriched records from config context and benchmark results.
 
     Each metrics entry becomes one enriched record with all Athena columns populated.
@@ -349,6 +347,7 @@ def enrich_records(config, results, run_timestamp=None):
         config: dict with config context fields (project_name, model_name, etc.)
         results: dict with benchmark results (job_name, metrics array)
         run_timestamp: Optional datetime for run_timestamp. Defaults to now UTC.
+        instance_catalog: Optional pre-loaded instance catalog dict. If None, loaded from disk.
 
     Returns:
         list of enriched record dicts (one per concurrency level).
@@ -364,10 +363,21 @@ def enrich_records(config, results, run_timestamp=None):
 
     # Derived fields
     model_family = derive_model_family(model_name)
+    instance_family = derive_instance_family(instance_type)
+
+    # Resolve instance metadata from catalog (AC-2.8)
+    hw_meta = resolve_instance_metadata(instance_type, instance_catalog)
+    gpu_count = hw_meta['gpu_count']
+    gpu_type = hw_meta['gpu_type']
+    gpu_memory_gb = hw_meta['gpu_memory_gb']
 
     # Optional context fields
     deployment_target = config.get('deployment_target', 'realtime-inference')
-    tensor_parallel_degree = config.get('tensor_parallel_degree', 1)
+    try:
+        tensor_parallel_degree = int(config.get('tensor_parallel_degree', 1))
+    except (ValueError, TypeError):
+        tensor_parallel_degree = 1
+
     quantization = config.get('quantization', 'none')
     enable_lora = config.get('enable_lora', False)
     base_image = config.get('base_image', '')
@@ -376,6 +386,11 @@ def enrich_records(config, results, run_timestamp=None):
     run_type = config.get('run_type', 'ci')
     ci_run_id = config.get('ci_run_id', '')
     account_id = config.get('account_id', '')
+
+    # Configuration dimensions (nullable)
+    max_model_len_raw = config.get('max_model_len')
+    max_model_len = int(max_model_len_raw) if max_model_len_raw not in (None, '', 0) else None
+    kv_cache_dtype = config.get('kv_cache_dtype') or None
 
 
     # Get metrics from results
@@ -447,6 +462,13 @@ def enrich_records(config, results, run_timestamp=None):
             'deployment_target': deployment_target,
             'quantization': quantization,
             'tensor_parallel_degree': tensor_parallel_degree,
+            'instance_family': instance_family,
+            'gpu_count': gpu_count,
+            'gpu_type': gpu_type,
+            'gpu_memory_gb': gpu_memory_gb,
+            'max_model_len': max_model_len,
+            'enable_lora': enable_lora,
+            'kv_cache_dtype': kv_cache_dtype,
             'serving_config': json.dumps(serving_config_dict),
             'workload': config.get('workload', 'manual'),
             'concurrency': concurrency,
@@ -481,6 +503,7 @@ def enrich_records(config, results, run_timestamp=None):
             'output_sequence_length_avg': scalar(metric.get('output_sequence_length', metric.get('output_sequence_length_avg', 0.0))),
             'input_sequence_length_avg': scalar(metric.get('input_sequence_length', metric.get('input_sequence_length_avg', 0.0))),
             'error_rate': error_rate,
+            'cost_per_1m_tokens': cost,
             'benchmark_duration_sec': metric.get('benchmark_duration_sec', duration_seconds),
             'run_type': run_type,
             'benchmark_job_name': results.get('job_name', '') if isinstance(results, dict) else '',
@@ -792,6 +815,54 @@ def register_partition(bucket, model, instance, target,
 # ── Parquet Serialization ─────────────────────────────────────────────────────
 
 
+def load_instance_catalog():
+    """Load the instance catalog from servers/lib/catalogs/instances.json.
+
+    Resolves the path relative to the project root (two levels up from templates/do/).
+    Returns the 'catalog' dict mapping instance_type → metadata, or empty dict on failure.
+
+    Returns:
+        dict mapping instance type strings to their metadata dicts.
+    """
+    # Resolve relative to this file: templates/do/.benchmark_writer.py → project root
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    # Navigate up from templates/do/ to project root
+    project_root = os.path.normpath(os.path.join(this_dir, '..', '..'))
+    catalog_path = os.path.join(project_root, 'servers', 'lib', 'catalogs', 'instances.json')
+
+    try:
+        with open(catalog_path, 'r') as f:
+            data = json.load(f)
+        return data.get('catalog', {})
+    except (FileNotFoundError, json.JSONDecodeError, IOError):
+        return {}
+
+
+def resolve_instance_metadata(instance_type, instance_catalog=None):
+    """Resolve GPU metadata from the instance catalog for a given instance_type.
+
+    Args:
+        instance_type: SageMaker instance type (e.g., 'ml.g5.xlarge').
+        instance_catalog: Optional pre-loaded catalog dict. If None, loads from disk.
+
+    Returns:
+        dict with keys: gpu_count (int|None), gpu_type (str|None), gpu_memory_gb (float|None).
+        All values are None if instance_type is not found in catalog.
+    """
+    if instance_catalog is None:
+        instance_catalog = load_instance_catalog()
+
+    entry = instance_catalog.get(instance_type)
+    if entry is None:
+        return {'gpu_count': None, 'gpu_type': None, 'gpu_memory_gb': None}
+
+    return {
+        'gpu_count': entry.get('gpus'),
+        'gpu_type': entry.get('gpuType'),
+        'gpu_memory_gb': entry.get('gpuMemoryGb'),
+    }
+
+
 def get_parquet_schema():
     """Return the pyarrow schema matching the Athena DDL for benchmark_results.
 
@@ -813,6 +884,17 @@ def get_parquet_schema():
         pa.field("deployment_target", pa.string()),
         pa.field("quantization", pa.string()),
         pa.field("tensor_parallel_degree", pa.int32()),
+
+        # Hardware metadata (resolved from instance catalog at write time)
+        pa.field("instance_family", pa.string()),
+        pa.field("gpu_count", pa.int32()),
+        pa.field("gpu_type", pa.string()),
+        pa.field("gpu_memory_gb", pa.float64()),
+
+        # Configuration dimensions (top-level for Athena queryability)
+        pa.field("max_model_len", pa.int32()),
+        pa.field("enable_lora", pa.bool_()),
+        pa.field("kv_cache_dtype", pa.string()),
 
         # Full serving config (extensible JSON blob)
         pa.field("serving_config", pa.string()),
@@ -852,6 +934,7 @@ def get_parquet_schema():
         pa.field("output_sequence_length_avg", pa.float64()),
         pa.field("input_sequence_length_avg", pa.float64()),
         pa.field("error_rate", pa.float64()),
+        pa.field("cost_per_1m_tokens", pa.float64()),
         pa.field("benchmark_duration_sec", pa.float64()),
 
         # Run Metadata
@@ -1182,6 +1265,9 @@ def cmd_write(args):
     if args.adapter_name:
         input_data['adapter_name'] = args.adapter_name
 
+    if getattr(args, 'instance_type', None):
+        input_data['instance_type'] = args.instance_type
+
     # ── Validate before any S3 interaction ────────────────────────────────
     errors = validate_benchmark_input(input_data)
     if errors:
@@ -1391,6 +1477,8 @@ def _load_config_file(config_path):
                     'MODEL_NAME': 'model_name',
                     'HF_MODEL_ID': 'hf_model_id',
                     'INSTANCE_TYPE': 'instance_type',
+                    'INSTANCE_POOLS': 'instance_pools',
+                    'BENCHMARK_INSTANCE_TYPE': 'benchmark_instance_type',
                     'DEPLOYMENT_CONFIG': 'deployment_config',
                     'DEPLOYMENT_TARGET': 'deployment_target',
                     'AWS_REGION': 'region',
@@ -1428,6 +1516,24 @@ def _load_config_file(config_path):
         # the model slug from the S3 path (last non-empty segment)
         parts = context['model_name'].rstrip('/').split('/')
         context['model_name'] = parts[-1] if parts else context['model_name']
+
+    # Resolve instance_type precedence:
+    #   BENCHMARK_INSTANCE_TYPE (live-resolved, persisted by do/benchmark) > INSTANCE_TYPE > INSTANCE_POOLS fallback
+    if context.get('benchmark_instance_type'):
+        context['instance_type'] = context.pop('benchmark_instance_type')
+    # Fall back to INSTANCE_POOLS when neither is set.
+    # Heterogeneous pool configs may not have a standalone INSTANCE_TYPE value
+    # but always define INSTANCE_POOLS as a JSON array with Priority fields.
+    if not context.get('instance_type') and context.get('instance_pools'):
+        try:
+            pools = json.loads(context['instance_pools'])
+            if pools:
+                # Pick the highest-priority (lowest number) instance
+                best = min(pools, key=lambda p: p.get('Priority', 999))
+                context['instance_type'] = best.get('InstanceType', '')
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+    context.pop('instance_pools', None)  # Don't leak raw JSON into record
 
     # Also scan IC config files (do/ic/*.conf) for IC_ENV_* serving params
     # These override do/config values for serving-specific settings
@@ -1505,6 +1611,10 @@ def main():
         help='LoRA adapter name (differentiates adapter benchmarks from base model in Athena)'
     )
 
+    write_parser.add_argument(
+        '--instance-type', dest='instance_type', default=None,
+        help='Override instance type (use when actual provisioned instance differs from config, e.g. heterogeneous pools)'
+    )
     write_parser.add_argument(
         '--dry-run', dest='dry_run', action='store_true',
         help='Output enriched records as JSON without writing to S3'

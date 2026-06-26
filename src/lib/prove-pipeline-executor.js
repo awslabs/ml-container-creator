@@ -8,6 +8,25 @@
  * Handles stage-specific logic including idempotency checks, status tracking,
  * and fail-fast behavior.
  *
+ * ## Module Status (AC-1.4)
+ *
+ * FUNCTIONAL stages:
+ * - `executeStageStep()` — fully wired with idempotency via `.mlcc/staged-assets.json`
+ * - `isAlreadyStaged()` — checks staged assets existence and validity
+ * - `getStagingState()` — resolves current staging state from filesystem + step results
+ * - `isValidLifecycleStage()` — validates individual stage names
+ * - `validateStagesArray()` — validates arrays of stage names
+ * - `formatStagingStatus()` — formats staging state for display
+ * - `buildTargetStatus()` — builds status summary for a prove target
+ *
+ * INTENTIONALLY INCOMPLETE (post-v1 scope):
+ * - Other lifecycle stage executors (build, push, deploy, test, tune, adapter,
+ *   test-adapter, benchmark, register, clean) are NOT implemented.
+ * - Only the `stage` step has execution logic. Other stages are recognized in
+ *   validation but have no executor function.
+ * - This is not "broken" — these were never finished before the laptop was bricked.
+ *   They are explicitly post-v1 scope.
+ *
  * Feature: s3-model-loading
  * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
  */
@@ -39,6 +58,22 @@ export const VALID_LIFECYCLE_STAGES = [
     'register',
     'clean'
 ];
+
+// TODO(post-v1): Implement executor functions for lifecycle stages beyond 'stage'.
+// The following stages are recognized for validation purposes but have no execution logic:
+//   - generate: Should invoke `mcc generate` to produce project scaffolding
+//   - build: Should run `do/build` to build the Docker container
+//   - push: Should run `do/push` to push container to ECR
+//   - deploy: Should run `do/deploy` to create SageMaker endpoint
+//   - test: Should run `do/test` to invoke endpoint and verify correctness
+//   - tune: Should run `do/tune` for fine-tuning jobs (gated by shouldExecuteTuneStages)
+//   - adapter: Should run `do/adapter` for LoRA adapter serving
+//   - test-adapter: Should test adapter endpoints after deployment
+//   - benchmark: Should run `do/benchmark` for performance measurement
+//   - register: Should register proven config in Athena/DynamoDB
+//   - clean: Should tear down deployed resources
+// These were never finished before the original developer's laptop was bricked.
+// They are explicitly post-v1 scope, not "broken" code.
 
 /**
  * Possible staging states for status output.

@@ -278,14 +278,33 @@ When using a Hugging Face dataset, the script downloads it to S3 automatically b
 
 ### Dataset registry
 
-Datasets can be registered for reuse across tuning jobs. Once registered, reference them by name instead of raw S3 URIs:
+MCC maintains a two-tier dataset registry for reproducible tuning workflows.
+
+#### Architecture
+
+| Tier | Location | Purpose |
+|------|----------|---------|
+| **Local registry** (primary) | `~/.ml-container-creator/datasets.json` | Version tracking, content hashes, name resolution |
+| **SageMaker AI Registry** (supplementary) | SageMaker Hub (`mlcc-registry-{accountId}`) | Cross-account discoverability, Studio visibility |
+
+Both tiers are populated automatically by `do/register dataset`. The local registry is the source of truth for versioning and `@v<N>` pinning.
+
+!!! note "Console Import Not Supported"
+    The SageMaker Studio console's dataset import UI has a known schema validation
+    bug (injects internal session properties). Always register datasets via
+    `do/register dataset` or the SDK — not the console.
+
+#### Using registered datasets
 
 ```bash
 # List all registered datasets
 ./do/tune --list-datasets
 
 # Use a registered dataset by name
-./do/tune --technique sft --dataset alpaca-sft-1000
+./do/tune --technique sft --dataset alpaca-sft
+
+# Pin a specific version for reproducibility
+./do/tune --technique sft --dataset alpaca-sft@v1
 ```
 
 The `--list-datasets` flag shows a table of available datasets:
@@ -293,15 +312,15 @@ The `--list-datasets` flag shows a table of available datasets:
 ```
 📦 Registered datasets:
 
-  NAME                      TECHNIQUE  ROWS     S3 URI
-  ----                      ---------  ----     ------
-  alpaca-sft-1000           sft        1000     s3://mlcc-tune-.../train.jsonl
-  orca-dpo-pairs-dpo-1000   dpo        1000     s3://mlcc-tune-.../orca_rlhf.jsonl
+  NAME              TECHNIQUE  LATEST     ROWS     S3 URI
+  ----              ---------  ------     ----     ------
+  alpaca-sft        sft        1.0.0      1000     s3://mlcc-tune-.../train.jsonl
+  orca-dpo-pairs    dpo        1.1.0      2500     s3://mlcc-tune-.../orca_rlhf.jsonl
 ```
 
 #### Registration workflow
 
-The typical workflow is: stage a dataset via `do/tune`, then register it for future reuse:
+The typical workflow: stage a dataset via `do/tune`, then register it for future reuse:
 
 ```bash
 # 1. Stage and use a dataset (ad-hoc — not registered)
@@ -311,20 +330,46 @@ The typical workflow is: stage a dataset via `do/tune`, then register it for fut
 ./do/register dataset --from-tune sft
 
 # 3. Now use it by name in future jobs
-./do/tune --technique sft --dataset alpaca-sft-1000
+./do/tune --technique sft --dataset alpaca-sft
 ```
 
-The `--from-tune` flag auto-derives the dataset name, S3 URI, technique, and row count from the most recent tune job. Pass a technique (`sft`, `dpo`) to resolve a specific technique's dataset when you've run multiple jobs.
+The `--from-tune` flag auto-derives the dataset name (salted slug from HF repo name), S3 URI, technique, and row count from the most recent tune job.
 
-You can also register datasets explicitly:
+Register datasets explicitly:
 
 ```bash
 ./do/register dataset my-custom-data \
   --s3-uri s3://my-bucket/datasets/custom.jsonl \
   --technique sft \
-  --format jsonl \
   --row-count 5000
 ```
+
+#### Versioning
+
+Datasets are versioned automatically using content hashes (S3 ETags):
+
+| Action | Result |
+|--------|--------|
+| First `do/register dataset X --s3-uri ...` | Creates v1.0.0 with content hash |
+| Same S3 content, same name | Skipped — "Dataset unchanged (v1)" |
+| Different S3 content, same name | Creates v1.1.0 (content hash differs) |
+| `--force` flag | Always creates new version regardless of hash |
+
+Pin a specific version to ensure reproducibility across tune runs:
+
+```bash
+# Always use the original 1000-row version, even if a newer version exists
+./do/tune --technique sft --dataset alpaca-sft@v1
+
+# List all versions of a dataset
+python3 do/.register_helper.py list-dataset-versions --name alpaca-sft
+```
+
+!!! tip "Ad-hoc datasets are not registered"
+    `do/tune --dataset hf://...` or `--dataset s3://...` stages and uses the data
+    directly without creating a registry entry. Only explicit `do/register dataset`
+    creates versioned entries. This is intentional — ad-hoc exploration shouldn't
+    pollute the registry.
 
 See [Deployment Registry](deployment-registry.md) for full `do/register dataset` documentation.
 

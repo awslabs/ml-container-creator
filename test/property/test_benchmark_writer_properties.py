@@ -39,6 +39,7 @@ validate_benchmark_input = _benchmark_writer.validate_benchmark_input
 derive_model_family = _benchmark_writer.derive_model_family
 derive_instance_family = _benchmark_writer.derive_instance_family
 get_parquet_schema = _benchmark_writer.get_parquet_schema
+resolve_instance_metadata = _benchmark_writer.resolve_instance_metadata
 REQUIRED_FIELDS = _benchmark_writer.REQUIRED_FIELDS
 
 
@@ -138,7 +139,7 @@ def valid_metric_entry(draw):
 def valid_benchmark_config(draw):
     """Generate a valid config context dict."""
     return {
-        "config_id": draw(st.text(alphabet="0123456789abcdef", min_size=16, max_size=16)),
+        "project_name": draw(st.text(alphabet="abcdefghijklmnop0123456789-", min_size=3, max_size=20)),
         "model_name": draw(st.sampled_from(_MODEL_NAMES)),
         "instance_type": draw(st.sampled_from(_INSTANCE_TYPES)),
         "deployment_config": draw(st.sampled_from(_DEPLOYMENT_CONFIGS)),
@@ -146,6 +147,8 @@ def valid_benchmark_config(draw):
         "tensor_parallel_degree": draw(st.sampled_from([1, 2, 4, 8])),
         "quantization": draw(st.sampled_from(_QUANTIZATIONS)),
         "enable_lora": draw(st.booleans()),
+        "max_model_len": draw(st.sampled_from([None, 2048, 4096, 8192, 16384, 32768])),
+        "kv_cache_dtype": draw(st.sampled_from([None, "auto", "fp16", "fp8", "int8"])),
         "base_image": draw(st.sampled_from([
             "vllm/vllm-openai:v0.8.5",
             "vllm/vllm-openai:v0.7.3",
@@ -218,7 +221,8 @@ class TestSerializationRoundTrip:
         # Verify numeric columns are identical within float tolerance
         numeric_columns = [
             "ttft_p50_ms", "ttft_p99_ms", "itl_p50_ms", "itl_p99_ms",
-            "throughput_rps", "tokens_per_second", "error_rate",
+            "request_throughput_rps", "output_token_throughput_tps", "error_rate",
+            "cost_per_1m_tokens",
         ]
 
         for col_name in numeric_columns:
@@ -255,11 +259,11 @@ class TestSerializationRoundTrip:
         recovered_table = pq.read_table(buf)
 
         string_columns = [
-            "config_id", "model_name", "model_family", "instance_type",
+            "project_name", "model_name", "model_family", "instance_type",
             "instance_family", "deployment_config", "deployment_target",
-            "quantization", "base_image", "base_image_version", "mcc_version",
-            "status", "run_type", "ci_run_id", "ci_stage",
-            "benchmark_job_name", "account_id",
+            "quantization", "mcc_version",
+            "run_type", "benchmark_job_name",
+            "kv_cache_dtype", "gpu_type",
         ]
 
         for col_name in string_columns:
@@ -273,18 +277,22 @@ class TestSerializationRoundTrip:
 # ── Property P2: Output Completeness ─────────────────────────────────────────
 
 
-# All 32 expected columns from the enriched record (Athena DDL columns + partition keys)
+# Expected columns in enriched records from enrich_records()
 _EXPECTED_COLUMNS = [
-    "config_id", "model_name", "model_family", "instance_type",
+    "project_name", "model_name", "model_family", "instance_type",
     "instance_family", "deployment_config", "deployment_target",
-    "run_timestamp", "tensor_parallel_degree", "quantization",
-    "enable_lora", "base_image", "base_image_version", "mcc_version",
+    "quantization", "tensor_parallel_degree",
+    "gpu_count", "gpu_type", "gpu_memory_gb",
+    "max_model_len", "enable_lora", "kv_cache_dtype",
+    "serving_config", "workload",
     "concurrency", "input_tokens_mean", "output_tokens_mean",
-    "duration_seconds", "ttft_p50_ms", "ttft_p99_ms", "itl_p50_ms",
-    "itl_p99_ms", "throughput_rps", "tokens_per_second",
-    "cost_per_1m_tokens", "error_rate", "status", "run_type",
-    "ci_run_id", "ci_stage", "benchmark_job_name", "account_id",
-    "region", "year", "month",
+    "streaming", "duration_seconds",
+    "request_throughput_rps", "total_token_throughput_tps",
+    "output_token_throughput_tps",
+    "ttft_p50_ms", "ttft_p99_ms", "itl_p50_ms", "itl_p99_ms",
+    "error_rate", "cost_per_1m_tokens",
+    "run_type", "benchmark_job_name", "mcc_version",
+    "run_timestamp", "region",
 ]
 
 
@@ -364,32 +372,6 @@ class TestOutputCompleteness:
                 f"instance '{config['instance_type']}', got '{record['instance_family']}'"
             )
 
-    @settings(max_examples=100)
-    @given(
-        config=valid_benchmark_config(),
-        results=valid_benchmark_results(),
-        timestamp=valid_run_timestamp(),
-    )
-    def test_partition_path_correct(self, config, results, timestamp):
-        """Partition keys (region, year, month) are correct for given timestamp."""
-        records = enrich_records(config, results, timestamp)
-        assume(len(records) > 0)
-
-        expected_year = timestamp.strftime('%Y')
-        expected_month = timestamp.strftime('%m')
-        expected_region = config["region"]
-
-        for record in records:
-            assert record["region"] == expected_region, (
-                f"Expected region '{expected_region}', got '{record['region']}'"
-            )
-            assert record["year"] == expected_year, (
-                f"Expected year '{expected_year}', got '{record['year']}'"
-            )
-            assert record["month"] == expected_month, (
-                f"Expected month '{expected_month}', got '{record['month']}'"
-            )
-
 
 # ── Property P3: Validation Rejection ─────────────────────────────────────────
 
@@ -400,6 +382,7 @@ def input_missing_required_field(draw):
     missing or invalid."""
     # Start with a valid input
     config_id = draw(st.text(alphabet="0123456789abcdef", min_size=16, max_size=16))
+    project_name = draw(st.text(alphabet="abcdefghijklmnop0123456789-", min_size=3, max_size=20))
     model_name = draw(st.sampled_from(_MODEL_NAMES))
     instance_type = draw(st.sampled_from(_INSTANCE_TYPES))
     deployment_config = draw(st.sampled_from(_DEPLOYMENT_CONFIGS))
@@ -408,6 +391,7 @@ def input_missing_required_field(draw):
 
     data = {
         "config_id": config_id,
+        "project_name": project_name,
         "model_name": model_name,
         "instance_type": instance_type,
         "deployment_config": deployment_config,

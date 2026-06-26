@@ -69,6 +69,9 @@ done
 # Query the tracked benchmark job, display status, and if completed:
 # download results, display metrics, and write to Athena (if not already done).
 if [ "${ARG_STATUS}" = true ]; then
+    # Resolve instance type: BENCHMARK_INSTANCE_TYPE (persisted by main flow) > INSTANCE_TYPE from config
+    _STATUS_INSTANCE_TYPE="${BENCHMARK_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+
     JOB_NAME="${BENCHMARK_JOB_NAME:-}"
     if [ -z "${JOB_NAME}" ]; then
         echo "❌ No benchmark job tracked"
@@ -98,7 +101,7 @@ if [ "${ARG_STATUS}" = true ]; then
             # Check if results already exist locally
             PROJECT_ROOT="${SCRIPT_DIR}/.."
             LOCAL_RESULTS_DIR="${PROJECT_ROOT}/benchmarks/${JOB_NAME}"
-            RESULTS_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1)
+            RESULTS_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1 || true)
 
             if [ -z "${RESULTS_JSONL}" ]; then
                 echo ""
@@ -115,7 +118,7 @@ if [ "${ARG_STATUS}" = true ]; then
                         --region "${AWS_REGION}" --quiet
                     # Untar if output.tar.gz exists
                     tar_file=""
-                    tar_file=$(find "${LOCAL_RESULTS_DIR}" -name "output.tar.gz" -type f 2>/dev/null | head -1)
+                    tar_file=$(find "${LOCAL_RESULTS_DIR}" -name "output.tar.gz" -type f 2>/dev/null | head -1 || true)
                     if [ -n "${tar_file}" ]; then
                         # Detect whether ALL entries share a common leading directory prefix
                         _tar_prefix_count=""
@@ -129,7 +132,7 @@ if [ "${ARG_STATUS}" = true ]; then
                         fi
                     fi
                     # Re-search after extraction
-                    RESULTS_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1)
+                    RESULTS_JSONL=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1 || true)
                     echo "   ✅ Results downloaded to: benchmarks/${JOB_NAME}/"
                 fi
             else
@@ -142,7 +145,7 @@ if [ "${ARG_STATUS}" = true ]; then
                 if [ -n "${RESULTS_JSONL}" ] && [ -f "${RESULTS_JSONL}" ]; then
                     _WRITER_INPUT="${RESULTS_JSONL}"
                 else
-                    _WRITER_INPUT=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export_aiperf.json" -type f 2>/dev/null | head -1)
+                    _WRITER_INPUT=$(find "${LOCAL_RESULTS_DIR}" -name "profile_export_aiperf.json" -type f 2>/dev/null | head -1 || true)
                 fi
 
                 if [ -n "${_WRITER_INPUT}" ]; then
@@ -155,7 +158,8 @@ if [ "${ARG_STATUS}" = true ]; then
                         --workload "${BENCHMARK_WORKLOAD:-manual}" \
                         --concurrency "${BENCHMARK_CONCURRENCY:-2}" \
                         --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
-                        --region "${AWS_REGION:-${REGION}}" \
+                        --region "${AWS_REGION:-${REGION:-us-east-1}}" \
+                        ${_STATUS_INSTANCE_TYPE:+--instance-type "${_STATUS_INSTANCE_TYPE}"} \
                         ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
                         echo "   ✅ Results persisted to Athena"
                     else
@@ -561,6 +565,7 @@ print(f'Combined {n_metrics} concurrency level results')
                 --workload "${BENCHMARK_WORKLOAD:-manual}" \
                 --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
                 --region "${AWS_REGION:-${REGION}}" \
+                ${RESOLVED_INSTANCE_TYPE:+--instance-type "${RESOLVED_INSTANCE_TYPE}"} \
                 ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
                 echo "✅ Multi-level benchmark results persisted to S3"
             else
@@ -800,6 +805,55 @@ if [ "${ENDPOINT_STATUS}" != "InService" ]; then
 fi
 
 echo "✅ Endpoint is InService: ${ENDPOINT_NAME}"
+
+# ── Resolve actual instance type from endpoint ────────────────────────────────
+# For heterogeneous instance pools, INSTANCE_TYPE in do/config may not reflect
+# the actual provisioned instance. Query the endpoint to determine the real type.
+RESOLVED_INSTANCE_TYPE=""
+_EP_JSON=$(aws sagemaker describe-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}" \
+    --output json 2>/dev/null) || _EP_JSON=""
+
+if [ -n "${_EP_JSON}" ]; then
+    # Try InstanceType from the primary variant runtime response
+    RESOLVED_INSTANCE_TYPE=$(echo "${_EP_JSON}" | python3 -c "
+import sys, json
+try:
+    ep = json.load(sys.stdin)
+    variant = ep.get('ProductionVariants', [{}])[0]
+    it = variant.get('CurrentInstanceType') or variant.get('InstanceType') or ''
+    if it:
+        print(it)
+    else:
+        # Fall back to endpoint config for pool-based endpoints
+        print('')
+except:
+    print('')
+" 2>/dev/null) || RESOLVED_INSTANCE_TYPE=""
+
+    # If still empty, query endpoint config for InstancePools
+    if [ -z "${RESOLVED_INSTANCE_TYPE}" ]; then
+        _EC_NAME=$(echo "${_EP_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('EndpointConfigName',''))" 2>/dev/null) || _EC_NAME=""
+        if [ -n "${_EC_NAME}" ]; then
+            RESOLVED_INSTANCE_TYPE=$(aws sagemaker describe-endpoint-config \
+                --endpoint-config-name "${_EC_NAME}" \
+                --region "${AWS_REGION}" \
+                --query 'ProductionVariants[0].InstanceType' \
+                --output text 2>/dev/null) || RESOLVED_INSTANCE_TYPE=""
+            # 'None' is returned as literal text when the field is null
+            [ "${RESOLVED_INSTANCE_TYPE}" = "None" ] && RESOLVED_INSTANCE_TYPE=""
+        fi
+    fi
+fi
+
+# Final fallback: use INSTANCE_TYPE from do/config
+RESOLVED_INSTANCE_TYPE="${RESOLVED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+
+# Persist to do/config for --status (endpoint may be gone by then)
+if [ -n "${RESOLVED_INSTANCE_TYPE}" ]; then
+    _update_benchmark_var "BENCHMARK_INSTANCE_TYPE" "${RESOLVED_INSTANCE_TYPE}"
+fi
 
 # ── Pre-flight check: Ensure S3 output bucket exists ──────────────────────────
 echo "🔍 Pre-flight: Checking S3 output bucket..."
@@ -1371,6 +1425,7 @@ except Exception as e:
             --concurrency "${BENCHMARK_CONCURRENCY}" \
             --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
             --region "${AWS_REGION:-${REGION}}" \
+            ${RESOLVED_INSTANCE_TYPE:+--instance-type "${RESOLVED_INSTANCE_TYPE}"} \
             ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
             echo "✅ Benchmark results persisted to S3"
         else

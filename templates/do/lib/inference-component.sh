@@ -112,31 +112,12 @@ create_inference_component() {
 
     # Build specification JSON — multi-spec (Specifications array) or single (Specification object)
     local spec_json
-    if [ "${IC_MULTI_SPEC:-false}" = "true" ] && [ "${IC_SPEC_COUNT:-0}" -gt 0 ]; then
-        # Multi-spec: build Specifications array with per-instance-type compute resources
-        spec_json="{\"Specifications\":["
-        local i=1
-        while [ "${i}" -le "${IC_SPEC_COUNT}" ]; do
-            local spec_instance_type_var="IC_SPEC_${i}_INSTANCE_TYPE"
-            local spec_gpu_count_var="IC_SPEC_${i}_GPU_COUNT"
-            local spec_min_memory_var="IC_SPEC_${i}_MIN_MEMORY_MB"
-
-            local spec_instance_type="${!spec_instance_type_var}"
-            local spec_gpu_count="${!spec_gpu_count_var:-1}"
-            local spec_min_memory="${!spec_min_memory_var:-1024}"
-
-            if [ "${i}" -gt 1 ]; then
-                spec_json="${spec_json},"
-            fi
-            spec_json="${spec_json}{\"Container\":${container_spec},\"StartupParameters\":{\"ContainerStartupHealthCheckTimeoutInSeconds\":${IC_STARTUP_TIMEOUT:-900}},\"ComputeResourceRequirements\":{\"NumberOfAcceleratorDevicesRequired\":${spec_gpu_count},\"MinMemoryRequiredInMb\":${spec_min_memory}}}"
-
-            i=$((i + 1))
-        done
-        spec_json="${spec_json}]}"
-    else
-        # Single spec: standard Specification object (existing behavior)
-        spec_json="{\"Container\":${container_spec},\"StartupParameters\":{\"ContainerStartupHealthCheckTimeoutInSeconds\":${IC_STARTUP_TIMEOUT:-900}},\"ComputeResourceRequirements\":{\"NumberOfAcceleratorDevicesRequired\":${IC_GPU_COUNT:-1},\"MinMemoryRequiredInMb\":${IC_MIN_MEMORY_MB:-1024}}}"
-    fi
+    # Always use singular Specification. For heterogeneous instance pools, the IC
+    # declares its minimum resource requirements and SageMaker places it on whatever
+    # instance was provisioned from the pool. Multi-spec (Specifications plural) is
+    # only needed when you want different configurations per instance type (e.g.,
+    # different TP, different model artifact) — a future optimization.
+    spec_json="{\"Container\":${container_spec},\"StartupParameters\":{\"ContainerStartupHealthCheckTimeoutInSeconds\":${IC_STARTUP_TIMEOUT:-900}},\"ComputeResourceRequirements\":{\"NumberOfAcceleratorDevicesRequired\":${IC_GPU_COUNT:-1},\"MinMemoryRequiredInMb\":${IC_MIN_MEMORY_MB:-1024}}}"
 
     echo "📦 Creating inference component: ${ic_name}"
     if ! aws sagemaker create-inference-component \

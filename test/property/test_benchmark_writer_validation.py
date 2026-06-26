@@ -33,6 +33,7 @@ emit_validation_error = _benchmark_writer.emit_validation_error
 def _valid_input():
     """Return a minimal valid benchmark input."""
     return {
+        "project_name": "test-project",
         "config_id": "ec3f1a0072d1b3d4",
         "model_name": "Qwen/Qwen3-4B",
         "instance_type": "ml.g5.xlarge",
@@ -74,12 +75,12 @@ class TestValidInput:
 class TestMissingFields:
     """Verify that missing required fields produce structured errors."""
 
-    def test_missing_config_id(self):
+    def test_missing_project_name(self):
         data = _valid_input()
-        del data["config_id"]
+        del data["project_name"]
         errors = validate_benchmark_input(data)
         assert len(errors) == 1
-        assert errors[0]["field"] == "config_id"
+        assert errors[0]["field"] == "project_name"
         assert "missing" in errors[0]["reason"]
 
     def test_missing_model_name(self):
@@ -126,7 +127,7 @@ class TestMissingFields:
         errors = validate_benchmark_input({})
         assert len(errors) == 6
         fields = [e["field"] for e in errors]
-        assert "config_id" in fields
+        assert "project_name" in fields
         assert "model_name" in fields
         assert "instance_type" in fields
         assert "deployment_config" in fields
@@ -139,27 +140,27 @@ class TestMissingFields:
 class TestInvalidFieldValues:
     """Verify that invalid field values produce structured errors."""
 
-    def test_empty_config_id(self):
+    def test_empty_project_name(self):
         data = _valid_input()
-        data["config_id"] = ""
+        data["project_name"] = ""
         errors = validate_benchmark_input(data)
         assert len(errors) == 1
-        assert errors[0]["field"] == "config_id"
+        assert errors[0]["field"] == "project_name"
         assert "non-empty" in errors[0]["reason"]
 
-    def test_whitespace_config_id(self):
+    def test_whitespace_project_name(self):
         data = _valid_input()
-        data["config_id"] = "   "
+        data["project_name"] = "   "
         errors = validate_benchmark_input(data)
         assert len(errors) == 1
-        assert errors[0]["field"] == "config_id"
+        assert errors[0]["field"] == "project_name"
 
-    def test_non_string_config_id(self):
+    def test_non_string_project_name(self):
         data = _valid_input()
-        data["config_id"] = 12345
+        data["project_name"] = 12345
         errors = validate_benchmark_input(data)
         assert len(errors) == 1
-        assert errors[0]["field"] == "config_id"
+        assert errors[0]["field"] == "project_name"
 
     def test_instance_type_not_matching_ml_pattern(self):
         data = _valid_input()

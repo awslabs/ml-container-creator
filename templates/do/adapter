@@ -44,6 +44,7 @@ _usage() {
     echo ""
     echo "Options:"
     echo "  --help, -h    Show this help message"
+    echo "  --force       Bypass adapter-model compatibility check (add command)"
     echo "  --local       Use local aws s3 cp instead of Processing Job (--from-tune)"
     echo "  --no-wait     Submit Processing Job and return immediately (--from-tune)"
     echo ""
@@ -378,6 +379,7 @@ _adapter_add() {
     local registry_arn=""
     local use_local=""
     local no_wait=""
+    local force=""
 
     # Parse add arguments
     shift  # remove 'add' from args
@@ -429,6 +431,10 @@ _adapter_add() {
                 no_wait="true"
                 shift
                 ;;
+            --force)
+                force="true"
+                shift
+                ;;
             --help|-h)
                 echo "Usage: ./do/adapter add <name> --weights <s3-uri>"
                 echo "       ./do/adapter add <name> --from-hub <hf-repo-id>"
@@ -449,6 +455,7 @@ _adapter_add() {
                 echo "                              With ARN: adds directly using specified version ARN"
                 echo "  --local                     Use local aws s3 cp instead of Processing Job (--from-tune only)"
                 echo "  --no-wait                   Submit Processing Job and return immediately (--from-tune only)"
+                echo "  --force                     Bypass adapter-model compatibility check"
                 echo ""
                 echo "Note: --weights, --from-hub, --from-tune, and --from-registry are mutually exclusive."
                 echo ""
@@ -1030,14 +1037,30 @@ _adapter_add() {
         fi
     fi
 
-    # ── Validate adapter name uniqueness ──────────────────────────────────
+    # ── Validate adapter name uniqueness (AC-1.7: overwrite when --from-tune) ──
     if [ -f "${SCRIPT_DIR}/adapters/${adapter_name}.conf" ]; then
-        echo "❌ Adapter already exists: ${adapter_name}"
-        echo ""
-        echo "   An adapter with this name is already registered."
-        echo "   To update its weights, use: ./do/adapter update ${adapter_name} --weights <new-uri>"
-        echo "   To remove it first: ./do/adapter remove ${adapter_name}"
-        exit 1
+        if [ -n "${from_tune}" ]; then
+            # AC-1.7: Overwrite existing adapter when re-running auto-register
+            echo "ℹ️  Adapter '${adapter_name}' already exists — overwriting (re-tune)"
+            # Delete existing IC if deployed, then remove conf
+            local _existing_ic_name=""
+            _existing_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${SCRIPT_DIR}/adapters/${adapter_name}.conf" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
+            if [ -n "${_existing_ic_name}" ]; then
+                aws sagemaker delete-inference-component \
+                    --inference-component-name "${_existing_ic_name}" \
+                    --region "${AWS_REGION}" 2>/dev/null || true
+                # Brief wait for deletion to propagate
+                sleep 5
+            fi
+            rm -f "${SCRIPT_DIR}/adapters/${adapter_name}.conf"
+        else
+            echo "❌ Adapter already exists: ${adapter_name}"
+            echo ""
+            echo "   An adapter with this name is already registered."
+            echo "   To update its weights, use: ./do/adapter update ${adapter_name} --weights <new-uri>"
+            echo "   To remove it first: ./do/adapter remove ${adapter_name}"
+            exit 1
+        fi
     fi
 
     echo "🔌 Adding adapter: ${adapter_name}"
@@ -1096,6 +1119,80 @@ _adapter_add() {
         # base_model_name_or_path matches MODEL_NAME from do/config.
         # If anything fails (download, extraction, parsing), skip silently.
         _validate_adapter_config "${weights_uri}" || true
+    fi
+
+    # ── Compatibility check: adapter parent model vs deployed model ───────
+    # Derive parent metadata early (same logic used later for conf file)
+    local _compat_parent_arn=""
+    local _compat_parent_slug=""
+
+    if [ -n "${from_tune}" ]; then
+        _compat_parent_slug="${MODEL_NAME:-}"
+        if [ -n "${MODEL_PKG_ARN:-}" ]; then
+            _compat_parent_arn="${MODEL_PKG_ARN}"
+        fi
+    elif [ -n "${from_registry}" ] && [ -n "${version_line:-}" ]; then
+        _compat_parent_arn=$(echo "${version_line}" | python3 -c "
+import sys, json
+data = json.loads(sys.stdin.read())
+metadata = data.get('metadata', {})
+print(metadata.get('parentModelVersionArn', ''))
+" 2>/dev/null || echo "")
+        _compat_parent_slug=$(echo "${version_line}" | python3 -c "
+import sys, json
+data = json.loads(sys.stdin.read())
+metadata = data.get('metadata', {})
+print(metadata.get('modelName', ''))
+" 2>/dev/null || echo "")
+    fi
+
+    if [ -z "${_compat_parent_arn}" ] && [ -z "${_compat_parent_slug}" ]; then
+        echo "ℹ️  No parent model metadata — skipping compatibility check."
+    elif [ "${force}" = "true" ]; then
+        echo "ℹ️  --force: skipping compatibility check."
+    else
+        # Resolve base IC name for compat check (already validated InService above)
+        local _compat_base_ic_name
+        _compat_base_ic_name="${base_ic_name}"
+
+        # Get deployed model identity from base IC
+        local _compat_deployed_model=""
+        _compat_deployed_model=$(aws sagemaker describe-inference-component \
+            --inference-component-name "${_compat_base_ic_name}" \
+            --query 'Specification.Container.ArtifactUrl' --output text \
+            --region "${AWS_REGION}" 2>/dev/null) || _compat_deployed_model=""
+
+        if [ -z "${_compat_deployed_model}" ] || [ "${_compat_deployed_model}" = "None" ]; then
+            echo "ℹ️  Could not verify compatibility (DescribeInferenceComponent returned no artifact URL). Proceeding."
+        else
+            # Primary check: compare adapter parent MPG ARN against deployed MPG ARN
+            local _compat_deployed_mpg="${MODEL_PKG_ARN:-}"
+            local _compat_expected_slug="${_compat_parent_slug}"
+
+            local _compat_mismatch="false"
+            if [ -n "${_compat_parent_arn}" ] && [ -n "${_compat_deployed_mpg}" ] && \
+               [ "${_compat_parent_arn}" != "${_compat_deployed_mpg}" ]; then
+                _compat_mismatch="true"
+            fi
+
+            if [ "${_compat_mismatch}" = "true" ]; then
+                # Fallback: check if artifact URL contains the expected model slug
+                if [ -n "${_compat_expected_slug}" ] && \
+                   [[ "${_compat_deployed_model}" == *"${_compat_expected_slug}"* ]]; then
+                    : # Slug match — compatible despite ARN mismatch
+                else
+                    echo "⚠️  Adapter was trained on: ${_compat_parent_arn}"
+                    echo "   Deployed model:          ${_compat_deployed_mpg:-${_compat_deployed_model:-unknown}}"
+                    if [ -t 0 ]; then
+                        read -p "   Continue anyway? [y/N] " confirm
+                        [[ "${confirm}" =~ ^[Yy] ]] || exit 1
+                    else
+                        echo "   Aborting (non-interactive). Use --force to override."
+                        exit 1
+                    fi
+                fi
+            fi
+        fi
     fi
 
     # ── Build adapter IC name ─────────────────────────────────────────────
@@ -1160,6 +1257,41 @@ export ADAPTER_SOURCE="tune"
 export ADAPTER_TUNE_TECHNIQUE="${tune_technique_meta}"
 export ADAPTER_TUNE_DATASET="${tune_dataset_meta}"
 EOF
+
+        # Store parent model metadata for compat check (US-3 prerequisite)
+        # ADAPTER_PARENT_MODEL_SLUG from MODEL_NAME in do/config
+        local parent_model_slug="${MODEL_NAME:-}"
+        # ADAPTER_PARENT_MODEL_ARN: resolve base model version ARN from deployment MPG
+        local parent_model_arn=""
+        if [ -n "${MODEL_PKG_ARN:-}" ]; then
+            parent_model_arn="${MODEL_PKG_ARN}"
+        else
+            # Query the deployment MPG for the latest base model version
+            local models_json
+            models_json=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-models \
+                --project-name "${PROJECT_NAME}" \
+                --region "${AWS_REGION}" 2>/dev/null || echo "")
+            local models_line
+            models_line=$(echo "${models_json}" | grep -E '^\{' | tail -1)
+            if [ -n "${models_line}" ]; then
+                parent_model_arn=$(echo "${models_line}" | python3 -c "
+import sys, json
+data = json.loads(sys.stdin.read())
+models = data.get('models', [])
+if models:
+    print(models[0].get('arn', ''))
+else:
+    print('')
+" 2>/dev/null || echo "")
+            fi
+        fi
+
+        if [ -n "${parent_model_arn}" ] || [ -n "${parent_model_slug}" ]; then
+            cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
+export ADAPTER_PARENT_MODEL_ARN="${parent_model_arn}"
+export ADAPTER_PARENT_MODEL_SLUG="${parent_model_slug}"
+EOF
+        fi
     fi
 
     # Add registry-specific metadata if --from-registry was used
@@ -1167,6 +1299,39 @@ EOF
         cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
 export ADAPTER_SOURCE="registry"
 export ADAPTER_REGISTRY_ARN="${registry_arn}"
+EOF
+
+        # Store parent model metadata for compat check (US-3 prerequisite)
+        # Extract parentModelVersionArn and modelName from registry version metadata
+        local parent_model_arn=""
+        local parent_model_slug=""
+        if [ -n "${version_line:-}" ]; then
+            parent_model_arn=$(echo "${version_line}" | python3 -c "
+import sys, json
+data = json.loads(sys.stdin.read())
+metadata = data.get('metadata', {})
+print(metadata.get('parentModelVersionArn', ''))
+" 2>/dev/null || echo "")
+            parent_model_slug=$(echo "${version_line}" | python3 -c "
+import sys, json
+data = json.loads(sys.stdin.read())
+metadata = data.get('metadata', {})
+print(metadata.get('modelName', ''))
+" 2>/dev/null || echo "")
+        fi
+
+        if [ -n "${parent_model_arn}" ] || [ -n "${parent_model_slug}" ]; then
+            cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
+export ADAPTER_PARENT_MODEL_ARN="${parent_model_arn}"
+export ADAPTER_PARENT_MODEL_SLUG="${parent_model_slug}"
+EOF
+        fi
+    fi
+
+    # Default source: bare S3 URI (no --from-* flag)
+    if [ -z "${from_hub}" ] && [ -z "${from_tune}" ] && [ -z "${from_registry}" ]; then
+        cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
+export ADAPTER_SOURCE="s3"
 EOF
     fi
 
@@ -1194,171 +1359,102 @@ EOF
 }
 
 _adapter_list() {
-    if [ -z "${ENDPOINT_NAME:-}" ]; then
-        echo "❌ No endpoint configured. Deploy first with: ./do/deploy"
-        exit 1
-    fi
+    # Delegate to Python for Bash 3.2 compatibility (no associative arrays needed).
+    # Merges 3 data sources: local confs, deployed adapter ICs, and registry.
+    python3 - "${SCRIPT_DIR}" "${PROJECT_NAME}" "${ENDPOINT_NAME:-}" "${AWS_REGION}" <<'ADAPTER_LIST_PY'
+import sys, os, json, subprocess, glob
 
-    echo "Adapters on endpoint: ${ENDPOINT_NAME}"
-    echo ""
+script_dir, project_name, endpoint_name, region = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 
-    # ── List all inference components on the endpoint ─────────────────────
-    local ic_list
-    ic_list=$(aws sagemaker list-inference-components \
-        --endpoint-name-equals "${ENDPOINT_NAME}" \
-        --region "${AWS_REGION}" 2>/dev/null) || {
-        echo "❌ Failed to list inference components on endpoint: ${ENDPOINT_NAME}"
-        echo "   Check that the endpoint exists and you have sagemaker:ListInferenceComponents permission."
-        exit 1
-    }
-
-    # Extract IC names from the list response
-    local ic_names
-    ic_names=$(echo "${ic_list}" | jq -r '.InferenceComponents[].InferenceComponentName' 2>/dev/null)
-
-    if [ -z "${ic_names}" ]; then
-        echo "No adapters found on this endpoint."
-        echo ""
-        echo "Add one with: ./do/adapter add <name> --weights <s3-uri>"
-        return 0
-    fi
-
-    # ── Collect local adapter names for ownership check ───────────────────
-    local local_adapters=""
-    if [ -d "${SCRIPT_DIR}/adapters" ]; then
-        for conf_file in "${SCRIPT_DIR}"/adapters/*.conf; do
-            [ -f "${conf_file}" ] || continue
-            local conf_adapter_name
-            conf_adapter_name=$(grep "^export ADAPTER_IC_NAME=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
-            if [ -n "${conf_adapter_name}" ]; then
-                local_adapters="${local_adapters} ${conf_adapter_name}"
-            fi
-        done
-    fi
-
-    # ── Filter to adapter ICs and collect details ─────────────────────────
-    local found_adapters=0
-    local output_lines=""
-
-    for ic_name in ${ic_names}; do
-        # Describe each IC to check if it's an adapter (has BaseInferenceComponentName)
-        local ic_detail
-        ic_detail=$(aws sagemaker describe-inference-component \
-            --inference-component-name "${ic_name}" \
-            --region "${AWS_REGION}" 2>/dev/null) || continue
-
-        # Check if this IC has a BaseInferenceComponentName (adapter IC)
-        local base_ic
-        base_ic=$(echo "${ic_detail}" | jq -r '.Specification.BaseInferenceComponentName // empty' 2>/dev/null)
-
-        if [ -z "${base_ic}" ]; then
-            # Not an adapter IC — skip
+# ── Data source 1: Local adapter confs ──
+adapters = {}  # name → {source, ic_name, technique, dataset}
+adapters_dir = os.path.join(script_dir, "adapters")
+if os.path.isdir(adapters_dir):
+    for conf_path in sorted(glob.glob(os.path.join(adapters_dir, "*.conf"))):
+        if os.path.basename(conf_path) == ".gitkeep":
             continue
-        fi
+        props = {}
+        with open(conf_path) as f:
+            for line in f:
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        props[k] = v.strip('"').strip("'")
+        name = props.get("ADAPTER_NAME", os.path.basename(conf_path).replace(".conf", ""))
+        adapters[name] = {
+            "source": props.get("ADAPTER_SOURCE", "s3"),
+            "ic_name": props.get("ADAPTER_IC_NAME", ""),
+            "technique": props.get("ADAPTER_TUNE_TECHNIQUE", props.get("ADAPTER_TECHNIQUE", "")),
+            "dataset": props.get("ADAPTER_TUNE_DATASET", ""),
+            "status": "not deployed",
+        }
 
-        # Extract status and artifact URL
-        local status
-        status=$(echo "${ic_detail}" | jq -r '.InferenceComponentStatus // "Unknown"' 2>/dev/null)
+# ── Data source 2: Deployed adapter ICs ──
+if endpoint_name:
+    try:
+        result = subprocess.run(
+            ["aws", "sagemaker", "list-inference-components",
+             "--endpoint-name-equals", endpoint_name, "--region", region],
+            capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            ic_data = json.loads(result.stdout)
+            for ic in ic_data.get("InferenceComponents", []):
+                ic_name = ic["InferenceComponentName"]
+                ic_status = ic.get("InferenceComponentStatus", "Unknown")
+                # Check if adapter (has BaseInferenceComponentName) via describe
+                desc = subprocess.run(
+                    ["aws", "sagemaker", "describe-inference-component",
+                     "--inference-component-name", ic_name, "--region", region],
+                    capture_output=True, text=True, timeout=10)
+                if desc.returncode == 0:
+                    detail = json.loads(desc.stdout)
+                    base_ic = detail.get("Specification", {}).get("BaseInferenceComponentName", "")
+                    if not base_ic:
+                        continue  # Base IC, not adapter
+                    ic_status = detail.get("InferenceComponentStatus", ic_status)
+                    display = ic_name
+                    prefix = f"{project_name}-adapter-"
+                    if ic_name.startswith(prefix):
+                        display = ic_name[len(prefix):]
+                    if display in adapters:
+                        adapters[display]["status"] = ic_status
+                    else:
+                        adapters[display] = {"source": "external", "ic_name": ic_name,
+                                             "technique": "", "dataset": "", "status": ic_status}
+    except Exception:
+        print("⚠️  Could not query endpoint — showing local confs only.", file=sys.stderr)
 
-        local weights_url
-        weights_url=$(echo "${ic_detail}" | jq -r '.Specification.Container.ArtifactUrl // "N/A"' 2>/dev/null)
+# ── Output ──
+if not adapters:
+    print("No adapters found.")
+    print("")
+    print("Add one with: ./do/adapter add <name> --weights <s3-uri>")
+    print("              ./do/adapter add <name> --from-hub <hf-repo-id>")
+    print("              ./do/adapter add <name> --from-registry")
+    sys.exit(0)
 
-        # Derive display name (strip project prefix if present)
-        local display_name="${ic_name}"
-        if [[ "${ic_name}" == "${PROJECT_NAME}-adapter-"* ]]; then
-            display_name="${ic_name#${PROJECT_NAME}-adapter-}"
-        fi
+print(f"Adapters on endpoint: {endpoint_name or '<not deployed>'}")
+print("")
 
-        # Check ownership: is this adapter in our local do/adapters/*.conf?
-        local ownership=""
-        if echo "${local_adapters}" | grep -qw "${ic_name}"; then
-            ownership=""
-        else
-            ownership=" (external)"
-        fi
+# Column widths
+max_n = max(len("NAME"), max(len(n) for n in adapters))
+max_s = max(len("SOURCE"), max(len(a["source"]) for a in adapters.values()))
+fmt = f"  {{:<{max_n + 3}}}{{:<{max_s + 3}}}{{}}  {{}}"
 
-        # Check for tuning metadata in conf file
-        local tune_info=""
-        if [ -d "${SCRIPT_DIR}/adapters" ]; then
-            for conf_file in "${SCRIPT_DIR}"/adapters/*.conf; do
-                [ -f "${conf_file}" ] || continue
-                local conf_ic
-                conf_ic=$(grep "^export ADAPTER_IC_NAME=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
-                if [ "${conf_ic}" = "${ic_name}" ]; then
-                    local conf_technique
-                    conf_technique=$(grep "^export ADAPTER_TUNE_TECHNIQUE=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_TUNE_TECHNIQUE="//' | sed 's/"$//' || echo "")
-                    local conf_dataset
-                    conf_dataset=$(grep "^export ADAPTER_TUNE_DATASET=" "${conf_file}" 2>/dev/null | sed 's/^export ADAPTER_TUNE_DATASET="//' | sed 's/"$//' || echo "")
-                    if [ -n "${conf_technique}" ]; then
-                        if [ -n "${conf_dataset}" ]; then
-                            tune_info=" (from tune: ${conf_technique} / ${conf_dataset})"
-                        else
-                            tune_info=" (from tune: ${conf_technique})"
-                        fi
-                    fi
-                    break
-                fi
-            done
-        fi
+print(fmt.format("NAME", "SOURCE", "STATUS", ""))
+print(fmt.format("----", "------", "------", ""))
+for name in sorted(adapters):
+    a = adapters[name]
+    tune_info = ""
+    if a["technique"]:
+        tune_info = f"(tune: {a['technique']}" + (f" / {a['dataset']}" if a["dataset"] else "") + ")"
+    print(fmt.format(name, a["source"], a["status"], tune_info))
 
-        output_lines="${output_lines}$(printf '%-14s%-12s%s%s%s' "${display_name}" "${status}" "${weights_url}" "${ownership}" "${tune_info}")\n"
-        found_adapters=$((found_adapters + 1))
-    done
-
-    if [ "${found_adapters}" -eq 0 ]; then
-        echo "No adapters found on this endpoint."
-        echo ""
-        echo "Add one with: ./do/adapter add <name> --weights <s3-uri>"
-    fi
-
-    if [ "${found_adapters}" -gt 0 ]; then
-        # ── Print table ───────────────────────────────────────────────────────
-        printf '%-14s%-12s%s\n' "NAME" "STATUS" "WEIGHTS"
-        echo -e "${output_lines}" | sed '$ { /^$/d; }'
-    fi
-
-    # ── Show registry adapters (isAdapter=true) alongside local ones ──────
-    echo ""
-    echo "📦 Registry adapters:"
-    echo ""
-
-    local registry_json
-    registry_json=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-adapters \
-        --project-name "${PROJECT_NAME}" \
-        --region "${AWS_REGION}" 2>/dev/null || echo "")
-
-    local registry_line
-    registry_line=$(echo "${registry_json}" | grep -E '^\{' | tail -1)
-
-    if [ -z "${registry_line}" ]; then
-        echo "   (could not query registry — check AWS credentials)"
-        return 0
-    fi
-
-    local registry_count
-    registry_count=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(len(data.get('adapters',[])))" 2>/dev/null || echo "0")
-
-    if [ "${registry_count}" -eq 0 ]; then
-        echo "   (none found)"
-        return 0
-    fi
-
-    printf '  %-10s%-12s%-14s%s\n' "VERSION" "TECHNIQUE" "CREATED" "PARENT MODEL"
-
-    local ri=0
-    while [ "${ri}" -lt "${registry_count}" ]; do
-        local rv rt rc rp
-        rv=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['adapters'][${ri}].get('version','?'))" 2>/dev/null)
-        rt=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data['adapters'][${ri}].get('tuneTechnique','?'))" 2>/dev/null)
-        rc=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); t=data['adapters'][${ri}].get('createdAt',''); print(t[:10] if t else '?')" 2>/dev/null)
-        rp=$(echo "${registry_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); a=data['adapters'][${ri}].get('parentModelVersionArn',''); print(a.split('/')[-2]+'/'+a.split('/')[-1] if '/' in a else a[:40])" 2>/dev/null)
-
-        printf '  %-10s%-12s%-14s%s\n' "v${rv}" "${rt}" "${rc}" "${rp}"
-        ri=$((ri + 1))
-    done
-
-    echo ""
-    echo "Add from registry: ./do/adapter add <name> --from-registry [version-arn]"
+print("")
+print("Add adapter:      ./do/adapter add <name> --weights <s3-uri>")
+print("From registry:    ./do/adapter add <name> --from-registry [version-arn]")
+ADAPTER_LIST_PY
 }
 
 _adapter_remove() {

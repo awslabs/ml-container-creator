@@ -32,6 +32,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ const EVALUATORS_REGISTRY_PATH = join(MLCC_DIR, 'evaluators.json');
 
 const DEFAULT_LIMIT = 20;
 const SAGEMAKER_MAX_RESULTS = 100;
+const REGISTER_HELPER_PATH = join(MLCC_DIR, '.register_helper.py');
 
 // ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -463,6 +465,7 @@ async function toolGetModelVersion({ version_arn }) {
 /**
  * list_datasets tool implementation.
  * Reads from local datasets registry (AI Registry API not available).
+ * Enhanced with version_count and latest_version per dataset entry.
  */
 function toolListDatasets({ technique, name_pattern }) {
     const entries = _loadDatasetsRegistry();
@@ -476,14 +479,24 @@ function toolListDatasets({ technique, name_pattern }) {
         filtered = filtered.filter(e => e.name && e.name.toLowerCase().includes(pattern));
     }
 
-    const datasets = filtered.map(e => ({
-        name: e.name,
-        s3Uri: e.s3_uri,
-        format: e.format || 'jsonl',
-        technique: e.technique || null,
-        rowCount: e.row_count || null,
-        registeredAt: e.registered_at || null
-    }));
+    const datasets = filtered.map(e => {
+        const versions = Array.isArray(e.versions) ? e.versions : [];
+        const versionCount = versions.length || 1;
+        const latestVersion = versions.length > 0
+            ? versions[versions.length - 1].version
+            : (e.version || '1.0.0');
+
+        return {
+            name: e.name,
+            s3Uri: e.s3_uri,
+            format: e.format || 'jsonl',
+            technique: e.technique || null,
+            rowCount: e.row_count || null,
+            registeredAt: e.registered_at || null,
+            latest_version: latestVersion,
+            version_count: versionCount
+        };
+    });
 
     return {
         datasets,
@@ -565,6 +578,71 @@ function toolGetEvaluator({ name }) {
         description: entry.description || '',
         projectName: entry.project_name || null,
         registeredAt: entry.registered_at || null,
+        source: 'local'
+    };
+}
+
+/**
+ * list_dataset_versions tool implementation.
+ * Calls .register_helper.py list-dataset-versions --name <name> and returns version list.
+ * Falls back to local JSON registry if the helper is unavailable.
+ */
+function toolListDatasetVersions({ name }) {
+    // First try calling .register_helper.py
+    if (existsSync(REGISTER_HELPER_PATH)) {
+        try {
+            const output = execFileSync('python3', [
+                REGISTER_HELPER_PATH,
+                'list-dataset-versions',
+                '--name', name
+            ], {
+                encoding: 'utf8',
+                timeout: 30000
+            });
+            const parsed = JSON.parse(output.trim());
+            return {
+                name,
+                versions: Array.isArray(parsed) ? parsed : (parsed.versions || []),
+                source: 'helper'
+            };
+        } catch (err) {
+            log(`register_helper.py failed: ${err.message}. Falling back to local registry.`);
+        }
+    }
+
+    // Fallback: read from local datasets registry
+    const entries = _loadDatasetsRegistry();
+    const entry = entries.find(e => e.name === name);
+
+    if (!entry) {
+        return { error: `Dataset not found: ${name}`, versions: [], source: 'local' };
+    }
+
+    const versions = Array.isArray(entry.versions) ? entry.versions : [];
+    if (versions.length === 0) {
+        // Existing unversioned entry — treat as v1.0.0
+        return {
+            name,
+            versions: [{
+                version: entry.version || '1.0.0',
+                hash: entry.hash || null,
+                date: entry.registered_at || null,
+                rows: entry.row_count || null,
+                s3_uri: entry.s3_uri || null
+            }],
+            source: 'local'
+        };
+    }
+
+    return {
+        name,
+        versions: versions.map(v => ({
+            version: v.version,
+            hash: v.hash || null,
+            date: v.registered_at || null,
+            rows: v.rows || v.row_count || null,
+            s3_uri: v.s3_uri || null
+        })),
         source: 'local'
     };
 }
@@ -689,6 +767,24 @@ server.tool(
     }
 );
 
+// Tool: list_dataset_versions
+server.tool(
+    'list_dataset_versions',
+    'Lists all versions of a registered dataset by name, including version number, content hash, date, row count, and S3 URI for each version.',
+    {
+        name: z.string().describe('Name of the dataset to list versions for')
+    },
+    async ({ name }) => {
+        const result = toolListDatasetVersions({ name });
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify(result)
+            }]
+        };
+    }
+);
+
 // ── Exports for testing ──────────────────────────────────────────────────────
 
 export {
@@ -698,6 +794,7 @@ export {
     toolListEvaluators,
     toolGetDataset,
     toolGetEvaluator,
+    toolListDatasetVersions,
     loadBootstrapProfile,
     _loadLocalRegistry,
     _loadDeploymentRegistry,
@@ -714,6 +811,7 @@ export {
     DATASETS_REGISTRY_PATH,
     EVALUATORS_REGISTRY_PATH,
     LOCAL_REGISTRY_PATH,
+    REGISTER_HELPER_PATH,
     DEFAULT_LIMIT,
     SAGEMAKER_MAX_RESULTS
 };

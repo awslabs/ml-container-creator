@@ -178,6 +178,7 @@ def cmd_submit(args):
                 "status": "AlreadyStaged",
                 "s3_uri": s3_uri,
             })
+            return
         except s3.exceptions.ClientError:
             pass  # Not staged yet, proceed
 
