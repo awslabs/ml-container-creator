@@ -269,10 +269,12 @@ describe('Base Image Picker Server Property-Based Tests', () => {
                             `Label value for "${key}" should be string in "${entry.image}"`);
                     }
 
-                    // (e) Transformer entries have cuda_version and framework_version
+                    // (e) Transformer entries have cuda_version (in labels or accelerator) and framework_version
                     if (entry._framework !== 'python-slim') {
-                        assert.ok(entry.labels.cuda_version && entry.labels.cuda_version.length > 0,
-                            `Transformer entry "${entry.image}" missing non-empty cuda_version`);
+                        const hasCudaInLabels = entry.labels.cuda_version && entry.labels.cuda_version.length > 0;
+                        const hasCudaInAccelerator = entry.accelerator && entry.accelerator.type === 'cuda' && entry.accelerator.version && entry.accelerator.version.length > 0;
+                        assert.ok(hasCudaInLabels || hasCudaInAccelerator,
+                            `Transformer entry "${entry.image}" missing CUDA version in labels.cuda_version or accelerator`);
                         assert.ok(entry.labels.framework_version && entry.labels.framework_version.length > 0,
                             `Transformer entry "${entry.image}" missing non-empty framework_version`);
                     }
