@@ -152,11 +152,55 @@ ml-container-creator mcp add model-picker --bundled
 
 ### base-image-picker
 
-Recommends base Docker images based on the selected deployment configuration, framework version, and accelerator requirements.
+Recommends base Docker images for serving frameworks (vLLM, SGLang, TensorRT-LLM, DJL) based on three compatibility dimensions:
+
+1. **Endpoint architecture** — Instance family → GPU driver version → CUDA compatibility
+2. **Inference AMI version** — More precise driver mapping than instance family alone
+3. **Model architecture** — Model type → minimum transformers version → minimum framework version
+
+Returns the 3 most recent compatible versions after filtering. Incompatible images (e.g., vLLM v0.23.0 on g5 instances with driver 550) are excluded.
 
 ```bash
 ml-container-creator mcp add base-image-picker --bundled
 ```
+
+#### Driver-Aware Selection
+
+When `instanceType` is provided in context, the server resolves the fleet GPU driver version from a static catalog (`fleet-drivers.json`) and excludes images compiled against a newer CUDA toolkit than the driver supports. For multi-GPU deployments (TP > 1), images requiring the CUDA forward compatibility layer are excluded entirely — compat mode fails silently on NCCL multi-GPU communication.
+
+| Instance Family | Fleet Driver | Max CUDA | Compatible vLLM |
+|-----------------|:------------:|:--------:|:---------------:|
+| g4dn | ~535 | 12.2 | ≤v0.18.x |
+| g5, p4d | ~550 | 12.4 | ≤v0.21.x |
+| g6, g6e | ~560 | 12.6 | ≤v0.22.x |
+| p5, p5e | ~580 | 12.9 | All |
+
+#### Model Architecture Support
+
+When `modelId` is provided in context, the server resolves the model's architecture class (e.g., `Qwen3ForCausalLM`, `DeepseekV3ForCausalLM`) and excludes framework versions that predate support for that architecture.
+
+| Architecture | vLLM Since | SGLang Since |
+|---|---|---|
+| LlamaForCausalLM | v0.4.0 | v0.3.0 |
+| Qwen2ForCausalLM | v0.6.0 | — |
+| Qwen3ForCausalLM | v0.20.0 | v0.6.0 |
+| DeepseekV3ForCausalLM | v0.19.0 | v0.5.0 |
+| Gemma4ForCausalLM | v0.23.0 | — |
+| GptOssForCausalLM | v0.22.0 | — |
+
+#### Context Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `instanceType` | string | Triggers driver filtering (e.g., `ml.g5.24xlarge`) |
+| `inferenceAmiVersion` | string | More precise driver lookup (overrides instance family) |
+| `driverVersion` | string | Explicit override (skips all lookups) |
+| `tensorParallelSize` | number | Affects compat eligibility — TP > 1 excludes compat-only images |
+| `modelId` | string | Triggers model architecture filtering |
+| `modelArchitecture` | string | Direct architecture class (skips HF lookup) |
+
+!!! warning "CUDA Forward Compatibility Failure Mode"
+    Images requiring a newer driver than the fleet provides will log `CUDA compat: driver X < Y, adding compat libs` at container startup, then **silently hang** on multi-GPU tensor-parallel deployments (NCCL init failure with no log output). This is why TP > 1 incompatible images are excluded rather than warned.
 
 ### workload-picker
 

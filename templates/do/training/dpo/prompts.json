@@ -1,0 +1,8 @@
+{
+  "section_title": "DPO-specific settings",
+  "prompts": [
+    {"name": "beta", "type": "input", "message": "Beta (KL penalty coefficient)?", "default": "0.1", "validate": "float"},
+    {"name": "chosen_field", "type": "input", "message": "Chosen response column name?", "default": "chosen", "validate": "string"},
+    {"name": "rejected_field", "type": "input", "message": "Rejected response column name?", "default": "rejected", "validate": "string"}
+  ]
+}

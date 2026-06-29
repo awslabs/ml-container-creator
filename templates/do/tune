@@ -796,9 +796,16 @@ else:
 _validate_dataset() {
     local dataset="${ARG_DATASET}"
 
-    # ── Parse @v<N> version suffix (AC-2.1, AC-2.3) ──────────────────────────
+    # ── Parse @v<version> suffix (AC-2.1, AC-2.3) ───────────────────────────
     # Syntax: dataset-name@v2 → name="dataset-name", version ordinal=2
-    if [[ "${dataset}" =~ ^(.+)@v([0-9]+)$ ]]; then
+    #         dataset-name@v1.0.0 → name="dataset-name", version="1.0.0" (semver)
+    if [[ "${dataset}" =~ ^(.+)@v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+        # Semver syntax: @v1.0.0
+        ARG_DATASET_NAME="${BASH_REMATCH[1]}"
+        ARG_DATASET_VERSION="${BASH_REMATCH[2]}"
+        dataset=""  # Clear so name-based resolution takes over
+    elif [[ "${dataset}" =~ ^(.+)@v([0-9]+)$ ]]; then
+        # Ordinal syntax: @v1, @v2
         ARG_DATASET_NAME="${BASH_REMATCH[1]}"
         ARG_DATASET_VERSION="${BASH_REMATCH[2]}"
         dataset=""  # Clear so name-based resolution takes over
@@ -824,6 +831,8 @@ _validate_dataset() {
                 echo "   Resolved to: ${resolved_uri}"
                 dataset="${resolved_uri}"
                 ARG_DATASET="${resolved_uri}"
+                RESOLVED_DATASET_S3_URI="${resolved_uri}"
+                return 0
             else
                 echo "❌ Dataset '${ARG_DATASET_NAME}' not found in registry"
                 echo "   Register it first: ./do/register --dataset --dataset-name ${ARG_DATASET_NAME} --dataset-s3-uri s3://..."

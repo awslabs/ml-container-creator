@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-06-29T13:36:56.342Z",
-  "version": "1.0.2",
+  "generatedAt": "2026-06-29T19:34:07.108Z",
+  "version": "1.0.3",
   "cliOptions": [],
   "deploymentConfigs": [
     {
@@ -681,6 +681,48 @@
             "whisper",
             "zamba2"
           ]
+        },
+        {
+          "tag": "v0.21.0",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.20.2",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.20.0",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.19.0",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.18.0",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.17.0",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.16.0",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
         }
       ]
     },
@@ -704,6 +746,36 @@
           "tag": "v0.5.12",
           "cuda": null,
           "validationLevel": "experimental",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.5.11",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.5.10",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.5.0",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.4.5",
+          "cuda": null,
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "v0.4.0",
+          "cuda": null,
+          "validationLevel": "community-validated",
           "supportedModelTypes": []
         }
       ]
@@ -976,6 +1048,10 @@
         },
         {
           "flag": "--from-tune",
+          "argName": null
+        },
+        {
+          "flag": "--from-train",
           "argName": null
         },
         {

@@ -35,6 +35,7 @@ _usage() {
     echo "  add <name> --weights <s3-uri>        Add a new LoRA adapter from S3"
     echo "  add <name> --from-hub <hf-repo-id>   Add a new LoRA adapter from HuggingFace Hub"
     echo "  add <name> --from-tune [technique]   Add adapter from do/tune output"
+    echo "  add <name> --from-train [technique]  Add adapter from do/train output"
     echo "  add <name> --from-registry [arn]     Add adapter from model registry"
     echo "  list                                  List all adapters on the endpoint"
     echo "  remove <name>                         Remove an adapter"
@@ -375,6 +376,8 @@ _adapter_add() {
     local from_hub=""
     local from_tune=""
     local from_tune_technique=""
+    local from_train=""
+    local from_train_technique=""
     local from_registry=""
     local registry_arn=""
     local use_local=""
@@ -408,6 +411,16 @@ _adapter_add() {
                 # Check if next argument is a technique (not another flag and not empty)
                 if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
                     from_tune_technique="$2"
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
+            --from-train)
+                from_train="true"
+                # Check if next argument is a technique (not another flag and not empty)
+                if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
+                    from_train_technique="$2"
                     shift 2
                 else
                     shift
@@ -508,6 +521,7 @@ _adapter_add() {
     [ -n "${weights_uri}" ] && source_count=$((source_count + 1))
     [ -n "${from_hub}" ] && source_count=$((source_count + 1))
     [ -n "${from_tune}" ] && source_count=$((source_count + 1))
+    [ -n "${from_train}" ] && source_count=$((source_count + 1))
     [ -n "${from_registry}" ] && source_count=$((source_count + 1))
 
     if [ "${source_count}" -gt 1 ]; then
@@ -868,6 +882,96 @@ _adapter_add() {
         fi  # end --local else branch
     fi
 
+    # ── Resolve --from-train to weights_uri ───────────────────────────────
+    if [ -n "${from_train}" ]; then
+        if [ -n "${from_train_technique}" ]; then
+            local technique_upper
+            technique_upper=$(echo "${from_train_technique}" | tr '[:lower:]' '[:upper:]')
+            local train_var="TRAIN_ADAPTER_PATH_${technique_upper}"
+            local train_path="${!train_var:-}"
+
+            if [ -z "${train_path}" ]; then
+                echo "❌ No training adapter output found for technique: ${from_train_technique}"
+                echo ""
+                echo "   ${train_var} is not set in do/config."
+                echo ""
+                echo "   Run a training job first:"
+                echo "   ./do/train --technique ${from_train_technique} --dataset <source>"
+                exit 1
+            fi
+
+            weights_uri="${train_path}"
+            echo "📦 Using train adapter output for technique '${from_train_technique}': ${weights_uri}"
+        else
+            # No technique: read TRAIN_OUTPUT_PATH_LATEST
+            if [ -z "${TRAIN_OUTPUT_PATH_LATEST:-}" ]; then
+                echo "❌ No training output found."
+                echo ""
+                echo "   TRAIN_OUTPUT_PATH_LATEST is not set in do/config."
+                echo ""
+                echo "   Run a training job first:"
+                echo "   ./do/train --technique <technique> --dataset <source>"
+                exit 1
+            fi
+
+            weights_uri="${TRAIN_OUTPUT_PATH_LATEST}"
+            echo "📦 Using latest train adapter output: ${weights_uri}"
+        fi
+        echo ""
+
+        # Use same staging path as --from-tune (Processing Job or local)
+        if [ -z "${use_local}" ]; then
+            echo "🚀 Submitting Processing Job to stage adapter from training output..."
+            echo ""
+
+            local exec_role="${EXECUTION_ROLE_ARN:-}"
+            if [ -z "${exec_role}" ]; then
+                exec_role="${ROLE_ARN:-}"
+            fi
+            if [ -z "${exec_role}" ]; then
+                exec_role="${SAGEMAKER_ROLE_ARN:-}"
+            fi
+            if [ -z "${exec_role}" ]; then
+                echo "❌ No execution role found."
+                echo "   Run 'ml-container-creator bootstrap' to set up your profile."
+                exit 1
+            fi
+
+            local adapter_bucket="${ADAPTER_S3_BUCKET:-}"
+            if [ -z "${adapter_bucket}" ]; then
+                local account_id
+                account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+                adapter_bucket="sagemaker-${AWS_REGION:-us-east-1}-${account_id}"
+            fi
+
+            local adapter_s3_prefix="s3://${adapter_bucket}/${PROJECT_NAME}/adapters/${adapter_name}"
+
+            local stage_args=(
+                --source-uri "${weights_uri}"
+                --output-uri "${adapter_s3_prefix}/"
+                --role-arn "${exec_role}"
+                --region "${AWS_REGION}"
+            )
+            if [ -n "${no_wait}" ]; then
+                stage_args+=(--no-wait)
+            fi
+
+            local stage_result
+            stage_result=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" stage "${stage_args[@]}" 2>/dev/null | grep -E '^\{' | tail -1) || {
+                echo "❌ Failed to submit adapter staging job"
+                exit 1
+            }
+
+            weights_uri=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('adapter_s3_uri',''))" 2>/dev/null) || weights_uri=""
+            if [ -z "${weights_uri}" ]; then
+                echo "❌ Failed to extract staged adapter URI"
+                exit 1
+            fi
+            echo "   ✅ Adapter staged to: ${weights_uri}"
+        fi
+        echo ""
+    fi
+
     # ── Resolve --from-registry to weights_uri ────────────────────────────
     if [ -n "${from_registry}" ]; then
         if [ -z "${registry_arn}" ]; then
@@ -985,6 +1089,13 @@ _adapter_add() {
 
         # Extract model data URL (weights path)
         weights_uri=$(echo "${version_line}" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(data.get('modelDataUrl',''))" 2>/dev/null || echo "")
+
+        # Ensure adapter weights URI ends with / (S3 prefix for directory-style adapters).
+        # Registry metadata may have the slash stripped (Bug 52 rstrip), but SageMaker IC
+        # ModelDataUrl requires it to download all objects under the prefix.
+        if [ -n "${weights_uri}" ] && ! echo "${weights_uri}" | grep -q '\.tar\.gz$'; then
+            weights_uri="${weights_uri%/}/"
+        fi
 
         if [ -z "${weights_uri}" ]; then
             echo "❌ No model data URL found for registry version: ${registry_arn}"
@@ -1292,6 +1403,16 @@ export ADAPTER_PARENT_MODEL_ARN="${parent_model_arn}"
 export ADAPTER_PARENT_MODEL_SLUG="${parent_model_slug}"
 EOF
         fi
+    fi
+
+    # Add train-specific metadata if --from-train was used
+    if [ -n "${from_train}" ]; then
+        local train_technique_meta="${from_train_technique:-${TRAIN_TECHNIQUE:-custom}}"
+        cat >> "${SCRIPT_DIR}/adapters/${adapter_name}.conf" <<EOF
+export ADAPTER_SOURCE="train"
+export ADAPTER_TECHNIQUE="${train_technique_meta}"
+export ADAPTER_TRAIN_JOB="${TRAIN_JOB_NAME:-}"
+EOF
     fi
 
     # Add registry-specific metadata if --from-registry was used

@@ -366,10 +366,10 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     const trainIncluded = answers.deploymentTarget !== 'batch-transform';
     if (!trainIncluded) {
         ignorePatterns.push('**/do/train');
-        ignorePatterns.push('**/do/.train_build_request.py');
-        ignorePatterns.push('**/do/.train_status_parser.py');
-        ignorePatterns.push('**/do/.train_poll_parser.py');
+        ignorePatterns.push('**/do/.train_helper.py');
         ignorePatterns.push('**/do/training/**');
+        ignorePatterns.push('**/do/evaluate');
+        ignorePatterns.push('**/do/.eval_helper.py');
     }
 
     // Exclude feedback.sh when neither tune nor train is included
@@ -404,10 +404,10 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/.adapter_helper.py');
         ignorePatterns.push('**/do/.register_helper.py');
         ignorePatterns.push('**/do/train');
-        ignorePatterns.push('**/do/.train_build_request.py');
-        ignorePatterns.push('**/do/.train_status_parser.py');
-        ignorePatterns.push('**/do/.train_poll_parser.py');
+        ignorePatterns.push('**/do/.train_helper.py');
         ignorePatterns.push('**/do/training/**');
+        ignorePatterns.push('**/do/evaluate');
+        ignorePatterns.push('**/do/.eval_helper.py');
         ignorePatterns.push('**/do/add-ic');
         ignorePatterns.push('**/do/run');
         ignorePatterns.push('**/sample_model/**');

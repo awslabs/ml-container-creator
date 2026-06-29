@@ -27,10 +27,29 @@ ARG_STATUS=false
 ARG_DRY_RUN=false
 ARG_NO_WAIT=false
 ARG_HELP=false
+ARG_TECHNIQUE=""
+ARG_DATASET=""
+ARG_LIST_DATASETS=false
+ARG_NO_REGISTER=false
+ARG_INTERACTIVE=false
+ARG_LEARNING_RATE=""
+ARG_EPOCHS=""
+ARG_BATCH_SIZE=""
+ARG_LORA_R=""
+ARG_BETA=""
+ARG_RESUME=false
+ARG_RESUME_JOB=""
 
 # ── Job Variables (set by _build_job_request) ─────────────────────────────────
 JOB_NAME=""
 JOB_REQUEST_FILE=""
+
+# ── Technique Variables (set by _resolve_technique) ───────────────────────────
+TECHNIQUE=""
+TRAIN_SCRIPT_PATH=""
+
+# ── Dataset Variables (set by _resolve_dataset) ───────────────────────────────
+RESOLVED_DATASET_S3_URI=""
 
 # ── Training Config Variables (set by _parse_config) ──────────────────────────
 TRAIN_IMAGE=""
@@ -70,6 +89,46 @@ _parse_args() {
             --status) ARG_STATUS=true; shift ;;
             --dry-run) ARG_DRY_RUN=true; shift ;;
             --no-wait) ARG_NO_WAIT=true; shift ;;
+            --technique)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --technique requires a value"
+                    echo "   Available: $(_list_techniques)"
+                    exit 1
+                fi
+                ARG_TECHNIQUE="$2"; shift 2 ;;
+            --dataset)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --dataset requires a value (s3://..., hf://..., or registry name)"
+                    exit 1
+                fi
+                ARG_DATASET="$2"; shift 2 ;;
+            --list-datasets) ARG_LIST_DATASETS=true; shift ;;
+            --no-register) ARG_NO_REGISTER=true; shift ;;
+            --interactive|-i) ARG_INTERACTIVE=true; shift ;;
+            --learning-rate)
+                if [ -z "${2:-}" ]; then echo "❌ --learning-rate requires a value"; exit 1; fi
+                ARG_LEARNING_RATE="$2"; shift 2 ;;
+            --epochs)
+                if [ -z "${2:-}" ]; then echo "❌ --epochs requires a value"; exit 1; fi
+                ARG_EPOCHS="$2"; shift 2 ;;
+            --batch-size)
+                if [ -z "${2:-}" ]; then echo "❌ --batch-size requires a value"; exit 1; fi
+                ARG_BATCH_SIZE="$2"; shift 2 ;;
+            --lora-r)
+                if [ -z "${2:-}" ]; then echo "❌ --lora-r requires a value"; exit 1; fi
+                ARG_LORA_R="$2"; shift 2 ;;
+            --beta)
+                if [ -z "${2:-}" ]; then echo "❌ --beta requires a value"; exit 1; fi
+                ARG_BETA="$2"; shift 2 ;;
+            --resume)
+                ARG_RESUME=true
+                # Optional: next arg is a job name (not another flag)
+                if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
+                    ARG_RESUME_JOB="$2"; shift 2
+                else
+                    shift
+                fi
+                ;;
             --help|-h) ARG_HELP=true; shift ;;
             *)
                 echo "❌ Unknown option: $1"
@@ -83,6 +142,7 @@ _parse_args() {
 # ── _show_help() ──────────────────────────────────────────────────────────────
 _show_help() {
     echo "Usage: ./do/train [OPTIONS]"
+    echo "       ./do/train --technique sft"
     echo "       ./do/train --status"
     echo "       ./do/train --help"
     echo ""
@@ -92,18 +152,370 @@ _show_help() {
     echo "Configuration is read from do/training/config.yaml"
     echo ""
     echo "Options:"
-    echo "  --force       Create a new job even if a previous job exists"
-    echo "  --status      Show current job status without submitting"
-    echo "  --dry-run     Validate inputs and show the CreateTrainingJob request without submitting"
-    echo "  --no-wait     Submit job and exit without polling for completion"
-    echo "  --help, -h    Show this help message"
+    echo "  --technique <name>  Select training technique (overrides config.yaml)"
+    echo "  --dataset <source>  Dataset: s3://..., hf://org/name, or registry name"
+    echo "  --interactive, -i   Guided interactive configuration builder"
+    echo "  --learning-rate <v> Override learning rate"
+    echo "  --epochs <n>        Override number of epochs"
+    echo "  --batch-size <n>    Override per-device batch size"
+    echo "  --lora-r <n>        Override LoRA rank"
+    echo "  --beta <v>          Override DPO beta (KL penalty)"
+    echo "  --resume [job-name] Resume from previous job's checkpoint"
+    echo "  --list-datasets     Show registered datasets"
+    echo "  --no-register       Skip auto-registration after completion"
+    echo "  --force             Create a new job even if a previous job exists"
+    echo "  --status            Show current job status without submitting"
+    echo "  --dry-run           Validate inputs and show the request without submitting"
+    echo "  --no-wait           Submit job and exit without polling for completion"
+    echo "  --help, -h          Show this help message"
+    echo ""
+    echo "Available techniques:"
+    echo "  $(_list_techniques)"
     echo ""
     echo "Examples:"
-    echo "  ./do/train                  # Submit a training job"
-    echo "  ./do/train --status         # Check status of current job"
-    echo "  ./do/train --dry-run        # Validate and preview request"
-    echo "  ./do/train --force          # Force a new job after failure"
+    echo "  ./do/train                      # Submit using config.yaml technique"
+    echo "  ./do/train --technique sft      # Submit SFT training job"
+    echo "  ./do/train --status             # Check status of current job"
+    echo "  ./do/train --dry-run            # Validate and preview request"
+    echo "  ./do/train --force              # Force a new job after failure"
     exit 0
+}
+
+# ── _list_techniques() ────────────────────────────────────────────────────────
+# Scan training/<technique>/train.py directories to list available techniques.
+_list_techniques() {
+    local training_dir="${SCRIPT_DIR}/training"
+    local techniques=""
+    for dir in "${training_dir}"/*/; do
+        if [ -f "${dir}train.py" ]; then
+            local name
+            name=$(basename "${dir}")
+            if [ -n "${techniques}" ]; then
+                techniques="${techniques}, ${name}"
+            else
+                techniques="${name}"
+            fi
+        fi
+    done
+    echo "${techniques:-none found}"
+}
+
+# ── _resolve_technique() ─────────────────────────────────────────────────────
+# Determine technique from CLI flag or config.yaml, validate directory exists.
+# Sets TECHNIQUE and TRAIN_SCRIPT_PATH.
+_resolve_technique() {
+    local training_dir="${SCRIPT_DIR}/training"
+
+    # Priority: CLI flag > config.yaml > default (custom)
+    if [ -n "${ARG_TECHNIQUE}" ]; then
+        TECHNIQUE="${ARG_TECHNIQUE}"
+    elif command -v yq &>/dev/null; then
+        TECHNIQUE=$(yq -r '.technique // "custom"' "${CONFIG_FILE}")
+    elif command -v python3 &>/dev/null; then
+        TECHNIQUE=$(python3 -c "
+import yaml
+with open('${CONFIG_FILE}', 'r') as f:
+    cfg = yaml.safe_load(f) or {}
+print(cfg.get('technique', 'custom'))
+" 2>/dev/null || echo "custom")
+    else
+        TECHNIQUE="custom"
+    fi
+
+    # Fallback if empty
+    TECHNIQUE="${TECHNIQUE:-custom}"
+
+    # Validate technique directory exists
+    TRAIN_SCRIPT_PATH="${training_dir}/${TECHNIQUE}/train.py"
+    if [ ! -f "${TRAIN_SCRIPT_PATH}" ]; then
+        echo "❌ Training technique '${TECHNIQUE}' not found"
+        echo "   Expected: ${TRAIN_SCRIPT_PATH}"
+        echo ""
+        echo "   Available techniques: $(_list_techniques)"
+        echo ""
+        echo "   To add a new technique, create: do/training/${TECHNIQUE}/train.py"
+        exit 1
+    fi
+
+    echo "📋 Technique: ${TECHNIQUE}"
+    echo "   Script:    ${TRAIN_SCRIPT_PATH}"
+}
+
+# ── _load_technique_defaults() ────────────────────────────────────────────────
+# Load technique-specific default hyperparameters from training/<technique>/defaults.yaml.
+# Returns values via TECHNIQUE_DEFAULTS associative-style extraction (yq or python).
+# Sets TECHNIQUE_DEFAULTS_JSON (JSON string of defaults).
+_load_technique_defaults() {
+    local defaults_file="${SCRIPT_DIR}/training/${TECHNIQUE}/defaults.yaml"
+    TECHNIQUE_DEFAULTS_JSON="{}"
+
+    if [ ! -f "${defaults_file}" ]; then
+        return 0
+    fi
+
+    if command -v yq &>/dev/null; then
+        TECHNIQUE_DEFAULTS_JSON=$(yq -o=json '.' "${defaults_file}" 2>/dev/null) || TECHNIQUE_DEFAULTS_JSON="{}"
+    elif command -v python3 &>/dev/null; then
+        TECHNIQUE_DEFAULTS_JSON=$(python3 -c "
+import yaml, json
+with open('${defaults_file}', 'r') as f:
+    data = yaml.safe_load(f) or {}
+# Remove comment-only entries
+data = {k: v for k, v in data.items() if v is not None}
+print(json.dumps(data))
+" 2>/dev/null) || TECHNIQUE_DEFAULTS_JSON="{}"
+    fi
+}
+
+# ── _merge_hyperparameters() ──────────────────────────────────────────────────
+# Merge hyperparameters with precedence: CLI flags > config.yaml > technique defaults.
+# Modifies TRAIN_HYPERPARAMS (JSON string) in place.
+_merge_hyperparameters() {
+    # Merge: technique defaults as base, config.yaml on top, CLI flags on top of that
+    TRAIN_HYPERPARAMS=$(python3 -c "
+import json, sys
+
+defaults_json = '''${TECHNIQUE_DEFAULTS_JSON}'''
+config_json = '''${TRAIN_HYPERPARAMS}'''
+
+defaults = json.loads(defaults_json) if defaults_json and defaults_json != '{}' else {}
+config_hp = json.loads(config_json) if config_json and config_json != '{}' else {}
+
+# Layer 1: technique defaults as base
+merged = {str(k): str(v) for k, v in defaults.items()}
+
+# Layer 2: config.yaml hyperparameters override defaults
+merged.update({str(k): str(v) for k, v in config_hp.items()})
+
+# Layer 3: CLI flags override everything (highest priority)
+cli_overrides = {}
+if '${ARG_LEARNING_RATE}':
+    cli_overrides['learning_rate'] = '${ARG_LEARNING_RATE}'
+if '${ARG_EPOCHS}':
+    cli_overrides['epochs'] = '${ARG_EPOCHS}'
+if '${ARG_BATCH_SIZE}':
+    cli_overrides['batch_size'] = '${ARG_BATCH_SIZE}'
+if '${ARG_LORA_R}':
+    cli_overrides['lora_r'] = '${ARG_LORA_R}'
+if '${ARG_BETA}':
+    cli_overrides['beta'] = '${ARG_BETA}'
+
+merged.update(cli_overrides)
+print(json.dumps(merged))
+" 2>/dev/null) || true
+}
+
+# ── _list_datasets_cmd() ─────────────────────────────────────────────────────
+# Show registered datasets (delegates to .register_helper.py).
+_list_datasets_cmd() {
+    echo "📋 Registered Datasets"
+    echo ""
+    if [ -f "${SCRIPT_DIR}/.register_helper.py" ]; then
+        python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets \
+            --region "${AWS_REGION:-us-east-1}" 2>/dev/null || {
+            echo "   No datasets registered yet."
+            echo "   Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
+        }
+    else
+        echo "   Register helper not available."
+    fi
+    exit 0
+}
+
+# ── _resolve_dataset() ────────────────────────────────────────────────────────
+# Resolve --dataset flag to an S3 URI. Handles:
+#   hf://org/name[/split] → stage via .tune_helper.py stage-hf
+#   s3://bucket/path/     → use directly
+#   name[@v<N>]           → resolve from registry via .register_helper.py
+# Sets RESOLVED_DATASET_S3_URI on success.
+_resolve_dataset() {
+    local dataset="${ARG_DATASET}"
+
+    # If no --dataset provided, check config.yaml
+    if [ -z "${dataset}" ]; then
+        dataset="${TRAIN_DATASET}"
+    fi
+
+    # Still empty — dataset is optional for custom technique, required for sft/dpo
+    if [ -z "${dataset}" ]; then
+        if [ "${TECHNIQUE}" = "custom" ]; then
+            return 0  # Custom technique doesn't require managed dataset resolution
+        fi
+        echo "❌ --dataset is required for technique '${TECHNIQUE}'"
+        echo "   Provide: s3://bucket/path.jsonl, hf://org/name, or a registered name"
+        echo "   Run ./do/train --list-datasets to see registered datasets."
+        exit 1
+    fi
+
+    # ── Parse @v<N> version suffix ────────────────────────────────────────────
+    local dataset_name="" dataset_version=""
+    if [[ "${dataset}" =~ ^(.+)@v([0-9]+)$ ]]; then
+        dataset_name="${BASH_REMATCH[1]}"
+        dataset_version="${BASH_REMATCH[2]}"
+        dataset=""
+    fi
+
+    # ── Determine dataset type and resolve ────────────────────────────────────
+    if [ -n "${dataset_name}" ]; then
+        # Registry name resolution
+        _resolve_dataset_from_registry "${dataset_name}" "${dataset_version}"
+
+    elif [[ "${dataset}" == s3://* ]]; then
+        # S3 direct — use as-is
+        echo "📂 Dataset: ${dataset} (S3 direct)"
+        RESOLVED_DATASET_S3_URI="${dataset}"
+
+    elif [[ "${dataset}" == hf://* ]]; then
+        # HuggingFace — stage via helper
+        _stage_hf_dataset "${dataset}"
+
+    else
+        # Treat as a registry name
+        _resolve_dataset_from_registry "${dataset}" ""
+    fi
+
+    # Persist resolved URI
+    if [ -n "${RESOLVED_DATASET_S3_URI}" ]; then
+        local technique_upper
+        technique_upper=$(echo "${TECHNIQUE}" | tr '[:lower:]' '[:upper:]')
+        _update_config_var "TRAIN_DATASET_S3_URI_${technique_upper}" "${RESOLVED_DATASET_S3_URI}"
+    fi
+}
+
+# ── _resolve_dataset_from_registry() ─────────────────────────────────────────
+_resolve_dataset_from_registry() {
+    local name="$1"
+    local version="$2"
+
+    echo "🔍 Resolving dataset '${name}' from registry..."
+    local resolve_args=("--name" "${name}")
+    if [ -n "${version}" ]; then
+        resolve_args+=("--version" "${version}")
+        echo "   Version: v${version}"
+    fi
+
+    local resolve_result
+    resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
+        "${resolve_args[@]}" 2>/dev/null) || resolve_result=""
+
+    if [ -n "${resolve_result}" ]; then
+        local resolved_uri
+        resolved_uri=$(echo "${resolve_result}" | grep -E '^\{' | tail -1 | \
+            python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || resolved_uri=""
+        if [ -n "${resolved_uri}" ]; then
+            echo "   Resolved to: ${resolved_uri}"
+            RESOLVED_DATASET_S3_URI="${resolved_uri}"
+            return 0
+        fi
+    fi
+
+    echo "❌ Dataset '${name}' not found in registry"
+    echo "   Register it: ./do/register dataset ${name} --s3-uri <uri> --technique ${TECHNIQUE}"
+    echo "   Or provide directly: --dataset s3://... or --dataset hf://..."
+    exit 1
+}
+
+# ── _stage_hf_dataset() ──────────────────────────────────────────────────────
+# Stage a HuggingFace dataset to S3 via .tune_helper.py stage-hf.
+_stage_hf_dataset() {
+    local dataset="$1"
+    local hf_path="${dataset#hf://}"
+    local hf_file=""
+
+    # Extract ?file= parameter
+    if [[ "${hf_path}" == *"?file="* ]]; then
+        hf_file="${hf_path#*?file=}"
+        hf_path="${hf_path%%\?file=*}"
+    fi
+
+    local hf_org hf_name hf_split
+    hf_org=$(echo "${hf_path}" | cut -d'/' -f1)
+    hf_name=$(echo "${hf_path}" | cut -d'/' -f2)
+    hf_split=$(echo "${hf_path}" | cut -d'/' -f3-)
+
+    if [ -z "${hf_org}" ] || [ -z "${hf_name}" ]; then
+        echo "❌ Invalid HF dataset reference: ${dataset}"
+        echo "   Expected format: hf://org/name or hf://org/name/split"
+        exit 1
+    fi
+
+    # Determine which helper script to use for staging
+    local helper_script=""
+    if [ -f "${SCRIPT_DIR}/.tune_helper.py" ]; then
+        helper_script="${SCRIPT_DIR}/.tune_helper.py"
+    else
+        echo "❌ Dataset staging helper not available (.tune_helper.py)"
+        echo "   Stage the dataset manually to S3 and use: --dataset s3://..."
+        exit 1
+    fi
+
+    echo "📦 Staging HuggingFace dataset: ${hf_org}/${hf_name}"
+    if [ -n "${hf_split}" ]; then
+        echo "   Split: ${hf_split}"
+    fi
+
+    # Resolve output bucket from profile
+    local output_bucket="${S3_BUCKET:-}"
+    if [ -z "${output_bucket}" ]; then
+        output_bucket=$(python3 -c "
+import json, os
+config_path = os.path.expanduser('~/.ml-container-creator/config.json')
+if os.path.exists(config_path):
+    with open(config_path) as f:
+        cfg = json.load(f)
+    print(cfg.get('s3Bucket', ''))
+" 2>/dev/null) || output_bucket=""
+    fi
+
+    if [ -z "${output_bucket}" ]; then
+        echo "❌ No S3 bucket configured for dataset staging"
+        echo "   Run ./do/bootstrap to configure, or set S3_BUCKET in do/config"
+        exit 1
+    fi
+
+    # Build stage-hf arguments
+    local stage_args=(
+        --hf-org "${hf_org}"
+        --hf-name "${hf_name}"
+        --output-bucket "${output_bucket}"
+        --project-name "${PROJECT_NAME}"
+        --region "${AWS_REGION}"
+        --technique "${TECHNIQUE}"
+    )
+    if [ -n "${hf_split}" ]; then
+        stage_args+=(--hf-split "${hf_split}")
+    fi
+    if [ -n "${HF_TOKEN_ARN:-}" ]; then
+        stage_args+=(--hf-secret-name "${HF_TOKEN_ARN}")
+    fi
+    if [ -n "${hf_file}" ]; then
+        stage_args+=(--hf-file "${hf_file}")
+    fi
+
+    local stage_result
+    stage_result=$(python3 "${helper_script}" stage-hf "${stage_args[@]}") || {
+        echo "❌ Failed to stage HF dataset"
+        exit 1
+    }
+
+    # Check for error in response
+    local has_error
+    has_error=$(echo "${stage_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'error' in d else 'no')" 2>/dev/null) || has_error="yes"
+
+    if [ "${has_error}" = "yes" ]; then
+        local error_msg
+        error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null) || error_msg="Unknown error"
+        echo "❌ ${error_msg}"
+        exit 1
+    fi
+
+    RESOLVED_DATASET_S3_URI=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['s3_uri'])" 2>/dev/null)
+    local row_count
+    row_count=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('num_records',0))" 2>/dev/null) || row_count="0"
+
+    echo "   ✅ Staged to: ${RESOLVED_DATASET_S3_URI}"
+    echo "   Records: ${row_count}"
+    echo ""
 }
 
 # ── _parse_config() ───────────────────────────────────────────────────────────
@@ -350,29 +762,33 @@ _check_idempotency() {
     echo "   Checking status..."
     echo ""
 
-    # Call DescribeTrainingJob to get current status
-    local describe_output
-    local describe_exit_code
-    describe_output=$(aws sagemaker describe-training-job \
-        --training-job-name "${TRAIN_JOB_NAME}" 2>&1) || describe_exit_code=$?
-    describe_exit_code=${describe_exit_code:-0}
+    # Query status via SDK v3 helper
+    local status_json
+    status_json=$(python3 "${SCRIPT_DIR}/.train_helper.py" status \
+        --job-name "${TRAIN_JOB_NAME}" \
+        --region "${AWS_REGION}" 2>/dev/null | grep -E '^\{' | tail -1) || status_json=""
 
-    if [ ${describe_exit_code} -ne 0 ]; then
-        # If describe fails (e.g., job was deleted), proceed to new job
-        echo "⚠️  Could not describe existing job: ${TRAIN_JOB_NAME}"
-        echo "   ${describe_output}"
+    if [ -z "${status_json}" ]; then
+        # If status query fails, proceed to new job
+        echo "⚠️  Could not query existing job: ${TRAIN_JOB_NAME}"
         echo "   Proceeding to create a new job."
         echo ""
         return 0
     fi
 
-    # Extract status from the JSON response using python3
+    # Check for error in response
+    local has_error
+    has_error=$(echo "${status_json}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('error') else 'no')" 2>/dev/null) || has_error="no"
+
+    if [ "${has_error}" = "yes" ]; then
+        echo "⚠️  Could not describe existing job: ${TRAIN_JOB_NAME}"
+        echo "   Proceeding to create a new job."
+        echo ""
+        return 0
+    fi
+
     local job_status
-    job_status=$(echo "${describe_output}" | python3 -c "
-import sys, json
-resp = json.load(sys.stdin)
-print(resp.get('TrainingJobStatus', 'Unknown'))
-" 2>/dev/null) || job_status="Unknown"
+    job_status=$(echo "${status_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','Unknown'))" 2>/dev/null) || job_status="Unknown"
 
     case "${job_status}" in
         InProgress)
@@ -386,19 +802,12 @@ print(resp.get('TrainingJobStatus', 'Unknown'))
         Completed)
             echo "✅ Training job already completed: ${TRAIN_JOB_NAME}"
             echo ""
-            # Pass the describe output to _handle_completion via a temp file
-            local describe_file="/tmp/train-describe-${TRAIN_JOB_NAME}.json"
-            echo "${describe_output}" > "${describe_file}"
             _handle_completion
             exit 0
             ;;
         Failed)
             local failure_reason
-            failure_reason=$(echo "${describe_output}" | python3 -c "
-import sys, json
-resp = json.load(sys.stdin)
-print(resp.get('FailureReason', 'No failure reason provided'))
-" 2>/dev/null) || failure_reason="No failure reason provided"
+            failure_reason=$(echo "${status_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('failure_reason','') or 'No failure reason provided')" 2>/dev/null) || failure_reason="No failure reason provided"
 
             echo "❌ Previous training job failed: ${TRAIN_JOB_NAME}"
             echo "   Reason: ${failure_reason}"
@@ -469,9 +878,177 @@ _build_job_request() {
     fi
 }
 
+<% if (deploymentTarget === 'hyperpod-eks') { %>
 # ── _submit_job() ─────────────────────────────────────────────────────────────
-# Call aws sagemaker create-training-job with the constructed JSON.
-# Handles --dry-run, AccessDenied detection, and config persistence.
+# HyperPod EKS: Generate and apply a K8s Job manifest for single-pod training.
+# Multi-node (parallelism > 1) requires PyTorchJob CRD — see Epic 8.
+_submit_job() {
+    local manifest_file="${SCRIPT_DIR}/../.train-job.yaml"
+
+    # Handle --dry-run: generate manifest and print without applying
+    if [ "${ARG_DRY_RUN}" = true ]; then
+        _generate_k8s_manifest "${manifest_file}"
+        echo ""
+        echo "🔍 Dry run — K8s Job manifest:"
+        echo ""
+        cat "${manifest_file}"
+        echo ""
+        rm -f "${manifest_file}"
+        exit 0
+    fi
+
+    echo ""
+    echo "🚀 Submitting training job to HyperPod EKS..."
+
+    _generate_k8s_manifest "${manifest_file}"
+
+    # Apply the manifest
+    kubectl apply -f "${manifest_file}" 2>&1 || {
+        echo "❌ Failed to apply K8s Job manifest"
+        echo "   Check: kubectl access, namespace exists, PVC available"
+        exit 1
+    }
+
+    # Persist job name to do/config
+    _update_config_var "TRAIN_JOB_NAME" "${JOB_NAME}"
+    echo "   ✅ Job submitted: ${JOB_NAME}"
+    echo "   Namespace: ${HYPERPOD_NAMESPACE:-default}"
+    echo ""
+}
+
+# ── _generate_k8s_manifest() ─────────────────────────────────────────────────
+# Generate a K8s batch/v1 Job YAML for single-node multi-GPU training.
+_generate_k8s_manifest() {
+    local manifest_file="$1"
+    local gpu_count="${TRAIN_INSTANCE_COUNT:-1}"
+
+    # Detect EFA availability on cluster nodes
+    local efa_count
+    efa_count=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.vpc\.amazonaws\.com/efa}' 2>/dev/null || echo "0")
+
+    # Build EFA resource request if available
+    local efa_resource=""
+    local nccl_env=""
+    if [ "${efa_count}" != "0" ] && [ "${efa_count}" != "" ]; then
+        efa_resource="            vpc.amazonaws.com/efa: ${efa_count}"
+        nccl_env="        - name: NCCL_SOCKET_IFNAME
+          value: \"eth0\"
+        - name: FI_PROVIDER
+          value: \"efa\"
+        - name: FI_EFA_USE_DEVICE_RDMA
+          value: \"1\""
+    fi
+
+    cat > "${manifest_file}" <<MANIFEST
+# Generated by do/train for HyperPod EKS (single-node)
+# Multi-node distributed training requires PyTorchJob CRD — see Epic 8.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+  namespace: ${HYPERPOD_NAMESPACE:-default}
+  labels:
+    app: ml-container-creator
+    project: ${PROJECT_NAME}
+    technique: ${TECHNIQUE:-custom}
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: ml-container-creator
+        job-name: ${JOB_NAME}
+    spec:
+      containers:
+      - name: training
+        image: ${TRAIN_IMAGE}
+        command: ["accelerate", "launch", "--config_file", "/workspace/training/${TECHNIQUE:-custom}/accelerate_config.yaml", "/workspace/training/${TECHNIQUE:-custom}/train.py"]
+        env:
+        - name: DATA_DIR
+          value: "/data/training"
+        - name: OUTPUT_DIR
+          value: "/output/model"
+        - name: CHECKPOINT_DIR
+          value: "/output/checkpoints"
+        - name: HF_MODEL_ID
+          value: "${HF_MODEL_ID:-}"
+        - name: NUM_GPUS
+          value: "${gpu_count}"
+        - name: TRAIN_TECHNIQUE
+          value: "${TECHNIQUE:-custom}"
+${nccl_env}
+        resources:
+          limits:
+            nvidia.com/gpu: ${gpu_count}
+${efa_resource}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: output
+          mountPath: /output
+        - name: workspace
+          mountPath: /workspace
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: ${DATA_PVC:-training-data}
+      - name: output
+        persistentVolumeClaim:
+          claimName: ${OUTPUT_PVC:-training-output}
+      - name: workspace
+        configMap:
+          name: ${PROJECT_NAME}-training-scripts
+      restartPolicy: Never
+MANIFEST
+}
+
+# ── _poll_job() ───────────────────────────────────────────────────────────────
+# HyperPod EKS: Poll K8s Job status via kubectl.
+_poll_job() {
+    local job_name="${JOB_NAME:-$TRAIN_JOB_NAME}"
+    local namespace="${HYPERPOD_NAMESPACE:-default}"
+
+    echo "⏳ Polling K8s Job: ${job_name} (namespace: ${namespace})"
+    echo "   (Ctrl+C to stop polling — job continues in cluster)"
+    echo ""
+
+    while true; do
+        local status
+        status=$(kubectl get job "${job_name}" -n "${namespace}" -o jsonpath='{.status.conditions[0].type}' 2>/dev/null) || status=""
+
+        local active
+        active=$(kubectl get job "${job_name}" -n "${namespace}" -o jsonpath='{.status.active}' 2>/dev/null) || active="0"
+
+        local succeeded
+        succeeded=$(kubectl get job "${job_name}" -n "${namespace}" -o jsonpath='{.status.succeeded}' 2>/dev/null) || succeeded="0"
+
+        local failed
+        failed=$(kubectl get job "${job_name}" -n "${namespace}" -o jsonpath='{.status.failed}' 2>/dev/null) || failed="0"
+
+        if [ "${succeeded}" = "1" ]; then
+            echo "   ✅ Completed"
+            echo ""
+            echo "✅ Training job completed: ${job_name}"
+            break
+        elif [ "${failed}" = "1" ] || [ "${status}" = "Failed" ]; then
+            echo "   ❌ Failed"
+            echo ""
+            echo "❌ Training job failed: ${job_name}"
+            echo "   Logs: kubectl logs job/${job_name} -n ${namespace}"
+            exit 2
+        else
+            echo "   🔄 Running (active: ${active:-0})"
+        fi
+
+        sleep "${POLL_INTERVAL}"
+    done
+}
+<% } else { %>
+# ── _submit_job() ─────────────────────────────────────────────────────────────
+# Submit training job via .train_helper.py (SDK v3).
+# Handles --dry-run, error detection, and config persistence.
 _submit_job() {
     # Handle --dry-run: print the request JSON and exit without submitting
     if [ "${ARG_DRY_RUN}" = true ]; then
@@ -487,59 +1064,44 @@ _submit_job() {
     echo ""
     echo "🚀 Submitting training job..."
 
-    # Submit the job via AWS CLI
+    # Submit via SDK v3 helper
     local submit_output
-    local submit_exit_code
-    submit_output=$(aws sagemaker create-training-job \
-        --cli-input-json "file://${JOB_REQUEST_FILE}" 2>&1) || submit_exit_code=$?
-    submit_exit_code=${submit_exit_code:-0}
+    submit_output=$(python3 "${SCRIPT_DIR}/.train_helper.py" submit \
+        --config "${JOB_REQUEST_FILE}" \
+        --region "${AWS_REGION}" 2>/dev/null | grep -E '^\{' | tail -1)
 
     # Clean up the temporary request file
     rm -f "${JOB_REQUEST_FILE}"
 
-    if [ ${submit_exit_code} -eq 0 ]; then
-        # Success — persist job name to do/config
-        _update_config_var "TRAIN_JOB_NAME" "${JOB_NAME}"
-        echo "   ✅ Job submitted successfully: ${JOB_NAME}"
-        echo ""
-    else
-        # Failure — detect error type and provide remediation
-        if echo "${submit_output}" | grep -q "AccessDeniedException"; then
-            # Extract the permission or action from the error message
-            local missing_permission
-            missing_permission=$(echo "${submit_output}" | grep -oP '(?<=performing: )[^ ]+' || echo "")
-            if [ -z "${missing_permission}" ]; then
-                missing_permission=$(echo "${submit_output}" | grep -oP '(?<=action: )[^ ]+' || echo "")
-            fi
-            if [ -z "${missing_permission}" ]; then
-                missing_permission="sagemaker:CreateTrainingJob"
-            fi
-
-            echo "❌ Access denied: ${missing_permission}"
-            echo "   ${submit_output}"
-            echo ""
-            echo "   Remediation:"
-            echo "     Ensure your IAM role or user has the '${missing_permission}' permission."
-            echo "     If using the bootstrap stack, re-run ./do/bootstrap to update permissions."
-            echo "     Otherwise, attach a policy granting '${missing_permission}' to your role."
-            exit 1
-        else
-            echo "❌ Failed to submit training job"
-            echo "   ${submit_output}"
-            echo ""
-            echo "   Check the error above and verify your configuration in do/training/config.yaml."
-            exit 1
-        fi
+    if [ -z "${submit_output}" ]; then
+        echo "❌ Failed to submit training job (no response from helper)"
+        echo "   Ensure sagemaker SDK v3 is installed: pip install 'sagemaker>=3.0'"
+        exit 1
     fi
+
+    # Check for error in response
+    local has_error
+    has_error=$(echo "${submit_output}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('error') else 'no')" 2>/dev/null) || has_error="yes"
+
+    if [ "${has_error}" = "yes" ]; then
+        local error_msg
+        error_msg=$(echo "${submit_output}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message','Unknown error'))" 2>/dev/null) || error_msg="Unknown error"
+        echo "❌ ${error_msg}"
+        exit 1
+    fi
+
+    # Success — persist job name to do/config
+    _update_config_var "TRAIN_JOB_NAME" "${JOB_NAME}"
+    echo "   ✅ Job submitted successfully: ${JOB_NAME}"
+    echo ""
 }
 
 # ── _poll_job() ───────────────────────────────────────────────────────────────
-# Poll DescribeTrainingJob every POLL_INTERVAL seconds until terminal state.
-# Displays: job status, secondary status, elapsed time, and training metrics.
+# Poll training job status via .train_helper.py every POLL_INTERVAL seconds.
+# Displays: job status, secondary status, elapsed time.
 # On Completed: breaks loop and returns (caller handles completion).
 # On Failed: displays FailureReason and exits 2.
 # On Stopped: displays stopped message and exits 2.
-# On spot interruption: explains auto-resume from checkpoint.
 _poll_job() {
     local job_name="${JOB_NAME:-$TRAIN_JOB_NAME}"
 
@@ -548,49 +1110,39 @@ _poll_job() {
     echo ""
 
     while true; do
-        # Call DescribeTrainingJob
-        local describe_output
-        local describe_exit_code
-        describe_output=$(aws sagemaker describe-training-job \
-            --training-job-name "${job_name}" 2>&1) || describe_exit_code=$?
-        describe_exit_code=${describe_exit_code:-0}
+        # Query status via SDK v3 helper
+        local status_json
+        status_json=$(python3 "${SCRIPT_DIR}/.train_helper.py" status \
+            --job-name "${job_name}" \
+            --region "${AWS_REGION}" 2>/dev/null | grep -E '^\{' | tail -1)
 
-        if [ ${describe_exit_code} -ne 0 ]; then
-            echo "⚠️  Failed to describe job (will retry): ${describe_output}"
+        if [ -z "${status_json}" ]; then
+            echo "⚠️  Failed to query job status (will retry)"
             sleep "${POLL_INTERVAL}"
             continue
         fi
 
-        # Parse the response using python3 helper
-        local poll_result
-        poll_result=$(echo "${describe_output}" | python3 "${SCRIPT_DIR}/.train_poll_parser.py" 2>&1)
-        local parse_exit_code=$?
+        # Check for error
+        local has_error
+        has_error=$(echo "${status_json}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('error') else 'no')" 2>/dev/null) || has_error="no"
 
-        if [ ${parse_exit_code} -ne 0 ]; then
-            echo "⚠️  Failed to parse job status (will retry): ${poll_result}"
+        if [ "${has_error}" = "yes" ]; then
+            echo "⚠️  Status query error (will retry)"
             sleep "${POLL_INTERVAL}"
             continue
         fi
 
-        # The parser outputs structured lines:
-        #   STATUS=<status>
-        #   SECONDARY=<secondary_status>
-        #   ELAPSED=<elapsed_string>
-        #   METRICS=<metrics_string>
-        #   FAILURE_REASON=<reason>
-        #   DISPLAY=<formatted display text>
-        local job_status=""
-        local secondary_status=""
-        local display_text=""
-        local failure_reason=""
-
-        job_status=$(echo "${poll_result}" | grep '^STATUS=' | cut -d= -f2-)
-        secondary_status=$(echo "${poll_result}" | grep '^SECONDARY=' | cut -d= -f2-)
-        failure_reason=$(echo "${poll_result}" | grep '^FAILURE_REASON=' | cut -d= -f2-)
-        display_text=$(echo "${poll_result}" | grep '^DISPLAY=' | cut -d= -f2-)
+        # Extract fields
+        local job_status display_text failure_reason secondary_status
+        job_status=$(echo "${status_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','Unknown'))" 2>/dev/null) || job_status="Unknown"
+        display_text=$(echo "${status_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('display',''))" 2>/dev/null) || display_text=""
+        failure_reason=$(echo "${status_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('failure_reason','') or '')" 2>/dev/null) || failure_reason=""
+        secondary_status=$(echo "${status_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('secondary_status','') or '')" 2>/dev/null) || secondary_status=""
 
         # Print the formatted status line
-        echo "${display_text}"
+        if [ -n "${display_text}" ]; then
+            echo "${display_text}"
+        fi
 
         # Handle terminal states
         case "${job_status}" in
@@ -619,7 +1171,7 @@ _poll_job() {
                 ;;
         esac
 
-        # Handle spot interruption (job still InProgress but interrupted)
+        # Handle spot interruption
         if echo "${secondary_status}" | grep -qi "interrupted"; then
             echo ""
             echo "   ℹ️  Spot instance interrupted. The job will automatically resume"
@@ -631,9 +1183,10 @@ _poll_job() {
         sleep "${POLL_INTERVAL}"
     done
 }
+<% } %>
 
 # ── _handle_completion() ──────────────────────────────────────────────────────
-# Store output paths and invoke feedback loop.
+# Store output paths, write TRAIN_* lifecycle vars, and invoke feedback loop.
 # Extracts model artifacts path, detects output type, and prints next steps.
 _handle_completion() {
     local job_name="${JOB_NAME:-$TRAIN_JOB_NAME}"
@@ -666,8 +1219,15 @@ print(artifacts.get('S3ModelArtifacts', ''))
         return 1
     fi
 
-    # Write TRAIN_OUTPUT_PATH to do/config
-    _update_config_var "TRAIN_OUTPUT_PATH" "${output_path}"
+    # ── Write TRAIN_* lifecycle variables to do/config ────────────────────────
+    _update_config_var "TRAIN_OUTPUT_PATH_LATEST" "${output_path}"
+    _update_config_var "TRAIN_JOB_NAME" "${job_name}"
+
+    # Write technique-specific adapter path
+    local technique_upper
+    technique_upper=$(echo "${TECHNIQUE:-custom}" | tr '[:lower:]' '[:upper:]')
+    _update_config_var "TRAIN_ADAPTER_PATH_${technique_upper}" "${output_path}"
+    _update_config_var "TRAIN_TECHNIQUE" "${TECHNIQUE:-custom}"
 
     # Detect output type: check for adapter_config.json in output path
     local output_type="full-model"
@@ -678,6 +1238,23 @@ print(artifacts.get('S3ModelArtifacts', ''))
     # Source feedback.sh and call print_completion_feedback
     source "${SCRIPT_DIR}/lib/feedback.sh"
     print_completion_feedback "${output_path}" "${output_type}" "${job_name}"
+
+    # ── Auto-register (unless --no-register) ─────────────────────────────────
+    if [ "${ARG_NO_REGISTER}" != true ] && [ -f "${SCRIPT_DIR}/register" ]; then
+        if [ -n "${RESOLVED_DATASET_S3_URI}" ]; then
+            echo "📝 Auto-registering dataset for technique '${TECHNIQUE}'..."
+            "${SCRIPT_DIR}/register" dataset --from-train "${TECHNIQUE}" 2>/dev/null || {
+                echo "   ⚠️  Auto-registration skipped (non-fatal)"
+            }
+        fi
+    fi
+
+    # ── Print next steps ─────────────────────────────────────────────────────
+    if [ "${output_type}" = "adapter" ]; then
+        echo ""
+        echo "   Next: ./do/adapter --from-train ${TECHNIQUE}"
+        echo "         to stage the adapter for deployment."
+    fi
 
     # If spot training was enabled, display cost savings
     if [ "${TRAIN_ENABLE_SPOT:-false}" = "true" ]; then
@@ -735,6 +1312,12 @@ if [ "${ARG_HELP}" = true ]; then
     _show_help
 fi
 
+# Handle --list-datasets
+if [ "${ARG_LIST_DATASETS}" = true ]; then
+    source "${SCRIPT_DIR}/config"
+    _list_datasets_cmd
+fi
+
 if [ "${ARG_STATUS}" = true ]; then
     # Show status of current tracked job without submitting
     if [ -z "${TRAIN_JOB_NAME:-}" ]; then
@@ -746,27 +1329,165 @@ if [ "${ARG_STATUS}" = true ]; then
     echo "📊 Training Job Status"
     echo "   Job: ${TRAIN_JOB_NAME}"
 
-    # Call DescribeTrainingJob and parse the response
-    STATUS_JSON=$(aws sagemaker describe-training-job \
-        --training-job-name "${TRAIN_JOB_NAME}" \
-        --region "${AWS_REGION}" 2>&1) || {
+    # Query status via SDK v3 helper
+    STATUS_RESULT=$(python3 "${SCRIPT_DIR}/.train_helper.py" status \
+        --job-name "${TRAIN_JOB_NAME}" \
+        --region "${AWS_REGION}" 2>/dev/null | grep -E '^\{' | tail -1) || {
         echo ""
-        echo "❌ Failed to describe training job: ${TRAIN_JOB_NAME}"
-        echo "   ${STATUS_JSON}"
-        echo ""
-        echo "   The job may have been deleted or the name is incorrect."
+        echo "❌ Failed to query training job status: ${TRAIN_JOB_NAME}"
+        echo "   Ensure sagemaker SDK v3 is installed: pip install 'sagemaker>=3.0'"
         echo "   Run ./do/train --force to start a new job."
         exit 1
     }
 
-    # Parse and display the status using the helper script
-    echo "${STATUS_JSON}" | python3 "${SCRIPT_DIR}/.train_status_parser.py"
+    if [ -z "${STATUS_RESULT}" ]; then
+        echo ""
+        echo "❌ No response from status helper for: ${TRAIN_JOB_NAME}"
+        echo "   Run ./do/train --force to start a new job."
+        exit 1
+    fi
+
+    # Display the status info
+    DISPLAY_TEXT=$(echo "${STATUS_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('display',''))" 2>/dev/null) || DISPLAY_TEXT=""
+    if [ -n "${DISPLAY_TEXT}" ]; then
+        echo "${DISPLAY_TEXT}"
+    fi
+
+    # Show additional details for completed jobs
+    STATUS_VAL=$(echo "${STATUS_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','Unknown'))" 2>/dev/null) || STATUS_VAL="Unknown"
+    if [ "${STATUS_VAL}" = "Completed" ]; then
+        ARTIFACTS_VAL=$(echo "${STATUS_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_artifacts','') or '')" 2>/dev/null) || ARTIFACTS_VAL=""
+        if [ -n "${ARTIFACTS_VAL}" ]; then
+            echo "   📦 Artifacts: ${ARTIFACTS_VAL}"
+        fi
+    fi
+    echo ""
     exit 0
+fi
+
+# ── Handle --interactive mode ─────────────────────────────────────────────────
+if [ "${ARG_INTERACTIVE}" = true ]; then
+    TRAINING_DIR="${SCRIPT_DIR}/training"
+
+    # Try to invoke the interactive builder via Node.js
+    # Pattern: import from globally-installed generator package, fallback to local
+    INTERACTIVE_RESULT=""
+    if command -v node &>/dev/null; then
+        INTERACTIVE_RESULT=$(node --input-type=module -e "
+import { run } from '$(npm root -g 2>/dev/null || echo /usr/local/lib/node_modules)/@aws/ml-container-creator/src/lib/train-config-builder.js';
+run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
+" 2>/dev/null | grep -E '^\{' | tail -1) || INTERACTIVE_RESULT=""
+
+        # Fallback: try local development path
+        if [ -z "${INTERACTIVE_RESULT}" ]; then
+            local project_root
+            project_root=$(cd "${SCRIPT_DIR}/.." && pwd)
+            INTERACTIVE_RESULT=$(node --input-type=module -e "
+import { run } from '${project_root}/node_modules/@aws/ml-container-creator/src/lib/train-config-builder.js';
+run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
+" 2>/dev/null | grep -E '^\{' | tail -1) || INTERACTIVE_RESULT=""
+        fi
+
+        # Final fallback: direct path (for development in the generator repo)
+        if [ -z "${INTERACTIVE_RESULT}" ]; then
+            INTERACTIVE_RESULT=$(node --input-type=module -e "
+import { run } from '${project_root}/src/lib/train-config-builder.js';
+run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
+" 2>/dev/null | grep -E '^\{' | tail -1) || INTERACTIVE_RESULT=""
+        fi
+    fi
+
+    if [ -z "${INTERACTIVE_RESULT}" ]; then
+        echo "❌ Interactive mode requires Node.js and @aws/ml-container-creator installed."
+        echo "   Install: npm install -g @aws/ml-container-creator"
+        echo ""
+        echo "   Alternatively, edit do/training/config.yaml directly."
+        exit 1
+    fi
+
+    # Check if user wants to run now
+    RUN_NOW=$(echo "${INTERACTIVE_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('run_now', False))" 2>/dev/null) || RUN_NOW="False"
+
+    if [ "${RUN_NOW}" != "True" ]; then
+        echo "   Run ./do/train to submit the configured job."
+        exit 0
+    fi
+
+    # Continue to normal submission flow (config was already written by builder)
+    echo "🚀 Proceeding to job submission..."
+    echo ""
 fi
 
 # Parse and validate configuration
 _parse_config
 _validate_config
+
+# Resolve technique (CLI flag > config.yaml > default)
+_resolve_technique
+
+# Persist technique to do/config
+_update_config_var "TRAIN_TECHNIQUE" "${TECHNIQUE}"
+
+# Load technique defaults and merge with config hyperparameters
+_load_technique_defaults
+_merge_hyperparameters
+
+# Warn about multi-node on non-EFA instances
+if [ "${TRAIN_INSTANCE_COUNT:-1}" -gt 1 ]; then
+    echo "📡 Multi-node training: ${TRAIN_INSTANCE_COUNT} instances"
+    # Check for EFA-capable instance types
+    case "${TRAIN_INSTANCE_TYPE}" in
+        ml.p4d*|ml.p5*|ml.g5.48xlarge|ml.g6e.48xlarge|ml.trn1*)
+            echo "   ✅ EFA-capable instance: ${TRAIN_INSTANCE_TYPE}"
+            ;;
+        *)
+            echo "   ⚠️  Instance type '${TRAIN_INSTANCE_TYPE}' may not support EFA."
+            echo "      Multi-node training will use TCP networking (slower)."
+            echo "      For best performance, use: p4d.24xlarge, p5.48xlarge, or g5.48xlarge"
+            ;;
+    esac
+    echo ""
+fi
+
+# Resolve dataset (if --dataset provided or config.yaml has dataset)
+_resolve_dataset
+
+# Handle --resume: resolve checkpoint path from previous job
+if [ "${ARG_RESUME}" = true ]; then
+    RESUME_JOB="${ARG_RESUME_JOB:-${TRAIN_JOB_NAME:-}}"
+    if [ -z "${RESUME_JOB}" ]; then
+        echo "❌ --resume requires a previous job name."
+        echo "   Provide it: ./do/train --resume <job-name>"
+        echo "   Or run a training job first (TRAIN_JOB_NAME will be set in do/config)."
+        exit 1
+    fi
+
+    echo "🔄 Resuming from job: ${RESUME_JOB}"
+
+    # Resolve checkpoint path via helper
+    CHECKPOINT_RESOLVE=$(python3 "${SCRIPT_DIR}/.train_helper.py" resolve \
+        --job-name "${RESUME_JOB}" \
+        --checkpoints \
+        --region "${AWS_REGION}" 2>/dev/null | grep -E '^\{' | tail -1) || CHECKPOINT_RESOLVE=""
+
+    if [ -n "${CHECKPOINT_RESOLVE}" ]; then
+        RESUME_CHECKPOINT_PATH=$(echo "${CHECKPOINT_RESOLVE}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('checkpoint_path',''))" 2>/dev/null) || RESUME_CHECKPOINT_PATH=""
+        if [ -n "${RESUME_CHECKPOINT_PATH}" ]; then
+            echo "   Checkpoint: ${RESUME_CHECKPOINT_PATH}"
+            TRAIN_CHECKPOINT_PATH="${RESUME_CHECKPOINT_PATH}"
+        else
+            echo "   ⚠️  No checkpoint path found for job ${RESUME_JOB}"
+            echo "   Training will start from scratch."
+        fi
+    else
+        echo "   ⚠️  Could not resolve checkpoints for job ${RESUME_JOB}"
+        echo "   Training will start from scratch."
+    fi
+    echo ""
+
+    # Force new job creation when resuming
+    ARG_FORCE=true
+fi
 
 # Check idempotency (existing job handling)
 _check_idempotency

@@ -61,6 +61,7 @@ nav:
       - Secrets Management: secrets.md
       - Deployment & Inference: deployments.md
       - Fine-Tuning: fine-tuning.md
+      - Custom Training: custom-training.md
       - Examples: EXAMPLES.md
       - Troubleshooting: TROUBLESHOOTING.md
   - Operations:

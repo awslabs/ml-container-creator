@@ -1,0 +1,51 @@
+{
+  "_comment": "Model architecture → minimum framework version mapping. Used by driver-aware filtering to exclude framework versions that don't support a given model architecture. Source: vLLM/SGLang release notes and supported_models docs.",
+  "_last_updated": "2026-06-29",
+  "vllm": {
+    "LlamaForCausalLM": "v0.4.0",
+    "Llama4ForCausalLM": "v0.22.0",
+    "MistralForCausalLM": "v0.4.0",
+    "MixtralForCausalLM": "v0.4.0",
+    "Qwen2ForCausalLM": "v0.6.0",
+    "Qwen2MoeForCausalLM": "v0.6.0",
+    "Qwen3ForCausalLM": "v0.20.0",
+    "Qwen3MoeForCausalLM": "v0.20.0",
+    "DeepseekV2ForCausalLM": "v0.16.0",
+    "DeepseekV3ForCausalLM": "v0.19.0",
+    "Gemma2ForCausalLM": "v0.8.0",
+    "Gemma3ForCausalLM": "v0.20.0",
+    "Gemma4ForCausalLM": "v0.23.0",
+    "GptOssForCausalLM": "v0.22.0",
+    "NemotronForCausalLM": "v0.17.0",
+    "Phi3ForCausalLM": "v0.6.0",
+    "PhiMoEForCausalLM": "v0.16.0",
+    "GraniteForCausalLM": "v0.17.0",
+    "GraniteMoeForCausalLM": "v0.19.0",
+    "CohereForCausalLM": "v0.16.0",
+    "Cohere2ForCausalLM": "v0.19.0",
+    "FalconForCausalLM": "v0.4.0",
+    "StarCoder2ForCausalLM": "v0.6.0",
+    "InternLM2ForCausalLM": "v0.6.0",
+    "OlmoForCausalLM": "v0.16.0",
+    "Olmo2ForCausalLM": "v0.19.0"
+  },
+  "sglang": {
+    "LlamaForCausalLM": "v0.3.0",
+    "MistralForCausalLM": "v0.3.0",
+    "Qwen2ForCausalLM": "v0.4.0",
+    "Qwen3ForCausalLM": "v0.5.0",
+    "Qwen3MoeForCausalLM": "v0.5.0",
+    "DeepseekV2ForCausalLM": "v0.4.0",
+    "DeepseekV3ForCausalLM": "v0.5.0",
+    "Gemma2ForCausalLM": "v0.4.0",
+    "Gemma3ForCausalLM": "v0.5.0",
+    "Phi3ForCausalLM": "v0.4.0",
+    "InternLM2ForCausalLM": "v0.4.0"
+  },
+  "lmi": {
+    "_comment": "DJL LMI uses HuggingFace transformers directly — architecture support is determined by the bundled transformers version, not the LMI version itself. No version-based filtering needed for LMI.",
+    "LlamaForCausalLM": "v0.25.0",
+    "Qwen2ForCausalLM": "v0.27.0",
+    "DeepseekV2ForCausalLM": "v0.28.0"
+  }
+}

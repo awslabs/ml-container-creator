@@ -1478,6 +1478,7 @@ def _load_config_file(config_path):
                     'HF_MODEL_ID': 'hf_model_id',
                     'INSTANCE_TYPE': 'instance_type',
                     'INSTANCE_POOLS': 'instance_pools',
+                    'DEPLOYED_INSTANCE_TYPE': 'deployed_instance_type',
                     'BENCHMARK_INSTANCE_TYPE': 'benchmark_instance_type',
                     'DEPLOYMENT_CONFIG': 'deployment_config',
                     'DEPLOYMENT_TARGET': 'deployment_target',
@@ -1521,6 +1522,8 @@ def _load_config_file(config_path):
     #   BENCHMARK_INSTANCE_TYPE (live-resolved, persisted by do/benchmark) > INSTANCE_TYPE > INSTANCE_POOLS fallback
     if context.get('benchmark_instance_type'):
         context['instance_type'] = context.pop('benchmark_instance_type')
+    elif context.get('deployed_instance_type'):
+        context['instance_type'] = context.pop('deployed_instance_type')
     # Fall back to INSTANCE_POOLS when neither is set.
     # Heterogeneous pool configs may not have a standalone INSTANCE_TYPE value
     # but always define INSTANCE_POOLS as a JSON array with Priority fields.

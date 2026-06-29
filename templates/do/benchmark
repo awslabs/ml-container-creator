@@ -13,6 +13,7 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 CLEAN_AFTER=false
@@ -69,8 +70,8 @@ done
 # Query the tracked benchmark job, display status, and if completed:
 # download results, display metrics, and write to Athena (if not already done).
 if [ "${ARG_STATUS}" = true ]; then
-    # Resolve instance type: BENCHMARK_INSTANCE_TYPE (persisted by main flow) > INSTANCE_TYPE from config
-    _STATUS_INSTANCE_TYPE="${BENCHMARK_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+    # Resolve instance type: BENCHMARK_INSTANCE_TYPE > DEPLOYED_INSTANCE_TYPE > INSTANCE_TYPE
+    _STATUS_INSTANCE_TYPE="${BENCHMARK_INSTANCE_TYPE:-${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}}"
 
     JOB_NAME="${BENCHMARK_JOB_NAME:-}"
     if [ -z "${JOB_NAME}" ]; then
@@ -575,7 +576,7 @@ print(f'Combined {n_metrics} concurrency level results')
 
         echo ""
         echo "📋 Multi-level Summary:"
-        echo "   Levels tested: ${_NORMALIZED_LEVELS}"
+        echo "   Levels tested: ${#_LEVELS[@]}"
         echo "   Failures: ${_LEVEL_FAILURES} / ${#_LEVELS[@]}"
         echo "   Results: ${_ALL_RESULTS_DIR}/"
 
@@ -842,6 +843,62 @@ except:
                 --query 'ProductionVariants[0].InstanceType' \
                 --output text 2>/dev/null) || RESOLVED_INSTANCE_TYPE=""
             # 'None' is returned as literal text when the field is null
+            [ "${RESOLVED_INSTANCE_TYPE}" = "None" ] && RESOLVED_INSTANCE_TYPE=""
+        fi
+    fi
+
+    # If still empty (heterogeneous pools), query the inference component directly
+    if [ -z "${RESOLVED_INSTANCE_TYPE}" ] && [ -n "${IC_NAME}" ]; then
+        RESOLVED_INSTANCE_TYPE=$(aws sagemaker describe-inference-component \
+            --inference-component-name "${IC_NAME}" \
+            --region "${AWS_REGION}" \
+            --output json 2>/dev/null | python3 -c "
+import sys, json
+try:
+    ic = json.load(sys.stdin)
+    # RuntimeConfig.CurrentCopyCount tells us it's running, but instance type
+    # is in the ResourceRequirements or the endpoint's routing
+    runtime = ic.get('RuntimeConfig', {})
+    # Try DesiredCopyCount path for instance pool info
+    spec = ic.get('Specification', {}).get('ComputeResourceRequirements', {})
+    # For pool-based endpoints, check the IC's runtime host (if available)
+    # Fallback: query endpoint InstancePools
+    print('')
+except:
+    print('')
+" 2>/dev/null) || RESOLVED_INSTANCE_TYPE=""
+        [ "${RESOLVED_INSTANCE_TYPE}" = "None" ] && RESOLVED_INSTANCE_TYPE=""
+    fi
+
+    # If still empty (heterogeneous pools), query endpoint config InstancePools
+    if [ -z "${RESOLVED_INSTANCE_TYPE}" ]; then
+        _EC_NAME="${_EC_NAME:-$(echo "${_EP_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('EndpointConfigName',''))" 2>/dev/null)}"
+        if [ -n "${_EC_NAME}" ]; then
+            RESOLVED_INSTANCE_TYPE=$(aws sagemaker describe-endpoint-config \
+                --endpoint-config-name "${_EC_NAME}" \
+                --region "${AWS_REGION}" \
+                --output json 2>/dev/null | python3 -c "
+import sys, json
+try:
+    ec = json.load(sys.stdin)
+    variants = ec.get('ProductionVariants', [])
+    for v in variants:
+        # Check InstancePoolConfig for pool-based endpoints
+        pools = v.get('InstancePoolConfig', {}).get('InstancePools', [])
+        if pools:
+            # Use the first pool's instance type
+            print(pools[0].get('InstanceType', ''))
+            break
+        # Check RoutingConfig ManagedInstanceScaling
+        it = v.get('InstanceType', '')
+        if it:
+            print(it)
+            break
+    else:
+        print('')
+except:
+    print('')
+" 2>/dev/null) || RESOLVED_INSTANCE_TYPE=""
             [ "${RESOLVED_INSTANCE_TYPE}" = "None" ] && RESOLVED_INSTANCE_TYPE=""
         fi
     fi

@@ -910,6 +910,57 @@ elif [ "${SKIP_TO}" = "wait_ic" ]; then
     echo "✅ Inference component is InService: ${IC_DEPLOYED_NAME}"
 fi
 
+# ── Resolve and persist actual instance type (for heterogeneous pools) ─────────
+# On pool-based endpoints, INSTANCE_TYPE in do/config may be empty or reflect
+# only the generation-time default. Query the live endpoint to determine what
+# SageMaker actually provisioned, and persist as DEPLOYED_INSTANCE_TYPE.
+# Downstream scripts (do/benchmark, do/register) read this for Athena/MPG metadata.
+if [ -z "${INSTANCE_TYPE:-}" ] || [ -n "${INSTANCE_POOLS:-}" ]; then
+    _RESOLVED_INSTANCE=""
+    _EP_DESCRIBE=$(aws sagemaker describe-endpoint \
+        --endpoint-name "${ENDPOINT_NAME}" \
+        --region "${AWS_REGION}" \
+        --output json 2>/dev/null) || _EP_DESCRIBE=""
+
+    if [ -n "${_EP_DESCRIBE}" ]; then
+        _RESOLVED_INSTANCE=$(echo "${_EP_DESCRIBE}" | python3 -c "
+import sys, json
+try:
+    ep = json.load(sys.stdin)
+    variant = ep.get('ProductionVariants', [{}])[0]
+    print(variant.get('CurrentInstanceType') or variant.get('InstanceType') or '')
+except:
+    print('')
+" 2>/dev/null) || _RESOLVED_INSTANCE=""
+
+        # Fallback: query endpoint config if variant doesn't have it
+        if [ -z "${_RESOLVED_INSTANCE}" ]; then
+            _EC_NAME=$(echo "${_EP_DESCRIBE}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('EndpointConfigName',''))" 2>/dev/null) || _EC_NAME=""
+            if [ -n "${_EC_NAME}" ]; then
+                _RESOLVED_INSTANCE=$(aws sagemaker describe-endpoint-config \
+                    --endpoint-config-name "${_EC_NAME}" \
+                    --region "${AWS_REGION}" \
+                    --query 'ProductionVariants[0].InstanceType' \
+                    --output text 2>/dev/null) || _RESOLVED_INSTANCE=""
+                [ "${_RESOLVED_INSTANCE}" = "None" ] && _RESOLVED_INSTANCE=""
+            fi
+        fi
+    fi
+
+    if [ -n "${_RESOLVED_INSTANCE}" ]; then
+        # Persist to do/config for downstream scripts
+        _config_file="${SCRIPT_DIR}/config"
+        if grep -q "^export DEPLOYED_INSTANCE_TYPE=" "${_config_file}" 2>/dev/null; then
+            sed -i.bak "s|^export DEPLOYED_INSTANCE_TYPE=.*|export DEPLOYED_INSTANCE_TYPE=\"${_RESOLVED_INSTANCE}\"|" "${_config_file}"
+            rm -f "${_config_file}.bak"
+        else
+            echo "export DEPLOYED_INSTANCE_TYPE=\"${_RESOLVED_INSTANCE}\"" >> "${_config_file}"
+        fi
+        INSTANCE_TYPE="${_RESOLVED_INSTANCE}"
+        echo "   Resolved instance type: ${_RESOLVED_INSTANCE} (persisted to do/config)"
+    fi
+fi
+
 echo "✅ Deployment complete!"
 echo ""
 echo "📋 Deployment Details:"

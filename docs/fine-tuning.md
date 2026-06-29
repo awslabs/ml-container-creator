@@ -1,4 +1,6 @@
-# Fine-Tuning & Customization
+
+!!! tip "Need full control over your training code?"
+    If you need to customize the training loop, use a different trainer, or bring your own training script, see [Custom Training](custom-training.md) — it provides the same lifecycle integration with full code control.
 
 ML Container Creator includes a `do/tune` command that wraps SageMaker AI Managed Model Customization — a serverless fine-tuning capability that eliminates instance selection and container management. You provide a dataset and technique; SageMaker AI handles infrastructure, optimization, and produces a deployable model artifact that feeds directly back into your project's deployment lifecycle.
 

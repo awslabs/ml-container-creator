@@ -128,6 +128,108 @@ await asyncTest('resolveBaseImage returns images for python-slim (sklearn)', asy
     assert.ok(result.metadata?.baseImage?.length > 0, 'should return base images');
 });
 
+// ── Driver-Aware Filtering Integration Tests ─────────────────────────────────
+
+console.log('\nbase-image-picker: driver-aware filtering\n');
+
+await asyncTest('g5 + TP=4: excludes images requiring driver > 550', async () => {
+    const result = await resolveBaseImage({
+        framework: 'transformers', modelServer: 'vllm',
+        instanceType: 'ml.g5.24xlarge', tensorParallelSize: 4
+    }, 10);
+    // g5 fleet driver = 550.163 — images needing 560+ should be excluded
+    assert.ok(result.metadata.driverFilter, 'should include driverFilter metadata');
+    assert.strictEqual(result.metadata.driverFilter.filtered, true);
+    assert.strictEqual(result.metadata.driverFilter.instanceFamily, 'g5');
+    assert.ok(result.metadata.driverFilter.excludedCount > 0, 'should exclude some images');
+    // All returned images should have min_driver <= 550.163
+    for (const img of result.metadata.baseImage) {
+        if (img.min_driver_version) {
+            const parts = img.min_driver_version.split('.').map(Number);
+            assert.ok(parts[0] <= 550 || (parts[0] === 550 && parts[1] <= 163),
+                `Image ${img.tag} requires driver ${img.min_driver_version} but fleet is 550.163`);
+        }
+    }
+});
+
+await asyncTest('p5 + TP=4: includes all images (driver 580 supports everything)', async () => {
+    const result = await resolveBaseImage({
+        framework: 'transformers', modelServer: 'vllm',
+        instanceType: 'ml.p5.48xlarge', tensorParallelSize: 4
+    }, 10);
+    assert.ok(result.metadata.driverFilter, 'should include driverFilter metadata');
+    assert.strictEqual(result.metadata.driverFilter.excludedCount, 0,
+        'p5 (driver 580) should not exclude any images');
+});
+
+await asyncTest('no instanceType: no filtering (backward compat)', async () => {
+    const result = await resolveBaseImage({
+        framework: 'transformers', modelServer: 'vllm'
+    }, 3);
+    assert.ok(!result.metadata.driverFilter, 'should NOT include driverFilter when no instanceType');
+    assert.strictEqual(result.choices.baseImage[0], 'vllm/vllm-openai:v0.23.0',
+        'should return latest without filtering');
+});
+
+await asyncTest('driverVersion override: uses override instead of instance lookup', async () => {
+    const result = await resolveBaseImage({
+        framework: 'transformers', modelServer: 'vllm',
+        driverVersion: '999.0', tensorParallelSize: 4
+    }, 10);
+    assert.ok(result.metadata.driverFilter);
+    assert.strictEqual(result.metadata.driverFilter.driverSource, 'override');
+    assert.strictEqual(result.metadata.driverFilter.excludedCount, 0,
+        'driver 999 should pass all images');
+});
+
+await asyncTest('g5 + TP=1 + incompatible: warning, not exclusion', async () => {
+    const result = await resolveBaseImage({
+        framework: 'transformers', modelServer: 'vllm',
+        instanceType: 'ml.g5.24xlarge', tensorParallelSize: 1
+    }, 10);
+    // TP=1 should allow CUDA compat — no exclusions, but warnings
+    assert.strictEqual(result.metadata.driverFilter.excludedCount, 0,
+        'TP=1 should not hard-exclude any images');
+    const warned = result.metadata.baseImage.filter(img => img._warning);
+    assert.ok(warned.length > 0, 'some images should have _warning for compat layer');
+});
+
+await asyncTest('modelArchitecture=Qwen3ForCausalLM: excludes vLLM < v0.20', async () => {
+    const result = await resolveBaseImage({
+        framework: 'transformers', modelServer: 'vllm',
+        instanceType: 'ml.p5.48xlarge',
+        modelArchitecture: 'Qwen3ForCausalLM'
+    }, 10);
+    assert.ok(result.metadata.driverFilter);
+    assert.strictEqual(result.metadata.driverFilter.minFrameworkVersion, 'v0.20.0');
+    assert.ok(result.metadata.driverFilter.exclusionReasons.model_support > 0,
+        'should exclude images below v0.20 for Qwen3');
+    // Verify no returned image is below v0.20
+    for (const img of result.metadata.baseImage) {
+        assert.ok(img.tag >= 'v0.20', `${img.tag} should be >= v0.20 for Qwen3`);
+    }
+});
+
+await asyncTest('modelArchitecture=LlamaForCausalLM: no model-based exclusion', async () => {
+    const result = await resolveBaseImage({
+        framework: 'transformers', modelServer: 'vllm',
+        instanceType: 'ml.p5.48xlarge',
+        modelArchitecture: 'LlamaForCausalLM'
+    }, 10);
+    assert.ok(result.metadata.driverFilter);
+    assert.strictEqual(result.metadata.driverFilter.exclusionReasons.model_support, 0,
+        'Llama supported since v0.4 — no exclusions');
+});
+
+await asyncTest('expanded catalog: returns exactly limit after filtering', async () => {
+    const result = await resolveBaseImage({
+        framework: 'transformers', modelServer: 'vllm',
+        instanceType: 'ml.p5.48xlarge'
+    }, 3);
+    assert.strictEqual(result.choices.baseImage.length, 3,
+        'should return exactly 3 after filtering');
+});
+
 // --- Summary ---
 console.log(`\n  ${passed} passing, ${failed} failing\n`);
 process.exit(failed > 0 ? 1 : 0);
