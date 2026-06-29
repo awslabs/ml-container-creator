@@ -1,6 +1,6 @@
 {
   "version": "2026-05-27",
-  "lastSynced": "2026-05-28T09:48:25.209Z",
+  "lastSynced": "2026-06-26T19:01:02.821Z",
   "source": "https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-open-weight.html",
   "models": {
     "huggingface-llm-qwen2-5-7b-instruct": {
@@ -1614,6 +1614,24 @@
               "prompt": "array"
             }
           }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
         }
       },
       "goldenPath": false
@@ -1665,6 +1683,24 @@
             ],
             "types": {
               "prompt": "array"
+            }
+          }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
             }
           }
         }
@@ -1765,6 +1801,272 @@
             "lora"
           ],
           "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-llm-nvidia-nemotron-3-super-120b-a12b-bf16": {
+      "family": "huggingface-llm-nvidia-nemotron",
+      "provider": "unknown",
+      "displayName": "NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+      "huggingFaceId": "",
+      "techniques": {
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-reasoning-nvidia-nemotron-3-nano-30b-a3b-bf16": {
+      "family": "huggingface-reasoning-nvidia-nemotron",
+      "provider": "unknown",
+      "displayName": "NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
+      "huggingFaceId": "",
+      "techniques": {
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-vlm-gemma-4-e4b-it": {
+      "family": "huggingface-vlm",
+      "provider": "unknown",
+      "displayName": "gemma-4-e4b-it",
+      "huggingFaceId": "",
+      "techniques": {
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
+        },
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        }
+      },
+      "goldenPath": false
+    },
+    "huggingface-vlm-gemma-4-31b-it": {
+      "family": "huggingface-vlm",
+      "provider": "unknown",
+      "displayName": "gemma-4-31b-it",
+      "huggingFaceId": "",
+      "techniques": {
+        "dpo": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-dpo",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "chosen",
+              "rejected"
+            ],
+            "types": {
+              "prompt": "string",
+              "chosen": "string",
+              "rejected": "string"
+            }
+          }
+        },
+        "sft": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-sft",
+          "datasetSchema": {
+            "required": [
+              "prompt",
+              "completion"
+            ],
+            "types": {
+              "prompt": "string",
+              "completion": "string"
+            }
+          }
+        },
+        "rlaif": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlaif",
+          "datasetSchema": {
+            "required": [
+              "prompt"
+            ],
+            "types": {
+              "prompt": "array"
+            }
+          }
+        },
+        "rlvr": {
+          "trainingTypes": [
+            "lora"
+          ],
+          "datasetFormat": "default-rlvr",
           "datasetSchema": {
             "required": [
               "prompt"

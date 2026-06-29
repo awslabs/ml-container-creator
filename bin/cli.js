@@ -162,7 +162,7 @@ program
     .command('bootstrap')
     .description('Set up AWS infrastructure (IAM role, ECR repo, S3 buckets)')
     .passThroughOptions()
-    .argument('[action]', 'Bootstrap action (status, use, list, remove, scan, prune, update, sync-schemas)')
+    .argument('[action]', 'Bootstrap action (status, use, list, remove, scan, prune, update, migrate, sync-schemas, sync-model-families)')
     .argument('[args...]', 'Additional arguments')
     .option('--profile <profile>', 'AWS profile name')
     .option('--region <region>', 'AWS region')

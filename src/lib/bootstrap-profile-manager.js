@@ -655,4 +655,20 @@ export default class BootstrapProfileManager {
             process.exit(1);
         }
     }
+
+    /**
+     * Handle sync-serving-versions subcommand: discover latest container image
+     * versions for vLLM, SGLang, and TensorRT-LLM and update the model-servers catalog.
+     */
+    async _handleSyncServingVersions() {
+        console.log('\n🔄 Sync Serving Versions — Discovering latest container images...\n');
+        try {
+            const { syncServingVersions } = await import('../../scripts/sync-serving-versions.js');
+            const result = await syncServingVersions();
+            console.log(`\n✅ Sync complete: ${result.totalAdded} new, ${result.totalRemoved} pruned\n`);
+        } catch (err) {
+            console.log(`❌ Sync failed: ${err.message}`);
+            process.exit(1);
+        }
+    }
 }
