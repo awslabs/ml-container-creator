@@ -64,6 +64,7 @@ export default class BootstrapCommandHandler {
     _handlePrune() { return this.profileManager._handlePrune(); }
     _handleSyncSchemas() { return this.profileManager._handleSyncSchemas(); }
     _handleSyncModelFamilies() { return this.profileManager._handleSyncModelFamilies(); }
+    _handleSyncServingVersions() { return this.profileManager._handleSyncServingVersions(); }
 
     /**
      * Dispatch bootstrap subcommands.
@@ -131,6 +132,9 @@ export default class BootstrapCommandHandler {
             break;
         case 'sync-model-families':
             await this._handleSyncModelFamilies();
+            break;
+        case 'sync-serving-versions':
+            await this._handleSyncServingVersions();
             break;
         // Migration path: upgrades legacy profiles to current naming conventions.
         // Corrects stackName to mlcc-bootstrap-{profileName}, renames sharedStackFrom
@@ -1467,7 +1471,9 @@ SUBCOMMANDS:
   prune                               Remove deleted and unknown records from the deployment manifest
   update                              Re-deploy bootstrap stacks using active profile (no prompts)
   migrate                             Upgrade legacy profiles to current naming conventions
+  sync-schemas                        Download AWS service model schemas (sagemaker, iam, ecr, s3)
   sync-model-families                 Discover tune-eligible models from JumpStart Hub and update catalog
+  sync-serving-versions               Discover latest vLLM/SGLang/TRT-LLM image versions and update catalog
 
 SETUP OPTIONS:
   --non-interactive                   Run without interactive prompts
@@ -1477,8 +1483,10 @@ SETUP OPTIONS:
   --role-arn <arn>                    Use existing IAM role ARN (skip role creation)
   --skip-s3                           Skip S3 bucket creation
   --ci                                Provision CI testing infrastructure
+  --benchmark-infra                   Provision Athena/Glue benchmark infrastructure (requires --ci)
   --skip-ci                           Skip CI infrastructure provisioning
   --skip-post-setup                   Skip post-setup chain (mcp init, sync-architectures, sync-schemas)
+  --ignore-staleness                  Suppress schema staleness warnings
 
 STATUS OPTIONS:
   --verify                            Check each active resource against AWS APIs for drift detection
@@ -1495,13 +1503,15 @@ EXAMPLES:
   ml-container-creator bootstrap list
   ml-container-creator bootstrap remove dev
   ml-container-creator bootstrap remove dev --force --delete-stack
+  ml-container-creator bootstrap update
+  ml-container-creator bootstrap update --ci --benchmark-infra
   ml-container-creator bootstrap scan
+  ml-container-creator bootstrap sync-schemas
   ml-container-creator bootstrap sync-model-families
+  ml-container-creator bootstrap sync-serving-versions
   ml-container-creator bootstrap migrate
   ml-container-creator bootstrap --non-interactive --profile my-aws-profile --region us-west-2
-  ml-container-creator bootstrap --non-interactive --profile my-aws-profile --role-arn arn:aws:iam::123456789012:role/MyRole --skip-s3
   ml-container-creator bootstrap --non-interactive --profile my-aws-profile --region us-west-2 --ci
-  ml-container-creator bootstrap --non-interactive --profile my-aws-profile --region us-west-2 --skip-ci
 `);
     }
 

@@ -388,9 +388,32 @@ export async function syncModelFamilies(options = {}) {
         }
     }
 
-    // Additive merge — existing entries are preserved
+    // Deep merge — discovered entries update existing, but empty API values don't overwrite curated data
     const existing = loadExistingCatalog(catalogPath);
-    const merged = { ...existing.models, ...discovered };
+    const merged = { ...existing.models };
+
+    for (const [key, discoveredEntry] of Object.entries(discovered)) {
+        const existingEntry = merged[key];
+        if (!existingEntry) {
+            // New model — add as-is
+            merged[key] = discoveredEntry;
+        } else {
+            // Existing model — deep merge, preserving non-empty curated values
+            merged[key] = {
+                ...existingEntry,
+                // Only overwrite scalar fields if discovered value is non-empty
+                family: discoveredEntry.family || existingEntry.family,
+                provider: discoveredEntry.provider || existingEntry.provider,
+                displayName: discoveredEntry.displayName || existingEntry.displayName,
+                huggingFaceId: discoveredEntry.huggingFaceId || existingEntry.huggingFaceId,
+                // Merge techniques: discovered techniques augment existing
+                techniques: {
+                    ...existingEntry.techniques,
+                    ...discoveredEntry.techniques
+                }
+            };
+        }
+    }
 
     // Cross-reference with benchmark eligibility (Req 10.13-10.14)
     const benchmarkModels = loadBenchmarkEligibility(options.registryPath);
