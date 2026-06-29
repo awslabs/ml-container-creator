@@ -290,7 +290,12 @@ export default class CrossCuttingChecker {
         if (!modelType || !server || !serverVersion) return findings;
 
         const entries = modelServersCatalog[server] || [];
-        const entry = entries.find(e => e.labels?.framework_version === serverVersion);
+        // Try exact version match first, then fall back to nearest entry with supportedModelTypes
+        let entry = entries.find(e => e.labels?.framework_version === serverVersion);
+        if (!entry?.supportedModelTypes?.length) {
+            // Fall back to any entry that has supportedModelTypes populated
+            entry = entries.find(e => e.supportedModelTypes?.length > 0);
+        }
         if (!entry?.supportedModelTypes?.length) return findings;
 
         if (!entry.supportedModelTypes.includes(modelType.toLowerCase())) {
