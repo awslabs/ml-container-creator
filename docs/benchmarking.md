@@ -173,7 +173,9 @@ To benchmark a LoRA adapter instead of the base model, pass `--adapter`:
 ./do/benchmark --adapter my-adapter --workload multi_turn_chat
 ```
 
-This routes requests through the adapter's inference component and records `adapter_name` in the Athena results. To differentiate adapter vs base model runs in queries:
+This routes requests through the adapter's inference component and records `adapter_name` in the Athena results. Works identically for adapters from any source — `do/tune` (managed), `do/train` (custom), or `--from-registry` (imported).
+
+To differentiate adapter vs base model runs in queries:
 
 ```sql
 SELECT * FROM mlcc_ci.benchmark_results

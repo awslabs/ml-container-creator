@@ -215,6 +215,11 @@ ml-container-creator my-marketplace-model \
     Generated projects include `do/lib/profile.sh` which reads the active bootstrap profile (`~/.ml-container-creator/config.json`) at runtime. Values like S3 bucket names, account ID, and region are resolved from the profile — no need to regenerate when switching profiles. Scripts use `${_PROFILE[key]}` for profile values, with env var precedence: explicit env var > profile > default.
 
 
+!!! info "Lifecycle Variables in `do/config`"
+    The `do/tune` and `do/train` scripts persist state to `do/config` after job completion (`TUNE_*` and `TRAIN_*` variables respectively). These track adapter output paths, dataset provenance, and job names — enabling `do/adapter --from-tune` / `--from-train` to resolve artifacts without manual S3 URI handling. See [Fine-Tuning](fine-tuning.md) and [Custom Training](custom-training.md) for the full variable reference.
+
+    Additionally, `do/deploy` and `do/benchmark` may persist `DEPLOYED_INSTANCE_TYPE` and `BENCHMARK_INSTANCE_TYPE` for heterogeneous instance pool endpoints where the actual instance is resolved at runtime.
+
 ## Configuration Methods
 
 ### Interactive Mode
