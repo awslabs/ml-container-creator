@@ -367,6 +367,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     if (!trainIncluded) {
         ignorePatterns.push('**/do/train');
         ignorePatterns.push('**/do/.train_helper.py');
+        ignorePatterns.push('**/do/.train_build_request.py');
         ignorePatterns.push('**/do/training/**');
         ignorePatterns.push('**/do/evaluate');
         ignorePatterns.push('**/do/.eval_helper.py');
@@ -405,6 +406,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/.register_helper.py');
         ignorePatterns.push('**/do/train');
         ignorePatterns.push('**/do/.train_helper.py');
+        ignorePatterns.push('**/do/.train_build_request.py');
         ignorePatterns.push('**/do/training/**');
         ignorePatterns.push('**/do/evaluate');
         ignorePatterns.push('**/do/.eval_helper.py');
