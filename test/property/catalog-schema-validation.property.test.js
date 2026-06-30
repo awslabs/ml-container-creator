@@ -101,7 +101,10 @@ const enrichedImageCatalogSchema = {
                     additionalProperties: { $ref: '#/definitions/profileEntry' }
                 },
                 notes: { type: 'string' },
-                supportedModelTypes: { type: 'array', items: { type: 'string' } }
+                supportedModelTypes: { type: 'array', items: { type: 'string' } },
+                min_driver_version: { type: 'string' },
+                cuda_toolkit: { type: 'string' },
+                transformers_version: { type: 'string' }
             },
             additionalProperties: false
         }

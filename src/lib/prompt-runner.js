@@ -68,6 +68,7 @@ export default class PromptRunner {
     _queryMcpForInstance(...args) { return this.mcpQueryRunner._queryMcpForInstance(...args); }
     _queryMcpForInstanceSizing(...args) { return this.mcpQueryRunner._queryMcpForInstanceSizing(...args); }
     _queryMcpForEndpoints(...args) { return this.mcpQueryRunner._queryMcpForEndpoints(...args); }
+    _resolveEndpointInstanceType(...args) { return this.mcpQueryRunner._resolveEndpointInstanceType(...args); }
     _queryMcpForHyperPod(...args) { return this.mcpQueryRunner._queryMcpForHyperPod(...args); }
     _fetchAndDisplayModelInfo(...args) { return this.mcpQueryRunner._fetchAndDisplayModelInfo(...args); }
     _validateAndDisplayInstanceType(...args) { return this.mcpQueryRunner._validateAndDisplayInstanceType(...args); }
@@ -182,8 +183,8 @@ export default class PromptRunner {
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // Phase 2 — How (deployment target + serving profile + base image)
-        // Requirements: 4.3 — instance prompt appears AFTER base image is known
+        // Phase 2 — How (deployment target + serving profile)
+        // Requirements: US-1 — base image selection moved AFTER instance resolution
         // ══════════════════════════════════════════════════════════════════════
         console.log('\n💪 Infrastructure & Deployment');
 
@@ -192,25 +193,8 @@ export default class PromptRunner {
         const regionPreviousAnswers = bootstrapRegion ? { _bootstrapRegion: bootstrapRegion } : {};
         const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, { ...frameworkAnswers, ...regionPreviousAnswers }, explicitConfig, existingConfig);
 
-        // 2b. Query base-image-picker MCP server for base image choices
-        await this.mcpQueryRunner._queryMcpForBaseImage(frameworkAnswers, explicitConfig);
-        const baseImagePreviousAnswers = {
-            ...frameworkAnswers,
-            ...engineAnswers,
-            ...(this._mcpBaseImageChoices ? { _mcpBaseImageChoices: this._mcpBaseImageChoices } : {})
-        };
-        const baseImageAnswers = await this._runPhase(
-            baseImagePrompts,
-            baseImagePreviousAnswers,
-            explicitConfig,
-            existingConfig
-        );
-
-        // Requirements: 4.2-4.5 — Check model architecture compatibility after base image selection
-        this._checkModelArchitectureCompatibility(baseImageAnswers, frameworkAnswers);
-
-        // Extract CUDA version from selected base image for instance-sizer context
-        const selectedBaseImageCuda = this._extractCudaFromBaseImage(baseImageAnswers);
+        // NOTE: Base image selection moved to Phase 3 (after instance type resolution)
+        // to enable driver-aware filtering. See US-1 ordering constraint in requirements.
 
         // ══════════════════════════════════════════════════════════════════════
         // Phase 3 — Where (region + instance [derived] + CUDA/AMI + HyperPod + build target)
@@ -283,7 +267,7 @@ export default class PromptRunner {
                 } else if (phase1ModelId && phase1ModelId !== 'Custom (enter manually)') {
                     // Query instance-sizer with full context
                     await this.mcpQueryRunner._queryMcpForInstanceSizing(frameworkAnswers, modelFormatAnswers, explicitConfig, {
-                        cudaVersion: selectedBaseImageCuda,
+                        cudaVersion: null, // base image not yet selected (moved after instance resolution)
                         profileEnvVars: this._selectedProfileEnvVars || {}
                     });
                 } else {
@@ -421,6 +405,66 @@ export default class PromptRunner {
                 this._selectedCapacityReservationArn = matchingRec.reservationInfo.reservationArn;
             }
         }
+
+        // 3b2. Base image selection — AFTER instance type resolved (US-1 ordering constraint)
+        // Pass resolved instanceType and tensorParallelSize for driver-aware filtering
+        let resolvedInstanceType = instanceAnswers.customInstanceType || instanceAnswers.instanceType;
+        let resolvedTensorParallelSize = this._autoTensorParallelism || 1;
+
+        // For existing endpoints: resolve instance type from the endpoint (US-1 ordering constraint)
+        // The instance type is needed for driver-aware base image filtering even though the user
+        // doesn't select it manually. Pattern reused from do/lib/resolve-instance.sh.
+        if (!resolvedInstanceType && existingEndpointAnswers.existingEndpointName) {
+            const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
+            resolvedInstanceType = await this.mcpQueryRunner._resolveEndpointInstanceType(
+                existingEndpointAnswers.existingEndpointName,
+                resolvedRegion
+            );
+            // Store resolved instance type for downstream use (IC config, GPU count derivation)
+            if (resolvedInstanceType) {
+                existingEndpointAnswers._resolvedEndpointInstanceType = resolvedInstanceType;
+                // Propagate as instanceType so template-variable-resolver derives
+                // icGpuCount and tensorParallelSize from the instance catalog.
+                // Without this, IC_GPU_COUNT defaults to 1 even for multi-GPU instances.
+                existingEndpointAnswers.instanceType = resolvedInstanceType;
+
+                // Derive GPU count from instance catalog for immediate use (TP for base image filtering)
+                const endpointInstanceEntry = instanceCatalogRaw[resolvedInstanceType];
+                if (endpointInstanceEntry?.gpus && endpointInstanceEntry.gpus > 1) {
+                    existingEndpointAnswers.gpuCount = endpointInstanceEntry.gpus;
+                    existingEndpointAnswers.tensorParallelSize = endpointInstanceEntry.gpus;
+                    this._autoTensorParallelism = endpointInstanceEntry.gpus;
+                    this._autoGpuCount = endpointInstanceEntry.gpus;
+                    console.log(`   ✓ Endpoint instance ${resolvedInstanceType}: ${endpointInstanceEntry.gpus} GPUs (TP=${endpointInstanceEntry.gpus})`);
+                }
+            }
+        }
+
+        // Re-read tensor parallel size after potential endpoint resolution update
+        resolvedTensorParallelSize = this._autoTensorParallelism || 1;
+
+        await this.mcpQueryRunner._queryMcpForBaseImage(frameworkAnswers, explicitConfig, {
+            instanceType: resolvedInstanceType,
+            tensorParallelSize: resolvedTensorParallelSize,
+            modelId: phase1ModelId || undefined
+        });
+        const baseImagePreviousAnswers = {
+            ...frameworkAnswers,
+            ...engineAnswers,
+            ...(this._mcpBaseImageChoices ? { _mcpBaseImageChoices: this._mcpBaseImageChoices } : {})
+        };
+        const baseImageAnswers = await this._runPhase(
+            baseImagePrompts,
+            baseImagePreviousAnswers,
+            explicitConfig,
+            existingConfig
+        );
+
+        // Requirements: 4.2-4.5 — Check model architecture compatibility after base image selection
+        this._checkModelArchitectureCompatibility(baseImageAnswers, frameworkAnswers);
+
+        // Extract CUDA version from selected base image for CUDA/AMI auto-resolution
+        const selectedBaseImageCuda = this._extractCudaFromBaseImage(baseImageAnswers);
 
         // 3c. Async-specific prompts (only when deploymentTarget === 'async-inference')
         let asyncAnswers = {};

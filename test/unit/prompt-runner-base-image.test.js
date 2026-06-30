@@ -422,5 +422,204 @@ describe('PromptRunner._queryMcpForBaseImage', () => {
             assert.strictEqual(ctx.context.searchCriteria, undefined,
                 'Empty search should not set searchCriteria');
         });
+
+        it('should pass instanceType and tensorParallelSize from infraContext', async () => {
+            const cm = createMockConfigManager({
+                mcpServers: ['base-image-picker'],
+                queryResult: {
+                    values: { baseImage: 'vllm/vllm-openai:v0.10.1' },
+                    choices: { baseImage: ['vllm/vllm-openai:v0.10.1'] },
+                    metadata: { baseImage: [{ image: 'vllm/vllm-openai:v0.10.1', tag: 'v0.10.1', architecture: 'amd64', created: '2025-01-15T00:00:00Z', labels: { cuda_version: '12.4', python_version: '3.12' }, registry: 'dockerhub', repository: 'vllm/vllm-openai' }] }
+                }
+            });
+            const gen = createMockGenerator({ configManager: cm });
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
+
+            await runner._queryMcpForBaseImage(
+                { framework: 'transformers', modelServer: 'vllm' },
+                {},
+                { instanceType: 'ml.g5.24xlarge', tensorParallelSize: 4, modelId: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B' }
+            );
+
+            const ctx = cm._lastQueryContext();
+            assert.strictEqual(ctx.context.instanceType, 'ml.g5.24xlarge',
+                'instanceType should be passed to MCP context');
+            assert.strictEqual(ctx.context.tensorParallelSize, 4,
+                'tensorParallelSize should be passed to MCP context');
+            assert.strictEqual(ctx.context.modelId, 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B',
+                'modelId should be passed to MCP context');
+        });
+
+        it('should not include infraContext fields when not provided', async () => {
+            const cm = createMockConfigManager({
+                mcpServers: ['base-image-picker'],
+                queryResult: {
+                    values: { baseImage: 'vllm/vllm-openai:v0.10.1' },
+                    choices: { baseImage: ['vllm/vllm-openai:v0.10.1'] },
+                    metadata: { baseImage: [{ image: 'vllm/vllm-openai:v0.10.1', tag: 'v0.10.1', architecture: 'amd64', created: '2025-01-15T00:00:00Z', labels: { cuda_version: '12.4', python_version: '3.12' }, registry: 'dockerhub', repository: 'vllm/vllm-openai' }] }
+                }
+            });
+            const gen = createMockGenerator({ configManager: cm });
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
+
+            await runner._queryMcpForBaseImage(
+                { framework: 'transformers', modelServer: 'vllm' },
+                {}
+            );
+
+            const ctx = cm._lastQueryContext();
+            assert.strictEqual(ctx.context.instanceType, undefined,
+                'instanceType should not be set when infraContext is empty');
+            assert.strictEqual(ctx.context.tensorParallelSize, undefined,
+                'tensorParallelSize should not be set when infraContext is empty');
+            assert.strictEqual(ctx.context.modelId, undefined,
+                'modelId should not be set when infraContext is empty');
+        });
+    });
+
+    describe('End-to-end: existing endpoint → instance type resolution → base image filtering', () => {
+        it('should resolve instance type from endpoint metadata and pass it to base image query', async () => {
+            const cm = createMockConfigManager({
+                mcpServers: ['base-image-picker'],
+                queryResult: {
+                    values: { baseImage: 'vllm/vllm-openai:v0.20.2' },
+                    choices: { baseImage: ['vllm/vllm-openai:v0.20.2'] },
+                    metadata: { baseImage: [{ image: 'vllm/vllm-openai:v0.20.2', tag: 'v0.20.2', architecture: 'amd64', created: '2025-03-01T00:00:00Z', labels: { cuda_version: '12.4', python_version: '3.12' }, registry: 'dockerhub', repository: 'vllm/vllm-openai' }] }
+                }
+            });
+            const gen = createMockGenerator({ configManager: cm });
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
+
+            // Simulate endpoint-picker having stored metadata (as _queryMcpForEndpoints does)
+            runner._endpointPickerMetadata = {
+                'my-prod-endpoint': {
+                    instanceType: 'ml.g5.24xlarge',
+                    instanceCount: 1,
+                    icCount: 2,
+                    availableGpus: 4
+                }
+            };
+
+            // Step 1: Resolve instance type from endpoint metadata
+            const resolvedInstanceType = await runner._resolveEndpointInstanceType('my-prod-endpoint', 'us-east-1');
+            assert.strictEqual(resolvedInstanceType, 'ml.g5.24xlarge',
+                'Should resolve instance type from endpoint metadata');
+
+            // Step 2: Pass resolved instance type to base image query (mirrors prompt-runner.js flow)
+            await runner._queryMcpForBaseImage(
+                { framework: 'transformers', modelServer: 'vllm' },
+                {},
+                { instanceType: resolvedInstanceType, tensorParallelSize: 4 }
+            );
+
+            // Verify the base-image-picker received the resolved instance type
+            const ctx = cm._lastQueryContext();
+            assert.strictEqual(ctx.serverName, 'base-image-picker',
+                'Should query base-image-picker');
+            assert.strictEqual(ctx.context.instanceType, 'ml.g5.24xlarge',
+                'infraContext.instanceType should carry the resolved endpoint instance type');
+            assert.strictEqual(ctx.context.tensorParallelSize, 4,
+                'infraContext.tensorParallelSize should be passed for driver filtering');
+        });
+
+        it('should handle endpoint with pool annotation and pass cleaned instance type', async () => {
+            const cm = createMockConfigManager({
+                mcpServers: ['base-image-picker'],
+                queryResult: {
+                    values: { baseImage: 'vllm/vllm-openai:v0.20.2' },
+                    choices: { baseImage: ['vllm/vllm-openai:v0.20.2'] },
+                    metadata: { baseImage: [{ image: 'vllm/vllm-openai:v0.20.2', tag: 'v0.20.2', architecture: 'amd64', created: '2025-03-01T00:00:00Z', labels: { cuda_version: '12.4' }, registry: 'dockerhub', repository: 'vllm/vllm-openai' }] }
+                }
+            });
+            const gen = createMockGenerator({ configManager: cm });
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
+
+            // Endpoint metadata with pool annotation (heterogeneous pool)
+            runner._endpointPickerMetadata = {
+                'pool-endpoint': {
+                    instanceType: 'ml.g5.12xlarge (pool: 3 types)',
+                    instanceCount: 1,
+                    icCount: 0,
+                    availableGpus: 4
+                }
+            };
+
+            // Resolve — should strip pool annotation
+            const resolvedInstanceType = await runner._resolveEndpointInstanceType('pool-endpoint', 'us-west-2');
+            assert.strictEqual(resolvedInstanceType, 'ml.g5.12xlarge',
+                'Should strip pool annotation from instance type');
+
+            // Pass to base image query
+            await runner._queryMcpForBaseImage(
+                { framework: 'transformers', modelServer: 'vllm' },
+                {},
+                { instanceType: resolvedInstanceType, tensorParallelSize: 4 }
+            );
+
+            const ctx = cm._lastQueryContext();
+            assert.strictEqual(ctx.context.instanceType, 'ml.g5.12xlarge',
+                'Cleaned instance type should be passed to base-image-picker');
+        });
+
+        it('should pass null instanceType when endpoint resolution fails', async () => {
+            const cm = createMockConfigManager({
+                mcpServers: ['base-image-picker'],
+                queryResult: {
+                    values: { baseImage: 'vllm/vllm-openai:v0.20.2' },
+                    choices: { baseImage: ['vllm/vllm-openai:v0.20.2'] },
+                    metadata: { baseImage: [{ image: 'vllm/vllm-openai:v0.20.2', tag: 'v0.20.2', architecture: 'amd64', created: '2025-03-01T00:00:00Z', labels: { cuda_version: '12.4' }, registry: 'dockerhub', repository: 'vllm/vllm-openai' }] }
+                }
+            });
+            const gen = createMockGenerator({ configManager: cm });
+            const runner = new PromptRunner({
+                configManager: gen.configManager,
+                options: gen.options,
+                registryConfigManager: gen.registryConfigManager,
+                baseConfig: gen.baseConfig,
+                promptFn: gen.promptFn
+            });
+
+            // No endpoint metadata — resolution will fail gracefully
+            runner._endpointPickerMetadata = null;
+
+            const resolvedInstanceType = await runner._resolveEndpointInstanceType('nonexistent-ep', 'us-east-1');
+            assert.strictEqual(resolvedInstanceType, null,
+                'Should return null when resolution fails');
+
+            // When resolution fails, null instanceType means no driver filtering (backward compat)
+            await runner._queryMcpForBaseImage(
+                { framework: 'transformers', modelServer: 'vllm' },
+                {},
+                { instanceType: resolvedInstanceType }
+            );
+
+            const ctx = cm._lastQueryContext();
+            assert.strictEqual(ctx.context.instanceType, undefined,
+                'null instanceType should not be set in context (no filtering)');
+        });
     });
 });

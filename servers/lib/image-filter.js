@@ -134,6 +134,110 @@ export function resolveMinFrameworkVersion(framework, modelArchitecture) {
     return frameworkMap[modelArchitecture] || null;
 }
 
+// ── CUDA → Driver derivation ─────────────────────────────────────────────────
+
+/**
+ * CUDA Toolkit → Minimum Driver Version mapping (Linux).
+ *
+ * Used to derive `min_driver_version` for dynamic Docker Hub entries
+ * that don't have it explicitly set in a static catalog.
+ *
+ * Source: NVIDIA CUDA Compatibility documentation.
+ */
+const CUDA_DRIVER_MAP = [
+    { min: 12.9, driver: '580.0' },
+    { min: 12.7, driver: '570.86' },
+    { min: 12.5, driver: '555.42' },
+    { min: 12.4, driver: '550.54' },
+    { min: 12.2, driver: '535.54' },
+    { min: 12.0, driver: '525.60' }
+];
+
+/**
+ * Parse CUDA toolkit version from a Docker image tag string.
+ *
+ * Recognizes patterns:
+ *   - "-cu124" suffix → CUDA 12.4
+ *   - "-cu121" suffix → CUDA 12.1
+ *   - "-cuda12.4" suffix → CUDA 12.4
+ *   - "-cuda12.4.1" suffix → CUDA 12.4
+ *
+ * @param {string} tag - Docker image tag (e.g., "v0.6.6.post8-cu124")
+ * @returns {number|null} Parsed CUDA version as float (e.g., 12.4) or null
+ */
+export function parseCudaVersionFromTag(tag) {
+    if (!tag) return null;
+
+    // Pattern: -cu<major><minor> (e.g., "-cu124" → 12.4, "-cu121" → 12.1)
+    const cuMatch = tag.match(/-cu(\d{2})(\d+)/i);
+    if (cuMatch) {
+        const major = parseInt(cuMatch[1], 10);
+        const minor = parseInt(cuMatch[2], 10);
+        return major + minor / 10;
+    }
+
+    // Pattern: -cuda<major>.<minor> (e.g., "-cuda12.4" or "-cuda12.4.1")
+    const cudaMatch = tag.match(/-cuda(\d+)\.(\d+)/i);
+    if (cudaMatch) {
+        return parseInt(cudaMatch[1], 10) + parseInt(cudaMatch[2], 10) / 10;
+    }
+
+    return null;
+}
+
+/**
+ * Derive the minimum driver version from a CUDA toolkit version number.
+ *
+ * @param {number} cudaVersion - CUDA toolkit version as float (e.g., 12.4)
+ * @returns {string|null} Minimum driver version string, or null if not mappable
+ */
+export function deriveDriverFromCuda(cudaVersion) {
+    if (cudaVersion === null || cudaVersion === undefined || isNaN(cudaVersion)) return null;
+
+    for (const entry of CUDA_DRIVER_MAP) {
+        if (cudaVersion >= entry.min) {
+            return entry.driver;
+        }
+    }
+
+    // CUDA < 12.0 — not in our map, return null (conservative)
+    return null;
+}
+
+/**
+ * Derive `min_driver_version` for a dynamic image entry.
+ *
+ * Attempts to determine the CUDA toolkit version from:
+ *   1. `labels.cuda_version` field (if present)
+ *   2. Tag name patterns (-cu124, -cuda12.4)
+ *
+ * If CUDA version can be determined, maps it to the minimum driver version.
+ * If not, returns null (entry will pass all driver filters — backward compat).
+ *
+ * @param {object} entry - Image entry with `tag` and optional `labels`
+ * @returns {string|null} Derived min_driver_version, or null
+ */
+export function deriveMinDriverVersion(entry) {
+    if (!entry) return null;
+
+    // Priority 1: explicit cuda_version in labels
+    if (entry.labels && entry.labels.cuda_version) {
+        const cudaVer = parseFloat(entry.labels.cuda_version);
+        if (!isNaN(cudaVer)) {
+            return deriveDriverFromCuda(cudaVer);
+        }
+    }
+
+    // Priority 2: parse from tag name
+    const cudaFromTag = parseCudaVersionFromTag(entry.tag);
+    if (cudaFromTag !== null) {
+        return deriveDriverFromCuda(cudaFromTag);
+    }
+
+    // Fallback: cannot determine — leave unset (passes all filters)
+    return null;
+}
+
 // ── Main filter function ─────────────────────────────────────────────────────
 
 /**

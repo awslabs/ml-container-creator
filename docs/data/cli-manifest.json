@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-29T19:34:07.108Z",
+  "generatedAt": "2026-06-30T16:45:49.725Z",
   "version": "1.0.3",
   "cliOptions": [],
   "deploymentConfigs": [
@@ -829,6 +829,42 @@
         {
           "tag": "0.35.0-pytorch-gpu",
           "cuda": "12.4",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "0.34.0-pytorch-gpu",
+          "cuda": "12.4",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "0.33.0-pytorch-gpu",
+          "cuda": "12.4",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "0.32.0-pytorch-gpu",
+          "cuda": "12.4",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "0.31.0-pytorch-gpu",
+          "cuda": "12.4",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "0.30.0-pytorch-gpu",
+          "cuda": "12.1",
+          "validationLevel": "community-validated",
+          "supportedModelTypes": []
+        },
+        {
+          "tag": "0.29.0-pytorch-gpu",
+          "cuda": "12.1",
           "validationLevel": "community-validated",
           "supportedModelTypes": []
         }

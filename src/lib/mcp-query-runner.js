@@ -384,6 +384,9 @@ export default class McpQueryRunner {
                 const endpointNames = result.choices.endpointName;
                 const metadata = result.metadata || {};
 
+                // Store endpoint metadata for later instance type resolution (US-1)
+                this.runner._endpointPickerMetadata = metadata;
+
                 // Build choices with metadata annotations
                 this.runner._mcpEndpointChoices = endpointNames.map(name => {
                     const meta = metadata[name];
@@ -412,12 +415,15 @@ export default class McpQueryRunner {
     }
 
     /**
-     * Query MCP base-image-picker server after deployment config is selected.
+     * Query MCP base-image-picker server after deployment config and instance type are known.
      * Populates _mcpBaseImageChoices for the base image selection prompt.
-     * Requirements: 5.1, 5.2, 5.3, 5.4, 9.1, 9.2, 9.3
+     * Requirements: 5.1, 5.2, 5.3, 5.4, 9.1, 9.2, 9.3, US-1 (ordering constraint)
+     * @param {Object} frameworkAnswers - Framework/architecture answers
+     * @param {Object} _explicitConfig - Explicit CLI/config values
+     * @param {Object} [infraContext] - Infrastructure context (instanceType, tensorParallelSize, modelId)
      * @private
      */
-    async _queryMcpForBaseImage(frameworkAnswers, _explicitConfig) {
+    async _queryMcpForBaseImage(frameworkAnswers, _explicitConfig, infraContext = {}) {
         // Skip if base image provided via CLI --base-image flag
         if (this.runner.options['base-image']) return;
 
@@ -452,6 +458,17 @@ export default class McpQueryRunner {
         const context = { framework, modelServer, architecture };
         if (searchCriteria && searchCriteria.trim()) {
             context.searchCriteria = searchCriteria.trim();
+        }
+
+        // Pass infrastructure context for driver-aware filtering (US-1 ordering constraint)
+        if (infraContext.instanceType) {
+            context.instanceType = infraContext.instanceType;
+        }
+        if (infraContext.tensorParallelSize !== null && infraContext.tensorParallelSize !== undefined) {
+            context.tensorParallelSize = infraContext.tensorParallelSize;
+        }
+        if (infraContext.modelId) {
+            context.modelId = infraContext.modelId;
         }
 
         const result = await cm.queryMcpServer('base-image-picker', context);
@@ -713,6 +730,96 @@ export default class McpQueryRunner {
         } else {
             console.log('   ℹ️  No additional model information available');
             console.log('   Proceeding with default configuration');
+        }
+    }
+
+    /**
+     * Resolve instance type from an existing endpoint.
+     * Priority:
+     *   1. Endpoint-picker metadata (already fetched, no network call)
+     *   2. Direct AWS SDK call: DescribeEndpoint → DescribeEndpointConfig
+     *
+     * Reuses the resolution pattern from do/lib/resolve-instance.sh:
+     *   - Check ProductionVariants[0].CurrentInstanceType or InstanceType
+     *   - Fallback: DescribeEndpointConfig → ProductionVariants[0].InstanceType
+     *   - Final fallback: InstancePools[0] (highest priority)
+     *
+     * Requirements: US-1 (ordering constraint — resolve instance type before base image picker)
+     * @param {string} endpointName - The existing endpoint name
+     * @param {string} awsRegion - AWS region for API calls
+     * @returns {Promise<string|null>} Resolved instance type or null on failure
+     * @private
+     */
+    async _resolveEndpointInstanceType(endpointName, awsRegion) {
+        // Strategy 1: Use endpoint-picker metadata (already fetched, no network call)
+        if (this.runner._endpointPickerMetadata) {
+            const meta = this.runner._endpointPickerMetadata[endpointName];
+            if (meta?.instanceType) {
+                // Strip pool annotation if present: "ml.g5.12xlarge (pool: 3 types)" → "ml.g5.12xlarge"
+                const rawInstanceType = meta.instanceType.includes(' (pool:')
+                    ? meta.instanceType.split(' (pool:')[0]
+                    : meta.instanceType;
+                if (rawInstanceType && rawInstanceType !== 'unknown') {
+                    console.log(`   ✓ Resolved instance type from endpoint metadata: ${rawInstanceType}`);
+                    return rawInstanceType;
+                }
+            }
+        }
+
+        // Strategy 2: Direct AWS SDK call (for custom endpoint names not in picker results)
+        console.log('   🔍 Resolving instance type from existing endpoint...');
+        try {
+            const { SageMakerClient, DescribeEndpointCommand, DescribeEndpointConfigCommand } = await import('@aws-sdk/client-sagemaker');
+
+            const region = awsRegion || process.env.AWS_REGION || 'us-east-1';
+            const clientOptions = { region };
+
+            // Use AWS profile if available
+            const awsProfile = this.runner.configManager?.config?.awsProfile
+                || this.runner.options?.profile || process.env.AWS_PROFILE || null;
+            if (awsProfile) {
+                try {
+                    const { fromIni } = await import('@aws-sdk/credential-providers');
+                    clientOptions.credentials = fromIni({ profile: awsProfile });
+                } catch {
+                    // credential-providers not available, use default chain
+                }
+            }
+
+            const client = new SageMakerClient(clientOptions);
+
+            // DescribeEndpoint — check ProductionVariants for instance type
+            const epResponse = await client.send(new DescribeEndpointCommand({ EndpointName: endpointName }));
+
+            const primaryVariant = (epResponse.ProductionVariants || [])[0] || {};
+            let instanceType = primaryVariant.CurrentInstanceType || primaryVariant.InstanceType || null;
+
+            // Fallback: DescribeEndpointConfig
+            if (!instanceType && epResponse.EndpointConfigName) {
+                const ecResponse = await client.send(
+                    new DescribeEndpointConfigCommand({ EndpointConfigName: epResponse.EndpointConfigName })
+                );
+                const ecVariant = (ecResponse.ProductionVariants || [])[0];
+                if (ecVariant?.InstanceType) {
+                    instanceType = ecVariant.InstanceType;
+                } else if (ecVariant?.InstancePools?.length > 0) {
+                    // Use highest-priority pool entry (lowest Priority number)
+                    const sorted = [...ecVariant.InstancePools].sort((a, b) => (a.Priority || 99) - (b.Priority || 99));
+                    instanceType = sorted[0].InstanceType || null;
+                }
+            }
+
+            if (instanceType) {
+                console.log(`   ✓ Resolved instance type from endpoint: ${instanceType}`);
+                return instanceType;
+            }
+
+            console.log('   ↳ Could not determine instance type from endpoint');
+            return null;
+        } catch (err) {
+            // Graceful fallback: if AWS call fails, skip filtering (no driver-aware filter)
+            console.log(`   ⚠️  Could not resolve instance type from endpoint: ${err.message}`);
+            return null;
         }
     }
 

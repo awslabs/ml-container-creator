@@ -28,10 +28,10 @@ function test(name, fn) {
 
 console.log('\nworkload-picker: listWorkloads\n');
 
-// --- list_workloads returns all 6 workloads ---
-test('returns all 6 workloads', () => {
+// --- list_workloads returns all 7 workloads ---
+test('returns all 7 workloads', () => {
     const result = listWorkloads();
-    assert.strictEqual(result.workloads.length, 6);
+    assert.strictEqual(result.workloads.length, 7);
 });
 
 test('each workload has name, description, and use_case', () => {
@@ -47,6 +47,7 @@ test('workload names match expected set', () => {
     const result = listWorkloads();
     const names = new Set(result.workloads.map(w => w.name));
     const expected = [
+        'sample',
         'multi_turn_chat',
         'rag_document_qa',
         'agent_tool_calling',

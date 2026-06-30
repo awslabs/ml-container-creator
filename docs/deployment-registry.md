@@ -189,6 +189,9 @@ Register a training dataset to the SageMaker AI Registry (with local JSON fallba
 ./do/register dataset --from-tune sft
 ./do/register dataset --from-tune dpo
 
+# Register from the last custom training job (do/train output)
+./do/register dataset --from-train sft
+
 # With a custom name override
 ./do/register dataset my-custom-name --from-tune sft
 

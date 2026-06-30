@@ -718,6 +718,38 @@ if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "create_ic" ] || [ "${SKIP_TO}" = "wa
         # Run capacity guardrail before deploying ICs
         _check_gpu_capacity
 
+        # _check_gpu_count_mismatch
+        #   Non-fatal warning: if any IC has IC_GPU_COUNT=1 but the endpoint has
+        #   multiple GPUs available, warn the user that they may be underutilizing.
+        #   The user may intentionally use fewer GPUs (e.g., sharing endpoint across
+        #   multiple ICs), so this is advisory only — no exit, no abort.
+        _check_gpu_count_mismatch() {
+            # Skip if DEPLOYED_GPU_COUNT is not set or is ≤1
+            if [ "${DEPLOYED_GPU_COUNT:-0}" -le 1 ]; then
+                return 0
+            fi
+
+            for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                [ -f "${conf}" ] || continue
+                local ic_gpus
+                ic_gpus=$(grep "^export IC_GPU_COUNT=" "${conf}" 2>/dev/null | sed 's/^export IC_GPU_COUNT=//' | tr -d '"' || echo "1")
+                if [ -z "${ic_gpus}" ]; then
+                    ic_gpus=1
+                fi
+                if [ "${ic_gpus}" = "1" ] && [ "${DEPLOYED_GPU_COUNT:-0}" -gt 1 ]; then
+                    local conf_name
+                    conf_name=$(basename "${conf}")
+                    echo ""
+                    echo "⚠️  Warning: IC_GPU_COUNT=1 but endpoint has ${DEPLOYED_GPU_COUNT} GPUs available"
+                    echo "   Consider setting IC_GPU_COUNT=${DEPLOYED_GPU_COUNT} in do/ic/${conf_name} for tensor parallelism"
+                    echo ""
+                    break
+                fi
+            done
+        }
+
+        _check_gpu_count_mismatch
+
         # _delete_and_wait_ic <ic_name>
         #   Deletes an inference component and waits for deletion to complete.
         #   Polls until the IC is no longer found (avoids name conflicts on recreate).

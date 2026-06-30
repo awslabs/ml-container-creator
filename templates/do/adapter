@@ -1546,6 +1546,42 @@ if endpoint_name:
     except Exception:
         print("⚠️  Could not query endpoint — showing local confs only.", file=sys.stderr)
 
+# ── Data source 3: Registry (MPG) adapters ──
+# Query the deployment MPG for registered adapter versions (if .register_helper.py exists)
+helper_path = os.path.join(script_dir, ".register_helper.py")
+if os.path.exists(helper_path):
+    try:
+        result = subprocess.run(
+            ["python3", helper_path, "list-adapters",
+             "--project-name", project_name, "--region", region],
+            capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            # Extract JSON line
+            for line in result.stdout.strip().split("\n"):
+                if line.startswith("{"):
+                    reg_data = json.loads(line)
+                    for adapter in reg_data.get("adapters", []):
+                        reg_name = adapter.get("name", "")
+                        if not reg_name:
+                            continue
+                        # Only add if not already tracked locally
+                        if reg_name not in adapters:
+                            adapters[reg_name] = {
+                                "source": "registry",
+                                "ic_name": "",
+                                "technique": adapter.get("technique", ""),
+                                "dataset": "",
+                                "status": f"v{adapter.get('version', '?')}",
+                            }
+                        else:
+                            # Annotate existing entry with registry version
+                            ver = adapter.get("version", "")
+                            if ver:
+                                adapters[reg_name]["status"] += f" (reg:v{ver})"
+                    break
+    except Exception:
+        pass  # Registry query is best-effort
+
 # ── Output ──
 if not adapters:
     print("No adapters found.")

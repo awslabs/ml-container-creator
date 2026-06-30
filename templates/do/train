@@ -1380,10 +1380,9 @@ run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
 
         # Fallback: try local development path
         if [ -z "${INTERACTIVE_RESULT}" ]; then
-            local project_root
-            project_root=$(cd "${SCRIPT_DIR}/.." && pwd)
+            _project_root=$(cd "${SCRIPT_DIR}/.." && pwd)
             INTERACTIVE_RESULT=$(node --input-type=module -e "
-import { run } from '${project_root}/node_modules/@aws/ml-container-creator/src/lib/train-config-builder.js';
+import { run } from '${_project_root}/node_modules/@aws/ml-container-creator/src/lib/train-config-builder.js';
 run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
 " 2>/dev/null | grep -E '^\{' | tail -1) || INTERACTIVE_RESULT=""
         fi
@@ -1391,7 +1390,7 @@ run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
         # Final fallback: direct path (for development in the generator repo)
         if [ -z "${INTERACTIVE_RESULT}" ]; then
             INTERACTIVE_RESULT=$(node --input-type=module -e "
-import { run } from '${project_root}/src/lib/train-config-builder.js';
+import { run } from '${_project_root}/src/lib/train-config-builder.js';
 run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
 " 2>/dev/null | grep -E '^\{' | tail -1) || INTERACTIVE_RESULT=""
         fi

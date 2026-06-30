@@ -25,7 +25,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { DynamicResolver as DynamicResolverBase } from '../lib/dynamic-resolver.js';
-import { filterImages } from '../lib/image-filter.js';
+import { filterImages, deriveMinDriverVersion } from '../lib/image-filter.js';
+import { resolveModelArchitecture } from '../lib/model-id-resolver.js';
 
 // ── Catalog loader ───────────────────────────────────────────────────────────
 
@@ -157,15 +158,25 @@ class DynamicResolver extends ImageResolver {
             }
 
             const data = await response.json();
-            const images = (data.results || []).map(tag => ({
-                image: `${this._repoForFramework(framework)}:${tag.name}`,
-                tag: tag.name,
-                architecture: 'amd64',
-                created: tag.last_updated || tag.tag_last_pushed || new Date().toISOString(),
-                labels: {},
-                registry: 'dockerhub',
-                repository: this._repoForFramework(framework)
-            }));
+            const images = (data.results || []).map(tag => {
+                const entry = {
+                    image: `${this._repoForFramework(framework)}:${tag.name}`,
+                    tag: tag.name,
+                    architecture: 'amd64',
+                    created: tag.last_updated || tag.tag_last_pushed || new Date().toISOString(),
+                    labels: {},
+                    registry: 'dockerhub',
+                    repository: this._repoForFramework(framework)
+                };
+
+                // Derive min_driver_version from CUDA version in tag or labels
+                const minDriver = deriveMinDriverVersion(entry);
+                if (minDriver) {
+                    entry.min_driver_version = minDriver;
+                }
+
+                return entry;
+            });
 
             return {
                 images: images.slice(0, limit),
@@ -378,7 +389,7 @@ if (discoverMode) {
 async function resolveBaseImage(context, limit) {
     const { framework, modelServer, searchCriteria, architecture,
         instanceType, driverVersion, inferenceAmiVersion,
-        tensorParallelSize, modelArchitecture } = context;
+        tensorParallelSize, modelArchitecture, modelId } = context;
 
     // Determine which framework identifier to resolve
     let resolverKey;
@@ -407,21 +418,30 @@ async function resolveBaseImage(context, limit) {
         resultImages = mergeStaticAndDynamic(staticResult.images, dynamicResult.images, limit * 3);
     } else {
         // Static-only path (no network calls) — fetch extra to allow for filtering
-        const fetchLimit = (instanceType || driverVersion || modelArchitecture) ? limit * 3 : limit;
+        const fetchLimit = (instanceType || driverVersion || modelArchitecture || modelId) ? limit * 3 : limit;
         const result = await resolver.fetchImages(resolverKey, { limit: fetchLimit, searchCriteria });
         resultImages = result.images;
     }
 
+    // ── Resolve modelId → modelArchitecture if needed ───────────────────
+    let resolvedModelArchitecture = modelArchitecture || '';
+    if (!modelArchitecture && modelId) {
+        const arch = await resolveModelArchitecture(modelId);
+        if (arch) {
+            resolvedModelArchitecture = arch;
+        }
+    }
+
     // ── Apply driver-aware + model-architecture filtering ─────────────────
     let filterMetadata = null;
-    if (instanceType || driverVersion || inferenceAmiVersion || modelArchitecture) {
+    if (instanceType || driverVersion || inferenceAmiVersion || resolvedModelArchitecture) {
         const filterResult = filterImages(resultImages, {
             framework: resolverKey,
             instanceType,
             driverVersion,
             inferenceAmiVersion,
             tensorParallelSize: tensorParallelSize || 1,
-            modelArchitecture: modelArchitecture || ''
+            modelArchitecture: resolvedModelArchitecture
         });
         resultImages = filterResult.images;
         filterMetadata = filterResult.metadata;
@@ -501,7 +521,8 @@ export {
     registry,
     staticResolver,
     dynamicResolver,
-    discoverMode
+    discoverMode,
+    resolveModelArchitecture
 };
 
 export { DynamicResolverBase as DynamicResolverBase };

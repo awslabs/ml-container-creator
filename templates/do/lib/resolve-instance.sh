@@ -7,12 +7,14 @@
 # Subsequent calls read from do/config without any AWS API calls.
 #
 # After sourcing, INSTANCE_TYPE is guaranteed to be set (or empty if resolution failed).
+# DEPLOYED_GPU_COUNT is also resolved from a static lookup table (instances.json catalog)
+# and persisted to do/config alongside the instance type.
 #
 # Usage:
 #   source "${SCRIPT_DIR}/config"
 #   source "${SCRIPT_DIR}/lib/profile.sh"
 #   source "${SCRIPT_DIR}/lib/resolve-instance.sh"
-#   # INSTANCE_TYPE is now resolved
+#   # INSTANCE_TYPE and DEPLOYED_GPU_COUNT are now resolved
 
 # Resolve SCRIPT_DIR if not already set (defensive — normally inherited from caller)
 if [ -z "${SCRIPT_DIR:-}" ]; then
@@ -28,6 +30,10 @@ fi
 if [ -n "${DEPLOYED_INSTANCE_TYPE:-}" ]; then
     INSTANCE_TYPE="${DEPLOYED_INSTANCE_TYPE}"
     export INSTANCE_TYPE
+    # Ensure DEPLOYED_GPU_COUNT is also exported (may already be in do/config)
+    if [ -n "${DEPLOYED_GPU_COUNT:-}" ]; then
+        export DEPLOYED_GPU_COUNT
+    fi
     return 0 2>/dev/null || true
 fi
 
@@ -107,6 +113,42 @@ if [ -n "${_RESOLVED_INSTANCE}" ]; then
     INSTANCE_TYPE="${_RESOLVED_INSTANCE}"
     DEPLOYED_INSTANCE_TYPE="${_RESOLVED_INSTANCE}"
     export INSTANCE_TYPE DEPLOYED_INSTANCE_TYPE
+
+    # ── Resolve GPU count from instance type ─────────────────────────────────
+    # Static lookup table derived from servers/lib/catalogs/instances.json.
+    # Maps known SageMaker instance types to their GPU count.
+    _resolve_gpu_count() {
+        case "$1" in
+            ml.g5.xlarge|ml.g5.2xlarge|ml.g5.4xlarge|ml.g5.8xlarge|ml.g5.16xlarge) echo 1 ;;
+            ml.g5.12xlarge|ml.g5.24xlarge) echo 4 ;;
+            ml.g5.48xlarge) echo 8 ;;
+            ml.g4dn.xlarge|ml.g4dn.2xlarge|ml.g4dn.4xlarge|ml.g4dn.8xlarge|ml.g4dn.16xlarge) echo 1 ;;
+            ml.g4dn.12xlarge) echo 4 ;;
+            ml.g6.xlarge|ml.g6.2xlarge|ml.g6.4xlarge|ml.g6.8xlarge|ml.g6.16xlarge) echo 1 ;;
+            ml.g6.12xlarge|ml.g6.24xlarge) echo 4 ;;
+            ml.g6.48xlarge) echo 8 ;;
+            ml.g6e.xlarge|ml.g6e.2xlarge|ml.g6e.4xlarge|ml.g6e.8xlarge|ml.g6e.16xlarge) echo 1 ;;
+            ml.g6e.12xlarge|ml.g6e.24xlarge) echo 4 ;;
+            ml.g6e.48xlarge) echo 8 ;;
+            ml.p4d.24xlarge|ml.p4de.24xlarge) echo 8 ;;
+            ml.p5.48xlarge|ml.p5e.48xlarge) echo 8 ;;
+            *) echo "" ;;
+        esac
+    }
+
+    _GPU_COUNT=$(_resolve_gpu_count "${_RESOLVED_INSTANCE}")
+    if [ -n "${_GPU_COUNT}" ]; then
+        if grep -q "^export DEPLOYED_GPU_COUNT=" "${_config_file}" 2>/dev/null; then
+            sed -i.bak "s|^export DEPLOYED_GPU_COUNT=.*|export DEPLOYED_GPU_COUNT=\"${_GPU_COUNT}\"|" "${_config_file}"
+            rm -f "${_config_file}.bak"
+        else
+            echo "export DEPLOYED_GPU_COUNT=\"${_GPU_COUNT}\"" >> "${_config_file}"
+        fi
+        DEPLOYED_GPU_COUNT="${_GPU_COUNT}"
+        export DEPLOYED_GPU_COUNT
+    fi
+    unset _GPU_COUNT
+    unset -f _resolve_gpu_count
 fi
 
 # Clean up internal vars

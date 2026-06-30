@@ -30,9 +30,11 @@ Then iterate — fine-tune and hot-swap a LoRA adapter without restarting:
 
 ```bash
 ./do/tune --technique sft --dataset s3://my-bucket/train.jsonl
-./do/adapter add my-sft --from-tune
+./do/adapter add tuned-sft --from-tune
 ./do/test    # Verify the adapter works
 ```
+
+For full control over the training code, see [Custom Training](custom-training.md) (`do/train`).
 
 See [Getting Started](getting-started.md) for the full walkthrough with prerequisites.
 
