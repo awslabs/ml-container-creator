@@ -281,7 +281,7 @@ Your endpoint supports LoRA adapter hot-swapping (enabled by default). You can f
 ./do/test
 ```
 
-The adapter is served as a separate inference component on the same endpoint — no downtime, no container rebuild. See [Fine-Tuning](fine-tuning.md) for the full guide on training data format, all supported techniques (SFT, DPO, RLAIF, RLVR), and adapter lifecycle management.
+The adapter is served as a separate inference component on the same endpoint — no downtime, no container rebuild. See [Fine-Tuning](fine-tuning.md) for the full guide on training data format, all supported techniques (SFT, DPO, RLAIF, RLVR), and adapter lifecycle management. For full control over the training code (custom trainers, custom techniques), see [Custom Training](custom-training.md).
 
 ## Cleanup
 
@@ -327,6 +327,7 @@ For full details, see the [CI Integration Guide](ci-integration.md).
 - [Configuration](configuration.md) — CLI flags, environment variables, config files, and MCP servers
 - [Deployment & Inference](deployments.md) — All deployment targets and lifecycle scripts
 - [Fine-Tuning](fine-tuning.md) — Fine-tune supported models with `do/tune` and deploy adapters
+- [Custom Training](custom-training.md) — Bring your own training code with `do/train`
 - [Examples](EXAMPLES.md) — Walkthroughs for other architectures (Triton, diffusors, async, batch transform)
 - [MCP Servers](mcp-configuration.md) — Configure intelligent defaults for instance sizing, region selection, and more
 - [Benchmarking](benchmarking.md) — Measure latency and throughput with SageMaker AI Benchmarking

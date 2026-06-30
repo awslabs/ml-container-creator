@@ -417,3 +417,53 @@ DEBUG=* ml-container-creator
 - [GitHub Issues](https://github.com/awslabs/ml-container-creator/issues) -- report bugs
 - [GitHub Discussions](https://github.com/awslabs/ml-container-creator/discussions) -- ask questions
 - [SageMaker AI Documentation](https://docs.aws.amazon.com/sagemaker/) -- AWS reference
+
+
+### vLLM container logs go dark after "engine args" on multi-GPU
+
+**Symptoms:** Container starts, logs show `CUDA compat: driver X < Y, adding compat libs` and `vLLM engine args: [...]`, then no further output. IC reports "InService" but inference returns `InternalFailure`. Benchmark jobs fail with 400 Bad Request.
+
+**Root cause:** The vLLM image was compiled against a newer CUDA toolkit than the instance's GPU driver supports. The CUDA forward compatibility layer loads partially but **fails silently during NCCL initialization** for multi-GPU tensor-parallel deployments. No Python exception is raised — the process hangs or is killed by the container runtime.
+
+**Example:** `vllm/vllm-openai:v0.23.0` (CUDA 12.9, requires driver ≥580) on `ml.g5.24xlarge` (driver ~550).
+
+**Fix:**
+
+1. Downgrade to a compatible vLLM version:
+   ```bash
+   # Check driver compatibility table in MCP Servers docs
+   # For g5 (driver ~550): use vLLM ≤v0.21.x
+   sed -i '' 's/vllm-openai:v0.23.0/vllm-openai:v0.20.2/' Dockerfile
+   ./do/build && ./do/push
+   ```
+
+2. Or use base-image-picker with `instanceType` context — it automatically excludes incompatible versions:
+   ```bash
+   ml-container-creator mcp add base-image-picker --bundled
+   # During generation, base-image-picker filters by driver compatibility
+   ```
+
+**Key diagnostic:** The `CUDA compat` log line confirms the mismatch. If you see this followed by silence (no "Loading model..." or error), it's always the driver compatibility issue.
+
+### Adapter IC "InService" but inference returns "Failed to download model data"
+
+**Symptoms:** `do/test --adapter <name>` returns `ValidationError: Failed to download model data (bucket: ..., key: .../adapter-name)`. The IC shows `InService` in `describe-inference-component`.
+
+**Root cause:** The adapter's `ArtifactUrl` is missing the trailing slash. SageMaker Inference Components expect S3 directory prefixes to end with `/` — without it, SageMaker looks for a single object at that exact key (which doesn't exist).
+
+**Fix:**
+
+1. Delete the IC and re-create with the corrected URL:
+   ```bash
+   aws sagemaker delete-inference-component \
+     --inference-component-name <ic-name> --region <region>
+   sleep 45
+   
+   # Fix the conf file
+   sed -i '' 's|adapters/my-adapter"|adapters/my-adapter/"|' do/adapters/<name>.conf
+   
+   # Re-add
+   ./do/adapter add <name> --weights "s3://bucket/prefix/"
+   ```
+
+2. For adapters from `--from-registry`: the template fix (2026-06-29) automatically re-adds the trailing slash for non-tar.gz adapter URIs. Regenerate the project or update the `do/adapter` script.

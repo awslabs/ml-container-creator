@@ -454,6 +454,14 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
                 answers.tensorParallelSize = instanceGpuCount;
                 answers._tpAutoResolved = true;
                 answers._tpAutoResolvedFrom = answers.instanceType;
+
+                // Also propagate to icEnvVars so IC_ENV_VLLM_TENSOR_PARALLEL_SIZE
+                // (or equivalent) is written in do/config for deploy-time IC creation.
+                if (!answers.icEnvVars) {
+                    answers.icEnvVars = {};
+                }
+                answers.icEnvVars[tpEnvKey] = String(instanceGpuCount);
+
                 console.log(`    ℹ️  TP degree: ${instanceGpuCount} (auto-detected from ${answers.instanceType})`);
             }
         }

@@ -393,6 +393,38 @@ async function handleGetInstanceRecommendation(params) {
         { limit }
     );
 
+    // Step 3-recommended: When VRAM filter returns empty but catalog has recommendedInstances,
+    // use those as the fallback (they represent tested/validated deployments).
+    if (recommendations.length === 0 && modelMetadata.recommendedInstances && modelMetadata.recommendedInstances.length > 0) {
+        for (const instanceType of modelMetadata.recommendedInstances) {
+            const meta = effectiveCatalog[instanceType];
+            if (meta) {
+                const perGpuMemory = getPerGpuMemoryGb(meta);
+                const gpuCount = meta.gpus || 1;
+                const totalVramGb = perGpuMemory ? perGpuMemory * gpuCount : null;
+                recommendations.push({
+                    instanceType,
+                    gpuCount,
+                    totalVramGb,
+                    utilizationPercent: totalVramGb ? Math.round((vramEstimate.vramGb / totalVramGb) * 100) : null,
+                    tensorParallelism: gpuCount,
+                    costTier: meta.costTier || null
+                });
+            } else {
+                // Instance not in catalog but listed as recommended — still include it
+                recommendations.push({
+                    instanceType,
+                    gpuCount: null,
+                    totalVramGb: null,
+                    utilizationPercent: null,
+                    tensorParallelism: null,
+                    costTier: null
+                });
+            }
+        }
+        log(`Using catalog recommendedInstances for "${modelName}" (VRAM filter returned empty)`);
+    }
+
     // Step 3-max_model_len: When no instance fits at full context, try capping context length
     // NFR-1 guard: skip this logic for models with recommendedInstances in catalog
     let suggestedMaxModelLen = null;

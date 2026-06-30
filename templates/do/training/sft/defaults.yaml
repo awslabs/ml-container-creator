@@ -1,0 +1,18 @@
+# Default hyperparameters for SFT (Supervised Fine-Tuning) training.
+#
+# These are the lowest-priority defaults. Override via:
+#   1. CLI flags (--learning-rate, --epochs, etc.) — highest priority
+#   2. training/config.yaml hyperparameters section
+#   3. Interactive mode answers (written to config.yaml)
+#   4. These defaults — lowest priority
+
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+learning_rate: 2e-4
+epochs: 3
+batch_size: 4
+max_seq_length: 2048
+gradient_accumulation_steps: 4
+warmup_ratio: 0.03
+dataset_text_field: text

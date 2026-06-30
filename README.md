@@ -97,7 +97,7 @@ Full documentation is available at [awslabs.github.io/ml-container-creator](http
 
 ### Python dependencies
 
-The `do/` lifecycle scripts (`do/tune`, `do/stage`, `do/adapter`) require Python packages. Install them in your Python environment before first use:
+The `do/` lifecycle scripts (`do/tune`, `do/train`, `do/stage`, `do/adapter`) require Python packages. Install them in your Python environment before first use:
 
 ```bash
 # Recommended (fast):

@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""Build a CreateTrainingJob JSON request from CLI arguments.
 
-"""
-Build the CreateTrainingJob JSON request for SageMaker.
+Called by do/train _build_job_request() to construct the JSON payload
+that is later passed to either AWS CLI or .train_helper.py for submission.
 
-This helper is called by do/train to construct the full API request body.
-It handles conditional fields (spot training, metric definitions, environment,
-tags) and writes the result to a JSON file for use with:
-    aws sagemaker create-training-job --cli-input-json file://path.json
+Outputs a JSON file at --output-file containing the full CreateTrainingJob request.
 """
 
 import argparse
@@ -16,126 +13,118 @@ import json
 import sys
 
 
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description='Build CreateTrainingJob request JSON')
-    parser.add_argument('--job-name', required=True, help='Training job name')
-    parser.add_argument('--role-arn', required=True, help='SageMaker execution role ARN')
-    parser.add_argument('--image', required=True, help='Training container image URI')
-    parser.add_argument('--instance-type', required=True, help='Instance type')
-    parser.add_argument('--instance-count', required=True, help='Instance count')
-    parser.add_argument('--volume-size', required=True, help='Volume size in GB')
-    parser.add_argument('--dataset', required=True, help='S3 URI for training dataset')
-    parser.add_argument('--output-path', required=True, help='S3 URI for output')
-    parser.add_argument('--max-runtime', required=True, help='Max runtime in seconds')
-    parser.add_argument('--hyperparams', required=True, help='Hyperparameters as JSON string')
-    parser.add_argument('--enable-spot', required=True, help='Enable spot training (true/false)')
-    parser.add_argument('--max-wait', required=True, help='Max wait time for spot in seconds')
-    parser.add_argument('--checkpoint-path', required=True, help='S3 checkpoint path')
-    parser.add_argument('--metric-definitions', required=True, help='Metric definitions as JSON array')
-    parser.add_argument('--environment', required=True, help='Environment variables as JSON object')
-    parser.add_argument('--tags', required=True, help='Tags as JSON object (key-value map)')
-    parser.add_argument('--output-file', required=True, help='Output file path for the JSON')
-    return parser.parse_args()
+def main():
+    parser = argparse.ArgumentParser(description="Build CreateTrainingJob JSON request")
+    parser.add_argument("--job-name", required=True)
+    parser.add_argument("--role-arn", required=True)
+    parser.add_argument("--image", required=True)
+    parser.add_argument("--instance-type", required=True)
+    parser.add_argument("--instance-count", default="1")
+    parser.add_argument("--volume-size", default="50")
+    parser.add_argument("--dataset", default="")
+    parser.add_argument("--output-path", required=True)
+    parser.add_argument("--max-runtime", default="86400")
+    parser.add_argument("--hyperparams", default="{}")
+    parser.add_argument("--enable-spot", default="false")
+    parser.add_argument("--max-wait", default="172800")
+    parser.add_argument("--checkpoint-path", default="")
+    parser.add_argument("--metric-definitions", default="[]")
+    parser.add_argument("--environment", default="{}")
+    parser.add_argument("--tags", default="[]")
+    parser.add_argument("--output-file", required=True)
+    args = parser.parse_args()
 
+    # Parse JSON args
+    try:
+        hyperparams = json.loads(args.hyperparams) if args.hyperparams else {}
+    except json.JSONDecodeError:
+        hyperparams = {}
 
-def build_request(args):
-    """Construct the CreateTrainingJob request dictionary."""
-    # Parse JSON inputs
-    hyperparams = json.loads(args.hyperparams) if args.hyperparams else {}
-    metric_definitions = json.loads(args.metric_definitions) if args.metric_definitions else []
-    environment = json.loads(args.environment) if args.environment else {}
-    tags = json.loads(args.tags) if args.tags else {}
+    try:
+        metric_definitions = json.loads(args.metric_definitions) if args.metric_definitions else []
+    except json.JSONDecodeError:
+        metric_definitions = []
 
-    # Base request structure
+    try:
+        environment = json.loads(args.environment) if args.environment else {}
+    except json.JSONDecodeError:
+        environment = {}
+
+    try:
+        tags = json.loads(args.tags) if args.tags else []
+    except json.JSONDecodeError:
+        tags = []
+
+    # Build the request
     request = {
-        'TrainingJobName': args.job_name,
-        'RoleArn': args.role_arn,
-        'AlgorithmSpecification': {
-            'TrainingImage': args.image,
-            'TrainingInputMode': 'File'
+        "TrainingJobName": args.job_name,
+        "RoleArn": args.role_arn,
+        "AlgorithmSpecification": {
+            "TrainingImage": args.image,
+            "TrainingInputMode": "File",
         },
-        'InputDataConfig': [
-            {
-                'ChannelName': 'training',
-                'DataSource': {
-                    'S3DataSource': {
-                        'S3DataType': 'S3Prefix',
-                        'S3Uri': args.dataset,
-                        'S3DataDistributionType': 'FullyReplicated'
-                    }
-                }
-            }
-        ],
-        'OutputDataConfig': {
-            'S3OutputPath': args.output_path
+        "ResourceConfig": {
+            "InstanceType": args.instance_type,
+            "InstanceCount": int(args.instance_count),
+            "VolumeSizeInGB": int(args.volume_size),
         },
-        'ResourceConfig': {
-            'InstanceType': args.instance_type,
-            'InstanceCount': int(args.instance_count),
-            'VolumeSizeInGB': int(args.volume_size)
+        "OutputDataConfig": {
+            "S3OutputPath": args.output_path,
         },
-        'StoppingCondition': {
-            'MaxRuntimeInSeconds': int(args.max_runtime)
-        }
+        "StoppingCondition": {
+            "MaxRuntimeInSeconds": int(args.max_runtime),
+        },
     }
 
-    # Hyperparameters — ensure all values are strings (SageMaker requirement)
+    # Input data channels
+    if args.dataset:
+        request["InputDataConfig"] = [
+            {
+                "ChannelName": "training",
+                "DataSource": {
+                    "S3DataSource": {
+                        "S3DataType": "S3Prefix",
+                        "S3Uri": args.dataset,
+                        "S3DataDistributionType": "FullyReplicated",
+                    }
+                },
+                "ContentType": "application/jsonlines",
+            }
+        ]
+
+    # Hyperparameters (all values must be strings)
     if hyperparams:
-        request['HyperParameters'] = {
-            str(k): str(v) for k, v in hyperparams.items()
-        }
+        request["HyperParameters"] = {k: str(v) for k, v in hyperparams.items()}
 
-    # Managed spot training
-    if args.enable_spot == 'true':
-        request['EnableManagedSpotTraining'] = True
-        request['StoppingCondition']['MaxWaitTimeInSeconds'] = int(args.max_wait)
+    # Environment variables
+    if environment:
+        request["Environment"] = {k: str(v) for k, v in environment.items()}
 
-    # Checkpoint configuration (for spot training resumption)
+    # Metric definitions
+    if metric_definitions:
+        request["AlgorithmSpecification"]["MetricDefinitions"] = metric_definitions
+
+    # Spot training
+    if args.enable_spot.lower() == "true":
+        request["EnableManagedSpotTraining"] = True
+        request["StoppingCondition"]["MaxWaitTimeInSeconds"] = int(args.max_wait)
+
+    # Checkpoint config
     if args.checkpoint_path:
-        request['CheckpointConfig'] = {
-            'S3Uri': args.checkpoint_path
+        request["CheckpointConfig"] = {
+            "S3Uri": args.checkpoint_path,
         }
 
-    # Metric definitions (custom CloudWatch metrics)
-    if metric_definitions and metric_definitions != []:
-        request['AlgorithmSpecification']['MetricDefinitions'] = [
-            {'Name': m['name'], 'Regex': m['regex']}
-            for m in metric_definitions
-        ]
+    # Tags
+    if tags:
+        request["Tags"] = tags
 
-    # Environment variables for the container
-    if environment and environment != {}:
-        request['Environment'] = environment
+    # Write to output file
+    with open(args.output_file, "w") as f:
+        json.dump(request, f, indent=2)
 
-    # Tags — convert from {key: value} map to [{Key: k, Value: v}] array
-    if tags and tags != {}:
-        request['Tags'] = [
-            {'Key': str(k), 'Value': str(v)}
-            for k, v in tags.items()
-        ]
-
-    return request
+    print(f"✅ Request written to {args.output_file}", file=sys.stderr)
 
 
-def main():
-    """Main entry point."""
-    args = parse_args()
-
-    try:
-        request = build_request(args)
-    except (json.JSONDecodeError, ValueError) as e:
-        print(f'❌ Failed to build request: {e}', file=sys.stderr)
-        sys.exit(1)
-
-    # Write the JSON request to the output file
-    try:
-        with open(args.output_file, 'w') as f:
-            json.dump(request, f, indent=2)
-    except IOError as e:
-        print(f'❌ Failed to write request file: {e}', file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

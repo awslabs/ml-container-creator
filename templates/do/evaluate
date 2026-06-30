@@ -1,0 +1,272 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# do/evaluate — Model Quality Evaluation
+# Evaluates a deployed model/adapter via inference requests against the endpoint.
+# Computes technique-specific quality metrics (perplexity, reward accuracy, etc.).
+#
+# Project: <%= projectName %>
+
+set -e
+set -u
+set -o pipefail
+
+# ── Source project configuration ──────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config"
+
+# ── CLI Variables ─────────────────────────────────────────────────────────────
+ARG_ADAPTER=""
+ARG_EVAL_DATASET=""
+ARG_SAMPLES=""
+ARG_METRICS=""
+ARG_DRY_RUN=false
+ARG_HELP=false
+
+# ── Parse arguments ───────────────────────────────────────────────────────────
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --adapter)
+            if [ -z "${2:-}" ]; then echo "❌ --adapter requires a name"; exit 1; fi
+            ARG_ADAPTER="$2"; shift 2 ;;
+        --eval-dataset)
+            if [ -z "${2:-}" ]; then echo "❌ --eval-dataset requires a value"; exit 1; fi
+            ARG_EVAL_DATASET="$2"; shift 2 ;;
+        --samples)
+            if [ -z "${2:-}" ]; then echo "❌ --samples requires a number"; exit 1; fi
+            ARG_SAMPLES="$2"; shift 2 ;;
+        --metrics)
+            if [ -z "${2:-}" ]; then echo "❌ --metrics requires a value"; exit 1; fi
+            ARG_METRICS="$2"; shift 2 ;;
+        --dry-run) ARG_DRY_RUN=true; shift ;;
+        --help|-h) ARG_HELP=true; shift ;;
+        *)
+            echo "❌ Unknown option: $1"
+            echo "   Run ./do/evaluate --help for usage."
+            exit 1
+            ;;
+    esac
+done
+
+# ── Help ──────────────────────────────────────────────────────────────────────
+if [ "${ARG_HELP}" = true ]; then
+    echo "Usage: ./do/evaluate [OPTIONS]"
+    echo "       ./do/evaluate --adapter <name> --eval-dataset <source>"
+    echo ""
+    echo "Evaluate model/adapter quality via inference requests against the deployed endpoint."
+    echo "Computes technique-specific metrics: perplexity (SFT), reward accuracy (DPO)."
+    echo ""
+    echo "Options:"
+    echo "  --adapter <name>       Evaluate specific adapter (reads IC name from conf)"
+    echo "  --eval-dataset <src>   Evaluation dataset: s3://..., hf://..., or registry name"
+    echo "  --samples <n>          Limit evaluation to N samples (default: all)"
+    echo "  --metrics <list>       Comma-separated metrics to compute (default: all for technique)"
+    echo "  --dry-run              Show what would be evaluated without making requests"
+    echo "  --help, -h             Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  ./do/evaluate                                     # Evaluate default IC"
+    echo "  ./do/evaluate --adapter sft-custom-a3f2           # Evaluate specific adapter"
+    echo "  ./do/evaluate --eval-dataset \"hf://tatsu-lab/alpaca --take 50\""
+    echo "  ./do/evaluate --adapter dpo-custom --eval-dataset s3://bucket/dpo-eval.jsonl"
+    echo ""
+    echo "Results saved to: .mlcc/eval-results/<adapter-or-ic>.json"
+    echo "Results are automatically included in do/register metadata."
+    exit 0
+fi
+
+# ── Resolve endpoint ──────────────────────────────────────────────────────────
+ENDPOINT_NAME="${ENDPOINT_NAME:-}"
+if [ -z "${ENDPOINT_NAME}" ]; then
+    echo "❌ No endpoint configured."
+    echo "   Deploy first: ./do/deploy"
+    echo "   Then run: ./do/evaluate"
+    exit 1
+fi
+
+# ── Resolve IC name ───────────────────────────────────────────────────────────
+IC_NAME=""
+ADAPTER_TECHNIQUE=""
+EVAL_TARGET_NAME=""
+
+if [ -n "${ARG_ADAPTER}" ]; then
+    # Adapter specified — look up IC from adapter conf
+    ADAPTER_CONF="${SCRIPT_DIR}/adapters/${ARG_ADAPTER}.conf"
+    if [ ! -f "${ADAPTER_CONF}" ]; then
+        echo "❌ Adapter config not found: do/adapters/${ARG_ADAPTER}.conf"
+        echo "   Available adapters:"
+        if [ -d "${SCRIPT_DIR}/adapters" ]; then
+            for conf in "${SCRIPT_DIR}"/adapters/*.conf; do
+                [ -f "${conf}" ] || continue
+                echo "     • $(basename "${conf}" .conf)"
+            done
+        fi
+        exit 1
+    fi
+    source "${ADAPTER_CONF}"
+    IC_NAME="${ADAPTER_IC_NAME:-}"
+    ADAPTER_TECHNIQUE="${ADAPTER_TECHNIQUE:-${ADAPTER_TUNE_TECHNIQUE:-}}"
+    EVAL_TARGET_NAME="${ARG_ADAPTER}"
+else
+    # No adapter — use default IC
+    if [ -d "${SCRIPT_DIR}/ic" ]; then
+        for conf in "${SCRIPT_DIR}"/ic/*.conf; do
+            [ -f "${conf}" ] || continue
+            IC_DEPLOYED_NAME=""
+            source "${conf}"
+            if [ -n "${IC_DEPLOYED_NAME}" ]; then
+                IC_NAME="${IC_DEPLOYED_NAME}"
+                break
+            fi
+        done
+    fi
+    # Fallback to legacy config
+    IC_NAME="${IC_NAME:-${INFERENCE_COMPONENT_NAME:-}}"
+    EVAL_TARGET_NAME="${IC_NAME:-default}"
+fi
+
+if [ -z "${IC_NAME}" ]; then
+    echo "❌ No inference component found to evaluate."
+    echo "   Deploy first: ./do/deploy"
+    echo "   Or specify an adapter: ./do/evaluate --adapter <name>"
+    exit 1
+fi
+
+# ── Resolve technique (for metric selection) ──────────────────────────────────
+# Priority: adapter conf ADAPTER_TECHNIQUE > TRAIN_TECHNIQUE from config > default
+TECHNIQUE="${ADAPTER_TECHNIQUE:-${TRAIN_TECHNIQUE:-}}"
+
+# ── Resolve eval dataset ──────────────────────────────────────────────────────
+EVAL_DATASET="${ARG_EVAL_DATASET:-${EVAL_DATASET:-}}"
+
+# ── Display configuration ─────────────────────────────────────────────────────
+echo "🔬 Model Evaluation"
+echo ""
+echo "   Endpoint: ${ENDPOINT_NAME}"
+echo "   IC:       ${IC_NAME}"
+if [ -n "${ARG_ADAPTER}" ]; then
+    echo "   Adapter:  ${ARG_ADAPTER}"
+fi
+if [ -n "${TECHNIQUE}" ]; then
+    echo "   Technique: ${TECHNIQUE}"
+fi
+if [ -n "${EVAL_DATASET}" ]; then
+    echo "   Dataset:  ${EVAL_DATASET}"
+fi
+if [ -n "${ARG_SAMPLES}" ]; then
+    echo "   Samples:  ${ARG_SAMPLES}"
+fi
+echo ""
+
+# ── Dry run ───────────────────────────────────────────────────────────────────
+if [ "${ARG_DRY_RUN}" = true ]; then
+    echo "🔍 Dry run — would evaluate with above configuration."
+    echo "   No inference requests will be made."
+    exit 0
+fi
+
+# ── Check endpoint is InService ───────────────────────────────────────────────
+echo "🔍 Checking endpoint status..."
+EP_STATUS=$(aws sagemaker describe-endpoint \
+    --endpoint-name "${ENDPOINT_NAME}" \
+    --region "${AWS_REGION}" \
+    --query 'EndpointStatus' \
+    --output text 2>/dev/null) || EP_STATUS=""
+
+if [ "${EP_STATUS}" != "InService" ]; then
+    echo "❌ Endpoint is not InService (status: ${EP_STATUS:-unknown})"
+    echo ""
+    echo "   Deploy first: ./do/deploy"
+    echo "   Then run: ./do/evaluate"
+    exit 1
+fi
+echo "   ✅ Endpoint is InService"
+echo ""
+
+# ── Run evaluation via Python helper ─────────────────────────────────────────
+echo "🧪 Running evaluation..."
+echo ""
+
+EVAL_ARGS=(
+    --endpoint-name "${ENDPOINT_NAME}"
+    --ic-name "${IC_NAME}"
+    --region "${AWS_REGION}"
+)
+
+if [ -n "${TECHNIQUE}" ]; then
+    EVAL_ARGS+=(--technique "${TECHNIQUE}")
+fi
+if [ -n "${EVAL_DATASET}" ]; then
+    EVAL_ARGS+=(--eval-dataset "${EVAL_DATASET}")
+fi
+if [ -n "${ARG_SAMPLES}" ]; then
+    EVAL_ARGS+=(--samples "${ARG_SAMPLES}")
+fi
+if [ -n "${ARG_METRICS}" ]; then
+    EVAL_ARGS+=(--metrics "${ARG_METRICS}")
+fi
+
+EVAL_OUTPUT=$(python3 "${SCRIPT_DIR}/.eval_helper.py" evaluate "${EVAL_ARGS[@]}" 2>/dev/null | grep -E '^\{' | tail -1) || EVAL_OUTPUT=""
+
+if [ -z "${EVAL_OUTPUT}" ]; then
+    echo "❌ Evaluation failed (no output from helper)"
+    echo "   Check: endpoint accessibility, eval dataset format, Python deps (requests)"
+    exit 1
+fi
+
+# Check for error
+HAS_ERROR=$(echo "${EVAL_OUTPUT}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('error') else 'no')" 2>/dev/null) || HAS_ERROR="yes"
+
+if [ "${HAS_ERROR}" = "yes" ]; then
+    ERROR_MSG=$(echo "${EVAL_OUTPUT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message','Unknown error'))" 2>/dev/null) || ERROR_MSG="Unknown error"
+    echo "❌ Evaluation failed: ${ERROR_MSG}"
+    exit 1
+fi
+
+# ── Save results ──────────────────────────────────────────────────────────────
+RESULTS_DIR="${SCRIPT_DIR}/../.mlcc/eval-results"
+mkdir -p "${RESULTS_DIR}"
+RESULTS_FILE="${RESULTS_DIR}/${EVAL_TARGET_NAME}.json"
+echo "${EVAL_OUTPUT}" | python3 -c "import sys,json; json.dump(json.load(sys.stdin), open('${RESULTS_FILE}','w'), indent=2)"
+
+echo "📁 Results saved to: .mlcc/eval-results/${EVAL_TARGET_NAME}.json"
+echo ""
+
+# ── Display summary ───────────────────────────────────────────────────────────
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║              Evaluation Results                                 ║"
+echo "╠══════════════════════════════════════════════════════════════════╣"
+echo "${EVAL_OUTPUT}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(f\"║  Target: {data.get('adapter_name', data.get('ic_name', 'unknown'))}\")
+print(f\"║  Technique: {data.get('technique', 'unknown')}\")
+print(f\"║  Samples: {data.get('samples_evaluated', 0)}\")
+print(f\"║\")
+metrics = data.get('metrics', {})
+for name, value in metrics.items():
+    if isinstance(value, float):
+        print(f'║  {name}: {value:.4f}')
+    else:
+        print(f'║  {name}: {value}')
+" 2>/dev/null
+echo "╚══════════════════════════════════════════════════════════════════╝"
+echo ""
+
+# ── Optionally write to Athena ────────────────────────────────────────────────
+if [ -n "${CI_BENCHMARK_RESULTS_BUCKET:-}" ]; then
+    echo "☁️  Persisting evaluation results to Athena..."
+    python3 "${SCRIPT_DIR}/.eval_helper.py" eval-write \
+        --results-file "${RESULTS_FILE}" \
+        --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
+        --region "${AWS_REGION}" 2>/dev/null | grep -E '^\{' | tail -1 > /dev/null || {
+        echo "   ⚠️  Failed to persist to Athena (non-fatal)"
+    }
+fi
+
+echo "✅ Evaluation complete."
+echo ""
+echo "   Next steps:"
+echo "   • Run ./do/register to include eval metrics in model package metadata"
+echo "   • Compare adapters: ./do/evaluate --adapter <other-adapter>"

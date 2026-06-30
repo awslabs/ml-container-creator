@@ -1057,6 +1057,49 @@ export class MlccCiHarnessStack extends cdk.Stack {
         glueTable.addDependency(glueDatabase);
         glueTable.cfnOptions.condition = benchmarkInfraCondition;
 
+        // Glue Table: mlcc_evaluations — model quality evaluation results
+        // Written by do/evaluate via .eval_helper.py eval-write subcommand.
+        // Partitioned by model + adapter for efficient comparison queries.
+        const evalGlueTable = new glue.CfnTable(this, 'EvaluationResultsTable', {
+            catalogId: this.account,
+            databaseName: 'mlcc_ci',
+            tableInput: {
+                name: 'mlcc_evaluations',
+                tableType: 'EXTERNAL_TABLE',
+                parameters: {
+                    'classification': 'json',
+                },
+                storageDescriptor: {
+                    columns: [
+                        { name: 'project_name', type: 'string', comment: 'MCC project name' },
+                        { name: 'model_name', type: 'string', comment: 'HuggingFace model ID' },
+                        { name: 'adapter_name', type: 'string', comment: 'Adapter name or IC name' },
+                        { name: 'technique', type: 'string', comment: 'Training technique (sft, dpo)' },
+                        { name: 'eval_dataset', type: 'string', comment: 'Evaluation dataset URI or name' },
+                        { name: 'samples_evaluated', type: 'int', comment: 'Number of samples evaluated' },
+                        { name: 'metrics', type: 'string', comment: 'JSON blob of all computed metrics' },
+                        { name: 'timestamp', type: 'string', comment: 'ISO 8601 UTC timestamp' },
+                        { name: 'region', type: 'string', comment: 'AWS region' },
+                    ],
+                    location: `s3://mlcc-benchmark-results-${this.account}-${this.region}/evaluations/`,
+                    inputFormat: 'org.apache.hadoop.mapred.TextInputFormat',
+                    outputFormat: 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
+                    serdeInfo: {
+                        serializationLibrary: 'org.openx.data.jsonserde.JsonSerDe',
+                        parameters: {
+                            'serialization.format': '1',
+                        },
+                    },
+                },
+                partitionKeys: [
+                    { name: 'model', type: 'string', comment: 'Model name (partition key)' },
+                    { name: 'adapter', type: 'string', comment: 'Adapter name (partition key)' },
+                ],
+            },
+        });
+        evalGlueTable.addDependency(glueDatabase);
+        evalGlueTable.cfnOptions.condition = benchmarkInfraCondition;
+
         // Configurable lifecycle parameters for the benchmark results bucket
         const benchmarkIaTransitionDays = new cdk.CfnParameter(this, 'BenchmarkIaTransitionDays', {
             type: 'Number',

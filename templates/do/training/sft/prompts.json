@@ -1,0 +1,7 @@
+{
+  "section_title": "SFT-specific settings",
+  "prompts": [
+    {"name": "dataset_text_field", "type": "input", "message": "Text/instruction column name?", "default": "text", "validate": "string"},
+    {"name": "max_seq_length", "type": "input", "message": "Max sequence length?", "default": "2048", "validate": "int"}
+  ]
+}

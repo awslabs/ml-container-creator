@@ -8,7 +8,7 @@
  *
  * For any valid generator configuration where `deploymentTarget !== 'batch-transform'`,
  * the generated project SHALL contain the `do/train` script, `do/training/config.yaml`,
- * `do/training/train.py`, and `do/lib/feedback.sh`.
+ * `do/training/custom/train.py`, and `do/lib/feedback.sh`.
  *
  * Feature: fine-tuning-training, Property 12: Generator always includes do/train for non-batch targets
  * Validates: Requirements 1.1, 1.2
@@ -29,9 +29,7 @@ import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 //
 // The train-related ignore patterns are:
 //   '**/do/train'
-//   '**/do/.train_build_request.py'
-//   '**/do/.train_status_parser.py'
-//   '**/do/.train_poll_parser.py'
+//   '**/do/.train_helper.py'
 //   '**/do/training/**'
 //
 // feedback.sh is excluded only when BOTH tune and train are excluded:
@@ -39,9 +37,7 @@ import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const TRAIN_IGNORE_PATTERNS = [
     '**/do/train',
-    '**/do/.train_build_request.py',
-    '**/do/.train_status_parser.py',
-    '**/do/.train_poll_parser.py',
+    '**/do/.train_helper.py',
     '**/do/training/**'
 ];
 
@@ -58,9 +54,7 @@ function getTrainIgnorePatterns(config) {
     const trainIncluded = config.deploymentTarget !== 'batch-transform';
     if (!trainIncluded) {
         ignorePatterns.push('**/do/train');
-        ignorePatterns.push('**/do/.train_build_request.py');
-        ignorePatterns.push('**/do/.train_status_parser.py');
-        ignorePatterns.push('**/do/.train_poll_parser.py');
+        ignorePatterns.push('**/do/.train_helper.py');
         ignorePatterns.push('**/do/training/**');
     }
     return ignorePatterns;
@@ -208,17 +202,9 @@ describe('Feature: fine-tuning-training, Property 12: Generator always includes 
                 assert.ok(!ignorePatterns.includes('**/do/train'),
                     'do/train should not be in ignore patterns');
 
-                // do/.train_build_request.py is not ignored
-                assert.ok(!ignorePatterns.includes('**/do/.train_build_request.py'),
-                    'do/.train_build_request.py should not be in ignore patterns');
-
-                // do/.train_status_parser.py is not ignored
-                assert.ok(!ignorePatterns.includes('**/do/.train_status_parser.py'),
-                    'do/.train_status_parser.py should not be in ignore patterns');
-
-                // do/.train_poll_parser.py is not ignored
-                assert.ok(!ignorePatterns.includes('**/do/.train_poll_parser.py'),
-                    'do/.train_poll_parser.py should not be in ignore patterns');
+                // do/.train_helper.py is not ignored
+                assert.ok(!ignorePatterns.includes('**/do/.train_helper.py'),
+                    'do/.train_helper.py should not be in ignore patterns');
 
                 // do/training/** is not ignored
                 assert.ok(!ignorePatterns.includes('**/do/training/**'),
@@ -239,7 +225,7 @@ describe('Feature: fine-tuning-training, Property 12: Generator always includes 
 //
 // For any valid generator configuration where `deploymentTarget === 'batch-transform'`,
 // the generated project SHALL NOT contain `do/train`, `do/training/config.yaml`,
-// or `do/training/train.py`.
+// or `do/training/custom/train.py`.
 //
 // Feature: fine-tuning-training, Property 13: Generator excludes training scripts for batch-transform
 // Validates: Requirements 1.2
@@ -315,12 +301,8 @@ describe('Feature: fine-tuning-training, Property 13: Generator excludes trainin
                     'do/train should be excluded for batch-transform even with transformers framework');
                 assert.ok(ignorePatterns.includes('**/do/training/**'),
                     'do/training/** should be excluded for batch-transform even with transformers framework');
-                assert.ok(ignorePatterns.includes('**/do/.train_build_request.py'),
-                    'do/.train_build_request.py should be excluded for batch-transform even with transformers framework');
-                assert.ok(ignorePatterns.includes('**/do/.train_status_parser.py'),
-                    'do/.train_status_parser.py should be excluded for batch-transform even with transformers framework');
-                assert.ok(ignorePatterns.includes('**/do/.train_poll_parser.py'),
-                    'do/.train_poll_parser.py should be excluded for batch-transform even with transformers framework');
+                assert.ok(ignorePatterns.includes('**/do/.train_helper.py'),
+                    'do/.train_helper.py should be excluded for batch-transform even with transformers framework');
             }
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
@@ -341,7 +323,7 @@ describe('Feature: fine-tuning-training, Property 13: Generator excludes trainin
         ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
     });
 
-    it('exactly 5 train-related ignore patterns are applied for batch-transform', function () {
+    it('exactly 3 train-related ignore patterns are applied for batch-transform', function () {
         this.timeout(PROPERTY_CONFIG.timeout);
         fc.assert(fc.property(
             batchTransformConfigArb,

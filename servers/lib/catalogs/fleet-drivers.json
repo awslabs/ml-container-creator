@@ -1,0 +1,38 @@
+{
+  "_comment": "Instance family → GPU driver version mapping for SageMaker inference fleet. Source: AWS docs (inference-gpu-drivers.html) + empirical validation. Updated quarterly or when AWS announces fleet driver updates.",
+  "_last_updated": "2026-06-29",
+  "instance_families": {
+    "g4dn": { "driver": "535.183", "cuda_native": "12.2", "gpu": "T4", "gpu_memory_gb": 16 },
+    "g5":   { "driver": "550.163", "cuda_native": "12.4", "gpu": "A10G", "gpu_memory_gb": 24 },
+    "g5n":  { "driver": "550.163", "cuda_native": "12.4", "gpu": "A10G", "gpu_memory_gb": 24 },
+    "g6":   { "driver": "560.35",  "cuda_native": "12.6", "gpu": "L4", "gpu_memory_gb": 24 },
+    "g6e":  { "driver": "560.35",  "cuda_native": "12.6", "gpu": "L40S", "gpu_memory_gb": 48 },
+    "p4d":  { "driver": "550.163", "cuda_native": "12.4", "gpu": "A100", "gpu_memory_gb": 40 },
+    "p4de": { "driver": "550.163", "cuda_native": "12.4", "gpu": "A100", "gpu_memory_gb": 80 },
+    "p5":   { "driver": "580.95",  "cuda_native": "12.9", "gpu": "H100", "gpu_memory_gb": 80 },
+    "p5e":  { "driver": "580.95",  "cuda_native": "12.9", "gpu": "H200", "gpu_memory_gb": 141 },
+    "trn1": null,
+    "trn2": null,
+    "inf2": null
+  },
+  "ami_versions": {
+    "_comment": "InferenceAmiVersion enum → driver version mapping. From SDK enum + empirical.",
+    "al2-ami-sagemaker-inference-gpu-2":   { "driver": "535.183", "cuda_native": "12.2" },
+    "al2-ami-sagemaker-inference-gpu-2-1": { "driver": "535.216", "cuda_native": "12.2" },
+    "al2-ami-sagemaker-inference-gpu-3-1": { "driver": "550.163", "cuda_native": "12.4" },
+    "al2023-ami-sagemaker-inference-gpu-4-1": { "driver": "570.86", "cuda_native": "12.8" }
+  },
+  "cuda_to_min_driver": {
+    "_comment": "CUDA toolkit version → minimum required driver (Linux data center). Source: NVIDIA CUDA compatibility docs.",
+    "12.0": "525.60",
+    "12.1": "525.60",
+    "12.2": "535.54",
+    "12.3": "535.54",
+    "12.4": "550.54",
+    "12.5": "555.42",
+    "12.6": "560.28",
+    "12.7": "565.57",
+    "12.8": "570.86",
+    "12.9": "580.00"
+  }
+}

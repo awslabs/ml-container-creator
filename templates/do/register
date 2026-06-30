@@ -10,10 +10,15 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn:-}}"
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
+
+# Resolve INSTANCE_TYPE for heterogeneous pool endpoints (may be empty from config,
+# filled by do/deploy after InService resolution)
+INSTANCE_TYPE="${INSTANCE_TYPE:-${DEPLOYED_INSTANCE_TYPE:-${BENCHMARK_INSTANCE_TYPE:-}}}"
 
 # ============================================================
 # Register deployment to the deployment registry

@@ -112,6 +112,74 @@ def _truncate_metadata(props):
     return result
 
 
+def _inject_eval_metrics(metadata, args):
+    """Inject evaluation metrics from .mlcc/eval-results/ into metadata.
+
+    Looks for eval results matching the adapter name or project.
+    Adds metrics with 'eval_' prefix (G4 AC-3.1, AC-3.2).
+    Non-fatal: if no eval results exist, returns metadata unchanged.
+
+    Args:
+        metadata: existing metadata dict (may be None)
+        args: parsed args with project_name, adapter name hints
+
+    Returns:
+        metadata dict with eval metrics injected (or unchanged)
+    """
+    if metadata is None:
+        metadata = {}
+
+    # Determine eval results directory (relative to script location)
+    # Convention: .mlcc/eval-results/<adapter-or-ic-name>.json
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    eval_results_dir = os.path.join(script_dir, "..", ".mlcc", "eval-results")
+
+    if not os.path.isdir(eval_results_dir):
+        return metadata
+
+    # Try to find eval results for this adapter
+    # Prioritize: adapter name from args > any available result
+    adapter_name = getattr(args, 'adapter_name', '') or ''
+
+    # Search for matching eval result file
+    eval_file = None
+    if adapter_name:
+        candidate = os.path.join(eval_results_dir, f"{adapter_name}.json")
+        if os.path.isfile(candidate):
+            eval_file = candidate
+
+    # If no specific adapter match, try to find any recent result
+    if not eval_file:
+        try:
+            json_files = [f for f in os.listdir(eval_results_dir) if f.endswith('.json')]
+            if json_files:
+                # Use most recently modified
+                json_files.sort(key=lambda f: os.path.getmtime(os.path.join(eval_results_dir, f)), reverse=True)
+                eval_file = os.path.join(eval_results_dir, json_files[0])
+        except OSError:
+            pass
+
+    if not eval_file:
+        return metadata
+
+    # Load and inject metrics
+    try:
+        with open(eval_file, 'r') as f:
+            eval_data = json.load(f)
+        metrics = eval_data.get("metrics", {})
+        for metric_name, metric_value in metrics.items():
+            # Add with eval_ prefix, truncate to 256 chars
+            key = f"eval_{metric_name}"
+            str_val = str(metric_value)[:MAX_METADATA_VALUE_LEN]
+            metadata[key] = str_val
+        if metrics:
+            _warn(f"Injected {len(metrics)} eval metric(s) from {os.path.basename(eval_file)}")
+    except (IOError, json.JSONDecodeError, KeyError):
+        pass  # Non-fatal — skip eval metrics if file is unreadable
+
+    return metadata
+
+
 def _build_metadata(args):
     """Build customer_metadata_properties dict from CLI args.
 
@@ -283,7 +351,7 @@ def cmd_register_model(args):
 
     # Step 3: Build inference specification
     container_image = args.container_image or ""
-    model_data_url = args.model_data_url or ""
+    model_data_url = (args.model_data_url or "").rstrip("/")
 
     # Step 4: Create Model Package version (AC-1.2, AC-1.7)
     description = f"{args.deployment_config or 'model'} on {args.instance_type or 'unknown'}"
@@ -437,7 +505,7 @@ def cmd_register_adapter(args):
 
     # Step 3: Build inference specification
     container_image = args.container_image or ""
-    model_data_url = args.model_data_url or ""
+    model_data_url = (args.model_data_url or "").rstrip("/")
 
     # Step 4: Create adapter Model Package version (AC-2.1)
     technique = args.tune_technique or "unknown"
@@ -463,12 +531,21 @@ def cmd_register_adapter(args):
                 "SupportedContentTypes": ["application/json"],
                 "SupportedResponseMIMETypes": ["application/json"],
             }
-            if model_data_url:
+            # ModelDataUrl in InferenceSpecification requires a tar.gz object —
+            # uncompressed S3 prefixes (adapter directories) are not supported.
+            # Store uncompressed paths in metadata instead.
+            if model_data_url and model_data_url.endswith(".tar.gz"):
                 create_params["InferenceSpecification"]["Containers"][0]["ModelDataUrl"] = model_data_url
-        elif model_data_url:
+
+        # Always store model/adapter data URL in metadata for registry queries
+        if model_data_url:
             if not metadata:
                 metadata = {}
             metadata["modelDataUrl"] = model_data_url[:1024]
+
+        # Inject evaluation metrics if available (G4 AC-3.1, AC-3.2)
+        metadata = _inject_eval_metrics(metadata, args)
+
         if metadata:
             create_params["CustomerMetadataProperties"] = metadata
 
@@ -1366,9 +1443,24 @@ def cmd_get_version(args):
     os.environ.setdefault("AWS_REGION", region)
 
     try:
-        from sagemaker.core.resources import ModelPackage
+        import boto3
+        sm_client = boto3.client("sagemaker", region_name=region)
 
-        pkg = ModelPackage.get(model_package_arn=version_arn)
+        # Use boto3 directly — sagemaker-core v2.14 ModelPackage.get() requires
+        # model_package_name (not ARN) and rejects model_package_arn as unexpected kwarg.
+        pkg_response = sm_client.describe_model_package(ModelPackageName=version_arn)
+
+        # Wrap in a simple namespace for consistent access below
+        class _Pkg:
+            def __init__(self, data):
+                self._data = data
+                self.model_package_arn = data.get("ModelPackageArn", version_arn)
+                self.inference_specification = data.get("InferenceSpecification")
+                self.customer_metadata_properties = data.get("CustomerMetadataProperties", {})
+                self.model_approval_status = data.get("ModelApprovalStatus", "")
+                self.model_package_description = data.get("ModelPackageDescription", "")
+                self.creation_time = data.get("CreationTime")
+        pkg = _Pkg(pkg_response)
 
         # Extract model data URL from inference spec
         model_data_url = ""
@@ -1380,6 +1472,10 @@ def cmd_get_version(args):
 
         # Get metadata
         metadata = getattr(pkg, "customer_metadata_properties", None) or {}
+
+        # Fallback: modelDataUrl stored in metadata when adapter is uncompressed S3 prefix
+        if not model_data_url and metadata.get("modelDataUrl"):
+            model_data_url = metadata["modelDataUrl"]
 
         # Get status
         status = getattr(pkg, "model_approval_status", "") or ""
@@ -1414,6 +1510,7 @@ def cmd_resolve_dataset(args):
 
     Version resolution (AC-2.1, AC-2.4):
     - --version N: resolve the Nth version (ordinal, 1-based) for this name
+    - --version X.Y.Z: resolve by semver string match
     - No --version: resolve latest (existing behavior)
     - If requested version doesn't exist: print available versions and exit 1 (AC-2.5)
 
@@ -1421,14 +1518,20 @@ def cmd_resolve_dataset(args):
     or error if not found.
     """
     name = args.name
-    version_ordinal = getattr(args, "version", None)
+    version_spec = getattr(args, "version", None)
 
     if not name:
         _error_exit("--name is required", code="MISSING_ARGUMENT")
 
     # If version is specified, use version-aware resolution
-    if version_ordinal is not None:
-        return _resolve_dataset_version(name, version_ordinal)
+    if version_spec is not None:
+        # Determine if it's an ordinal (pure integer) or semver string
+        try:
+            version_ordinal = int(version_spec)
+            return _resolve_dataset_version(name, version_ordinal)
+        except ValueError:
+            # Not an integer — treat as semver string
+            return _resolve_dataset_version_by_semver(name, version_spec)
 
     # No version — resolve latest (existing behavior)
     # Try SageMaker AI Registry API first
@@ -1540,6 +1643,77 @@ def _resolve_dataset_version(name, version_ordinal):
                 "ordinal": version_ordinal,
                 "hash": target_version.get("hash"),
             })
+
+    # Dataset name not found at all
+    _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+
+
+def _resolve_dataset_version_by_semver(name, version_str):
+    """Resolve a specific version of a named dataset by semver string match.
+
+    Searches the versions[] array for an entry whose 'version' field matches
+    the provided semver string (e.g., '1.0.0').
+
+    If the version doesn't exist, prints available versions and exits 1.
+
+    Args:
+        name: Dataset name
+        version_str: Semver string to match (e.g., '1.0.0', '2.1.0')
+    """
+    # Load local registry
+    entries = _load_registry(_DATASETS_REGISTRY)
+
+    for entry in entries:
+        if entry.get("name") == name:
+            versions = entry.get("versions", [])
+
+            if not versions:
+                # Legacy entry without versions array — treat as having version "1.0.0"
+                if version_str == "1.0.0":
+                    output = dict(entry)
+                    output["version"] = "1.0.0"
+                    output["ordinal"] = 1
+                    if "arn" not in output:
+                        output["arn"] = None
+                    _output(output)
+                else:
+                    print(f"Error: Version {version_str} not found for dataset '{name}'", file=sys.stderr)
+                    print(f"Available versions: 1.0.0", file=sys.stderr)
+                    print(json.dumps({
+                        "error": f"Version {version_str} not found for dataset '{name}'",
+                        "code": "VERSION_NOT_FOUND",
+                        "available_versions": [{"ordinal": 1, "version": "1.0.0"}],
+                    }))
+                    sys.exit(1)
+
+            # Search for matching version string
+            for i, v in enumerate(versions, 1):
+                ver = v.get("version", "")
+                if ver == version_str:
+                    _output({
+                        "name": name,
+                        "s3_uri": v.get("s3_uri", entry.get("s3_uri", "")),
+                        "arn": entry.get("arn"),
+                        "format": v.get("format", entry.get("format", "jsonl")),
+                        "technique": v.get("technique", entry.get("technique", "")),
+                        "version": ver,
+                        "ordinal": i,
+                        "hash": v.get("hash"),
+                    })
+
+            # Version string not found — show available
+            print(f"Error: Version {version_str} not found for dataset '{name}'", file=sys.stderr)
+            available = []
+            for i, v in enumerate(versions, 1):
+                ver = v.get("version", f"{i}.0.0")
+                available.append({"ordinal": i, "version": ver})
+                print(f"  v{i} ({ver})", file=sys.stderr)
+            print(json.dumps({
+                "error": f"Version {version_str} not found for dataset '{name}'",
+                "code": "VERSION_NOT_FOUND",
+                "available_versions": available,
+            }))
+            sys.exit(1)
 
     # Dataset name not found at all
     _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
@@ -1706,8 +1880,8 @@ def main():
         help="Resolve a registered dataset by name",
     )
     resolve_dataset_parser.add_argument("--name", required=True, help="Dataset name to resolve")
-    resolve_dataset_parser.add_argument("--version", type=int, default=None,
-                                        help="Version ordinal to resolve (e.g., 2 for the 2nd version). Default: latest.")
+    resolve_dataset_parser.add_argument("--version", type=str, default=None,
+                                        help="Version to resolve: ordinal (e.g., 2) or semver (e.g., 1.0.0). Default: latest.")
 
     # ── resolve-evaluator ─────────────────────────────────────────────────
     resolve_evaluator_parser = subparsers.add_parser(

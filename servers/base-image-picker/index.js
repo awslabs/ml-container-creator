@@ -25,6 +25,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { DynamicResolver as DynamicResolverBase } from '../lib/dynamic-resolver.js';
+import { filterImages, deriveMinDriverVersion } from '../lib/image-filter.js';
+import { resolveModelArchitecture } from '../lib/model-id-resolver.js';
 
 // ── Catalog loader ───────────────────────────────────────────────────────────
 
@@ -156,15 +158,25 @@ class DynamicResolver extends ImageResolver {
             }
 
             const data = await response.json();
-            const images = (data.results || []).map(tag => ({
-                image: `${this._repoForFramework(framework)}:${tag.name}`,
-                tag: tag.name,
-                architecture: 'amd64',
-                created: tag.last_updated || tag.tag_last_pushed || new Date().toISOString(),
-                labels: {},
-                registry: 'dockerhub',
-                repository: this._repoForFramework(framework)
-            }));
+            const images = (data.results || []).map(tag => {
+                const entry = {
+                    image: `${this._repoForFramework(framework)}:${tag.name}`,
+                    tag: tag.name,
+                    architecture: 'amd64',
+                    created: tag.last_updated || tag.tag_last_pushed || new Date().toISOString(),
+                    labels: {},
+                    registry: 'dockerhub',
+                    repository: this._repoForFramework(framework)
+                };
+
+                // Derive min_driver_version from CUDA version in tag or labels
+                const minDriver = deriveMinDriverVersion(entry);
+                if (minDriver) {
+                    entry.min_driver_version = minDriver;
+                }
+
+                return entry;
+            });
 
             return {
                 images: images.slice(0, limit),
@@ -375,7 +387,9 @@ if (discoverMode) {
  * When discover mode is active, merges static and dynamic results.
  */
 async function resolveBaseImage(context, limit) {
-    const { framework, modelServer, searchCriteria, architecture } = context;
+    const { framework, modelServer, searchCriteria, architecture,
+        instanceType, driverVersion, inferenceAmiVersion,
+        tensorParallelSize, modelArchitecture, modelId } = context;
 
     // Determine which framework identifier to resolve
     let resolverKey;
@@ -398,21 +412,52 @@ async function resolveBaseImage(context, limit) {
 
     if (discoverMode && dynamicResolver && dynamicResolver.supportedFrameworks().includes(resolverKey)) {
         // Fetch both static and dynamic results, then merge
-        const staticResult = await staticResolver.fetchImages(resolverKey, { limit, searchCriteria });
+        const staticResult = await staticResolver.fetchImages(resolverKey, { limit: limit * 3, searchCriteria });
         const dynamicResult = await dynamicResolver.fetchImages(resolverKey, { limit: 5 });
 
-        resultImages = mergeStaticAndDynamic(staticResult.images, dynamicResult.images, limit);
+        resultImages = mergeStaticAndDynamic(staticResult.images, dynamicResult.images, limit * 3);
     } else {
-        // Static-only path (no network calls)
-        const result = await resolver.fetchImages(resolverKey, { limit, searchCriteria });
+        // Static-only path (no network calls) — fetch extra to allow for filtering
+        const fetchLimit = (instanceType || driverVersion || modelArchitecture || modelId) ? limit * 3 : limit;
+        const result = await resolver.fetchImages(resolverKey, { limit: fetchLimit, searchCriteria });
         resultImages = result.images;
     }
+
+    // ── Resolve modelId → modelArchitecture if needed ───────────────────
+    let resolvedModelArchitecture = modelArchitecture || '';
+    if (!modelArchitecture && modelId) {
+        const arch = await resolveModelArchitecture(modelId);
+        if (arch) {
+            resolvedModelArchitecture = arch;
+        }
+    }
+
+    // ── Apply driver-aware + model-architecture filtering ─────────────────
+    let filterMetadata = null;
+    if (instanceType || driverVersion || inferenceAmiVersion || resolvedModelArchitecture) {
+        const filterResult = filterImages(resultImages, {
+            framework: resolverKey,
+            instanceType,
+            driverVersion,
+            inferenceAmiVersion,
+            tensorParallelSize: tensorParallelSize || 1,
+            modelArchitecture: resolvedModelArchitecture
+        });
+        resultImages = filterResult.images;
+        filterMetadata = filterResult.metadata;
+    }
+
+    // Apply final limit after filtering
+    resultImages = resultImages.slice(0, limit);
 
     const images = resultImages.map(e => e.image);
     return {
         values: { baseImage: images[0] || null },
         choices: { baseImage: images },
-        metadata: { baseImage: resultImages }
+        metadata: {
+            baseImage: resultImages,
+            ...(filterMetadata ? { driverFilter: filterMetadata } : {})
+        }
     };
 }
 
@@ -432,11 +477,11 @@ const server = new McpServer({
 
 server.tool(
     'get_base_images',
-    'Returns curated base container images for ML Container Creator Dockerfiles',
+    'Returns curated base container images for ML Container Creator Dockerfiles. Supports driver-aware filtering when instanceType is provided — excludes images incompatible with the fleet GPU driver, especially for multi-GPU tensor-parallel deployments.',
     {
         parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
         limit: z.number().int().positive().default(5).describe('Maximum number of choices per parameter'),
-        context: z.record(z.string(), z.any()).optional().describe('Current configuration context (framework, modelServer, searchCriteria)')
+        context: z.record(z.string(), z.any()).optional().describe('Configuration context. Supports: framework, modelServer, searchCriteria, architecture, instanceType (triggers driver filtering), driverVersion (override), inferenceAmiVersion (resolves to driver), tensorParallelSize (TP>1 = strict filtering), modelId, modelArchitecture (excludes old framework versions)')
     },
     async ({ parameters, limit, context }) => {
         const values = {};
@@ -472,10 +517,12 @@ export {
     TRITON_IMAGE_CATALOG,
     resolveBaseImage,
     mergeStaticAndDynamic,
+    filterImages,
     registry,
     staticResolver,
     dynamicResolver,
-    discoverMode
+    discoverMode,
+    resolveModelArchitecture
 };
 
 export { DynamicResolverBase as DynamicResolverBase };

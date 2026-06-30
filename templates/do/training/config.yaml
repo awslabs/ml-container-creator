@@ -5,20 +5,33 @@
 # This file is read by do/train to construct a CreateTrainingJob request.
 # Required fields are marked with [REQUIRED]. All other fields are optional.
 
+# ─── Training Technique ───────────────────────────────────────────────────────
+# Which training technique to use. Each technique has its own training script
+# in do/training/<technique>/train.py with appropriate defaults.
+#
+# Available techniques:
+#   custom  — Your own training script (default, user-provided logic)
+#   sft     — Supervised Fine-Tuning using TRL SFTTrainer + PEFT LoRA
+#   dpo     — Direct Preference Optimization (future, see Spec G2)
+#
+# Override with CLI: ./do/train --technique sft
+technique: "custom"
+
 # ─── Container Image [REQUIRED] ──────────────────────────────────────────────
 # ECR image URI for the training container.
 # This defaults to your project's own container image (built via do/build + do/push).
 # You can also use a SageMaker pre-built training image or any custom ECR image.
 #
 # Example: 123456789012.dkr.ecr.us-east-1.amazonaws.com/ml-container-creator:latest
-image: "<%= '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:latest' %>"
+image: "${_PROFILE_accountId}.dkr.ecr.<%= awsRegion %>.amazonaws.com/${_PROFILE_ecrRepositoryName:-ml-container-creator}:<%= projectName %>-latest"
 
-# ─── Training Script [REQUIRED] ──────────────────────────────────────────────
+# ─── Training Script [REQUIRED for custom technique] ─────────────────────────
 # Path to your training script relative to the project root.
-# SageMaker copies this into the container at /opt/ml/code/ and executes it.
+# For technique-based training (sft, dpo), the script is auto-selected from
+# do/training/<technique>/train.py — this field is only used for 'custom'.
 #
-# Example: do/training/train.py
-script: "do/training/train.py"
+# Example: do/training/custom/train.py
+script: "do/training/custom/train.py"
 
 # ─── Instance Configuration [REQUIRED] ───────────────────────────────────────
 # SageMaker ML instance type for training.
@@ -37,8 +50,38 @@ instance_type: "ml.g5.xlarge"
 # (e.g., using PyTorch DDP, Horovod, or similar). SageMaker handles inter-node
 # communication setup automatically.
 #
+# For multi-node training (instance_count > 1):
+#   - Use EFA-capable instances for best performance: p4d.24xlarge, p5.48xlarge, g5.48xlarge
+#   - SageMaker auto-configures NCCL/EFA for inter-node communication
+#   - Accelerate auto-detects WORLD_SIZE > local_gpu_count and enables multi-node FSDP
+#   - No changes needed to training scripts or accelerate_config.yaml
+#
 # Example: 2
 instance_count: 1
+
+# Networking backend for distributed training (multi-node).
+# auto = detect EFA presence and use NCCL if available, gloo otherwise
+# nccl = force NCCL (requires EFA-capable instances for multi-node)
+# gloo = force gloo (CPU-based, works on any instance but slower)
+networking_backend: "auto"
+
+# ─── Launcher (optional) ─────────────────────────────────────────────────────
+# How the training script is invoked. Default: accelerate (recommended for TRL).
+#
+# Options:
+#   accelerate — `accelerate launch --config_file <config> train.py` (default)
+#                Handles single-GPU, multi-GPU (FSDP), and multi-node automatically.
+#   torchrun   — `torchrun --nproc_per_node <gpus> train.py`
+#                Use for scripts that manage distributed setup internally.
+#   deepspeed  — `deepspeed --num_gpus <gpus> train.py`
+#                Use for ZeRO-3 offloading with >70B models.
+#   custom     — Direct `python train.py` invocation (no distributed wrapper).
+#                Use only for scripts that handle everything internally.
+#
+# Note: SFT and DPO techniques include accelerate_config.yaml and are designed
+# for the `accelerate` launcher. Using a different launcher with these techniques
+# may require modifying the training script.
+launcher: "accelerate"
 
 # ─── Data Configuration [REQUIRED] ───────────────────────────────────────────
 # S3 URI for the input training dataset.
@@ -60,13 +103,27 @@ output_path: ""
 # All values must be strings. SageMaker passes these as string arguments to
 # the training script entry point.
 #
-# Example:
+# For 'custom' technique: define your own hyperparameters.
+# For 'sft' technique: the following are recognized:
+#   lora_r, lora_alpha, lora_dropout, learning_rate, epochs,
+#   batch_size, max_seq_length, gradient_accumulation_steps,
+#   warmup_ratio, dataset_text_field, model_id
+#
+# Example (custom):
 #   hyperparameters:
 #     epochs: "10"
 #     batch_size: "32"
 #     learning_rate: "5e-5"
-#     warmup_steps: "100"
-#     weight_decay: "0.01"
+#
+# Example (sft):
+#   hyperparameters:
+#     lora_r: "16"
+#     lora_alpha: "32"
+#     learning_rate: "2e-4"
+#     epochs: "3"
+#     batch_size: "4"
+#     max_seq_length: "2048"
+#     dataset_text_field: "text"
 hyperparameters:
   epochs: "10"
   batch_size: "32"
@@ -102,19 +159,34 @@ enable_spot: false
 # Example: 172800
 max_wait_seconds: 172800
 
+# S3 URI for checkpoint storage during spot training.
+# SageMaker syncs /opt/ml/checkpoints/ to this location between interruptions.
+# If empty, auto-derived from output_path: <output_path>/checkpoints/
+# Only used when enable_spot is true.
+#
+# Example: s3://my-bucket/checkpoints/
+checkpoint_s3_uri: ""
+
 # ─── Metric Definitions (optional) ───────────────────────────────────────────
 # Custom regex patterns to extract training metrics from container logs.
 # SageMaker uses these to publish metrics to CloudWatch for monitoring.
 # Each entry needs a name and a regex with exactly one capture group.
 #
-# Example:
+# Example (custom):
 #   metric_definitions:
 #     - name: "train:loss"
 #       regex: "loss: ([0-9\\.]+)"
 #     - name: "train:epoch"
 #       regex: "epoch: ([0-9\\.]+)"
-#     - name: "eval:accuracy"
-#       regex: "eval_accuracy: ([0-9\\.]+)"
+#
+# Example (sft — matches output from training/sft/train.py):
+#   metric_definitions:
+#     - name: "train:loss"
+#       regex: "train_loss: ([0-9\\.]+)"
+#     - name: "train:samples_per_second"
+#       regex: "train_samples_per_second: ([0-9\\.]+)"
+#     - name: "train:epoch"
+#       regex: "epochs: ([0-9\\.]+)"
 metric_definitions: []
 
 # ─── Environment Variables (optional) ────────────────────────────────────────

@@ -1,0 +1,22 @@
+# Accelerate configuration for SFT training.
+# FSDP-ready: works on both single-GPU and multi-GPU automatically.
+#
+# - Single-GPU (ml.g5.xlarge): accelerate detects 1 GPU, runs single-process.
+#   FSDP is effectively a no-op with 1 rank.
+# - Multi-GPU (ml.g5.12xlarge, 4× A10G): accelerate detects 4 GPUs,
+#   runs FSDP with full sharding across all devices.
+#
+# No code or config changes needed between environments.
+
+compute_environment: LOCAL_MACHINE
+distributed_type: FSDP
+fsdp_config:
+  fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
+  fsdp_backward_prefetch: BACKWARD_PRE
+  fsdp_offload_params: false
+  fsdp_sharding_strategy: FULL_SHARD
+  fsdp_state_dict_type: SHARDED_STATE_DICT
+  fsdp_sync_module_states: true
+  fsdp_use_orig_params: true
+mixed_precision: bf16
+num_processes: auto

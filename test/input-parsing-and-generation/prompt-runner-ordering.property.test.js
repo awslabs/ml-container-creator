@@ -426,28 +426,28 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
 
     describe('Instance Sizer Integration', () => {
         /**
-         * Property 3l: Instance-sizer query must happen AFTER base image is known
+         * Property 3l: Base image selection must happen AFTER instance type is resolved
+         * (US-1 ordering constraint: base image needs instanceType for driver-aware filtering)
          * 
-         * Validates: Requirement 4.3
+         * Validates: Requirement US-1
          */
-        it('should query instance-sizer after base image selection', function() {
+        it('should select base image after instance type resolution', function() {
             this.timeout(10000);
 
+            const instanceRunPhasePos = findPosition(/_runPhase\(infraInstancePrompts/);
             const baseImageRunPhasePos = findPosition(/_runPhase\(\s*baseImagePrompts/);
-            // Look for the actual call in run() with await keyword, not the delegation definition
-            const sizerQueryPos = findPosition(/await this\.mcpQueryRunner\._queryMcpForInstanceSizing/);
 
+            assert.ok(
+                instanceRunPhasePos !== -1,
+                '_runPhase(infraInstancePrompts) must exist'
+            );
             assert.ok(
                 baseImageRunPhasePos !== -1,
                 '_runPhase(baseImagePrompts) must exist'
             );
             assert.ok(
-                sizerQueryPos !== -1,
-                '_queryMcpForInstanceSizing must exist'
-            );
-            assert.ok(
-                baseImageRunPhasePos < sizerQueryPos,
-                `baseImagePrompts (pos ${baseImageRunPhasePos}) must run before instance-sizer query (pos ${sizerQueryPos})`
+                instanceRunPhasePos < baseImageRunPhasePos,
+                `infraInstancePrompts (pos ${instanceRunPhasePos}) must run before baseImagePrompts (pos ${baseImageRunPhasePos}) — driver-aware filtering requires instance type`
             );
         });
 
