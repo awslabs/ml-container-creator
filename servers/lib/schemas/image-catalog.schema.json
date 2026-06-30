@@ -159,6 +159,18 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "min_driver_version": {
+                    "type": "string",
+                    "description": "Minimum GPU driver version required (e.g., '550.54')"
+                },
+                "cuda_toolkit": {
+                    "type": "string",
+                    "description": "CUDA toolkit version bundled in the image (e.g., '12.4')"
+                },
+                "transformers_version": {
+                    "type": "string",
+                    "description": "Bundled transformers library version (e.g., '4.52.0')"
                 }
             },
             "additionalProperties": false
