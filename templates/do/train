@@ -16,6 +16,8 @@ set -o pipefail
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 CONFIG_FILE="${SCRIPT_DIR}/training/config.yaml"
@@ -547,6 +549,11 @@ _parse_config_yq() {
     TRAIN_IMAGE=$(yq -r '.image // ""' "${CONFIG_FILE}")
     TRAIN_SCRIPT=$(yq -r '.script // ""' "${CONFIG_FILE}")
     TRAIN_INSTANCE_TYPE=$(yq -r '.instance_type // ""' "${CONFIG_FILE}")
+
+    # Resolve shell variables in image URI (backward compat with old-style config)
+    if echo "${TRAIN_IMAGE}" | grep -q '^\${\|^\${'; then
+        TRAIN_IMAGE=$(eval echo "${TRAIN_IMAGE}")
+    fi
     TRAIN_INSTANCE_COUNT=$(yq -r '.instance_count // "1"' "${CONFIG_FILE}")
     TRAIN_DATASET=$(yq -r '.dataset // ""' "${CONFIG_FILE}")
     TRAIN_OUTPUT_PATH=$(yq -r '.output_path // ""' "${CONFIG_FILE}")
@@ -714,12 +721,22 @@ _validate_config() {
     fi
 
     if [ -z "${TRAIN_OUTPUT_PATH}" ]; then
-        echo "❌ Missing required field: output_path"
-        echo "   The S3 output path is required in do/training/config.yaml"
-        echo ""
-        echo "   Expected format: output_path: \"s3://my-bucket/output/\""
-        echo ""
-        has_error=true
+        # Auto-resolve from profile: use benchmarkS3Bucket or construct from project name
+        if [ -n "${_PROFILE_benchmarkS3Bucket:-}" ]; then
+            TRAIN_OUTPUT_PATH="s3://${_PROFILE_benchmarkS3Bucket}/${PROJECT_NAME}/training-output/"
+        elif [ -n "${BENCHMARK_S3_OUTPUT_PATH:-}" ]; then
+            # Derive from benchmark output path (replace /benchmarks/ with /training-output/)
+            TRAIN_OUTPUT_PATH="${BENCHMARK_S3_OUTPUT_PATH%/benchmarks/*}/training-output/${PROJECT_NAME}/"
+        fi
+        if [ -z "${TRAIN_OUTPUT_PATH}" ]; then
+            echo "❌ Missing required field: output_path"
+            echo "   The S3 output path is required in do/training/config.yaml"
+            echo "   Or run 'ml-container-creator bootstrap' to configure an S3 bucket."
+            echo ""
+            echo "   Expected format: output_path: \"s3://my-bucket/output/\""
+            echo ""
+            has_error=true
+        fi
     fi
 
     # Spot training requires a checkpoint path for resumption
@@ -1068,7 +1085,7 @@ _submit_job() {
     local submit_output
     submit_output=$(python3 "${SCRIPT_DIR}/.train_helper.py" submit \
         --config "${JOB_REQUEST_FILE}" \
-        --region "${AWS_REGION}" 2>/dev/null | grep -E '^\{' | tail -1)
+        --region "${AWS_REGION}" 2>&1 | grep -E '^\{' | tail -1) || submit_output=""
 
     # Clean up the temporary request file
     rm -f "${JOB_REQUEST_FILE}"
@@ -1368,33 +1385,37 @@ fi
 # ── Handle --interactive mode ─────────────────────────────────────────────────
 if [ "${ARG_INTERACTIVE}" = true ]; then
     TRAINING_DIR="${SCRIPT_DIR}/training"
+    _RESULT_FILE=$(mktemp "${TMPDIR:-/tmp}/mlcc-train-interactive.XXXXXX")
 
-    # Try to invoke the interactive builder via Node.js
-    # Pattern: import from globally-installed generator package, fallback to local
+    # Invoke the interactive builder via Node.js
+    # Runs interactively (TTY prompts rendered to terminal), writes JSON result to temp file
     INTERACTIVE_RESULT=""
     if command -v node &>/dev/null; then
-        INTERACTIVE_RESULT=$(node --input-type=module -e "
-import { run } from '$(npm root -g 2>/dev/null || echo /usr/local/lib/node_modules)/@aws/ml-container-creator/src/lib/train-config-builder.js';
-run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
-" 2>/dev/null | grep -E '^\{' | tail -1) || INTERACTIVE_RESULT=""
+        _NPM_GLOBAL=$(npm root -g 2>/dev/null || echo /usr/local/lib/node_modules)
+        _BUILDER_PATH="${_NPM_GLOBAL}/@aws/ml-container-creator/src/lib/train-config-builder.js"
 
-        # Fallback: try local development path
-        if [ -z "${INTERACTIVE_RESULT}" ]; then
-            _project_root=$(cd "${SCRIPT_DIR}/.." && pwd)
-            INTERACTIVE_RESULT=$(node --input-type=module -e "
-import { run } from '${_project_root}/node_modules/@aws/ml-container-creator/src/lib/train-config-builder.js';
-run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
-" 2>/dev/null | grep -E '^\{' | tail -1) || INTERACTIVE_RESULT=""
+        # Fallback paths
+        _project_root=$(cd "${SCRIPT_DIR}/.." && pwd)
+        if [ ! -f "${_BUILDER_PATH}" ]; then
+            _BUILDER_PATH="${_project_root}/node_modules/@aws/ml-container-creator/src/lib/train-config-builder.js"
+        fi
+        if [ ! -f "${_BUILDER_PATH}" ]; then
+            _BUILDER_PATH="${_project_root}/src/lib/train-config-builder.js"
         fi
 
-        # Final fallback: direct path (for development in the generator repo)
-        if [ -z "${INTERACTIVE_RESULT}" ]; then
-            INTERACTIVE_RESULT=$(node --input-type=module -e "
-import { run } from '${_project_root}/src/lib/train-config-builder.js';
-run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
-" 2>/dev/null | grep -E '^\{' | tail -1) || INTERACTIVE_RESULT=""
+        if [ -f "${_BUILDER_PATH}" ]; then
+            # Run interactively (no stdout capture — prompts render to TTY)
+            node --input-type=module -e "
+import { run } from '${_BUILDER_PATH}';
+const result = await run({ configFile: '${CONFIG_FILE}', trainingDir: '${TRAINING_DIR}' });
+import { writeFileSync } from 'node:fs';
+writeFileSync('${_RESULT_FILE}', JSON.stringify(result));
+" || true
+            INTERACTIVE_RESULT=$(cat "${_RESULT_FILE}" 2>/dev/null || echo "")
         fi
     fi
+
+    rm -f "${_RESULT_FILE}"
 
     if [ -z "${INTERACTIVE_RESULT}" ]; then
         echo "❌ Interactive mode requires Node.js and @aws/ml-container-creator installed."
@@ -1419,6 +1440,13 @@ fi
 
 # Parse and validate configuration
 _parse_config
+
+# Resolve shell variables in image URI (backward compat with old-style config.yaml
+# that has ${AWS_ACCOUNT_ID}... instead of resolved values)
+if echo "${TRAIN_IMAGE}" | grep -q '${'; then
+    TRAIN_IMAGE=$(eval echo "${TRAIN_IMAGE}" 2>/dev/null || echo "${TRAIN_IMAGE}")
+fi
+
 _validate_config
 
 # Resolve technique (CLI flag > config.yaml > default)
@@ -1450,6 +1478,11 @@ fi
 
 # Resolve dataset (if --dataset provided or config.yaml has dataset)
 _resolve_dataset
+
+# Update TRAIN_DATASET with resolved S3 URI for the job request
+if [ -n "${RESOLVED_DATASET_S3_URI}" ]; then
+    TRAIN_DATASET="${RESOLVED_DATASET_S3_URI}"
+fi
 
 # Handle --resume: resolve checkpoint path from previous job
 if [ "${ARG_RESUME}" = true ]; then

@@ -101,6 +101,23 @@ export async function run({ configFile, trainingDir }) {
     const configPath = resolve(configFile);
     const trainingPath = resolve(trainingDir);
 
+    // Resolve output_path from bootstrap profile if not already in config
+    let profileOutputPath = '';
+    try {
+        const homedir = process.env.HOME || process.env.USERPROFILE || '';
+        const profilePath = join(homedir, '.ml-container-creator', 'config.json');
+        if (existsSync(profilePath)) {
+            const profileData = JSON.parse(readFileSync(profilePath, 'utf8'));
+            const activeProfile = profileData.profiles?.[profileData.activeProfile] || {};
+            const bucket = activeProfile.benchmarkS3Bucket || '';
+            if (bucket) {
+                // Derive project name from training dir (parent dir name)
+                const projectName = resolve(trainingPath, '..').split('/').pop();
+                profileOutputPath = `s3://${bucket}/${projectName}/training-output/`;
+            }
+        }
+    } catch { /* best-effort */ }
+
     // Load existing config as defaults
     let existingConfig = {};
     if (existsSync(configPath)) {
@@ -222,7 +239,7 @@ export async function run({ configFile, trainingDir }) {
         `script: "do/training/${technique}/train.py"`,
         '',
         '# Output',
-        `output_path: "${existingConfig.output_path || ''}"`,
+        `output_path: "${existingConfig.output_path || profileOutputPath}"`,
         '',
         '# Hyperparameters',
         'hyperparameters:'
@@ -271,12 +288,17 @@ export async function run({ configFile, trainingDir }) {
     });
 
     // Output JSON for bash consumption
-    const result = JSON.stringify({
+    const resultObj = {
         config_written: true,
         technique,
         run_now: runNow
-    });
-    console.log(result);
+    };
+
+    // Print to stdout (for CLI entry point / backward compat)
+    console.log(JSON.stringify(resultObj));
+
+    // Return for programmatic callers (do/train writes to temp file)
+    return resultObj;
 }
 
 // ── CLI entry point ──────────────────────────────────────────────────────────

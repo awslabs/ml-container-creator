@@ -23,7 +23,7 @@ technique: "custom"
 # You can also use a SageMaker pre-built training image or any custom ECR image.
 #
 # Example: 123456789012.dkr.ecr.us-east-1.amazonaws.com/ml-container-creator:latest
-image: "<%= '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:latest' %>"
+image: "${_PROFILE_accountId}.dkr.ecr.<%= awsRegion %>.amazonaws.com/${_PROFILE_ecrRepositoryName:-ml-container-creator}:<%= projectName %>-latest"
 
 # ─── Training Script [REQUIRED for custom technique] ─────────────────────────
 # Path to your training script relative to the project root.
