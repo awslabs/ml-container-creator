@@ -1,0 +1,16 @@
+{
+  "modelId": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "mcpServers": [
+    "instance-sizer",
+    "base-image-picker",
+    "model-picker",
+    "workload-picker",
+    "e2e-status",
+    "agent-knowledge"
+  ],
+  "inputCostPer1k": 0.003,
+  "outputCostPer1k": 0.015,
+  "exitCommands": ["exit", "quit", "bye", "q"],
+  "reloadCommands": ["reload"],
+  "mcpServerTimeout": 30
+}

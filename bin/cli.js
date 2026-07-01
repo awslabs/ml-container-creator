@@ -4,9 +4,14 @@
 
 import { createRequire } from 'module';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { spawn, execSync } from 'child_process';
 import { program, Option, Help } from 'commander';
 import { run } from '../src/app.js';
 import { cliOptions, helpGroups } from '../src/lib/generated/cli-options.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -312,6 +317,58 @@ program
   Then run: ml-container-creator --deployment-config=http-flask --skip-prompts
 `);
         }
+    });
+
+program
+    .command('hey')
+    .description('Chat with the ml-container-creator advisor')
+    .option('--project-dir <dir>', 'Project directory to analyze', process.cwd())
+    .option('-o, --offline', 'Static reference mode (no Bedrock calls)')
+    .action(async (options) => {
+        // 1. Check python3 is available
+        try {
+            execSync('python3 --version', { stdio: 'ignore' });
+        } catch {
+            console.error('❌ python3 not found. Install Python 3.10+ to use the advisor.');
+            console.error('   macOS: brew install python3');
+            console.error('   Ubuntu: sudo apt install python3');
+            process.exit(1);
+        }
+
+        // 2. If not offline, check strands-agents is installed
+        if (!options.offline) {
+            try {
+                execSync('python3 -c "import strands"', { stdio: 'ignore' });
+            } catch {
+                console.error('❌ strands-agents not installed. Run:');
+                console.error('   pip install -r src/agent/requirements-agent.txt');
+                process.exit(1);
+            }
+        }
+
+        // 3. Resolve agent script path
+        const agentScript = path.join(__dirname, '..', 'src', 'agent', 'agent.py');
+
+        // 4. Build args and spawn
+        const args = [agentScript, '--project-dir', options.projectDir];
+        if (options.offline) {
+            args.push('--offline');
+        }
+
+        const child = spawn('python3', args, {
+            stdio: 'inherit',
+            env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        });
+
+        // 5. Forward exit code
+        child.on('close', (code) => {
+            process.exit(code ?? 0);
+        });
+
+        child.on('error', (err) => {
+            console.error(`❌ Failed to start agent: ${err.message}`);
+            process.exit(1);
+        });
     });
 
 program.parse();

@@ -1,0 +1,513 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""ml-container-creator hey — Advisory agent powered by Strands.
+
+Entry point for the interactive REPL that connects to MCP servers
+and provides ML infrastructure guidance via Claude on Bedrock.
+
+Usage:
+    python3 src/agent/agent.py --project-dir <path> [--offline|-o]
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import signal
+import sys
+from pathlib import Path
+from typing import Any
+
+os.environ.setdefault("PYTHONUNBUFFERED", "1")
+
+from strands import Agent, tool
+from strands.tools.mcp import MCPClient
+from mcp.client.stdio import StdioServerParameters, stdio_client
+
+from config_loader import load_agent_config
+from context import ProjectContext
+from health_check import EnvironmentHealthCheck, print_health_report
+
+
+# ─── Constants ────────────────────────────────────────────────────────────────
+
+_PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
+_MCP_CONFIG_PATH = _PACKAGE_ROOT / "config" / "mcp.json"
+_SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system.md"
+_CAPABILITY_MATRIX_PATH = Path(__file__).resolve().parent / "data" / "capability-matrix.json"
+
+
+# ─── write_file tool ──────────────────────────────────────────────────────────
+
+
+def _create_write_file_tool(project_dir: Path):
+    """Create a write_file tool scoped to the given project directory.
+
+    The tool validates that the target path does not escape the project root,
+    preventing path traversal attacks.
+
+    Args:
+        project_dir: Resolved absolute path to the project root.
+
+    Returns:
+        A Strands @tool-decorated function.
+    """
+
+    @tool
+    def write_file(file_path: str, content: str) -> str:
+        """Write content to a file within the project directory.
+
+        Use this to save action plans, TODO lists, or recommendation summaries.
+        The file path must be relative to the project root. Parent directories
+        are created automatically.
+
+        Args:
+            file_path: Relative path within the project (e.g., "TODO.md", "docs/plan.md").
+            content: Text content to write to the file.
+
+        Returns:
+            Confirmation message with the absolute path written.
+        """
+        # Resolve the target path and validate it stays within project_dir
+        target = (project_dir / file_path).resolve()
+        try:
+            target.relative_to(project_dir)
+        except ValueError:
+            return f"Error: path '{file_path}' escapes the project directory. Refusing to write."
+
+        # Create parent directories if needed
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write the file
+        target.write_text(content, encoding="utf-8")
+        return f"Written to {target}"
+
+    return write_file
+
+
+# ─── MCP Server Management ───────────────────────────────────────────────────
+
+
+def _load_mcp_config() -> dict[str, Any]:
+    """Load and parse config/mcp.json from the package root.
+
+    Returns:
+        Dict of server configurations from mcpServers key.
+
+    Raises:
+        SystemExit: If the config file is missing or unparseable.
+    """
+    if not _MCP_CONFIG_PATH.is_file():
+        print(f"\033[31mError:\033[0m config/mcp.json not found at {_MCP_CONFIG_PATH}")
+        sys.exit(1)
+
+    try:
+        data = json.loads(_MCP_CONFIG_PATH.read_text(encoding="utf-8"))
+        return data.get("mcpServers", {})
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"\033[31mError:\033[0m Cannot parse config/mcp.json: {e}")
+        sys.exit(1)
+
+
+def _start_mcp_servers(
+    server_names: frozenset[str],
+    timeout: int = 30,
+) -> list[MCPClient]:
+    """Start the subset of MCP servers needed by the advisory agent.
+
+    Reads config/mcp.json, filters to the agent's required servers,
+    resolves paths relative to the package root, and starts each via stdio.
+
+    Args:
+        server_names: Set of MCP server names to connect to.
+        timeout: Seconds to wait for each MCP server to start (reserved for future use).
+
+    Returns:
+        List of connected MCPClient instances.
+    """
+    all_servers = _load_mcp_config()
+    clients: list[MCPClient] = []
+
+    for name, config in all_servers.items():
+        if name not in server_names:
+            continue
+
+        command = config.get("command", "node")
+        args = config.get("args", [])
+
+        # Resolve relative server paths against package root
+        resolved_args = []
+        for arg in args:
+            arg_path = _PACKAGE_ROOT / arg
+            if arg_path.is_file():
+                resolved_args.append(str(arg_path))
+            else:
+                resolved_args.append(arg)
+
+        try:
+            server_params = StdioServerParameters(command=command, args=resolved_args)
+            client = MCPClient(lambda sp=server_params: stdio_client(sp))
+            clients.append(client)
+        except Exception as e:
+            print(f"  \033[33m⚠\033[0m Could not start MCP server '{name}': {e}")
+
+    # Also start the agent-knowledge server explicitly if not in mcp.json
+    # (it's at servers/agent-knowledge/index.js)
+    if "agent-knowledge" in server_names and "agent-knowledge" not in all_servers:
+        knowledge_path = _PACKAGE_ROOT / "servers" / "agent-knowledge" / "index.js"
+        if knowledge_path.is_file():
+            try:
+                server_params = StdioServerParameters(command="node", args=[str(knowledge_path)])
+                client = MCPClient(lambda sp=server_params: stdio_client(sp))
+                clients.append(client)
+            except Exception as e:
+                print(f"  \033[33m⚠\033[0m Could not start agent-knowledge server: {e}")
+
+    return clients
+
+
+def _stop_mcp_servers(clients: list[MCPClient]) -> None:
+    """Gracefully stop all MCP clients.
+
+    Args:
+        clients: List of MCPClient instances to shut down.
+    """
+    for client in clients:
+        try:
+            client.stop(None, None, None)
+        except Exception:
+            pass  # Best effort cleanup
+
+
+# ─── System Prompt Construction ───────────────────────────────────────────────
+
+
+def _build_system_prompt(context: dict[str, Any]) -> str:
+    """Build the system prompt by loading the template and injecting context.
+
+    Substitutes placeholders:
+      - {project_context_json} — serialized project context
+      - {capability_matrix_json} — capability matrix data
+      - {user_context_md} — user-provided context markdown (or empty)
+
+    Args:
+        context: Project context dict from ProjectContext.load().
+
+    Returns:
+        Fully rendered system prompt string.
+    """
+    # Load the prompt template
+    if _SYSTEM_PROMPT_PATH.is_file():
+        template = _SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+    else:
+        template = "You are the ml-container-creator advisor.\n\n{project_context_json}"
+
+    # Load capability matrix
+    capability_matrix = "{}"
+    if _CAPABILITY_MATRIX_PATH.is_file():
+        try:
+            capability_matrix = _CAPABILITY_MATRIX_PATH.read_text(encoding="utf-8")
+        except OSError:
+            pass
+
+    # Serialize project context (exclude internal fields)
+    context_json = json.dumps(context, indent=2, default=str)
+
+    # Extract user context
+    user_context = context.get("user_context") or "No user-provided context file found."
+
+    # Perform substitutions
+    prompt = template.replace("{project_context_json}", context_json)
+    prompt = prompt.replace("{capability_matrix_json}", capability_matrix)
+    prompt = prompt.replace("{user_context_md}", user_context)
+
+    return prompt
+
+
+# ─── Cost Tracking ────────────────────────────────────────────────────────────
+
+
+class CostTracker:
+    """Simple token cost tracker for the session.
+
+    Tracks approximate input/output tokens and computes
+    estimated cost based on Claude Sonnet pricing.
+    """
+
+    def __init__(self, input_cost_per_1k: float = 0.003, output_cost_per_1k: float = 0.015) -> None:
+        self._input_cost_per_1k = input_cost_per_1k
+        self._output_cost_per_1k = output_cost_per_1k
+        self.input_tokens: int = 0
+        self.output_tokens: int = 0
+        self.turns: int = 0
+
+    def record_turn(self, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        """Record token usage from a single turn.
+
+        Args:
+            input_tokens: Number of input tokens consumed.
+            output_tokens: Number of output tokens generated.
+        """
+        self.input_tokens += input_tokens
+        self.output_tokens += output_tokens
+        self.turns += 1
+
+    @property
+    def estimated_cost(self) -> float:
+        """Estimated USD cost for the session."""
+        input_cost = (self.input_tokens / 1000) * self._input_cost_per_1k
+        output_cost = (self.output_tokens / 1000) * self._output_cost_per_1k
+        return input_cost + output_cost
+
+    def print_summary(self) -> None:
+        """Print a formatted cost summary to stdout."""
+        if self.turns == 0:
+            return
+
+        print("\n\033[1mSession Summary\033[0m")
+        print("─" * 40)
+        print(f"  Turns: {self.turns}")
+        print(f"  Input tokens:  ~{self.input_tokens:,}")
+        print(f"  Output tokens: ~{self.output_tokens:,}")
+        print(f"  Estimated cost: ~${self.estimated_cost:.4f}")
+        print()
+
+
+# ─── CLI Argument Parsing ─────────────────────────────────────────────────────
+
+
+def _parse_args() -> tuple[str, bool]:
+    """Parse command-line arguments.
+
+    Returns:
+        Tuple of (project_dir, offline_mode).
+    """
+    args = sys.argv[1:]
+    project_dir = os.getcwd()
+    offline = False
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--project-dir" and i + 1 < len(args):
+            project_dir = args[i + 1]
+            i += 2
+        elif arg in ("--offline", "-o"):
+            offline = True
+            i += 1
+        else:
+            i += 1
+
+    return project_dir, offline
+
+
+# ─── REPL ─────────────────────────────────────────────────────────────────────
+
+
+def _run_repl(
+    agent: Agent,
+    context: dict[str, Any],
+    project_dir: str,
+    cost: CostTracker,
+    exit_commands: frozenset[str],
+    reload_commands: frozenset[str],
+) -> None:
+    """Run the interactive REPL loop with streaming output.
+
+    Supports:
+      - Configurable exit commands to quit
+      - Configurable reload commands to refresh project context
+      - Ctrl+C / EOF for graceful exit
+      - Streaming responses
+
+    Args:
+        agent: Configured Strands Agent instance.
+        context: Current project context dict.
+        project_dir: Path to the project directory.
+        cost: CostTracker instance for session metrics.
+        exit_commands: Set of commands that exit the REPL.
+        reload_commands: Set of commands that reload project context.
+    """
+    print("\n\033[1mReady.\033[0m Type your question, or 'exit' to quit.\n")
+
+    while True:
+        try:
+            user_input = input("\033[36myou:\033[0m ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n")
+            break
+
+        if not user_input:
+            continue
+
+        # Handle exit commands
+        if user_input.lower() in exit_commands:
+            break
+
+        # Handle reload
+        if user_input.lower() in reload_commands:
+            print("  Reloading project context...")
+            try:
+                new_context = ProjectContext(project_dir).load()
+                new_prompt = _build_system_prompt(new_context)
+                agent.system_prompt = new_prompt
+                context.update(new_context)
+                print("  \033[32m✓\033[0m Context reloaded.\n")
+            except Exception as e:
+                print(f"  \033[31m✗\033[0m Reload failed: {e}\n")
+            continue
+
+        # Send to agent with streaming
+        try:
+            print("\033[90magent:\033[0m ", end="", flush=True)
+            response = agent(user_input)
+
+            # Track tokens from response metrics if available
+            if hasattr(response, "metrics") and response.metrics and hasattr(response.metrics, "accumulated_usage"):
+                metrics = response.metrics
+                usage = metrics.accumulated_usage or {}
+                input_t = usage.get("inputTokens", 0) or 0
+                output_t = usage.get("outputTokens", 0) or 0
+                cost.record_turn(input_tokens=input_t, output_tokens=output_t)
+            else:
+                # Fallback: approximate from word count
+                cost.record_turn(
+                    input_tokens=len(user_input.split()) * 2,
+                    output_tokens=len(str(response).split()) * 2,
+                )
+
+            print("\n")
+        except KeyboardInterrupt:
+            print("\n  (interrupted)\n")
+            continue
+        except Exception as e:
+            print(f"\n  \033[31mError:\033[0m {e}\n")
+            continue
+
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    """Entry point for the advisory agent.
+
+    Parses arguments, runs health checks, connects MCP servers,
+    creates the Strands agent, and starts the interactive REPL.
+    """
+    project_dir, offline_mode = _parse_args()
+    project_path = Path(project_dir).resolve()
+
+    # Load external configuration
+    config = load_agent_config()
+
+    # Derive frozensets from config for fast membership testing
+    agent_mcp_servers = frozenset(config.mcp_servers)
+    exit_commands = frozenset(config.exit_commands)
+    reload_commands = frozenset(config.reload_commands)
+
+    # Detect whether we're in a project directory
+    in_project = (project_path / "do" / "config").is_file()
+
+    # Load project context
+    if in_project:
+        ctx = ProjectContext(str(project_path))
+        context = ctx.load()
+        project_name = context.get("project_name") or project_path.name
+        engine = context.get("engine") or "unknown"
+        target = context.get("deployment_target") or "unknown"
+        model = context.get("model") or "not set"
+        instance = context.get("instance_type") or "not set"
+        print(f"\n\033[1m📁 Project:\033[0m {project_name} ({engine}, {target})")
+        print(f"   Model: {model} on {instance}")
+    else:
+        context = {"mode": "getting-started"}
+        print("\n\033[1m👋 Welcome to ml-container-creator!\033[0m")
+        print("   No do/config found — running in getting-started mode.")
+
+    # Always run health check
+    print()
+    health_check = EnvironmentHealthCheck()
+    items = health_check.run(str(project_path) if in_project else None)
+    print_health_report(items)
+
+    # Offline mode: print summary and exit
+    if offline_mode:
+        print("📄 \033[1mOffline mode\033[0m — no Bedrock calls, no MCP servers.")
+        print("   Run without --offline for interactive conversation.")
+        return
+
+    # Initialize MCP clients and agent
+    mcp_clients: list[MCPClient] = []
+    cost = CostTracker(
+        input_cost_per_1k=config.input_cost_per_1k,
+        output_cost_per_1k=config.output_cost_per_1k,
+    )
+
+    # Register signal handler for graceful shutdown
+    def _signal_handler(signum: int, frame: Any) -> None:
+        """Handle SIGINT for graceful cleanup."""
+        print("\n\nShutting down...")
+        _stop_mcp_servers(mcp_clients)
+        cost.print_summary()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _signal_handler)
+
+    try:
+        # Connect to MCP servers
+        print("Connecting to MCP servers...")
+        mcp_clients = _start_mcp_servers(
+            server_names=agent_mcp_servers,
+            timeout=config.mcp_server_timeout,
+        )
+
+        if mcp_clients:
+            print(f"  \033[32m✓\033[0m {len(mcp_clients)} MCP servers configured.")
+        else:
+            print("  \033[33m⚠\033[0m No MCP servers configured. Tool calls will be unavailable.")
+
+        # Build tools list from MCP clients + write_file
+        tools: list[Any] = list(mcp_clients)  # MCPClient instances are passed directly as tools
+        tools.append(_create_write_file_tool(project_path))
+
+        # Build system prompt
+        system_prompt = _build_system_prompt(context)
+
+        # Create the Strands agent
+        agent = Agent(
+            model=config.model_id,
+            system_prompt=system_prompt,
+            tools=tools,
+        )
+
+        print(f"  \033[32m✓\033[0m Agent ready (model: {config.model_id})")
+
+    except Exception as e:
+        error_msg = str(e)
+        _stop_mcp_servers(mcp_clients)
+
+        # Check for Bedrock connection failures
+        if "bedrock" in error_msg.lower() or "credential" in error_msg.lower():
+            print(f"\n\033[31mError:\033[0m Could not connect to Bedrock: {error_msg}")
+            print("\n  Suggestions:")
+            print("  • Check AWS credentials (aws sts get-caller-identity)")
+            print("  • Verify Bedrock model access in your AWS account")
+            print("  • Run with --offline for static reference mode")
+        else:
+            print(f"\n\033[31mError:\033[0m Failed to initialize agent: {error_msg}")
+            print("  Try running with --offline for static reference mode.")
+
+        sys.exit(1)
+
+    # Run REPL
+    try:
+        _run_repl(agent, context, str(project_path), cost, exit_commands, reload_commands)
+    finally:
+        # Cleanup
+        _stop_mcp_servers(mcp_clients)
+        cost.print_summary()
+
+
+if __name__ == "__main__":
+    main()

@@ -62,6 +62,7 @@ nav:
       - Deployment & Inference: deployments.md
       - Fine-Tuning: fine-tuning.md
       - Custom Training: custom-training.md
+      - Agent UX: agent.md
       - Examples: EXAMPLES.md
       - Troubleshooting: TROUBLESHOOTING.md
   - Operations:
