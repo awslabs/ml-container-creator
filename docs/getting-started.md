@@ -333,3 +333,4 @@ For full details, see the [CI Integration Guide](ci-integration.md).
 - [Benchmarking](benchmarking.md) — Measure latency and throughput with SageMaker AI Benchmarking
 - [CI Integration](ci-integration.md) — Automated lifecycle testing for all deployment configurations
 - [Troubleshooting](TROUBLESHOOTING.md) — Common issues and solutions
+- [Advisory Agent](agent.md) — Get help from a conversational AI advisor: `ml-container-creator hey`
