@@ -220,6 +220,9 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 <% Object.entries(icEnvVars).forEach(([key, value]) => { %>
 export IC_ENV_<%= key %>=${IC_ENV_<%= key %>:-<%= value %>}
 <% }); %>
+<% if ((modelServer === 'vllm' || modelServer === 'sglang') && !icEnvVars['VLLM_MAX_MODEL_LEN'] && !icEnvVars['SGLANG_MAX_MODEL_LEN']) { %>
+export IC_ENV_VLLM_MAX_MODEL_LEN=${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}
+<% } %>
 <% } else if (deploymentTarget === 'realtime-inference') { %>
 # ─── Deploy-time IC environment variables (uncomment to configure) ─────────────
 # These are passed as the Environment field in InferenceComponent.create() at deploy time.
@@ -227,7 +230,9 @@ export IC_ENV_<%= key %>=${IC_ENV_<%= key %>:-<%= value %>}
 # Max 16 vars, max 1024 chars per key/value.
 # WARNING: Do not store raw secrets here. Use Secrets Manager ARN pattern instead:
 #   export IC_ENV_HF_TOKEN_ARN=arn:aws:secretsmanager:REGION:ACCOUNT:secret:NAME
-# export IC_ENV_VLLM_MAX_MODEL_LEN=8192
+<% if (modelServer === 'vllm' || modelServer === 'sglang') { %>
+export IC_ENV_VLLM_MAX_MODEL_LEN=${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}
+<% } %>
 # export IC_ENV_VLLM_GPU_MEMORY_UTILIZATION=0.85
 <% } %>
 
