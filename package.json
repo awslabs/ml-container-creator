@@ -90,10 +90,10 @@
     "npm": ">=11.6.2"
   },
   "scripts": {
-    "test": "mocha 'test/**/*.test.js' --ignore 'test/property/**' --recursive --timeout 30000",
-    "test:property": "NODE_OPTIONS='--max-old-space-size=4096' mocha 'test/property/**/*.test.js' --recursive --timeout 60000",
+    "test": "mocha 'test/**/*.test.js' --ignore 'test/property/**' --recursive --timeout 30000 --no-parallel",
+    "test:property": "NODE_OPTIONS='--max-old-space-size=4096' mocha 'test/property/**/*.test.js' --recursive --timeout 60000 --no-parallel",
     "test:all": "npm run test && npm run test:property",
-    "test:fast": "mocha 'test/**/*.test.js' --recursive --timeout 15000",
+    "test:fast": "mocha 'test/**/*.test.js' --recursive --timeout 15000 --no-parallel",
     "test:unit": "mocha 'test/unit/**/*.test.js' --recursive --timeout 15000",
     "test:integration": "mocha 'test/integration/**/*.test.js' --recursive --timeout 30000",
     "test:servers": "node servers/region-picker/test.js && node servers/instance-sizer/test.js && node servers/workload-picker/test.js",
@@ -131,7 +131,7 @@
     "husky": "^9.1.7",
     "license-report": "^6.8.0",
     "lint-staged": "^17.0.7",
-    "mocha": "^10.2.0",
+    "mocha": "^11.0.0",
     "npm-force-resolutions": "^0.0.10",
     "nyc": "^18.0.0",
     "sbom": "^0.0.0"
