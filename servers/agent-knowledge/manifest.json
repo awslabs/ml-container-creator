@@ -3,12 +3,12 @@
     "version": "1.0.0",
     "description": "MCP server providing script reference, config documentation, troubleshooting patterns, and capability matrix for the agent.",
     "modes": {
-        "static": false,
+        "static": true,
         "smart": false,
         "discover": false
     },
     "catalogs": {
-        "capabilityMatrix": "../agent/data/capability-matrix.json"
+        "capabilityMatrix": "../../src/agent/data/capability-matrix.json"
     },
     "tool": {
         "name": "query_knowledge"
