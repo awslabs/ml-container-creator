@@ -21,12 +21,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { DynamicResolver as DynamicResolverBase } from '../lib/dynamic-resolver.js';
 import { filterImages, deriveMinDriverVersion } from '../lib/image-filter.js';
 import { resolveModelArchitecture } from '../lib/model-id-resolver.js';
+import { loadWithOverridesArray, resolveProjectDir } from '../lib/override-loader.js';
 
 // ── Catalog loader ───────────────────────────────────────────────────────────
 
@@ -423,6 +424,10 @@ async function resolveBaseImage(context, limit) {
         resultImages = result.images;
     }
 
+    // ── Merge project-local overrides (AC-1.5: fresh read each call) ────
+    const projectDir = resolveProjectDir(context);
+    resultImages = loadWithOverridesArray(resultImages, projectDir, 'base-image-picker.json', 'tag');
+
     // ── Resolve modelId → modelArchitecture if needed ───────────────────
     let resolvedModelArchitecture = modelArchitecture || '';
     if (!modelArchitecture && modelId) {
@@ -501,6 +506,80 @@ server.tool(
                 text: JSON.stringify({ values, choices, metadata })
             }]
         };
+    }
+);
+
+server.tool(
+    'write_local_image',
+    'Add a base image to the project-local catalog override (.mlcc/base-image-picker.json). Use when the user references a custom or newer base image not in the shipped catalog.',
+    {
+        name: z.string().min(1).describe('Image name/tag identifier'),
+        image: z.string().min(1).describe('Full image URI (e.g., "123456789.dkr.ecr.us-east-1.amazonaws.com/my-image:latest")'),
+        framework: z.string().optional().describe('Framework (e.g., "vllm", "tgi")'),
+        pythonVersion: z.string().optional().describe('Python version (e.g., "3.11")'),
+        cudaVersion: z.string().optional().describe('CUDA version (e.g., "12.4")'),
+        context: z.object({
+            projectDir: z.string().optional()
+        }).optional().describe('Optional context with projectDir')
+    },
+    async (params) => {
+        const { name, image, framework, pythonVersion, cudaVersion, context } = params;
+
+        // Validate required fields
+        if (!name || !name.trim()) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'name is required and must be non-empty' }) }] };
+        }
+        if (!image || !image.trim()) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'image is required and must be non-empty' }) }] };
+        }
+
+        const projectDir = resolveProjectDir(context);
+        const mlccDir = join(projectDir, '.mlcc');
+        const overridePath = join(mlccDir, 'base-image-picker.json');
+        const tmpPath = `${overridePath  }.tmp`;
+
+        // Ensure .mlcc directory exists
+        mkdirSync(mlccDir, { recursive: true });
+
+        // Read existing or initialize
+        let data = { images: [] };
+        if (existsSync(overridePath)) {
+            try {
+                data = JSON.parse(readFileSync(overridePath, 'utf8'));
+            } catch {
+                data = { images: [] };
+            }
+        }
+        if (!Array.isArray(data.images)) {
+            data.images = [];
+        }
+
+        // Build entry
+        const entry = { name, image, source: 'local', addedAt: new Date().toISOString() };
+        if (framework) entry.framework = framework;
+        if (pythonVersion) entry.pythonVersion = pythonVersion;
+        if (cudaVersion) entry.cudaVersion = cudaVersion;
+
+        // Upsert by name
+        const idx = data.images.findIndex(i => i.name === name);
+        if (idx >= 0) {
+            data.images[idx] = entry;
+        } else {
+            data.images.push(entry);
+        }
+
+        // Atomic write
+        writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+        renameSync(tmpPath, overridePath);
+
+        // NFR-3 size check
+        const result = { status: 'ok', entry, file: '.mlcc/base-image-picker.json' };
+        const stat = statSync(overridePath);
+        if (stat.size > 100 * 1024) {
+            result.warning = 'Override file exceeds 100KB — consider upstreaming entries';
+        }
+
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
 );
 

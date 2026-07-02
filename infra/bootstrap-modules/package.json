@@ -1,0 +1,23 @@
+{
+  "name": "mlcc-bootstrap-modules",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Modular CDK stacks for ml-container-creator bootstrap infrastructure",
+  "scripts": {
+    "build": "tsc",
+    "cdk": "cdk",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.150.0",
+    "constructs": "^10.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "aws-cdk": "^2.150.0",
+    "ts-node": "^10.9.2",
+    "@types/node": "^20.0.0"
+  }
+}

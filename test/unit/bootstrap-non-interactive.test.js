@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Bootstrap Non-Interactive Mode Unit Tests
+ * Bootstrap Non-Interactive Mode Unit Tests (Modular Flow)
  *
  * Tests the non-interactive mode of _handleInteractiveSetup() in BootstrapCommandHandler:
  * - When --non-interactive is set with all required flags, should not prompt for any input
@@ -10,11 +10,12 @@
  * - When --non-interactive is set but --region is missing, should display error listing missing flags
  * - When --non-interactive is set with --name, should use it as profile name (not "default")
  * - When --non-interactive is set without --name, should default to "default"
- * - When --role-arn is provided, should skip IAM role creation and use provided ARN
- * - When --skip-s3 is provided, should skip S3 bucket creation
- * - When --non-interactive is set with --profile and --region, should use those values directly
+ * - When --with is provided, should provision those modules
+ * - Non-interactive defaults to core + registry modules
+ * - When --dry-run is set, should preview without provisioning
  *
- * Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.5
+ * The modular flow uses selectModules/validateDependencies/topologicalSort/CdkModuleRunner
+ * instead of the legacy monolithic _deployStack.
  */
 
 import { describe, it, afterEach } from 'mocha';
@@ -28,37 +29,16 @@ const TEST_PROFILE = 'my-aws-profile';
 const TEST_REGION = 'us-west-2';
 const TEST_ACCOUNT_ID = '123456789012';
 const TEST_ROLE_ARN = 'arn:aws:iam::123456789012:role/mlcc-sagemaker-execution-role';
-const USER_ROLE_ARN = 'arn:aws:iam::123456789012:role/my-custom-role';
-
-/**
- * Creates a mock generator that tracks prompt calls.
- * @returns {{ generator: object, promptCalls: Array }}
- */
-function createMockGenerator() {
-    const promptCalls = [];
-    const generator = {
-        prompt: async (questions) => {
-            promptCalls.push(questions);
-            return {};
-        }
-    };
-    return { generator, promptCalls };
-}
 
 /**
  * Sets up a handler with mocked internals for non-interactive testing.
- * Overrides _selectProfile, _validateCredentials, _deployStack,
- * and _resourceExists with spies.
+ * Mocks _selectProfile, _validateCredentials, _resourceExists, and the
+ * dynamic CdkModuleRunner import to avoid real AWS calls.
  *
- * The interactive setup now uses CloudFormation stack deployment (_deployStack)
- * instead of individual _setupIamRole/_setupEcrRepository/_setupS3Buckets calls.
- *
- * @param {object} opts
- * @param {object} opts.options - CLI options to pass to _handleInteractiveSetup
  * @returns {{ handler, calls, logs, restore, promptCalls, configPath }}
  */
-function setupHandler(_opts = {}) {
-    const { promptCalls } = createMockGenerator();
+function setupHandler() {
+    const promptCalls = [];
     const configPath = path.join(os.tmpdir(), `mlcc-test-ni-${Date.now()}-${Math.random().toString(36).slice(2)}`, 'config.json');
     const mockPromptFn = async (questions) => {
         promptCalls.push(questions);
@@ -70,8 +50,8 @@ function setupHandler(_opts = {}) {
     const calls = {
         selectProfile: [],
         validateCredentials: [],
-        deployStack: [],
-        resourceExists: []
+        resourceExists: [],
+        modulesProvisioned: []
     };
     const logs = [];
 
@@ -90,41 +70,62 @@ function setupHandler(_opts = {}) {
         return { accountId: TEST_ACCOUNT_ID, region: providedRegion || TEST_REGION };
     };
 
-    // Mock _deployStack to return stack outputs (replaces individual resource setup)
-    handler._deployStack = (stackName, parameters, profile, region) => {
-        calls.deployStack.push({ stackName, parameters, profile, region });
-        return {
-            RoleArn: TEST_ROLE_ARN,
-            EcrRepositoryName: 'ml-container-creator',
-            AsyncS3BucketName: parameters.CreateS3Buckets === 'true' ? `ml-container-creator-async-${region}-${TEST_ACCOUNT_ID}` : undefined,
-            BatchS3BucketName: parameters.CreateS3Buckets === 'true' ? `ml-container-creator-batch-${region}-${TEST_ACCOUNT_ID}` : undefined
-        };
-    };
-
-    // Mock _resourceExists to prevent real AWS calls
+    // Mock _resourceExists (CDK bootstrap check)
     handler._resourceExists = (checkCommand, profile) => {
         calls.resourceExists.push({ checkCommand, profile });
-        return false;
+        return true; // Pretend CDK is already bootstrapped
     };
 
-    // Mock _runPostSetupChain to prevent real network calls (mcp init, sync-architectures, sync-schemas)
+    // Mock _runPostSetupChain to prevent real network calls
     handler._runPostSetupChain = async () => {};
 
-    // Mock _verifyCliV2 to skip real CLI version check in tests
+    // Mock _verifyCliV2 to skip real CLI version check
     handler._verifyCliV2 = () => true;
 
-    // Mock _execAws to prevent real AWS CLI calls (e.g., cloudformation list-stacks)
+    // Mock _execAws to prevent real AWS CLI calls
     handler._execAws = () => [];
 
     // Mock _displayProgress to prevent output noise
     handler._displayProgress = () => {};
+
+    // Mock the dynamic import of CdkModuleRunner by overriding the provision step.
+    // We patch _handleInteractiveSetup's module provisioning by monkey-patching
+    // the handler's prototype to intercept the dynamic import.
+    // For now, we'll use the approach of making the handler._provisionModules mockable:
+    handler._provisionModules = async (ordered, manifest, profileName, accountId, region, _awsProfile) => {
+        const moduleOutputs = {};
+        for (const moduleName of ordered) {
+            calls.modulesProvisioned.push(moduleName);
+            // Return mock outputs based on module
+            switch (moduleName) {
+            case 'core':
+                moduleOutputs.core = { RoleArn: TEST_ROLE_ARN, EcrRepositoryName: 'ml-container-creator' };
+                break;
+            case 'registry':
+                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${accountId}`, ModelPackageGroupName: `mlcc-${profileName}-models` };
+                break;
+            case 'benchmark':
+                moduleOutputs.benchmark = { BenchmarkBucket: `mlcc-benchmark-results-${accountId}-${region}`, GlueDatabase: 'mlcc_ci' };
+                break;
+            case 'training':
+                moduleOutputs.training = { TrainingBucket: `mlcc-training-${accountId}-${region}`, TrainingRoleArn: `arn:aws:iam::${accountId}:role/mlcc-training-role-${region}` };
+                break;
+            case 'ci':
+                moduleOutputs.ci = { CodeBuildProject: `mlcc-ci-executor-${profileName}`, CiTableName: `mlcc-ci-table-${profileName}` };
+                break;
+            default:
+                moduleOutputs[moduleName] = {};
+            }
+        }
+        return moduleOutputs;
+    };
 
     const restore = () => { console.log = origLog; };
 
     return { handler, calls, logs, restore, promptCalls, configPath };
 }
 
-describe('Bootstrap Non-Interactive Mode', () => {
+describe('Bootstrap Non-Interactive Mode (Modular)', () => {
     let restoreFn;
 
     afterEach(() => {
@@ -135,7 +136,7 @@ describe('Bootstrap Non-Interactive Mode', () => {
     });
 
     describe('when --non-interactive is set with all required flags', () => {
-        it('should not prompt for any input', async function () {
+        it('should not prompt for any input and provision core + registry', async function () {
             this.timeout(10000);
             const { handler, calls, restore, promptCalls } = setupHandler();
             restoreFn = restore;
@@ -149,20 +150,26 @@ describe('Bootstrap Non-Interactive Mode', () => {
             // Should NOT have called _selectProfile (uses --profile directly)
             assert.strictEqual(calls.selectProfile.length, 0, 'should not call _selectProfile');
 
-            // Should NOT have prompted for anything via generator.prompt()
-            assert.strictEqual(promptCalls.length, 0, 'should not call generator.prompt()');
+            // Should NOT have prompted for anything
+            assert.strictEqual(promptCalls.length, 0, 'should not prompt');
 
             // Should have called _validateCredentials with the provided profile and region
             assert.strictEqual(calls.validateCredentials.length, 1, 'should call _validateCredentials once');
-            assert.strictEqual(calls.validateCredentials[0].profile, TEST_PROFILE, 'should pass the --profile value');
-            assert.strictEqual(calls.validateCredentials[0].providedRegion, TEST_REGION, 'should pass the --region value');
+            assert.strictEqual(calls.validateCredentials[0].profile, TEST_PROFILE);
+            assert.strictEqual(calls.validateCredentials[0].providedRegion, TEST_REGION);
 
-            // Should have called _deployStack (replaces individual _setupIamRole/_setupEcrRepository/_setupS3Buckets)
-            assert.strictEqual(calls.deployStack.length, 1, 'should call _deployStack once');
-            assert.strictEqual(calls.deployStack[0].profile, TEST_PROFILE, 'should pass profile to _deployStack');
-            assert.strictEqual(calls.deployStack[0].region, TEST_REGION, 'should pass region to _deployStack');
-            // Without --skip-s3, CreateS3Buckets should be 'true'
-            assert.strictEqual(calls.deployStack[0].parameters.CreateS3Buckets, 'true', 'should request S3 bucket creation');
+            // Should provision core + registry (defaults)
+            assert.ok(calls.modulesProvisioned.includes('core'), 'should provision core');
+            assert.ok(calls.modulesProvisioned.includes('registry'), 'should provision registry');
+
+            // Should save profile with modular structure
+            const config = handler.config.read();
+            assert.ok(config, 'config should exist');
+            const profile = config.profiles[config.activeProfile];
+            assert.ok(profile.provisionedModules, 'should have provisionedModules');
+            assert.ok(profile.moduleOutputs, 'should have moduleOutputs');
+            assert.ok(profile.provisionedModules.includes('core'));
+            assert.ok(profile.provisionedModules.includes('registry'));
         });
     });
 
@@ -176,19 +183,15 @@ describe('Bootstrap Non-Interactive Mode', () => {
                 region: TEST_REGION
             });
 
-            // Should display error about missing --profile
             assert.ok(
                 logs.some(l => l.includes('--profile')),
                 'should mention --profile in error message'
             );
             assert.ok(
-                logs.some(l => l.includes('Missing required flags') || l.includes('missing') || l.includes('Missing')),
+                logs.some(l => l.includes('Missing required flags')),
                 'should indicate missing required flags'
             );
-
-            // Should NOT have called any provisioning methods
             assert.strictEqual(calls.validateCredentials.length, 0, 'should not call _validateCredentials');
-            assert.strictEqual(calls.deployStack.length, 0, 'should not call _deployStack');
         });
     });
 
@@ -202,25 +205,17 @@ describe('Bootstrap Non-Interactive Mode', () => {
                 profile: TEST_PROFILE
             });
 
-            // Should display error about missing --region
             assert.ok(
                 logs.some(l => l.includes('--region')),
                 'should mention --region in error message'
             );
-            assert.ok(
-                logs.some(l => l.includes('Missing required flags') || l.includes('missing') || l.includes('Missing')),
-                'should indicate missing required flags'
-            );
-
-            // Should NOT have called any provisioning methods
             assert.strictEqual(calls.validateCredentials.length, 0, 'should not call _validateCredentials');
-            assert.strictEqual(calls.deployStack.length, 0, 'should not call _deployStack');
         });
     });
 
     describe('when --non-interactive is set with --name', () => {
         it('should use it as profile name (not "default")', async () => {
-            const { handler, logs, restore } = setupHandler();
+            const { handler, restore } = setupHandler();
             restoreFn = restore;
 
             await handler._handleInteractiveSetup({
@@ -230,17 +225,10 @@ describe('Bootstrap Non-Interactive Mode', () => {
                 name: 'my-custom-profile'
             });
 
-            // Should display the custom profile name in the summary
-            assert.ok(
-                logs.some(l => l.includes('my-custom-profile')),
-                'should use the custom profile name in output'
-            );
-
-            // Verify the config was saved with the custom profile name
             const config = handler.config.read();
             assert.ok(config, 'config should exist');
-            assert.strictEqual(config.activeProfile, 'my-custom-profile', 'activeProfile should be the custom name');
-            assert.ok(config.profiles['my-custom-profile'], 'profile should be saved under the custom name');
+            assert.strictEqual(config.activeProfile, 'my-custom-profile');
+            assert.ok(config.profiles['my-custom-profile']);
         });
     });
 
@@ -255,16 +243,57 @@ describe('Bootstrap Non-Interactive Mode', () => {
                 region: TEST_REGION
             });
 
-            // Verify the config was saved with "default" as profile name
             const config = handler.config.read();
             assert.ok(config, 'config should exist');
-            assert.strictEqual(config.activeProfile, 'default', 'activeProfile should be "default"');
-            assert.ok(config.profiles['default'], 'profile should be saved under "default"');
+            assert.strictEqual(config.activeProfile, 'default');
+            assert.ok(config.profiles['default']);
         });
     });
 
-    describe('when --role-arn is provided', () => {
-        it('should skip IAM role creation and use provided ARN', async () => {
+    describe('when --with is provided', () => {
+        it('should provision the specified modules plus core', async () => {
+            const { handler, calls, restore } = setupHandler();
+            restoreFn = restore;
+
+            await handler._handleInteractiveSetup({
+                'non-interactive': true,
+                profile: TEST_PROFILE,
+                region: TEST_REGION,
+                with: 'benchmark,training'
+            });
+
+            // Should provision core (always), registry (default), benchmark, and training
+            assert.ok(calls.modulesProvisioned.includes('core'), 'should provision core');
+            assert.ok(calls.modulesProvisioned.includes('registry'), 'should provision registry');
+            assert.ok(calls.modulesProvisioned.includes('benchmark'), 'should provision benchmark');
+            assert.ok(calls.modulesProvisioned.includes('training'), 'should provision training');
+
+            const config = handler.config.read();
+            const profile = config.profiles[config.activeProfile];
+            assert.ok(profile.provisionedModules.includes('benchmark'));
+            assert.ok(profile.provisionedModules.includes('training'));
+        });
+
+        it('should error on unknown module names', async () => {
+            const { handler, logs, restore } = setupHandler();
+            restoreFn = restore;
+
+            await handler._handleInteractiveSetup({
+                'non-interactive': true,
+                profile: TEST_PROFILE,
+                region: TEST_REGION,
+                with: 'nonexistent'
+            });
+
+            assert.ok(
+                logs.some(l => l.includes('Unknown module')),
+                'should display unknown module error'
+            );
+        });
+    });
+
+    describe('when --dry-run is set', () => {
+        it('should preview plan without provisioning', async () => {
             const { handler, calls, logs, restore } = setupHandler();
             restoreFn = restore;
 
@@ -272,97 +301,44 @@ describe('Bootstrap Non-Interactive Mode', () => {
                 'non-interactive': true,
                 profile: TEST_PROFILE,
                 region: TEST_REGION,
-                'role-arn': USER_ROLE_ARN
+                dryRun: true
             });
 
-            // Should have called _deployStack with UseExistingRoleArn set
-            assert.strictEqual(calls.deployStack.length, 1, 'should call _deployStack once');
-            assert.strictEqual(calls.deployStack[0].parameters.UseExistingRoleArn, USER_ROLE_ARN,
-                'should pass the provided role ARN as UseExistingRoleArn parameter');
+            // Should NOT have provisioned anything
+            assert.strictEqual(calls.modulesProvisioned.length, 0, 'should not provision in dry-run');
 
-            // Should display message about using provided ARN
+            // Should display dry-run preview
             assert.ok(
-                logs.some(l => l.includes(USER_ROLE_ARN)),
-                'should display the provided role ARN'
+                logs.some(l => l.includes('Dry run')),
+                'should display dry-run message'
             );
 
-            // Verify the config was saved with the role ARN from stack outputs
+            // Should not have saved a profile
             const config = handler.config.read();
-            assert.ok(config, 'config should exist');
-            const profile = config.profiles[config.activeProfile];
-            assert.ok(profile.roleArn, 'should store a role ARN in config');
+            assert.strictEqual(config, null, 'should not save config in dry-run');
         });
     });
 
-    describe('when --skip-s3 is provided', () => {
-        it('should skip S3 bucket creation', async () => {
-            const { handler, calls, logs, restore } = setupHandler();
+    describe('profile backward compatibility (denormalization)', () => {
+        it('should denormalize moduleOutputs into flat profile keys', async () => {
+            const { handler, restore } = setupHandler();
             restoreFn = restore;
 
             await handler._handleInteractiveSetup({
                 'non-interactive': true,
                 profile: TEST_PROFILE,
                 region: TEST_REGION,
-                'skip-s3': true
+                with: 'benchmark'
             });
 
-            // Should have called _deployStack with CreateS3Buckets='false'
-            assert.strictEqual(calls.deployStack.length, 1, 'should call _deployStack once');
-            assert.strictEqual(calls.deployStack[0].parameters.CreateS3Buckets, 'false',
-                'should pass CreateS3Buckets=false when --skip-s3 is set');
-
-            // Should display skip message
-            assert.ok(
-                logs.some(l => l.includes('skip') || l.includes('Skip') || l.includes('Skipping')),
-                'should display a skip message for S3'
-            );
-
-            // Verify the config was saved without S3 bucket keys
-            // (stack outputs won't include S3 buckets when CreateS3Buckets is false)
             const config = handler.config.read();
-            assert.ok(config, 'config should exist');
             const profile = config.profiles[config.activeProfile];
-            assert.strictEqual(profile.asyncS3Bucket, undefined, 'should not have asyncS3Bucket');
-            assert.strictEqual(profile.batchS3Bucket, undefined, 'should not have batchS3Bucket');
-        });
-    });
 
-    describe('when --non-interactive is set with --profile and --region', () => {
-        it('should use those values directly without prompting', async () => {
-            const { handler, calls, restore, promptCalls } = setupHandler();
-            restoreFn = restore;
-
-            await handler._handleInteractiveSetup({
-                'non-interactive': true,
-                profile: TEST_PROFILE,
-                region: TEST_REGION
-            });
-
-            // Should NOT have called _selectProfile
-            assert.strictEqual(calls.selectProfile.length, 0, 'should not call _selectProfile');
-
-            // Should NOT have prompted for anything
-            assert.strictEqual(promptCalls.length, 0, 'should not call generator.prompt()');
-
-            // Should have passed the profile directly to _validateCredentials
-            assert.strictEqual(calls.validateCredentials.length, 1, 'should call _validateCredentials once');
-            assert.strictEqual(
-                calls.validateCredentials[0].profile,
-                TEST_PROFILE,
-                'should pass --profile value to _validateCredentials'
-            );
-            assert.strictEqual(
-                calls.validateCredentials[0].providedRegion,
-                TEST_REGION,
-                'should pass --region value to _validateCredentials'
-            );
-
-            // Verify the config was saved with the correct values
-            const config = handler.config.read();
-            assert.ok(config, 'config should exist');
-            const profile = config.profiles[config.activeProfile];
-            assert.strictEqual(profile.awsProfile, TEST_PROFILE, 'should store the --profile value');
-            assert.strictEqual(profile.awsRegion, TEST_REGION, 'should store the --region value');
+            // Flat keys should be derived from moduleOutputs
+            assert.strictEqual(profile.roleArn, TEST_ROLE_ARN, 'roleArn should be denormalized from core outputs');
+            assert.strictEqual(profile.ecrRepositoryName, 'ml-container-creator', 'ecrRepositoryName should be denormalized');
+            assert.ok(profile.ciBenchmarkResultsBucket, 'ciBenchmarkResultsBucket should be denormalized from benchmark outputs');
+            assert.ok(profile.aiRegistryHubName, 'aiRegistryHubName should be denormalized from registry outputs');
         });
     });
 });

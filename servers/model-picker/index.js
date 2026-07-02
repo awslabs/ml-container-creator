@@ -21,10 +21,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { DynamicResolver } from '../lib/dynamic-resolver.js';
+import { loadWithOverrides, resolveProjectDir } from '../lib/override-loader.js';
 
 // ── Catalog loader ───────────────────────────────────────────────────────────
 
@@ -1545,7 +1546,11 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
 
     if (mode === 'static') {
         // Static mode: use StaticCatalogResolver only
-        const metadata = await staticResolver.fetchModelMetadata(model_id, { fields });
+        // Merge project-local overrides at query time (AC-1.5: no caching)
+        const projectDir = resolveProjectDir(context);
+        const mergedCatalog = loadWithOverrides(POPULAR_MODELS_CATALOG, projectDir, 'model-picker.json', 'name');
+        const localResolver = new StaticCatalogResolver(mergedCatalog);
+        const metadata = await localResolver.fetchModelMetadata(model_id, { fields });
         if (metadata) {
             values = { ...metadata };
         } else {
@@ -1553,6 +1558,11 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
         }
     } else {
         // Discover mode: use ResolverRegistry for live data, merge with static
+        // Also merge project-local overrides (AC-1.5: fresh read each call)
+        const projectDir = resolveProjectDir(context);
+        const mergedCatalog = loadWithOverrides(POPULAR_MODELS_CATALOG, projectDir, 'model-picker.json', 'name');
+        const localStaticResolver = new StaticCatalogResolver(mergedCatalog);
+
         const resolver = registry.getResolver(model_id);
         let liveData = null;
         let resolverFailed = false;
@@ -1564,7 +1574,7 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
             }
         }
 
-        const staticData = await staticResolver.fetchModelMetadata(model_id, { fields });
+        const staticData = await localStaticResolver.fetchModelMetadata(model_id, { fields });
         const merged = mergeMetadata(liveData, staticData);
 
         if (merged) {
@@ -1663,6 +1673,80 @@ server.tool(
         )
     },
     async (params) => resolveModel(params)
+);
+
+server.tool(
+    'write_local_model',
+    'Add a model to the project-local catalog override (.mlcc/model-picker.json). Use when the user describes a model not in the shipped catalog.',
+    {
+        name: z.string().min(1).describe('Model name/identifier (e.g., "custom/deepseek-15b")'),
+        parameters: z.string().min(1).describe('Parameter count string (e.g., "15B")'),
+        architecture: z.string().optional().describe('Model architecture (e.g., "Qwen2ForCausalLM")'),
+        contextLength: z.number().optional().describe('Maximum context length'),
+        quantizationOptions: z.array(z.string()).optional().describe('Supported quantization methods'),
+        context: z.object({
+            projectDir: z.string().optional()
+        }).optional().describe('Optional context with projectDir')
+    },
+    async (params) => {
+        const { name, parameters, architecture, contextLength, quantizationOptions, context } = params;
+
+        // Validate required fields
+        if (!name || !name.trim()) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'name is required and must be non-empty' }) }] };
+        }
+        if (!parameters || !parameters.trim()) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'parameters is required and must be non-empty' }) }] };
+        }
+
+        const projectDir = resolveProjectDir(context);
+        const mlccDir = join(projectDir, '.mlcc');
+        const overridePath = join(mlccDir, 'model-picker.json');
+        const tmpPath = `${overridePath  }.tmp`;
+
+        // Ensure .mlcc directory exists
+        mkdirSync(mlccDir, { recursive: true });
+
+        // Read existing or initialize
+        let data = { models: [] };
+        if (existsSync(overridePath)) {
+            try {
+                data = JSON.parse(readFileSync(overridePath, 'utf8'));
+            } catch {
+                data = { models: [] };
+            }
+        }
+        if (!Array.isArray(data.models)) {
+            data.models = [];
+        }
+
+        // Build entry
+        const entry = { name, parameters, source: 'local', addedAt: new Date().toISOString() };
+        if (architecture) entry.architecture = architecture;
+        if (contextLength) entry.contextLength = contextLength;
+        if (quantizationOptions) entry.quantizationOptions = quantizationOptions;
+
+        // Upsert by name
+        const idx = data.models.findIndex(m => m.name === name);
+        if (idx >= 0) {
+            data.models[idx] = entry;
+        } else {
+            data.models.push(entry);
+        }
+
+        // Atomic write
+        writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+        renameSync(tmpPath, overridePath);
+
+        // NFR-3 size check
+        const result = { status: 'ok', entry, file: '.mlcc/model-picker.json' };
+        const stat = statSync(overridePath);
+        if (stat.size > 100 * 1024) {
+            result.warning = 'Override file exceeds 100KB — consider upstreaming entries';
+        }
+
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
 );
 
 // ── Exports for testing ──────────────────────────────────────────────────────

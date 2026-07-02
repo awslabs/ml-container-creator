@@ -14,8 +14,23 @@ export MODEL_SERVER="<%= modelServer %>"
 # AWS configuration
 export AWS_REGION=${AWS_REGION:-<%= awsRegion %>}
 
+<% if (typeof deploy_mode !== 'undefined' && deploy_mode === 'dlc-direct') { %>
+# ── DLC-Direct Mode ──────────────────────────────────────────────────────────
+# Using a stock AWS Deep Learning Container image directly (no custom build).
+# Image resolved at generation time via driver-aware filtering.
+export DEPLOY_MODE="dlc-direct"
+export CONTAINER_IMAGE_URI="<%= container_image_uri %>"
+<% } else { %>
 # ── Profile-resolved values (from ~/.ml-container-creator/config.json) ────
 # ECR_REPOSITORY_NAME, ROLE_ARN, ADAPTER_S3_BUCKET — see do/lib/profile.sh
+
+# Build configuration — WHERE the Docker image gets built
+export BUILD_TARGET="<%= buildTarget %>"
+<% if (buildTarget === 'codebuild') { %>
+export CODEBUILD_COMPUTE_TYPE="<%= codebuildComputeType %>"
+# CODEBUILD_PROJECT_NAME — derived in do/submit at runtime
+<% } %>
+<% } %>
 
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
 # LoRA adapter serving
@@ -23,13 +38,6 @@ export ENABLE_LORA=true
 <% } else if (framework === 'transformers' || framework === 'diffusors') { %>
 # LoRA adapter serving (uncomment to enable)
 # export ENABLE_LORA=true
-<% } %>
-
-# Build configuration — WHERE the Docker image gets built
-export BUILD_TARGET="<%= buildTarget %>"
-<% if (buildTarget === 'codebuild') { %>
-export CODEBUILD_COMPUTE_TYPE="<%= codebuildComputeType %>"
-# CODEBUILD_PROJECT_NAME — derived in do/submit at runtime
 <% } %>
 
 # Deployment configuration — WHERE the model runs

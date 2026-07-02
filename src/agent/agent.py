@@ -1,5 +1,72 @@
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
+
+
+# ─── read_docs tool ──────────────────────────────────────────────────────────
+
+
+def _create_read_docs_tool():
+    """Create a read_docs tool that reads bundled documentation markdown files.
+
+    The tool resolves docs from the installed package root, allowing the agent
+    to ground answers in the actual published documentation.
+
+    Returns:
+        A Strands @tool-decorated function.
+    """
+    docs_dir = _PACKAGE_ROOT / "docs"
+
+    @tool
+    def read_docs(page: str = "", query: str = "") -> str:
+        """Read documentation pages bundled with ml-container-creator.
+
+        Use this to look up official documentation when answering user questions
+        about workflows, configuration, troubleshooting, or features. The docs
+        are the same as https://awslabs.github.io/ml-container-creator/.
+
+        Args:
+            page: Documentation page name (e.g., "fine-tuning", "benchmarking",
+                  "custom-training", "getting-started"). Omit .md extension.
+                  If empty, returns the list of available pages.
+            query: Optional search term. If provided with a page, returns only
+                   sections containing this term (case-insensitive).
+
+        Returns:
+            The markdown content of the page, a filtered subset, or a listing.
+        """
+        if not docs_dir.exists():
+            return "Error: docs/ directory not found in package. Was it included in files[]?"
+
+        # List mode: return available pages
+        if not page:
+            pages = sorted(p.stem for p in docs_dir.rglob("*.md"))
+            return "Available documentation pages:\n" + "\n".join(f"  - {p}" for p in pages)
+
+        # Resolve the page (support both "fine-tuning" and "fine-tuning.md")
+        page_name = page if page.endswith(".md") else f"{page}.md"
+        # Search recursively (docs may have subdirs like dev/)
+        matches = list(docs_dir.rglob(page_name))
+        if not matches:
+            # Try fuzzy: find pages containing the query term
+            all_pages = sorted(p.stem for p in docs_dir.rglob("*.md"))
+            suggestions = [p for p in all_pages if page.lower().replace("-", "") in p.lower().replace("-", "")]
+            if suggestions:
+                return f"Page '{page}' not found. Did you mean: {', '.join(suggestions)}?"
+            return f"Page '{page}' not found. Use read_docs() with no args to list available pages."
+
+        content = matches[0].read_text(encoding="utf-8")
+
+        # Filter by query if provided
+        if query:
+            sections = content.split("\n## ")
+            matched = [s for s in sections if query.lower() in s.lower()]
+            if matched:
+                return "\n## ".join(matched)
+            return f"No sections in '{page}' match '{query}'. Returning full page.\n\n{content}"
+
+        return content
+
+    return read_docs
+
+
 
 """ml-container-creator hey — Advisory agent powered by Strands.
 
@@ -27,7 +94,9 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from config_loader import load_agent_config
 from context import ProjectContext
+from execution_config import load_execution_config
 from health_check import EnvironmentHealthCheck, print_health_report
+from tools.execute_script import create_execute_script_tool, get_execution_log
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -221,6 +290,21 @@ def _build_system_prompt(context: dict[str, Any]) -> str:
     prompt = template.replace("{project_context_json}", context_json)
     prompt = prompt.replace("{capability_matrix_json}", capability_matrix)
     prompt = prompt.replace("{user_context_md}", user_context)
+
+    # Inject session execution history (NFR-7, AC-3.3)
+    exec_log = get_execution_log()
+    if exec_log:
+        history_lines = []
+        for entry in exec_log:
+            flags_str = " ".join(entry.get("flags", []))
+            cmd = f"./{entry['script']}" + (f" {flags_str}" if flags_str else "")
+            history_lines.append(
+                f"- `{cmd}` → {entry['status']} (exit {entry.get('exit_code', '?')}) at {entry['timestamp']}"
+            )
+        execution_history = "\n".join(history_lines)
+    else:
+        execution_history = "No scripts executed yet this session."
+    prompt = prompt.replace("{execution_history_md}", execution_history)
 
     return prompt
 
@@ -467,9 +551,14 @@ def main() -> None:
         else:
             print("  \033[33m⚠\033[0m No MCP servers configured. Tool calls will be unavailable.")
 
-        # Build tools list from MCP clients + write_file
+        # Build tools list from MCP clients + write_file + execute_script
         tools: list[Any] = list(mcp_clients)  # MCPClient instances are passed directly as tools
         tools.append(_create_write_file_tool(project_path))
+        tools.append(_create_read_docs_tool())
+
+        # Load execution config and register execute_script tool
+        exec_config = load_execution_config(project_path)
+        tools.append(create_execute_script_tool(project_path, exec_config))
 
         # Build system prompt
         system_prompt = _build_system_prompt(context)

@@ -575,3 +575,38 @@ This is advisory only — generation still completes. Some models work via `trus
 #### `do/validate` Architecture Findings
 
 The `do/validate` script includes architecture compatibility as one of its cross-cutting checks. If the model type doesn't match the server's supported list, it reports a medium-confidence warning alongside other validation findings.
+
+---
+
+## Deploy Mode (v1.2+)
+
+The `DEPLOY_MODE` variable in `do/config` controls how the project deploys its container image:
+
+| Mode | Description | Generated artifacts |
+|------|-------------|---------------------|
+| `custom-container` (default) | Build a custom Docker image, push to ECR, deploy from ECR | Dockerfile, do/build, do/push, do/deploy |
+| `dlc-direct` | Use a stock AWS DLC image directly — no container build | do/stage, do/deploy (no Dockerfile, no do/build, no do/push) |
+
+### DLC-Direct Mode (`--no-build`)
+
+Generate a project that uses a stock Deep Learning Container:
+
+```bash
+ml-container-creator my-project --no-build \
+  --deployment-config transformers-vllm \
+  --model-name Qwen/Qwen3-0.6B \
+  --instance-type ml.g5.xlarge
+```
+
+This resolves a CUDA-driver-compatible DLC image at generation time and stores it as `CONTAINER_IMAGE_URI` in `do/config`. The image is selected based on:
+- Instance family → fleet driver version (from `fleet-drivers.json`)
+- Framework + model server → compatible base images
+- CUDA driver compatibility filtering
+
+**Limitations of DLC-direct mode:**
+- No custom Python packages (what's in the DLC is what you get)
+- No custom serving code (`code/` directory is not generated)
+- No multi-stage Docker builds
+- Limited to AWS-published DLC images
+
+**Switching to custom-container mode:** Re-generate the project without `--no-build` to get the full Dockerfile + build pipeline.

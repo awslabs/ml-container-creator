@@ -228,6 +228,486 @@
             "gpuMemoryGb": 24,
             "gpuType": "NVIDIA A10G",
             "costTier": "medium"
+        },
+        "ml.g6.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 16,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L4 GPU (24GB). Energy-efficient Ada Lovelace with native FP8",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA L4",
+            "costTier": "low"
+        },
+        "ml.g6.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L4 GPU (24GB). More CPU/RAM for preprocessing",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA L4",
+            "costTier": "low"
+        },
+        "ml.g6.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 64,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L4 GPU (24GB). High CPU for tokenization-heavy workloads",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA L4",
+            "costTier": "low"
+        },
+        "ml.g6.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 128,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L4 GPU (24GB). Maximum CPU/RAM with single GPU",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA L4",
+            "costTier": "low"
+        },
+        "ml.g6.16xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 64,
+            "memGb": 256,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l4",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L4 GPU (24GB). Maximum vCPUs with single GPU",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA L4",
+            "costTier": "low"
+        },
+        "ml.g6.12xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 48,
+            "memGb": 192,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "l4",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "4x NVIDIA L4 GPUs (96GB total). Multi-GPU inference with TP=4",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA L4",
+            "costTier": "medium"
+        },
+        "ml.g6.24xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 96,
+            "memGb": 384,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "l4",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "4x NVIDIA L4 GPUs (96GB total). High CPU/RAM multi-GPU",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA L4",
+            "costTier": "medium"
+        },
+        "ml.g6.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 768,
+            "accelerator": "L4 24GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "l4",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L4",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "8x NVIDIA L4 GPUs (192GB total). Maximum L4 configuration",
+            "gpuMemoryGb": 24,
+            "gpuType": "NVIDIA L4",
+            "costTier": "high"
+        },
+        "ml.g6e.xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 32,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l40s",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L40S GPU (48GB). Fits 14B BF16 or 32B FP8",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 64,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l40s",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L40S GPU (48GB). More CPU/RAM for preprocessing",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 128,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l40s",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L40S GPU (48GB). High CPU for tokenization-heavy workloads",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 256,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l40s",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L40S GPU (48GB). Maximum CPU/RAM with single GPU",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.16xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 64,
+            "memGb": 512,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "single-gpu",
+                "inference",
+                "l40s",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "1x NVIDIA L40S GPU (48GB). Maximum vCPUs with single GPU",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "medium"
+        },
+        "ml.g6e.12xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 48,
+            "memGb": 384,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "l40s",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "4x NVIDIA L40S GPUs (192GB total). Fits 70B BF16 with TP=4",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "high"
+        },
+        "ml.g6e.24xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 96,
+            "memGb": 768,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "l40s",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "4x NVIDIA L40S GPUs (192GB total). High CPU/RAM multi-GPU",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "high"
+        },
+        "ml.g6e.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 1536,
+            "accelerator": "L40S 48GB",
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "l40s",
+                "ada-lovelace",
+                "fp8",
+                "cuda-12"
+            ],
+            "family": "g6e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA L40S",
+            "gpuArchitecture": "Ada Lovelace",
+            "defaultCudaVersion": "12.6",
+            "notes": "8x NVIDIA L40S GPUs (384GB total). Fits 180B+ models",
+            "gpuMemoryGb": 48,
+            "gpuType": "NVIDIA L40S",
+            "costTier": "high"
         }
     },
     "recommendations": {
@@ -240,7 +720,23 @@
             "ml.g5.12xlarge",
             "ml.g5.16xlarge",
             "ml.g5.24xlarge",
-            "ml.g5.48xlarge"
+            "ml.g5.48xlarge",
+            "ml.g6.xlarge",
+            "ml.g6.2xlarge",
+            "ml.g6.4xlarge",
+            "ml.g6.8xlarge",
+            "ml.g6.12xlarge",
+            "ml.g6.16xlarge",
+            "ml.g6.24xlarge",
+            "ml.g6.48xlarge",
+            "ml.g6e.xlarge",
+            "ml.g6e.2xlarge",
+            "ml.g6e.4xlarge",
+            "ml.g6e.8xlarge",
+            "ml.g6e.12xlarge",
+            "ml.g6e.16xlarge",
+            "ml.g6e.24xlarge",
+            "ml.g6e.48xlarge"
         ]
     }
 }

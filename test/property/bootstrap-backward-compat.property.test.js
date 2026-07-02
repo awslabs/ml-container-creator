@@ -112,6 +112,25 @@ function createMockHandler(configPath, callerAccount) {
     // Mock _runPostSetupChain
     handler._runPostSetupChain = async () => {};
 
+    // Mock _provisionModules (modular flow)
+    handler._provisionModules = async (ordered, _manifest, _profileName, acctId) => {
+        state.deployAttempted = true;
+        const moduleOutputs = {};
+        for (const m of ordered) {
+            if (m === 'core') {
+                moduleOutputs.core = {
+                    RoleArn: `arn:aws:iam::${acctId}:role/mlcc-sagemaker-execution-role`,
+                    EcrRepositoryName: 'ml-container-creator'
+                };
+            } else if (m === 'registry') {
+                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${acctId}` };
+            } else {
+                moduleOutputs[m] = {};
+            }
+        }
+        return moduleOutputs;
+    };
+
     return { handler, state };
 }
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T20:12:14.956Z",
+  "generatedAt": "2026-07-02T20:56:53.288Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
   "version": "1.1.0",
@@ -688,6 +688,16 @@
       "type": "boolean",
       "group": "project",
       "phase": "project",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "noBuild",
+      "cliFlag": "--no-build",
+      "description": "Use stock DLC image directly — skip Dockerfile/build/push generation",
+      "type": "boolean",
+      "group": "deployment",
+      "phase": "deployment",
       "deprecated": false,
       "hasWidget": false
     },

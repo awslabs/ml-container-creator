@@ -201,6 +201,56 @@ export async function run(projectName, options) {
     // Ensure template variables have defaults and enrich with registry data
     await _ensureTemplateVariables(answers, registryConfigManager);
 
+    // --- Phase: DLC Resolution (--no-build mode) ---
+    if (answers.no_build) {
+        // Guard: marketplace architecture already skips containers — --no-build is redundant
+        if (answers.architecture === 'marketplace') {
+            console.log('\n⚠️  --no-build is redundant with marketplace architecture (already skips container generation). Ignoring flag.');
+            answers.no_build = false;
+        } else {
+            const { resolveDlcImage } = await import('./lib/dlc-resolver.js');
+
+            // If existing endpoint, resolve instance type from live endpoint
+            const instanceType = answers.instanceType;
+            if (answers.existingEndpointName && !instanceType) {
+                // Instance type must be resolved before DLC selection
+                console.log('\n⚠️  --no-build with --existing-endpoint requires instance type for DLC image selection.');
+                console.log('   Provide --instance-type or ensure the endpoint is resolvable.');
+                // Fallback: require user to specify instance type
+                if (!instanceType) {
+                    console.log('\n❌ Cannot resolve DLC image without instance type.');
+                    console.log('   Use: --instance-type ml.g5.xlarge (or similar)');
+                    process.exit(1);
+                }
+            }
+
+            try {
+                const dlcUri = await resolveDlcImage({
+                    framework: answers.framework,
+                    model_server: answers.modelServer || answers.backend,
+                    instance_type: instanceType,
+                    region: answers.region || answers.awsRegion || 'us-east-1',
+                    accelerator: 'gpu',
+                    model_architecture: answers.modelArchitecture || ''
+                });
+                answers.container_image_uri = dlcUri;
+                answers.deploy_mode = 'dlc-direct';
+                console.log(`\n✅ DLC image resolved: ${dlcUri}`);
+            } catch (err) {
+                if (err.name === 'DlcResolutionError') {
+                    console.log(`\n❌ DLC Resolution Failed: ${err.message}`);
+                    if (err.availableOptions.length > 0) {
+                        console.log('\n   Available images (incompatible with your instance):');
+                        err.availableOptions.slice(0, 5).forEach(opt => console.log(`     • ${opt}`));
+                    }
+                    console.log('\n   Suggestion: Use custom-container mode (omit --no-build) for this instance type.');
+                    process.exit(1);
+                }
+                throw err;
+            }
+        }
+    }
+
     // --- Phase: Writing ---
     const destDir = path.resolve(answers.destinationDir);
 
@@ -388,6 +438,20 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     const testTypes = answers.testTypes || [];
     if (!testTypes.includes('hosted-model-endpoint')) {
         ignorePatterns.push('**/do/test');
+    }
+
+    // DLC-direct mode (--no-build): skip container build artifacts
+    // do/stage is always included — model weights must be staged to S3
+    if (answers.no_build) {
+        ignorePatterns.push('**/Dockerfile');
+        ignorePatterns.push('**/do/build');
+        ignorePatterns.push('**/do/push');
+        ignorePatterns.push('**/.dockerignore');
+        ignorePatterns.push('**/buildspec.yml');
+        ignorePatterns.push('**/code/**');
+        ignorePatterns.push('**/requirements.txt');
+        // Set deploy mode for template rendering
+        answers.deploy_mode = 'dlc-direct';
     }
 
     // Marketplace projects: exclude everything container-related

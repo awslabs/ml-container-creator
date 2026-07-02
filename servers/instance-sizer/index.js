@@ -21,14 +21,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { resolveModelMetadata } from './lib/model-resolver.js';
 import { estimateVram, computeMaxModelLen } from './lib/vram-estimator.js';
 import { filterAndRankInstances, applyAvailabilityRanking, getPerGpuMemoryGb } from './lib/instance-ranker.js';
 import { QuotaResolver } from './lib/quota-resolver.js';
 import { queryBedrock } from '../lib/bedrock-client.js';
+import { loadWithOverrides, resolveProjectDir } from '../lib/override-loader.js';
 
 // ── Path setup ───────────────────────────────────────────────────────────────
 
@@ -253,8 +254,12 @@ async function handleGetInstanceRecommendation(params) {
         }
     }
 
+    // Merge project-local overrides at query time (AC-1.5: no caching)
+    const projectDir = resolveProjectDir(context);
+    const mergedInstanceCatalog = loadWithOverrides(INSTANCE_CATALOG, projectDir, 'instance-sizer.json', 'instanceType');
+
     // Apply CUDA version filtering to instance catalog
-    let effectiveCatalog = INSTANCE_CATALOG;
+    let effectiveCatalog = mergedInstanceCatalog;
     if (cudaVersion) {
         effectiveCatalog = filterByCudaVersion(INSTANCE_CATALOG, cudaVersion);
         if (Object.keys(effectiveCatalog).length === 0) {
@@ -692,6 +697,99 @@ server.tool(
     },
     async (params) => {
         return handleGetInstanceRecommendation(params);
+    }
+);
+
+server.tool(
+    'write_local_instance',
+    'Add an instance type to the project-local catalog override (.mlcc/instance-sizer.json). Use when the user references an instance not in the shipped catalog.',
+    {
+        instanceType: z.string().min(1).describe('Instance type (e.g., "ml.g6e.12xlarge")'),
+        gpuCount: z.number().int().positive().describe('Number of GPUs'),
+        gpuType: z.string().min(1).describe('GPU type (e.g., "L40S")'),
+        gpuMemoryGb: z.number().positive().describe('GPU memory in GB'),
+        vCpus: z.number().int().positive().describe('Number of vCPUs'),
+        memoryGb: z.number().positive().describe('Total memory in GB'),
+        context: z.object({
+            projectDir: z.string().optional()
+        }).optional().describe('Optional context with projectDir')
+    },
+    async (params) => {
+        const { instanceType, gpuCount, gpuType, gpuMemoryGb, vCpus, memoryGb, context } = params;
+
+        // Validate required fields
+        if (!instanceType || !instanceType.trim()) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'instanceType is required and must be non-empty' }) }] };
+        }
+        if (!gpuType || !gpuType.trim()) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuType is required and must be non-empty' }) }] };
+        }
+        if (!gpuCount || gpuCount <= 0) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuCount must be a positive integer' }) }] };
+        }
+        if (!gpuMemoryGb || gpuMemoryGb <= 0) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuMemoryGb must be a positive number' }) }] };
+        }
+        if (!vCpus || vCpus <= 0) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'vCpus must be a positive integer' }) }] };
+        }
+        if (!memoryGb || memoryGb <= 0) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'memoryGb must be a positive number' }) }] };
+        }
+
+        const projectDir = resolveProjectDir(context);
+        const mlccDir = join(projectDir, '.mlcc');
+        const overridePath = join(mlccDir, 'instance-sizer.json');
+        const tmpPath = `${overridePath  }.tmp`;
+
+        // Ensure .mlcc directory exists
+        mkdirSync(mlccDir, { recursive: true });
+
+        // Read existing or initialize
+        let data = { instances: [] };
+        if (existsSync(overridePath)) {
+            try {
+                data = JSON.parse(readFileSync(overridePath, 'utf8'));
+            } catch {
+                data = { instances: [] };
+            }
+        }
+        if (!Array.isArray(data.instances)) {
+            data.instances = [];
+        }
+
+        // Build entry
+        const entry = {
+            instanceType,
+            gpuCount,
+            gpuType,
+            gpuMemoryGb,
+            vCpus,
+            memoryGb,
+            source: 'local',
+            addedAt: new Date().toISOString()
+        };
+
+        // Upsert by instanceType
+        const idx = data.instances.findIndex(i => i.instanceType === instanceType);
+        if (idx >= 0) {
+            data.instances[idx] = entry;
+        } else {
+            data.instances.push(entry);
+        }
+
+        // Atomic write
+        writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+        renameSync(tmpPath, overridePath);
+
+        // NFR-3 size check
+        const result = { status: 'ok', entry, file: '.mlcc/instance-sizer.json' };
+        const stat = statSync(overridePath);
+        if (stat.size > 100 * 1024) {
+            result.warning = 'Override file exceeds 100KB — consider upstreaming entries';
+        }
+
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
 );
 

@@ -1,6 +1,6 @@
 # Bootstrap
 
-Bootstrap provisions shared AWS infrastructure that MCC projects depend on — an IAM execution role, an ECR repository, and optional S3 buckets. Run it once per region, and all MCC projects in that environment reuse the same resources. For multi-region deployments, run bootstrap once in each region — account-level singletons (IAM roles) are shared automatically.
+Bootstrap provisions the shared AWS infrastructure that MCC projects depend on. As of **v1.2**, infrastructure is decomposed into **independent, selectively-provisioned modules** — you choose which pieces you need, and each is deployed as its own CDK stack. Run it once per environment; all MCC projects using that profile reuse the same resources.
 
 ```bash
 ml-container-creator bootstrap
@@ -11,74 +11,26 @@ ml-container-creator bootstrap
 
 ---
 
-## Resource Classification
+## Modules
 
-Bootstrap separates resources into three tiers:
+Bootstrap infrastructure is organized into modules. Only `core` is required; everything else is opt-in.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  ACCOUNT-LEVEL SINGLETONS (one per AWS account)                 │
-│    • IAM Role: mlcc-sagemaker-execution-role                    │
-│    • IAM Roles: mlcc-ci-scanner-role (CI only)                  │
-│    • IAM Roles: mlcc-ci-orchestrator-role                       │
-│    • IAM Roles: mlcc-ci-codebuild-role                          │
-├─────────────────────────────────────────────────────────────────┤
-│  REGION-SCOPED RESOURCES (one set per region)                   │
-│    • ECR Repository: ml-container-creator                       │
-│    • S3: mlcc-tune-{accountId}-{region}                         │
-│    • S3: mlcc-adapters-{accountId}-{region}                     │
-│    • S3: mlcc-async-{accountId}-{region}                        │
-│    • S3: mlcc-batch-{accountId}-{region}                        │
-│    • S3: mlcc-benchmark-{accountId}-{region}                    │
-├─────────────────────────────────────────────────────────────────┤
-│  CI RESOURCES (one set per account, fixed to one region)        │
-│    • DynamoDB: mlcc-ci-table                                    │
-│    • Lambda: mlcc-ci-scanner                                    │
-│    • Step Functions: mlcc-ci-orchestrator                        │
-│    • CodeBuild: mlcc-ci-executor                                │
-│    • EventBridge Rule: mlcc-ci-scanner-schedule                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+| Module | Resources | Est. Cost | Required | Depends On |
+|--------|-----------|:---------:|:--------:|------------|
+| `core` | IAM execution role + ECR repository | ~$1/mo | **Yes** | — |
+| `benchmark` | S3 bucket + Glue DB for benchmark results | ~$5/mo | No | core |
+| `registry` | Model Package Group + AI Registry Hub | ~$0/mo | No | core |
+| `training` | Training data bucket + execution role (+ MLflow, best-effort) | ~$2/mo | No | core |
+| `ci` | CodeBuild + DynamoDB + StepFunctions + EventBridge | ~$15/mo | No | core, benchmark, registry |
+| `sagemaker-domain` | Studio domain + default user profile | ~$10/mo | No | core |
+| `hyperpod-cluster` | HyperPod EKS cluster configuration | ~$0/mo | No | core |
 
-**Key implications:**
+Each module is a standalone CDK stack named `mlcc-<profile>-<module>` (e.g., `mlcc-default-core`). Modules expose their outputs as CloudFormation cross-stack exports (`mlcc-<profile>-<module>-<ExportName>`), which the next module imports as needed.
 
-- Bootstrapping a second region **reuses** the existing IAM role (detected automatically) and creates new regional resources (ECR, S3)
-- Each profile's `stackName` always follows the pattern `mlcc-bootstrap-{profileName}` — never borrowed from another profile
-- If the IAM role already exists from a prior region's bootstrap, the CloudFormation stack skips creation and references it via the `UseExistingRoleArn` parameter
+!!! info "Module definitions live in the manifest"
+    `infra/bootstrap-modules/module-manifest.json` is the single source of truth for module metadata (display name, cost, dependencies, exports). Adding a module is a matter of adding a manifest entry + a CDK stack.
 
 ---
-
-## What It Provisions
-
-Bootstrap deploys a CloudFormation stack (`mlcc-bootstrap-<profile>`) with:
-
-| Resource | Name | Purpose |
-|---|---|---|
-| **IAM Role** | `mlcc-sagemaker-execution-role` | SageMaker execution role with least-privilege permissions for endpoints, tuning, benchmarking, adapters, and secrets |
-| **ECR Repository** | `ml-container-creator` | Shared container registry for all MCC project images (auto-expires untagged images after 30 days) |
-| **S3 Bucket** (optional) | `mlcc-async-{account}-{region}` | Async inference output |
-| **S3 Bucket** (optional) | `mlcc-batch-{account}-{region}` | Batch transform I/O |
-| **S3 Bucket** (optional) | `mlcc-adapters-{account}-{region}` | LoRA adapter weight storage |
-| **S3 Bucket** (optional) | `mlcc-benchmark-{account}-{region}` | Benchmark results |
-| **S3 Bucket** (optional) | `mlcc-tune-{account}-{region}` | Tune datasets and output |
-| **MLflow App** (optional) | Auto-detected | Experiment tracking for fine-tuning jobs |
-
-S3 buckets are created when you answer "Yes" to *"Will you use async inference or batch transform?"* during interactive setup, or pass `--skip-s3` to skip them in non-interactive mode.
-
----
-
-## Resource Lifecycle
-
-Resources provisioned by bootstrap have different persistence behaviors:
-
-| Resource | DeletionPolicy | Behavior on Stack Teardown |
-|---|---|---|
-| **IAM Role** | Default (Delete) | Deleted with the stack. Re-running bootstrap recreates it fresh. If the role already exists from another region, `UseExistingRoleArn` detection reuses it automatically. |
-| **ECR Repository** | Default (Delete) | Deleted with the stack. If it already exists when bootstrap runs, creation is skipped (`SkipEcrCreation=true` is passed automatically). |
-| **S3 Buckets** | **Retain** | Survive stack teardowns. If they already exist when bootstrap runs, creation is skipped and bucket names are injected from the deterministic naming pattern (`mlcc-{purpose}-{accountId}-{region}`). |
-
-!!! info "S3 buckets are persistent"
-    S3 buckets are the one resource that outlives the CloudFormation stack. This means your data (adapters, tune datasets, benchmark results) is never lost — even if you tear down and rebuild the bootstrap stack.
 
 ## Interactive Setup
 
@@ -86,19 +38,32 @@ Resources provisioned by bootstrap have different persistence behaviors:
 ml-container-creator bootstrap
 ```
 
-The interactive flow walks you through:
+The flow:
 
 1. **Profile name** — a label for this environment (default: `default`)
 2. **AWS profile selection** — picks from your `~/.aws/config` profiles
 3. **Credential validation** — confirms access and discovers account ID + region
-4. **S3 bucket decision** — whether to create buckets for async/batch/adapters/benchmarks
-5. **CloudFormation deployment** — deploys the bootstrap stack
-6. **MLflow App** — detects or creates an MLflow tracking server for tune experiments
-7. **CI infrastructure** (optional) — deploys the CDK-based CI harness for automated E2E testing
-    - With `--benchmark-infra`: also provisions Glue database (`mlcc_ci`), Athena table (`benchmark_results`), and S3 results bucket (`mlcc-benchmark-results-{accountId}-{region}`)
-8. **Post-setup chain** — runs `mcp init` → `sync-architectures` → `sync-schemas`
+4. **CDK dependency install** — on first run, dependencies for the module stacks are installed automatically into `infra/bootstrap-modules/` (you'll see "📦 Installing bootstrap-modules CDK dependencies")
+5. **CDK bootstrap check** — if the account/region isn't CDK-bootstrapped, `npx cdk bootstrap` runs automatically
+6. **Module selection** — a spacebar multi-select:
+   ```
+   Select infrastructure modules to provision:
+     ◉ Core Infrastructure — IAM role + ECR repository (~$1/mo)     [required]
+     ◻ Benchmark Infrastructure — S3 bucket + Glue DB (~$5/mo)
+     ◻ Model Registry — Model Package Group + AI Registry Hub (~$0/mo)
+     ◻ Training Infrastructure — Training data bucket + role (~$2/mo)
+     ◻ CI/CD Pipeline — CodeBuild + DynamoDB + StepFunctions (~$15/mo)
+     ◻ SageMaker Studio Domain — Studio domain + user profile (~$10/mo)
+     ◻ HyperPod Cluster — HyperPod EKS cluster config (~$0/mo)
+   ```
+7. **Dependency validation** — missing dependencies are auto-added (with a notice). For example, selecting `ci` pulls in `benchmark` and `registry`.
+8. **Provisioning** — selected modules deploy in topological order (dependencies first). Each becomes a `mlcc-<profile>-<module>` CDK stack.
+9. **Post-setup chain** — runs `mcp init` → `sync-architectures` → `sync-schemas`
 
 The result is saved to `~/.ml-container-creator/config.json` and becomes your active profile.
+
+!!! tip "Preview first with --dry-run"
+    Add `--dry-run` to any provisioning command to see exactly what would happen — the CDK stacks, resources, provisioning order, and profile changes — **without creating anything**.
 
 ---
 
@@ -112,8 +77,10 @@ ml-container-creator bootstrap \
   --profile my-aws-profile \
   --region us-west-2 \
   --name production \
-  --skip-ci
+  --with benchmark,training
 ```
+
+The default module set for non-interactive mode is **`core` + `registry`**. Use `--with` to add more (comma-separated). Dependencies are auto-validated.
 
 | Flag | Required | Description |
 |---|---|---|
@@ -121,11 +88,38 @@ ml-container-creator bootstrap \
 | `--profile` | Yes | AWS CLI profile name |
 | `--region` | Yes | AWS region |
 | `--name` | No | Bootstrap profile name (default: `default`) |
-| `--role-arn` | No | Use an existing IAM role instead of creating one |
-| `--skip-s3` | No | Skip S3 bucket creation |
-| `--skip-ci` | No | Skip CI infrastructure |
-| `--ci` | No | Force CI infrastructure deployment |
-| `--benchmark-infra` | No | Deploy Glue/Athena benchmark infrastructure (requires `--ci`) |
+| `--with <modules>` | No | Comma-separated extra modules to provision beyond the `core + registry` baseline |
+| `--dry-run` | No | Preview the provisioning plan without creating resources |
+
+!!! note "Legacy flags"
+    The pre-v1.2 flags `--ci`, `--benchmark-infra`, `--skip-ci`, `--skip-s3`, and `--role-arn` are retained for backward compatibility but are **no-ops** in the modular flow. Use `--with <modules>` instead (e.g., `--with ci` in place of `--ci`).
+
+---
+
+## Adding and Removing Modules
+
+The primary workflow for incrementally growing your infrastructure:
+
+```bash
+# Preview adding a module (no resources created)
+ml-container-creator bootstrap add training --dry-run
+
+# Add a single module
+ml-container-creator bootstrap add training
+
+# Preview a removal (shows any dependent-module cascade)
+ml-container-creator bootstrap remove-module benchmark --dry-run
+
+# Remove a module (with confirmation)
+ml-container-creator bootstrap remove-module benchmark
+
+# Per-module status table
+ml-container-creator bootstrap status
+```
+
+- **`add`** validates dependencies before provisioning. Adding a module whose dependencies aren't provisioned prompts you to add them first. `add core` is a no-op (core is always present).
+- **`remove-module`** checks for dependents first — if another provisioned module depends on the one you're removing, you're warned and offered a cascade. `remove-module core` is rejected (core is required by everything).
+- Adding a module never re-provisions existing ones.
 
 ---
 
@@ -140,36 +134,29 @@ ml-container-creator bootstrap list
 # Switch active profile
 ml-container-creator bootstrap use production
 
-# Check active profile and resource state
+# Check active profile + per-module status
 ml-container-creator bootstrap status
 
 # Remove a profile (config only — does not delete AWS resources)
 ml-container-creator bootstrap remove staging --force
 ```
 
-The active profile determines which IAM role, ECR repo, and S3 buckets are used by `do/` scripts in all MCC projects.
+The active profile determines which modules' resources are used by `do/` scripts in all MCC projects.
 
 ### Multi-Region Deployments
 
 To deploy in multiple regions within the same account, create a profile per region:
 
 ```bash
-# Bootstrap us-east-1
-ml-container-creator bootstrap
-# Profile name: mlcc-us-east-1, Region: us-east-1
-
-# Bootstrap us-west-2
-ml-container-creator bootstrap
-# Profile name: mlcc-us-west-2, Region: us-west-2
-
-# Switch between regions
+ml-container-creator bootstrap   # Profile: mlcc-us-east-1, Region: us-east-1
+ml-container-creator bootstrap   # Profile: mlcc-us-west-2, Region: us-west-2
 ml-container-creator bootstrap use mlcc-us-west-2
 ```
 
-Each region gets its own CloudFormation stack, ECR repository, and S3 buckets. The IAM execution role is shared across regions (it's an account-level singleton).
+Each region gets its own module stacks. The `core` IAM role is an account-level singleton — if it already exists from another region's bootstrap, it's detected and reused rather than recreated.
 
 !!! info "Profile naming convention"
-    For multi-region setups, name profiles after their region (e.g., `mlcc-us-east-1`, `mlcc-eu-west-1`). The `stackName` is always derived as `mlcc-bootstrap-{profileName}`.
+    For multi-region setups, name profiles after their region (e.g., `mlcc-us-east-1`). Module stack names are always `mlcc-<profile>-<module>`.
 
 ### Profile Removal
 
@@ -178,116 +165,114 @@ ml-container-creator bootstrap remove staging --force
 ```
 
 !!! warning "Metadata-only removal"
-    Profile removal **only** deletes the entry from `~/.ml-container-creator/config.json`. It does NOT delete AWS resources (IAM roles, S3 buckets, ECR repositories, CloudFormation stacks). Resources are retained for safety — delete them manually via the AWS Console or CLI if needed.
+    `bootstrap remove <profile>` only deletes the entry from `~/.ml-container-creator/config.json`. It does NOT delete AWS resources. To tear down actual infrastructure, use `bootstrap remove-module <module>` for each module (which runs `cdk destroy`), or delete the stacks via the AWS Console.
 
 ### Config File
 
-Profiles are stored at `~/.ml-container-creator/config.json`. Multi-region example:
+Profiles are stored at `~/.ml-container-creator/config.json`. A modular profile records the provisioned modules and their outputs, plus **denormalized flat keys** that the `do/` scripts read via `profile.sh`:
 
 ```json
 {
-  "activeProfile": "mlcc-us-east-1",
+  "activeProfile": "default",
   "profiles": {
-    "mlcc-us-east-1": {
-      "awsProfile": "my-aws-profile",
-      "awsRegion": "us-east-1",
-      "accountId": "111111111111",
-      "roleArn": "arn:aws:iam::111111111111:role/mlcc-sagemaker-execution-role",
-      "ecrRepositoryName": "ml-container-creator",
-      "asyncS3Bucket": "mlcc-async-111111111111-us-east-1",
-      "batchS3Bucket": "mlcc-batch-111111111111-us-east-1",
-      "stackName": "mlcc-bootstrap-mlcc-us-east-1",
-      "sharedInfraFrom": null,
-      "ciInfraProvisioned": true,
-      "ciTableName": "mlcc-ci-table",
-      "mlflowAppArn": "arn:aws:sagemaker:us-east-1:111111111111:mlflow-app/mlcc"
-    },
-    "mlcc-us-west-2": {
+    "default": {
       "awsProfile": "my-aws-profile",
       "awsRegion": "us-west-2",
       "accountId": "111111111111",
+      "provisionedModules": ["core", "benchmark", "registry"],
+      "moduleOutputs": {
+        "core": {
+          "RoleArn": "arn:aws:iam::111111111111:role/mlcc-sagemaker-execution-role",
+          "EcrRepositoryName": "ml-container-creator"
+        },
+        "benchmark": {
+          "BenchmarkBucket": "mlcc-benchmark-111111111111-us-west-2",
+          "GlueDatabase": "mlcc_ci"
+        },
+        "registry": {
+          "AiRegistryHubName": "mlcc-registry-111111111111"
+        }
+      },
       "roleArn": "arn:aws:iam::111111111111:role/mlcc-sagemaker-execution-role",
       "ecrRepositoryName": "ml-container-creator",
-      "stackName": "mlcc-bootstrap-mlcc-us-west-2",
-      "sharedInfraFrom": null,
-      "ciInfraProvisioned": false
+      "ciBenchmarkResultsBucket": "mlcc-benchmark-111111111111-us-west-2",
+      "ciGlueDatabase": "mlcc_ci",
+      "aiRegistryHubName": "mlcc-registry-111111111111"
     }
   }
 }
 ```
 
-Key fields:
+!!! info "Why both moduleOutputs and flat keys?"
+    `moduleOutputs` is the structured source of truth. The flat keys (`roleArn`, `ciBenchmarkResultsBucket`, etc.) are **denormalized** from it on every profile save so that generated `do/` scripts — which read flat keys via `profile.sh` — keep working unchanged. You never edit these by hand.
 
-- `stackName` — always `mlcc-bootstrap-{profileName}` (never another profile's stack name)
-- `sharedInfraFrom` — tracks which stack the IAM role was originally created by (for traceability when reusing across regions)
-- `ciInfraProvisioned` — `true` on exactly ONE profile per account (CI is single-region)
+---
+
+## Runtime Profile Loader
+
+Generated projects include `do/lib/profile.sh` — a shared loader sourced by all `do/` scripts. It reads the active bootstrap profile into a bash associative array (`_PROFILE[]`) at runtime:
+
+- **No regeneration needed** when switching profiles — run `mcc bootstrap use <profile>` then re-run any `do/` script
+- **Precedence**: explicit env var > `_PROFILE[key]` > hardcoded default
+- **Bash 4+ required** (Linux default; macOS users need Homebrew bash)
+- **Graceful degradation**: if `~/.ml-container-creator/config.json` doesn't exist, `_PROFILE` stays empty and scripts fall back to env vars
+
+This enables workflows where you switch profiles and immediately run `do/deploy` against the new region/account without regenerating the project.
 
 ---
 
 ## Updating Bootstrap
 
-When you upgrade MCC, the bootstrap stack template may include new permissions or resources. Re-apply it with:
+When you upgrade MCC, module stacks may include new permissions or resources. Re-apply the currently-provisioned modules with:
 
 ```bash
 ml-container-creator bootstrap update
 ```
 
-This re-deploys the CloudFormation stack for your active profile without prompts.
+This re-provisions every module in the active profile's `provisionedModules` (in topological order) without prompts, then re-runs the post-setup chain. Sanity checks before updating:
 
-### Sanity Checks
-
-Before deploying, `bootstrap update` validates:
-
-1. **Account match** — your current AWS caller identity must match the profile's `accountId`. If you're logged into a different account, the update halts with an error.
-2. **Stack exists** — the target CloudFormation stack must exist in the profile's region. If not found, you'll be prompted to run `bootstrap` (create) instead.
-3. **Name consistency** — if the profile's `stackName` doesn't match the expected `mlcc-bootstrap-{profileName}` pattern, a warning is shown suggesting `bootstrap migrate`.
-4. **CI region enforcement** — if `--ci` is passed and CI infrastructure already exists in another region/profile, the request is rejected.
-
-If CI infrastructure was previously provisioned, it's updated along with the bootstrap stack.
+1. **Account match** — your current AWS caller identity must match the profile's `accountId`.
+2. **Provisioned set** — only modules already in the profile are re-provisioned; use `bootstrap add` to introduce new ones.
 
 ---
 
-## Migrating Legacy Profiles
+## MLflow (Training Module)
 
-If you created bootstrap profiles before multi-region support was added, the `migrate` subcommand upgrades them to current naming conventions:
+The `training` module provisions an MLflow tracking app on a **best-effort** basis after the training bucket + role are created. If MLflow isn't available in your region (or the CLI version doesn't support it), provisioning logs a warning and continues — the training module still succeeds.
 
-```bash
-ml-container-creator bootstrap migrate
+When present, the MLflow app ARN is surfaced as `MLFLOW_APP_ARN` in generated projects, and `do/tune` prints the tracking URL. When absent, `do/tune` runs normally without a tracking URL — **it is never a hard dependency**.
+
+---
+
+## IAM Permissions
+
+The `core` module's execution role includes permissions for:
+
+- **Endpoints** — Create, update, delete, describe, invoke (including async)
+- **Benchmarking** — AI Benchmark Jobs, Workload Configs, Recommendation Jobs
+- **Fine-tuning** — Training Jobs, Model Packages, Hub Contents, MLflow
+- **ECR** — Pull images from the `ml-container-creator` repository
+- **S3** — Read/write to `mlcc-*` and `ml-container-creator-*` prefixed buckets
+- **Secrets Manager** — Read/write secrets with `mlcc/` or `ml-container-creator/` prefix
+- **CloudWatch Logs** — Create log groups/streams for endpoint logging
+- **SNS** — Publish notifications for async inference completion
+- **Lambda** — Invoke reward functions for RLVR/RLAIF tuning
+- **Service Quotas** — Check instance availability
+
+---
+
+## Migrating Legacy (Monolithic) Profiles
+
+If you bootstrapped before v1.2 with the monolithic CloudFormation stack, the interactive flow detects the legacy profile and offers to migrate:
+
+```
+Existing bootstrap infrastructure detected. Migrate to modular stacks? [Y/n]
 ```
 
-### What It Does
+Migration is **non-destructive** — it maps your existing profile values (`roleArn`, benchmark bucket, AI Registry hub, CI flags) into `provisionedModules` + `moduleOutputs` without tearing down any resources. Modular CDK stacks are created lazily the next time you run `bootstrap add` or a full interactive setup.
 
-- Corrects `stackName` to `mlcc-bootstrap-{profileName}` (the current naming pattern)
-- Renames legacy `sharedStackFrom` field to `sharedInfraFrom`
-- Validates profile-to-region consistency
-
-### How It Works
-
-1. Scans all profiles for naming inconsistencies
-2. Displays a preview of proposed changes
-3. Requires confirmation before writing
-
-If no changes are needed, it prints a success message and exits.
-
-### Safety
-
-- **Non-destructive** — only modifies `~/.ml-container-creator/config.json` metadata
-- **Idempotent** — safe to run multiple times (subsequent runs detect no changes)
-- **Optional** — existing profiles continue to work without migration (you'll see a one-time advisory on `bootstrap update`)
-
-### Example Output
-
-```
-📋 Migration Preview:
-
-  Profile "my-profile":
-    stackName: "mlcc-bootstrap-default" → "mlcc-bootstrap-my-profile"
-  Profile "staging":
-    sharedStackFrom → sharedInfraFrom: "mlcc-bootstrap-default" → "mlcc-bootstrap-default"
-
-? Apply these changes? (Y/n)
-✅ Migration complete.
-```
+!!! note "Legacy CI harness"
+    The pre-v1.2 `infra/ci-harness/` monolithic CI stack is superseded by the `ci` module. It is not removed automatically — remove it manually once you've verified the `ci` module has parity for your workflow.
 
 ---
 
@@ -312,132 +297,7 @@ ml-container-creator bootstrap sync-schemas
 ml-container-creator bootstrap sync-model-families
 ```
 
-These are also run automatically as part of the post-setup chain during initial bootstrap.
-
----
-
-## IAM Permissions
-
-The bootstrap-created role includes permissions for:
-
-- **Endpoints** — Create, update, delete, describe, invoke (including async)
-- **Benchmarking** — AI Benchmark Jobs, Workload Configs, Recommendation Jobs
-- **Fine-tuning** — Training Jobs, Model Packages, Hub Contents, MLflow
-- **ECR** — Pull images from the `ml-container-creator` repository
-- **S3** — Read/write to `mlcc-*` and `ml-container-creator-*` prefixed buckets
-- **Secrets Manager** — Read/write secrets with `mlcc/` or `ml-container-creator/` prefix
-- **CloudWatch Logs** — Create log groups/streams for endpoint logging
-- **SNS** — Publish notifications for async inference completion
-- **Lambda** — Invoke reward functions for RLVR/RLAIF tuning
-- **Service Quotas** — Check instance availability
-
-If you need to use an existing role instead, pass `--role-arn` during bootstrap.
-
-!!! warning "IAM role is not retained on stack deletion"
-    Unlike S3 buckets, the IAM execution role is deleted when the bootstrap stack is torn down. Re-running `ml-container-creator bootstrap` recreates it fresh. If the role already exists in the account (e.g., from another region's bootstrap), it is detected and reused via `UseExistingRoleArn` — a new one is not created.
-
----
-
-## CI Infrastructure (Optional)
-
-Passing `--ci` during bootstrap (or answering "Yes" to the CI prompt) deploys a CDK stack (`MlccCiHarnessStack`) that provides:
-
-- **DynamoDB table** (`mlcc-ci-table`) for E2E test result tracking
-- **Lambda** (`mlcc-ci-scanner`) for scanning untested configurations
-- **Step Functions** (`mlcc-ci-orchestrator`) for test execution workflow
-- **CodeBuild** (`mlcc-ci-executor`) for running build/deploy/test in isolation
-- **EventBridge** schedule for periodic scanning
-- Automated CDK bootstrap in the target account/region (if not already done)
-
-### Athena/Glue Benchmark Infrastructure
-
-When benchmark infrastructure is enabled (opt-in via the `CreateBenchmarkInfra` CDK parameter), the CI stack also provisions:
-
-| Resource | Name | Purpose |
-|---|---|---|
-| **Glue Database** | `mlcc_ci` | Data catalog for benchmark results |
-| **Glue Table** | `benchmark_results` | Schema definition for Parquet-based benchmark data |
-| **S3 Bucket** | `mlcc-benchmark-results-{accountId}-{region}` | Partitioned Parquet storage for benchmark metrics |
-
-These resources support the two-stage pipeline's Stage 2 (benchmark → write → query).
-
-To provision benchmark infrastructure:
-
-```bash
-ml-container-creator bootstrap --ci --benchmark-infra
-ml-container-creator bootstrap update --ci --benchmark-infra
-```
-
-Without `--benchmark-infra`, CI deploys only the DynamoDB table, Lambda, Step Functions, and CodeBuild. Athena/Glue are opt-in.
-
-**Bootstrap config fields** stored after provisioning:
-
-| Field | Description |
-|---|---|
-| `ciGlueDatabase` | Name of the Glue database (default: `mlcc_ci`) |
-| `benchmarkS3Bucket` | S3 bucket for raw benchmark outputs (from CloudFormation stack output `BenchmarkS3BucketName`) |
-| `ciBenchmarkResultsBucket` | S3 bucket for Athena-queryable Parquet benchmark results |
-
-Example config after provisioning:
-
-```json
-{
-  "activeProfile": "default",
-  "profiles": {
-    "default": {
-      "ciInfraProvisioned": true,
-      "ciTableName": "mlcc-ci-table",
-      "ciGlueDatabase": "mlcc_ci",
-      "benchmarkS3Bucket": "mlcc-benchmark-111111111111-us-east-1",
-      "ciBenchmarkResultsBucket": "mlcc-benchmark-results-111111111111-us-east-1"
-    }
-  }
-}
-```
-
-The S3 bucket includes lifecycle rules:
-- **Transition to Infrequent Access** after 90 days
-- **Expire** after 365 days (configurable)
-
-IAM permissions added to the CI CodeBuild role:
-- `s3:PutObject`, `s3:GetObject`, `s3:ListBucket` on the results bucket
-- `glue:GetDatabase`, `glue:GetTable`, `glue:GetPartitions`, `glue:BatchCreatePartition`, `glue:CreatePartition`
-- `athena:StartQueryExecution`, `athena:GetQueryResults` (for partition repair)
-
-These fields are absent (and the system gracefully degrades) if benchmark infrastructure is not provisioned — backward compatible with existing bootstrap profiles.
-
-
-### Runtime Profile Loader
-
-Generated projects include `do/lib/profile.sh` — a shared loader sourced by all `do/` scripts. It reads the active bootstrap profile into a bash associative array (`_PROFILE[]`) at runtime:
-
-- **No regeneration needed** when switching profiles — run `mcc bootstrap use <profile>` then re-run any `do/` script
-- **Precedence**: explicit env var > `_PROFILE[key]` > hardcoded default
-- **Bash 4+ required** (Linux default; macOS users need Homebrew bash)
-- **Graceful degradation**: if `~/.ml-container-creator/config.json` doesn't exist, `_PROFILE` stays empty and scripts fall back to env vars
-
-This enables workflows where you switch profiles and immediately run `do/deploy` against the new region/account without regenerating the project.
-
-
-### Single-Region Enforcement
-
-CI infrastructure deploys **exactly once per AWS account**, in a single region. Attempting to deploy CI in a second region is rejected:
-
-```
-❌ CI infrastructure already exists in us-east-1 (profile: mlcc-us-east-1).
-   Only one CI deployment per account is supported.
-   To move CI to this region, first remove it from the existing profile:
-   ml-container-creator bootstrap remove mlcc-us-east-1 --ci-only
-```
-
-This prevents conflicting IAM role names, DynamoDB table names, and ensures a single source of truth for test results.
-
-### Limitations
-
-The CI harness source is only available from a git clone — `npm install` does not include the `infra/` directory.
-IAM roles created by the CI stack use `RemovalPolicy.RETAIN` — they persist even if the stack is deleted, preventing permission errors on re-deployment.
-
-See [CI Integration](ci-integration.md) for details on running automated E2E validation.
+These also run automatically as part of the post-setup chain during initial bootstrap.
 
 ---
 
@@ -446,20 +306,22 @@ See [CI Integration](ci-integration.md) for details on running automated E2E val
 **"No active bootstrap profile found"**
 : Run `ml-container-creator bootstrap` to create one, or `bootstrap list` to see existing profiles.
 
-**Stack deployment failed**
-: Check CloudFormation console: `https://console.aws.amazon.com/cloudformation/home?region=<region>#/stacks`
+**"Installing bootstrap-modules CDK dependencies" then a failure**
+: The module stacks need `aws-cdk-lib` installed in `infra/bootstrap-modules/`. MCC installs this automatically on first provision. If auto-install fails, run manually: `cd infra/bootstrap-modules && npm install`.
 
-**Resources already exist in another profile**
-: Bootstrap detects existing `mlcc-bootstrap-*` stacks and reuses them. Only one bootstrap stack per account/region is needed.
+**Module provisioning failed partway through**
+: Provisioning aborts on the first module failure — partial progress is not saved to the profile. Fix the underlying error (check the CloudFormation console) and re-run; already-deployed module stacks are idempotent and will be detected as provisioned.
 
-**CDK bootstrap required for CI**
+**CDK bootstrap required**
 : If CDK hasn't been bootstrapped in the target account/region, MCC does it automatically. If it fails, run manually: `npx cdk bootstrap aws://<account>/<region> --profile <profile>`
 
 **"Account ID mismatch" on `bootstrap update`**
-: Your current AWS credentials point to a different account than the profile's `accountId`. Switch AWS profiles: `export AWS_PROFILE=<correct-profile>` or re-run bootstrap to create a profile for this account.
+: Your current AWS credentials point to a different account than the profile's `accountId`. Switch AWS profiles (`export AWS_PROFILE=<correct-profile>`) or re-run bootstrap for this account.
 
-**"CI infrastructure already exists in another region"**
-: CI is single-region per account. To move it, remove CI from the existing region first (delete the `MlccCiHarnessStack` CloudFormation stack manually, then set `ciInfraProvisioned: false` in the old profile), then re-run `bootstrap --ci` in the new region.
+**A generated `do/` script reports an empty `ROLE_ARN` / bucket**
+: The flat profile keys are denormalized from `moduleOutputs` on save. If a key is empty, the corresponding module may not be provisioned — check `bootstrap status` and `bootstrap add <module>` as needed.
 
-**"ResourceExistenceCheck error for S3 buckets" during `bootstrap update`**
-: This is non-blocking. The buckets already exist (they have `DeletionPolicy: Retain`) and are reused by the `do/` scripts via their deterministic names. The CloudFormation error is cosmetic — the stack deploys without managing the buckets, which persist independently. No action needed.
+**MLflow setup skipped during `training` provisioning**
+: This is expected and non-fatal in regions where the MLflow app API isn't available. Tune jobs still run; you just won't get an MLflow tracking URL.
+
+See [CI Integration](ci-integration.md) for details on running automated E2E validation with the `ci` module.

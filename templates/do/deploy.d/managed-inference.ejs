@@ -222,7 +222,12 @@ echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"
 echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
 echo "   Region: ${AWS_REGION}"
+<% if (typeof deploy_mode !== 'undefined' && deploy_mode === 'dlc-direct') { %>
+echo "   Deploy mode: DLC-direct (stock container)"
+echo "   Container image: ${CONTAINER_IMAGE_URI}"
+<% } else { %>
 echo "   Build target: ${BUILD_TARGET}"
+<% } %>
 echo "   Deployment target: ${DEPLOYMENT_TARGET}"
 if [ "${ENDPOINT_EXTERNAL:-false}" = "true" ]; then
     echo "   Endpoint: ${ENDPOINT_NAME} (external)"
@@ -246,8 +251,14 @@ echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
 ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
 
 # ============================================================
-# Shared: Verify ECR image exists
+# Shared: Verify container image exists
 # ============================================================
+<% if (typeof deploy_mode !== 'undefined' && deploy_mode === 'dlc-direct') { %>
+# DLC-direct mode: use CONTAINER_IMAGE_URI directly (no ECR verification needed)
+# SageMaker can pull DLC images natively without ECR auth
+echo "✅ Using DLC image: ${CONTAINER_IMAGE_URI}"
+IMAGE_URI="${CONTAINER_IMAGE_URI}"
+<% } else { %>
 echo "🔍 Verifying ECR image exists..."
 if ! aws ecr describe-images \
     --repository-name "${ECR_REPOSITORY_NAME}" \
@@ -265,6 +276,8 @@ fi
 
 echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
 IMAGE_TAG="${PROJECT_NAME}-latest"
+IMAGE_URI="${ECR_REPOSITORY}:${IMAGE_TAG}"
+<% } %>
 
 # ============================================================
 # Shared: Resolve secrets for container environment

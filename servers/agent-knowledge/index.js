@@ -23,9 +23,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, mkdirSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve, dirname, basename } from 'node:path';
+import { resolve, dirname, basename, join } from 'node:path';
+import { loadWithOverridesObject, resolveProjectDir } from '../lib/override-loader.js';
 
 // ── Path setup ───────────────────────────────────────────────────────────────
 
@@ -487,7 +488,7 @@ function loadCapabilityMatrix(filter) {
 /**
  * Main tool handler for query_knowledge.
  */
-async function handleQueryKnowledge({ topic, filter }) {
+async function handleQueryKnowledge({ topic, filter, context }) {
     log(`Query: topic=${topic}, filter=${filter || 'none'}`);
 
     let result;
@@ -527,15 +528,38 @@ async function handleQueryKnowledge({ topic, filter }) {
     }
 
     case 'capability_matrix': {
-        // Capability matrix supports filter at load time for efficiency
+        // Load shipped matrix (cached) then merge local overrides fresh each call (AC-1.5)
         const cacheKey = `capability_matrix:${filter || ''}`;
-        result = getCached(cacheKey, () => loadCapabilityMatrix(filter || null));
+        const shipped = getCached(cacheKey, () => loadCapabilityMatrix(filter || null));
+
+        // Merge project-local overrides at query time
+        const projectDir = resolveProjectDir(context);
+        if (typeof shipped === 'object' && !Array.isArray(shipped) && !shipped.error) {
+            result = loadWithOverridesObject(shipped, projectDir, 'capabilities.json');
+        } else {
+            result = shipped;
+        }
+        break;
+    }
+
+    case 'bootstrap_modules': {
+        // Load module manifest and return module descriptions
+        try {
+            const manifestPath = resolve(PACKAGE_ROOT, 'infra/bootstrap-modules/module-manifest.json');
+            const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+            result = {
+                modules: manifest.modules,
+                note: 'Use `ml-container-creator bootstrap add <module>` to provision a module, or `bootstrap remove-module <module>` to tear down.'
+            };
+        } catch (err) {
+            result = { error: `Failed to load module manifest: ${err.message}` };
+        }
         break;
     }
 
     default:
         result = {
-            error: `Unknown topic: "${topic}". Valid topics: script_reference, config_reference, troubleshooting, capability_matrix`,
+            error: `Unknown topic: "${topic}". Valid topics: script_reference, config_reference, troubleshooting, capability_matrix, bootstrap_modules`,
             partial: true
         };
     }
@@ -562,10 +586,80 @@ server.tool(
         topic: z.enum(['script_reference', 'config_reference', 'troubleshooting', 'capability_matrix'])
             .describe('Knowledge topic to query'),
         filter: z.string().optional()
-            .describe('Optional filter — narrows results by keyword match (e.g., script name, lifecycle stage, error pattern)')
+            .describe('Optional filter — narrows results by keyword match (e.g., script name, lifecycle stage, error pattern)'),
+        context: z.object({
+            projectDir: z.string().optional()
+        }).optional().describe('Optional context with projectDir for local override resolution')
     },
     async (params) => {
         return handleQueryKnowledge(params);
+    }
+);
+
+server.tool(
+    'write_local_capability',
+    'Add or update a capability status in the project-local override (.mlcc/capabilities.json). Use when the user has validated something locally that the shipped matrix doesn\'t reflect.',
+    {
+        capability: z.string().min(1).describe('Capability key (e.g., "vllm.realtime-inference.my-feature")'),
+        status: z.enum(['green', 'yellow', 'red']).describe('Capability status'),
+        message: z.string().optional().describe('Descriptive message about the capability'),
+        alternatives: z.array(z.string()).optional().describe('Alternative capabilities or workarounds'),
+        context: z.object({
+            projectDir: z.string().optional()
+        }).optional().describe('Optional context with projectDir')
+    },
+    async (params) => {
+        const { capability, status, message, alternatives, context } = params;
+
+        // Validate required fields
+        if (!capability || !capability.trim()) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'capability is required and must be non-empty' }) }] };
+        }
+        if (!status) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'status is required (green, yellow, or red)' }) }] };
+        }
+
+        const projectDir = resolveProjectDir(context);
+        const mlccDir = join(projectDir, '.mlcc');
+        const overridePath = join(mlccDir, 'capabilities.json');
+        const tmpPath = `${overridePath  }.tmp`;
+
+        // Ensure .mlcc directory exists
+        mkdirSync(mlccDir, { recursive: true });
+
+        // Read existing or initialize
+        let data = { capabilities: {} };
+        if (existsSync(overridePath)) {
+            try {
+                data = JSON.parse(readFileSync(overridePath, 'utf8'));
+            } catch {
+                data = { capabilities: {} };
+            }
+        }
+        if (!data.capabilities || typeof data.capabilities !== 'object' || Array.isArray(data.capabilities)) {
+            data.capabilities = {};
+        }
+
+        // Build entry
+        const entry = { status, source: 'local', addedAt: new Date().toISOString() };
+        if (message) entry.message = message;
+        if (alternatives) entry.alternatives = alternatives;
+
+        // Upsert by capability key
+        data.capabilities[capability] = entry;
+
+        // Atomic write
+        writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+        renameSync(tmpPath, overridePath);
+
+        // NFR-3 size check
+        const result = { status: 'ok', entry: { capability, ...entry }, file: '.mlcc/capabilities.json' };
+        const stat = statSync(overridePath);
+        if (stat.size > 100 * 1024) {
+            result.warning = 'Override file exceeds 100KB — consider upstreaming entries';
+        }
+
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
 );
 

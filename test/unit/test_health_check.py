@@ -329,6 +329,92 @@ class TestCheckSecretsConfigured:
         assert "gated models" in result.message
 
 
+class TestCheckLocalOverrides:
+    """Tests for _check_local_overrides."""
+
+    def test_no_mlcc_directory(self, tmp_path):
+        """When .mlcc/ doesn't exist, report no overrides."""
+        hc = EnvironmentHealthCheck()
+        result = hc._check_local_overrides(str(tmp_path))
+        assert result.status == "pass"
+        assert result.label == "Local overrides"
+        assert "No local overrides" in result.message
+
+    def test_empty_mlcc_directory(self, tmp_path):
+        """When .mlcc/ exists but has no recognized files."""
+        mlcc_dir = tmp_path / ".mlcc"
+        mlcc_dir.mkdir()
+        hc = EnvironmentHealthCheck()
+        result = hc._check_local_overrides(str(tmp_path))
+        assert result.status == "pass"
+        assert "No local overrides" in result.message
+
+    def test_model_picker_overrides(self, tmp_path):
+        """When .mlcc/model-picker.json has entries."""
+        mlcc_dir = tmp_path / ".mlcc"
+        mlcc_dir.mkdir()
+        (mlcc_dir / "model-picker.json").write_text(
+            json.dumps({"models": [{"name": "custom/test-model"}, {"name": "custom/other"}]})
+        )
+        hc = EnvironmentHealthCheck()
+        result = hc._check_local_overrides(str(tmp_path))
+        assert result.status == "pass"
+        assert "2 entries" in result.message
+        assert "model-picker: 2" in result.message
+
+    def test_multiple_override_files(self, tmp_path):
+        """When multiple override files are present."""
+        mlcc_dir = tmp_path / ".mlcc"
+        mlcc_dir.mkdir()
+        (mlcc_dir / "model-picker.json").write_text(
+            json.dumps({"models": [{"name": "custom/m1"}, {"name": "custom/m2"}]})
+        )
+        (mlcc_dir / "capabilities.json").write_text(
+            json.dumps({"capabilities": {"cap1": {"status": "green"}}})
+        )
+        hc = EnvironmentHealthCheck()
+        result = hc._check_local_overrides(str(tmp_path))
+        assert result.status == "pass"
+        assert "3 entries" in result.message
+        assert "model-picker: 2" in result.message
+        assert "capabilities: 1" in result.message
+
+    def test_malformed_json_skipped(self, tmp_path):
+        """When an override file has invalid JSON, it's skipped gracefully."""
+        mlcc_dir = tmp_path / ".mlcc"
+        mlcc_dir.mkdir()
+        (mlcc_dir / "model-picker.json").write_text("not valid json {{{")
+        (mlcc_dir / "capabilities.json").write_text(
+            json.dumps({"capabilities": {"cap1": {"status": "green"}}})
+        )
+        hc = EnvironmentHealthCheck()
+        result = hc._check_local_overrides(str(tmp_path))
+        assert result.status == "pass"
+        assert "1 entries" in result.message
+        assert "capabilities: 1" in result.message
+
+    def test_capabilities_object_format(self, tmp_path):
+        """Capabilities uses object format (count keys, not array length)."""
+        mlcc_dir = tmp_path / ".mlcc"
+        mlcc_dir.mkdir()
+        (mlcc_dir / "capabilities.json").write_text(
+            json.dumps(
+                {
+                    "capabilities": {
+                        "cap1": {"status": "green"},
+                        "cap2": {"status": "yellow"},
+                        "cap3": {"status": "red"},
+                    }
+                }
+            )
+        )
+        hc = EnvironmentHealthCheck()
+        result = hc._check_local_overrides(str(tmp_path))
+        assert result.status == "pass"
+        assert "3 entries" in result.message
+        assert "capabilities: 3" in result.message
+
+
 class TestCheckBenchmarkInfra:
     """Tests for _check_benchmark_infra."""
 
@@ -398,8 +484,8 @@ class TestRunIntegration:
         (do_dir / "config").write_text("export DEPLOYMENT_TARGET=sagemaker\n")
         hc = EnvironmentHealthCheck()
         items = hc.run(project_dir=str(tmp_path))
-        # Should have 8 checks (6 env + 2 project)
-        assert len(items) == 8
+        # Should have 9 checks (6 env + 3 project: secrets, local overrides, benchmark)
+        assert len(items) == 9
 
 
 class TestPrintHealthReport:
