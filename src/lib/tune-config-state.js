@@ -2,65 +2,91 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tune Config State Manager
+ * Tune Config State
  *
- * JavaScript module that mimics the bash _update_config_var() behavior
- * from do/tune for testing purposes. Manages config variables written
- * after job submission.
+ * Manages bash-style config files (do/config) that contain lines like:
+ *   export VAR_NAME="value"
+ *
+ * Provides read/write access for tuning job state variables.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
 /**
- * Update or add a config variable in a do/config-style file.
- * Mimics the bash _update_config_var() function:
- * - If the variable exists (line starts with `export VAR_NAME=`), replace it
- * - Otherwise, append a new line
- *
- * @param {string} configPath - Path to the config file
- * @param {string} varName - Variable name (e.g., TUNE_JOB_NAME_SFT)
- * @param {string} varValue - Variable value
- */
-export function updateConfigVar(configPath, varName, varValue) {
-    let content = readFileSync(configPath, 'utf8');
-    const pattern = new RegExp(`^export ${varName}=.*$`, 'm');
-
-    if (pattern.test(content)) {
-        content = content.replace(pattern, `export ${varName}="${varValue}"`);
-    } else {
-        if (content.length > 0 && !content.endsWith('\n')) {
-            content += '\n';
-        }
-        content += `export ${varName}="${varValue}"\n`;
-    }
-
-    writeFileSync(configPath, content, 'utf8');
-}
-
-/**
- * Read a config variable from a do/config-style file.
+ * Read a variable value from a bash config file.
+ * Looks for lines matching: export VAR_NAME="value", export VAR_NAME='value', or export VAR_NAME=value
  *
  * @param {string} configPath - Path to the config file
  * @param {string} varName - Variable name to read
- * @returns {string|null} The variable value, or null if not found
+ * @returns {string|null} The unquoted value, or null if not found
  */
 export function readConfigVar(configPath, varName) {
     const content = readFileSync(configPath, 'utf8');
-    const pattern = new RegExp(`^export ${varName}="([^"]*)"`, 'm');
-    const match = content.match(pattern);
-    return match ? match[1] : null;
+    const lines = content.split('\n');
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        const prefix = `export ${varName}=`;
+        if (trimmed.startsWith(prefix)) {
+            let value = trimmed.slice(prefix.length);
+            // Strip surrounding quotes (double or single)
+            if ((value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith('\'') && value.endsWith('\''))) {
+                value = value.slice(1, -1);
+            }
+            return value;
+        }
+    }
+
+    return null;
 }
 
 /**
- * Simulate the config writes that happen after a successful job submission.
- * This mirrors the behavior in do/tune's _submit_job() function.
+ * Write or update a variable in a bash config file.
+ * If the variable already exists, replaces that line.
+ * If not, appends the new export line.
  *
  * @param {string} configPath - Path to the config file
- * @param {object} params - Submission parameters
- * @param {string} params.technique - Technique (sft, dpo, rlaif, rlvr)
- * @param {string} params.trainingType - Training type (lora, full-rank)
- * @param {string} params.datasetPath - Dataset path (s3://... or hf://...)
- * @param {string} params.jobName - Generated job name
+ * @param {string} varName - Variable name to set
+ * @param {string} value - Value to assign
+ */
+export function updateConfigVar(configPath, varName, value) {
+    const content = readFileSync(configPath, 'utf8');
+    const lines = content.split('\n');
+    const prefix = `export ${varName}=`;
+    const newLine = `export ${varName}="${value}"`;
+
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim().startsWith(prefix)) {
+            lines[i] = newLine;
+            found = true;
+            break;
+        }
+    }
+
+    if (found) {
+        writeFileSync(configPath, lines.join('\n'), 'utf8');
+    } else {
+        // Append to end of file
+        let appendContent = content;
+        if (appendContent.length > 0 && !appendContent.endsWith('\n')) {
+            appendContent += '\n';
+        }
+        appendContent += `${newLine  }\n`;
+        writeFileSync(configPath, appendContent, 'utf8');
+    }
+}
+
+/**
+ * Write tuning job submission state to config.
+ *
+ * @param {string} configPath - Path to the config file
+ * @param {object} state - Submission state
+ * @param {string} state.technique - Tuning technique (e.g., 'sft', 'dpo')
+ * @param {string} state.trainingType - Training type (e.g., 'lora', 'full-rank')
+ * @param {string} state.datasetPath - Dataset path (S3 or HF URI)
+ * @param {string} state.jobName - Generated job name
  */
 export function persistSubmissionState(configPath, { technique, trainingType, datasetPath, jobName }) {
     const techniqueUpper = technique.toUpperCase();
@@ -71,59 +97,54 @@ export function persistSubmissionState(configPath, { technique, trainingType, da
 }
 
 /**
- * Simulate the config writes that happen after a job completes successfully.
- * This mirrors the behavior in do/tune's _handle_completion() function.
- *
- * Writes three levels of tracking (AC-4.1, AC-4.2):
- * - Level 1: TUNE_OUTPUT_PATH_LATEST (always the last run, any technique)
- * - Level 2: TUNE_ADAPTER_PATH_<TECHNIQUE> (last run per technique)
- * - Level 3: TUNE_ADAPTER_PATH_<TECHNIQUE>_<SLUG> (per technique + dataset slug)
+ * Write tuning job completion state to config.
  *
  * @param {string} configPath - Path to the config file
- * @param {object} params - Completion parameters
- * @param {string} params.technique - Technique (sft, dpo, rlaif, rlvr)
- * @param {string} params.trainingType - Training type (lora, full-rank)
- * @param {string} params.artifactPath - S3 path to the output artifact
- * @param {string} params.outputType - Output type (adapter, full-model)
- * @param {string} [params.datasetSlug] - Optional dataset slug for per-technique-per-dataset tracking
+ * @param {object} state - Completion state
+ * @param {string} state.technique - Tuning technique
+ * @param {string} state.trainingType - Training type
+ * @param {string} state.artifactPath - Output artifact path (S3 URI)
+ * @param {string} state.outputType - Output type ('adapter' or 'model')
+ * @param {string} [state.datasetSlug] - Dataset slug for named paths
  */
-export function persistCompletionState(configPath, { technique, trainingType, artifactPath, outputType, datasetSlug }) {
+export function persistCompletionState(configPath, { technique, trainingType: _trainingType, artifactPath, outputType, datasetSlug }) {
     const techniqueUpper = technique.toUpperCase();
 
-    if (trainingType === 'lora') {
-        // Level 2: per-technique
+    updateConfigVar(configPath, 'TUNE_OUTPUT_PATH_LATEST', artifactPath);
+    updateConfigVar(configPath, 'TUNE_OUTPUT_TYPE_LATEST', outputType);
+
+    if (outputType === 'adapter') {
         updateConfigVar(configPath, `TUNE_ADAPTER_PATH_${techniqueUpper}`, artifactPath);
-        // Level 3: per-technique + per-dataset (if slug available)
         if (datasetSlug) {
             const slugUpper = datasetSlug.toUpperCase().replace(/-/g, '_');
             updateConfigVar(configPath, `TUNE_ADAPTER_PATH_${techniqueUpper}_${slugUpper}`, artifactPath);
         }
-    } else if (trainingType === 'full-rank') {
+    } else {
         updateConfigVar(configPath, `TUNE_MODEL_PATH_${techniqueUpper}`, artifactPath);
     }
-
-    // Level 1: latest
-    updateConfigVar(configPath, 'TUNE_OUTPUT_PATH_LATEST', artifactPath);
-    updateConfigVar(configPath, 'TUNE_OUTPUT_TYPE_LATEST', outputType);
 }
 
 /**
- * Generate a job name following the pattern used by do/tune.
- * Pattern: ${projectName}-tune-${technique}-YYYYMMDD-HHMMSS
+ * Generate a job name matching pattern: ${projectName}-tune-${technique}-YYYYMMDD-HHMMSS
+ * Uses local time for the timestamp.
  *
  * @param {string} projectName - Project name
- * @param {string} technique - Technique (sft, dpo, rlaif, rlvr)
- * @param {Date} [timestamp] - Optional timestamp (defaults to now)
- * @returns {string} Generated job name
+ * @param {string} technique - Tuning technique
+ * @param {Date} [timestamp] - Optional timestamp (defaults to new Date())
+ * @returns {string} Formatted job name
  */
-export function generateJobName(projectName, technique, timestamp = new Date()) {
-    const year = timestamp.getFullYear().toString();
-    const month = (timestamp.getMonth() + 1).toString().padStart(2, '0');
-    const day = timestamp.getDate().toString().padStart(2, '0');
-    const hours = timestamp.getHours().toString().padStart(2, '0');
-    const minutes = timestamp.getMinutes().toString().padStart(2, '0');
-    const seconds = timestamp.getSeconds().toString().padStart(2, '0');
+export function generateJobName(projectName, technique, timestamp) {
+    const ts = timestamp || new Date();
+
+    const year = ts.getFullYear().toString();
+    const month = (ts.getMonth() + 1).toString().padStart(2, '0');
+    const day = ts.getDate().toString().padStart(2, '0');
+    const hours = ts.getHours().toString().padStart(2, '0');
+    const minutes = ts.getMinutes().toString().padStart(2, '0');
+    const seconds = ts.getSeconds().toString().padStart(2, '0');
+
     const dateStr = `${year}${month}${day}`;
     const timeStr = `${hours}${minutes}${seconds}`;
+
     return `${projectName}-tune-${technique}-${dateStr}-${timeStr}`;
 }

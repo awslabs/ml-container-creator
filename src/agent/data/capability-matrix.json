@@ -1,0 +1,106 @@
+{
+  "version": "1.0",
+  "capabilities": {
+    "vllm.realtime-inference.deploy": {
+      "status": "green",
+      "message": "Fully validated. 11 models (0.6B-8B) through happy path on g5.xlarge. 3× 14B models validated on g5.24xlarge (TP=4) with FP8 quantization: Qwen2.5-14B-Instruct, DeepSeek-R1-Distill-Qwen-14B, Qwen3-14B."
+    },
+    "vllm.realtime-inference.lora": {
+      "status": "green",
+      "message": "LoRA adapters via SageMaker Adapter ICs. Hot-swap validated on models up to 8B. 14B+ with LoRA requires FP8 quantization on A10G instances due to CUDA graph memory overhead."
+    },
+    "vllm.realtime-inference.multi-gpu": {
+      "status": "green",
+      "message": "Tensor parallelism validated on g5.24xlarge (4× A10G) and g5.12xlarge (4× A10G). TP degree auto-detected. Note: vLLM v0.20.2+ CUDA graph profiler reserves ~5.7 GiB per GPU — factor this into VRAM calculations."
+    },
+    "vllm.realtime-inference.quantization-fp8": {
+      "status": "green",
+      "message": "FP8 quantization validated. ~2x throughput improvement with minimal quality loss on supported models."
+    },
+    "training.custom.sft": {
+      "status": "green",
+      "message": "Supervised fine-tuning via SageMaker Training Jobs. Single-node multi-GPU validated."
+    },
+    "training.custom.dpo": {
+      "status": "green",
+      "message": "DPO/RLHF training pipeline validated. Preference dataset format documented."
+    },
+    "benchmarking.do-benchmark": {
+      "status": "green",
+      "message": "End-to-end benchmark pipeline: deploy, load-test, collect metrics, upload to S3/Glue. Athena-queryable results."
+    },
+    "registry.model-registration": {
+      "status": "green",
+      "message": "Model registration to SageMaker Model Registry with metadata, lineage, and approval workflows."
+    },
+    "registry.dataset-registration": {
+      "status": "green",
+      "message": "Dataset registration with versioning. Supports HuggingFace Hub and S3 sources."
+    },
+    "sglang.realtime-inference.deploy": {
+      "status": "yellow",
+      "message": "Base inference functional with RadixAttention. Lightly validated — 3 models tested. No LoRA support.",
+      "alternatives": ["Use vllm engine for production workloads with full validation coverage"]
+    },
+    "hyperpod.deploy": {
+      "status": "yellow",
+      "message": "HyperPod deployment functional but limited to single-node configurations. Multi-node orchestration not implemented.",
+      "alternatives": ["Use SageMaker realtime endpoints via vllm engine for validated multi-GPU inference"]
+    },
+    "optimization.do-optimize": {
+      "status": "yellow",
+      "message": "do/optimize is functional but lightly validated. Recommendations may be overly conservative or miss edge cases.",
+      "alternatives": ["Run do/benchmark manually and compare results across configurations"]
+    },
+    "vllm.realtime-inference.large-model-single-gpu": {
+      "status": "yellow",
+      "message": "14B+ parameter models on A10G GPUs (24GB) are memory-constrained even with TP=4. vLLM v0.20.2+ CUDA graph profiler reserves ~5.7 GiB/GPU, and LoRA pre-allocation (max_loras=30) consumes additional headroom. At FP16 with LoRA enabled, 14B OOMs on g5 instances. FP8 quantization is required.",
+      "alternatives": ["Enable FP8 quantization (IC_ENV_VLLM_QUANTIZATION=fp8) — halves model memory", "Reduce max_loras from 30 to 4 and max_lora_rank from 64 to 16", "Disable LoRA entirely for inference-only workloads", "Use L40S (48GB) or A100 (40/80GB) instances instead"]
+    },
+    "training.spot": {
+      "status": "yellow",
+      "message": "Spot training supported but checkpoint resume is inconsistent across interruptions. Manual monitoring recommended.",
+      "alternatives": ["Use on-demand instances for critical training runs", "Enable frequent checkpointing (every 100 steps)"]
+    },
+    "vllm.realtime-inference.gpu-memory-utilization-semantics": {
+      "status": "yellow",
+      "message": "vLLM v0.20.2+ changed gpu_memory_utilization semantics. CUDA graph memory profiler reserves ~5.7 GiB/GPU automatically. Setting 0.92 is effectively 0.66 after graph reservation. For 14B+ models on A10G, set 0.95-0.97. For models that still OOM, the issue is usually LoRA pre-allocation (max_loras × max_lora_rank), not the utilization setting itself.",
+      "alternatives": ["Set gpu_memory_utilization=0.95-0.97 for tight-fit models", "Reduce max_loras and max_lora_rank", "Use FP8 quantization to halve model footprint"]
+    },
+    "sglang.realtime-inference.lora": {
+      "status": "red",
+      "message": "adapter_sidecar.py raises NotImplementedError. SGLang LoRA adapter routing is a stub.",
+      "alternatives": ["Use vllm engine for LoRA workloads — fully validated with hot-swap"],
+      "unblock_spec": "e9-s1-lora-validation",
+      "estimated_effort": "~2 weeks"
+    },
+    "training.multi-node": {
+      "status": "red",
+      "message": "Multi-node distributed training not implemented. NCCL cross-node communication and data sharding logic missing.",
+      "alternatives": ["Use single-node multi-GPU (up to 8x A100 on p4d.24xlarge)", "Use SageMaker HyperPod for managed multi-node (separate workflow)"],
+      "unblock_spec": "e12-multi-node-training",
+      "estimated_effort": "~3 weeks"
+    },
+    "vllm.realtime-inference.speculative-decoding": {
+      "status": "red",
+      "message": "Speculative decoding configuration exists in vLLM but integration with IC environment variables not implemented.",
+      "alternatives": ["Use standard autoregressive decoding", "Use FP8 quantization for throughput improvement"],
+      "unblock_spec": "e14-speculative-decoding",
+      "estimated_effort": "~1 week"
+    },
+    "workflow.do-import": {
+      "status": "red",
+      "message": "do/import script is a placeholder. Model import from external registries not wired up.",
+      "alternatives": ["Manually download model with huggingface-cli and stage via do/stage"],
+      "unblock_spec": "e10-import-workflow",
+      "estimated_effort": "~2 weeks"
+    },
+    "workflow.do-regenerate": {
+      "status": "red",
+      "message": "do/regenerate is not implemented. Project re-generation from updated templates requires manual recreation.",
+      "alternatives": ["Create a new project and copy do/config settings over"],
+      "unblock_spec": "e11-regenerate",
+      "estimated_effort": "~1 week"
+    }
+  }
+}

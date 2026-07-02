@@ -1,0 +1,15 @@
+{
+  "name": "@amzn/ml-container-creator-agent-knowledge",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MCP server providing script reference, config documentation, troubleshooting patterns, and capability matrix for the agent.",
+  "type": "module",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

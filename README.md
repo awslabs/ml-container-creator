@@ -74,6 +74,14 @@ ml-container-creator my-model \
 ./do/test         # Test the endpoint
 ```
 
+### Get help from the advisor
+
+```bash
+ml-container-creator hey   # Conversational AI advisor (powered by Bedrock)
+```
+
+Ask questions about your project, get optimization recommendations, troubleshoot issues, and plan workflows. See [Agent docs](https://awslabs.github.io/ml-container-creator/agent/) for details.
+
 ## Documentation
 
 Full documentation is available at [awslabs.github.io/ml-container-creator](https://awslabs.github.io/ml-container-creator/).
@@ -83,6 +91,7 @@ Full documentation is available at [awslabs.github.io/ml-container-creator](http
 - [Deployment Guide](https://awslabs.github.io/ml-container-creator/deployments/) — All deployment targets and lifecycle scripts
 - [CI Integration](https://awslabs.github.io/ml-container-creator/ci-integration/) — Automated lifecycle testing for all deployment configurations
 - [Examples](https://awslabs.github.io/ml-container-creator/EXAMPLES/) — Framework-specific walkthroughs
+- [Advisory Agent](https://awslabs.github.io/ml-container-creator/agent/) — Conversational AI advisor (`ml-container-creator hey`)
 - [Troubleshooting](https://awslabs.github.io/ml-container-creator/TROUBLESHOOTING/) — Common issues and solutions
 
 ## Prerequisites

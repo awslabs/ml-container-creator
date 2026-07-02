@@ -43,7 +43,7 @@ For user-facing documentation (adding/removing servers, smart mode, configuring 
 
 ## Bundled Servers
 
-Nine servers ship with the project:
+Eleven servers ship with the project:
 
 | Server | Tool Name | Modes | Purpose |
 |--------|-----------|-------|---------|
@@ -56,6 +56,8 @@ Nine servers ship with the project:
 | `marketplace-picker` | `get_ml_config` | static, discover | Lists SageMaker AI Marketplace models |
 | `e2e-status` | `get_ml_config` | static | Returns E2E validation status for models |
 | `workload-picker` | `list_workloads`, `get_workload_profile` | static | Provides named benchmark workload profiles for `do/benchmark` |
+| `model-registry` | `list_model_packages`, `get_model_version` | discover | Queries SageMaker Model Package Groups |
+| `agent-knowledge` | `query_knowledge` | static | Script reference, config docs, troubleshooting, capability matrix |
 
 **Modes:**
 
@@ -166,6 +168,26 @@ cd servers/my-server
 ```
 
 The `modes` object declares which modes the server supports. The generator passes `BEDROCK_SMART=true` env var when `--smart` is active, and `DISCOVER_MODE=false` when discover is explicitly disabled.
+
+!!! note "Bundling Constraints"
+    To be bundled with ml-container-creator, your MCP server must satisfy these constraints:
+
+    1. **Manifest schema compliance** — `manifest.json` is validated against `servers/lib/schemas/manifest.schema.json`. All six top-level fields are required: `name`, `version`, `description`, `modes`, `catalogs`, `tool`. No additional properties are permitted.
+
+    2. **Identity consistency** — The `name` and `version` in `manifest.json` must exactly match `package.json`. These are cross-validated in CI.
+
+    3. **Mode declaration** — The `modes` object must declare all three modes (`static`, `smart`, `discover`) as booleans, even if your server only supports one. Set unsupported modes to `false`.
+
+    4. **Catalog declaration** — The `catalogs` field is required. If `modes.static` is `true`, at least one catalog must be declared — static mode means "answer from local data," so the manifest must reference that data source. Catalog paths must resolve to valid files. If your server reads from non-traditional sources (e.g., project templates, config files), declare those as catalogs to make the data dependency explicit.
+
+    5. **Tool uniqueness** — Your tool `name` must be unique across all bundled servers. CI validates this.
+
+    6. **License and SBOM** — Bundled servers must include `licenses.csv` and `sbom.json` (generated via `npm run license-check` in the server directory).
+
+    Run `node scripts/validate-servers.js` locally to verify all constraints before pushing.
+
+!!! tip
+    Copy an existing server's `manifest.json` as your starting point (e.g., `servers/e2e-status/manifest.json` for a simple static-only server). This guarantees the schema is correct from the start.
 
 ### Step 4: Implement the Server (index.js)
 
