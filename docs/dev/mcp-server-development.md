@@ -178,7 +178,7 @@ The `modes` object declares which modes the server supports. The generator passe
 
     3. **Mode declaration** — The `modes` object must declare all three modes (`static`, `smart`, `discover`) as booleans, even if your server only supports one. Set unsupported modes to `false`.
 
-    4. **Catalog declaration** — The `catalogs` field is required even if your server has no catalogs. Use `"catalogs": {}` for catalog-less servers. If catalogs are declared, their file paths must resolve and the files must pass schema validation.
+    4. **Catalog declaration** — The `catalogs` field is required. If `modes.static` is `true`, at least one catalog must be declared — static mode means "answer from local data," so the manifest must reference that data source. Catalog paths must resolve to valid files. If your server reads from non-traditional sources (e.g., project templates, config files), declare those as catalogs to make the data dependency explicit.
 
     5. **Tool uniqueness** — Your tool `name` must be unique across all bundled servers. CI validates this.
 

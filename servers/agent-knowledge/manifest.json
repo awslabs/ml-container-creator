@@ -7,7 +7,9 @@
         "smart": false,
         "discover": false
     },
-    "catalogs": {},
+    "catalogs": {
+        "capabilityMatrix": "../agent/data/capability-matrix.json"
+    },
     "tool": {
         "name": "query_knowledge"
     }
