@@ -1,0 +1,8 @@
+{
+    "name": "@amzn/ml-container-creator-agent-knowledge",
+    "version": "1.0.0",
+    "description": "MCP server providing script reference, config documentation, troubleshooting patterns, and capability matrix for the agent.",
+    "tool": {
+        "name": "query_knowledge"
+    }
+}
