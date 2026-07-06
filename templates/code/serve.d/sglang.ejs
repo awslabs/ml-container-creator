@@ -9,7 +9,31 @@
 PREFIX="SGLANG_"
 ARG_PREFIX="--"
 
+# ---------------------------------------------------------------------------
+# Positive whitelist via --help introspection (same approach as vLLM).
+#
+# Only forward SGLANG_* env vars whose --<flag> the running sglang.launch_server
+# actually accepts. This is version-proof: it adapts to whatever SGLang version
+# is in the image and silently drops env-only or unknown vars instead of
+# crashing the server with an unrecognized-arg error. Note SGLang's flag names
+# differ from vLLM (e.g. --tp-size, --context-length, --mem-fraction-static).
+# ---------------------------------------------------------------------------
+VALID_ARGS_CACHE="/tmp/.sglang-valid-args"
+if [ ! -s "${VALID_ARGS_CACHE}" ]; then
+    python3 -m sglang.launch_server --help 2>/dev/null \
+        | grep -oE '\-\-[a-z0-9][a-z0-9-]+' \
+        | sort -u > "${VALID_ARGS_CACHE}" 2>/dev/null || true
+fi
+
+# Fallback blocklist — used only if --help introspection produced nothing.
 EXCLUDE_VARS=()
+
+_have_whitelist=false
+if [ -s "${VALID_ARGS_CACHE}" ]; then
+    _have_whitelist=true
+else
+    echo "⚠️  Could not introspect sglang --help; falling back to exclude-list filtering" >&2
+fi
 
 # Declare and populate array of matching environment variables
 mapfile -t env_vars < <(env | grep "^${PREFIX}")
@@ -18,18 +42,21 @@ mapfile -t env_vars < <(env | grep "^${PREFIX}")
 for var in "${env_vars[@]}"; do
     IFS='=' read -r key value <<< "$var"
 
-    # Skip excluded variables
-    skip=false
-    for exclude in "${EXCLUDE_VARS[@]}"; do
-        if [ "$key" = "$exclude" ]; then
-            skip=true
-            break
-        fi
-    done
-    if [ "$skip" = true ]; then continue; fi
-
     # Remove prefix, convert to lowercase, replace underscores with dashes
     arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+
+    # Primary path: only forward args sglang actually accepts (from --help).
+    if [ "$_have_whitelist" = true ]; then
+        if ! grep -qx -- "${ARG_PREFIX}${arg_name}" "${VALID_ARGS_CACHE}"; then
+            continue
+        fi
+    elif [ ${#EXCLUDE_VARS[@]} -gt 0 ]; then
+        skip=false
+        for exclude in "${EXCLUDE_VARS[@]}"; do
+            if [ "$key" = "$exclude" ]; then skip=true; break; fi
+        done
+        if [ "$skip" = true ]; then continue; fi
+    fi
 
     # Boolean handling: true = flag only, false = skip entirely
     if [ "$value" = "false" ]; then continue; fi

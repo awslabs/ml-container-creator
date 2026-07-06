@@ -262,6 +262,94 @@ When a new vLLM/SGLang/TRT-LLM version is released:
 3. Verify `supportedModelTypes` is populated (run `registry sync-architectures` if needed)
 4. Check CUDA version compatibility with fleet drivers: new vLLM versions may require newer CUDA (e.g., v0.23.0 needs CUDA 12.9 / driver ≥580 for multi-GPU)
 
+## Serving Engine Arguments & Version Troubleshooting
+
+This section explains how generated projects turn configuration into engine CLI
+arguments, and how to diagnose problems when a new server version misbehaves.
+
+### How env vars become engine CLI args
+
+The generated serve script (rendered from `templates/code/serve.d/vllm.ejs` or
+`sglang.ejs`) does **not** hardcode a fixed argument list. Instead it harvests
+environment variables by prefix and converts them to CLI flags at container
+startup:
+
+- **vLLM**: every `VLLM_*` env var → `--<name>` (lowercased, `_`→`-`).
+  Example: `VLLM_MAX_MODEL_LEN=4096` → `--max-model-len 4096`.
+- **SGLang**: every `SGLANG_*` env var → `--<name>`.
+  Note SGLang's flag names differ from vLLM: `--tp-size` (not
+  `--tensor-parallel-size`), `--context-length` (not `--max-model-len`),
+  `--mem-fraction-static` (not `--gpu-memory-utilization`).
+- Boolean handling: value `true` → bare flag; value `false` → skipped entirely.
+
+These `*_ENV_*` vars flow in from `do/ic/*.conf` (`IC_ENV_VLLM_*`) at deploy
+time, stripped to their bare `VLLM_*`/`SGLANG_*` form inside the container.
+
+### The `--help` whitelist (why not every env var is forwarded)
+
+**Problem:** vLLM v0.21+ bakes build-provenance env vars into the Docker image
+— `VLLM_BUILD_URL`, `VLLM_IMAGE_TAG`, `VLLM_BUILD_PIPELINE`, `VLLM_BUILD_COMMIT`
+(and 30+ others across versions). These have **no CLI equivalent**. A naive
+"forward every `VLLM_*` var" turns them into `--build-url`, `--image-tag`, etc.,
+which `api_server.py` rejects — and the server never starts.
+
+**Solution (positive whitelist):** at container startup the serve script runs
+the engine's `--help` **once**, extracts every valid `--flag`, caches the list
+to `/tmp/.vllm-valid-args` (or `.sglang-valid-args`), and forwards **only** env
+vars whose flag appears in that list. Anything else — build provenance, env-only
+tuning knobs, future additions — is silently dropped.
+
+Key properties:
+
+- **Version-proof, both directions.** The whitelist is derived from the running
+  binary every cold start, so it's correct for any version. Older engines
+  without provenance vars work unchanged; newer ones self-filter.
+- **Cached per container lifecycle.** The `--help` call runs only when
+  `/tmp/.vllm-valid-args` is absent/empty — i.e., once per fresh container. A
+  version change means a new image → new container → fresh `/tmp` → regenerated
+  automatically. Never stale, ~1-2s one-time cost.
+- **Blocklist fallback.** If `--help` introspection fails (import error, etc.),
+  the script falls back to a small hardcoded `EXCLUDE_VARS` list and prints a
+  warning to stderr.
+
+### Adding support for a new engine version
+
+In most cases you do **not** need to touch the serve script — the whitelist
+adapts automatically. The steps are catalog-only:
+
+1. `node scripts/sync-serving-versions.js` to pull the new image tag.
+2. Confirm the new image's `--help` still uses the flag names your `IC_ENV_*`
+   config sets. If the engine **renames** a flag (rare, but SGLang has done it),
+   update the corresponding `IC_ENV_*` var name in the templates/docs.
+3. Verify CUDA/driver compatibility (see the section above).
+
+### Troubleshooting: "the server won't start / rejects an argument"
+
+The serve script prints the final argument list at startup:
+
+```
+vLLM engine args: [--host 0.0.0.0 --port 8080 --max-model-len 4096 ...]
+```
+
+Diagnose from that line:
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Junk args like `--build-url`, `--image-tag`, `--build-pipeline`, `--build-commit` appear | Serve script predates the `--help` whitelist (old generated project) | Regenerate the project, or patch `code/serve.d/vllm.ejs` to the whitelist version. Rebuild + push (serve script is baked into the image). |
+| A flag you set via `IC_ENV_*` is **missing** from the args line | The engine version doesn't accept that flag (whitelist dropped it) | Check the running version's `--help`; the flag may be renamed or removed. Update the `IC_ENV_*` var name. |
+| `⚠️  Could not introspect ... --help` on stderr | `--help` failed (import error, wrong entrypoint) | The script fell back to the blocklist. Check the container can run `python3 -m vllm.entrypoints.openai.api_server --help` — an import failure here is the real bug. |
+| Args look correct but server still dies on multi-GPU | Not an arg problem — CUDA driver/version mismatch | See CUDA/driver note above (e.g. vLLM v0.23.0 needs driver ≥580 for multi-GPU TP). |
+
+To inspect the cached whitelist inside a running container:
+
+```bash
+cat /tmp/.vllm-valid-args        # the valid --flags for this engine version
+```
+
+The serve arg logic lives in `templates/code/serve.d/{vllm,sglang}.ejs`. It is
+EJS-free rendered output, so a generated project's serve script can be
+hand-patched safely in a pinch — but the durable fix belongs in the template.
+
 ## Adding a New AWS Region
 
 Edit `servers/lib/catalogs/regions.json` and add the region code with its available instance families. No script needed — it's a static mapping.

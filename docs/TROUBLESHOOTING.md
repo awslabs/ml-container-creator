@@ -250,6 +250,35 @@ aws sagemaker-runtime invoke-endpoint \
 
 ## Model Loading Issues
 
+### Server rejects an argument / won't start (junk `--build-*` args)
+
+```
+vLLM engine args: [... --build-url https://buildkite.com/... --image-tag vllm/vllm-openai:v0.23.0
+                   --build-pipeline ... --build-commit ...]
+api_server.py: error: unrecognized arguments: --build-url ...
+```
+
+**Cause:** vLLM v0.21+ bakes build-provenance env vars (`VLLM_BUILD_URL`,
+`VLLM_IMAGE_TAG`, `VLLM_BUILD_PIPELINE`, `VLLM_BUILD_COMMIT`) into the image.
+A pre-fix serve script forwarded **every** `VLLM_*` env var as a CLI flag, so
+these leaked in as `--build-url` etc. and the engine rejected them — the IC
+never reaches `InService`.
+
+**Fix:** current serve scripts use a `--help` introspection **whitelist** —
+they forward only args the running engine actually accepts. If you see junk
+`--build-*` args, your generated project predates this fix:
+
+1. Regenerate the project (picks up the fixed `code/serve.d/vllm.ejs`), **or**
+   hand-patch the serve script (it's EJS-free — safe to edit directly).
+2. `./do/build && ./do/push` — the serve script is baked into the image, so a
+   rebuild is required.
+3. Redeploy. The `vLLM engine args:` log line should now be clean.
+
+This applies to SGLang too (`SGLANG_*` → `sglang.launch_server`). The
+model-server-version MCP is **not** at fault — it selects the image correctly;
+the issue is purely serve-script arg harvesting. Full mechanism + a
+troubleshooting matrix: [Serving Engine Arguments & Version Troubleshooting](dev/registries-and-catalogs.md#serving-engine-arguments--version-troubleshooting).
+
 ### Model File Not Found
 
 ```
