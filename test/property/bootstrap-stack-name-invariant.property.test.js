@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import os from 'node:os';
 import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js';
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
-import { PROPERTY_CONFIG } from '../helpers/property-config.js';
+import { PROPERTY_CONFIG_EJS } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -36,10 +36,19 @@ const arbAwsRegion = fc.constantFrom(
 
 const arbAccountId = fc.stringMatching(/^[0-9]{12}$/);
 
+// Generate dependency-valid module subsets.
+// Defaults are core + registry (always included). ci requires benchmark (in addition to core + registry).
+// All others only depend on core which is always present.
 const arbExtraModules = fc.subarray(
     ['benchmark', 'training', 'ci', 'sagemaker-domain', 'hyperpod-cluster'],
     { minLength: 0, maxLength: 3 }
-);
+).map(modules => {
+    // Satisfy ci's dependency on benchmark
+    if (modules.includes('ci') && !modules.includes('benchmark')) {
+        modules.push('benchmark');
+    }
+    return modules;
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,7 +121,7 @@ describe('Feature: modular-bootstrap, Property 1: Module Provisioning Invariant'
     });
 
     it('provisionedModules always contains core+registry defaults and any --with modules', async function () {
-        this.timeout(PROPERTY_CONFIG.timeout);
+        this.timeout(PROPERTY_CONFIG_EJS.timeout);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,
@@ -161,6 +170,6 @@ describe('Feature: modular-bootstrap, Property 1: Module Provisioning Invariant'
                 assert.ok(savedProfile.roleArn, 'roleArn should be denormalized from core');
                 assert.strictEqual(savedProfile.ecrRepositoryName, 'ml-container-creator');
             }
-        ), { ...PROPERTY_CONFIG });
+        ), { ...PROPERTY_CONFIG_EJS });
     });
 });
