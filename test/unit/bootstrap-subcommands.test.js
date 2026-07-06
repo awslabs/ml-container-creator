@@ -67,12 +67,14 @@ describe('Bootstrap Subcommand Routing', () => {
     });
 
     describe('default interactive flow', () => {
-        it('handle([], options) calls _handleInteractiveSetup(options)', async () => {
+        it('handle([], options) calls _handleLanding(options)', async () => {
             const options = { 'non-interactive': false };
+            handler._handleLanding = async (opts) => {
+                calls.interactiveSetup.push({ options: opts });
+            };
             await handler.handle([], options);
 
-            assert.strictEqual(calls.interactiveSetup.length, 1, 'should call _handleInteractiveSetup once');
-            assert.deepStrictEqual(calls.interactiveSetup[0].options, options);
+            assert.strictEqual(calls.interactiveSetup.length, 1, 'should call _handleLanding once');
             assert.strictEqual(calls.status.length, 0);
             assert.strictEqual(calls.use.length, 0);
             assert.strictEqual(calls.list.length, 0);

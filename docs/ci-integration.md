@@ -266,10 +266,10 @@ CI infrastructure is provisioned via the bootstrap command. You can enable it du
 **During initial bootstrap:**
 
 ```bash
-ml-container-creator bootstrap
+ml-container-creator bootstrap add my-profile
 ```
 
-When prompted, answer **Yes** to the CI Integration question. The bootstrap process will:
+Select the **ci** module in the multi-select. Because `ci` depends on `benchmark` and `registry`, you'll be prompted to include them (dependencies are not auto-added). The bootstrap process will:
 
 1. Run `cdk bootstrap` if needed (one-time CDK setup)
 2. Deploy the `MlccCiHarnessStack` via CDK
@@ -283,13 +283,13 @@ ml-container-creator bootstrap update --ci
 
 This deploys the CI stack without affecting your existing IAM roles, ECR repositories, or S3 buckets.
 
-#### Benchmark Infrastructure (`--benchmark-infra`)
+#### Benchmark Infrastructure (the `benchmark` module)
 
-To enable Stage 2 (Athena-backed benchmark persistence), add the `--benchmark-infra` flag:
+Stage 2 (Athena-backed benchmark persistence) comes from the `benchmark` module, which the `ci` module already depends on — so provisioning `ci` includes it:
 
 ```bash
-ml-container-creator bootstrap --ci --benchmark-infra
-ml-container-creator bootstrap update --ci --benchmark-infra
+ml-container-creator bootstrap add-module ci      # pulls in benchmark + registry
+ml-container-creator bootstrap update             # re-applies all installed modules
 ```
 
 This provisions:
@@ -298,7 +298,7 @@ This provisions:
 - **Athena table** (`benchmark_results`) with the full metrics schema
 - **S3 results bucket** (`mlcc-benchmark-results-{accountId}-{region}`)
 
-Without `--benchmark-infra`, CI deploys only the DynamoDB table, Lambda, Step Functions, and CodeBuild — Stage 2 writes will fail silently if the Glue/Athena infrastructure doesn't exist.
+Without the `benchmark` module, CI would deploy only the DynamoDB table, Lambda, Step Functions, and CodeBuild — Stage 2 writes would fail silently if the Glue/Athena infrastructure doesn't exist. Since `ci` depends on `benchmark`, this is provisioned automatically.
 
 ---
 
@@ -327,10 +327,11 @@ The CI harness stack can be torn down and rebuilt cleanly:
 aws cloudformation delete-stack --stack-name MlccCiHarnessStack --region <region>
 
 # Rebuild fresh
-ml-container-creator bootstrap update --ci --benchmark-infra
+ml-container-creator bootstrap remove-module ci
+ml-container-creator bootstrap add-module ci
 ```
 
-**Roles are disposable** — they do NOT have `RemovalPolicy.RETAIN`. Deleting the stack removes the IAM roles. Re-running `bootstrap --ci` creates them fresh with the correct permissions. No orphaned resources.
+**Roles are disposable** — they do NOT have `RemovalPolicy.RETAIN`. Removing the `ci` module deletes its IAM roles. Re-adding it (`bootstrap add-module ci`) creates them fresh with the correct permissions. No orphaned resources.
 
 This is the recommended approach if you encounter role conflicts or need to move CI to a different region.
 

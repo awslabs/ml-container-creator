@@ -251,7 +251,7 @@ ml-container-creator registry show <id>
 
 ### CI Table (DynamoDB)
 
-With `--ci`, the record is written to a DynamoDB table (provisioned by `ml-container-creator bootstrap --ci`). Each record gets a deterministic `configId` — a hash of `deploymentConfig:modelName:instanceType:region:deploymentTarget:icCount:adapterCount`.
+With `--ci`, the record is written to a DynamoDB table (provisioned by the `ci` module — `ml-container-creator bootstrap add-module ci`). Each record gets a deterministic `configId` — a hash of `deploymentConfig:modelName:instanceType:region:deploymentTarget:icCount:adapterCount`.
 
 If the configId already exists, the record is updated and `testStatus` is reset to `untested` — signaling the CI harness to re-validate.
 

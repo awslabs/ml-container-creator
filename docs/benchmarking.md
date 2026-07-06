@@ -244,7 +244,7 @@ Benchmark a specific LoRA adapter to compare against the base model:
 
 ## Results Persistence
 
-When benchmark infrastructure is provisioned (`bootstrap --benchmark-infra`), results are automatically:
+When the benchmark module is provisioned (`bootstrap add-module benchmark`), results are automatically:
 
 1. **Written to S3** as aggregate JSON (`profile_export_aiperf.json`) in the benchmark S3 bucket
 2. **Converted to Parquet** and written to the CI benchmark results bucket (partitioned by model/instance/target)

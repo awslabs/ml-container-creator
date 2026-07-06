@@ -2,6 +2,70 @@
 
 All notable changes to ml-container-creator are documented here.
 
+## [1.2.0] — 2026-07-06
+
+### 🧱 Modular Bootstrap + Agent Execution
+
+v1.2 replaces the monolithic bootstrap stack with independent, selectively-provisioned CDK modules, and extends the `hey` agent to execute approved `do/` scripts with confirmation.
+
+### Added
+
+- **Modular bootstrap** — 7 independent modules (core, benchmark, registry, training, ci, sagemaker-domain, hyperpod-cluster), each its own CDK stack (`mlcc-<profile>-<module>`)
+- **Symmetric commands** — `add`/`remove` (profiles), `add-module`/`remove-module` (modules); bare `bootstrap` is a read-only smart landing (getting-started or status + next steps)
+- **`--dry-run`** on `add`, `add-module`, `remove-module`, and `update` (previews via `cdk diff`)
+- **Non-interactive `--with <modules>`** (defaults to `core + registry`)
+- **DLC-direct deploy** (`--no-build`) — skip Dockerfile/build/push, deploy a stock DLC image resolved via the driver-aware base-image-picker
+- **Agent execution layer** — `hey` runs approved scripts (`do/stage`, `do/build`, `do/push`, `do/submit`) with per-step confirmation, cost warnings, and size-aware staging
+- **`do/optimize`** — Athena-backed serving-config recommendations + `--compare-baseline` regression detection
+- **`do/stage --instance-type`** — size the staging Processing Job (prevents large-model OOM); EBS-quota health check
+- **Agent `read_docs`** — `docs/**/*.md` ships in the package; agent grounds answers in published docs
+- **g6/g6e instance support** — 16 catalog entries (L4 24GB, L40S 48GB); 14B fits BF16 on a single g6e.xlarge
+
+### Changed
+
+- **Retained-resource adoption** — RETAIN'd S3 buckets + core ECR repo auto-adopted on re-provision (no name collisions)
+- **Failed-stack auto-cleanup** — un-updatable stacks deleted before redeploy
+- **`update` force-deploys** all installed modules (fixes silent no-op via idempotency short-circuit)
+- **Per-module CDK isolation** — a synth error in one module no longer blocks another's deploy
+- **Hardened migration** — dependency-validated (warn & abort on inconsistent sets), infers training from MLflow, maps CI outputs; migration-aware `status`
+- **Honest `hyperpod-cluster`** — records config intent only (no fabricated ClusterArn); real-cluster provisioning spec'd separately (e8-h4)
+
+### Fixed
+
+- Bootstrap status `[object Object]` rendering; module-aware + migration-aware validation
+- `hey` health check false-negative on `sagemaker` (import-spec fallback for metadata-less installs)
+- Deterministic hyperpod SSM param (was churning on every synth)
+- Registry hub description constraint violation; `installLatestAwsSdk: false` on the hub custom resource
+
+### Breaking Changes
+
+- Bare `bootstrap` no longer launches interactive setup — use `bootstrap add <profile>`
+- Legacy `--ci`, `--benchmark-infra`, `--skip-ci`, `--skip-s3`, `--role-arn` flags are now no-ops (use `--with`)
+- Monolithic bootstrap removed from the interactive path (migration provided)
+
+## [1.1.0] — 2026-07-02
+
+### 🤖 Strands Agent + Custom Training + Fine-Tuning Loop
+
+### Added
+
+- **`ml-container-creator hey`** — conversational advisory agent (Amazon Bedrock): project-aware + getting-started modes, MCP-powered knowledge (incl. new agent-knowledge server), capability matrix, health check, `--offline` mode, action plans, cost tracking
+- **`do/train`** — custom training (Epic 7): technique routing (`sft`/`dpo`/`custom`), `--interactive` builder, dataset resolution (registered names / `s3://` / `hf://` / `@v<N>`), spot training, HyperPod K8s manifests
+- **Fine-tuning loop** (Epic 6) — adapter auto-registration, from-registry deploy, multi-adapter ICs, dataset versioning
+
+### Changed
+
+- **Default `max_model_len=4096`** for all vLLM/SGLang projects (prevents first-deploy OOM)
+- Capability matrix updated with 14B validation findings (CUDA graph overhead, LoRA + FP8 on A10G)
+
+### Fixed
+
+- Dataset resolution, submission error handling, agent token-cost tracking (bugs 60-62)
+
+### Removed
+
+- ~2,370 lines of dead code (stale CLI handler, orphaned training subsystem)
+
 ## [1.0.0] — 2026-06-24
 
 ### 🎉 First Stable Release

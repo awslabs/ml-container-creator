@@ -26,9 +26,12 @@ Bootstrap infrastructure is organized into modules. Only `core` is required; eve
 | `training` | Training data bucket + execution role (+ MLflow, best-effort) | ~$2/mo | No | core |
 | `ci` | CodeBuild + DynamoDB + StepFunctions + EventBridge | ~$15/mo | No | core, benchmark, registry |
 | `sagemaker-domain` | Studio domain + default user profile | ~$10/mo | No | core |
-| `hyperpod-cluster` | HyperPod EKS cluster configuration | ~$0/mo | No | core |
+| `hyperpod-cluster` | HyperPod config intent only (does **not** create a cluster) | ~$0/mo | No | core |
 
 Each module is a standalone CDK stack named `mlcc-<profile>-<module>` (e.g., `mlcc-default-core`). Modules expose their outputs as CloudFormation cross-stack exports (`mlcc-<profile>-<module>-<ExportName>`), which the next module imports as needed.
+
+!!! warning "hyperpod-cluster records intent only"
+    The `hyperpod-cluster` module does **not** create a HyperPod cluster — it stores configuration intent in an SSM parameter and reports `status: not-provisioned`. Creating a real cluster requires a pre-existing EKS cluster, subnets, security groups, and an instance role. Real provisioning is tracked separately (spec `e8-h4-hyperpod-cluster-provisioning`).
 
 !!! info "Module definitions live in the manifest"
     `infra/bootstrap-modules/module-manifest.json` is the single source of truth for module metadata (display name, cost, dependencies, exports). Adding a module is a matter of adding a manifest entry + a CDK stack.
@@ -255,7 +258,14 @@ ml-container-creator bootstrap update
 This re-provisions every module in the active profile's `provisionedModules` (in topological order) without prompts, then re-runs the post-setup chain. Sanity checks before updating:
 
 1. **Account match** — your current AWS caller identity must match the profile's `accountId`.
-2. **Provisioned set** — only modules already in the profile are re-provisioned; use `bootstrap add` to introduce new ones.
+# Preview what would change across all installed modules (cdk diff per module)
+ml-container-creator bootstrap update --dry-run
+
+# Apply the updates
+2. **Provisioned set** — only modules already in the profile are re-provisioned; use `bootstrap add-module` to introduce new ones.
+
+!!! tip "Preview updates with --dry-run"
+    `bootstrap update --dry-run` runs `cdk diff` per module and shows exactly what would change — applying nothing. Use it after pulling new template code to see the blast radius before committing.
 
 ---
 
