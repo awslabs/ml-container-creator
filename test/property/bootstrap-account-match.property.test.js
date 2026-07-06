@@ -24,8 +24,6 @@ import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js'
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
-const STACK_NAME_PREFIX = 'mlcc-bootstrap';
-
 // ── Generators ───────────────────────────────────────────────────────────────
 
 /**
@@ -93,22 +91,34 @@ function createMockHandler(configPath, { callerAccount, stackExists }) {
     // Mock _execAws to prevent real AWS calls
     handler._execAws = () => { throw new Error('NoSuchEntity'); };
 
-    // Mock _deployStack to track whether deployment was attempted
+    // Mock _deployStack to track whether deployment was attempted (legacy compat for test assertions)
     handler._deployStack = () => {
         state.deployAttempted = true;
         return {
             RoleArn: `arn:aws:iam::${callerAccount}:role/mlcc-sagemaker-execution-role`,
-            EcrRepositoryName: 'ml-container-creator',
-            AsyncS3BucketName: `mlcc-async-${callerAccount}-us-east-1`,
-            BatchS3BucketName: `mlcc-batch-${callerAccount}-us-east-1`
+            EcrRepositoryName: 'ml-container-creator'
         };
+    };
+
+    // Mock _provisionModules to track whether deployment was attempted
+    handler._provisionModules = async (ordered) => {
+        state.deployAttempted = true;
+        const moduleOutputs = {};
+        for (const m of ordered) {
+            if (m === 'core') {
+                moduleOutputs.core = {
+                    RoleArn: `arn:aws:iam::${callerAccount}:role/mlcc-sagemaker-execution-role`,
+                    EcrRepositoryName: 'ml-container-creator'
+                };
+            } else {
+                moduleOutputs[m] = {};
+            }
+        }
+        return moduleOutputs;
     };
 
     // Mock _displayProgress
     handler._displayProgress = () => {};
-
-    // Mock _ensureMlflowApp
-    handler._ensureMlflowApp = () => null;
 
     // Mock _runPostSetupChain
     handler._runPostSetupChain = async () => {};
@@ -127,13 +137,16 @@ function writeProfileConfig(handler, profileName, accountId, region) {
                 awsProfile: 'test-aws-profile',
                 awsRegion: region,
                 accountId,
-                stackName: `${STACK_NAME_PREFIX}-${profileName}`,
+                provisionedModules: ['core', 'registry'],
+                moduleOutputs: {
+                    core: {
+                        RoleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
+                        EcrRepositoryName: 'ml-container-creator'
+                    },
+                    registry: {}
+                },
                 roleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
-                ecrRepositoryName: 'ml-container-creator',
-                asyncS3Bucket: `mlcc-async-${accountId}-${region}`,
-                batchS3Bucket: `mlcc-batch-${accountId}-${region}`,
-                ciInfraProvisioned: false,
-                ciTableName: 'mlcc-ci-table'
+                ecrRepositoryName: 'ml-container-creator'
             }
         }
     });

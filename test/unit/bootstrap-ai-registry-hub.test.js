@@ -340,10 +340,10 @@ describe('Bootstrap AI Registry Hub Provisioning', () => {
                 await handler._handleStatus({});
             });
 
-            // Should indicate hub is not provisioned
+            // Legacy profile without aiRegistryHubName should NOT show registry hub line
             assert.ok(
-                logs.some(l => l.includes('AI Registry hub') && l.includes('not provisioned')),
-                `Expected "not provisioned" message, got: ${logs.join('\n')}`
+                !logs.some(l => l.includes('AI Registry hub')),
+                `Expected no AI Registry hub message for legacy profile without it, got: ${logs.join('\n')}`
             );
         });
     });

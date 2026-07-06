@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-06-30T16:45:49.725Z",
-  "version": "1.0.3",
+  "generatedAt": "2026-07-02T20:57:06.418Z",
+  "version": "1.1.0",
   "cliOptions": [],
   "deploymentConfigs": [
     {
@@ -971,6 +971,150 @@
       "memGb": 768,
       "family": "g5",
       "costTier": "medium"
+    },
+    "ml.g6.xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L4",
+      "gpuMemoryGb": 24,
+      "vcpus": 4,
+      "memGb": 16,
+      "family": "g6",
+      "costTier": "low"
+    },
+    "ml.g6.2xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L4",
+      "gpuMemoryGb": 24,
+      "vcpus": 8,
+      "memGb": 32,
+      "family": "g6",
+      "costTier": "low"
+    },
+    "ml.g6.4xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L4",
+      "gpuMemoryGb": 24,
+      "vcpus": 16,
+      "memGb": 64,
+      "family": "g6",
+      "costTier": "low"
+    },
+    "ml.g6.8xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L4",
+      "gpuMemoryGb": 24,
+      "vcpus": 32,
+      "memGb": 128,
+      "family": "g6",
+      "costTier": "low"
+    },
+    "ml.g6.16xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L4",
+      "gpuMemoryGb": 24,
+      "vcpus": 64,
+      "memGb": 256,
+      "family": "g6",
+      "costTier": "low"
+    },
+    "ml.g6.12xlarge": {
+      "gpus": 4,
+      "gpuType": "NVIDIA L4",
+      "gpuMemoryGb": 24,
+      "vcpus": 48,
+      "memGb": 192,
+      "family": "g6",
+      "costTier": "medium"
+    },
+    "ml.g6.24xlarge": {
+      "gpus": 4,
+      "gpuType": "NVIDIA L4",
+      "gpuMemoryGb": 24,
+      "vcpus": 96,
+      "memGb": 384,
+      "family": "g6",
+      "costTier": "medium"
+    },
+    "ml.g6.48xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA L4",
+      "gpuMemoryGb": 24,
+      "vcpus": 192,
+      "memGb": 768,
+      "family": "g6",
+      "costTier": "high"
+    },
+    "ml.g6e.xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L40S",
+      "gpuMemoryGb": 48,
+      "vcpus": 4,
+      "memGb": 32,
+      "family": "g6e",
+      "costTier": "medium"
+    },
+    "ml.g6e.2xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L40S",
+      "gpuMemoryGb": 48,
+      "vcpus": 8,
+      "memGb": 64,
+      "family": "g6e",
+      "costTier": "medium"
+    },
+    "ml.g6e.4xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L40S",
+      "gpuMemoryGb": 48,
+      "vcpus": 16,
+      "memGb": 128,
+      "family": "g6e",
+      "costTier": "medium"
+    },
+    "ml.g6e.8xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L40S",
+      "gpuMemoryGb": 48,
+      "vcpus": 32,
+      "memGb": 256,
+      "family": "g6e",
+      "costTier": "medium"
+    },
+    "ml.g6e.16xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA L40S",
+      "gpuMemoryGb": 48,
+      "vcpus": 64,
+      "memGb": 512,
+      "family": "g6e",
+      "costTier": "medium"
+    },
+    "ml.g6e.12xlarge": {
+      "gpus": 4,
+      "gpuType": "NVIDIA L40S",
+      "gpuMemoryGb": 48,
+      "vcpus": 48,
+      "memGb": 384,
+      "family": "g6e",
+      "costTier": "high"
+    },
+    "ml.g6e.24xlarge": {
+      "gpus": 4,
+      "gpuType": "NVIDIA L40S",
+      "gpuMemoryGb": 48,
+      "vcpus": 96,
+      "memGb": 768,
+      "family": "g6e",
+      "costTier": "high"
+    },
+    "ml.g6e.48xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA L40S",
+      "gpuMemoryGb": 48,
+      "vcpus": 192,
+      "memGb": 1536,
+      "family": "g6e",
+      "costTier": "high"
     }
   },
   "deploymentTargets": [

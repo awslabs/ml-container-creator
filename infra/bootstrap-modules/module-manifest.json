@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1",
+  "modules": {
+    "core": {
+      "displayName": "Core Infrastructure",
+      "description": "IAM role + ECR repository (account-level singletons)",
+      "estimatedMonthlyCost": "$1",
+      "required": true,
+      "depends": [],
+      "stackNameSuffix": "core",
+      "exports": ["RoleArn", "EcrRepositoryName", "EcrRepositoryUri"],
+      "resourceLevel": "account"
+    },
+    "benchmark": {
+      "displayName": "Benchmark Infrastructure",
+      "description": "S3 bucket + Glue DB for benchmark results",
+      "estimatedMonthlyCost": "$5",
+      "required": false,
+      "depends": ["core"],
+      "stackNameSuffix": "benchmark",
+      "exports": ["BenchmarkBucket", "GlueDatabase"],
+      "adoptExisting": true,
+      "resourceLevel": "profile"
+    },
+    "registry": {
+      "displayName": "Model Registry",
+      "description": "Model Package Group + AI Registry Hub + policies",
+      "estimatedMonthlyCost": "$0",
+      "required": false,
+      "depends": ["core"],
+      "stackNameSuffix": "registry",
+      "exports": ["ModelPackageGroupName", "AiRegistryHubName"],
+      "resourceLevel": "profile"
+    },
+    "training": {
+      "displayName": "Training Infrastructure",
+      "description": "Training data bucket + execution role + MLflow experiment tracking",
+      "estimatedMonthlyCost": "$2",
+      "required": false,
+      "depends": ["core"],
+      "stackNameSuffix": "training",
+      "exports": ["TrainingBucket", "TrainingRoleArn", "MlflowAppArn"],
+      "resourceLevel": "profile"
+    },
+    "ci": {
+      "displayName": "CI/CD Pipeline",
+      "description": "CodeBuild + DynamoDB + StepFunctions + EventBridge",
+      "estimatedMonthlyCost": "$15",
+      "required": false,
+      "depends": ["core", "benchmark", "registry"],
+      "stackNameSuffix": "ci",
+      "exports": ["CodeBuildProject", "StateMachineArn", "CiTableName"],
+      "resourceLevel": "profile"
+    },
+    "sagemaker-domain": {
+      "displayName": "SageMaker Studio Domain",
+      "description": "Studio domain + default user profile",
+      "estimatedMonthlyCost": "$10",
+      "required": false,
+      "depends": ["core"],
+      "stackNameSuffix": "sagemaker-domain",
+      "exports": ["DomainId", "UserProfileName"],
+      "resourceLevel": "profile"
+    },
+    "hyperpod-cluster": {
+      "displayName": "HyperPod Cluster",
+      "description": "HyperPod cluster config intent (does not create a cluster)",
+      "estimatedMonthlyCost": "$0",
+      "required": false,
+      "depends": ["core"],
+      "stackNameSuffix": "hyperpod",
+      "exports": ["ClusterConfigParam", "ClusterStatus"],
+      "resourceLevel": "profile"
+    }
+  }
+}

@@ -766,6 +766,35 @@
             "deprecated": false,
             "since": "0.3.0"
         },
+        "noBuild": {
+            "type": "boolean",
+            "description": "Use stock DLC image directly — skip Dockerfile/build/push generation",
+            "cliFlag": "--no-build",
+            "cliArgName": null,
+            "envVar": "MCC_NO_BUILD",
+            "templateVar": "no_build",
+            "configKey": "noBuild",
+            "default": false,
+            "validation": {},
+            "phase": "build",
+            "group": "deployment",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "managed-inference",
+                    "realtime-inference",
+                    "async-inference"
+                ],
+                "architectures": [
+                    "transformers",
+                    "diffusors"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "cliBehavior": true,
+            "deprecated": false,
+            "since": "1.2.0"
+        },
         "framework": {
             "type": "enum",
             "description": "ML framework",

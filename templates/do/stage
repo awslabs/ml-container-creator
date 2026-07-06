@@ -30,6 +30,7 @@ FORCE=false
 UPDATE_CONFIG=true
 LOCAL_MODE=false
 NO_WAIT=false
+PROCESSING_INSTANCE_ARG=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE=true; shift ;;
@@ -38,8 +39,9 @@ while [ $# -gt 0 ]; do
         --local) LOCAL_MODE=true; shift ;;
         --submit) shift ;; # Deprecated — now the default; kept for backward compat
         --no-wait) NO_WAIT=true; shift ;;
+        --instance-type) shift; PROCESSING_INSTANCE_ARG="${1:-}"; shift ;;
         --help|-h)
-            echo "Usage: ./do/stage [--force] [--local] [--no-wait] [--no-update-config]"
+            echo "Usage: ./do/stage [--force] [--local] [--no-wait] [--instance-type <type>]"
             echo ""
             echo "Pre-stage model weights from HuggingFace to S3."
             echo "On success, updates MODEL_NAME in do/config so subsequent tasks"
@@ -52,6 +54,11 @@ while [ $# -gt 0 ]; do
             echo ""
             echo "Options:"
             echo "  --force             Re-stage even if model already exists in S3"
+            echo "  --instance-type     Processing Job instance (default: ml.m5.xlarge)"
+            echo "                      Valid: ml.m5.xlarge, ml.m5.2xlarge, ml.m5.4xlarge,"
+            echo "                             ml.m5.8xlarge, ml.m5.12xlarge, ml.m5.16xlarge,"
+            echo "                             ml.m5.24xlarge"
+            echo "                      Use larger instances for models >15B parameters"
             echo "  --no-update-config  Do NOT update MODEL_NAME in do/config after staging"
             echo "  --no-wait           Return immediately with job name (Processing Job mode)"
             echo ""
@@ -67,7 +74,26 @@ while [ $# -gt 0 ]; do
 done
 
 # ── Processing Job submission via .stage_helper.py ────────────────────────────
-PROCESSING_JOB_INSTANCE_TYPE="ml.m5.xlarge"
+PROCESSING_JOB_INSTANCE_TYPE="${PROCESSING_INSTANCE_ARG:-ml.m5.xlarge}"
+
+# Validate instance type (must be ml.m5.*)
+_VALID_STAGE_INSTANCES="ml.m5.xlarge ml.m5.2xlarge ml.m5.4xlarge ml.m5.8xlarge ml.m5.12xlarge ml.m5.16xlarge ml.m5.24xlarge"
+_instance_valid=false
+for _inst in ${_VALID_STAGE_INSTANCES}; do
+    if [ "${PROCESSING_JOB_INSTANCE_TYPE}" = "${_inst}" ]; then
+        _instance_valid=true
+        break
+    fi
+done
+if [ "${_instance_valid}" = false ]; then
+    echo "❌ Invalid instance type: ${PROCESSING_JOB_INSTANCE_TYPE}"
+    echo "   Valid options: ${_VALID_STAGE_INSTANCES}"
+    echo ""
+    echo "   Guidance: Use ml.m5.xlarge for models ≤15B, ml.m5.4xlarge for 15B-70B,"
+    echo "             ml.m5.12xlarge for 70B+ models."
+    exit 1
+fi
+
 PROCESSING_JOB_VOLUME_GB=2048
 
 _submit_processing_job() {

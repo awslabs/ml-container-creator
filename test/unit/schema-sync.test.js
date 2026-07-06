@@ -208,8 +208,8 @@ describe('Schema Sync', () => {
                 syncCalled = true;
             };
 
-            // Override interactive setup to prevent actual AWS calls
-            handler._handleInteractiveSetup = async () => {
+            // Override landing to prevent actual calls
+            handler._handleLanding = async () => {
                 setupCalled = true;
             };
 

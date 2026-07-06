@@ -4,6 +4,7 @@
 import { existsSync, unlinkSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import AssetManager from './asset-manager.js';
+import { loadModuleManifest } from './bootstrap-module-selector.js';
 
 const STACK_NAME_PREFIX = 'mlcc-bootstrap';
 
@@ -40,153 +41,101 @@ export default class BootstrapProfileManager {
         console.log('─'.repeat(40));
 
         for (const [key, value] of Object.entries(profile.config)) {
-            console.log(`  ${key}: ${value}`);
+            if (Array.isArray(value)) {
+                console.log(`  ${key}: ${value.join(', ')}`);
+            } else if (value && typeof value === 'object') {
+                console.log(`  ${key}:`);
+                for (const [subKey, subVal] of Object.entries(value)) {
+                    if (subVal && typeof subVal === 'object') {
+                        const pairs = Object.entries(subVal)
+                            .map(([k, v]) => `${k}=${v}`)
+                            .join(', ');
+                        console.log(`    ${subKey}: ${pairs}`);
+                    } else {
+                        console.log(`    ${subKey}: ${subVal}`);
+                    }
+                }
+            } else {
+                console.log(`  ${key}: ${value}`);
+            }
         }
 
         console.log('─'.repeat(40));
 
-        // Validate bootstrap stack
+        // ── Module-aware resource validation ────────────────────────────────
         console.log('\n🔍 Resource Validation:');
 
-        const stackName = profile.config.stackName || `${STACK_NAME_PREFIX}-${profile.name}`;
+        const provisionedModules = profile.config.provisionedModules || [];
 
-        try {
-            const stackInfo = this.handler._execAws(
-                `cloudformation describe-stacks --stack-name ${stackName} --region ${profile.config.awsRegion}`,
-                profile.config.awsProfile
-            );
-
-            const stack = stackInfo.Stacks && stackInfo.Stacks[0];
-            if (stack) {
-                const status = stack.StackStatus;
-                const statusIcon = status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE' ? '✅' : '⚠️';
-                console.log(`  ${statusIcon} Bootstrap stack: ${stackName} (${status})`);
-
-                // Show stack outputs
-                const outputs = {};
-                for (const output of (stack.Outputs || [])) {
-                    outputs[output.OutputKey] = output.OutputValue;
-                }
-
-                if (outputs.RoleArn) {
-                    console.log(`  ✅ IAM role: ${outputs.RoleArn.split('/').pop()}`);
-                }
-                if (outputs.EcrRepositoryName) {
-                    console.log(`  ✅ ECR repository: ${outputs.EcrRepositoryName}`);
-                }
-                if (outputs.AsyncS3BucketName) {
-                    console.log(`  ✅ S3 bucket (async): ${outputs.AsyncS3BucketName}`);
-                }
-                if (outputs.BatchS3BucketName) {
-                    console.log(`  ✅ S3 bucket (batch): ${outputs.BatchS3BucketName}`);
-                }
-                if (outputs.AdapterS3BucketName) {
-                    console.log(`  ✅ S3 bucket (adapters): ${outputs.AdapterS3BucketName}`);
-                }
-                if (outputs.BenchmarkS3BucketName) {
-                    console.log(`  ✅ S3 bucket (benchmark): ${outputs.BenchmarkS3BucketName}`);
-                }
-                if (outputs.StackVersion) {
-                    console.log(`  📋 Stack version: ${outputs.StackVersion}`);
-                }
-            }
-        } catch {
-            // Fall back to individual resource checks for profiles created before CloudFormation migration
-            console.log(`  ⚠️  Bootstrap stack "${stackName}" not found — checking resources individually`);
-
-            try {
-                const defaultRoleName = 'mlcc-sagemaker-execution-role';
-                let roleName = defaultRoleName;
-                if (profile.config.roleArn) {
-                    const arnParts = profile.config.roleArn.split('/');
-                    roleName = arnParts[arnParts.length - 1];
-                }
-
-                const roleExists = this.handler._resourceExists(
-                    `iam get-role --role-name ${roleName}`,
-                    profile.config.awsProfile
-                );
-                if (roleExists) {
-                    console.log(`  ✅ IAM role: ${roleName}`);
-                } else {
-                    console.log(`  ⚠️  IAM role: ${roleName} — missing`);
-                }
-            } catch {
-                console.log('  ⚠️  IAM role: could not validate');
-            }
-
-            try {
-                const ecrExists = this.handler._resourceExists(
-                    `ecr describe-repositories --repository-names ml-container-creator --region ${profile.config.awsRegion}`,
-                    profile.config.awsProfile
-                );
-                if (ecrExists) {
-                    console.log('  ✅ ECR repository: ml-container-creator');
-                } else {
-                    console.log('  ⚠️  ECR repository: ml-container-creator — missing');
-                }
-            } catch {
-                console.log('  ⚠️  ECR repository: could not validate');
-            }
-
-            if (profile.config.asyncS3Bucket) {
-                try {
-                    const asyncExists = this.handler._resourceExists(
-                        `s3api head-bucket --bucket ${profile.config.asyncS3Bucket}`,
-                        profile.config.awsProfile
-                    );
-                    console.log(asyncExists
-                        ? `  ✅ S3 bucket: ${profile.config.asyncS3Bucket}`
-                        : `  ⚠️  S3 bucket: ${profile.config.asyncS3Bucket} — missing`);
-                } catch {
-                    console.log(`  ⚠️  S3 bucket: ${profile.config.asyncS3Bucket} — could not validate`);
-                }
-            }
-
-            if (profile.config.batchS3Bucket) {
-                try {
-                    const batchExists = this.handler._resourceExists(
-                        `s3api head-bucket --bucket ${profile.config.batchS3Bucket}`,
-                        profile.config.awsProfile
-                    );
-                    console.log(batchExists
-                        ? `  ✅ S3 bucket: ${profile.config.batchS3Bucket}`
-                        : `  ⚠️  S3 bucket: ${profile.config.batchS3Bucket} — missing`);
-                } catch {
-                    console.log(`  ⚠️  S3 bucket: ${profile.config.batchS3Bucket} — could not validate`);
-                }
-            }
-
-            if (profile.config.benchmarkS3Bucket) {
-                try {
-                    const benchmarkExists = this.handler._resourceExists(
-                        `s3api head-bucket --bucket ${profile.config.benchmarkS3Bucket}`,
-                        profile.config.awsProfile
-                    );
-                    console.log(benchmarkExists
-                        ? `  ✅ S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket}`
-                        : `  ⚠️  S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket} — missing`);
-                } catch {
-                    console.log(`  ⚠️  S3 bucket (benchmark): ${profile.config.benchmarkS3Bucket} — could not validate`);
-                }
-            }
-        }
-
-        // Check AI Registry hub status
-        if (profile.config.aiRegistryHubName) {
-            try {
-                const hubExists = this.handler._resourceExists(
-                    `sagemaker describe-hub --hub-name ${profile.config.aiRegistryHubName} --region ${profile.config.awsRegion}`,
-                    profile.config.awsProfile
-                );
-                console.log(hubExists
-                    ? `  ✅ AI Registry hub: ${profile.config.aiRegistryHubName}`
-                    : `  ⚠️  AI Registry hub: ${profile.config.aiRegistryHubName} — missing`);
-            } catch {
-                console.log(`  ⚠️  AI Registry hub: ${profile.config.aiRegistryHubName} — could not validate`);
-            }
+        if (provisionedModules.length === 0) {
+            // Legacy profile (pre-modular) — fall back to individual resource checks
+            console.log('  ℹ️  No modular stacks recorded (legacy profile). Checking core resources individually.');
+            this._validateLegacyResources(profile);
         } else {
-            console.log('  ℹ️  AI Registry hub: not provisioned (run bootstrap to create)');
+            // Migration awareness: a profile can be "migrated" (has
+            // provisionedModules) while its resources still live in the legacy
+            // monolithic stack (mlcc-bootstrap-<profile>) — no per-module stacks
+            // exist yet. Detect that up front so we don't alarm the user with
+            // "stack not found" for every module.
+            const monolithicStackName = `${STACK_NAME_PREFIX}-${profile.name}`;
+            let monolithicExists = false;
+            try {
+                const info = this.handler._execAws(
+                    `cloudformation describe-stacks --stack-name ${monolithicStackName} --region ${profile.config.awsRegion}`,
+                    profile.config.awsProfile
+                );
+                monolithicExists = !!(info.Stacks && info.Stacks[0]);
+            } catch {
+                monolithicExists = false;
+            }
+
+            let manifest;
+            try {
+                manifest = loadModuleManifest();
+            } catch {
+                manifest = { modules: {} };
+            }
+
+            let anyModuleStackFound = false;
+            const moduleLines = [];
+            for (const moduleName of provisionedModules) {
+                const mod = manifest.modules[moduleName];
+                const suffix = (mod && mod.stackNameSuffix) || moduleName;
+                const stackName = `mlcc-${profile.name}-${suffix}`;
+
+                try {
+                    const stackInfo = this.handler._execAws(
+                        `cloudformation describe-stacks --stack-name ${stackName} --region ${profile.config.awsRegion}`,
+                        profile.config.awsProfile
+                    );
+                    const stack = stackInfo.Stacks && stackInfo.Stacks[0];
+                    if (stack) {
+                        anyModuleStackFound = true;
+                        const status = stack.StackStatus;
+                        const ok = status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE';
+                        const icon = ok ? '✅' : '⚠️';
+                        const label = (mod && mod.displayName) || moduleName;
+                        moduleLines.push(`  ${icon} ${label} (${moduleName}): ${stackName} — ${status}`);
+                    } else {
+                        moduleLines.push(`  ⚠️  ${moduleName}: stack ${stackName} not found`);
+                    }
+                } catch {
+                    moduleLines.push(`  ⚠️  ${moduleName}: stack ${stackName} not found or unreadable`);
+                }
+            }
+
+            if (!anyModuleStackFound && monolithicExists) {
+                // Migrated metadata, but resources are still in the monolithic stack.
+                console.log('  ℹ️  Profile migrated to modular format, but resources still live in the legacy');
+                console.log(`     monolithic stack (${monolithicStackName}). No per-module stacks exist yet.`);
+                console.log(`     Modules recorded: ${provisionedModules.join(', ')}`);
+                console.log('     Run `ml-container-creator bootstrap update` to provision per-module stacks');
+                console.log('     (retained buckets/ECR are adopted automatically).');
+            } else {
+                for (const line of moduleLines) {
+                    console.log(line);
+                }
+            }
         }
 
         // Display deployed resources from manifest
@@ -221,6 +170,48 @@ export default class BootstrapProfileManager {
         // Drift detection if --verify flag is set
         if (options.verify) {
             await this._handleStatusVerify(profile, assetManager);
+        }
+    }
+
+    /**
+     * Legacy fallback: validate core resources individually for pre-modular
+     * profiles that have no `provisionedModules`. Checks the IAM role and ECR
+     * repository by name (these are account-level singletons).
+     * @param {object} profile - Active profile object with name and config
+     */
+    _validateLegacyResources(profile) {
+        try {
+            const defaultRoleName = 'mlcc-sagemaker-execution-role';
+            let roleName = defaultRoleName;
+            if (profile.config.roleArn) {
+                const arnParts = profile.config.roleArn.split('/');
+                roleName = arnParts[arnParts.length - 1];
+            }
+            const roleExists = this.handler._resourceExists(
+                `iam get-role --role-name ${roleName}`,
+                profile.config.awsProfile
+            );
+            console.log(roleExists
+                ? `  ✅ IAM role: ${roleName}`
+                : `  ⚠️  IAM role: ${roleName} — missing`);
+        } catch {
+            console.log('  ⚠️  IAM role: could not validate');
+        }
+
+        try {
+            const ecrExists = this.handler._resourceExists(
+                `ecr describe-repositories --repository-names ml-container-creator --region ${profile.config.awsRegion}`,
+                profile.config.awsProfile
+            );
+            console.log(ecrExists
+                ? '  ✅ ECR repository: ml-container-creator'
+                : '  ⚠️  ECR repository: ml-container-creator — missing');
+        } catch {
+            console.log('  ⚠️  ECR repository: could not validate');
+        }
+
+        if (profile.config.aiRegistryHubName) {
+            console.log(`  ℹ️  AI Registry hub: ${profile.config.aiRegistryHubName} (legacy profile)`);
         }
     }
 

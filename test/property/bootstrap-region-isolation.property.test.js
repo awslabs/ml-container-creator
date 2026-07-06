@@ -26,8 +26,6 @@ import BootstrapCommandHandler from '../../src/lib/bootstrap-command-handler.js'
 import BootstrapConfig from '../../src/lib/bootstrap-config.js';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
-const STACK_NAME_PREFIX = 'mlcc-bootstrap';
-
 // ── Generators ───────────────────────────────────────────────────────────────
 
 /**
@@ -127,48 +125,35 @@ function createMockHandlerForSetup(configPath, { accountId, region }) {
     // Mock _displaySummary
     handler._displaySummary = () => {};
 
-    // Mock _resourceExists — captures its command and returns false
+    // Mock _resourceExists — captures its command and returns true (CDK bootstrapped)
     handler._resourceExists = (cmd, _profile) => {
         capturedCommands.push(cmd);
-        return false;
+        return true;
     };
 
     // Mock _execAws — captures all commands and returns appropriate mock data
     handler._execAws = (cmd) => {
         capturedCommands.push(cmd);
-
-        if (cmd.includes('list-stacks')) {
-            return []; // No existing stacks — fresh deployment
-        }
-        if (cmd.includes('describe-stacks')) {
-            return {
-                Stacks: [{
-                    Outputs: [
-                        { OutputKey: 'RoleArn', OutputValue: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role` },
-                        { OutputKey: 'EcrRepositoryName', OutputValue: 'ml-container-creator' },
-                        { OutputKey: 'AsyncS3BucketName', OutputValue: `mlcc-async-${accountId}-${region}` },
-                        { OutputKey: 'BatchS3BucketName', OutputValue: `mlcc-batch-${accountId}-${region}` }
-                    ]
-                }]
-            };
-        }
-        if (cmd.includes('iam get-role')) {
-            // Role does not exist — will be created by stack
-            throw new Error('NoSuchEntity');
-        }
         return {};
     };
 
-    // Mock _deployStack — captures the region parameter and returns outputs
-    handler._deployStack = (stackName, parameters, profile, deployRegion) => {
-        // Record a synthetic command to verify the region
-        capturedCommands.push(`cloudformation deploy --stack-name ${stackName} --region ${deployRegion}`);
-        return {
-            RoleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
-            EcrRepositoryName: 'ml-container-creator',
-            AsyncS3BucketName: `mlcc-async-${accountId}-${region}`,
-            BatchS3BucketName: `mlcc-batch-${accountId}-${region}`
-        };
+    // Mock _provisionModules — captures the region parameter
+    handler._provisionModules = async (ordered, _manifest, _profileName, acctId, provisionRegion) => {
+        capturedCommands.push(`cdk deploy --region ${provisionRegion}`);
+        const moduleOutputs = {};
+        for (const m of ordered) {
+            if (m === 'core') {
+                moduleOutputs.core = {
+                    RoleArn: `arn:aws:iam::${acctId}:role/mlcc-sagemaker-execution-role`,
+                    EcrRepositoryName: 'ml-container-creator'
+                };
+            } else if (m === 'registry') {
+                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${acctId}` };
+            } else {
+                moduleOutputs[m] = {};
+            }
+        }
+        return moduleOutputs;
     };
 
     return { handler, capturedCommands };
@@ -184,7 +169,7 @@ function createMockHandlerForSetup(configPath, { accountId, region }) {
  * @param {string} opts.region - Profile's configured AWS region
  * @returns {{ handler: BootstrapCommandHandler, capturedCommands: string[] }}
  */
-function createMockHandlerForUpdate(configPath, { accountId, region }) {
+function createMockHandlerForUpdate(configPath, { accountId, region: _region }) {
     const capturedCommands = [];
 
     const handler = new BootstrapCommandHandler({ promptFn: async () => ({}) });
@@ -205,30 +190,29 @@ function createMockHandlerForUpdate(configPath, { accountId, region }) {
     // Mock _execAws — captures commands, prevents real AWS calls
     handler._execAws = (cmd) => {
         capturedCommands.push(cmd);
-        if (cmd.includes('iam get-role')) {
-            throw new Error('NoSuchEntity');
-        }
-        if (cmd.includes('ecr describe-repositories')) {
-            throw new Error('RepositoryNotFoundException');
-        }
         return {};
     };
-
-    // Mock _ensureMlflowApp
-    handler._ensureMlflowApp = () => null;
 
     // Mock _runPostSetupChain
     handler._runPostSetupChain = async () => {};
 
-    // Mock _deployStack — captures the region parameter and returns outputs
-    handler._deployStack = (stackName, parameters, profile, deployRegion) => {
-        capturedCommands.push(`cloudformation deploy --stack-name ${stackName} --region ${deployRegion}`);
-        return {
-            RoleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
-            EcrRepositoryName: 'ml-container-creator',
-            AsyncS3BucketName: `mlcc-async-${accountId}-${region}`,
-            BatchS3BucketName: `mlcc-batch-${accountId}-${region}`
-        };
+    // Mock _provisionModules — captures the region parameter
+    handler._provisionModules = async (ordered, _manifest, _profileName, acctId, provisionRegion) => {
+        capturedCommands.push(`cdk deploy --region ${provisionRegion}`);
+        const moduleOutputs = {};
+        for (const m of ordered) {
+            if (m === 'core') {
+                moduleOutputs.core = {
+                    RoleArn: `arn:aws:iam::${acctId}:role/mlcc-sagemaker-execution-role`,
+                    EcrRepositoryName: 'ml-container-creator'
+                };
+            } else if (m === 'registry') {
+                moduleOutputs.registry = { AiRegistryHubName: `mlcc-registry-${acctId}` };
+            } else {
+                moduleOutputs[m] = {};
+            }
+        }
+        return moduleOutputs;
     };
 
     return { handler, capturedCommands };
@@ -245,13 +229,16 @@ function writeProfileConfig(handler, profileName, accountId, region) {
                 awsProfile: 'test-aws-profile',
                 awsRegion: region,
                 accountId,
-                stackName: `${STACK_NAME_PREFIX}-${profileName}`,
+                provisionedModules: ['core', 'registry'],
+                moduleOutputs: {
+                    core: {
+                        RoleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
+                        EcrRepositoryName: 'ml-container-creator'
+                    },
+                    registry: { AiRegistryHubName: `mlcc-registry-${accountId}` }
+                },
                 roleArn: `arn:aws:iam::${accountId}:role/mlcc-sagemaker-execution-role`,
-                ecrRepositoryName: 'ml-container-creator',
-                asyncS3Bucket: `mlcc-async-${accountId}-${region}`,
-                batchS3Bucket: `mlcc-batch-${accountId}-${region}`,
-                ciInfraProvisioned: false,
-                ciTableName: 'mlcc-ci-table'
+                ecrRepositoryName: 'ml-container-creator'
             }
         }
     });
@@ -375,7 +362,7 @@ describe('Feature: multi-region-bootstrap, Property 4: Region Isolation', () => 
      * always includes --region matching the profile's awsRegion. This ensures
      * the stack is created in the correct region.
      */
-    it('cloudformation deploy always specifies the correct region during setup', async function () {
+    it('cdk deploy always specifies the correct region during setup', async function () {
         this.timeout(PROPERTY_CONFIG.timeout);
 
         await fc.assert(fc.asyncProperty(
@@ -401,11 +388,11 @@ describe('Feature: multi-region-bootstrap, Property 4: Region Isolation', () => 
                     });
                 });
 
-                // Find the cloudformation deploy command
-                const deployCmds = capturedCommands.filter(cmd => cmd.includes('cloudformation deploy'));
+                // Find the cdk deploy command (modular flow)
+                const deployCmds = capturedCommands.filter(cmd => cmd.includes('cdk deploy'));
                 assert.ok(
                     deployCmds.length > 0,
-                    'Expected at least one cloudformation deploy command'
+                    'Expected at least one cdk deploy command'
                 );
 
                 for (const cmd of deployCmds) {
@@ -413,7 +400,7 @@ describe('Feature: multi-region-bootstrap, Property 4: Region Isolation', () => 
                     assert.strictEqual(
                         cmdRegion,
                         region,
-                        `CloudFormation deploy targets wrong region: "${cmdRegion}" instead of "${region}". Command: ${cmd}`
+                        `CDK deploy targets wrong region: "${cmdRegion}" instead of "${region}". Command: ${cmd}`
                     );
                 }
             }

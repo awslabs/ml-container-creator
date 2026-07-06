@@ -244,7 +244,7 @@ Benchmark a specific LoRA adapter to compare against the base model:
 
 ## Results Persistence
 
-When benchmark infrastructure is provisioned (`bootstrap --benchmark-infra`), results are automatically:
+When the benchmark module is provisioned (`bootstrap add-module benchmark`), results are automatically:
 
 1. **Written to S3** as aggregate JSON (`profile_export_aiperf.json`) in the benchmark S3 bucket
 2. **Converted to Parquet** and written to the CI benchmark results bucket (partitioned by model/instance/target)
@@ -276,20 +276,25 @@ See [CI Integration](ci-integration.md) for automated validation workflows and t
 For models >30B parameters, downloading from HuggingFace at deploy time can cause 30-60 minute startup delays or timeout failures. Pre-stage weights to your MCC S3 bucket first:
 
 ```bash
-./do/stage              # Default: SageMaker Processing Job (no local disk usage)
-./do/stage --local      # Download locally then sync to S3 (legacy behavior)
+./do/stage                              # Default: Processing Job on ml.m5.xlarge
+./do/stage --instance-type ml.m5.4xlarge   # Larger instance for 15B-70B models
+./do/stage --local                      # Download locally then sync to S3 (legacy)
 ```
 
 This downloads model weights from HuggingFace and uploads to `s3://{bucket}/{project}/models/{model-slug}/` (the model name is sanitized — `/` is replaced with `-` for safe S3 paths). Subsequent deploys load from S3 (seconds instead of minutes).
 
+!!! warning "Instance sizing for large models"
+    The default `ml.m5.xlarge` (16 GB RAM) is sufficient for models up to ~15B parameters.
+    Larger models require more memory for the download/checkpointing process:
+
+    | Model Size | Recommended Instance |
+    |-----------|---------------------|
+    | ≤15B | `ml.m5.xlarge` (default) |
+    | 15B–70B | `ml.m5.4xlarge` (64 GB RAM) |
+    | 70B+ | `ml.m5.12xlarge` (192 GB RAM) |
+
 After staging, `MODEL_NAME` in `do/config` is updated to the S3 URI. The original HuggingFace identifier is preserved as `HF_MODEL_ID` — this is used by `do/benchmark` for tokenizer resolution and by the benchmark writer for Athena partition paths.
 The script is idempotent — if weights are already staged, it skips the download.
-
-For models >500GB, use `--submit` to run as a SageMaker Processing Job with 2TB attached storage:
-
-```bash
-./do/stage --submit
-```
 
 !!! tip "S3 Model URIs"
     You can also generate a project directly with an S3 model URI: `--model-name s3://bucket/models/my-model/`. This skips HuggingFace entirely — useful when weights are pre-staged in a shared team bucket.

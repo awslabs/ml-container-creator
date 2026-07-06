@@ -7,6 +7,7 @@ environment meets prerequisites. No LLM needed — pure code checks.
 from __future__ import annotations
 
 import importlib.metadata
+import importlib.util
 import json
 import os
 import re
@@ -71,7 +72,9 @@ class EnvironmentHealthCheck:
         items.append(self._check_mcp_servers())
         if project_dir:
             items.append(self._check_secrets_configured(project_dir))
+            items.append(self._check_local_overrides(project_dir))
             items.append(self._check_benchmark_infra())
+            items.append(self._check_processing_job_ebs_quota())
         return items
 
     def _check_python_version(self) -> HealthItem:
@@ -122,12 +125,32 @@ class EnvironmentHealthCheck:
         missing: list[str] = []
         installed: list[str] = []
 
+        # Distribution name → import (module) name. Usually identical, but the
+        # fallback import check needs the module name when dist metadata is absent.
+        import_names = {
+            "sagemaker": "sagemaker",
+            "boto3": "boto3",
+            "huggingface_hub": "huggingface_hub",
+        }
+
         for pkg in _REQUIRED_PACKAGES:
             try:
                 version = importlib.metadata.version(pkg)
                 installed.append(f"{pkg}=={version}")
             except importlib.metadata.PackageNotFoundError:
-                missing.append(pkg)
+                # Metadata may be absent even when the package is importable —
+                # e.g. sagemaker v3 / sagemaker-core in uv/editable installs lay
+                # the modules on sys.path without registered .dist-info. Fall
+                # back to an import-spec check before declaring it missing.
+                module_name = import_names.get(pkg, pkg)
+                try:
+                    spec = importlib.util.find_spec(module_name)
+                except (ImportError, ValueError):
+                    spec = None
+                if spec is not None:
+                    installed.append(f"{pkg} (installed, version unknown)")
+                else:
+                    missing.append(pkg)
 
         if not missing:
             return HealthItem("pass", "Pip packages", ", ".join(installed))
@@ -275,6 +298,44 @@ class EnvironmentHealthCheck:
             "HF_TOKEN not set and no do/secrets.conf — may fail for gated models",
         )
 
+    def _check_local_overrides(self, project_dir: str) -> HealthItem:
+        """Check if .mlcc/ directory exists and report override entry counts.
+
+        Only relevant when inside a project directory.
+        """
+        mlcc_path = Path(project_dir) / ".mlcc"
+
+        if not mlcc_path.is_dir():
+            return HealthItem("pass", "Local overrides", "No local overrides")
+
+        # Map override files to their entry-counting logic
+        override_files = {
+            "model-picker": ("model-picker.json", "array", "models"),
+            "instance-sizer": ("instance-sizer.json", "array", "instances"),
+            "capabilities": ("capabilities.json", "object", "capabilities"),
+            "base-image-picker": ("base-image-picker.json", "array", "images"),
+        }
+
+        counts: dict[str, int] = {}
+        for label, (filename, fmt, key) in override_files.items():
+            filepath = mlcc_path / filename
+            if not filepath.exists():
+                continue
+            try:
+                data = json.loads(filepath.read_text())
+                entries = data.get(key, [] if fmt == "array" else {})
+                counts[label] = len(entries) if isinstance(entries, (list, dict)) else 0
+            except (json.JSONDecodeError, OSError):
+                # Malformed file — skip it silently
+                continue
+
+        if not counts:
+            return HealthItem("pass", "Local overrides", "No local overrides")
+
+        total = sum(counts.values())
+        details = ", ".join(f"{label}: {count}" for label, count in counts.items())
+        return HealthItem("pass", "Local overrides", f"{total} entries ({details})")
+
     def _check_benchmark_infra(self) -> HealthItem:
         """Check if benchmark S3 bucket and Glue database are in bootstrap profile."""
         if not _BOOTSTRAP_CONFIG_PATH.exists():
@@ -311,6 +372,62 @@ class EnvironmentHealthCheck:
             "Benchmark infra",
             f"Missing in profile: {', '.join(missing)} — benchmarks won't persist results",
         )
+
+    def _check_processing_job_ebs_quota(self) -> HealthItem:
+        """Check SageMaker Processing Job EBS volume quota (needed for do/stage).
+
+        The default do/stage Processing Job requests 2048 GB. New accounts have
+        a default quota of 100-500 GB which will cause job failures. Recommended
+        quota: 4096 GB to accommodate large model downloads.
+
+        Uses Service Quotas API to check the current limit.
+        """
+        try:
+            result = subprocess.run(
+                [
+                    "aws", "service-quotas", "get-service-quota",
+                    "--service-code", "sagemaker",
+                    "--quota-code", "L-7890BE28",  # Processing job max EBS volume size
+                    "--output", "json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            if result.returncode != 0:
+                # Quota API may not be available or quota code may differ
+                return HealthItem(
+                    "warn",
+                    "Processing Job EBS quota",
+                    "Could not check quota — verify manually if do/stage fails on large models. "
+                    "Request ≥4096 GB via Service Quotas → SageMaker → 'Processing job maximum EBS volume size'",
+                )
+
+            quota_data = json.loads(result.stdout)
+            quota_value = quota_data.get("Quota", {}).get("Value", 0)
+
+            if quota_value >= 2048:
+                return HealthItem(
+                    "pass",
+                    "Processing Job EBS quota",
+                    f"{int(quota_value)} GB (sufficient for do/stage)",
+                )
+            else:
+                return HealthItem(
+                    "warn",
+                    "Processing Job EBS quota",
+                    f"{int(quota_value)} GB — too low for large model staging. "
+                    "Request increase to 4096 GB via Service Quotas → SageMaker → "
+                    "'Processing job maximum EBS volume size in GB'",
+                )
+        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+            return HealthItem(
+                "warn",
+                "Processing Job EBS quota",
+                "Could not check (AWS CLI unavailable or timeout). "
+                "If do/stage fails on large models, increase EBS quota to ≥4096 GB.",
+            )
 
 
 def print_health_report(items: list[HealthItem]) -> None:

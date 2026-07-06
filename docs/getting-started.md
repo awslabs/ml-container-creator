@@ -13,6 +13,16 @@ This guide covers installation and two end-to-end walkthroughs: deploying a pred
 
 You also need an AWS IAM role with permissions for ECR, SageMaker AI, and (optionally) CodeBuild.
 
+!!! note "Service quota for large model staging"
+    If you plan to stage models >15B parameters via `do/stage` (SageMaker Processing Job),
+    your account's default EBS volume quota for Processing Jobs may be too low (100-500 GB).
+    The staging job requests 2048 GB of attached storage for model downloads.
+
+    **Recommended**: Request a quota increase to **4096 GB** via:
+    AWS Console → Service Quotas → SageMaker → *"Processing job maximum EBS volume size in GB"*
+
+    This is only needed for large model staging — deployments and training use separate quotas.
+
 **Python dependencies** (`boto3`, `sagemaker>=3.0`, `huggingface_hub`, `pyarrow`, `hf_transfer`, `packaging`, `PyYAML`) are installed automatically when you run `npm install`. If you use a virtual environment or pyenv, activate it before running `npm install` so dependencies land in the correct location. The full list is in [`requirements.txt`](https://github.com/awslabs/ml-container-creator/blob/main/requirements.txt).
 
 Verify your setup:
@@ -112,7 +122,31 @@ sklearn-demo/
 
 ### Build, push, and deploy
 
-If you haven't already, run `ml-container-creator bootstrap` to set up your IAM role and ECR repository. Optionally sync AWS service models for pre-deploy validation:
+If you haven't already, run `ml-container-creator bootstrap` to set up shared AWS infrastructure. The bootstrap provisions modular CDK stacks (core, registry, benchmark, training, ci) that you can select interactively or via `--with`:
+
+```bash
+# Interactive: select modules from a menu
+ml-container-creator bootstrap add my-profile
+
+# Non-interactive: provision core + registry (default)
+ml-container-creator bootstrap --non-interactive --profile my-profile --region us-west-2
+
+# Non-interactive with extra modules
+ml-container-creator bootstrap --non-interactive --profile my-profile --region us-west-2 --with benchmark,training
+
+# Preview what would be provisioned without creating resources
+ml-container-creator bootstrap add my-profile --dry-run
+```
+
+Add or remove modules after initial setup:
+
+```bash
+ml-container-creator bootstrap add-module training
+ml-container-creator bootstrap add-module training --dry-run
+ml-container-creator bootstrap remove-module benchmark --dry-run
+```
+
+Optionally sync AWS service models for pre-deploy validation:
 
 ```bash
 ml-container-creator bootstrap sync-schemas
@@ -296,19 +330,23 @@ Tear down deployed resources to stop incurring charges:
 
 ## CI Integration (Optional)
 
-The bootstrap command can optionally provision a **CI Integration Harness** that automatically tests your deployment configurations end-to-end on a recurring schedule. This is useful for validating that the generator continues to produce working containers across all supported configurations.
+The bootstrap command can provision a **CI module** that automatically tests your deployment configurations end-to-end on a recurring schedule. This is useful for validating that the generator continues to produce working containers across all supported configurations.
 
-To enable CI during bootstrap:
+To include CI during bootstrap:
 
 ```bash
-ml-container-creator bootstrap
-# Answer Yes when prompted for CI Integration
+# Interactive: select the "ci" module when prompted
+ml-container-creator bootstrap add my-profile
+
+# Non-interactive
+ml-container-creator bootstrap --non-interactive --profile my-profile --region us-west-2 --with benchmark,ci
 ```
 
 Or add CI to an existing bootstrap:
 
 ```bash
-ml-container-creator bootstrap update --ci
+ml-container-creator bootstrap add-module ci
+ml-container-creator bootstrap add-module ci --dry-run  # preview first
 ```
 
 Once provisioned, register any generated project for automated testing:
@@ -334,3 +372,31 @@ For full details, see the [CI Integration Guide](ci-integration.md).
 - [CI Integration](ci-integration.md) — Automated lifecycle testing for all deployment configurations
 - [Troubleshooting](TROUBLESHOOTING.md) — Common issues and solutions
 - [Advisory Agent](agent.md) — Get help from a conversational AI advisor: `ml-container-creator hey`
+
+---
+
+## Quick Start: DLC-Direct Mode (v1.2+)
+
+For the fastest path to deployment when you don't need container customization:
+
+```bash
+# 1. Bootstrap (one-time setup)
+ml-container-creator bootstrap add my-profile
+
+# 2. Generate a DLC-direct project (no Docker build needed)
+ml-container-creator my-model --no-build \
+  --deployment-config transformers-vllm \
+  --model-name Qwen/Qwen3-0.6B \
+  --instance-type ml.g5.xlarge
+
+# 3. Stage model weights to S3
+cd my-model
+./do/stage
+
+# 4. Deploy directly (uses stock AWS DLC image)
+./do/deploy
+```
+
+This skips the Dockerfile/build/push steps entirely — saving 10-20 minutes on first deployment. The resolved DLC image is CUDA-driver-compatible with your chosen instance type.
+
+See [Configuration: DLC-Direct Mode](configuration.md#dlc-direct-mode---no-build) for details and limitations.

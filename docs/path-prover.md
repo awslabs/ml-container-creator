@@ -37,7 +37,7 @@ Results are written to Athena with `run_type = 'path_prove'`, distinguishable fr
 ```
 
 !!! note "Prerequisites"
-    Path Prover requires the benchmark infrastructure to be provisioned: `ml-container-creator bootstrap --ci --benchmark-infra`. Without this, Athena writes will fail (no Glue database or table exists).
+    Path Prover requires the benchmark infrastructure to be provisioned: `ml-container-creator bootstrap add-module benchmark`. Without this, Athena writes will fail (no Glue database or table exists).
 
 !!! info "CodeBuild execution model"
     The Step Functions state machine invokes CodeBuild jobs in **fire-and-forget** mode (not synchronous `.sync` integration). The state machine polls for job completion via a wait loop rather than blocking on the CodeBuild API. This prevents Step Functions execution timeouts on long-running stages (e.g., tune jobs that take 1-2 hours).

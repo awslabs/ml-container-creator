@@ -403,6 +403,34 @@ aws sagemaker describe-inference-component \
 
 ## Getting Help
 
+## `do/stage` Processing Job fails for large models
+
+**Symptom:** Processing Job exits with code 1. CloudWatch logs may show `Killed` or out-of-memory errors during model download. No useful error message from `do/stage` itself.
+
+**Cause:** The default Processing Job instance (`ml.m5.xlarge`, 16 GB RAM) doesn't have enough memory to download and checkpoint large models (>15B parameters).
+
+**Fix:** Use a larger instance:
+
+```bash
+./do/stage --instance-type ml.m5.4xlarge   # 64 GB RAM — for 15B-70B models
+./do/stage --instance-type ml.m5.12xlarge  # 192 GB RAM — for 70B+ models
+```
+
+| Model Size | Required Instance |
+|-----------|------------------|
+| ≤15B | `ml.m5.xlarge` (default) |
+| 15B–70B | `ml.m5.4xlarge` |
+| 70B+ | `ml.m5.12xlarge` |
+
+**Also check:** Your account's EBS volume quota for Processing Jobs. New accounts default to 100-500 GB, but `do/stage` requests 2048 GB. Request an increase to **4096 GB** via:
+
+Service Quotas → SageMaker → *"Processing job maximum EBS volume size in GB"*
+
+The agent (`ml-container-creator hey`) checks this automatically in its health report.
+
+---
+
+
 ```bash
 # Container logs
 docker logs <container-id>
