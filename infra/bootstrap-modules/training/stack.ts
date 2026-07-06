@@ -56,12 +56,12 @@ export class MlccTrainingStack extends cdk.Stack {
         }));
 
         // Outputs
-        new cdk.CfnOutput(this, 'TrainingBucket', {
+        new cdk.CfnOutput(this, 'TrainingBucketOutput', {
             value: bucketName,
             exportName: `mlcc-${profileName}-training-TrainingBucket`,
         });
 
-        new cdk.CfnOutput(this, 'TrainingRoleArn', {
+        new cdk.CfnOutput(this, 'TrainingRoleArnOutput', {
             value: trainingRole.roleArn,
             exportName: `mlcc-${profileName}-training-TrainingRoleArn`,
         });

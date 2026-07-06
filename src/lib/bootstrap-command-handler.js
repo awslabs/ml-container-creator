@@ -101,7 +101,8 @@ export default class BootstrapCommandHandler {
         }
 
         if (args.length === 0) {
-            await this._handleInteractiveSetup(options);
+            // No subcommand: context-aware landing (never provisions — read-only).
+            await this._handleLanding(options);
             return;
         }
 
@@ -121,6 +122,11 @@ export default class BootstrapCommandHandler {
             await this._handleRemove(args[1], options);
             break;
         case 'add':
+            // `add <profile>` — create a new profile via interactive setup.
+            // Symmetric with `remove <profile>`.
+            await this._handleInteractiveSetup(options, args[1]);
+            break;
+        case 'add-module':
             await this._handleModuleAdd(args[1], options);
             break;
         case 'remove-module':
@@ -158,10 +164,57 @@ export default class BootstrapCommandHandler {
     }
 
     /**
-     * Interactive setup flow — provisions AWS resources and saves profile.
+     * Context-aware landing for bare `bootstrap` (no subcommand). Never
+     * provisions — read-only. If no profiles exist, shows getting-started
+     * guidance. If an active profile exists, shows status plus a compact
+     * next-steps footer.
      * @param {object} options - Parsed CLI options
      */
-    async _handleInteractiveSetup(options) {
+    async _handleLanding(options) {
+        const config = this.config.read();
+        const hasProfiles = config && config.profiles && Object.keys(config.profiles).length > 0;
+        const activeProfile = hasProfiles ? this.config.getActiveProfile() : null;
+
+        if (!activeProfile) {
+            // Getting-started guidance
+            console.log('\n🚀 ml-container-creator bootstrap\n');
+            console.log('Bootstrap provisions the shared AWS infrastructure your projects use —');
+            console.log('an IAM role, ECR repository, and optional modules (benchmark, registry,');
+            console.log('training, ci, and more), each as an independent CDK stack.\n');
+            console.log('No bootstrap profile exists yet. Create one to get started:\n');
+            console.log('  ml-container-creator bootstrap add <profile-name>\n');
+            console.log('This walks you through AWS profile + region selection, lets you pick');
+            console.log('which modules to provision, and saves the result as your active profile.\n');
+            console.log('Tip: add --dry-run to preview what would be created without provisioning.\n');
+            console.log('Run `ml-container-creator bootstrap --help` for all subcommands.');
+            return;
+        }
+
+        // Active profile exists — show status, then a next-steps footer.
+        await this._handleStatus(options);
+
+        const provisioned = activeProfile.config.provisionedModules || [];
+        const allModules = ['core', 'benchmark', 'registry', 'training', 'ci', 'sagemaker-domain', 'hyperpod-cluster'];
+        const available = allModules.filter(m => !provisioned.includes(m));
+
+        console.log('\n💡 Next steps:');
+        if (available.length > 0) {
+            console.log(`   Add a module:       ml-container-creator bootstrap add-module <${available.join('|')}>`);
+        }
+        if (provisioned.some(m => m !== 'core')) {
+            console.log('   Remove a module:    ml-container-creator bootstrap remove-module <module>');
+        }
+        console.log('   New profile:        ml-container-creator bootstrap add <profile-name>');
+        console.log('   Switch profile:     ml-container-creator bootstrap use <profile-name>');
+        console.log('   All commands:       ml-container-creator bootstrap --help');
+    }
+
+    /**
+     * Interactive setup flow — provisions AWS resources and saves profile.
+     * @param {object} options - Parsed CLI options
+     * @param {string} [profileNameArg] - Profile name from `add <profile>` (skips the name prompt)
+     */
+    async _handleInteractiveSetup(options, profileNameArg) {
         // Commander.js converts --non-interactive to options.nonInteractive (camelCase)
         const nonInteractive = options['non-interactive'] || options.nonInteractive;
 
@@ -205,8 +258,30 @@ export default class BootstrapCommandHandler {
                     if (profileConfig.aiRegistryHubName) {
                         discoveredModules.push('registry');
                     }
+                    // MLflow lived in the monolithic stack; in the modular world it
+                    // belongs to the training module. Infer training from mlflowAppArn.
+                    if (profileConfig.mlflowAppArn) {
+                        discoveredModules.push('training');
+                    }
                     if (profileConfig.ciInfraProvisioned) {
                         discoveredModules.push('ci');
+                    }
+
+                    // Validate the discovered set is dependency-consistent BEFORE
+                    // rewriting the profile. If a module is missing a required
+                    // dependency (e.g. ci discovered but no benchmark/registry
+                    // markers), warn and abort — do not write a broken profile.
+                    const { valid, missing } = validateDependencies(discoveredModules);
+                    if (!valid) {
+                        console.log('\n❌ Cannot migrate — the legacy profile maps to a dependency-inconsistent module set:\n');
+                        for (const m of missing) {
+                            console.log(`   ${m.module} requires: ${m.missingDeps.join(', ')} (no matching resource found in the legacy profile)`);
+                        }
+                        console.log(`\n   Discovered: ${discoveredModules.join(', ')}`);
+                        console.log('   This usually means the monolithic stack recorded CI without its');
+                        console.log('   benchmark/registry resources. Migration aborted — profile unchanged.');
+                        console.log('   Resolve by provisioning the missing pieces, or migrate manually.\n');
+                        return;
                     }
 
                     profileConfig.provisionedModules = discoveredModules;
@@ -230,10 +305,29 @@ export default class BootstrapCommandHandler {
                         };
                     }
 
+                    // Training module outputs — MLflow app + training bucket/role if present
+                    if (discoveredModules.includes('training')) {
+                        profileConfig.moduleOutputs.training = {};
+                        if (profileConfig.mlflowAppArn) {
+                            profileConfig.moduleOutputs.training.MlflowAppArn = profileConfig.mlflowAppArn;
+                        }
+                        if (profileConfig.trainingS3Bucket) {
+                            profileConfig.moduleOutputs.training.TrainingBucket = profileConfig.trainingS3Bucket;
+                        }
+                    }
+
+                    // CI module outputs — table name from legacy profile if present
+                    if (discoveredModules.includes('ci')) {
+                        profileConfig.moduleOutputs.ci = {};
+                        if (profileConfig.ciTableName) {
+                            profileConfig.moduleOutputs.ci.CiTableName = profileConfig.ciTableName;
+                        }
+                    }
+
                     this.config.setProfile(activeProfile.name, profileConfig);
                     console.log(`  ✅ Migrated profile "${activeProfile.name}" to modular format.`);
                     console.log(`     Modules: ${discoveredModules.join(', ')}`);
-                    console.log('     Note: Modular CDK stacks will be created on next `bootstrap add` or full setup.\n');
+                    console.log('     Note: Modular CDK stacks will be created on next `bootstrap add-module` or full setup.\n');
                     return;
                 } else {
                     console.log('  ⚠️  Monolithic bootstrap is deprecated. Run `bootstrap` again to migrate when ready.\n');
@@ -250,6 +344,9 @@ export default class BootstrapCommandHandler {
         let profileName;
         if (nonInteractive) {
             profileName = options.name || 'default';
+        } else if (profileNameArg) {
+            // Name supplied via `add <profile>` — skip the prompt.
+            profileName = profileNameArg;
         } else {
             const answer = await this._promptFn([{
                 type: 'input',
@@ -306,21 +403,24 @@ export default class BootstrapCommandHandler {
             selected = await selectModules(alreadyProvisioned, this._promptFn);
         }
 
-        // Validate and auto-add missing dependencies
+        // Validate dependencies — warn and abort if any selected module is
+        // missing a required dependency (e.g. `ci` without `benchmark`/`registry`).
+        // We deliberately do NOT auto-add: provisioning modules the user didn't
+        // choose (and didn't see the cost of) is surprising. Make them explicit.
         const { valid, missing } = validateDependencies(selected);
         if (!valid) {
-            const autoAdded = [];
+            console.log('\n❌ Cannot provision — missing required dependencies:\n');
             for (const m of missing) {
-                for (const dep of m.missingDeps) {
-                    if (!selected.includes(dep)) {
-                        selected.push(dep);
-                        autoAdded.push(dep);
-                    }
-                }
+                const mod = manifest.modules[m.module];
+                const label = (mod && mod.displayName) || m.module;
+                console.log(`   ${label} (${m.module}) requires: ${m.missingDeps.join(', ')}`);
             }
-            if (autoAdded.length > 0) {
-                console.log(`  ℹ️  Auto-adding required dependencies: ${autoAdded.join(', ')}`);
-            }
+            const allMissing = [...new Set(missing.flatMap(m => m.missingDeps))];
+            console.log(`\n   Re-run and also select: ${allMissing.join(', ')}`);
+            console.log('   (Dependencies are not auto-added — select them explicitly so you');
+            console.log('    see what will be provisioned and its cost.)\n');
+            console.log('   Aborted — nothing was provisioned.');
+            return;
         }
 
         // Topological sort for correct provisioning order
@@ -447,12 +547,33 @@ export default class BootstrapCommandHandler {
             return;
         }
 
-        this._displayProgress('☁️', 'Re-provisioning modular stacks...');
-
         const provisioned = profileConfig.provisionedModules || ['core'];
         const manifest = loadModuleManifest();
         const ordered = topologicalSort(provisioned);
-        const moduleOutputs = await this._provisionModules(ordered, manifest, name, profileConfig.accountId, profileConfig.awsRegion, profileConfig.awsProfile);
+
+        // Dry-run: show `cdk diff` per module, apply nothing.
+        if (options.dryRun) {
+            console.log('\n🔍 Dry run — showing pending changes per module (nothing will be applied).\n');
+            console.log(`   Modules: ${ordered.join(', ')}\n`);
+            this._ensureModuleDeps();
+            const { CdkModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
+            for (const moduleName of ordered) {
+                const runner = new CdkModuleRunner(moduleName, manifest.modules[moduleName].stackNameSuffix);
+                await runner.diff({
+                    accountId: profileConfig.accountId,
+                    awsRegion: profileConfig.awsRegion,
+                    awsProfile: profileConfig.awsProfile,
+                    profileName: name
+                });
+            }
+            console.log('\n   Re-run without --dry-run to apply these changes.');
+            return;
+        }
+
+        this._displayProgress('☁️', 'Re-provisioning modular stacks...');
+
+        console.log(`   Modules to update: ${ordered.join(', ')}\n`);
+        const moduleOutputs = await this._provisionModules(ordered, manifest, name, profileConfig.accountId, profileConfig.awsRegion, profileConfig.awsProfile, { forceDeploy: true });
 
         if (moduleOutputs === null) {
             // Fatal failure — partial progress not saved
@@ -488,6 +609,12 @@ export default class BootstrapCommandHandler {
         // Save updated profile
         this.config.setProfile(name, profileConfig);
         console.log(`\n✅ Update complete for profile "${name}"`);
+        console.log('   Modules re-deployed (CloudFormation applied any template changes):');
+        for (const moduleName of ordered) {
+            const sn = `mlcc-${name}-${manifest.modules[moduleName].stackNameSuffix}`;
+            console.log(`     • ${moduleName} → ${sn}`);
+        }
+        console.log('   Run `ml-container-creator bootstrap status` to verify stack states.');
 
         // Re-run post-setup chain after updating AWS resources
         await this._runPostSetupChain(options);
@@ -938,7 +1065,7 @@ export default class BootstrapCommandHandler {
      * @param {string} awsProfile - AWS CLI profile name
      * @returns {Promise<object|null>} Map of module name → outputs, or null if fatal failure
      */
-    async _provisionModules(ordered, manifest, profileName, accountId, region, awsProfile) {
+    async _provisionModules(ordered, manifest, profileName, accountId, region, awsProfile, opts = {}) {
         const { CdkModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
         const moduleOutputs = {};
         this._ensureModuleDeps();
@@ -952,7 +1079,7 @@ export default class BootstrapCommandHandler {
                     awsRegion: region,
                     awsProfile,
                     profileName
-                });
+                }, { forceDeploy: opts.forceDeploy === true });
                 moduleOutputs[moduleName] = outputs;
             } catch (error) {
                 console.log(`  ❌ Module "${moduleName}" failed: ${error.message}`);
@@ -1036,13 +1163,13 @@ export default class BootstrapCommandHandler {
      * Show bootstrap usage help.
      */
     /**
-     * Handle `bootstrap add <module>` — provision a single additional module.
+     * Handle `bootstrap add-module <module>` — provision a single additional module.
      * @param {string} moduleName - Module to add
      * @param {object} options - CLI options
      */
     async _handleModuleAdd(moduleName, options) {
         if (!moduleName) {
-            console.log('❌ Usage: ml-container-creator bootstrap add <module>');
+            console.log('❌ Usage: ml-container-creator bootstrap add-module <module>');
             console.log('   Available modules: core, benchmark, registry, training, ci, sagemaker-domain, hyperpod-cluster');
             return;
         }
@@ -1079,7 +1206,7 @@ export default class BootstrapCommandHandler {
             for (const m of missing) {
                 if (m.module === moduleName) {
                     console.log(`❌ Module "${moduleName}" requires: ${m.missingDeps.join(', ')}`);
-                    console.log(`   Provision dependencies first: ml-container-creator bootstrap add ${m.missingDeps[0]}`);
+                    console.log(`   Provision dependencies first: ml-container-creator bootstrap add-module ${m.missingDeps[0]}`);
                     return;
                 }
             }
@@ -1266,17 +1393,18 @@ USAGE:
   ml-container-creator bootstrap [subcommand] [options]
 
 SUBCOMMANDS:
-  (no subcommand)                     Interactive setup (default) — select and provision modules
-  add <module>                        Add a single module to the active profile
+  (no subcommand)                     Getting-started guidance, or status + next steps if a profile exists
+  add <profile>                       Create a new bootstrap profile (interactive setup + module selection)
+  remove <profile>                    Remove a bootstrap profile (config only — does not delete AWS resources)
+  add-module <module>                 Add a single module to the active profile
   remove-module <module>              Remove a single module (tears down its CDK stack)
   status                              Show active profile, module state, and deployed resources
   status --verify                     Show status and verify active resources exist in AWS
   use <profile>                       Switch active bootstrap profile
   list                                List all bootstrap profiles
-  remove <profile>                    Remove a bootstrap profile
   scan                                Discover pre-existing MLCC-managed resources in AWS
   prune                               Remove deleted and unknown records from the deployment manifest
-  update                              Re-provision all modules using active profile (no prompts)
+  update [--dry-run]                  Re-provision all installed modules (--dry-run shows cdk diff per module, applies nothing)
   migrate                             Upgrade legacy profiles to current naming conventions
   sync-schemas                        Download AWS service model schemas (sagemaker, iam, ecr, s3)
   sync-model-families                 Discover tune-eligible models from JumpStart Hub and update catalog
@@ -1317,8 +1445,8 @@ EXAMPLES:
   ml-container-creator bootstrap --dry-run
   ml-container-creator bootstrap --non-interactive --profile my-aws-profile --region us-west-2
   ml-container-creator bootstrap --non-interactive --profile my-aws-profile --region us-west-2 --with benchmark,training,ci
-  ml-container-creator bootstrap add training
-  ml-container-creator bootstrap add training --dry-run
+  ml-container-creator bootstrap add-module training
+  ml-container-creator bootstrap add-module training --dry-run
   ml-container-creator bootstrap remove-module benchmark
   ml-container-creator bootstrap remove-module benchmark --dry-run
   ml-container-creator bootstrap status
@@ -1337,7 +1465,24 @@ EXAMPLES:
         console.log(`\n📋 Bootstrap Profile: ${profileName}`);
         console.log('─'.repeat(40));
         for (const [key, value] of Object.entries(profileConfig)) {
-            console.log(`  ${key}: ${value}`);
+            if (Array.isArray(value)) {
+                console.log(`  ${key}: ${value.join(', ')}`);
+            } else if (value && typeof value === 'object') {
+                // Nested object (e.g. moduleOutputs) — print module → key=value lines
+                console.log(`  ${key}:`);
+                for (const [subKey, subVal] of Object.entries(value)) {
+                    if (subVal && typeof subVal === 'object') {
+                        const pairs = Object.entries(subVal)
+                            .map(([k, v]) => `${k}=${v}`)
+                            .join(', ');
+                        console.log(`    ${subKey}: ${pairs}`);
+                    } else {
+                        console.log(`    ${subKey}: ${subVal}`);
+                    }
+                }
+            } else {
+                console.log(`  ${key}: ${value}`);
+            }
         }
         console.log('─'.repeat(40));
     }

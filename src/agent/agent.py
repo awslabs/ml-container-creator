@@ -1,4 +1,42 @@
 
+"""ml-container-creator hey — Advisory agent powered by Strands.
+
+Entry point for the interactive REPL that connects to MCP servers
+and provides ML infrastructure guidance via Claude on Bedrock.
+
+Usage:
+    python3 src/agent/agent.py --project-dir <path> [--offline|-o]
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import signal
+import sys
+from pathlib import Path
+from typing import Any
+
+os.environ.setdefault("PYTHONUNBUFFERED", "1")
+
+from strands import Agent, tool
+from strands.tools.mcp import MCPClient
+from mcp.client.stdio import StdioServerParameters, stdio_client
+
+from config_loader import load_agent_config
+from context import ProjectContext
+from execution_config import load_execution_config
+from health_check import EnvironmentHealthCheck, print_health_report
+from tools.execute_script import create_execute_script_tool, get_execution_log
+
+
+# ─── Constants ────────────────────────────────────────────────────────────────
+
+_PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
+_MCP_CONFIG_PATH = _PACKAGE_ROOT / "config" / "mcp.json"
+_SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system.md"
+_CAPABILITY_MATRIX_PATH = Path(__file__).resolve().parent / "data" / "capability-matrix.json"
+
 
 # ─── read_docs tool ──────────────────────────────────────────────────────────
 
@@ -65,46 +103,6 @@ def _create_read_docs_tool():
         return content
 
     return read_docs
-
-
-
-"""ml-container-creator hey — Advisory agent powered by Strands.
-
-Entry point for the interactive REPL that connects to MCP servers
-and provides ML infrastructure guidance via Claude on Bedrock.
-
-Usage:
-    python3 src/agent/agent.py --project-dir <path> [--offline|-o]
-"""
-
-from __future__ import annotations
-
-import json
-import os
-import signal
-import sys
-from pathlib import Path
-from typing import Any
-
-os.environ.setdefault("PYTHONUNBUFFERED", "1")
-
-from strands import Agent, tool
-from strands.tools.mcp import MCPClient
-from mcp.client.stdio import StdioServerParameters, stdio_client
-
-from config_loader import load_agent_config
-from context import ProjectContext
-from execution_config import load_execution_config
-from health_check import EnvironmentHealthCheck, print_health_report
-from tools.execute_script import create_execute_script_tool, get_execution_log
-
-
-# ─── Constants ────────────────────────────────────────────────────────────────
-
-_PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
-_MCP_CONFIG_PATH = _PACKAGE_ROOT / "config" / "mcp.json"
-_SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system.md"
-_CAPABILITY_MATRIX_PATH = Path(__file__).resolve().parent / "data" / "capability-matrix.json"
 
 
 # ─── write_file tool ──────────────────────────────────────────────────────────

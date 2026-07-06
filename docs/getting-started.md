@@ -126,7 +126,7 @@ If you haven't already, run `ml-container-creator bootstrap` to set up shared AW
 
 ```bash
 # Interactive: select modules from a menu
-ml-container-creator bootstrap
+ml-container-creator bootstrap add my-profile
 
 # Non-interactive: provision core + registry (default)
 ml-container-creator bootstrap --non-interactive --profile my-profile --region us-west-2
@@ -135,14 +135,14 @@ ml-container-creator bootstrap --non-interactive --profile my-profile --region u
 ml-container-creator bootstrap --non-interactive --profile my-profile --region us-west-2 --with benchmark,training
 
 # Preview what would be provisioned without creating resources
-ml-container-creator bootstrap --dry-run
+ml-container-creator bootstrap add my-profile --dry-run
 ```
 
 Add or remove modules after initial setup:
 
 ```bash
-ml-container-creator bootstrap add training
-ml-container-creator bootstrap add training --dry-run
+ml-container-creator bootstrap add-module training
+ml-container-creator bootstrap add-module training --dry-run
 ml-container-creator bootstrap remove-module benchmark --dry-run
 ```
 
@@ -336,7 +336,7 @@ To include CI during bootstrap:
 
 ```bash
 # Interactive: select the "ci" module when prompted
-ml-container-creator bootstrap
+ml-container-creator bootstrap add my-profile
 
 # Non-interactive
 ml-container-creator bootstrap --non-interactive --profile my-profile --region us-west-2 --with benchmark,ci
@@ -345,8 +345,8 @@ ml-container-creator bootstrap --non-interactive --profile my-profile --region u
 Or add CI to an existing bootstrap:
 
 ```bash
-ml-container-creator bootstrap add ci
-ml-container-creator bootstrap add ci --dry-run  # preview first
+ml-container-creator bootstrap add-module ci
+ml-container-creator bootstrap add-module ci --dry-run  # preview first
 ```
 
 Once provisioned, register any generated project for automated testing:
@@ -381,7 +381,7 @@ For the fastest path to deployment when you don't need container customization:
 
 ```bash
 # 1. Bootstrap (one-time setup)
-ml-container-creator bootstrap
+ml-container-creator bootstrap add my-profile
 
 # 2. Generate a DLC-direct project (no Docker build needed)
 ml-container-creator my-model --no-build \

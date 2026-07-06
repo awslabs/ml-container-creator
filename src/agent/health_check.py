@@ -7,6 +7,7 @@ environment meets prerequisites. No LLM needed — pure code checks.
 from __future__ import annotations
 
 import importlib.metadata
+import importlib.util
 import json
 import os
 import re
@@ -124,12 +125,32 @@ class EnvironmentHealthCheck:
         missing: list[str] = []
         installed: list[str] = []
 
+        # Distribution name → import (module) name. Usually identical, but the
+        # fallback import check needs the module name when dist metadata is absent.
+        import_names = {
+            "sagemaker": "sagemaker",
+            "boto3": "boto3",
+            "huggingface_hub": "huggingface_hub",
+        }
+
         for pkg in _REQUIRED_PACKAGES:
             try:
                 version = importlib.metadata.version(pkg)
                 installed.append(f"{pkg}=={version}")
             except importlib.metadata.PackageNotFoundError:
-                missing.append(pkg)
+                # Metadata may be absent even when the package is importable —
+                # e.g. sagemaker v3 / sagemaker-core in uv/editable installs lay
+                # the modules on sys.path without registered .dist-info. Fall
+                # back to an import-spec check before declaring it missing.
+                module_name = import_names.get(pkg, pkg)
+                try:
+                    spec = importlib.util.find_spec(module_name)
+                except (ImportError, ValueError):
+                    spec = None
+                if spec is not None:
+                    installed.append(f"{pkg} (installed, version unknown)")
+                else:
+                    missing.append(pkg)
 
         if not missing:
             return HealthItem("pass", "Pip packages", ", ".join(installed))

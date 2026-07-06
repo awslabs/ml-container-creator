@@ -64,12 +64,12 @@
     },
     "hyperpod-cluster": {
       "displayName": "HyperPod Cluster",
-      "description": "HyperPod EKS cluster configuration",
+      "description": "HyperPod cluster config intent (does not create a cluster)",
       "estimatedMonthlyCost": "$0",
       "required": false,
       "depends": ["core"],
       "stackNameSuffix": "hyperpod",
-      "exports": ["ClusterArn", "ClusterName"],
+      "exports": ["ClusterConfigParam", "ClusterStatus"],
       "resourceLevel": "profile"
     }
   }

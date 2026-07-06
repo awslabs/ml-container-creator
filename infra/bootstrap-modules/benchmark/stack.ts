@@ -55,12 +55,12 @@ export class MlccBenchmarkStack extends cdk.Stack {
         });
 
         // Outputs
-        new cdk.CfnOutput(this, 'BenchmarkBucket', {
+        new cdk.CfnOutput(this, 'BenchmarkBucketOutput', {
             value: bucketName,
             exportName: `mlcc-${profileName}-benchmark-BenchmarkBucket`,
         });
 
-        new cdk.CfnOutput(this, 'GlueDatabase', {
+        new cdk.CfnOutput(this, 'GlueDatabaseOutput', {
             value: 'mlcc_ci',
             exportName: `mlcc-${profileName}-benchmark-GlueDatabase`,
         });

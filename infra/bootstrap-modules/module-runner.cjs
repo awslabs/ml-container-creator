@@ -72,41 +72,67 @@ class CdkModuleRunner {
     }
 
     /**
-     * Provision this module's infrastructure. Idempotent.
+     * Compute the CDK context flags for adopting retained resources (S3 bucket,
+     * ECR repo) that already exist. Shared by provision() and diff() so the
+     * dry-run preview synthesizes the SAME template as the real deploy.
      * @param {object} profile - { accountId, awsRegion, awsProfile?, profileName }
-     * @returns {Promise<Record<string, string>>} Stack outputs
+     * @param {object} [opts] - { verbose?: boolean } — print ♻️ adoption notices
+     * @returns {string[]} array of --context flags (possibly empty)
      */
-    async provision(profile) {
-        const stackName = getStackName(profile.profileName, this.stackNameSuffix);
-
-        // Check if already provisioned (idempotent)
-        const currentStatus = await this.status(profile);
-        if (currentStatus.state === 'provisioned') {
-            console.log(`  ✅ ${this.name} already provisioned (${stackName})`);
-            return this._getStackOutputs(stackName, profile);
-        }
-
-        console.log(`  🚀 Deploying ${this.name} module (${stackName})...`);
-
-        // If this module owns a retained S3 bucket that already exists (from a
-        // prior teardown), tell the CDK app to adopt it rather than recreate it.
-        const adoptFlags = [];
+    _computeAdoptFlags(profile, opts = {}) {
+        const flags = [];
         const bucketName = retainedBucketFor(this.name, profile.accountId, profile.awsRegion);
         if (bucketName && this._bucketExists(bucketName, profile)) {
-            console.log(`  ♻️  Existing bucket detected (${bucketName}) — adopting instead of recreating`);
-            adoptFlags.push('--context adoptExistingBuckets=true');
+            if (opts.verbose) console.log(`  ♻️  Existing bucket detected (${bucketName}) — adopting instead of recreating`);
+            flags.push('--context adoptExistingBuckets=true');
         }
-
-        // Same for a retained ECR repository (core module).
         const ecrRepo = retainedEcrRepoFor(this.name);
         if (ecrRepo && this._ecrRepoExists(ecrRepo, profile)) {
-            console.log(`  ♻️  Existing ECR repo detected (${ecrRepo}) — adopting instead of recreating`);
-            adoptFlags.push('--context adoptExistingEcr=true');
+            if (opts.verbose) console.log(`  ♻️  Existing ECR repo detected (${ecrRepo}) — adopting instead of recreating`);
+            flags.push('--context adoptExistingEcr=true');
         }
+        return flags;
+    }
+
+    /**
+     * Provision this module's infrastructure. Idempotent.
+     * @param {object} profile - { accountId, awsRegion, awsProfile?, profileName }
+     * @param {object} [opts] - { forceDeploy?: boolean }
+     *   forceDeploy=true (used by `bootstrap update`) always runs `cdk deploy`
+     *   so CloudFormation diffs the template and applies any changes, instead of
+     *   short-circuiting when the stack already exists.
+     * @returns {Promise<Record<string, string>>} Stack outputs
+     */
+    async provision(profile, opts = {}) {
+        const stackName = getStackName(profile.profileName, this.stackNameSuffix);
+
+        // A prior failed deploy can leave the stack in a state CDK cannot update
+        // (e.g. ROLLBACK_COMPLETE). Detect and delete it first so this deploy
+        // starts clean, rather than failing with an un-updatable-stack error.
+        await this._cleanupUnupdatableStack(stackName, profile);
+
+        // Idempotency short-circuit for `add-module`: if the stack already
+        // exists, don't redeploy. `bootstrap update` passes forceDeploy=true to
+        // bypass this — cdk deploy is itself a no-op when nothing changed, but
+        // will apply template changes when there are any.
+        if (!opts.forceDeploy) {
+            const currentStatus = await this.status(profile);
+            if (currentStatus.state === 'provisioned') {
+                console.log(`  ✅ ${this.name} already provisioned (${stackName})`);
+                return this._getStackOutputs(stackName, profile);
+            }
+        }
+
+        console.log(`  ${opts.forceDeploy ? '🔄 Updating' : '🚀 Deploying'} ${this.name} module (${stackName})...`);
+
+        // Detect retained resources to adopt (bucket/ECR) — shared with diff()
+        // so the dry-run preview synthesizes the SAME template as the real deploy.
+        const adoptFlags = this._computeAdoptFlags(profile, { verbose: true });
 
         const cdkCmd = [
             'npx cdk deploy', stackName,
             '--require-approval never',
+            `--context module=${this.stackNameSuffix}`,
             `--context profileName=${profile.profileName}`,
             `--context accountId=${profile.accountId}`,
             `--context region=${profile.awsRegion}`,
@@ -147,6 +173,7 @@ class CdkModuleRunner {
         const cdkCmd = [
             'npx cdk destroy', stackName,
             '--force',
+            `--context module=${this.stackNameSuffix}`,
             `--context profileName=${profile.profileName}`,
             `--context accountId=${profile.accountId}`,
             `--context region=${profile.awsRegion}`,
@@ -170,6 +197,50 @@ class CdkModuleRunner {
         }
 
         console.log(`  ✅ ${this.name} module destroyed`);
+    }
+
+    /**
+     * Show what `cdk deploy` WOULD change for this module, without applying.
+     * Runs `cdk diff` and streams the output. Used by `bootstrap update --dry-run`.
+     * @param {object} profile - { accountId, awsRegion, awsProfile?, profileName }
+     * @returns {Promise<void>}
+     */
+    async diff(profile) {
+        const stackName = getStackName(profile.profileName, this.stackNameSuffix);
+        console.log(`  🔍 Diffing ${this.name} module (${stackName})...`);
+
+        // Use the SAME adopt flags the real deploy would use, so the diff
+        // reflects reality (e.g. an adopted bucket shows as a reference, not a
+        // spurious [+] AWS::S3::Bucket create).
+        const adoptFlags = this._computeAdoptFlags(profile, { verbose: false });
+
+        const cdkCmd = [
+            'npx cdk diff', stackName,
+            `--context module=${this.stackNameSuffix}`,
+            `--context profileName=${profile.profileName}`,
+            `--context accountId=${profile.accountId}`,
+            `--context region=${profile.awsRegion}`,
+            ...adoptFlags,
+        ].join(' ');
+
+        try {
+            execSync(cdkCmd, {
+                cwd: MODULES_ROOT,
+                encoding: 'utf8',
+                stdio: 'inherit',
+                env: {
+                    ...process.env,
+                    AWS_REGION: profile.awsRegion,
+                    CDK_DEFAULT_REGION: profile.awsRegion,
+                    CDK_DEFAULT_ACCOUNT: profile.accountId,
+                    ...(profile.awsProfile ? { AWS_PROFILE: profile.awsProfile } : {}),
+                },
+            });
+        } catch (err) {
+            // `cdk diff` exits non-zero when there ARE differences — that's not
+            // an error for our purposes. Only surface real failures.
+            // (exit code 1 = diffs present; we let the streamed output speak.)
+        }
     }
 
     /**
@@ -218,6 +289,72 @@ class CdkModuleRunner {
         } catch (err) {
             // Stack doesn't exist
             return { state: 'not-provisioned', resources: [] };
+        }
+    }
+
+    /**
+     * Delete a stack that is in a state CloudFormation cannot update, so a
+     * subsequent `cdk deploy` starts clean.
+     *
+     * Un-updatable states (must delete before re-deploy):
+     *   ROLLBACK_COMPLETE, ROLLBACK_FAILED  — failed initial CREATE
+     *   CREATE_FAILED                        — failed initial CREATE
+     *   DELETE_FAILED                        — failed teardown, stuck
+     *
+     * Recoverable states (leave alone — cdk deploy can proceed):
+     *   UPDATE_ROLLBACK_COMPLETE             — failed UPDATE, but stack is intact
+     *   *_COMPLETE, *_IN_PROGRESS
+     *
+     * @param {string} stackName
+     * @param {object} profile - { awsRegion, awsProfile? }
+     * @returns {Promise<void>}
+     */
+    async _cleanupUnupdatableStack(stackName, profile) {
+        const UNUPDATABLE = new Set([
+            'ROLLBACK_COMPLETE',
+            'ROLLBACK_FAILED',
+            'CREATE_FAILED',
+            'DELETE_FAILED',
+        ]);
+
+        let cfnStatus;
+        try {
+            const result = execSync(
+                `aws cloudformation describe-stacks --stack-name ${stackName} --region ${profile.awsRegion} --output json` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            const parsed = JSON.parse(result);
+            const stack = parsed.Stacks && parsed.Stacks[0];
+            cfnStatus = stack && stack.StackStatus;
+        } catch {
+            // Stack doesn't exist — nothing to clean up.
+            return;
+        }
+
+        if (!cfnStatus || !UNUPDATABLE.has(cfnStatus)) {
+            return; // Healthy, in-progress, or recoverable — leave it.
+        }
+
+        console.log(`  🧹 Stack ${stackName} is in ${cfnStatus} (un-updatable) — deleting before redeploy...`);
+        try {
+            execSync(
+                `aws cloudformation delete-stack --stack-name ${stackName} --region ${profile.awsRegion}` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            execSync(
+                `aws cloudformation wait stack-delete-complete --stack-name ${stackName} --region ${profile.awsRegion}` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            console.log(`  ✅ Removed failed stack ${stackName} — proceeding with clean deploy`);
+        } catch (err) {
+            // Deletion failed (e.g. a retained resource blocking, or DELETE_FAILED
+            // that won't clear). Surface an actionable message but don't hard-throw
+            // here — let the subsequent cdk deploy produce the authoritative error.
+            console.log(`  ⚠️  Could not auto-delete ${stackName}: ${err.message.split('\n')[0]}`);
+            console.log(`     You may need to delete it manually in the CloudFormation console, then retry.`);
         }
     }
 

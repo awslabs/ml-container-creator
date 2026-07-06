@@ -167,7 +167,7 @@ program
     .command('bootstrap')
     .description('Set up modular AWS infrastructure (core, benchmark, registry, training, ci)')
     .passThroughOptions()
-    .argument('[action]', 'Bootstrap action (status, use, list, add, remove-module, remove, scan, prune, update, migrate, sync-schemas, sync-model-families)')
+    .argument('[action]', 'Bootstrap action (add, remove, add-module, remove-module, status, use, list, scan, prune, update, migrate, sync-schemas, sync-model-families)')
     .argument('[args...]', 'Additional arguments')
     .option('--profile <profile>', 'AWS profile name')
     .option('--region <region>', 'AWS region')

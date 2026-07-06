@@ -77,6 +77,17 @@ export class MlccCiStack extends cdk.Stack {
         const codebuildProject = new codebuild.Project(this, 'CiExecutor', {
             projectName: `mlcc-ci-executor-${profileName}`,
             role: codebuildRole,
+            // No source repo — builds are triggered by the CI orchestrator with
+            // source/buildspec overrides at runtime. CodeBuild requires a concrete
+            // buildSpec when the source is NoSource, so provide a placeholder.
+            buildSpec: codebuild.BuildSpec.fromObject({
+                version: '0.2',
+                phases: {
+                    build: {
+                        commands: ['echo "mlcc CI executor — buildspec provided at runtime by the orchestrator"'],
+                    },
+                },
+            }),
             environment: {
                 buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
                 computeType: codebuild.ComputeType.MEDIUM,

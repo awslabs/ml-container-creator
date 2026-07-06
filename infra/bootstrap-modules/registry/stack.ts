@@ -38,7 +38,9 @@ export class MlccRegistryStack extends cdk.Stack {
                 action: 'createHub',
                 parameters: {
                     HubName: hubName,
-                    HubDescription: `AI Registry Hub for ml-container-creator (account: ${this.account})`,
+                    // SageMaker HubDescription constraint: ^[a-zA-Z0-9](-*[a-zA-Z0-9 .,])*
+                    // No parentheses or colons allowed.
+                    HubDescription: `AI Registry Hub for ml-container-creator account ${this.account}`,
                 },
                 physicalResourceId: cr.PhysicalResourceId.of(hubName),
             },
@@ -47,6 +49,9 @@ export class MlccRegistryStack extends cdk.Stack {
                 action: 'deleteHub',
                 parameters: { HubName: hubName },
             },
+            // createHub/deleteHub are in Lambda's built-in AWS SDK v3 — no need to
+            // install the latest SDK at deploy time (faster cold start, pinned SDK).
+            installLatestAwsSdk: false,
             policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: ['*'] }),
         });
 

@@ -3,11 +3,14 @@
 Bootstrap provisions the shared AWS infrastructure that MCC projects depend on. As of **v1.2**, infrastructure is decomposed into **independent, selectively-provisioned modules** — you choose which pieces you need, and each is deployed as its own CDK stack. Run it once per environment; all MCC projects using that profile reuse the same resources.
 
 ```bash
-ml-container-creator bootstrap
+ml-container-creator bootstrap add <profile-name>
 ```
 
 !!! tip "Run bootstrap before your first project"
     If you skip bootstrap, `do/deploy` and `do/push` still work — but you'll need to manually create an IAM role and ECR repository. Bootstrap automates this and gets the permissions right.
+
+!!! info "Command structure"
+    Bootstrap commands are symmetric on two axes: **profiles** (`add` / `remove` a `<profile>`) and **modules** (`add-module` / `remove-module` a `<module>`). Running bare `ml-container-creator bootstrap` with no subcommand shows getting-started guidance (if no profile exists) or your current status plus next steps (if one does) — it never provisions anything.
 
 ---
 
@@ -35,12 +38,12 @@ Each module is a standalone CDK stack named `mlcc-<profile>-<module>` (e.g., `ml
 ## Interactive Setup
 
 ```bash
-ml-container-creator bootstrap
+ml-container-creator bootstrap add <profile-name>
 ```
 
 The flow:
 
-1. **Profile name** — a label for this environment (default: `default`)
+1. **Profile name** — taken from the `add <profile-name>` argument (prompted if omitted)
 2. **AWS profile selection** — picks from your `~/.aws/config` profiles
 3. **Credential validation** — confirms access and discovers account ID + region
 4. **CDK dependency install** — on first run, dependencies for the module stacks are installed automatically into `infra/bootstrap-modules/` (you'll see "📦 Installing bootstrap-modules CDK dependencies")
@@ -102,10 +105,10 @@ The primary workflow for incrementally growing your infrastructure:
 
 ```bash
 # Preview adding a module (no resources created)
-ml-container-creator bootstrap add training --dry-run
+ml-container-creator bootstrap add-module training --dry-run
 
 # Add a single module
-ml-container-creator bootstrap add training
+ml-container-creator bootstrap add-module training
 
 # Preview a removal (shows any dependent-module cascade)
 ml-container-creator bootstrap remove-module benchmark --dry-run
@@ -168,8 +171,8 @@ The active profile determines which modules' resources are used by `do/` scripts
 To deploy in multiple regions within the same account, create a profile per region:
 
 ```bash
-ml-container-creator bootstrap   # Profile: mlcc-us-east-1, Region: us-east-1
-ml-container-creator bootstrap   # Profile: mlcc-us-west-2, Region: us-west-2
+ml-container-creator bootstrap add mlcc-us-east-1   # Region: us-east-1
+ml-container-creator bootstrap add mlcc-us-west-2   # Region: us-west-2
 ml-container-creator bootstrap use mlcc-us-west-2
 ```
 
@@ -339,7 +342,7 @@ These also run automatically as part of the post-setup chain during initial boot
 : Your current AWS credentials point to a different account than the profile's `accountId`. Switch AWS profiles (`export AWS_PROFILE=<correct-profile>`) or re-run bootstrap for this account.
 
 **A generated `do/` script reports an empty `ROLE_ARN` / bucket**
-: The flat profile keys are denormalized from `moduleOutputs` on save. If a key is empty, the corresponding module may not be provisioned — check `bootstrap status` and `bootstrap add <module>` as needed.
+: The flat profile keys are denormalized from `moduleOutputs` on save. If a key is empty, the corresponding module may not be provisioned — check `bootstrap status` and `bootstrap add-module <module>` as needed.
 
 **MLflow setup skipped during `training` provisioning**
 : This is expected and non-fatal in regions where the MLflow app API isn't available. Tune jobs still run; you just won't get an MLflow tracking URL.

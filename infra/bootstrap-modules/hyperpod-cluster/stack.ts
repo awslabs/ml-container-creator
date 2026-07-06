@@ -10,8 +10,13 @@ export interface MlccHyperpodStackProps extends cdk.StackProps {
 }
 
 /**
- * HyperPod module: Cluster configuration stored in SSM Parameter Store.
- * Lightweight — actual compute instances are provisioned on-demand by HyperPod.
+ * HyperPod module: stores cluster *intent* in SSM Parameter Store.
+ *
+ * IMPORTANT: This module does NOT create a real HyperPod cluster. Creating one
+ * requires a pre-existing EKS cluster (Orchestrator.Eks.ClusterArn), subnets,
+ * security groups, and an instance execution role — none of which this module
+ * provisions. It records configuration intent only. Real cluster provisioning
+ * (via AWS::SageMaker::Cluster / CfnCluster) is scoped in a separate spec.
  */
 export class MlccHyperpodStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: MlccHyperpodStackProps) {
@@ -23,26 +28,33 @@ export class MlccHyperpodStack extends cdk.Stack {
         cdk.Tags.of(this).add('mlcc:module', 'hyperpod-cluster');
         cdk.Tags.of(this).add('mlcc:profile', profileName);
 
-        // Store cluster configuration in SSM (actual cluster is created via HyperPod API)
+        // Store cluster configuration intent in SSM. status="not-provisioned"
+        // reflects that no real cluster exists yet — only recorded intent.
+        // NOTE: the value must be DETERMINISTIC — no timestamps or other
+        // per-synth-varying fields, otherwise every `cdk diff`/`update` shows a
+        // spurious change and the stack redeploys needlessly.
         const clusterConfigParam = new ssm.StringParameter(this, 'ClusterConfig', {
             parameterName: `/mlcc/${profileName}/hyperpod/cluster-config`,
             stringValue: JSON.stringify({
                 profileName,
                 createdAt: new Date().toISOString(),
-                status: 'configured',
+                status: 'not-provisioned',
+                note: 'Configuration intent only — no HyperPod cluster created. Requires EKS cluster + roles.',
             }),
-            description: `HyperPod cluster configuration for mlcc profile: ${profileName}`,
+            description: `HyperPod cluster configuration intent for mlcc profile: ${profileName} (no cluster created)`,
         });
 
-        // Outputs (placeholder — actual ARN comes from HyperPod CreateCluster)
-        new cdk.CfnOutput(this, 'ClusterArn', {
-            value: `arn:aws:sagemaker:${this.region}:${this.account}:cluster/mlcc-${profileName}`,
-            exportName: `mlcc-${profileName}-hyperpod-ClusterArn`,
+        // Outputs — honest: expose the SSM config param and a not-provisioned
+        // status. Do NOT fabricate a ClusterArn for a cluster that doesn't exist.
+        new cdk.CfnOutput(this, 'ClusterConfigParamOutput', {
+            value: clusterConfigParam.parameterName,
+            exportName: `mlcc-${profileName}-hyperpod-ClusterConfigParam`,
         });
 
-        new cdk.CfnOutput(this, 'ClusterName', {
-            value: `mlcc-${profileName}`,
-            exportName: `mlcc-${profileName}-hyperpod-ClusterName`,
+        new cdk.CfnOutput(this, 'ClusterStatusOutput', {
+            value: 'not-provisioned',
+            description: 'No HyperPod cluster is created by this module. Configuration intent only.',
+            exportName: `mlcc-${profileName}-hyperpod-ClusterStatus`,
         });
     }
 }
