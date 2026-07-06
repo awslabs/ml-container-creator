@@ -776,7 +776,7 @@
             "configKey": "noBuild",
             "default": false,
             "validation": {},
-            "phase": "deployment",
+            "phase": "build",
             "group": "deployment",
             "appliesTo": {
                 "deploymentTargets": [
