@@ -21,6 +21,34 @@ const path = require('path');
 const MODULES_ROOT = path.resolve(__dirname);
 
 /**
+ * Modules that own a retained S3 bucket, and the bucket-name template.
+ * These buckets use RemovalPolicy.RETAIN, so they survive `cdk destroy`.
+ * On re-provision we must adopt the existing bucket instead of recreating it.
+ * @param {string} accountId
+ * @param {string} region
+ * @returns {Record<string, string>} module name -> bucket name
+ */
+function retainedBucketFor(moduleName, accountId, region) {
+    const map = {
+        benchmark: `mlcc-benchmark-results-${accountId}-${region}`,
+        training: `mlcc-training-${accountId}-${region}`,
+    };
+    return map[moduleName];
+}
+
+/**
+ * Modules that own a retained ECR repository, and the repo name.
+ * The core ECR repo uses RemovalPolicy.RETAIN, so it survives `cdk destroy`.
+ * On re-provision we must adopt the existing repo instead of recreating it.
+ * @param {string} moduleName
+ * @returns {string|undefined} repository name, or undefined if the module owns none
+ */
+function retainedEcrRepoFor(moduleName) {
+    const map = { core: 'ml-container-creator' };
+    return map[moduleName];
+}
+
+/**
  * Get the CDK stack name for a module.
  * @param {string} profileName
  * @param {string} stackNameSuffix
@@ -60,13 +88,30 @@ class CdkModuleRunner {
 
         console.log(`  🚀 Deploying ${this.name} module (${stackName})...`);
 
+        // If this module owns a retained S3 bucket that already exists (from a
+        // prior teardown), tell the CDK app to adopt it rather than recreate it.
+        const adoptFlags = [];
+        const bucketName = retainedBucketFor(this.name, profile.accountId, profile.awsRegion);
+        if (bucketName && this._bucketExists(bucketName, profile)) {
+            console.log(`  ♻️  Existing bucket detected (${bucketName}) — adopting instead of recreating`);
+            adoptFlags.push('--context adoptExistingBuckets=true');
+        }
+
+        // Same for a retained ECR repository (core module).
+        const ecrRepo = retainedEcrRepoFor(this.name);
+        if (ecrRepo && this._ecrRepoExists(ecrRepo, profile)) {
+            console.log(`  ♻️  Existing ECR repo detected (${ecrRepo}) — adopting instead of recreating`);
+            adoptFlags.push('--context adoptExistingEcr=true');
+        }
+
         const cdkCmd = [
             'npx cdk deploy', stackName,
             '--require-approval never',
             `--context profileName=${profile.profileName}`,
             `--context accountId=${profile.accountId}`,
             `--context region=${profile.awsRegion}`,
-        ].join(' ');
+            ...adoptFlags,
+        ].filter(Boolean).join(' ');
 
         try {
             execSync(cdkCmd, {
@@ -173,6 +218,54 @@ class CdkModuleRunner {
         } catch (err) {
             // Stack doesn't exist
             return { state: 'not-provisioned', resources: [] };
+        }
+    }
+
+    /**
+     * Check whether an S3 bucket already exists (and is owned by this account).
+     * Used to decide whether a retained bucket must be adopted on re-provision.
+     * @param {string} bucketName
+     * @param {object} profile - { awsRegion, awsProfile? }
+     * @returns {boolean} true if the bucket exists / is owned by the caller
+     */
+    _bucketExists(bucketName, profile) {
+        try {
+            execSync(
+                `aws s3api head-bucket --bucket ${bucketName} --region ${profile.awsRegion}` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            return true;
+        } catch (err) {
+            // head-bucket exits non-zero for both "not found" (404) and
+            // "exists but owned by someone else" (403). A 403 would still
+            // collide on create, so treat it as existing too.
+            const msg = (err.stderr || err.message || '').toString();
+            if (msg.includes('403') || msg.includes('Forbidden')) return true;
+            return false;
+        }
+    }
+
+    /**
+     * Check whether an ECR repository already exists (owned by this account).
+     * Used to decide whether a retained repo must be adopted on re-provision.
+     * @param {string} repoName
+     * @param {object} profile - { awsRegion, awsProfile? }
+     * @returns {boolean} true if the repository exists
+     */
+    _ecrRepoExists(repoName, profile) {
+        try {
+            execSync(
+                `aws ecr describe-repositories --repository-names ${repoName} --region ${profile.awsRegion}` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            return true;
+        } catch (err) {
+            // describe-repositories exits non-zero (RepositoryNotFoundException)
+            // when the repo doesn't exist. Any other error (e.g. access denied)
+            // is treated as "not present" so provisioning attempts a normal create.
+            return false;
         }
     }
 

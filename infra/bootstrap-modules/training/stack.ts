@@ -8,6 +8,7 @@ import { Construct } from 'constructs';
 
 export interface MlccTrainingStackProps extends cdk.StackProps {
     profileName: string;
+    adoptExistingBuckets?: boolean;
 }
 
 /**
@@ -17,7 +18,7 @@ export class MlccTrainingStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: MlccTrainingStackProps) {
         super(scope, id, props);
 
-        const { profileName } = props;
+        const { profileName, adoptExistingBuckets } = props;
 
         cdk.Tags.of(this).add('mlcc:managed-by', 'ml-container-creator');
         cdk.Tags.of(this).add('mlcc:module', 'training');
@@ -25,17 +26,18 @@ export class MlccTrainingStack extends cdk.Stack {
 
         const bucketName = `mlcc-training-${this.account}-${this.region}`;
 
-        // Training data bucket
-        const trainingBucket = new s3.Bucket(this, 'TrainingBucket', {
-            bucketName,
-            versioned: true,
-            encryption: s3.BucketEncryption.S3_MANAGED,
-            removalPolicy: cdk.RemovalPolicy.RETAIN,
-            blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-        });
-
-        // Training execution role (inherits from core role via cross-stack import)
-        const coreRoleArn = cdk.Fn.importValue(`mlcc-${profileName}-core-RoleArn`);
+        // Training data bucket (RETAIN on delete — data is valuable). When the
+        // bucket already exists from a prior provision (retained on teardown),
+        // adopt it by reference instead of colliding on create.
+        const trainingBucket = adoptExistingBuckets
+            ? s3.Bucket.fromBucketName(this, 'TrainingBucket', bucketName)
+            : new s3.Bucket(this, 'TrainingBucket', {
+                bucketName,
+                versioned: true,
+                encryption: s3.BucketEncryption.S3_MANAGED,
+                removalPolicy: cdk.RemovalPolicy.RETAIN,
+                blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            });
 
         const trainingRole = new iam.Role(this, 'TrainingRole', {
             roleName: `mlcc-training-role-${this.region}`,

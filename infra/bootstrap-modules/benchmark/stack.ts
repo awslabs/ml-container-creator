@@ -8,6 +8,7 @@ import { Construct } from 'constructs';
 
 export interface MlccBenchmarkStackProps extends cdk.StackProps {
     profileName: string;
+    adoptExistingBuckets?: boolean;
 }
 
 /**
@@ -21,7 +22,7 @@ export class MlccBenchmarkStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: MlccBenchmarkStackProps) {
         super(scope, id, props);
 
-        const { profileName } = props;
+        const { profileName, adoptExistingBuckets } = props;
 
         cdk.Tags.of(this).add('mlcc:managed-by', 'ml-container-creator');
         cdk.Tags.of(this).add('mlcc:module', 'benchmark');
@@ -29,14 +30,20 @@ export class MlccBenchmarkStack extends cdk.Stack {
 
         const bucketName = `mlcc-benchmark-results-${this.account}-${this.region}`;
 
-        // S3 bucket for benchmark results (RETAIN on delete — data is valuable)
-        this.benchmarkBucket = new s3.Bucket(this, 'BenchmarkBucket', {
-            bucketName,
-            versioned: true,
-            encryption: s3.BucketEncryption.S3_MANAGED,
-            removalPolicy: cdk.RemovalPolicy.RETAIN,
-            blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-        });
+        // S3 bucket for benchmark results (RETAIN on delete — data is valuable).
+        // Because the bucket is retained on teardown, a later re-provision would
+        // collide with the existing bucket. When adoptExistingBuckets is set
+        // (the runner detected the bucket already exists via head-bucket), adopt
+        // it by reference instead of creating it.
+        this.benchmarkBucket = adoptExistingBuckets
+            ? s3.Bucket.fromBucketName(this, 'BenchmarkBucket', bucketName)
+            : new s3.Bucket(this, 'BenchmarkBucket', {
+                bucketName,
+                versioned: true,
+                encryption: s3.BucketEncryption.S3_MANAGED,
+                removalPolicy: cdk.RemovalPolicy.RETAIN,
+                blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            });
 
         // Glue database for Athena queries over benchmark results
         this.glueDatabase = new glue.CfnDatabase(this, 'GlueDatabase', {

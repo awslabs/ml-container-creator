@@ -998,6 +998,38 @@ export default class BootstrapCommandHandler {
         }
     }
 
+    /**
+     * Warn that a module's S3 bucket(s) will persist after teardown.
+     * Buckets use RemovalPolicy.RETAIN, so `cdk destroy` leaves them in place
+     * (data is preserved) but they become unmanaged — no stack owns them until
+     * the module is re-added, at which point they're adopted automatically.
+     *
+     * @param {string[]} moduleNames - Modules being removed
+     * @param {object} profileConfig - Active profile config (accountId, awsRegion)
+     */
+    _warnPersistentBuckets(moduleNames, profileConfig) {
+        const bucketOwners = {
+            benchmark: `mlcc-benchmark-results-${profileConfig.accountId}-${profileConfig.awsRegion}`,
+            training: `mlcc-training-${profileConfig.accountId}-${profileConfig.awsRegion}`
+        };
+        const affected = moduleNames
+            .filter(m => bucketOwners[m])
+            .map(m => bucketOwners[m]);
+
+        if (affected.length === 0) {
+            return;
+        }
+
+        console.log('\n   ⚠️  S3 buckets will PERSIST after teardown (RemovalPolicy: RETAIN):');
+        for (const b of affected) {
+            console.log(`        • s3://${b}`);
+        }
+        console.log('      Your data is preserved, but these buckets become UNMANAGED — no');
+        console.log('      CDK stack owns them until you re-add the module (they are adopted');
+        console.log('      automatically on re-provision). To reclaim the storage/name, delete');
+        console.log('      them manually: aws s3 rb s3://<bucket> --force');
+    }
+
     // ── Display helpers ─────────────────────────────────────────────
 
     /**
@@ -1158,6 +1190,7 @@ export default class BootstrapCommandHandler {
             const remaining = provisioned.filter(m => !toRemove.includes(m));
             console.log('\n   Profile update:');
             console.log(`     provisionedModules: [${provisioned.join(', ')}] → [${remaining.join(', ')}]`);
+            this._warnPersistentBuckets(toRemove, profileConfig);
             console.log('\n   Re-run without --dry-run to apply.');
             return;
         }
@@ -1182,6 +1215,7 @@ export default class BootstrapCommandHandler {
 
         // Confirm removal
         if (!options.force) {
+            this._warnPersistentBuckets([moduleName], profileConfig);
             const { confirm } = await this._promptFn([{
                 type: 'confirm',
                 name: 'confirm',

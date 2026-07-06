@@ -121,6 +121,26 @@ ml-container-creator bootstrap status
 - **`remove-module`** checks for dependents first — if another provisioned module depends on the one you're removing, you're warned and offered a cascade. `remove-module core` is rejected (core is required by everything).
 - Adding a module never re-provisions existing ones.
 
+!!! warning "S3 buckets persist after teardown (and become unmanaged)"
+    The `benchmark` and `training` modules own S3 buckets created with
+    `RemovalPolicy: RETAIN`. When you `remove-module` one of these (or tear down
+    its stack), **the bucket is NOT deleted** — your data (benchmark results,
+    training datasets) is preserved.
+
+    The trade-off: once the stack is gone, the bucket is **unmanaged** — no CDK
+    stack owns it. When you re-add the module, MCC detects the existing bucket
+    (via `head-bucket`) and **adopts it automatically** rather than failing on a
+    name collision. You'll see `♻️  Existing bucket detected — adopting instead
+    of recreating` during the re-provision.
+
+    To fully reclaim a bucket's storage and name (e.g., start clean in a region),
+    delete it manually before re-adding: `aws s3 rb s3://<bucket> --force`.
+
+    The same RETAIN-and-adopt behavior applies to the `core` module's ECR
+    repository (`ml-container-creator`): it survives teardown and is adopted
+    automatically on re-provision. To fully reclaim it, delete it first:
+    `aws ecr delete-repository --repository-name ml-container-creator --force`.
+
 ---
 
 ## Profiles

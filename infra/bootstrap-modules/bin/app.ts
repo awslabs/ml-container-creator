@@ -37,6 +37,14 @@ const app = new cdk.App();
 const profileName = app.node.tryGetContext('profileName') || 'default';
 const accountId = app.node.tryGetContext('accountId');
 const region = app.node.tryGetContext('region');
+// When the runner detects a module's S3 bucket already exists (retained from a
+// prior teardown), it passes adoptExistingBuckets=true so the stack adopts the
+// bucket by reference instead of colliding on create.
+const adoptExistingBuckets = app.node.tryGetContext('adoptExistingBuckets') === 'true';
+// When the runner detects the core ECR repository already exists (retained from
+// a prior teardown), it passes adoptExistingEcr=true so the core stack adopts
+// the repo by reference instead of colliding on create.
+const adoptExistingEcr = app.node.tryGetContext('adoptExistingEcr') === 'true';
 
 const env: cdk.Environment = {
     account: accountId || process.env.CDK_DEFAULT_ACCOUNT,
@@ -50,12 +58,14 @@ const stackName = (suffix: string) => `mlcc-${profileName}-${suffix}`;
 new MlccCoreStack(app, stackName('core'), {
     env,
     profileName,
+    adoptExistingEcr,
     description: `MLCC Core Infrastructure (profile: ${profileName})`,
 });
 
 new MlccBenchmarkStack(app, stackName('benchmark'), {
     env,
     profileName,
+    adoptExistingBuckets,
     description: `MLCC Benchmark Infrastructure (profile: ${profileName})`,
 });
 
@@ -68,6 +78,7 @@ new MlccRegistryStack(app, stackName('registry'), {
 new MlccTrainingStack(app, stackName('training'), {
     env,
     profileName,
+    adoptExistingBuckets,
     description: `MLCC Training Infrastructure (profile: ${profileName})`,
 });
 

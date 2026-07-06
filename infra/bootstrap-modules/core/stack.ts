@@ -8,6 +8,7 @@ import { Construct } from 'constructs';
 
 export interface MlccCoreStackProps extends cdk.StackProps {
     profileName: string;
+    adoptExistingEcr?: boolean;
 }
 
 /**
@@ -16,12 +17,12 @@ export interface MlccCoreStackProps extends cdk.StackProps {
  */
 export class MlccCoreStack extends cdk.Stack {
     public readonly role: iam.Role;
-    public readonly ecrRepository: ecr.Repository;
+    public readonly ecrRepository: ecr.IRepository;
 
     constructor(scope: Construct, id: string, props: MlccCoreStackProps) {
         super(scope, id, props);
 
-        const { profileName } = props;
+        const { profileName, adoptExistingEcr } = props;
 
         cdk.Tags.of(this).add('mlcc:managed-by', 'ml-container-creator');
         cdk.Tags.of(this).add('mlcc:module', 'core');
@@ -69,18 +70,23 @@ export class MlccCoreStack extends cdk.Stack {
             resources: ['arn:aws:s3:::ml-container-creator-*', 'arn:aws:s3:::ml-container-creator-*/*'],
         }));
 
-        // ECR Repository
-        this.ecrRepository = new ecr.Repository(this, 'EcrRepository', {
-            repositoryName: 'ml-container-creator',
-            imageScanOnPush: true,
-            encryption: ecr.RepositoryEncryption.AES_256,
-            lifecycleRules: [{
-                description: 'Expire untagged images after 30 days',
-                tagStatus: ecr.TagStatus.UNTAGGED,
-                maxImageAge: cdk.Duration.days(30),
-            }],
-            removalPolicy: cdk.RemovalPolicy.RETAIN,
-        });
+        // ECR Repository (RETAIN on delete — images survive teardown). Because
+        // the repo is retained, a later re-provision would collide on create.
+        // When adoptExistingEcr is set (the runner detected the repo already
+        // exists), adopt it by reference instead of recreating it.
+        this.ecrRepository = adoptExistingEcr
+            ? ecr.Repository.fromRepositoryName(this, 'EcrRepository', 'ml-container-creator')
+            : new ecr.Repository(this, 'EcrRepository', {
+                repositoryName: 'ml-container-creator',
+                imageScanOnPush: true,
+                encryption: ecr.RepositoryEncryption.AES_256,
+                lifecycleRules: [{
+                    description: 'Expire untagged images after 30 days',
+                    tagStatus: ecr.TagStatus.UNTAGGED,
+                    maxImageAge: cdk.Duration.days(30),
+                }],
+                removalPolicy: cdk.RemovalPolicy.RETAIN,
+            });
 
         // Outputs (cross-stack exports)
         new cdk.CfnOutput(this, 'RoleArn', {
