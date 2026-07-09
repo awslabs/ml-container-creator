@@ -39,7 +39,7 @@
       "required": false,
       "depends": ["core"],
       "stackNameSuffix": "training",
-      "exports": ["TrainingBucket", "TrainingRoleArn", "MlflowAppArn"],
+      "exports": ["TrainingBucket", "AdaptersBucket", "TrainingRoleArn", "MlflowAppArn"],
       "resourceLevel": "profile"
     },
     "ci": {

@@ -162,7 +162,7 @@ def cmd_submit(args):
         )
 
     # Build S3 URI for staged model
-    s3_uri = f"s3://{args.bucket}/{args.project}/models/{args.model_name}/"
+    s3_uri = f"s3://{args.bucket}/models/{args.model_name}/"
 
     # Idempotency: check if model already exists at target S3 path
     if not args.force:
@@ -170,7 +170,7 @@ def cmd_submit(args):
         try:
             s3.head_object(
                 Bucket=args.bucket,
-                Key=f"{args.project}/models/{args.model_name}/config.json",
+                Key=f"models/{args.model_name}/config.json",
             )
             # Model already staged
             _output({

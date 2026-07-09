@@ -230,32 +230,51 @@ except:
 " 2>/dev/null) || _PROFILE_JSON="{}"
 fi
 
-# Extract the benchmark S3 bucket from profile (used for model staging)
+# Extract the models S3 bucket from profile (used for model staging).
+# The profile is the SOLE source of truth for bucket names — bootstrap writes
+# modelsS3Bucket from the core CDK stack output (ModelsBucket). Do NOT reconstruct
+# a name from a convention: an empty value means bootstrap has not provisioned it
+# (guarded below). Staged weights belong in the dedicated models bucket, NOT the
+# benchmark-results bucket.
 STAGE_S3_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "
 import sys, json
 p = json.load(sys.stdin)
-bucket = p.get('benchmarkS3Bucket', '')
-if not bucket:
-    acct = p.get('accountId', 'unknown')
-    region = p.get('awsRegion', 'us-east-1')
-    bucket = f'ml-container-creator-benchmark-{region}-{acct}'
-print(bucket)
+print(p.get('modelsS3Bucket', ''))
 " 2>/dev/null) || STAGE_S3_BUCKET=""
 
 if [ -z "${STAGE_S3_BUCKET}" ]; then
-    echo "❌ Could not determine S3 bucket for staging."
+    echo "❌ No models S3 bucket recorded in profile (modelsS3Bucket is empty)."
     echo "   Run 'ml-container-creator bootstrap' to set up your profile."
     exit 1
 fi
 
-# Target S3 path for staged model: s3://{bucket}/{project}/models/{model-slug}/
-# Sanitize MODEL_NAME for use as an S3 path segment:
-#   - Replace / with -- (e.g., "nvidia/Nemotron-3-Ultra..." → "nvidia--Nemotron-3-Ultra...")
-#   - This prevents HF org/repo IDs from creating nested S3 prefixes
-MODEL_SLUG="${MODEL_NAME//\//-}"
-MODEL_S3_URI="s3://${STAGE_S3_BUCKET}/${PROJECT_NAME}/models/${MODEL_SLUG}/"
+# Target S3 path for staged model: s3://{bucket}/models/{org}/{repo}/
+# The model is keyed ONLY by its HuggingFace repo ID (org/repo), NOT by project.
+# This makes the models bucket a SHARED cache: every project that stages the same
+# model resolves to the same objects, so weights are downloaded once and reused
+# across all future projects. The idempotency check below therefore becomes a
+# cross-project cache hit. MODEL_NAME (e.g. "deepseek-ai/DeepSeek-R1-Distill-Llama-70B")
+# is used directly as the prefix — its single "/" nests org and repo as S3 folders.
+MODEL_S3_URI="s3://${STAGE_S3_BUCKET}/models/${MODEL_NAME}/"
 
 echo "   Target: ${MODEL_S3_URI}"
+echo ""
+
+# ── Pre-flight check: Ensure the staging S3 bucket exists ─────────────────────
+# Buckets are provisioned by 'ml-container-creator bootstrap' — do/stage must
+# NOT create them. If the bucket is missing, warn with bootstrap guidance and
+# exit cleanly rather than failing later with an opaque put_object error.
+echo "🔍 Pre-flight: Checking staging S3 bucket..."
+
+if ! aws s3api head-bucket --bucket "${STAGE_S3_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
+    echo "⚠️  Warning: S3 bucket does not exist: ${STAGE_S3_BUCKET}"
+    echo "   Buckets are provisioned during bootstrap. Run:"
+    echo "     ml-container-creator bootstrap"
+    echo "   (or verify AWS_REGION/credentials point at the right account)"
+    exit 1
+else
+    echo "✅ S3 bucket exists: ${STAGE_S3_BUCKET}"
+fi
 echo ""
 
 # ── Default mode: SageMaker Processing Job via .stage_helper.py ───────────────

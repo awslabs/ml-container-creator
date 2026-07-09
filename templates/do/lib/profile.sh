@@ -17,6 +17,7 @@
 # Expected keys (set as _PROFILE_<key>):
 #   awsRegion, accountId, awsProfile, roleArn, ecrRepositoryName,
 #   benchmarkS3Bucket, ciBenchmarkResultsBucket, asyncS3Bucket, batchS3Bucket,
+#   trainingS3Bucket, adapterS3Bucket, modelsS3Bucket,
 #   ciTableName, ciInfraProvisioned
 
 # Temporarily disable unbound variable checking for profile loading
@@ -48,6 +49,12 @@ fi
 # Explicit env vars take precedence (${X:-...} pattern).
 ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn:-}}"
 CI_BENCHMARK_RESULTS_BUCKET="${CI_BENCHMARK_RESULTS_BUCKET:-${_PROFILE_ciBenchmarkResultsBucket:-}}"
+# Training module buckets (denormalized from moduleOutputs.training by bootstrap)
+S3_BUCKET="${S3_BUCKET:-${_PROFILE_trainingS3Bucket:-}}"
+ADAPTER_S3_BUCKET="${ADAPTER_S3_BUCKET:-${_PROFILE_adapterS3Bucket:-}}"
+# Models bucket (staged weights) — from moduleOutputs.core.ModelsBucket
+MODELS_S3_BUCKET="${MODELS_S3_BUCKET:-${_PROFILE_modelsS3Bucket:-}}"
+CODEBUILD_SOURCE_S3_BUCKET="${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}"
 
 # NOTE: set -u is NOT re-enabled here. The caller is responsible for managing
 # their own shell options.

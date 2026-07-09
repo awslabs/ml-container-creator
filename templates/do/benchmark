@@ -286,16 +286,21 @@ except:
 fi
 
 # Extract benchmark-relevant profile values
+# The profile is the SOLE source of truth for bucket names — bootstrap writes
+# benchmarkS3Bucket from the CDK stack output. Do NOT reconstruct a name from a
+# convention: an empty value means bootstrap has not provisioned it (guarded below).
 BENCHMARK_S3_OUTPUT_PATH=$(echo "${_PROFILE_JSON}" | python3 -c "
 import sys, json
 p = json.load(sys.stdin)
 bucket = p.get('benchmarkS3Bucket', '')
-if not bucket:
-    acct = p.get('accountId', 'unknown')
-    region = p.get('awsRegion', 'us-east-1')
-    bucket = f'mlcc-benchmark-{acct}-{region}'
-print(f's3://{bucket}/${PROJECT_NAME}/')
+print(f's3://{bucket}/${PROJECT_NAME}/' if bucket else '')
 " 2>/dev/null) || BENCHMARK_S3_OUTPUT_PATH=""
+
+if [ -z "${BENCHMARK_S3_OUTPUT_PATH}" ]; then
+    echo "❌ No benchmark S3 bucket recorded in profile (benchmarkS3Bucket is empty)."
+    echo "   Run 'ml-container-creator bootstrap' to set up your profile."
+    exit 1
+fi
 
 CI_BENCHMARK_RESULTS_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ciBenchmarkResultsBucket', ''))" 2>/dev/null) || CI_BENCHMARK_RESULTS_BUCKET=""
 
@@ -913,29 +918,19 @@ if [ -n "${RESOLVED_INSTANCE_TYPE}" ]; then
 fi
 
 # ── Pre-flight check: Ensure S3 output bucket exists ──────────────────────────
+# Buckets are provisioned by 'ml-container-creator bootstrap' — do/benchmark must
+# NOT create them. If the bucket is missing, warn with bootstrap guidance and
+# exit cleanly rather than failing later with an opaque write error.
 echo "🔍 Pre-flight: Checking S3 output bucket..."
 
 BENCHMARK_S3_BUCKET=$(echo "${BENCHMARK_S3_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
 
 if ! aws s3api head-bucket --bucket "${BENCHMARK_S3_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
-    echo "📦 Creating S3 bucket: ${BENCHMARK_S3_BUCKET}"
-    if [ "${AWS_REGION}" = "us-east-1" ]; then
-        if ! aws s3api create-bucket \
-            --bucket "${BENCHMARK_S3_BUCKET}" \
-            --region "${AWS_REGION}"; then
-            echo "❌ Failed to create S3 bucket: ${BENCHMARK_S3_BUCKET}"
-            exit 1
-        fi
-    else
-        if ! aws s3api create-bucket \
-            --bucket "${BENCHMARK_S3_BUCKET}" \
-            --region "${AWS_REGION}" \
-            --create-bucket-configuration LocationConstraint="${AWS_REGION}"; then
-            echo "❌ Failed to create S3 bucket: ${BENCHMARK_S3_BUCKET}"
-            exit 1
-        fi
-    fi
-    echo "✅ S3 bucket created: ${BENCHMARK_S3_BUCKET}"
+    echo "⚠️  Warning: S3 bucket does not exist: ${BENCHMARK_S3_BUCKET}"
+    echo "   Buckets are provisioned during bootstrap. Run:"
+    echo "     ml-container-creator bootstrap"
+    echo "   (or verify AWS_REGION/credentials point at the right account)"
+    exit 1
 else
     echo "✅ S3 bucket exists: ${BENCHMARK_S3_BUCKET}"
 fi

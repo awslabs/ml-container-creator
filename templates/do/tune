@@ -996,12 +996,23 @@ _validate_dataset() {
         fi
 
         local stage_result
-        stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}") || {
+        local stage_stderr
+        stage_stderr="$(mktemp)"
+        # Capture stdout (JSON) and stderr (tracebacks) separately so a helper
+        # crash surfaces the REAL cause instead of a generic message.
+        stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}" 2>"${stage_stderr}") || {
             local error_msg
             error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Failed to stage dataset'))" 2>/dev/null) || error_msg="Failed to stage HF dataset"
             echo "❌ ${error_msg}"
+            if [ -s "${stage_stderr}" ]; then
+                echo "   ── helper error output ──────────────────────────────"
+                sed 's/^/   /' "${stage_stderr}"
+                echo "   ─────────────────────────────────────────────────────"
+            fi
+            rm -f "${stage_stderr}"
             exit 1
         }
+        rm -f "${stage_stderr}"
 
         # Check for error in response
         local has_error

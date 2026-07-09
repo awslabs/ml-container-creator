@@ -314,6 +314,9 @@ export default class BootstrapCommandHandler {
                         if (profileConfig.trainingS3Bucket) {
                             profileConfig.moduleOutputs.training.TrainingBucket = profileConfig.trainingS3Bucket;
                         }
+                        if (profileConfig.adapterS3Bucket) {
+                            profileConfig.moduleOutputs.training.AdaptersBucket = profileConfig.adapterS3Bucket;
+                        }
                     }
 
                     // CI module outputs — table name from legacy profile if present
@@ -1024,10 +1027,11 @@ export default class BootstrapCommandHandler {
     _denormalizeModuleOutputs(profileData) {
         const outputs = profileData.moduleOutputs || {};
 
-        // core → roleArn, ecrRepositoryName
+        // core → roleArn, ecrRepositoryName, modelsS3Bucket
         if (outputs.core) {
             if (outputs.core.RoleArn) profileData.roleArn = outputs.core.RoleArn;
             if (outputs.core.EcrRepositoryName) profileData.ecrRepositoryName = outputs.core.EcrRepositoryName;
+            if (outputs.core.ModelsBucket) profileData.modelsS3Bucket = outputs.core.ModelsBucket;
         }
 
         // benchmark → ciBenchmarkResultsBucket, ciGlueDatabase
@@ -1041,15 +1045,18 @@ export default class BootstrapCommandHandler {
             if (outputs.registry.AiRegistryHubName) profileData.aiRegistryHubName = outputs.registry.AiRegistryHubName;
         }
 
-        // training → mlflowAppArn
+        // training → mlflowAppArn, trainingS3Bucket, adapterS3Bucket
         if (outputs.training) {
             if (outputs.training.MlflowAppArn) profileData.mlflowAppArn = outputs.training.MlflowAppArn;
+            if (outputs.training.TrainingBucket) profileData.trainingS3Bucket = outputs.training.TrainingBucket;
+            if (outputs.training.AdaptersBucket) profileData.adapterS3Bucket = outputs.training.AdaptersBucket;
         }
 
-        // ci → ciInfraProvisioned, ciTableName
+        // ci → ciInfraProvisioned, ciTableName, codebuildSourceS3Bucket
         if (outputs.ci) {
             profileData.ciInfraProvisioned = true;
             if (outputs.ci.CiTableName) profileData.ciTableName = outputs.ci.CiTableName;
+            if (outputs.ci.SourceBucket) profileData.codebuildSourceS3Bucket = outputs.ci.SourceBucket;
         }
     }
 

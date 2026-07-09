@@ -14,6 +14,17 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
 
+# CodeBuild source bucket — SOLE source of truth is the profile (bootstrap writes
+# codebuildSourceS3Bucket from the ci CDK stack SourceBucket output). do/ scripts
+# NEVER create buckets. Empty ⇒ bootstrap hasn't provisioned it (fail fast below).
+S3_BUCKET="${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}"
+
+if [ -z "${S3_BUCKET}" ]; then
+    echo "❌ No CodeBuild source S3 bucket recorded in profile (codebuildSourceS3Bucket is empty)."
+    echo "   Run 'ml-container-creator bootstrap' to set up your profile."
+    exit 1
+fi
+
 # ── Derived variables (env var > computed default) ────────────────────────────
 CODEBUILD_PROJECT_NAME="${CODEBUILD_PROJECT_NAME:-${PROJECT_NAME}-build-$(date +%Y%m%d)}"
 
@@ -115,7 +126,7 @@ EOF
         "s3:GetObjectVersion"
       ],
       "Resource": [
-        "arn:aws:s3:::codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}/*"
+        "arn:aws:s3:::${S3_BUCKET}/*"
       ]
     },
     {
@@ -124,7 +135,7 @@ EOF
         "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+        "arn:aws:s3:::${S3_BUCKET}"
       ]
     }
   ]
@@ -271,19 +282,10 @@ fi
 
 echo "✅ Source archive created: $(du -h "$TEMP_ZIP" | cut -f1)"
 
-# Upload source to S3 for CodeBuild
-S3_BUCKET="codebuild-source-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+# Upload source to S3 for CodeBuild.
+# S3_BUCKET was resolved from the profile near the top of this script (bootstrap
+# owns provisioning; do/ scripts never create buckets).
 S3_KEY="${PROJECT_NAME}/source-$(date +%Y%m%d-%H%M%S).zip"
-
-# Create S3 bucket if it doesn't exist
-if ! aws s3api head-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" >/dev/null 2>&1; then
-    echo "📦 Creating S3 bucket for CodeBuild source: $S3_BUCKET"
-    if [ "${AWS_REGION}" = "us-east-1" ]; then
-        aws s3api create-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}"
-    else
-        aws s3api create-bucket --bucket "$S3_BUCKET" --region "${AWS_REGION}" --create-bucket-configuration LocationConstraint="${AWS_REGION}"
-    fi
-fi
 
 # Upload source to S3
 echo "📤 Uploading source to S3..."

@@ -9,6 +9,7 @@ import { Construct } from 'constructs';
 export interface MlccTrainingStackProps extends cdk.StackProps {
     profileName: string;
     adoptExistingBuckets?: boolean;
+    adoptExistingAdaptersBucket?: boolean;
 }
 
 /**
@@ -18,13 +19,14 @@ export class MlccTrainingStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: MlccTrainingStackProps) {
         super(scope, id, props);
 
-        const { profileName, adoptExistingBuckets } = props;
+        const { profileName, adoptExistingBuckets, adoptExistingAdaptersBucket } = props;
 
         cdk.Tags.of(this).add('mlcc:managed-by', 'ml-container-creator');
         cdk.Tags.of(this).add('mlcc:module', 'training');
         cdk.Tags.of(this).add('mlcc:profile', profileName);
 
         const bucketName = `mlcc-training-${this.account}-${this.region}`;
+        const adaptersBucketName = `mlcc-training-adapters-${this.account}-${this.region}`;
 
         // Training data bucket (RETAIN on delete — data is valuable). When the
         // bucket already exists from a prior provision (retained on teardown),
@@ -39,6 +41,19 @@ export class MlccTrainingStack extends cdk.Stack {
                 blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
             });
 
+        // Adapters bucket — LoRA adapter staging for do/adapter. Separate bucket
+        // (distinct lifecycle: small, long-lived, re-deployed) but owned by the
+        // same training module/stack. RETAIN — adapters are valuable deploy artifacts.
+        const adaptersBucket = adoptExistingAdaptersBucket
+            ? s3.Bucket.fromBucketName(this, 'AdaptersBucket', adaptersBucketName)
+            : new s3.Bucket(this, 'AdaptersBucket', {
+                bucketName: adaptersBucketName,
+                versioned: true,
+                encryption: s3.BucketEncryption.S3_MANAGED,
+                removalPolicy: cdk.RemovalPolicy.RETAIN,
+                blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            });
+
         const trainingRole = new iam.Role(this, 'TrainingRole', {
             roleName: `mlcc-training-role-${this.region}`,
             assumedBy: new iam.ServicePrincipal('sagemaker.amazonaws.com'),
@@ -47,7 +62,10 @@ export class MlccTrainingStack extends cdk.Stack {
 
         trainingRole.addToPolicy(new iam.PolicyStatement({
             actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
-            resources: [trainingBucket.bucketArn, `${trainingBucket.bucketArn}/*`],
+            resources: [
+                trainingBucket.bucketArn, `${trainingBucket.bucketArn}/*`,
+                adaptersBucket.bucketArn, `${adaptersBucket.bucketArn}/*`,
+            ],
         }));
 
         trainingRole.addToPolicy(new iam.PolicyStatement({
@@ -59,6 +77,11 @@ export class MlccTrainingStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'TrainingBucketOutput', {
             value: bucketName,
             exportName: `mlcc-${profileName}-training-TrainingBucket`,
+        });
+
+        new cdk.CfnOutput(this, 'AdaptersBucketOutput', {
+            value: adaptersBucketName,
+            exportName: `mlcc-${profileName}-training-AdaptersBucket`,
         });
 
         new cdk.CfnOutput(this, 'TrainingRoleArnOutput', {

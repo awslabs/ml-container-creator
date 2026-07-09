@@ -41,6 +41,7 @@ ARG_LORA_R=""
 ARG_BETA=""
 ARG_RESUME=false
 ARG_RESUME_JOB=""
+ARG_COLUMN_MAP=""
 
 # ── Job Variables (set by _build_job_request) ─────────────────────────────────
 JOB_NAME=""
@@ -104,6 +105,12 @@ _parse_args() {
                     exit 1
                 fi
                 ARG_DATASET="$2"; shift 2 ;;
+            --column-map)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --column-map requires a value (e.g., prompt=question,completion=answer)"
+                    exit 1
+                fi
+                ARG_COLUMN_MAP="$2"; shift 2 ;;
             --list-datasets) ARG_LIST_DATASETS=true; shift ;;
             --no-register) ARG_NO_REGISTER=true; shift ;;
             --interactive|-i) ARG_INTERACTIVE=true; shift ;;
@@ -156,6 +163,7 @@ _show_help() {
     echo "Options:"
     echo "  --technique <name>  Select training technique (overrides config.yaml)"
     echo "  --dataset <source>  Dataset: s3://..., hf://org/name, or registry name"
+    echo "  --column-map <map>  Rename columns (e.g., prompt=instruction,completion=output)"
     echo "  --interactive, -i   Guided interactive configuration builder"
     echo "  --learning-rate <v> Override learning rate"
     echo "  --epochs <n>        Override number of epochs"
@@ -456,22 +464,14 @@ _stage_hf_dataset() {
         echo "   Split: ${hf_split}"
     fi
 
-    # Resolve output bucket from profile
+    # Resolve output bucket from profile (S3_BUCKET is provided by profile.sh
+    # from moduleOutputs.training.TrainingBucket — see do/lib/profile.sh)
     local output_bucket="${S3_BUCKET:-}"
-    if [ -z "${output_bucket}" ]; then
-        output_bucket=$(python3 -c "
-import json, os
-config_path = os.path.expanduser('~/.ml-container-creator/config.json')
-if os.path.exists(config_path):
-    with open(config_path) as f:
-        cfg = json.load(f)
-    print(cfg.get('s3Bucket', ''))
-" 2>/dev/null) || output_bucket=""
-    fi
 
     if [ -z "${output_bucket}" ]; then
-        echo "❌ No S3 bucket configured for dataset staging"
-        echo "   Run ./do/bootstrap to configure, or set S3_BUCKET in do/config"
+        echo "❌ Dataset staging requires the 'training' module, which is not provisioned."
+        echo "   Run: ml-container-creator bootstrap add-module training"
+        echo "   (or set S3_BUCKET explicitly to an existing bucket)"
         exit 1
     fi
 
@@ -490,15 +490,30 @@ if os.path.exists(config_path):
     if [ -n "${HF_TOKEN_ARN:-}" ]; then
         stage_args+=(--hf-secret-name "${HF_TOKEN_ARN}")
     fi
+    if [ -n "${ARG_COLUMN_MAP}" ]; then
+        stage_args+=(--column-map "${ARG_COLUMN_MAP}")
+    fi
     if [ -n "${hf_file}" ]; then
         stage_args+=(--hf-file "${hf_file}")
     fi
 
     local stage_result
-    stage_result=$(python3 "${helper_script}" stage-hf "${stage_args[@]}") || {
+    local stage_stderr
+    stage_stderr="$(mktemp)"
+    # Capture stdout (JSON) separately from stderr (tracebacks / diagnostics) so
+    # that a crash in the helper surfaces the REAL cause instead of a generic
+    # "Failed to stage HF dataset". stderr is preserved in ${stage_stderr}.
+    stage_result=$(python3 "${helper_script}" stage-hf "${stage_args[@]}" 2>"${stage_stderr}") || {
         echo "❌ Failed to stage HF dataset"
+        if [ -s "${stage_stderr}" ]; then
+            echo "   ── helper error output ──────────────────────────────"
+            sed 's/^/   /' "${stage_stderr}"
+            echo "   ─────────────────────────────────────────────────────"
+        fi
+        rm -f "${stage_stderr}"
         exit 1
     }
+    rm -f "${stage_stderr}"
 
     # Check for error in response
     local has_error
