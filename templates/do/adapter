@@ -181,22 +181,12 @@ _download_from_hub() {
 
     # ── Resolve S3 bucket ─────────────────────────────────────────────────
     local s3_bucket
-    if [ -n "${ADAPTER_S3_BUCKET:-}" ]; then
-        s3_bucket="${ADAPTER_S3_BUCKET}"
-    else
-        # Fallback: derive bucket name from AWS account ID and region
-        local account_id
-        account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
-        if [ -z "${account_id}" ]; then
-            echo "❌ Cannot resolve S3 bucket: ADAPTER_S3_BUCKET is not set and"
-            echo "   failed to determine AWS account ID via 'aws sts get-caller-identity'."
-            echo ""
-            echo "   Either set ADAPTER_S3_BUCKET or ensure AWS credentials are configured."
-            exit 1
-        fi
-        s3_bucket="mlcc-adapters-${account_id}-${AWS_REGION}"
-        echo "   Using default S3 bucket: ${s3_bucket}"
+    if [ -z "${ADAPTER_S3_BUCKET:-}" ]; then
+        echo "❌ Adapter staging requires the 'training' module, which is not provisioned."
+        echo "   Run: ml-container-creator bootstrap add-module training"
+        exit 1
     fi
+    s3_bucket="${ADAPTER_S3_BUCKET}"
 
     # ── Create temp directory ─────────────────────────────────────────────
     mkdir -p "${tmp_dir}/adapter_files"
