@@ -69,7 +69,7 @@ const stackName = (suffix: string) => `mlcc-${profileName}-${suffix}`;
 // error in an unrelated module can never block this deploy.
 const factories: Record<string, () => cdk.Stack> = {
     core: () => new MlccCoreStack(app, stackName('core'), {
-        env, profileName, adoptExistingEcr,
+        env, profileName, adoptExistingEcr, adoptExistingBuckets,
         description: `MLCC Core Infrastructure (profile: ${profileName})`,
     }),
     benchmark: () => new MlccBenchmarkStack(app, stackName('benchmark'), {
