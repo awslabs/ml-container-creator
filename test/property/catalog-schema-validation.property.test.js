@@ -199,7 +199,7 @@ const enrichedInstancesSchema = {
                             { type: 'null' }
                         ]
                     },
-                    costTier: { type: 'string', enum: ['low', 'medium', 'high'] }
+                    costTier: { type: 'string', enum: ['low', 'medium', 'high', 'very-high'] }
                 },
                 additionalProperties: false
             }
