@@ -468,6 +468,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/.stage_helper.py');
         ignorePatterns.push('**/do/.adapter_helper.py');
         ignorePatterns.push('**/do/.register_helper.py');
+        ignorePatterns.push('**/do/lib/python/**');
         ignorePatterns.push('**/do/train');
         ignorePatterns.push('**/do/.train_helper.py');
         ignorePatterns.push('**/do/.train_build_request.py');

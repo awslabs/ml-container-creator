@@ -6,10 +6,12 @@ and provides ML infrastructure guidance via Claude on Bedrock.
 
 Usage:
     python3 src/agent/agent.py --project-dir <path> [--offline|-o]
+    python3 src/agent/agent.py --project-dir <path> --goal 'build and deploy' [--auto] [--dry-run]
 """
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import signal
@@ -28,6 +30,9 @@ from context import ProjectContext
 from execution_config import load_execution_config
 from health_check import EnvironmentHealthCheck, print_health_report
 from tools.execute_script import create_execute_script_tool, get_execution_log
+from goal_planner import GoalPlanner, GoalPlanningError
+from chain_runner import ChainRunner
+from dry_run_reporter import DryRunReporter
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -358,16 +363,21 @@ class CostTracker:
 
 # ─── CLI Argument Parsing ─────────────────────────────────────────────────────
 
+ParsedArgs = collections.namedtuple('ParsedArgs', ['project_dir', 'offline', 'goal', 'auto_mode', 'dry_run'])
 
-def _parse_args() -> tuple[str, bool]:
+
+def _parse_args() -> ParsedArgs:
     """Parse command-line arguments.
 
     Returns:
-        Tuple of (project_dir, offline_mode).
+        ParsedArgs namedtuple with project_dir, offline, goal, auto_mode, dry_run.
     """
     args = sys.argv[1:]
     project_dir = os.getcwd()
     offline = False
+    goal = None
+    auto_mode = False
+    dry_run = False
 
     i = 0
     while i < len(args):
@@ -378,10 +388,25 @@ def _parse_args() -> tuple[str, bool]:
         elif arg in ("--offline", "-o"):
             offline = True
             i += 1
+        elif arg == "--goal" and i + 1 < len(args):
+            goal = args[i + 1]
+            i += 2
+        elif arg == "--auto":
+            auto_mode = True
+            i += 1
+        elif arg == "--dry-run":
+            dry_run = True
+            i += 1
         else:
             i += 1
 
-    return project_dir, offline
+    return ParsedArgs(
+        project_dir=project_dir,
+        offline=offline,
+        goal=goal,
+        auto_mode=auto_mode,
+        dry_run=dry_run,
+    )
 
 
 # ─── REPL ─────────────────────────────────────────────────────────────────────
@@ -475,10 +500,11 @@ def main() -> None:
     """Entry point for the advisory agent.
 
     Parses arguments, runs health checks, connects MCP servers,
-    creates the Strands agent, and starts the interactive REPL.
+    creates the Strands agent, and starts the interactive REPL
+    or goal-mode execution.
     """
-    project_dir, offline_mode = _parse_args()
-    project_path = Path(project_dir).resolve()
+    args = _parse_args()
+    project_path = Path(args.project_dir).resolve()
 
     # Load external configuration
     config = load_agent_config()
@@ -514,7 +540,7 @@ def main() -> None:
     print_health_report(items)
 
     # Offline mode: print summary and exit
-    if offline_mode:
+    if args.offline:
         print("📄 \033[1mOffline mode\033[0m — no Bedrock calls, no MCP servers.")
         print("   Run without --offline for interactive conversation.")
         return
@@ -556,7 +582,8 @@ def main() -> None:
 
         # Load execution config and register execute_script tool
         exec_config = load_execution_config(project_path)
-        tools.append(create_execute_script_tool(project_path, exec_config))
+        execute_script_tool = create_execute_script_tool(project_path, exec_config)
+        tools.append(execute_script_tool)
 
         # Build system prompt
         system_prompt = _build_system_prompt(context)
@@ -587,7 +614,36 @@ def main() -> None:
 
         sys.exit(1)
 
-    # Run REPL
+    # ─── Goal Mode ────────────────────────────────────────────────────────────
+    if args.goal:
+        try:
+            planner = GoalPlanner(agent, exec_config.permitted_scripts, exec_config)
+            plan = planner.plan(args.goal, context)
+
+            if args.dry_run:
+                reporter = DryRunReporter(project_path)
+                reporter.report(plan, [])
+                _stop_mcp_servers(mcp_clients)
+                return
+
+            runner = ChainRunner(execute_script_tool, exec_config, project_path, dry_run=False)
+            result = runner.run(plan)
+
+            # Print final goal summary
+            if result.steps_failed == 0:
+                print(f'\033[32m🚀 Goal completed: "{args.goal}"\033[0m')
+            else:
+                print(f'\033[33m⚠️  Goal partially completed: "{args.goal}"\033[0m')
+
+        except GoalPlanningError as e:
+            print(f'\n{e}', file=sys.stderr)
+            sys.exit(1)
+        finally:
+            _stop_mcp_servers(mcp_clients)
+            cost.print_summary()
+        return
+
+    # ─── Interactive REPL (default) ───────────────────────────────────────────
     try:
         _run_repl(agent, context, str(project_path), cost, exit_commands, reload_commands)
     finally:

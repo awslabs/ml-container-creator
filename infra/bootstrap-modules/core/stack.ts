@@ -141,6 +141,25 @@ export class MlccCoreStack extends cdk.Stack {
         }));
 
         this.role.addToPolicy(new iam.PolicyStatement({
+            sid: 'CloudWatchMetrics',
+            actions: ['cloudwatch:PutMetricData'],
+            resources: ['*'],
+        }));
+
+        // VPC networking — required by SageMaker training/processing jobs that
+        // run inside a VPC (managed customization jobs always use VPC mode).
+        this.role.addToPolicy(new iam.PolicyStatement({
+            sid: 'VpcNetworking',
+            actions: [
+                'ec2:CreateNetworkInterface', 'ec2:CreateNetworkInterfacePermission',
+                'ec2:DeleteNetworkInterface', 'ec2:DeleteNetworkInterfacePermission',
+                'ec2:DescribeDhcpOptions', 'ec2:DescribeNetworkInterfaces',
+                'ec2:DescribeSecurityGroups', 'ec2:DescribeSubnets', 'ec2:DescribeVpcs',
+            ],
+            resources: ['*'],
+        }));
+
+        this.role.addToPolicy(new iam.PolicyStatement({
             sid: 'S3ModelAccess',
             actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket', 's3:AbortMultipartUpload'],
             resources: [

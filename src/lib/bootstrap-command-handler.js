@@ -292,9 +292,9 @@ export default class BootstrapCommandHandler {
                         }
                     };
 
-                    if (profileConfig.ciBenchmarkResultsBucket) {
+                    if (profileConfig.ciBenchmarkResultsBucket || profileConfig.benchmarkS3Bucket) {
                         profileConfig.moduleOutputs.benchmark = {
-                            BenchmarkBucket: profileConfig.ciBenchmarkResultsBucket,
+                            BenchmarkBucket: profileConfig.ciBenchmarkResultsBucket || profileConfig.benchmarkS3Bucket,
                             GlueDatabase: profileConfig.ciGlueDatabase || 'mlcc_ci'
                         };
                     }
@@ -1034,9 +1034,10 @@ export default class BootstrapCommandHandler {
             if (outputs.core.ModelsBucket) profileData.modelsS3Bucket = outputs.core.ModelsBucket;
         }
 
-        // benchmark → ciBenchmarkResultsBucket, ciGlueDatabase
+        // benchmark → ciBenchmarkResultsBucket, benchmarkS3Bucket, ciGlueDatabase
         if (outputs.benchmark) {
             if (outputs.benchmark.BenchmarkBucket) profileData.ciBenchmarkResultsBucket = outputs.benchmark.BenchmarkBucket;
+            if (outputs.benchmark.BenchmarkBucket) profileData.benchmarkS3Bucket = outputs.benchmark.BenchmarkBucket;
             if (outputs.benchmark.GlueDatabase) profileData.ciGlueDatabase = outputs.benchmark.GlueDatabase;
         }
 

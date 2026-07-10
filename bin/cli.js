@@ -373,4 +373,26 @@ program
         });
     });
 
+program
+    .command('prove')
+    .description('Prove that a configuration works end-to-end (generate → deploy → test → clean)')
+    .passThroughOptions()
+    .argument('[config]', 'Path to prove.json config file (or subcommand: report, sync, status)')
+    .argument('[args...]', 'Additional arguments')
+    .option('--interactive', 'Build prove config interactively')
+    .option('--model <model>', 'Model name (shorthand for prove.json base.model_name)')
+    .option('--deployment-config <config>', 'Deployment config (e.g. transformers-vllm)')
+    .option('--instance-type <type>', 'Instance type (e.g. ml.g5.xlarge)')
+    .option('--stages <stages>', 'Comma-separated stages to run (default: all)')
+    .option('--concurrency <n>', 'Parallel prove runs for sweeps (default: 1)', parseInt)
+    .option('--no-clean', 'Skip cleanup after prove')
+    .option('--dry-run', 'Print what would run without executing')
+    .option('--budget <usd>', 'Max spend in USD (default: 50)', parseFloat)
+    .action(async (config, args, options) => {
+        const { default: ProveCommandHandler } = await import('../src/lib/prove-command-handler.js');
+        const handler = new ProveCommandHandler();
+        const allArgs = config ? [config, ...args] : args;
+        await handler.handle(allArgs, options);
+    });
+
 program.parse();

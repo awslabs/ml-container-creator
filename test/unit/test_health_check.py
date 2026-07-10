@@ -103,8 +103,9 @@ class TestCheckPipPackages:
         assert result.status == "pass"
         assert "sagemaker" in result.message
 
+    @patch("importlib.util.find_spec", return_value=None)
     @patch("importlib.metadata.version")
-    def test_one_package_missing(self, mock_version):
+    def test_one_package_missing(self, mock_version, mock_find_spec):
         import importlib.metadata
 
         def side_effect(pkg):
@@ -118,8 +119,9 @@ class TestCheckPipPackages:
         assert result.status == "warn"
         assert "huggingface_hub" in result.message
 
+    @patch("importlib.util.find_spec", return_value=None)
     @patch("importlib.metadata.version")
-    def test_all_packages_missing(self, mock_version):
+    def test_all_packages_missing(self, mock_version, mock_find_spec):
         import importlib.metadata
 
         mock_version.side_effect = importlib.metadata.PackageNotFoundError("x")
@@ -484,8 +486,8 @@ class TestRunIntegration:
         (do_dir / "config").write_text("export DEPLOYMENT_TARGET=sagemaker\n")
         hc = EnvironmentHealthCheck()
         items = hc.run(project_dir=str(tmp_path))
-        # Should have 9 checks (6 env + 3 project: secrets, local overrides, benchmark)
-        assert len(items) == 9
+        # Should have 10 checks (6 env + 4 project: secrets, local overrides, benchmark, EBS quota)
+        assert len(items) == 10
 
 
 class TestPrintHealthReport:

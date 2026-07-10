@@ -33,7 +33,7 @@ except ModuleNotFoundError:
 
 _execution_log: list[dict[str, Any]] = []
 
-_FLAG_PATTERN = re.compile(r"^--[a-z][a-z0-9-]*(=.*)?$")
+_FLAG_PATTERN = re.compile(r'^--[a-z][a-z0-9-]*(=.*)?$')
 
 
 def get_execution_log() -> list[dict[str, Any]]:
@@ -68,16 +68,23 @@ def create_execute_script_tool(project_dir: Path, config: ExecutionConfig):
     """
 
     @tool
-    def execute_script(script: str, flags: list[str] = [], confirm_message: str = "") -> dict[str, Any]:
+    def execute_script(
+        script: str,
+        flags: list[str] = [],
+        confirm_message: str = '',
+        auto_confirm: bool = False,
+    ) -> dict[str, Any]:
         """Execute a do/ script in the project directory with user confirmation.
 
         Runs an approved script after displaying the exact command and waiting
-        for explicit user approval. Streams output in real-time.
+        for explicit user approval (unless auto_confirm is True). Streams
+        output in real-time.
 
         Args:
             script: Script path relative to project root (e.g., "do/stage").
             flags: List of command-line flags (e.g., ["--force", "--instance-type=ml.g5.xlarge"]).
             confirm_message: Optional message to display explaining why this script should be run.
+            auto_confirm: When True, skip the interactive [y/N] prompt and proceed directly.
 
         Returns:
             Dict with status ("success", "failed", "skipped", "timeout", "refused"),
@@ -87,21 +94,21 @@ def create_execute_script_tool(project_dir: Path, config: ExecutionConfig):
         invalid_flags = [f for f in flags if not _FLAG_PATTERN.match(f)]
         if invalid_flags:
             msg = (
-                f"Refused: invalid flag format {invalid_flags}. "
-                f"Flags must match --flag-name or --flag-name=value pattern."
+                f'Refused: invalid flag format {invalid_flags}. '
+                f'Flags must match --flag-name or --flag-name=value pattern.'
             )
-            print(f"\033[31m{msg}\033[0m")
-            return {"status": "refused", "reason": msg}
+            print(f'\033[31m{msg}\033[0m')
+            return {'status': 'refused', 'reason': msg}
 
         # ── Step 2: Check permitted list (AC-2.4) ──
         if not config.is_permitted(script):
             msg = (
                 f"I can't run {script} \u2014 it's not in my permitted list. "
-                f"Add it to .mlcc/agent-config.json if you'd like me to. "
-                f"Permitted: {config.permitted_scripts}"
+                f'Add it to .mlcc/agent-config.json if you\'d like me to. '
+                f'Permitted: {config.permitted_scripts}'
             )
-            print(f"\033[31m{msg}\033[0m")
-            return {"status": "refused", "reason": msg}
+            print(f'\033[31m{msg}\033[0m')
+            return {'status': 'refused', 'reason': msg}
 
         # ── Step 3: Verify script exists and is executable (AC-2.7) ──
         script_path = project_dir / script
@@ -114,39 +121,40 @@ def create_execute_script_tool(project_dir: Path, config: ExecutionConfig):
                 f"Script '{script}' not found at {script_path}. "
                 f"Available permitted scripts: {available or 'none found on disk'}"
             )
-            print(f"\033[31m{msg}\033[0m")
-            return {"status": "refused", "reason": msg}
+            print(f'\033[31m{msg}\033[0m')
+            return {'status': 'refused', 'reason': msg}
 
         if not os.access(script_path, os.X_OK):
             msg = f"Script '{script}' exists but is not executable. Run: chmod +x {script}"
-            print(f"\033[33m{msg}\033[0m")
-            return {"status": "refused", "reason": msg}
+            print(f'\033[33m{msg}\033[0m')
+            return {'status': 'refused', 'reason': msg}
 
         # ── Step 4: Display cost warning (AC-4.1, AC-4.2) ──
         cost_warning = config.get_cost_warning(script)
         if cost_warning:
-            print(f"\033[33m\u26a0\ufe0f  Cost warning: {cost_warning}\033[0m")
+            print(f'\033[33m\u26a0\ufe0f  Cost warning: {cost_warning}\033[0m')
 
         # ── Step 5: Display proposed command ──
-        cmd_display = f"./{script}" + (" " + " ".join(flags) if flags else "")
+        cmd_display = f'./{script}' + (' ' + ' '.join(flags) if flags else '')
         print()
-        print("\033[1m\u250c\u2500 Proposed command \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\033[0m")
-        print(f"\033[1m\u2502\033[0m  $ {cmd_display}")
-        print(f"\033[1m\u2502\033[0m  cwd: {project_dir}")
+        print('\033[1m\u250c\u2500 Proposed command \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\033[0m')
+        print(f'\033[1m\u2502\033[0m  $ {cmd_display}')
+        print(f'\033[1m\u2502\033[0m  cwd: {project_dir}')
         if confirm_message:
-            print(f"\033[1m\u2502\033[0m  {confirm_message}")
-        print("\033[1m\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\033[0m")
+            print(f'\033[1m\u2502\033[0m  {confirm_message}')
+        print('\033[1m\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\033[0m')
         print()
 
         # ── Step 6: Confirmation prompt (AC-1.2) ──
-        try:
-            answer = input("Execute? [y/N]: ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return {"status": "skipped", "reason": "user interrupted"}
+        if not auto_confirm:
+            try:
+                answer = input('Execute? [y/N]: ').strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return {'status': 'skipped', 'reason': 'user interrupted'}
 
-        if answer not in ("y", "yes"):
-            return {"status": "skipped", "reason": "user declined"}
+            if answer not in ('y', 'yes'):
+                return {'status': 'skipped', 'reason': 'user declined'}
 
         # ── Step 7: Spawn subprocess (AC-1.7, AC-1.8) ──
         cmd = [str(script_path)] + flags
@@ -164,9 +172,9 @@ def create_execute_script_tool(project_dir: Path, config: ExecutionConfig):
                 # No shell=True — direct exec only (security)
             )
         except OSError as e:
-            msg = f"Failed to spawn subprocess: {e}"
-            print(f"\033[31m{msg}\033[0m")
-            return {"status": "failed", "exit_code": -1, "reason": msg, "output_tail": []}
+            msg = f'Failed to spawn subprocess: {e}'
+            print(f'\033[31m{msg}\033[0m')
+            return {'status': 'failed', 'exit_code': -1, 'reason': msg, 'output_tail': []}
 
         # ── Step 8: Forward SIGINT to child (AC-1.9) ──
         original_sigint = signal.getsignal(signal.SIGINT)
@@ -181,7 +189,7 @@ def create_execute_script_tool(project_dir: Path, config: ExecutionConfig):
         timed_out = False
 
         try:
-            print(f"\033[2m\u2500\u2500\u2500 output \u2500\u2500\u2500\033[0m")
+            print(f'\033[2m\u2500\u2500\u2500 output \u2500\u2500\u2500\033[0m')
             while True:
                 # Check timeout
                 elapsed = time.monotonic() - start_time
@@ -199,7 +207,7 @@ def create_execute_script_tool(project_dir: Path, config: ExecutionConfig):
                 # Non-blocking read with short timeout for heartbeat checking
                 line = proc.stdout.readline()
                 if line:
-                    decoded = line.decode("utf-8", errors="replace").rstrip("\n")
+                    decoded = line.decode('utf-8', errors='replace').rstrip('\n')
                     print(decoded)
                     output_lines.append(decoded)
                     last_output_time = time.monotonic()
@@ -211,10 +219,10 @@ def create_execute_script_tool(project_dir: Path, config: ExecutionConfig):
                     time.sleep(0.1)
                     silent_duration = time.monotonic() - last_output_time
                     if silent_duration > 60:
-                        print("\033[2m\u23f3 still running\u2026\033[0m")
+                        print('\033[2m\u23f3 still running\u2026\033[0m')
                         last_output_time = time.monotonic()
 
-            print(f"\033[2m\u2500\u2500\u2500 end \u2500\u2500\u2500\033[0m")
+            print(f'\033[2m\u2500\u2500\u2500 end \u2500\u2500\u2500\033[0m')
         finally:
             signal.signal(signal.SIGINT, original_sigint)
 
@@ -223,31 +231,31 @@ def create_execute_script_tool(project_dir: Path, config: ExecutionConfig):
         output_tail = output_lines[-20:] if output_lines else []
 
         if timed_out:
-            status = "timeout"
+            status = 'timeout'
             print(
-                f"\033[31mScript timed out after {config.max_script_timeout}s. "
-                f"Process was terminated.\033[0m"
+                f'\033[31mScript timed out after {config.max_script_timeout}s. '
+                f'Process was terminated.\033[0m'
             )
         elif exit_code == 0:
-            status = "success"
-            print(f"\033[32m\u2713 Script completed successfully (exit 0)\033[0m")
+            status = 'success'
+            print(f'\033[32m\u2713 Script completed successfully (exit 0)\033[0m')
         else:
-            status = "failed"
-            print(f"\033[31m\u2717 Script failed (exit {exit_code})\033[0m")
+            status = 'failed'
+            print(f'\033[31m\u2717 Script failed (exit {exit_code})\033[0m')
 
         # ── Step 11: Update session execution log (NFR-7) ──
         _execution_log.append({
-            "script": script,
-            "flags": flags,
-            "status": status,
-            "exit_code": exit_code,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            'script': script,
+            'flags': flags,
+            'status': status,
+            'exit_code': exit_code,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
         })
 
         return {
-            "status": status,
-            "exit_code": exit_code,
-            "output_tail": output_tail,
+            'status': status,
+            'exit_code': exit_code,
+            'output_tail': output_tail,
         }
 
     return execute_script
