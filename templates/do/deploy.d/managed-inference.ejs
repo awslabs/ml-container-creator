@@ -11,10 +11,13 @@ FORCE_NEW=false
 FORCE_IC=false
 IC_TARGET=""
 CI_FLAG=false
+ARG_OPTIMIZE=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE_NEW=true; shift ;;
         --ci) CI_FLAG=true; shift ;;
+        --optimize) ARG_OPTIMIZE=true; shift ;;
+        --no-optimize) ARG_OPTIMIZE=false; shift ;;
         --force-ic)
             FORCE_IC=true
             shift
@@ -34,10 +37,12 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: ./do/deploy [--force] [--force-ic [<name>]] [--ic <name>] [--ci]"
+            echo "Usage: ./do/deploy [--force] [--force-ic [<name>]] [--ic <name>] [--ci] [--optimize]"
             echo ""
             echo "Options:"
             echo "  --force            Create a new endpoint and IC, even if one already exists."
+            echo "  --optimize         Run optimization recommendations and apply before deploying."
+            echo "  --no-optimize      Skip optimization (explicit opt-out, for CI pipelines)."
             echo "  --force-ic         Recreate ALL inference components on the existing endpoint."
             echo "  --force-ic <name>  Recreate only the named IC on the existing endpoint."
             echo "  --ic <name>        Deploy only the named IC (from do/ic/<name>.conf)."
@@ -217,6 +222,20 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn:-}}"
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
+
+
+# ── Pre-deploy optimization ────────────────────────────────────────────────────
+if [ "${ARG_OPTIMIZE:-false}" = "true" ]; then
+    echo "🔍 Querying optimization recommendations before deploy..."
+    if "${SCRIPT_DIR}/optimize" --apply --no-bedrock 2>/dev/null; then
+        echo "   ✅ Optimization applied — re-sourcing config"
+        # shellcheck source=/dev/null
+        source "${SCRIPT_DIR}/config"
+    else
+        echo "   ⚠️  Optimization query failed or no data — proceeding with current config"
+    fi
+    echo ""
+fi
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"

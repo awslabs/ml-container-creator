@@ -33,6 +33,24 @@ from tune_stage_hf import cmd_stage_hf  # noqa: E402
 from tune_validate import cmd_validate  # noqa: E402
 from tune_discover import cmd_discover  # noqa: E402
 
+# Re-export internal helpers accessed by tests via importlib
+from tune_resolve import _resolve_dataset_name, _resolve_evaluator_name  # noqa: E402, F401
+from tune_stage_hf import (  # noqa: E402, F401
+    _apply_column_map,
+    _check_schema_divergence,
+    _check_technique_mismatch,
+    _detect_chat_columns,
+    _filter_data_files,
+    _flatten_record,
+    _flatten_value,
+    _get_required_columns,
+    _get_schema_types,
+    _inspect_file_schemas,
+    _is_glob_pattern,
+    _log_flatten_info,
+    _parse_column_map,
+)
+
 
 def main():
     parser = argparse.ArgumentParser(

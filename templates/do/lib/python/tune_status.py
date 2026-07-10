@@ -91,10 +91,83 @@ def cmd_status(args):
             if summaries:
                 actual_name = summaries[0]["TrainingJobName"]
                 job = TrainingJob.get(training_job_name=actual_name)
-            else:
-                _error_exit(f"Training job not found: {args.job_name}")
-        except Exception as e:
-            _error_exit(f"Failed to find training job: {e}")
+        except Exception:
+            pass  # Will try Jobs API fallback below
+
+    # Fallback 2: SageMaker Jobs API (describe_job / list_jobs).
+    # Managed customization on newer instance types (e.g., g6e) may route
+    # through the Jobs API (CreateJob) rather than CreateTrainingJob.
+    # These jobs won't appear in list_training_jobs.
+    if job is None:
+        try:
+            import boto3
+            client = boto3.client("sagemaker", region_name=args.region)
+
+            # Try exact name via describe_job first
+            job_info = None
+            for category in ("AgentRFT", "AgentRFTEvaluation"):
+                try:
+                    job_info = client.describe_job(
+                        JobName=args.job_name,
+                        JobCategory=category,
+                    )
+                    break
+                except client.exceptions.ResourceNotFound:
+                    continue
+                except Exception:
+                    continue
+
+            # If not found by exact name, try list_jobs with name filter
+            if not job_info:
+                try:
+                    list_resp = client.list_jobs(
+                        NameContains=args.job_name,
+                        SortBy="CreationTime",
+                        SortOrder="Descending",
+                        MaxResults=1,
+                    )
+                    job_summaries = list_resp.get("JobSummaries", [])
+                    if job_summaries:
+                        actual_name = job_summaries[0]["JobName"]
+                        category = job_summaries[0].get("JobCategory", "AgentRFT")
+                        job_info = client.describe_job(
+                            JobName=actual_name,
+                            JobCategory=category,
+                        )
+                except Exception:
+                    pass
+
+            if job_info:
+                # Convert Jobs API response to our standard output format
+                status = job_info.get("JobStatus", "Unknown")
+                failure_reason = None
+                if status == "Failed":
+                    transitions = job_info.get("SecondaryStatusTransitions", [])
+                    for t in reversed(transitions):
+                        if t.get("Status") == "Failed" and t.get("StatusMessage"):
+                            failure_reason = t["StatusMessage"]
+                            break
+
+                creation_time = job_info.get("CreationTime")
+                end_time = job_info.get("EndTime")
+                elapsed_seconds = 0
+                if creation_time:
+                    end = end_time if end_time else __import__('datetime').datetime.now(
+                        __import__('datetime').timezone.utc)
+                    elapsed_seconds = int((end - creation_time).total_seconds())
+
+                _output({
+                    "status": status,
+                    "failure_reason": failure_reason,
+                    "metrics": None,
+                    "elapsed_seconds": elapsed_seconds,
+                    "output_path": None,
+                })
+        except Exception:
+            pass
+
+    if job is None:
+        _error_exit(f"Training job not found: {args.job_name}")
 
     # Read status attributes directly from the TrainingJob resource object.
     # sagemaker-core returns status values in the same casing as the API

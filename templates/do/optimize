@@ -19,46 +19,303 @@ source "${SCRIPT_DIR}/lib/wait.sh"
 GOAL=""
 INSTANCES_ARG=""
 FORCE=false
+ARG_APPLY=false
+ARG_JSON=false
+ARG_METRIC="output_token_throughput_tps"
+ARG_NO_BEDROCK=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --goal) shift; GOAL="${1:-}"; shift ;;
         --instances) shift; INSTANCES_ARG="${1:-}"; shift ;;
         --force) FORCE=true; shift ;;
+        --apply) ARG_APPLY=true; shift ;;
+        --json) ARG_JSON=true; shift ;;
+        --metric) shift; ARG_METRIC="${1:-output_token_throughput_tps}"; shift ;;
+        --no-bedrock) ARG_NO_BEDROCK=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]"
+            echo "Usage: ./do/optimize [--apply] [--json] [--metric <name>] [--no-bedrock]"
+            echo "       ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]"
             echo ""
-            echo "Run SageMaker AI Inference Recommendations to find optimal"
-            echo "instance types and model configurations for your workload."
+            echo "Query historical benchmark data for proven optimal serving configurations."
+            echo "If --goal is specified, also runs SageMaker AI Inference Recommendations API."
             echo ""
             echo "Options:"
-            echo "  --goal <goal>       Optimization goal: cost, latency, or throughput (required)"
-            echo "  --instances <list>  Comma-separated instance types to evaluate"
-            echo "                      Defaults to INSTANCE_POOLS entries or INSTANCE_TYPE from do/config"
+            echo "  --apply             Write recommended changes to do/config and do/ic/default.conf"
+            echo "  --json              Output raw JSON recommendations (skip formatted display)"
+            echo "  --metric <name>     Metric to optimize (default: output_token_throughput_tps)"
+            echo "                      Options: output_token_throughput_tps, ttft_p90_ms, itl_p90_ms, cost_per_1m_tokens"
+            echo "  --no-bedrock        Skip Bedrock AI analysis even if available"
+            echo "  --goal <goal>       Run SageMaker AI Recommendations API (cost, latency, throughput)"
+            echo "  --instances <list>  Comma-separated instance types for API recommendations"
             echo "  --force             Create a new recommendation job even if one exists"
             echo ""
             echo "Examples:"
-            echo "  ./do/optimize --goal throughput"
-            echo "  ./do/optimize --goal cost --instances ml.g6e.48xlarge,ml.p5.48xlarge"
-            echo "  ./do/optimize --goal latency --force"
+            echo "  ./do/optimize                              # Show Athena-backed recommendations"
+            echo "  ./do/optimize --apply                      # Apply recommendations to config"
+            echo "  ./do/optimize --json                       # Raw JSON output (for piping)"
+            echo "  ./do/optimize --metric ttft_p90_ms         # Optimize for latency"
+            echo "  ./do/optimize --goal throughput            # Also run SageMaker API recommendations"
             echo ""
             echo "Idempotency:"
             echo "  If OPTIMIZE_JOB_NAME is set in do/config and the job is still running,"
-            echo "  re-running without --force will resume waiting for the existing job."
+            echo "  re-running with --goal without --force will resume waiting for the existing job."
             echo ""
             echo "Prerequisites:"
             echo "  • MODEL_NAME must be set in do/config (HuggingFace model ID or S3 path)"
             echo "  • AWS credentials must be configured"
+            echo "  • Benchmark data in Athena (from do/benchmark --status)"
             exit 0
             ;;
         *) shift ;;
     esac
 done
 
-# ── Validate goal ─────────────────────────────────────────────────────────────
+# ── Athena-backed recommendation query ────────────────────────────────────────
+# Query historical benchmark data for proven configs better than current.
+# Runs before the SageMaker AI Recommendations API call (if --goal is set).
+
+_run_athena_recommendations() {
+    local model_name="${HF_MODEL_ID:-${MODEL_NAME:-}}"
+    local instance_type="${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+    local quantization="${IC_ENV_VLLM_QUANTIZATION:-${IC_ENV_QUANTIZATION:-bf16}}"
+    local tp="${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}"
+    local max_len="${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}"
+    local kv_dtype="${IC_ENV_VLLM_KV_CACHE_DTYPE:-auto}"
+
+    if [ -z "$model_name" ] || [ -z "$instance_type" ]; then
+        echo "⚠️  Cannot query benchmark history — MODEL_NAME and INSTANCE_TYPE required" >&2
+        return 1
+    fi
+
+    # Resolve benchmark bucket from profile
+    local bucket
+    bucket=$(python3 -c "
+import json, os
+cfg = os.path.expanduser('~/.ml-container-creator/config.json')
+if os.path.exists(cfg):
+    d = json.load(open(cfg))
+    profiles = d.get('profiles', {})
+    active = d.get('activeProfile', next(iter(profiles), ''))
+    print(profiles.get(active, {}).get('ciBenchmarkResultsBucket', ''))
+else:
+    print('')
+" 2>/dev/null) || bucket=""
+
+    if [ -z "$bucket" ]; then
+        echo "⚠️  No benchmark results bucket configured — run 'mcc bootstrap add-module benchmark'" >&2
+        return 1
+    fi
+
+    local bedrock_flag=""
+    if [ "${ARG_NO_BEDROCK}" = "false" ] && [ "${MCC_NO_BEDROCK:-0}" != "1" ]; then
+        bedrock_flag="--bedrock-interpret"
+    fi
+
+    python3 "$(dirname "${BASH_SOURCE[0]}")/.optimize_engine.py" recommend \
+        --model-name "$model_name" \
+        --instance-type "$instance_type" \
+        --quantization "$quantization" \
+        --tensor-parallel "$tp" \
+        --max-model-len "$max_len" \
+        --kv-cache-dtype "$kv_dtype" \
+        --metric "${ARG_METRIC}" \
+        --bucket "$bucket" \
+        --region "${AWS_REGION:-${REGION:-us-east-1}}" \
+        ${bedrock_flag}
+}
+
+_display_recommendations() {
+    local json_data="$1"
+
+    local status
+    status=$(echo "$json_data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null) || status=""
+
+    if [ "$status" != "ok" ]; then
+        local error
+        error=$(echo "$json_data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error','Unknown error'))" 2>/dev/null) || error="Unknown error"
+        echo "⚠️  Optimization query failed: $error" >&2
+        return 1
+    fi
+
+    # Use Python to format the display
+    echo "$json_data" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+recs = data.get('recommendations', [])
+model = data.get('model_name', 'unknown')
+instance = data.get('instance_type', 'unknown')
+match_level = data.get('match_level', 'none')
+metric = data.get('target_metric', 'output_token_throughput_tps')
+total = data.get('total_records_found', 0)
+
+if not recs:
+    print()
+    print('ℹ️  No recommendations available — no matching benchmark data found.')
+    print(f'   Model: {model}')
+    print(f'   Instance: {instance}')
+    print(f'   Match level: {match_level}')
+    sys.exit(0)
+
+# Header
+model_short = model.split('/')[-1] if '/' in model else model
+print()
+print(f'Optimization Recommendations for {model_short} on {instance}')
+print('─' * 60)
+print()
+print(f'  Based on {total} benchmark records ({match_level} match)')
+print(f'  Optimizing for: {metric}')
+print()
+
+# Table
+print(f'  {\"Dimension\":<22s} {\"Current\":<12s} {\"Recommended\":<14s} {\"Expected Gain\":<18s} {\"Confidence\":<20s}')
+print(f'  {\"-\" * 22} {\"-\" * 12} {\"-\" * 14} {\"-\" * 18} {\"-\" * 20}')
+
+for r in recs:
+    dim = r['dimension']
+    current = str(r['current_value'])
+    recommended = str(r['recommended_value'])
+    gain = f'+{r[\"improvement_pct\"]}%'
+    confidence = f'{r[\"confidence\"].upper()} ({r[\"num_runs\"]} runs)'
+    print(f'  {dim:<22s} {current:<12s} {recommended:<14s} {gain:<18s} {confidence:<20s}')
+
+# Analysis section
+analysis = data.get('analysis', '')
+if analysis:
+    print()
+    print('Analysis:')
+    for line in analysis.split('. '):
+        line = line.strip()
+        if line:
+            if not line.endswith('.'):
+                line += '.'
+            print(f'  {line}')
+
+# Footer
+print()
+print('Next steps:')
+print('  Apply these changes:     ./do/optimize --apply')
+print('  See raw recommendation:  ./do/optimize --json')
+print('  Apply and deploy:        ./do/deploy --optimize')
+print()
+" 2>/dev/null
+}
+
+_apply_recommendations() {
+    local json_data="$1"
+    local config_file="${SCRIPT_DIR}/config"
+    local ic_conf="${SCRIPT_DIR}/ic/default.conf"
+
+    # Create backups
+    if [ -f "$config_file" ]; then
+        cp "$config_file" "${config_file}.bak"
+    fi
+    if [ -f "$ic_conf" ]; then
+        cp "$ic_conf" "${ic_conf}.bak"
+    fi
+
+    # Parse and apply each recommendation
+    echo "$json_data" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+recs = data.get('recommendations', [])
+if not recs:
+    print('ℹ️  No changes to apply — current config is already optimal.')
+    sys.exit(0)
+
+for r in recs:
+    key = r.get('config_key', '')
+    value = r.get('recommended_value', '')
+    if key and value != '':
+        print(f'{key}={value}')
+" 2>/dev/null | while IFS='=' read -r key value; do
+        if [ -n "$key" ] && [ -n "$value" ]; then
+            _apply_config_change "$key" "$value"
+            echo "   ✅ ${key}=${value}"
+        fi
+    done
+
+    echo ""
+    echo "✅ Recommendations applied to do/config"
+    echo "   Backups: do/config.bak, do/ic/default.conf.bak"
+    echo "   Run ./do/deploy to deploy with optimized configuration."
+}
+
+_apply_config_change() {
+    local key="$1" value="$2"
+    local config_file="${SCRIPT_DIR}/config"
+    local ic_conf="${SCRIPT_DIR}/ic/default.conf"
+
+    # Special case: tensor_parallel_degree also updates IC_GPU_COUNT
+    if [ "${key}" = "IC_ENV_VLLM_TENSOR_PARALLEL_SIZE" ] && [ -f "${ic_conf}" ]; then
+        _update_or_append "${ic_conf}" "IC_GPU_COUNT" "${value}"
+    fi
+
+    # Update or append the IC_ENV_* var in do/config
+    _update_or_append "${config_file}" "${key}" "${value}"
+}
+
+_update_or_append() {
+    local file="$1" key="$2" value="$3"
+    if [ ! -f "$file" ]; then
+        return
+    fi
+    if grep -q "^export ${key}=" "${file}" 2>/dev/null || grep -q "^${key}=" "${file}" 2>/dev/null; then
+        sed -i.tmp "s|^export ${key}=.*|export ${key}=\"${value}\"|" "${file}"
+        sed -i.tmp "s|^${key}=.*|${key}=\"${value}\"|" "${file}"
+        rm -f "${file}.tmp"
+    else
+        echo "export ${key}=\"${value}\"" >> "${file}"
+    fi
+}
+
+# ── Run Athena recommendations ────────────────────────────────────────────────
+_ATHENA_RESULT=""
+_ATHENA_RESULT=$(_run_athena_recommendations 2>/dev/null) || _ATHENA_RESULT=""
+
+if [ -n "${_ATHENA_RESULT}" ]; then
+    # Check if it's valid JSON with status=ok
+    _ATHENA_STATUS=$(echo "${_ATHENA_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null) || _ATHENA_STATUS=""
+
+    if [ "${_ATHENA_STATUS}" = "ok" ]; then
+        if [ "${ARG_JSON}" = "true" ]; then
+            echo "${_ATHENA_RESULT}"
+            exit 0
+        fi
+
+        if [ "${ARG_APPLY}" = "true" ]; then
+            _display_recommendations "${_ATHENA_RESULT}"
+            _apply_recommendations "${_ATHENA_RESULT}"
+            exit 0
+        fi
+
+        # Default: display recommendations
+        _display_recommendations "${_ATHENA_RESULT}"
+
+        # If no --goal specified, exit after showing Athena recommendations
+        if [ -z "${GOAL}" ]; then
+            exit 0
+        fi
+        echo ""
+        echo "────────────────────────────────────────────────────────────────────────"
+        echo "Also running SageMaker AI Inference Recommendations (--goal ${GOAL})..."
+        echo ""
+    fi
+elif [ -z "${GOAL}" ]; then
+    # No Athena results and no --goal: show helpful message
+    echo "ℹ️  No benchmark history available for recommendations."
+    echo "   Run benchmarks first: ./do/benchmark --workload <name>"
+    echo ""
+    echo "   Or use SageMaker AI Recommendations API:"
+    echo "   ./do/optimize --goal throughput"
+    exit 0
+fi
+
+# ── Validate goal (required for SageMaker API path) ───────────────────────────
 if [ -z "${GOAL}" ]; then
-    echo "❌ --goal is required. Choose one of: cost, latency, throughput"
-    echo "   Example: ./do/optimize --goal throughput"
-    exit 1
+    # Already showed Athena results above, or error message — just exit
+    exit 0
 fi
 
 case "${GOAL}" in

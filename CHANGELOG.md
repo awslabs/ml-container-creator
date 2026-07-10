@@ -2,6 +2,43 @@
 
 All notable changes to ml-container-creator are documented here.
 
+## [1.3.0] — 2026-07-10
+
+### 🤖 Agent Autonomy + Intelligent Optimization
+
+v1.3 completes the agent autonomy arc (advise → act → auto), delivers Athena-backed optimization recommendations, decomposes the monolithic Python helpers, and ships the prove pipeline for catalog expansion.
+
+### Added
+
+- **`hey --goal '<objective>' --auto`** — Agent auto-goal mode: `GoalPlanner` converts a natural-language objective into an ordered `do/` script plan; `QuestionResolver` answers clarifying questions from project context, capability matrix, and instance-sizer defaults; `ChainRunner` executes the plan, pausing at `confirm`-class steps. `--dry-run` runs the planner without executing anything (golden-file testable).
+- **`ConfirmationPolicy`** — Script classification (`auto` / `confirm`) externalized to `config/agent.json` and project-local `.mlcc/agent-config.json`. Scripts like `do/test` and `do/validate` run without prompts; mutating scripts always pause for confirmation.
+- **Athena-backed `do/optimize`** — Queries your own benchmark history (Parquet in S3/Athena) for proven configurations better than your current config. Shows ranked recommendations with confidence scores (HIGH/MEDIUM/LOW based on run count and variance). Bedrock explains tradeoffs when available. `--apply` writes changes to `do/ic/default.conf` with `.bak` backup.
+- **`do/benchmark --compare-baseline`** — Compares the most recent local benchmark run against your Athena historical best. `--threshold metric:pct` (repeatable, with aliases) sets per-metric regression thresholds. Exit code 1 on regression — CI-friendly.
+- **`do/deploy --optimize`** — Pre-deploy hook: applies `do/optimize --apply` before deploying, non-fatal on failure.
+- **`mcc prove`** — Local prove pipeline: `prove prove.json` runs the full `do/` lifecycle end-to-end for a configuration and writes results to DynamoDB. `prove --interactive` builds a prove config via MCP-assisted wizard. `prove sync` promotes passing results to catalog JSON. `prove report` and `prove status` for observability. Sweep axes (`base` + `sweep` → Cartesian product) with resumable persistent workspaces.
+- **Dataset hub listing** (`do/tune --list-datasets --source remote|local|all`) — Shows Remote DataSets (AWS AI Registry, account-scoped) and Local Datasets in separate sections. `--source remote` queries the AI Registry Hub; `--source local` reads local JSON registry only.
+- **Auto row count** — `do/register dataset` computes row count from S3 by streaming (jsonl line count, csv rows−1, parquet footer parse). Non-fatal; null if unsupported format or error.
+- **Technique guardrail** — `do/tune` warns when a dataset was registered for a different technique (e.g. registering a DPO dataset for SFT). In `MLCC_AUTO_MODE=1`, auto-declines with exit code 4.
+- **`ml.p6-b200.48xlarge`** — Added to instance catalog (8× NVIDIA B200 GPUs, Blackwell architecture, 192GB VRAM per GPU).
+
+### Changed
+
+- **Helper decomposition** — `.tune_helper.py` (2082 lines → 181-line dispatcher), `.register_helper.py` (2095 lines → 168-line dispatcher), `.stage_helper.py` (420 lines → 72-line dispatcher), `.adapter_helper.py` (451 lines → 62-line dispatcher). Implementation now lives in `templates/do/lib/python/` (15 focused sub-modules ≤200 lines each). Dispatchers re-export all helpers for backward compatibility.
+- **`do/optimize`** — Extended with Athena-first recommendation flow. Existing `CreateAIRecommendationJob` logic preserved as complementary path (useful when no benchmark history exists). New flags: `--apply`, `--json`, `--metric`, `--no-bedrock`.
+- **ConfirmationPolicy classification defaults** — `do/test`, `do/status`, `do/logs`, `do/validate`, `do/export`, `do/ci` are `auto`-class (no prompt). All mutating/costly scripts are `confirm`-class.
+- **`_truncate_metadata`** — Now preserves empty strings in metadata output (previously silently dropped keys with empty values, violating the expected contract for optional fields).
+- **HyperPod specs** (E8-H1 through H5) moved to **v1.4 — HyperPod & SGLang**.
+
+### Fixed
+
+- Bootstrap status `--dry-run` now honored in interactive flow (`bootstrap add <profile>`)
+- `ic-env-deploy-time`: IC_ENV placeholder renders as active export with default-value syntax, not commented-out placeholder
+- `stage-update-config`: `--update-config` help text updated to match template
+- `tp-degree-auto-resolution`: `ml.p6-b200.48xlarge` was referenced in tests but missing from catalog
+- Health check: `importlib.util.find_spec` fallback mocked correctly in tests; check count updated to 10 (EBS quota check added)
+- `auto_flatten`: log output goes to stderr, not stdout — tests updated
+- `_check_technique_mismatch` re-exported from `.tune_helper.py` dispatcher for test backward-compat
+
 ## [1.2.0] — 2026-07-06
 
 ### 🧱 Modular Bootstrap + Agent Execution

@@ -23,6 +23,9 @@ IC_ARG=""
 ADAPTER_ARG=""
 ARG_NO_STALE_WARNING=false
 ARG_WORKLOAD=""
+ARG_COMPARE_BASELINE=false
+ARG_THRESHOLDS=()
+ARG_JSON=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --clean) CLEAN_AFTER=true; shift ;;
@@ -32,13 +35,19 @@ while [ $# -gt 0 ]; do
         --workload) shift; ARG_WORKLOAD="${1:-}"; shift ;;
         --ic) shift; IC_ARG="${1:-}"; shift ;;
         --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
+        --compare-baseline) ARG_COMPARE_BASELINE=true; shift ;;
+        --threshold) shift; ARG_THRESHOLDS+=("${1:-}"); shift ;;
+        --json) ARG_JSON=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/benchmark [--workload <name>] [--status] [--ic <name>] [--adapter <name>] [--force] [--clean]"
+            echo "Usage: ./do/benchmark [--workload <name>] [--status] [--compare-baseline] [--ic <name>] [--adapter <name>] [--force] [--clean]"
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
             echo "Options:"
             echo "  --status            Check job status; if completed, download results + write to Athena"
+            echo "  --compare-baseline  Compare latest results against historical best in Athena"
+            echo "  --threshold <m:p>   Set regression threshold per metric (repeatable, e.g. throughput:5)"
+            echo "  --json              Output comparison results as JSON (for CI integration)"
             echo "  --ic <name>         Benchmark a specific inference component"
             echo "  --adapter <name>    Benchmark a specific LoRA adapter (routes via adapter IC, records adapter_name in Athena)"
             echo "  --force             Create a new benchmark job even if one is already running"
@@ -183,6 +192,123 @@ if [ "${ARG_STATUS}" = true ]; then
             ;;
     esac
     exit 0
+fi
+
+
+# ── Handle --compare-baseline (early exit) ────────────────────────────────────
+# Compare latest local benchmark results against historical best in Athena.
+if [ "${ARG_COMPARE_BASELINE}" = true ]; then
+    _LATEST_RESULTS_DIR=$(ls -td "${SCRIPT_DIR}/../benchmarks/${PROJECT_NAME}-benchmark-"* 2>/dev/null | head -1) || _LATEST_RESULTS_DIR=""
+    _LATEST_JSONL=""
+
+    if [ -n "${_LATEST_RESULTS_DIR}" ]; then
+        _LATEST_JSONL=$(find "${_LATEST_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1) || _LATEST_JSONL=""
+    fi
+
+    if [ -z "${_LATEST_JSONL}" ]; then
+        echo "❌ No local benchmark results found. Run ./do/benchmark --workload <name> first."
+        exit 1
+    fi
+
+    # Resolve benchmark bucket from profile
+    _CB_BUCKET=$(python3 -c "
+import json, os
+cfg = os.path.expanduser('~/.ml-container-creator/config.json')
+if os.path.exists(cfg):
+    d = json.load(open(cfg))
+    profiles = d.get('profiles', {})
+    active = d.get('activeProfile', next(iter(profiles), ''))
+    print(profiles.get(active, {}).get('ciBenchmarkResultsBucket', ''))
+else:
+    print('')
+" 2>/dev/null) || _CB_BUCKET=""
+
+    if [ -z "${_CB_BUCKET}" ]; then
+        echo "❌ No benchmark results bucket configured."
+        echo "   Run: mcc bootstrap add-module benchmark"
+        exit 1
+    fi
+
+    # Build threshold args
+    _THRESHOLD_ARGS=()
+    for _t in "${ARG_THRESHOLDS[@]+"${ARG_THRESHOLDS[@]}"}"; do
+        if [ -n "$_t" ]; then
+            _THRESHOLD_ARGS+=("--threshold" "$_t")
+        fi
+    done
+
+    _JSON_FLAG=""
+    [ "${ARG_JSON}" = "true" ] && _JSON_FLAG="--json"
+
+    _COMPARE_RESULT=$(python3 "$(dirname "${BASH_SOURCE[0]}")/.optimize_engine.py" compare-baseline \
+        --results-file "${_LATEST_JSONL}" \
+        --model-name "${HF_MODEL_ID:-${MODEL_NAME:-}}" \
+        --instance-type "${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}" \
+        --quantization "${IC_ENV_VLLM_QUANTIZATION:-bf16}" \
+        --tensor-parallel "${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}" \
+        --bucket "${_CB_BUCKET}" \
+        --region "${AWS_REGION:-${REGION:-us-east-1}}" \
+        "${_THRESHOLD_ARGS[@]+"${_THRESHOLD_ARGS[@]}"}" \
+        ${_JSON_FLAG} 2>/dev/null) || true
+    _COMPARE_EXIT=$?
+
+    if [ -n "${_COMPARE_RESULT}" ]; then
+        if [ "${ARG_JSON}" = "true" ]; then
+            echo "${_COMPARE_RESULT}"
+        else
+            # Format the comparison output
+            echo "${_COMPARE_RESULT}" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+status = data.get('status', 'unknown')
+has_baseline = data.get('has_baseline', False)
+
+if not has_baseline:
+    print()
+    print('ℹ️  No baseline found — skipping comparison')
+    print('   Run benchmarks and write to Athena first: ./do/benchmark --status')
+    sys.exit(0)
+
+comparisons = data.get('comparisons', [])
+baseline_job = data.get('baseline_job', '')
+
+print()
+print('📊 Performance Comparison vs. Historical Best')
+print()
+if baseline_job:
+    print(f'   Baseline: {baseline_job}')
+print()
+print(f'  {\"METRIC\":<30s} {\"BASELINE\":<12s} {\"CURRENT\":<12s} {\"DELTA\":<10s} {\"STATUS\":<10s}')
+print(f'  {\"-\" * 30} {\"-\" * 12} {\"-\" * 12} {\"-\" * 10} {\"-\" * 10}')
+
+regressions = 0
+for c in comparisons:
+    metric = c['metric']
+    baseline = f'{c[\"baseline\"]:.1f}'
+    current = f'{c[\"current\"]:.1f}'
+    delta = f'{c[\"delta_pct\"]:+.1f}%'
+    if c['status'] == 'regression':
+        s = '⚠️ REGR'
+        regressions += 1
+    else:
+        s = '✅ pass'
+    print(f'  {metric:<30s} {baseline:<12s} {current:<12s} {delta:<10s} {s:<10s}')
+
+print()
+if regressions > 0:
+    thresholds = data.get('thresholds_applied', {})
+    threshold_display = ', '.join(f'{k}:{v}%' for k,v in thresholds.items())
+    print(f'   ⚠️  {regressions} regression(s) detected (thresholds: {threshold_display})')
+    print('   Exit code: 1')
+else:
+    print('   ✅ All metrics within threshold — no regressions detected.')
+print()
+" 2>/dev/null
+        fi
+    fi
+
+    exit ${_COMPARE_EXIT}
 fi
 
 
