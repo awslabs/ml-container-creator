@@ -1,6 +1,6 @@
-# Advisory Agent (`hey`)
+# Agent (`hey`)
 
-The `ml-container-creator hey` command starts a conversational AI advisor that helps you understand your project configuration, troubleshoot deployment issues, plan workflows, and get optimization recommendations. It's powered by Amazon Bedrock (Claude Sonnet) and is **advisory only** — it reads your project state and provides expert guidance but does not execute commands, modify files, or provision infrastructure.
+The `ml-container-creator hey` command starts a conversational AI agent that helps you understand your project configuration, troubleshoot deployment issues, plan workflows, get optimization recommendations, and **execute `do/` scripts** with explicit user confirmation. It's powered by Amazon Bedrock (Claude Sonnet) and can operate as both an advisor and an autonomous executor — planning and running `do/` script chains via `--goal` mode.
 
 ## Prerequisites
 
@@ -27,6 +27,15 @@ ml-container-creator hey
 
 # Static health check only (no Bedrock, no cost)
 ml-container-creator hey --offline
+
+# Plan and execute toward a goal
+ml-container-creator hey --goal "build and push my container"
+
+# Fully autonomous goal execution
+ml-container-creator hey --goal "validate my configuration" --auto
+
+# Preview the plan without executing anything
+ml-container-creator hey --goal "stage and deploy Qwen3-4B" --dry-run
 ```
 
 ## Modes
@@ -49,6 +58,63 @@ When no `do/config` is found, the agent enters **getting-started mode**:
 - Walks you through first-time setup and project creation
 - Explains what the tool does and how the lifecycle works
 
+## Goal Mode
+
+Goal mode turns `hey` into an autonomous executor. Provide a natural-language objective and the agent plans, resolves unknowns, and chains `do/` scripts to completion.
+
+### Quick start
+
+```bash
+# Preview the plan without running anything
+python3 src/agent/agent.py --goal "build and push my container" --dry-run
+
+# Run the plan with per-step confirmation on costly steps
+python3 src/agent/agent.py --goal "build and push my container"
+
+# Fully autonomous — auto-answers unknowns, runs read-only steps without prompting
+python3 src/agent/agent.py --goal "validate my configuration" --auto
+```
+
+### How it works
+
+1. **GoalPlanner** converts the objective into an ordered list of `do/` script steps. Each step is stamped with a confirmation class: `auto` (read-only, runs without prompting) or `confirm` (costly or mutating, always pauses for `y/N`).
+
+2. **QuestionResolver** fills in any unknowns from project context (`do/config`, IC confs), the capability matrix, and instance-sizer defaults. Under `--auto`, unknowns that can be resolved from context are filled silently. Infrastructure identifiers (endpoint names, ARNs, bucket names) are never invented — if they're missing from context, the agent asks once.
+
+3. **ChainRunner** walks the plan step by step. On step failure: stop, diagnose, prompt **[R]etry / [S]kip / [A]bort**.
+
+### Confirmation policy
+
+Scripts are classified as `auto` or `confirm` in `config/agent.json` and project-local `.mlcc/agent-config.json`:
+
+| Class | Default scripts |
+|-------|----------------|
+| `auto` | `do/test`, `do/status`, `do/logs`, `do/validate`, `do/export`, `do/ci` |
+| `confirm` | `do/stage`, `do/build`, `do/push`, `do/submit`, `do/deploy`, `do/tune`, `do/train`, `do/adapter`, `do/clean`, `do/register`, `do/optimize`, `do/benchmark` |
+
+Override in your project:
+```json
+// .mlcc/agent-config.json
+{
+  "confirmation": {
+    "mode": "all"
+  }
+}
+```
+`mode: "all"` — always confirm (safe default for unfamiliar projects). `mode: "none"` — never confirm (CI/scripted use).
+
+### --dry-run as a test harness
+
+`--dry-run` runs the full planner and resolver but substitutes a `DryRunReporter` for the executor. Zero `do/` scripts run, zero AWS calls. A deterministic `plan.json` is written to the project directory.
+
+```bash
+# Reproducible: same inputs → same plan.json
+python3 src/agent/agent.py --goal "stage and deploy Qwen3-4B" --dry-run
+cat plan.json | jq '.steps[].script'
+```
+
+Useful for golden-file tests: assert on the plan structure without spending on actual jobs.
+
 ## What It Can Help With
 
 - **Instance selection**: "What instance should I use for Llama-3.1-8B with LoRA?" → queries instance catalog, calculates VRAM, recommends with math
@@ -68,6 +134,9 @@ When no `do/config` is found, the agent enters **getting-started mode**:
 |------|-------------|
 | `--offline` / `-o` | Print environment health check and project summary, then exit. No Bedrock calls, no cost. |
 | `--project-dir <dir>` | Override project directory (default: current working directory). |
+| `--goal '<objective>'` | Plan a sequence of `do/` steps to achieve a natural-language objective. Produces an ordered plan; pairs with `--auto` for autonomous execution. |
+| `--auto` | Self-answer clarifying questions from project context and instance-sizer defaults, then chain-execute the plan. Pauses only at `confirm`-class scripts (costly or mutating). |
+| `--dry-run` | Run the planner and resolver, write `plan.json`, but execute zero `do/` scripts. Deterministic output for CI/testing. |
 
 ## Commands During Conversation
 
@@ -119,7 +188,7 @@ A typical 10-turn session costs **~$0.05–$0.10**. Use `--offline` for zero-cos
 
 ## Limitations
 
-- **Advisory only** — does not execute `do/` scripts, deploy endpoints, or modify config files. Execution capabilities are planned for v1.2.
+- **Executes `do/` scripts listed in `permitted_scripts`** (see `config/agent.json`). Scripts not in the permitted list are refused. To add a script, edit `.mlcc/agent-config.json` in your project.
 - **Session state is not persisted** — each `hey` invocation starts fresh. Use `TODO.md` output to capture plans.
 - **Knowledge is version-bound** — the agent knows about features in the installed version. Custom forks or unreleased changes aren't reflected unless you add them via `.mlcc-agent-context.md`.
 - **Requires internet** — Bedrock access needed for interactive mode. Use `--offline` for air-gapped environments.

@@ -20,11 +20,12 @@ _DEFAULT_PERMITTED_SCRIPTS: list[str] = [
     'do/build',
     'do/push',
     'do/submit',
+    'do/validate'
 ]
 
 _DEFAULT_COST_WARNINGS: dict[str, str] = {
     'do/stage': 'Submits a SageMaker Processing Job (~$0.10-0.50 depending on instance)',
-    'do/submit': 'Submits a SageMaker Training Job (cost depends on instance \u00d7 duration)',
+    'do/submit': 'Submits a CodeBuild job to build and push the Docker image to ECR (~$0.10-0.30, ~5-15 min)',
 }
 
 _DEFAULT_MAX_SCRIPT_TIMEOUT: int = 1800  # 30 minutes

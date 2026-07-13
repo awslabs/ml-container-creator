@@ -93,7 +93,7 @@ All generated projects include these `do/` scripts:
 | `./do/run` | Run container locally on port 8080 |
 | `./do/test` | Test local container or deployed endpoint |
 | `./do/validate` | Validate configuration against AWS service models (requires schema sync) |
-| `./do/deploy` | Deploy to the configured deployment target |
+| `./do/deploy` | Deploy to the configured deployment target. Flags: `--optimize` (apply benchmark-proven config before deploy), `--no-optimize` (skip optimization), `--dry-run` (validate only) |
 | `./do/tune` | Fine-tune using SageMaker AI Managed Model Customization (serverless) |
 | `./do/train` | Custom training jobs with your own scripts and hyperparameters |
 | `./do/adapter` | LoRA adapter lifecycle (add, list, remove, update) |
@@ -123,6 +123,19 @@ Run `./do/validate` before deploying to catch configuration issues that would ca
 This validates your `do/config` values against the AWS service model, checking enum constraints, type correctness, required fields, and cross-cutting consistency (GPU counts, tensor parallelism, CUDA compatibility). See [Configuration — Schema-Driven Validation](configuration.md#schema-driven-validation) for setup instructions.
 
 The `./do/deploy --dry-run` flag also runs schema validation as part of its pre-flight checks and blocks deployment if errors are found.
+
+### Pre-Deploy Optimization
+
+!!! tip "Pre-deploy optimization"
+    `do/deploy --optimize` runs `do/optimize --apply` before deploying, automatically applying any proven serving-config improvements from your benchmark history. Non-fatal — if no data exists or Athena is unavailable, deploy proceeds with the existing config.
+
+    ```bash
+    # Apply proven config improvements, then deploy
+    ./do/deploy --optimize
+
+    # Explicit opt-out (e.g., for pinned configs in CI)
+    ./do/deploy --no-optimize
+    ```
 
 ## Benchmarking
 

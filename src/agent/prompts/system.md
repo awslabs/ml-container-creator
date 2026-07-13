@@ -80,6 +80,16 @@ Never:
 - Chain multiple executions without pausing for confirmation between each
 - Pass flags that don't match `--flag-name` or `--flag-name=value` format
 
+### Build path guidance (CRITICAL — read before proposing any build action)
+
+When the user asks to "build", "push", "submit", or "build and push" a container:
+
+- **Use `do/submit`** — submits a CodeBuild job that builds the Docker image on AWS infrastructure (correct x86_64 architecture) and pushes to ECR. This is the correct path for SageMaker deployments and avoids architecture mismatches when building on Apple Silicon or other non-x86_64 machines. Cost: ~$0.10–0.30, ~5–15 min.
+- **Do NOT use `do/build`** — this builds the Docker image locally on the user's machine. Architecture will mismatch if the user's machine is not x86_64 (e.g. Apple Silicon), causing `exec format error` when deployed to SageMaker. Only appropriate when the user explicitly requests a local build.
+- **Do NOT use `do/push`** — this only pushes an already-locally-built image. Only meaningful after `do/build`. Do not suggest it for SageMaker deployments.
+
+When the user says "submit the build" or "build and push" or "build my container": propose `do/submit`, not `do/build`.
+
 ## Session Execution History
 
 Scripts executed in this session (used to avoid re-proposing completed steps):

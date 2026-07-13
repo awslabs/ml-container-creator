@@ -18,6 +18,7 @@ import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
 import { _ensureTemplateVariables, _validateEnvironmentVariables } from './lib/template-variable-resolver.js';
 import ejs from 'ejs';
+import { globSync } from 'tinyglobby';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -290,8 +291,13 @@ export async function run(projectName, options) {
  * @param {object} answers - Merged configuration answers
  * @param {object|null} registryConfigManager - Registry configuration manager (or null)
  * @param {object} tritonBackends - Triton backends catalog
+ * @param {object|null} configManager - Configuration manager instance (or null)
+ * @param {object} options - Optional generation options
+ * @param {string[]} [options.skipTemplates] - Glob patterns of files to skip
+ * @param {string[]} [options.onlyFiles] - Only write these exact output file paths
+ * @param {boolean} [options.noGenerationParams] - Skip writing .mlcc-generation-params.json
  */
-export async function writeProject(templateDir, destDir, answers, registryConfigManager = null, tritonBackends = {}, configManager = null) {
+export async function writeProject(templateDir, destDir, answers, registryConfigManager = null, tritonBackends = {}, configManager = null, options = {}) {
     // Validate required parameters via ConfigManager
     if (configManager) {
         const requiredParamErrors = configManager.validateRequiredParameters(answers);
@@ -514,8 +520,41 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/Dockerfile');
     }
 
+    // Append skipTemplates from options to ignore patterns
+    if (options.skipTemplates && options.skipTemplates.length > 0) {
+        for (const pattern of options.skipTemplates) {
+            ignorePatterns.push(`**/${pattern}`);
+        }
+    }
+
     // Copy all templates with EJS rendering
-    copyTpl(templateDir, destDir, templateVars, ignorePatterns);
+    if (options.onlyFiles) {
+        // Selective regeneration: only render files in the onlyFiles set
+        const onlySet = new Set(options.onlyFiles);
+        const allFiles = globSync('**/*', {
+            cwd: templateDir,
+            ignore: ignorePatterns,
+            dot: true,
+            onlyFiles: true
+        });
+        for (const file of allFiles) {
+            if (!onlySet.has(file)) continue;
+            const src = path.join(templateDir, file);
+            const dest = path.join(destDir, file);
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            const content = fs.readFileSync(src, 'utf8');
+            let rendered;
+            try {
+                rendered = ejs.render(content, templateVars, { filename: src });
+            } catch (err) {
+                const line = err.line ? ` (line ${err.line})` : '';
+                throw new Error(`EJS rendering failed for "${file}"${line}: ${err.message}`);
+            }
+            fs.writeFileSync(dest, rendered);
+        }
+    } else {
+        copyTpl(templateDir, destDir, templateVars, ignorePatterns);
+    }
 
     // Architecture-specific file routing (delete files that don't belong)
     switch (architecture) {
@@ -660,6 +699,25 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
             fs.writeFileSync(gitignorePath, pycacheIgnore);
         }
     }
+
+    // Add .mlcc-generation-params.json to .gitignore
+    {
+        const gitignorePath = path.join(destDir, '.gitignore');
+        const paramsIgnore = '# Generation parameters (local state, not committed)\n.mlcc-generation-params.json\n';
+        if (fs.existsSync(gitignorePath)) {
+            const existing = fs.readFileSync(gitignorePath, 'utf8');
+            if (!existing.includes('.mlcc-generation-params.json')) {
+                fs.appendFileSync(gitignorePath, `\n${paramsIgnore}`);
+            }
+        } else {
+            fs.writeFileSync(gitignorePath, paramsIgnore);
+        }
+    }
+
+    // Write .mlcc-generation-params.json (skip for import and partial update flows)
+    if (!options.noGenerationParams && !options.onlyFiles) {
+        _writeGenerationParams(destDir, answers);
+    }
 }
 
 /**
@@ -685,6 +743,51 @@ export async function postGenerate(destDir, answers, tritonBackends = {}) {
 }
 
 // --- Private helpers ---
+
+/**
+ * Keys that contain sensitive values and should be redacted in generation params.
+ */
+const REDACT_KEYS = new Set(['hfToken', 'ngcToken']);
+
+/**
+ * Write .mlcc-generation-params.json to the project root.
+ * Captures the full answers object for use by `mcc regenerate`.
+ *
+ * @param {string} destDir - Project destination directory
+ * @param {object} answers - Full answers object
+ */
+function _writeGenerationParams(destDir, answers) {
+    const pkgPath = path.join(GENERATOR_ROOT, 'package.json');
+    let generatorVersion = '0.0.0';
+    try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        generatorVersion = pkg.version || '0.0.0';
+    } catch {
+        // Fallback to unknown version
+    }
+
+    // Redact sensitive values
+    const redactedAnswers = { ...answers };
+    for (const key of REDACT_KEYS) {
+        if (redactedAnswers[key]) {
+            redactedAnswers[key] = '[REDACTED]';
+        }
+    }
+
+    const params = {
+        generatorVersion,
+        generatedAt: new Date().toISOString(),
+        answers: redactedAnswers,
+        bootstrapProfile: answers.bootstrapProfile || 'default',
+        catalogVersions: {
+            modelServersVersion: new Date().toISOString().split('T')[0],
+            modelsVersion: new Date().toISOString().split('T')[0]
+        }
+    };
+
+    const paramsPath = path.join(destDir, '.mlcc-generation-params.json');
+    fs.writeFileSync(paramsPath, `${JSON.stringify(params, null, 2)  }\n`);
+}
 
 /**
  * Converts commander's camelCase options to kebab-case keys.
@@ -900,7 +1003,8 @@ function _setExecutablePermissions(destDir, answers = {}) {
         'do/manifest',
         'do/benchmark',
         'do/optimize',
-        'do/status'
+        'do/status',
+        'do/validate'
     ];
 
     const defaultScripts = [
@@ -923,7 +1027,8 @@ function _setExecutablePermissions(destDir, answers = {}) {
         'do/adapter',
         'do/tune',
         'do/train',
-        'do/stage'
+        'do/stage',
+        'do/validate'
     ];
 
     const shellScripts = architecture === 'marketplace' ? marketplaceScripts : defaultScripts;

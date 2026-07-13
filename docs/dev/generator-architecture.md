@@ -114,3 +114,49 @@ await writeProject(TEMPLATE_DIR, destDir, answers)
 - [MCP Server Development](mcp-server-development.md) — Adding catalog entries, creating new servers
 - [Registries and Catalogs](registries-and-catalogs.md) — Catalog JSON format and data flow
 - [Configuration](../configuration.md) — User-facing configuration reference
+
+## `.mlcc-generation-params.json` Lifecycle
+
+The `.mlcc-generation-params.json` file captures the full generation inputs for later use by `mcc regenerate`.
+
+### When it's written
+
+`writeProject()` writes this file at the end of every successful generation call, unless:
+- `options.noGenerationParams === true` (used by `mcc import` — imported projects have different provenance)
+- `options.onlyFiles` is set (used by `mcc update` — partial regeneration should not overwrite saved params)
+
+### Contents
+
+```json
+{
+  "generatorVersion": "1.3.0",
+  "generatedAt": "2026-07-13T14:30:00Z",
+  "answers": { ... },
+  "bootstrapProfile": "default",
+  "catalogVersions": { "modelServersVersion": "...", "modelsVersion": "..." }
+}
+```
+
+### Sensitive value redaction
+
+Values for `hfToken` and `ngcToken` (plaintext secrets) are replaced with `"[REDACTED]"`. ARN references (`hfTokenArn`, `ngcTokenArn`) are preserved — they point to Secrets Manager and are not themselves secret.
+
+### Read by `mcc regenerate`
+
+The regenerate command reads this file as the primary source of generation parameters. It merges with live overrides from `do/config` and `do/ic/*.conf` (live values take precedence), then runs `writeProject()` with the merged answers.
+
+### Gitignored
+
+The generated `.gitignore` template includes `.mlcc-generation-params.json` — this file is local project state and should not be committed. Different developers may have different values (tokens, regions, profiles).
+
+### New command handler modules
+
+Three new handler modules in `src/lib/` implement the lifecycle commands:
+
+| Module | Command | Purpose |
+|--------|---------|---------|
+| `import-command-handler.js` | `mcc import` | Endpoint introspection → `writeProject()` |
+| `update-command-handler.js` | `mcc update` | Field changes → selective `writeProject()` |
+| `regenerate-command-handler.js` | `mcc regenerate` | Saved params → full `writeProject()` |
+
+All three use `writeProject()` from `src/app.js` with the new `options` parameter to control file selection and generation params behavior.

@@ -1,12 +1,69 @@
 # Optimization
 
-The `do/optimize` script runs SageMaker AI Inference Recommendations to find the optimal instance type and model configuration for your workload. It wraps `CreateAIRecommendationJob` and `DescribeAIRecommendationJob`, providing an interactive workflow that feeds results back into your project's `do/config`.
+`do/optimize` queries your own benchmark history to recommend proven configurations for your model and instance. It reads `do/config` and `do/ic/default.conf`, queries the Athena benchmark table for configurations that have outperformed your current settings, and shows ranked recommendations with confidence scores. An optional Bedrock analysis explains the tradeoffs in plain language.
 
-Use `do/optimize` after you've deployed and tested your model to answer: *"What's the best instance for my latency/throughput/cost goal?"*
+For situations with no benchmark history (new instance type, new model), `do/optimize --goal` invokes SageMaker AI Inference Recommendations, which runs live benchmarks and returns results.
 
 ---
 
-## Prerequisites
+## Athena Recommendations
+
+The primary optimization path queries your existing benchmark data in Athena. No live benchmarking required — results appear immediately if benchmark data exists for your model and instance.
+
+### Quick start
+
+```bash
+# See recommendations (dry-run by default)
+./do/optimize
+
+# Apply recommended changes to do/ic/default.conf
+./do/optimize --apply
+
+# Optimize for latency instead of throughput
+./do/optimize --metric ttft_p90_ms
+
+# Raw JSON output for scripting
+./do/optimize --json | jq '.recommendations[0]'
+```
+
+### How it works
+
+1. Reads current config from `do/config` and `do/ic/default.conf` (quantization, tensor parallelism, max_model_len, kv_cache_dtype)
+2. Queries Athena `mlcc_ci.benchmark_results` for records matching your model and instance
+3. Falls back to model family, then instance family if no exact match
+4. Ranks configuration changes by expected improvement on the target metric
+5. Displays a recommendation table with confidence levels (HIGH ≥5 runs, MEDIUM 2–4, LOW 1 run or family match)
+6. Optionally calls Bedrock for a plain-language analysis of tradeoffs
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--apply` | Write recommended changes to `do/ic/default.conf` (creates `.bak` backup) |
+| `--json` | Output raw recommendation JSON for scripting |
+| `--metric <name>` | Target metric: `output_token_throughput_tps` (default), `ttft_p90_ms`, `itl_p90_ms`, `cost_per_1m_tokens` |
+| `--no-bedrock` | Skip Bedrock analysis (faster, no cost) |
+
+### Confidence levels
+
+| Level | Criteria |
+|-------|---------|
+| HIGH | ≥5 matching benchmark runs with consistent results (CV < 0.15) |
+| MEDIUM | 2–4 runs, or coefficient of variation ≥ 0.15 |
+| LOW | 1 run, or extrapolated from similar model family / instance family |
+
+### No benchmark data
+
+If no Athena records exist for your model and instance, `do/optimize` prints "No recommendations available" and exits 0. Run `./do/benchmark --workload multi_turn_chat` first to generate baseline data, then re-run `do/optimize`.
+
+---
+
+## SageMaker AI Inference Recommendations
+
+!!! info "When to use this path"
+    `--goal` invokes the SageMaker AI Inference Recommendations API, which runs live benchmarks on candidate instances. Use this when you have no prior benchmark history for a configuration. Requires a registered model package ARN and takes 15–60 minutes. Cost depends on candidate instances.
+
+### Prerequisites
 
 | Requirement | Details |
 |---|---|
@@ -15,9 +72,7 @@ Use `do/optimize` after you've deployed and tested your model to answer: *"What'
 | **IAM permissions** | `sagemaker:CreateAIRecommendationJob`, `CreateAIWorkloadConfig`, `DescribeAIRecommendationJob` (included in bootstrap role) |
 | **Framework** | `transformers` only (uses `VLLM` inference specification) |
 
----
-
-## Usage
+### Usage
 
 ```bash
 ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]
@@ -39,9 +94,7 @@ If `--instances` is not provided, `do/optimize` resolves instance types from (in
 2. `INSTANCE_TYPE` in `do/config`
 3. Live endpoint query (for external endpoints)
 
----
-
-## What It Does
+### What It Does
 
 1. **Creates a workload config** — defines the traffic pattern (concurrency, input/output tokens, streaming) based on your benchmark settings
 2. **Creates an AI Recommendation Job** — submits the model + workload + candidate instances to SageMaker AI
@@ -52,9 +105,7 @@ If `--instances` is not provided, `do/optimize` resolves instance types from (in
    - Set up instance pools (writes `INSTANCE_POOLS` for heterogeneous deployments)
    - Save for later (stores `OPTIMIZE_MODEL_PACKAGE_ARN` in `do/config`)
 
----
-
-## Examples
+### Examples
 
 ```bash
 # Optimize for throughput using the instance type already in do/config

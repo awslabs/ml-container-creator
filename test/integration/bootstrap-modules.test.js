@@ -123,7 +123,7 @@ describe('Bootstrap Modules Integration', () => {
         });
 
         it('module-runner.ts exists', () => {
-            const runnerPath = resolve(PROJECT_ROOT, 'infra/bootstrap-modules/module-runner.ts');
+            const runnerPath = resolve(PROJECT_ROOT, 'infra/bootstrap-modules/module-runner.cjs');
             assert.ok(existsSync(runnerPath));
         });
 

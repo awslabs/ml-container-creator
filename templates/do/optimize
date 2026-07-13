@@ -314,7 +314,15 @@ fi
 
 # ── Validate goal (required for SageMaker API path) ───────────────────────────
 if [ -z "${GOAL}" ]; then
-    # Already showed Athena results above, or error message — just exit
+    # No Athena data and no --goal specified.
+    if [ "${ARG_APPLY}" = "true" ]; then
+        echo "❌ --apply requires --goal when no Athena benchmark history is available."
+        echo "   No local benchmark data found to apply. Either:"
+        echo "     1. Run 'do/benchmark --workload multi_turn_chat' first to generate data, then re-run 'do/optimize --apply'"
+        echo "     2. Use --goal to query SageMaker AI Recommendations: './do/optimize --goal latency --apply'"
+        exit 1
+    fi
+    # No --apply and no --goal — just exit (Athena path already printed results or found nothing)
     exit 0
 fi
 
@@ -527,7 +535,7 @@ if [ "${RESUME_EXISTING}" = false ]; then
         --output-config "S3OutputLocation=${S3_OUTPUT}"
         --ai-workload-config-identifier "${WORKLOAD_CONFIG_NAME}"
         --performance-target "Constraints=[{Metric=${PERF_METRIC}}]"
-        --role-arn "${ROLE_ARN}"
+        --role-arn "${ROLE_ARN:-}"
         --compute-spec "${COMPUTE_SPEC_JSON}"
         --inference-specification "Framework=VLLM"
         --region "${AWS_REGION}"

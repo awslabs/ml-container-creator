@@ -45,7 +45,11 @@ export function parseDoConfig(configPath) {
         const match = line.match(/^export\s+([A-Z_][A-Z0-9_]*)=["']?([^"'\n]*)["']?/);
         if (match) {
             const [, key, value] = match;
-            config[key] = value;
+            // Resolve shell default-value syntax: ${VAR:-default} → default
+            // This handles lines like: export INSTANCE_TYPE="${INSTANCE_TYPE:-ml.g6e.12xlarge}"
+            // Without this, the payload builder receives the shell expression instead of the resolved value.
+            const resolved = value.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}/g, '$1');
+            config[key] = resolved;
         }
     }
 

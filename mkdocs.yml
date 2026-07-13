@@ -70,6 +70,8 @@ nav:
       - Benchmarking: benchmarking.md
       - Deployment Registry: deployment-registry.md
       - Optimization: optimize.md
+      - Import/Update/Regenerate: import.md
+      - Prove: prove.md
       - Path Prover: path-prover.md
       - Coverage Manifold: coverage-manifold.md
   - Developer Guide:

@@ -395,4 +395,41 @@ program
         await handler.handle(allArgs, options);
     });
 
+program
+    .command('import')
+    .description('Generate an operational project from a running SageMaker endpoint')
+    .argument('<endpoint-arn>', 'SageMaker endpoint ARN (any endpoint status)')
+    .option('--output-dir <path>', 'Output directory (default: ./<endpoint-name>)')
+    .option('--region <region>', 'AWS region override (default: from ARN or AWS_DEFAULT_REGION)')
+    .option('--dry-run', 'Show what would be generated without writing')
+    .action(async (endpointArn, options) => {
+        const { default: ImportCommandHandler } = await import('../src/lib/import-command-handler.js');
+        const handler = new ImportCommandHandler(options);
+        await handler.handle(endpointArn);
+    });
+
+program
+    .command('update')
+    .description('Update project configuration fields and regenerate only affected files')
+    .option('--field <key=value>', 'Set a field non-interactively (repeatable)', collect, [])
+    .option('--dry-run', 'Show affected files without writing')
+    .option('--no-register', 'Skip do/register after update')
+    .action(async (options) => {
+        const { default: UpdateCommandHandler } = await import('../src/lib/update-command-handler.js');
+        const handler = new UpdateCommandHandler({ ...options, fields: options.field });
+        await handler.handle();
+    });
+
+program
+    .command('regenerate')
+    .description('Re-run generation from saved parameters using the current generator version')
+    .option('--force', 'Regenerate all files even if version matches')
+    .option('--dry-run', 'Show what would change without writing')
+    .option('--no-register', 'Skip do/register after regeneration')
+    .action(async (options) => {
+        const { default: RegenerateCommandHandler } = await import('../src/lib/regenerate-command-handler.js');
+        const handler = new RegenerateCommandHandler(options);
+        await handler.handle();
+    });
+
 program.parse();

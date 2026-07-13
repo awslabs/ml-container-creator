@@ -51,6 +51,9 @@ Deploy and benchmark:
 | `--force` | Create a new benchmark job even if one is already running |
 | `--clean` | Delete workload config and benchmark job after displaying results |
 | `--no-stale-warning` | Suppress schema registry staleness warning |
+| `--compare-baseline` | Compare latest results against historical best in Athena |
+| `--threshold <metric:pct>` | Set regression threshold per metric (repeatable, e.g. `throughput:5`) |
+| `--json` | Output comparison results as JSON (for CI integration) |
 
 ### IC Resolution
 
@@ -106,6 +109,59 @@ The benchmark reports:
 | **Request latency** (P50/P90/P99) | End-to-end request latency |
 | **TTFT** (P50/P90/P99) | Time to first token (streaming latency) |
 | **ITL** (P50/P90/P99) | Inter-token latency (generation speed) |
+
+## Regression Detection
+
+`--compare-baseline` compares your most recent benchmark run against the best historical result for the same configuration in Athena.
+
+```bash
+# Compare against historical best (10% threshold on all metrics)
+./do/benchmark --compare-baseline
+
+# Tighter threshold on throughput, looser on latency
+./do/benchmark --compare-baseline --threshold throughput:5 --threshold ttft:20
+
+# JSON output for CI pipelines (exit code 1 on regression)
+./do/benchmark --compare-baseline --json
+```
+
+### How it works
+
+1. Finds the most recent local benchmark result (`benchmarks/<project>-benchmark-*/output/profile_export.jsonl`)
+2. Queries Athena for the best historical result matching model + instance + quantization + tensor parallel
+3. Compares on four metrics with configurable thresholds
+
+### Threshold syntax
+
+`--threshold <metric>:<pct>` is repeatable. `<metric>` accepts full names or aliases:
+
+| Alias | Full name |
+|-------|----------|
+| `throughput` | `output_token_throughput_tps` |
+| `ttft` | `ttft_p90_ms` |
+| `itl` | `itl_p90_ms` |
+| `latency` | `e2e_latency_p90_ms` |
+
+Default when no `--threshold` is specified: all four metrics at 10%.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | No regression detected (or no baseline found) |
+| 1 | At least one metric exceeded the regression threshold |
+
+### CI integration
+
+```yaml
+# Example: run after every deployment, fail on regression
+- name: Benchmark regression check
+  run: |
+    ./do/benchmark --workload multi_turn_chat
+    ./do/benchmark --compare-baseline --threshold throughput:5 --json
+```
+
+---
 
 ## Generation-Time Configuration
 
