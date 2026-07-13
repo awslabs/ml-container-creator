@@ -80,9 +80,10 @@ const ALLOWLIST = new Set([
     '--technique', '--dataset', '--from-tune', '--adapter-name',
     '--cli-read-timeout', '--goal', '--instances',
     '--concurrency', '--input-tokens', '--output-tokens',
+    '--auto', '--dry-run',
 
     // Benchmark script flags in docs
-    '--request-count', '--streaming',
+    '--request-count', '--streaming'
 ]);
 
 // ============================================================

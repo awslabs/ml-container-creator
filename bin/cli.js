@@ -326,6 +326,9 @@ program
     .description('Chat with the ml-container-creator advisor')
     .option('--project-dir <dir>', 'Project directory to analyze', process.cwd())
     .option('-o, --offline', 'Static reference mode (no Bedrock calls)')
+    .option('--goal <goal>', 'Plan and execute toward a specific goal')
+    .option('--auto', 'Fully autonomous goal execution (no confirmation prompts)')
+    .option('--dry-run', 'Preview the plan without executing anything')
     .action(async (options) => {
         // 1. Check python3 is available
         try {
@@ -355,6 +358,15 @@ program
         const args = [agentScript, '--project-dir', options.projectDir];
         if (options.offline) {
             args.push('--offline');
+        }
+        if (options.goal) {
+            args.push('--goal', options.goal);
+        }
+        if (options.auto) {
+            args.push('--auto');
+        }
+        if (options.dryRun) {
+            args.push('--dry-run');
         }
 
         const child = spawn('python3', args, {
