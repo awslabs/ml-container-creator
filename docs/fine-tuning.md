@@ -24,7 +24,7 @@ The fine-tuning workflow follows an iterative loop: prepare your dataset, tune t
 
 ```mermaid
 graph LR
-    A[Prepare<br>dataset] --> B[do/tune] --> C[do/adapter add<br>--from-tune] --> D[do/test] --> E{Quality<br>OK?}
+    A[Prepare<br>dataset] --> B[do/tune<br>auto-deploys] --> D[do/test] --> E{Quality<br>OK?}
     E -->|No| A
     E -->|Yes| F[Production]
 ```
@@ -38,14 +38,23 @@ graph LR
    ./do/tune --technique sft --dataset s3://my-bucket/train.jsonl
    ```
 
-3. **Deploy the output** — The tune script prints context-aware next-step commands when the job completes:
+3. **Adapter automatically deployed** — When `do/tune` completes a LoRA job, it automatically:
+   1. Stages adapter weights to S3 via a Processing Job
+   2. Deploys the adapter as an inference component on your endpoint
+   3. Registers the adapter in the deployment Model Package Group
 
-   For **LoRA adapter** output (default):
-   ```bash
-   ./do/adapter add tuned-sft --from-tune
-   ```
+   The auto-deployed adapter is named `tuned-<technique>-<dataset-slug>` (e.g. `tuned-sft-alpaca`).
 
-   For **full merged model** output (`--training-type full-rank`):
+   !!! tip "Skip auto-deployment"
+       Pass `--no-register` to skip this automatic flow and manage adapters manually:
+       ```bash
+       ./do/tune --technique sft --dataset ... --no-register
+       # Then deploy manually when ready:
+       ./do/adapter add my-adapter --from-tune sft
+       ```
+
+   For **full merged model** output (`--training-type full-rank`), there is no auto-deploy.
+   Run manually after the job completes:
    ```bash
    ./do/add-ic tuned-v1 --from-tune
    ```

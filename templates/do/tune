@@ -276,8 +276,12 @@ _show_help() {
     echo "  --force               Force new job even if one exists for this technique"
     echo "  --accept-eula         Accept model EULA (required for gated models like Llama)"
     echo "  --no-wait             Submit and exit without polling for completion"
-    echo "  --no-register         Skip auto-stage and auto-register after completion"
-    echo "                        (prints next-step commands instead)"
+    echo "  --no-register         Skip automatic adapter deployment after completion."
+    echo "                        Without this flag, on successful lora tuning do/tune:"
+    echo "                          1. Stages adapter weights to S3 (Processing Job)"
+    echo "                          2. Deploys adapter as an IC on your endpoint"
+    echo "                          3. Registers adapter in the deployment MPG"
+    echo "                        With this flag: prints next-step commands instead."
     echo "  --status              Show status of all tracked tune jobs"
     echo ""
     echo "Dataset options:"
@@ -1588,7 +1592,9 @@ _handle_completion() {
         echo "🔄 Auto-registering adapter: ${adapter_name}"
         echo ""
 
-        # Step 1: Stage the adapter via do/adapter add
+        # Step 1: Stage adapter and deploy as IC via do/adapter add.
+        # This automatically deploys the adapter to the running endpoint.
+        # Use --no-register on do/tune to skip auto-registration entirely.
         local adapter_add_output
         if adapter_add_output=$("${SCRIPT_DIR}/adapter" add "${adapter_name}" --from-tune "${ARG_TECHNIQUE}" 2>&1); then
             echo "   ✅ Adapter staged: ${adapter_name}"
@@ -1598,9 +1604,32 @@ _handle_completion() {
             if register_output=$("${SCRIPT_DIR}/register" 2>&1); then
                 echo "   ✅ Registration complete"
 
-                # Step 3: Extract adapter deployment ARN from register output
+                # Extract adapter ARN from register output
                 local adapter_deploy_arn
-                adapter_deploy_arn=$(echo "${register_output}" | grep "${adapter_name}" | grep -E '^\{' | tail -1 | jq -r '.model_package_arn' 2>/dev/null) || adapter_deploy_arn=""
+                adapter_deploy_arn=$(echo "${register_output}" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if line.startswith('{'):
+        try:
+            data = json.loads(line)
+            arn = data.get('model_package_arn') or data.get('arn') or data.get('ModelPackageArn')
+            if arn and arn != 'null' and 'sagemaker' in arn:
+                print(arn)
+                break
+        except: pass
+" 2>/dev/null) || adapter_deploy_arn=""
+
+                # Fallback: query the MPG directly for the latest adapter version
+                if [ -z "${adapter_deploy_arn}" ] || [ "${adapter_deploy_arn}" = "null" ]; then
+                    adapter_deploy_arn=$(aws sagemaker list-model-packages \
+                        --model-package-group-name "${PROJECT_NAME}" \
+                        --sort-by "CreationTime" --sort-order "Descending" \
+                        --max-results 1 \
+                        --region "${REGION}" \
+                        --query 'ModelPackageSummaryList[0].ModelPackageArn' \
+                        --output text 2>/dev/null) || adapter_deploy_arn=""
+                fi
 
                 if [ -n "${adapter_deploy_arn}" ] && [ "${adapter_deploy_arn}" != "null" ]; then
                     _update_config_var "TUNE_ADAPTER_DEPLOY_ARN_${technique_upper}" "${adapter_deploy_arn}"
