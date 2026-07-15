@@ -21,7 +21,9 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
-ADAPTER_S3_BUCKET="${ADAPTER_S3_BUCKET:-mlcc-adapters-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}"
+# ADAPTER_S3_BUCKET is provided by profile.sh from moduleOutputs.training.AdaptersBucket.
+# No invented fallback — a missing value means the training module isn't provisioned (guarded below).
+ADAPTER_S3_BUCKET="${ADAPTER_S3_BUCKET:-}"
 
 source "${SCRIPT_DIR}/lib/wait.sh"
 
@@ -178,19 +180,13 @@ _download_from_hub() {
     echo ""
 
     # ── Resolve S3 bucket ─────────────────────────────────────────────────
-    local s3_bucket=""
-    if [ -n "${ADAPTER_S3_BUCKET:-}" ]; then
-        s3_bucket="${ADAPTER_S3_BUCKET}"
-    else
-        local account_id
-        account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
-        if [ -z "${account_id}" ]; then
-            echo "❌ Could not determine AWS account ID."
-            echo "   Ensure AWS credentials are configured."
-            exit 1
-        fi
-        s3_bucket="mlcc-adapters-${account_id}-${AWS_REGION}"
+    local s3_bucket
+    if [ -z "${ADAPTER_S3_BUCKET:-}" ]; then
+        echo "❌ Adapter staging requires the 'training' module, which is not provisioned."
+        echo "   Run: ml-container-creator bootstrap add-module training"
+        exit 1
     fi
+    s3_bucket="${ADAPTER_S3_BUCKET}"
 
     # ── Create temp directory ─────────────────────────────────────────────
     mkdir -p "${tmp_dir}/adapter_files"
@@ -665,17 +661,13 @@ _adapter_add() {
             fi
 
             # Resolve S3 bucket
-            local adapter_bucket="${ADAPTER_S3_BUCKET:-}"
-            if [ -z "${adapter_bucket}" ]; then
-                local account_id
-                account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
-                if [ -z "${account_id}" ]; then
-                    echo "❌ Could not determine AWS account ID."
-                    echo "   Ensure AWS credentials are configured."
-                    exit 4
-                fi
-                adapter_bucket="mlcc-adapters-${account_id}-${AWS_REGION}"
+            local adapter_bucket
+            if [ -z "${ADAPTER_S3_BUCKET:-}" ]; then
+                echo "❌ Adapter staging requires the 'training' module, which is not provisioned."
+                echo "   Run: ml-container-creator bootstrap add-module training"
+                exit 4
             fi
+            adapter_bucket="${ADAPTER_S3_BUCKET}"
 
             # Build helper args
             local helper_args=(
@@ -693,10 +685,22 @@ _adapter_add() {
 
             # Invoke the Python helper
             local helper_output
-            if ! helper_output=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" "${helper_args[@]}" 2>/dev/null); then
-                echo "❌ Processing Job failed. See error above."
+            local helper_stderr
+            helper_stderr="$(mktemp)"
+            # Capture stdout (JSON) and stderr (real error / traceback) separately.
+            # Previously stderr was sent to /dev/null, turning a clear error like
+            # "--bucket is required" into a useless "See error above".
+            if ! helper_output=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" "${helper_args[@]}" 2>"${helper_stderr}"); then
+                echo "❌ Adapter staging failed."
+                if [ -s "${helper_stderr}" ]; then
+                    echo "   ── helper error output ──────────────────────────────"
+                    sed 's/^/   /' "${helper_stderr}"
+                    echo "   ─────────────────────────────────────────────────────"
+                fi
+                rm -f "${helper_stderr}"
                 exit 1
             fi
+            rm -f "${helper_stderr}"
 
             # Parse JSON output from helper (extract only the JSON line, skip any log noise)
             local json_line
@@ -840,20 +844,14 @@ _adapter_add() {
             echo "   Archive size: ${tar_size}"
 
             # Resolve S3 bucket for upload
-            local s3_bucket=""
-            if [ -n "${ADAPTER_S3_BUCKET:-}" ]; then
-                s3_bucket="${ADAPTER_S3_BUCKET}"
-            else
-                local account_id
-                account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
-                if [ -z "${account_id}" ]; then
-                    echo "❌ Could not determine AWS account ID."
-                    echo "   Ensure AWS credentials are configured."
-                    rm -rf "${tune_tmp_dir}"
-                    exit 1
-                fi
-                s3_bucket="mlcc-adapters-${account_id}-${AWS_REGION}"
+            local s3_bucket
+            if [ -z "${ADAPTER_S3_BUCKET:-}" ]; then
+                echo "❌ Adapter staging requires the 'training' module, which is not provisioned."
+                echo "   Run: ml-container-creator bootstrap add-module training"
+                rm -rf "${tune_tmp_dir}"
+                exit 1
             fi
+            s3_bucket="${ADAPTER_S3_BUCKET}"
 
             # Upload tar.gz to S3
             local s3_tar_path="s3://${s3_bucket}/adapters/${PROJECT_NAME}/${adapter_name}/adapter.tar.gz"
@@ -937,14 +935,15 @@ _adapter_add() {
                 exit 1
             fi
 
-            local adapter_bucket="${ADAPTER_S3_BUCKET:-}"
-            if [ -z "${adapter_bucket}" ]; then
-                local account_id
-                account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
-                adapter_bucket="sagemaker-${AWS_REGION:-us-east-1}-${account_id}"
+            local adapter_bucket
+            if [ -z "${ADAPTER_S3_BUCKET:-}" ]; then
+                echo "❌ Adapter staging requires the 'training' module, which is not provisioned."
+                echo "   Run: ml-container-creator bootstrap add-module training"
+                exit 1
             fi
+            adapter_bucket="${ADAPTER_S3_BUCKET}"
 
-            local adapter_s3_prefix="s3://${adapter_bucket}/${PROJECT_NAME}/adapters/${adapter_name}"
+            local adapter_s3_prefix="s3://${adapter_bucket}/adapters/${PROJECT_NAME}/${adapter_name}"
 
             local stage_args=(
                 --source-uri "${weights_uri}"

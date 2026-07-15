@@ -119,7 +119,8 @@
                         "enum": [
                             "low",
                             "medium",
-                            "high"
+                            "high",
+                            "very-high"
                         ]
                     }
                 },

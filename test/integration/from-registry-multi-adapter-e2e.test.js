@@ -343,8 +343,8 @@ describe('Feature: from-registry + multi-adapter E2E — Validate AC-4.1 through
     describe('US-2 / AC-2.2: Registered adapter has parentModelVersionArn in CustomerMetadataProperties', () => {
 
         it('.register_helper.py builds adapter metadata with parentModelVersionArn', () => {
-            // Verify the Python helper is present and contains the right logic
-            const helperPath = result.file('do/.register_helper.py');
+            // Logic moved to lib/python/register_model.py in the refactored layout
+            const helperPath = result.file('do/lib/python/register_model.py');
             const helperScript = fs.readFileSync(helperPath, 'utf8');
 
             assert.ok(
@@ -355,7 +355,7 @@ describe('Feature: from-registry + multi-adapter E2E — Validate AC-4.1 through
         });
 
         it('.register_helper.py sets isAdapter=true in metadata', () => {
-            const helperPath = result.file('do/.register_helper.py');
+            const helperPath = result.file('do/lib/python/register_model.py');
             const helperScript = fs.readFileSync(helperPath, 'utf8');
 
             assert.ok(
@@ -366,7 +366,7 @@ describe('Feature: from-registry + multi-adapter E2E — Validate AC-4.1 through
         });
 
         it('.register_helper.py includes tuneTechnique in adapter metadata', () => {
-            const helperPath = result.file('do/.register_helper.py');
+            const helperPath = result.file('do/lib/python/register_model.py');
             const helperScript = fs.readFileSync(helperPath, 'utf8');
 
             assert.ok(
@@ -376,7 +376,7 @@ describe('Feature: from-registry + multi-adapter E2E — Validate AC-4.1 through
         });
 
         it('.register_helper.py includes datasetS3Uri in adapter metadata', () => {
-            const helperPath = result.file('do/.register_helper.py');
+            const helperPath = result.file('do/lib/python/register_model.py');
             const helperScript = fs.readFileSync(helperPath, 'utf8');
 
             assert.ok(
@@ -393,19 +393,19 @@ describe('Feature: from-registry + multi-adapter E2E — Validate AC-4.1 through
     describe('US-2 / AC-2.3: list-adapters includes parentModelVersionArn in response', () => {
 
         it('.register_helper.py list-adapters extracts parentModelVersionArn from metadata', () => {
-            const helperPath = result.file('do/.register_helper.py');
+            const helperPath = result.file('do/lib/python/register_list.py');
             const helperScript = fs.readFileSync(helperPath, 'utf8');
 
             // The cmd_list_adapters function should include parentModelVersionArn in its output
             assert.ok(
                 helperScript.includes('parentModelVersionArn') &&
-                helperScript.includes('list-adapters'),
+                helperScript.includes('list_adapters'),
                 'list-adapters must include parentModelVersionArn in response'
             );
         });
 
         it('.register_helper.py list-adapters returns structured adapter objects', () => {
-            const helperPath = result.file('do/.register_helper.py');
+            const helperPath = result.file('do/lib/python/register_list.py');
             const helperScript = fs.readFileSync(helperPath, 'utf8');
 
             // Check the output structure includes the required fields
@@ -418,12 +418,12 @@ describe('Feature: from-registry + multi-adapter E2E — Validate AC-4.1 through
         });
 
         it('.register_helper.py get-version returns metadata dict including parent ARN', () => {
-            const helperPath = result.file('do/.register_helper.py');
+            const helperPath = result.file('do/lib/python/register_resolve.py');
             const helperScript = fs.readFileSync(helperPath, 'utf8');
 
             // get-version returns metadata dict
             assert.ok(
-                helperScript.includes('get-version') &&
+                helperScript.includes('get_version') &&
                 helperScript.includes('"metadata"'),
                 'get-version must return metadata dict that includes parent ARN'
             );

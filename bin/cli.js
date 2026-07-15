@@ -326,6 +326,9 @@ program
     .description('Chat with the ml-container-creator advisor')
     .option('--project-dir <dir>', 'Project directory to analyze', process.cwd())
     .option('-o, --offline', 'Static reference mode (no Bedrock calls)')
+    .option('--goal <goal>', 'Plan and execute toward a specific goal')
+    .option('--auto', 'Fully autonomous goal execution (no confirmation prompts)')
+    .option('--dry-run', 'Preview the plan without executing anything')
     .action(async (options) => {
         // 1. Check python3 is available
         try {
@@ -356,6 +359,15 @@ program
         if (options.offline) {
             args.push('--offline');
         }
+        if (options.goal) {
+            args.push('--goal', options.goal);
+        }
+        if (options.auto) {
+            args.push('--auto');
+        }
+        if (options.dryRun) {
+            args.push('--dry-run');
+        }
 
         const child = spawn('python3', args, {
             stdio: 'inherit',
@@ -371,6 +383,65 @@ program
             console.error(`❌ Failed to start agent: ${err.message}`);
             process.exit(1);
         });
+    });
+
+program
+    .command('prove')
+    .description('Prove that a configuration works end-to-end (generate → deploy → test → clean)')
+    .passThroughOptions()
+    .argument('[config]', 'Path to prove.json config file (or subcommand: report, sync, status)')
+    .argument('[args...]', 'Additional arguments')
+    .option('--interactive', 'Build prove config interactively')
+    .option('--model <model>', 'Model name (shorthand for prove.json base.model_name)')
+    .option('--deployment-config <config>', 'Deployment config (e.g. transformers-vllm)')
+    .option('--instance-type <type>', 'Instance type (e.g. ml.g5.xlarge)')
+    .option('--stages <stages>', 'Comma-separated stages to run (default: all)')
+    .option('--concurrency <n>', 'Parallel prove runs for sweeps (default: 1)', parseInt)
+    .option('--no-clean', 'Skip cleanup after prove')
+    .option('--dry-run', 'Print what would run without executing')
+    .option('--budget <usd>', 'Max spend in USD (default: 50)', parseFloat)
+    .action(async (config, args, options) => {
+        const { default: ProveCommandHandler } = await import('../src/lib/prove-command-handler.js');
+        const handler = new ProveCommandHandler();
+        const allArgs = config ? [config, ...args] : args;
+        await handler.handle(allArgs, options);
+    });
+
+program
+    .command('import')
+    .description('Generate an operational project from a running SageMaker endpoint')
+    .argument('<endpoint-arn>', 'SageMaker endpoint ARN (any endpoint status)')
+    .option('--output-dir <path>', 'Output directory (default: ./<endpoint-name>)')
+    .option('--region <region>', 'AWS region override (default: from ARN or AWS_DEFAULT_REGION)')
+    .option('--dry-run', 'Show what would be generated without writing')
+    .action(async (endpointArn, options) => {
+        const { default: ImportCommandHandler } = await import('../src/lib/import-command-handler.js');
+        const handler = new ImportCommandHandler(options);
+        await handler.handle(endpointArn);
+    });
+
+program
+    .command('update')
+    .description('Update project configuration fields and regenerate only affected files')
+    .option('--field <key=value>', 'Set a field non-interactively (repeatable)', collect, [])
+    .option('--dry-run', 'Show affected files without writing')
+    .option('--no-register', 'Skip do/register after update')
+    .action(async (options) => {
+        const { default: UpdateCommandHandler } = await import('../src/lib/update-command-handler.js');
+        const handler = new UpdateCommandHandler({ ...options, fields: options.field });
+        await handler.handle();
+    });
+
+program
+    .command('regenerate')
+    .description('Re-run generation from saved parameters using the current generator version')
+    .option('--force', 'Regenerate all files even if version matches')
+    .option('--dry-run', 'Show what would change without writing')
+    .option('--no-register', 'Skip do/register after regeneration')
+    .action(async (options) => {
+        const { default: RegenerateCommandHandler } = await import('../src/lib/regenerate-command-handler.js');
+        const handler = new RegenerateCommandHandler(options);
+        await handler.handle();
     });
 
 program.parse();

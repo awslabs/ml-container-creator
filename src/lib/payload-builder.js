@@ -7,6 +7,17 @@
  */
 export default class PayloadBuilder {
     /**
+     * Coerce a value to integer. Returns null if not parseable as integer.
+     * @param {*} val
+     * @returns {number|null}
+     */
+    _toInt(val) {
+        if (val == null) return null;
+        const n = Number(val);
+        return Number.isInteger(n) ? n : null;
+    }
+
+    /**
      * Build all payloads for a deployment configuration.
      * @param {Object} config - Configuration from do/config or generator answers
      * @param {string} deploymentTarget - 'realtime-inference' | 'async-inference' | 'batch-transform'
@@ -70,8 +81,8 @@ export default class PayloadBuilder {
         if (config.INSTANCE_TYPE != null) variant.InstanceType = config.INSTANCE_TYPE;
         if (config.INFERENCE_AMI_VERSION != null) variant.InferenceAmiVersion = config.INFERENCE_AMI_VERSION;
         if (config.ENDPOINT_VARIANT_NAME != null) variant.VariantName = config.ENDPOINT_VARIANT_NAME;
-        if (config.ENDPOINT_INITIAL_INSTANCE_COUNT != null) variant.InitialInstanceCount = config.ENDPOINT_INITIAL_INSTANCE_COUNT;
-        if (config.ENDPOINT_VOLUME_SIZE != null) variant.VolumeSizeInGB = config.ENDPOINT_VOLUME_SIZE;
+        if (config.ENDPOINT_INITIAL_INSTANCE_COUNT != null) variant.InitialInstanceCount = this._toInt(config.ENDPOINT_INITIAL_INSTANCE_COUNT) ?? config.ENDPOINT_INITIAL_INSTANCE_COUNT;
+        if (config.ENDPOINT_VOLUME_SIZE != null) variant.VolumeSizeInGB = this._toInt(config.ENDPOINT_VOLUME_SIZE) ?? config.ENDPOINT_VOLUME_SIZE;
 
         if (Object.keys(variant).length === 0) return {};
 
@@ -89,16 +100,16 @@ export default class PayloadBuilder {
         const payload = {};
         const computeResources = {};
 
-        if (config.IC_CPU_COUNT != null) computeResources.NumberOfCpuCoresRequired = config.IC_CPU_COUNT;
-        if (config.IC_MEMORY_SIZE != null) computeResources.MinMemoryRequiredInMb = config.IC_MEMORY_SIZE;
-        if (config.IC_GPU_COUNT != null) computeResources.NumberOfAcceleratorDevicesRequired = config.IC_GPU_COUNT;
+        if (config.IC_CPU_COUNT != null) computeResources.NumberOfCpuCoresRequired = this._toInt(config.IC_CPU_COUNT) ?? config.IC_CPU_COUNT;
+        if (config.IC_MEMORY_SIZE != null) computeResources.MinMemoryRequiredInMb = this._toInt(config.IC_MEMORY_SIZE) ?? config.IC_MEMORY_SIZE;
+        if (config.IC_GPU_COUNT != null) computeResources.NumberOfAcceleratorDevicesRequired = this._toInt(config.IC_GPU_COUNT) ?? config.IC_GPU_COUNT;
 
         if (Object.keys(computeResources).length > 0) {
             payload.Specification = { ComputeResourceRequirements: computeResources };
         }
 
         if (config.IC_COPY_COUNT != null) {
-            payload.RuntimeConfig = { CopyCount: config.IC_COPY_COUNT };
+            payload.RuntimeConfig = { CopyCount: this._toInt(config.IC_COPY_COUNT) ?? config.IC_COPY_COUNT };
         }
 
         return payload;

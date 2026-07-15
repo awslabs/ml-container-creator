@@ -11,7 +11,7 @@ import io
 import json
 import os
 import sys
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 
 import pytest
 
@@ -122,7 +122,7 @@ class TestLogOutputFormat:
         chat_columns = {"chosen": {"type": "single_dict"}}
 
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             _log_flatten_info(chat_columns, no_transform=False)
 
         output = buf.getvalue()
@@ -141,7 +141,7 @@ class TestLogOutputFormat:
         }
 
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             _log_flatten_info(chat_columns, no_transform=False)
 
         output = buf.getvalue()
@@ -159,7 +159,7 @@ class TestLogOutputFormat:
         }
 
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             _log_flatten_info(chat_columns, no_transform=False)
 
         output = buf.getvalue()
@@ -177,7 +177,7 @@ class TestLogOutputFormat:
         }
 
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             _log_flatten_info(chat_columns, no_transform=False)
 
         output = buf.getvalue()
@@ -202,7 +202,7 @@ class TestLogOncePerColumn:
         }
 
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             _log_flatten_info(chat_columns, no_transform=False)
 
         output = buf.getvalue()

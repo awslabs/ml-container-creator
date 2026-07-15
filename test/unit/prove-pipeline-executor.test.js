@@ -26,7 +26,21 @@ import {
     isValidLifecycleStage,
     validateStagesArray,
     formatStagingStatus,
-    buildTargetStatus
+    buildTargetStatus,
+    STAGE_EXECUTORS,
+    loadProveState,
+    saveProveState,
+    executeGenerateStep,
+    executeBuildStep,
+    executePushStep,
+    executeDeployStep,
+    executeTestStep,
+    executeTuneStep,
+    executeAdapterStep,
+    executeTestAdapterStep,
+    executeBenchmarkStep,
+    executeRegisterStep,
+    executeCleanStep
 } from '../../src/lib/prove-pipeline-executor.js';
 
 // ── Test Helpers ─────────────────────────────────────────────────────────────
@@ -431,4 +445,136 @@ describe('prove-pipeline-executor', () => {
             assert.strictEqual(result.valid, false);
         });
     });
+
+    // ── STAGE_EXECUTORS Tests ────────────────────────────────────────────────
+
+    describe('STAGE_EXECUTORS', () => {
+        it('has all 12 lifecycle stages registered', () => {
+            const expectedStages = [
+                'generate', 'stage', 'build', 'push', 'deploy', 'test',
+                'tune', 'adapter', 'test-adapter', 'benchmark', 'register', 'clean'
+            ];
+            for (const stage of expectedStages) {
+                assert.ok(STAGE_EXECUTORS[stage], `Missing executor for stage: ${stage}`);
+                assert.strictEqual(typeof STAGE_EXECUTORS[stage], 'function');
+            }
+        });
+
+        it('has exactly 12 entries', () => {
+            assert.strictEqual(Object.keys(STAGE_EXECUTORS).length, 12);
+        });
+    });
+
+    // ── Prove State Idempotency Tests ────────────────────────────────────────
+
+    describe('loadProveState / saveProveState', () => {
+        it('returns empty object when no state file exists', () => {
+            const state = loadProveState(testDir);
+            assert.deepStrictEqual(state, {});
+        });
+
+        it('saves and loads state correctly', () => {
+            saveProveState(testDir, 'build', { status: 'pass', duration: 1234 });
+            const state = loadProveState(testDir);
+            assert.strictEqual(state.build.status, 'pass');
+            assert.strictEqual(state.build.duration, 1234);
+            assert.strictEqual(typeof state.build.timestamp, 'number');
+        });
+
+        it('preserves existing stages when saving a new one', () => {
+            saveProveState(testDir, 'build', { status: 'pass', duration: 100 });
+            saveProveState(testDir, 'push', { status: 'pass', duration: 200 });
+            const state = loadProveState(testDir);
+            assert.strictEqual(state.build.status, 'pass');
+            assert.strictEqual(state.push.status, 'pass');
+        });
+    });
+
+    describe('executor idempotency via .prove-state.json', () => {
+        it('executeBuildStep skips when .prove-state.json has build: pass', async () => {
+            saveProveState(testDir, 'build', { status: 'pass', duration: 5000 });
+            const result = await executeBuildStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+            assert.ok(result.message.includes('already passed'));
+        });
+
+        it('executePushStep skips when .prove-state.json has push: pass', async () => {
+            saveProveState(testDir, 'push', { status: 'pass', duration: 3000 });
+            const result = await executePushStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeDeployStep skips when .prove-state.json has deploy: pass', async () => {
+            saveProveState(testDir, 'deploy', { status: 'pass', duration: 8000 });
+            const result = await executeDeployStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeTestStep skips when .prove-state.json has test: pass', async () => {
+            saveProveState(testDir, 'test', { status: 'pass', duration: 1000 });
+            const result = await executeTestStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeTuneStep skips when tune not requested', async () => {
+            const result = await executeTuneStep(testDir, { config: {} });
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+            assert.ok(result.message.includes('not requested'));
+        });
+
+        it('executeTuneStep skips when .prove-state.json has tune: pass', async () => {
+            saveProveState(testDir, 'tune', { status: 'pass', duration: 60000 });
+            const result = await executeTuneStep(testDir, { config: { include_tuning: true } });
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeAdapterStep skips when .prove-state.json has adapter: pass', async () => {
+            saveProveState(testDir, 'adapter', { status: 'pass', duration: 4000 });
+            const result = await executeAdapterStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeTestAdapterStep skips when .prove-state.json has test-adapter: pass', async () => {
+            saveProveState(testDir, 'test-adapter', { status: 'pass', duration: 2000 });
+            const result = await executeTestAdapterStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeBenchmarkStep skips when .prove-state.json has benchmark: pass', async () => {
+            saveProveState(testDir, 'benchmark', { status: 'pass', duration: 30000 });
+            const result = await executeBenchmarkStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeRegisterStep skips when .prove-state.json has register: pass', async () => {
+            saveProveState(testDir, 'register', { status: 'pass', duration: 500 });
+            const result = await executeRegisterStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeCleanStep skips when .prove-state.json has clean: pass', async () => {
+            saveProveState(testDir, 'clean', { status: 'pass', duration: 2000 });
+            const result = await executeCleanStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+
+        it('executeGenerateStep skips when .prove-state.json has generate: pass', async () => {
+            saveProveState(testDir, 'generate', { status: 'pass', duration: 1500 });
+            const result = await executeGenerateStep(testDir);
+            assert.strictEqual(result.status, 'pass');
+            assert.strictEqual(result.skipped, true);
+        });
+    });
 });
+

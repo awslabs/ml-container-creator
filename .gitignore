@@ -1,7 +1,8 @@
 .DS_Store
 .hypothesis
 .idea/
-.kiro/
+.kiro/**
+!.kiro/steering.md
 .pytest_cache/
 .scripts/
 .vscode/

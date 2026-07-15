@@ -708,6 +708,37 @@
             "gpuMemoryGb": 48,
             "gpuType": "NVIDIA L40S",
             "costTier": "high"
+        },
+        "ml.p6-b200.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 1536,
+            "accelerator": "B200 192GB",
+            "cudaVersions": [
+                "12.6",
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "training",
+                "b200",
+                "blackwell",
+                "fp8",
+                "fp4",
+                "cuda-12"
+            ],
+            "family": "p6-b200",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA B200",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "8x NVIDIA B200 GPUs (1536GB total). Next-gen Blackwell architecture",
+            "gpuMemoryGb": 192,
+            "gpuType": "NVIDIA B200",
+            "costTier": "very-high"
         }
     },
     "recommendations": {

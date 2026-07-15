@@ -27,13 +27,12 @@ while [ $# -gt 0 ]; do
         --help|-h)
             echo "Usage: ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]"
             echo ""
-            echo "Run SageMaker AI Inference Recommendations to find optimal"
-            echo "instance types and model configurations for your workload."
+            echo "Run SageMaker AI Inference Recommendations to find optimal instance types"
+            echo "and model configurations for your workload."
             echo ""
             echo "Options:"
-            echo "  --goal <goal>       Optimization goal: cost, latency, or throughput (required)"
-            echo "  --instances <list>  Comma-separated instance types to evaluate"
-            echo "                      Defaults to INSTANCE_POOLS entries or INSTANCE_TYPE from do/config"
+            echo "  --goal <goal>       (Required) Optimization goal: cost, latency, or throughput"
+            echo "  --instances <list>  Comma-separated instance types to evaluate (max 3)"
             echo "  --force             Create a new recommendation job even if one exists"
             echo ""
             echo "Examples:"
@@ -48,16 +47,25 @@ while [ $# -gt 0 ]; do
             echo "Prerequisites:"
             echo "  • MODEL_NAME must be set in do/config (HuggingFace model ID or S3 path)"
             echo "  • AWS credentials must be configured"
+            echo ""
+            echo "After completion, an interactive menu lets you apply results to do/config."
+            echo ""
+            echo "For Athena-backed config recommendations (no live API needed), use:"
+            echo "  ./do/benchmark --recommend"
             exit 0
             ;;
         *) shift ;;
     esac
 done
 
-# ── Validate goal ─────────────────────────────────────────────────────────────
+# ── Validate goal (required) ─────────────────────────────────────────────────
 if [ -z "${GOAL}" ]; then
-    echo "❌ --goal is required. Choose one of: cost, latency, throughput"
-    echo "   Example: ./do/optimize --goal throughput"
+    echo "❌ --goal is required"
+    echo ""
+    echo "   Usage: ./do/optimize --goal <cost|latency|throughput>"
+    echo ""
+    echo "   For Athena-backed config recommendations (no live API needed), use:"
+    echo "   ./do/benchmark --recommend"
     exit 1
 fi
 
@@ -270,7 +278,7 @@ if [ "${RESUME_EXISTING}" = false ]; then
         --output-config "S3OutputLocation=${S3_OUTPUT}"
         --ai-workload-config-identifier "${WORKLOAD_CONFIG_NAME}"
         --performance-target "Constraints=[{Metric=${PERF_METRIC}}]"
-        --role-arn "${ROLE_ARN}"
+        --role-arn "${ROLE_ARN:-}"
         --compute-spec "${COMPUTE_SPEC_JSON}"
         --inference-specification "Framework=VLLM"
         --region "${AWS_REGION}"
@@ -450,7 +458,6 @@ with open(results_file, 'w') as f:
             1)
                 echo ""
                 echo "📦 Deploying top recommendation..."
-                # Extract top result's ModelPackageArn and InferenceSpecificationName
                 TOP_MODEL_PACKAGE_ARN=$(python3 -c "
 import json
 with open('${RESULTS_FILE}') as f:
@@ -499,7 +506,6 @@ if results:
             2)
                 echo ""
                 echo "📦 Setting up instance pools from all results..."
-                # Build INSTANCE_POOLS JSON from results
                 POOLS_JSON=$(python3 -c "
 import json
 with open('${RESULTS_FILE}') as f:
@@ -533,7 +539,6 @@ print(json.dumps(pools))
             3)
                 echo ""
                 echo "📦 Saving results for later..."
-                # Store the top ModelPackageArn
                 SAVE_MODEL_PACKAGE_ARN=$(python3 -c "
 import json
 with open('${RESULTS_FILE}') as f:

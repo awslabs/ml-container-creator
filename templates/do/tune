@@ -155,6 +155,12 @@ _parse_args() {
             --dry-run) ARG_DRY_RUN=true; shift ;;
             --list-models) ARG_LIST_MODELS=true; shift ;;
             --list-datasets) ARG_LIST_DATASETS=true; shift ;;
+            --source)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --source requires a value: remote, local, or all"
+                    exit 1
+                fi
+                ARG_DATASET_SOURCE="$2"; shift 2 ;;
             --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
             --column-map)
                 if [ -z "${2:-}" ]; then
@@ -276,8 +282,12 @@ _show_help() {
     echo "  --force               Force new job even if one exists for this technique"
     echo "  --accept-eula         Accept model EULA (required for gated models like Llama)"
     echo "  --no-wait             Submit and exit without polling for completion"
-    echo "  --no-register         Skip auto-stage and auto-register after completion"
-    echo "                        (prints next-step commands instead)"
+    echo "  --no-register         Skip automatic adapter deployment after completion."
+    echo "                        Without this flag, on successful lora tuning do/tune:"
+    echo "                          1. Stages adapter weights to S3 (Processing Job)"
+    echo "                          2. Deploys adapter as an IC on your endpoint"
+    echo "                          3. Registers adapter in the deployment MPG"
+    echo "                        With this flag: prints next-step commands instead."
     echo "  --status              Show status of all tracked tune jobs"
     echo ""
     echo "Dataset options:"
@@ -996,12 +1006,23 @@ _validate_dataset() {
         fi
 
         local stage_result
-        stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}") || {
+        local stage_stderr
+        stage_stderr="$(mktemp)"
+        # Capture stdout (JSON) and stderr (tracebacks) separately so a helper
+        # crash surfaces the REAL cause instead of a generic message.
+        stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}" 2>"${stage_stderr}") || {
             local error_msg
             error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Failed to stage dataset'))" 2>/dev/null) || error_msg="Failed to stage HF dataset"
             echo "❌ ${error_msg}"
+            if [ -s "${stage_stderr}" ]; then
+                echo "   ── helper error output ──────────────────────────────"
+                sed 's/^/   /' "${stage_stderr}"
+                echo "   ─────────────────────────────────────────────────────"
+            fi
+            rm -f "${stage_stderr}"
             exit 1
         }
+        rm -f "${stage_stderr}"
 
         # Check for error in response
         local has_error
@@ -1577,7 +1598,9 @@ _handle_completion() {
         echo "🔄 Auto-registering adapter: ${adapter_name}"
         echo ""
 
-        # Step 1: Stage the adapter via do/adapter add
+        # Step 1: Stage adapter and deploy as IC via do/adapter add.
+        # This automatically deploys the adapter to the running endpoint.
+        # Use --no-register on do/tune to skip auto-registration entirely.
         local adapter_add_output
         if adapter_add_output=$("${SCRIPT_DIR}/adapter" add "${adapter_name}" --from-tune "${ARG_TECHNIQUE}" 2>&1); then
             echo "   ✅ Adapter staged: ${adapter_name}"
@@ -1587,9 +1610,32 @@ _handle_completion() {
             if register_output=$("${SCRIPT_DIR}/register" 2>&1); then
                 echo "   ✅ Registration complete"
 
-                # Step 3: Extract adapter deployment ARN from register output
+                # Extract adapter ARN from register output
                 local adapter_deploy_arn
-                adapter_deploy_arn=$(echo "${register_output}" | grep "${adapter_name}" | grep -E '^\{' | tail -1 | jq -r '.model_package_arn' 2>/dev/null) || adapter_deploy_arn=""
+                adapter_deploy_arn=$(echo "${register_output}" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if line.startswith('{'):
+        try:
+            data = json.loads(line)
+            arn = data.get('model_package_arn') or data.get('arn') or data.get('ModelPackageArn')
+            if arn and arn != 'null' and 'sagemaker' in arn:
+                print(arn)
+                break
+        except: pass
+" 2>/dev/null) || adapter_deploy_arn=""
+
+                # Fallback: query the MPG directly for the latest adapter version
+                if [ -z "${adapter_deploy_arn}" ] || [ "${adapter_deploy_arn}" = "null" ]; then
+                    adapter_deploy_arn=$(aws sagemaker list-model-packages \
+                        --model-package-group-name "${PROJECT_NAME}" \
+                        --sort-by "CreationTime" --sort-order "Descending" \
+                        --max-results 1 \
+                        --region "${REGION}" \
+                        --query 'ModelPackageSummaryList[0].ModelPackageArn' \
+                        --output text 2>/dev/null) || adapter_deploy_arn=""
+                fi
 
                 if [ -n "${adapter_deploy_arn}" ] && [ "${adapter_deploy_arn}" != "null" ]; then
                     _update_config_var "TUNE_ADAPTER_DEPLOY_ARN_${technique_upper}" "${adapter_deploy_arn}"
@@ -1728,18 +1774,48 @@ if [ "${ARG_LIST_DATASETS}" = true ]; then
     echo "📦 Registered datasets:"
     echo ""
 
-    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets 2>/dev/null) || _ds_output=""
+    _source_flag=""
+    [ -n "${ARG_DATASET_SOURCE:-}" ] && _source_flag="--source ${ARG_DATASET_SOURCE}"
+
+    # shellcheck disable=SC2086
+    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets ${_source_flag} 2>/dev/null) || _ds_output=""
     _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1)
 
     if [ -n "${_ds_json}" ]; then
-        _ds_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('datasets',[])))" 2>/dev/null) || _ds_count=0
-        if [ "${_ds_count}" -gt 0 ]; then
-            printf "  %-20s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
-            printf "  %-20s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
-            echo "${_ds_json}" | python3 -c "
+        # Show Remote DataSets section (if source is remote or all)
+        _remote_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('remote',[])))" 2>/dev/null) || _remote_count=0
+        _local_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('local',[])))" 2>/dev/null) || _local_count=0
+
+        if [ "${_source_flag}" != "--source local" ]; then
+            echo "Remote DataSets (AWS AI Registry):"
+            printf "  %-20s %-10s %-12s %s\n" "NAME" "TECHNIQUE" "VERSION" "CREATED"
+            printf "  %-20s %-10s %-12s %s\n" "----" "---------" "-------" "-------"
+            if [ "${_remote_count}" -gt 0 ]; then
+                echo "${_ds_json}" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-for ds in data.get('datasets', []):
+for ds in data.get('remote', []):
+    name = ds.get('name','')[:20]
+    tech = ds.get('technique','')[:10]
+    version = ds.get('version','')[:12]
+    created = ds.get('created_at','')[:10]
+    print(f'  {name:<20} {tech:<10} {version:<12} {created}')
+" 2>/dev/null
+            else
+                echo "  (none)"
+            fi
+            echo ""
+        fi
+
+        if [ "${_source_flag}" != "--source remote" ]; then
+            echo "Local Datasets:"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
+            if [ "${_local_count}" -gt 0 ]; then
+                echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for ds in data.get('local', []):
     name = ds.get('name','')[:20]
     tech = ds.get('technique','')[:10]
     latest = ds.get('latest_version','')[:10]
@@ -1750,11 +1826,12 @@ for ds in data.get('datasets', []):
     uri = ds.get('s3_uri','')
     print(f'  {name:<20} {tech:<10} {latest:<10} {rows:<8} {uri}')
 " 2>/dev/null
-        else
-            echo "  (none registered)"
+            else
+                echo "  (none)"
+            fi
         fi
     else
-        echo "  (none registered)"
+        echo "  (none)"
     fi
     echo ""
     echo "  Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"

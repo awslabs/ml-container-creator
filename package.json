@@ -1,6 +1,6 @@
 {
   "name": "@aws/ml-container-creator",
-  "version": "1.2.0",
+  "version": "1.3.4",
   "description": "Build and deploy custom ML containers on AWS SageMaker with minimal configuration.",
   "main": "src/index.js",
   "bin": {
@@ -112,6 +112,8 @@
   },
   "dependencies": {
     "@aws/ml-container-creator": "^1.0.2",
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/util-dynamodb": "^3.700.0",
     "@inquirer/prompts": "^8.4.2",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "ajv": "^8.12.0",

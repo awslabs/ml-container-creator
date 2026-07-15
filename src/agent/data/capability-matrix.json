@@ -149,6 +149,16 @@
       "alternatives": [],
       "unblock_spec": null,
       "estimated_effort": null
+    },
+    "vllm.realtime-inference.lora-moe": {
+      "status": "yellow",
+      "message": "LoRA on MoE models (e.g. GPT-OSS-120B) pre-allocates LoRA A/B matrices PER EXPERT \u2014 far higher memory than dense models. On g6e.48xlarge (8xL40S/384GB) with vLLM v0.23.0 TP=8, default max_loras=30/max_lora_rank=64 OOMs during LoRA weight creation AFTER weights load successfully. Validated working config: max_loras=2, max_lora_rank=16. For base-model serving, disable LoRA entirely. Levers: lower max_loras/max_lora_rank, add FP8, or drop LoRA.",
+      "alternatives": [
+        "Base-model serving: disable LoRA (unset IC_ENV_VLLM_ENABLE_LORA/MAX_LORAS/MAX_LORA_RANK)",
+        "Adapter serving on MoE: set IC_ENV_VLLM_MAX_LORAS=2 and IC_ENV_VLLM_MAX_LORA_RANK=16 (validated), or add FP8"
+      ],
+      "unblock_spec": null,
+      "estimated_effort": null
     }
   }
 }

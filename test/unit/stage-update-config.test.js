@@ -63,7 +63,7 @@ describe('do/stage --update-config (FTP-2: 2.1, 2.2)', () => {
     it('stage template documents --update-config in --help output', () => {
         const content = fs.readFileSync(STAGE_TEMPLATE, 'utf8');
         assert.ok(
-            content.includes('Update MODEL_NAME in do/config to the staged S3 URI'),
+            content.includes('updates MODEL_NAME in do/config'),
             '--help output should describe --update-config'
         );
     });
@@ -199,7 +199,7 @@ describe('do/stage --update-config (FTP-2: 2.1, 2.2)', () => {
     it('stage template suggests re-deploy after --update-config', () => {
         const content = fs.readFileSync(STAGE_TEMPLATE, 'utf8');
         assert.ok(
-            content.includes('Re-deploy with S3-backed model: ./do/deploy'),
+            content.includes('Subsequent tasks (submit, deploy) will pull from S3'),
             'After --update-config, script should suggest running do/deploy'
         );
     });

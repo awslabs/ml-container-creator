@@ -11,7 +11,18 @@ set -o pipefail
 
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config"
+# Check for --json or --compare-baseline flag early — suppress config output for structured output modes
+_BENCHMARK_JSON_MODE=false
+for _arg in "$@"; do [ "$_arg" = "--json" ] || [ "$_arg" = "--compare-baseline" ] && _BENCHMARK_JSON_MODE=true && break; done
+
+if [ "${_BENCHMARK_JSON_MODE}" = true ]; then
+    # Source config with stdout redirected to stderr — config vars load correctly,
+    # but the "Configuration loaded" header goes to stderr (visible in terminal,
+    # doesn't pollute stdout piping or --json output).
+    source "${SCRIPT_DIR}/config" 1>&2
+else
+    source "${SCRIPT_DIR}/config"
+fi
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
@@ -23,6 +34,13 @@ IC_ARG=""
 ADAPTER_ARG=""
 ARG_NO_STALE_WARNING=false
 ARG_WORKLOAD=""
+ARG_COMPARE_BASELINE=false
+ARG_RECOMMEND=false
+ARG_RECOMMEND_APPLY=false
+ARG_RECOMMEND_METRIC="output_token_throughput_tps"
+ARG_NO_BEDROCK=false
+ARG_THRESHOLDS=()
+ARG_JSON=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --clean) CLEAN_AFTER=true; shift ;;
@@ -32,13 +50,28 @@ while [ $# -gt 0 ]; do
         --workload) shift; ARG_WORKLOAD="${1:-}"; shift ;;
         --ic) shift; IC_ARG="${1:-}"; shift ;;
         --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
+        --compare-baseline) ARG_COMPARE_BASELINE=true; shift ;;
+        --recommend) ARG_RECOMMEND=true; shift ;;
+        --apply) ARG_RECOMMEND_APPLY=true; shift ;;
+        --metric) shift; ARG_RECOMMEND_METRIC="${1:-output_token_throughput_tps}"; shift ;;
+        --no-bedrock) ARG_NO_BEDROCK=true; shift ;;
+        --threshold) shift; ARG_THRESHOLDS+=("${1:-}"); shift ;;
+        --json) ARG_JSON=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/benchmark [--workload <name>] [--status] [--ic <name>] [--adapter <name>] [--force] [--clean]"
+            echo "Usage: ./do/benchmark [--workload <name>] [--status] [--compare-baseline] [--recommend] [--ic <name>] [--adapter <name>] [--force] [--clean]"
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
             echo "Options:"
             echo "  --status            Check job status; if completed, download results + write to Athena"
+            echo "  --compare-baseline  Compare latest results against historical best in Athena"
+            echo "  --recommend         Show Athena-backed config recommendations for current model/instance"
+            echo "  --apply             (with --recommend) Write recommended changes to do/ic/default.conf"
+            echo "  --metric <name>     (with --recommend) Metric to optimize (default: output_token_throughput_tps)"
+            echo "                      Options: output_token_throughput_tps, ttft_p90_ms, itl_p90_ms, cost_per_1m_tokens"
+            echo "  --no-bedrock        (with --recommend) Skip Bedrock AI analysis even if available"
+            echo "  --threshold <m:p>   Set regression threshold per metric (repeatable, e.g. throughput:5)"
+            echo "  --json              Output comparison/recommendation results as JSON (for CI integration)"
             echo "  --ic <name>         Benchmark a specific inference component"
             echo "  --adapter <name>    Benchmark a specific LoRA adapter (routes via adapter IC, records adapter_name in Athena)"
             echo "  --force             Create a new benchmark job even if one is already running"
@@ -186,6 +219,307 @@ if [ "${ARG_STATUS}" = true ]; then
 fi
 
 
+# ── Handle --compare-baseline (early exit) ────────────────────────────────────
+# Compare latest local benchmark results against historical best in Athena.
+if [ "${ARG_COMPARE_BASELINE}" = true ]; then
+    _LATEST_RESULTS_DIR=$(ls -td "${SCRIPT_DIR}/../benchmarks/${PROJECT_NAME}-benchmark-"* 2>/dev/null | head -1) || _LATEST_RESULTS_DIR=""
+    _LATEST_JSONL=""
+
+    if [ -n "${_LATEST_RESULTS_DIR}" ]; then
+        _LATEST_JSONL=$(find "${_LATEST_RESULTS_DIR}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1) || _LATEST_JSONL=""
+    fi
+
+    if [ -z "${_LATEST_JSONL}" ]; then
+        echo "❌ No local benchmark results found. Run ./do/benchmark --workload <name> first."
+        exit 1
+    fi
+
+    # Resolve benchmark bucket from profile
+    _CB_BUCKET=$(python3 -c "
+import json, os
+cfg = os.path.expanduser('~/.ml-container-creator/config.json')
+if os.path.exists(cfg):
+    d = json.load(open(cfg))
+    profiles = d.get('profiles', {})
+    active = d.get('activeProfile', next(iter(profiles), ''))
+    print(profiles.get(active, {}).get('ciBenchmarkResultsBucket', ''))
+else:
+    print('')
+" 2>/dev/null) || _CB_BUCKET=""
+
+    if [ -z "${_CB_BUCKET}" ]; then
+        echo "❌ No benchmark results bucket configured."
+        echo "   Run: mcc bootstrap add-module benchmark"
+        exit 1
+    fi
+
+    # Build threshold args
+    _THRESHOLD_ARGS=()
+    for _t in "${ARG_THRESHOLDS[@]+"${ARG_THRESHOLDS[@]}"}"; do
+        if [ -n "$_t" ]; then
+            _THRESHOLD_ARGS+=("--threshold" "$_t")
+        fi
+    done
+
+    _JSON_FLAG=""
+    [ "${ARG_JSON}" = "true" ] && _JSON_FLAG="--json"
+
+    # Run the comparison engine — it handles all display directly (text or JSON based on --json flag)
+    python3 "$(dirname "${BASH_SOURCE[0]}")/.optimize_engine.py" compare-baseline \
+        --results-file "${_LATEST_JSONL}" \
+        --model-name "${HF_MODEL_ID:-${MODEL_NAME:-}}" \
+        --instance-type "${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}" \
+        --quantization "${IC_ENV_VLLM_QUANTIZATION:-none}" \
+        --tensor-parallel "${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}" \
+        --bucket "${_CB_BUCKET}" \
+        --region "${AWS_REGION:-${REGION:-us-east-1}}" \
+        "${_THRESHOLD_ARGS[@]+"${_THRESHOLD_ARGS[@]}"}" \
+        ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
+        ${_JSON_FLAG}
+    exit $?
+fi
+
+
+# ── Handle --recommend (early exit) ───────────────────────────────────────────
+# Query historical benchmark data for proven optimal serving configurations.
+# Moved from do/optimize in v1.4 — this is the Athena-backed recommendation path.
+if [ "${ARG_RECOMMEND}" = true ]; then
+
+_run_athena_recommendations() {
+    local model_name="${HF_MODEL_ID:-${MODEL_NAME:-}}"
+    local instance_type="${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+    local quantization="${IC_ENV_VLLM_QUANTIZATION:-${IC_ENV_QUANTIZATION:-bf16}}"
+    local tp="${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}"
+    local max_len="${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}"
+    local kv_dtype="${IC_ENV_VLLM_KV_CACHE_DTYPE:-auto}"
+
+    if [ -z "$model_name" ] || [ -z "$instance_type" ]; then
+        echo "⚠️  Cannot query benchmark history — MODEL_NAME and INSTANCE_TYPE required" >&2
+        return 1
+    fi
+
+    # Resolve benchmark bucket from profile
+    local bucket
+    bucket=$(python3 -c "
+import json, os
+cfg = os.path.expanduser('~/.ml-container-creator/config.json')
+if os.path.exists(cfg):
+    d = json.load(open(cfg))
+    profiles = d.get('profiles', {})
+    active = d.get('activeProfile', next(iter(profiles), ''))
+    print(profiles.get(active, {}).get('ciBenchmarkResultsBucket', ''))
+else:
+    print('')
+" 2>/dev/null) || bucket=""
+
+    if [ -z "$bucket" ]; then
+        echo "⚠️  No benchmark results bucket configured — run 'mcc bootstrap add-module benchmark'" >&2
+        return 1
+    fi
+
+    local bedrock_flag=""
+    if [ "${ARG_NO_BEDROCK}" = "false" ] && [ "${MCC_NO_BEDROCK:-0}" != "1" ]; then
+        bedrock_flag="--bedrock-interpret"
+    fi
+
+    python3 "$(dirname "${BASH_SOURCE[0]}")/.optimize_engine.py" recommend \
+        --model-name "$model_name" \
+        --instance-type "$instance_type" \
+        --quantization "$quantization" \
+        --tensor-parallel "$tp" \
+        --max-model-len "$max_len" \
+        --kv-cache-dtype "$kv_dtype" \
+        --metric "${ARG_RECOMMEND_METRIC}" \
+        --bucket "$bucket" \
+        --region "${AWS_REGION:-${REGION:-us-east-1}}" \
+        ${bedrock_flag}
+}
+
+_display_recommendations() {
+    local json_data="$1"
+
+    local status
+    status=$(echo "$json_data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null) || status=""
+
+    if [ "$status" != "ok" ]; then
+        local error
+        error=$(echo "$json_data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error','Unknown error'))" 2>/dev/null) || error="Unknown error"
+        echo "⚠️  Optimization query failed: $error" >&2
+        return 1
+    fi
+
+    # Use Python to format the display
+    echo "$json_data" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+recs = data.get('recommendations', [])
+model = data.get('model_name', 'unknown')
+instance = data.get('instance_type', 'unknown')
+match_level = data.get('match_level', 'none')
+metric = data.get('target_metric', 'output_token_throughput_tps')
+total = data.get('total_records_found', 0)
+
+if not recs:
+    print()
+    print('ℹ️  No recommendations available — no matching benchmark data found.')
+    print(f'   Model: {model}')
+    print(f'   Instance: {instance}')
+    print(f'   Match level: {match_level}')
+    sys.exit(0)
+
+# Header
+model_short = model.split('/')[-1] if '/' in model else model
+print()
+print(f'Optimization Recommendations for {model_short} on {instance}')
+print('─' * 60)
+print()
+print(f'  Based on {total} benchmark records ({match_level} match)')
+print(f'  Optimizing for: {metric}')
+print()
+
+# Table
+print(f'  {\"Dimension\":<22s} {\"Current\":<12s} {\"Recommended\":<14s} {\"Expected Gain\":<18s} {\"Confidence\":<20s}')
+print(f'  {\"-\" * 22} {\"-\" * 12} {\"-\" * 14} {\"-\" * 18} {\"-\" * 20}')
+
+for r in recs:
+    dim = r['dimension']
+    current = str(r['current_value'])
+    recommended = str(r['recommended_value'])
+    gain = f'+{r[\"improvement_pct\"]}%'
+    confidence = f'{r[\"confidence\"].upper()} ({r[\"num_runs\"]} runs)'
+    print(f'  {dim:<22s} {current:<12s} {recommended:<14s} {gain:<18s} {confidence:<20s}')
+
+# Analysis section
+analysis = data.get('analysis', '')
+if analysis:
+    print()
+    print('Analysis:')
+    for line in analysis.split('. '):
+        line = line.strip()
+        if line:
+            if not line.endswith('.'):
+                line += '.'
+            print(f'  {line}')
+
+# Footer
+print()
+print('Next steps:')
+print('  Apply these changes:     ./do/benchmark --recommend --apply')
+print('  See raw recommendation:  ./do/benchmark --recommend --json')
+print('  Apply and deploy:        ./do/deploy --optimize')
+print()
+" 2>/dev/null
+}
+
+_apply_recommendations() {
+    local json_data="$1"
+    local config_file="${SCRIPT_DIR}/config"
+    local ic_conf="${SCRIPT_DIR}/ic/default.conf"
+
+    # Create backups
+    if [ -f "$config_file" ]; then
+        cp "$config_file" "${config_file}.bak"
+    fi
+    if [ -f "$ic_conf" ]; then
+        cp "$ic_conf" "${ic_conf}.bak"
+    fi
+
+    # Parse and apply each recommendation
+    echo "$json_data" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+recs = data.get('recommendations', [])
+if not recs:
+    print('ℹ️  No changes to apply — current config is already optimal.')
+    sys.exit(0)
+
+for r in recs:
+    key = r.get('config_key', '')
+    value = r.get('recommended_value', '')
+    if key and value != '':
+        print(f'{key}={value}')
+" 2>/dev/null | while IFS='=' read -r key value; do
+        if [ -n "$key" ] && [ -n "$value" ]; then
+            _recommend_apply_config_change "$key" "$value"
+            echo "   ✅ ${key}=${value}"
+        fi
+    done
+
+    echo ""
+    echo "✅ Recommendations applied to do/config"
+    echo "   Backups: do/config.bak, do/ic/default.conf.bak"
+    echo "   Run ./do/deploy to deploy with optimized configuration."
+}
+
+_recommend_apply_config_change() {
+    local key="$1" value="$2"
+    local config_file="${SCRIPT_DIR}/config"
+    local ic_conf="${SCRIPT_DIR}/ic/default.conf"
+
+    # Special case: tensor_parallel_degree also updates IC_GPU_COUNT
+    if [ "${key}" = "IC_ENV_VLLM_TENSOR_PARALLEL_SIZE" ] && [ -f "${ic_conf}" ]; then
+        _recommend_update_or_append "${ic_conf}" "IC_GPU_COUNT" "${value}"
+    fi
+
+    # Update or append the IC_ENV_* var in do/config
+    _recommend_update_or_append "${config_file}" "${key}" "${value}"
+}
+
+_recommend_update_or_append() {
+    local file="$1" key="$2" value="$3"
+    if [ ! -f "$file" ]; then
+        return
+    fi
+    if grep -q "^export ${key}=" "${file}" 2>/dev/null || grep -q "^${key}=" "${file}" 2>/dev/null; then
+        sed -i.tmp "s|^export ${key}=.*|export ${key}=\"${value}\"|" "${file}"
+        sed -i.tmp "s|^${key}=.*|${key}=\"${value}\"|" "${file}"
+        rm -f "${file}.tmp"
+    else
+        echo "export ${key}=\"${value}\"" >> "${file}"
+    fi
+}
+
+    # Run the Athena recommendation query
+    _RECOMMEND_RESULT=""
+    _RECOMMEND_RESULT=$(_run_athena_recommendations 2>/dev/null) || _RECOMMEND_RESULT=""
+
+    if [ -z "${_RECOMMEND_RESULT}" ]; then
+        echo "ℹ️  No benchmark history available for recommendations."
+        echo "   Run benchmarks first: ./do/benchmark --workload <name>"
+        echo ""
+        echo "   Or use SageMaker AI Recommendations API:"
+        echo "   ./do/optimize --goal throughput"
+        exit 0
+    fi
+
+    # Check if it's valid JSON with status=ok
+    _RECOMMEND_STATUS=$(echo "${_RECOMMEND_RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null) || _RECOMMEND_STATUS=""
+
+    if [ "${_RECOMMEND_STATUS}" != "ok" ]; then
+        echo "⚠️  Optimization query returned non-ok status"
+        echo "   Run benchmarks first: ./do/benchmark --workload <name>"
+        exit 1
+    fi
+
+    if [ "${ARG_JSON}" = "true" ]; then
+        echo "${_RECOMMEND_RESULT}"
+        exit 0
+    fi
+
+    if [ "${ARG_RECOMMEND_APPLY}" = "true" ]; then
+        _display_recommendations "${_RECOMMEND_RESULT}"
+        _apply_recommendations "${_RECOMMEND_RESULT}"
+        exit 0
+    fi
+
+    # Default: display recommendations
+    _display_recommendations "${_RECOMMEND_RESULT}"
+    exit 0
+fi
+
+
 # ── Require --workload flag ───────────────────────────────────────────────────
 if [ -z "${ARG_WORKLOAD}" ]; then
     echo "❌ --workload <name> is required"
@@ -286,16 +620,21 @@ except:
 fi
 
 # Extract benchmark-relevant profile values
+# The profile is the SOLE source of truth for bucket names — bootstrap writes
+# benchmarkS3Bucket from the CDK stack output. Do NOT reconstruct a name from a
+# convention: an empty value means bootstrap has not provisioned it (guarded below).
 BENCHMARK_S3_OUTPUT_PATH=$(echo "${_PROFILE_JSON}" | python3 -c "
 import sys, json
 p = json.load(sys.stdin)
 bucket = p.get('benchmarkS3Bucket', '')
-if not bucket:
-    acct = p.get('accountId', 'unknown')
-    region = p.get('awsRegion', 'us-east-1')
-    bucket = f'mlcc-benchmark-{acct}-{region}'
-print(f's3://{bucket}/${PROJECT_NAME}/')
+print(f's3://{bucket}/${PROJECT_NAME}/' if bucket else '')
 " 2>/dev/null) || BENCHMARK_S3_OUTPUT_PATH=""
+
+if [ -z "${BENCHMARK_S3_OUTPUT_PATH}" ]; then
+    echo "❌ No benchmark S3 bucket recorded in profile (benchmarkS3Bucket is empty)."
+    echo "   Run 'ml-container-creator bootstrap' to set up your profile."
+    exit 1
+fi
 
 CI_BENCHMARK_RESULTS_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ciBenchmarkResultsBucket', ''))" 2>/dev/null) || CI_BENCHMARK_RESULTS_BUCKET=""
 
@@ -913,29 +1252,19 @@ if [ -n "${RESOLVED_INSTANCE_TYPE}" ]; then
 fi
 
 # ── Pre-flight check: Ensure S3 output bucket exists ──────────────────────────
+# Buckets are provisioned by 'ml-container-creator bootstrap' — do/benchmark must
+# NOT create them. If the bucket is missing, warn with bootstrap guidance and
+# exit cleanly rather than failing later with an opaque write error.
 echo "🔍 Pre-flight: Checking S3 output bucket..."
 
 BENCHMARK_S3_BUCKET=$(echo "${BENCHMARK_S3_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
 
 if ! aws s3api head-bucket --bucket "${BENCHMARK_S3_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
-    echo "📦 Creating S3 bucket: ${BENCHMARK_S3_BUCKET}"
-    if [ "${AWS_REGION}" = "us-east-1" ]; then
-        if ! aws s3api create-bucket \
-            --bucket "${BENCHMARK_S3_BUCKET}" \
-            --region "${AWS_REGION}"; then
-            echo "❌ Failed to create S3 bucket: ${BENCHMARK_S3_BUCKET}"
-            exit 1
-        fi
-    else
-        if ! aws s3api create-bucket \
-            --bucket "${BENCHMARK_S3_BUCKET}" \
-            --region "${AWS_REGION}" \
-            --create-bucket-configuration LocationConstraint="${AWS_REGION}"; then
-            echo "❌ Failed to create S3 bucket: ${BENCHMARK_S3_BUCKET}"
-            exit 1
-        fi
-    fi
-    echo "✅ S3 bucket created: ${BENCHMARK_S3_BUCKET}"
+    echo "⚠️  Warning: S3 bucket does not exist: ${BENCHMARK_S3_BUCKET}"
+    echo "   Buckets are provisioned during bootstrap. Run:"
+    echo "     ml-container-creator bootstrap"
+    echo "   (or verify AWS_REGION/credentials point at the right account)"
+    exit 1
 else
     echo "✅ S3 bucket exists: ${BENCHMARK_S3_BUCKET}"
 fi

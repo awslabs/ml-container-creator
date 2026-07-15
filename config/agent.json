@@ -12,5 +12,16 @@
   "outputCostPer1k": 0.015,
   "exitCommands": ["exit", "quit", "bye", "q"],
   "reloadCommands": ["reload"],
-  "mcpServerTimeout": 30
+  "mcpServerTimeout": 30,
+  "confirmation": {
+    "mode": "default",
+    "scriptClasses": {
+      "do/test": "auto",
+      "do/status": "auto",
+      "do/logs": "auto",
+      "do/validate": "auto",
+      "do/export": "auto",
+      "do/ci": "auto"
+    }
+  }
 }

@@ -4,12 +4,14 @@
 import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 
 export interface MlccCiStackProps extends cdk.StackProps {
     profileName: string;
+    adoptExistingBuckets?: boolean;
 }
 
 /**
@@ -20,7 +22,7 @@ export class MlccCiStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: MlccCiStackProps) {
         super(scope, id, props);
 
-        const { profileName } = props;
+        const { profileName, adoptExistingBuckets } = props;
 
         cdk.Tags.of(this).add('mlcc:managed-by', 'ml-container-creator');
         cdk.Tags.of(this).add('mlcc:module', 'ci');
@@ -29,6 +31,21 @@ export class MlccCiStack extends cdk.Stack {
         // Import cross-stack values from core and benchmark modules
         const coreRoleArn = cdk.Fn.importValue(`mlcc-${profileName}-core-RoleArn`);
         const benchmarkBucket = cdk.Fn.importValue(`mlcc-${profileName}-benchmark-BenchmarkBucket`);
+
+        // ── CodeBuild source bucket — do/submit uploads the project source zip ──
+        // Bootstrap-owned; do/ scripts NEVER create buckets. RETAIN so in-flight
+        // source archives survive a re-provision. Adopt-if-exists so re-provision
+        // against the retained bucket doesn't collide on create.
+        const sourceBucketName = `mlcc-codebuild-source-${this.account}-${this.region}`;
+        const sourceBucket = adoptExistingBuckets
+            ? s3.Bucket.fromBucketName(this, 'SourceBucketResource', sourceBucketName)
+            : new s3.Bucket(this, 'SourceBucketResource', {
+                bucketName: sourceBucketName,
+                versioned: true,
+                encryption: s3.BucketEncryption.S3_MANAGED,
+                removalPolicy: cdk.RemovalPolicy.RETAIN,
+                blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            });
 
         // CloudWatch Log Group
         const logGroup = new logs.LogGroup(this, 'CiLogGroup', {
@@ -69,6 +86,11 @@ export class MlccCiStack extends cdk.Stack {
         }));
 
         codebuildRole.addToPolicy(new iam.PolicyStatement({
+            actions: ['s3:GetObject', 's3:GetObjectVersion', 's3:ListBucket'],
+            resources: [sourceBucket.bucketArn, `${sourceBucket.bucketArn}/*`],
+        }));
+
+        codebuildRole.addToPolicy(new iam.PolicyStatement({
             actions: ['logs:CreateLogStream', 'logs:PutLogEvents'],
             resources: [logGroup.logGroupArn, `${logGroup.logGroupArn}:*`],
         }));
@@ -105,6 +127,11 @@ export class MlccCiStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'CiTableName', {
             value: ciTable.tableName,
             exportName: `mlcc-${profileName}-ci-CiTableName`,
+        });
+
+        new cdk.CfnOutput(this, 'SourceBucket', {
+            value: sourceBucketName,
+            exportName: `mlcc-${profileName}-ci-SourceBucket`,
         });
     }
 }

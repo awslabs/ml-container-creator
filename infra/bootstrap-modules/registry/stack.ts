@@ -31,6 +31,8 @@ export class MlccRegistryStack extends cdk.Stack {
         });
 
         // AI Registry Hub (via custom resource — no L2 construct yet)
+        // Uses ignoreErrorCodesMatching to handle the adopt-if-exists case:
+        // if the hub already exists from a prior provision, treat it as success.
         const hubName = `mlcc-registry-${this.account}`;
         const createHub = new cr.AwsCustomResource(this, 'AiRegistryHub', {
             onCreate: {
@@ -43,11 +45,13 @@ export class MlccRegistryStack extends cdk.Stack {
                     HubDescription: `AI Registry Hub for ml-container-creator account ${this.account}`,
                 },
                 physicalResourceId: cr.PhysicalResourceId.of(hubName),
+                ignoreErrorCodesMatching: 'ResourceInUse',
             },
             onDelete: {
                 service: 'SageMaker',
                 action: 'deleteHub',
                 parameters: { HubName: hubName },
+                ignoreErrorCodesMatching: 'ResourceNotFound',
             },
             // createHub/deleteHub are in Lambda's built-in AWS SDK v3 — no need to
             // install the latest SDK at deploy time (faster cold start, pinned SDK).

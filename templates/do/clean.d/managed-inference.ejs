@@ -42,6 +42,7 @@ show_usage() {
     echo "  local     - Remove local Docker images"
     echo "  ecr       - Remove images from Amazon ECR"
     echo "  endpoint  - Delete SageMaker endpoint, configuration, and inference components"
+    echo "  reset-config - Unset endpoint bindings in do/config (ENDPOINT_EXTERNAL, ENDPOINT_NAME, etc.) so the next deploy creates fresh"
     echo "  ic <name> - Delete a single inference component (does not touch the endpoint)"
 <% if (typeof enableLora !== 'undefined' && enableLora) { %>
     echo "  adapter <name> - Delete a single LoRA adapter (synonym for do/adapter remove)"
@@ -875,6 +876,44 @@ clean_codebuild() {
     echo "✅ CodeBuild resources cleaned"
 }
 
+# Reset persisted deployment/endpoint bindings in do/config so the next deploy
+# starts fresh. Unsets the "attached to an endpoint" state — including the
+# ENDPOINT_EXTERNAL flag baked in at generation time from --existing-endpoint,
+# which otherwise keeps do/deploy trying to attach to an endpoint that may no
+# longer exist (or never existed in this account).
+clean_reset_config() {
+    local _config_file="${SCRIPT_DIR}/config"
+    echo "🧹 Resetting deployment bindings in do/config..."
+
+    if [ ! -f "${_config_file}" ]; then
+        echo "   ⚠️  do/config not found — nothing to reset"
+        return 0
+    fi
+
+    # Vars representing endpoint attachment / last-deployed state. Removing them
+    # returns the project to "create a fresh endpoint on next deploy" behavior.
+    local _removed=()
+    for _var in ENDPOINT_EXTERNAL ENDPOINT_NAME ENDPOINT_CONFIG_NAME \
+                INFERENCE_COMPONENT_NAME DEPLOYED_INSTANCE_TYPE; do
+        if grep -q "^export ${_var}=" "${_config_file}" 2>/dev/null; then
+            sed -i.bak "/^export ${_var}=/d" "${_config_file}"
+            _removed+=("${_var}")
+        fi
+    done
+
+    # Also drop the "# Last deployed resources" marker comment if present
+    sed -i.bak '/^# Last deployed resources/d' "${_config_file}" 2>/dev/null || true
+    rm -f "${_config_file}.bak"
+
+    if [ ${#_removed[@]} -eq 0 ]; then
+        echo "   ✓ No deployment bindings set — config already clean"
+    else
+        echo "   ✓ Unset: ${_removed[*]}"
+        echo "   Next ./do/deploy will create a fresh endpoint."
+    fi
+    return 0
+}
+
 # Main script logic
 echo "🧹 Cleanup script for ${PROJECT_NAME}"
 echo ""
@@ -893,6 +932,9 @@ case "${CLEANUP_TARGET}" in
         ;;
     endpoint)
         clean_endpoint
+        ;;
+    reset-config)
+        clean_reset_config
         ;;
     ic)
         clean_ic "${CLEANUP_ARG}"

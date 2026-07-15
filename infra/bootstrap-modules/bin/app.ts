@@ -47,6 +47,11 @@ const targetModule = app.node.tryGetContext('module'); // undefined = instantiat
 // prior teardown), it passes adoptExistingBuckets=true so the stack adopts the
 // bucket by reference instead of colliding on create.
 const adoptExistingBuckets = app.node.tryGetContext('adoptExistingBuckets') === 'true';
+// The training module owns a SECOND retained bucket (adapters). The runner
+// detects it independently and passes adoptExistingAdaptersBucket=true so the
+// adapters bucket is adopted only when it actually exists, decoupled from the
+// training-data bucket's own adopt decision.
+const adoptExistingAdaptersBucket = app.node.tryGetContext('adoptExistingAdaptersBucket') === 'true';
 // When the runner detects the core ECR repository already exists (retained from
 // a prior teardown), it passes adoptExistingEcr=true so the core stack adopts
 // the repo by reference instead of colliding on create.
@@ -64,7 +69,7 @@ const stackName = (suffix: string) => `mlcc-${profileName}-${suffix}`;
 // error in an unrelated module can never block this deploy.
 const factories: Record<string, () => cdk.Stack> = {
     core: () => new MlccCoreStack(app, stackName('core'), {
-        env, profileName, adoptExistingEcr,
+        env, profileName, adoptExistingEcr, adoptExistingBuckets,
         description: `MLCC Core Infrastructure (profile: ${profileName})`,
     }),
     benchmark: () => new MlccBenchmarkStack(app, stackName('benchmark'), {
@@ -76,11 +81,11 @@ const factories: Record<string, () => cdk.Stack> = {
         description: `MLCC Model Registry (profile: ${profileName})`,
     }),
     training: () => new MlccTrainingStack(app, stackName('training'), {
-        env, profileName, adoptExistingBuckets,
+        env, profileName, adoptExistingBuckets, adoptExistingAdaptersBucket,
         description: `MLCC Training Infrastructure (profile: ${profileName})`,
     }),
     ci: () => new MlccCiStack(app, stackName('ci'), {
-        env, profileName,
+        env, profileName, adoptExistingBuckets,
         description: `MLCC CI/CD Pipeline (profile: ${profileName})`,
     }),
     'sagemaker-domain': () => new MlccSagemakerDomainStack(app, stackName('sagemaker-domain'), {

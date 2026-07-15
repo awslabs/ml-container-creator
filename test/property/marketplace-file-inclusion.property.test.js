@@ -48,7 +48,8 @@ const BASE_DO_SCRIPTS = new Set([
     'stage',
     'benchmark',
     '.benchmark_writer.py',
-    'optimize'
+    'optimize',
+    '.optimize_engine.py'
 ]);
 
 /**

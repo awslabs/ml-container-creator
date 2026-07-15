@@ -85,17 +85,34 @@ _check_schema_registry_staleness
 
 echo "🔍 Running schema validation..."
 
+# Resolve the validate-runner from the installed mcc package.
+# Tries: (1) npm global install, (2) local node_modules (npm link), (3) dev repo.
+_find_validate_runner() {
+    local npm_root
+    npm_root=$(npm root -g 2>/dev/null)
+    if [ -n "${npm_root}" ] && [ -f "${npm_root}/@aws/ml-container-creator/src/lib/validate-runner.js" ]; then
+        echo "${npm_root}/@aws/ml-container-creator/src/lib/validate-runner.js"
+        return 0
+    fi
+    if [ -f "${PROJECT_DIR}/node_modules/@aws/ml-container-creator/src/lib/validate-runner.js" ]; then
+        echo "${PROJECT_DIR}/node_modules/@aws/ml-container-creator/src/lib/validate-runner.js"
+        return 0
+    fi
+    if [ -f "${PROJECT_DIR}/src/lib/validate-runner.js" ]; then
+        echo "${PROJECT_DIR}/src/lib/validate-runner.js"
+        return 0
+    fi
+    return 1
+}
+
+RUNNER_PATH=$(_find_validate_runner)
+if [ -z "${RUNNER_PATH}" ]; then
+    echo "❌ Cannot find validate-runner — is ml-container-creator installed? Run: npm install -g @aws/ml-container-creator" >&2
+    exit 2
+fi
+
 # Invoke the Node.js validation runner
-exec node -e "
-import('${PROJECT_DIR}/node_modules/@aws/ml-container-creator/src/lib/validate-runner.js')
-    .then(m => m.run({ configDir: '${SCRIPT_DIR}', format: '${FORMAT}', smart: ${SMART:+true}${SMART:-false} }))
-    .catch(() => {
-        // Fallback: try local path for development
-        import('${PROJECT_DIR}/src/lib/validate-runner.js')
-            .then(m => m.run({ configDir: '${SCRIPT_DIR}', format: '${FORMAT}', smart: ${SMART:+true}${SMART:-false} }))
-            .catch(e => { console.error('Failed to load validator:', e.message); process.exit(2); });
-    });
-" 2>/dev/null || node --input-type=module -e "
-import { run } from '${PROJECT_DIR}/src/lib/validate-runner.js';
+exec node --input-type=module -e "
+import { run } from '${RUNNER_PATH}';
 run({ configDir: '${SCRIPT_DIR}', format: '${FORMAT}', smart: ${SMART:+true}${SMART:-false} });
 "

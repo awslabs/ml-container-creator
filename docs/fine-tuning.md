@@ -24,7 +24,7 @@ The fine-tuning workflow follows an iterative loop: prepare your dataset, tune t
 
 ```mermaid
 graph LR
-    A[Prepare<br>dataset] --> B[do/tune] --> C[do/adapter add<br>--from-tune] --> D[do/test] --> E{Quality<br>OK?}
+    A[Prepare<br>dataset] --> B[do/tune<br>auto-deploys] --> D[do/test] --> E{Quality<br>OK?}
     E -->|No| A
     E -->|Yes| F[Production]
 ```
@@ -38,14 +38,23 @@ graph LR
    ./do/tune --technique sft --dataset s3://my-bucket/train.jsonl
    ```
 
-3. **Deploy the output** — The tune script prints context-aware next-step commands when the job completes:
+3. **Adapter automatically deployed** — When `do/tune` completes a LoRA job, it automatically:
+   1. Stages adapter weights to S3 via a Processing Job
+   2. Deploys the adapter as an inference component on your endpoint
+   3. Registers the adapter in the deployment Model Package Group
 
-   For **LoRA adapter** output (default):
-   ```bash
-   ./do/adapter add tuned-sft --from-tune
-   ```
+   The auto-deployed adapter is named `tuned-<technique>-<dataset-slug>` (e.g. `tuned-sft-alpaca`).
 
-   For **full merged model** output (`--training-type full-rank`):
+   !!! tip "Skip auto-deployment"
+       Pass `--no-register` to skip this automatic flow and manage adapters manually:
+       ```bash
+       ./do/tune --technique sft --dataset ... --no-register
+       # Then deploy manually when ready:
+       ./do/adapter add my-adapter --from-tune sft
+       ```
+
+   For **full merged model** output (`--training-type full-rank`), there is no auto-deploy.
+   Run manually after the job completes:
    ```bash
    ./do/add-ic tuned-v1 --from-tune
    ```
@@ -159,6 +168,51 @@ If your configured model is not in the Supported Model Catalog, `do/tune` exits 
 ```
 
 The script validates your model at runtime against the catalog, so catalog updates take effect without regenerating your project.
+
+## Dataset Management
+
+### Listing datasets
+
+`do/tune --list-datasets` shows datasets available for tuning, split into two sections:
+
+```bash
+# Show all datasets (remote hub + local)
+./do/tune --list-datasets
+
+# Show only datasets registered in your AWS account
+./do/tune --list-datasets --source remote
+
+# Show only locally cached datasets
+./do/tune --list-datasets --source local
+```
+
+**Remote DataSets** are registered in your account's AI Registry Hub (the `registry` bootstrap module). They are authoritative and account-scoped — what you see is what exists in your AWS account.
+
+**Local Datasets** are cached in `~/.ml-container-creator/datasets.json`. These may include entries from prior accounts or regions — useful as a local reference but not authoritative.
+
+!!! tip "Register to the hub for team sharing"
+    Datasets registered with `do/register dataset` are written to both the local cache and the AI Registry Hub (if the `registry` bootstrap module is provisioned). Team members can see them via `--source remote` without needing your local cache.
+
+### Row count
+
+When you register a dataset without specifying `--row-count`, MCC automatically counts rows by streaming the S3 file:
+
+- **jsonl / ndjson** — counts newlines
+- **csv / tsv** — counts newlines minus 1 (header)
+- **parquet** — reads footer metadata (no full file read)
+
+Row count is non-fatal — if the format is unsupported or S3 access fails, registration proceeds with `row_count: null`.
+
+### Technique guardrail
+
+If you try to use a dataset registered for a different technique (e.g., an SFT dataset for DPO tuning), `do/tune` warns you:
+
+```
+⚠️  Dataset 'my-sft-dataset' was registered for technique 'sft'
+    but you're using --technique dpo. Proceeding anyway.
+```
+
+The warning is non-blocking — tuning proceeds. In automated (`MLCC_AUTO_MODE=1`) environments, the mismatch causes an auto-decline with exit code 4 to prevent silent data mismatches in CI pipelines.
 
 ## Techniques
 

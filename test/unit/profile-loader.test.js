@@ -133,3 +133,114 @@ echo "ECR=\${_PROFILE_ecrRepositoryName:-EMPTY}"
         assert.ok(output.includes('ECR=my-ecr-repo'), `ecrRepositoryName should be my-ecr-repo, got: ${output}`);
     });
 });
+
+describe('profile.sh — training/adapter bucket mapping (BL056)', () => {
+    it('maps trainingS3Bucket → S3_BUCKET and adapterS3Bucket → ADAPTER_S3_BUCKET', () => {
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
+        const configDir = join(tempHome, '.ml-container-creator');
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(join(configDir, 'config.json'), JSON.stringify({
+            activeProfile: 'test',
+            profiles: {
+                test: {
+                    awsRegion: 'us-east-1',
+                    accountId: '111122223333',
+                    trainingS3Bucket: 'mlcc-training-111122223333-us-east-1',
+                    adapterS3Bucket: 'mlcc-training-adapters-111122223333-us-east-1'
+                }
+            }
+        }));
+
+        const scriptPath = join(tempHome, '_test_runner.sh');
+        const scriptContent = `#!/usr/bin/env bash
+set -e
+set -o pipefail
+export HOME="${tempHome}"
+source "${PROFILE_SH}"
+echo "S3_BUCKET=\${S3_BUCKET:-EMPTY}"
+echo "ADAPTER_S3_BUCKET=\${ADAPTER_S3_BUCKET:-EMPTY}"
+`;
+        writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+        // Explicitly clear these from the child env so we test the profile mapping,
+        // not an inherited value.
+        const env = { ...process.env, HOME: tempHome };
+        delete env.S3_BUCKET;
+        delete env.ADAPTER_S3_BUCKET;
+        const output = execSync(`bash "${scriptPath}"`, { encoding: 'utf-8', env, timeout: 10000 });
+
+        assert.ok(output.includes('S3_BUCKET=mlcc-training-111122223333-us-east-1'),
+            `S3_BUCKET should map from trainingS3Bucket, got: ${output}`);
+        assert.ok(output.includes('ADAPTER_S3_BUCKET=mlcc-training-adapters-111122223333-us-east-1'),
+            `ADAPTER_S3_BUCKET should map from adapterS3Bucket, got: ${output}`);
+    });
+
+    it('leaves S3_BUCKET / ADAPTER_S3_BUCKET empty when the training module is not provisioned', () => {
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
+        const configDir = join(tempHome, '.ml-container-creator');
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(join(configDir, 'config.json'), JSON.stringify({
+            activeProfile: 'test',
+            profiles: { test: { awsRegion: 'us-east-1', accountId: '111122223333' } }
+        }));
+
+        const scriptPath = join(tempHome, '_test_runner.sh');
+        const scriptContent = `#!/usr/bin/env bash
+set -e
+set -o pipefail
+export HOME="${tempHome}"
+source "${PROFILE_SH}"
+echo "S3_BUCKET=\${S3_BUCKET:-EMPTY}"
+echo "ADAPTER_S3_BUCKET=\${ADAPTER_S3_BUCKET:-EMPTY}"
+`;
+        writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+        const env = { ...process.env, HOME: tempHome };
+        delete env.S3_BUCKET;
+        delete env.ADAPTER_S3_BUCKET;
+        const output = execSync(`bash "${scriptPath}"`, { encoding: 'utf-8', env, timeout: 10000 });
+
+        assert.ok(output.includes('S3_BUCKET=EMPTY'),
+            `S3_BUCKET should be empty without training module, got: ${output}`);
+        assert.ok(output.includes('ADAPTER_S3_BUCKET=EMPTY'),
+            `ADAPTER_S3_BUCKET should be empty without training module, got: ${output}`);
+    });
+
+    it('lets an explicit env var override the profile value (precedence)', () => {
+        const tempHome = mkdtempSync(join(tmpdir(), 'profile-test-'));
+        const configDir = join(tempHome, '.ml-container-creator');
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(join(configDir, 'config.json'), JSON.stringify({
+            activeProfile: 'test',
+            profiles: {
+                test: {
+                    awsRegion: 'us-east-1',
+                    accountId: '111122223333',
+                    trainingS3Bucket: 'mlcc-training-111122223333-us-east-1',
+                    adapterS3Bucket: 'mlcc-training-adapters-111122223333-us-east-1'
+                }
+            }
+        }));
+
+        const scriptPath = join(tempHome, '_test_runner.sh');
+        const scriptContent = `#!/usr/bin/env bash
+set -e
+set -o pipefail
+export HOME="${tempHome}"
+source "${PROFILE_SH}"
+echo "S3_BUCKET=\${S3_BUCKET:-EMPTY}"
+echo "ADAPTER_S3_BUCKET=\${ADAPTER_S3_BUCKET:-EMPTY}"
+`;
+        writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+        const env = {
+            ...process.env,
+            HOME: tempHome,
+            S3_BUCKET: 'override-training-bucket',
+            ADAPTER_S3_BUCKET: 'override-adapter-bucket'
+        };
+        const output = execSync(`bash "${scriptPath}"`, { encoding: 'utf-8', env, timeout: 10000 });
+
+        assert.ok(output.includes('S3_BUCKET=override-training-bucket'),
+            `explicit S3_BUCKET env var should win, got: ${output}`);
+        assert.ok(output.includes('ADAPTER_S3_BUCKET=override-adapter-bucket'),
+            `explicit ADAPTER_S3_BUCKET env var should win, got: ${output}`);
+    });
+});

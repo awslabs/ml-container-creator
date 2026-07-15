@@ -500,39 +500,41 @@ class TestCmdRegisterAdapter:
 
     @patch("os.environ", {"AWS_DEFAULT_REGION": "us-west-2", "AWS_REGION": "us-west-2"})
     def test_register_adapter_creates_model_package_with_adapter_metadata(self):
-        """cmd_register_adapter calls ModelPackage.create() with adapter metadata."""
+        """cmd_register_adapter calls create_model_package with adapter metadata."""
         args = self._make_adapter_args()
 
         mock_mpg = MagicMock()
         mock_mpg.model_package_group_arn = "arn:aws:sagemaker:us-west-2:123:model-package-group/test-project"
 
-        mock_pkg = MagicMock()
-        mock_pkg.model_package_arn = "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
+        mock_sm_client = MagicMock()
+        mock_sm_client.create_model_package.return_value = {
+            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
+        }
 
         with patch.dict("sys.modules", {
             "sagemaker": MagicMock(),
             "sagemaker.core": MagicMock(),
             "sagemaker.core.resources": MagicMock(),
         }):
-            with patch.object(_register_helper, "_check_sagemaker_core"):
-                # Patch the import inside cmd_register_adapter
+            with patch("register_model._check_sagemaker_core"):
                 mock_resources = MagicMock()
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
-                mock_resources.ModelPackage.create.return_value = mock_pkg
+                mock_resources.ModelPackage.get_all.return_value = []
 
                 with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                    with pytest.raises(SystemExit) as exc_info:
-                        _register_helper.cmd_register_adapter(args)
+                    with patch("boto3.client", return_value=mock_sm_client):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_adapter(args)
 
-                    assert exc_info.value.code == 0
+                        assert exc_info.value.code == 0
 
-                    # Verify ModelPackage.create was called with adapter metadata
-                    create_call = mock_resources.ModelPackage.create.call_args
-                    metadata = create_call.kwargs["customer_metadata_properties"]
-                    assert metadata["isAdapter"] == "true"
-                    assert metadata["parentModelVersionArn"] == args.parent_version_arn
-                    assert metadata["tuneTechnique"] == "sft"
-                    assert metadata["datasetS3Uri"] == "s3://bucket/datasets/train/"
+                        # Verify create_model_package was called with adapter metadata
+                        create_call = mock_sm_client.create_model_package.call_args
+                        metadata = create_call[1]["CustomerMetadataProperties"]
+                        assert metadata["isAdapter"] == "true"
+                        assert metadata["parentModelVersionArn"] == args.parent_version_arn
+                        assert metadata["tuneTechnique"] == "sft"
+                        assert metadata["datasetS3Uri"] == "s3://bucket/datasets/train/"
 
     @patch("os.environ", {"AWS_DEFAULT_REGION": "us-west-2", "AWS_REGION": "us-west-2"})
     def test_register_adapter_json_output_includes_parent_arn(self, capsys):
@@ -542,38 +544,41 @@ class TestCmdRegisterAdapter:
         mock_mpg = MagicMock()
         mock_mpg.model_package_group_arn = "arn:aws:sagemaker:us-west-2:123:model-package-group/test-project"
 
-        mock_pkg = MagicMock()
-        mock_pkg.model_package_arn = "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
+        mock_sm_client = MagicMock()
+        mock_sm_client.create_model_package.return_value = {
+            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
+        }
 
         with patch.dict("sys.modules", {
             "sagemaker": MagicMock(),
             "sagemaker.core": MagicMock(),
             "sagemaker.core.resources": MagicMock(),
         }):
-            with patch.object(_register_helper, "_check_sagemaker_core"):
+            with patch("register_model._check_sagemaker_core"):
                 mock_resources = MagicMock()
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
-                mock_resources.ModelPackage.create.return_value = mock_pkg
+                mock_resources.ModelPackage.get_all.return_value = []
 
                 with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                    with pytest.raises(SystemExit) as exc_info:
-                        _register_helper.cmd_register_adapter(args)
+                    with patch("boto3.client", return_value=mock_sm_client):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_adapter(args)
 
-                    assert exc_info.value.code == 0
+                        assert exc_info.value.code == 0
 
-                    captured = capsys.readouterr()
-                    output = json.loads(captured.out)
-                    assert "mpg_arn" in output
-                    assert "model_package_arn" in output
-                    assert "version" in output
-                    assert output["parent_version_arn"] == args.parent_version_arn
-                    assert output["version"] == 2
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        assert "mpg_arn" in output
+                        assert "model_package_arn" in output
+                        assert "version" in output
+                        assert output["parent_version_arn"] == args.parent_version_arn
+                        assert output["version"] == 2
 
     def test_register_adapter_requires_project_name_at_runtime(self, capsys):
         """cmd_register_adapter exits with error if project_name is empty."""
         args = self._make_adapter_args(project_name="")
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
+        with patch("register_model._check_sagemaker_core"):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_register_adapter(args)
 
@@ -586,7 +591,7 @@ class TestCmdRegisterAdapter:
         """cmd_register_adapter exits with error if parent_version_arn is empty."""
         args = self._make_adapter_args(parent_version_arn="")
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
+        with patch("register_model._check_sagemaker_core"):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_register_adapter(args)
 
@@ -628,8 +633,8 @@ class TestRegisterDataset:
 
         # Patch the registry path to use temp dir
         import tempfile
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_register_dataset(args)
 
@@ -647,8 +652,8 @@ class TestRegisterDataset:
         args = self._make_dataset_args()
 
         registry_file = str(tmp_path / "datasets.json")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit):
                     _register_helper.cmd_register_dataset(args)
 
@@ -675,8 +680,8 @@ class TestRegisterDataset:
             json.dump(existing, f)
 
         args = self._make_dataset_args()
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit):
                     _register_helper.cmd_register_dataset(args)
 
@@ -690,8 +695,8 @@ class TestRegisterDataset:
         """register-dataset supports jsonl, parquet, and csv formats."""
         for fmt in ["jsonl", "parquet", "csv"]:
             args = self._make_dataset_args(name=f"test-{fmt}", format=fmt)
-            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+            with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                     with pytest.raises(SystemExit) as exc_info:
                         _register_helper.cmd_register_dataset(args)
                     assert exc_info.value.code == 0
@@ -703,8 +708,8 @@ class TestRegisterDataset:
         """register-dataset supports sft, dpo, rlaif, and rlvr techniques."""
         for technique in ["sft", "dpo", "rlaif", "rlvr"]:
             args = self._make_dataset_args(name=f"test-{technique}", technique=technique)
-            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+            with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                     with pytest.raises(SystemExit) as exc_info:
                         _register_helper.cmd_register_dataset(args)
                     assert exc_info.value.code == 0
@@ -715,8 +720,8 @@ class TestRegisterDataset:
     def test_register_dataset_requires_name(self, capsys, tmp_path):
         """register-dataset errors if name is empty."""
         args = self._make_dataset_args(name="")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_register_dataset(args)
                 assert exc_info.value.code == 1
@@ -727,8 +732,8 @@ class TestRegisterDataset:
     def test_register_dataset_requires_s3_uri(self, capsys, tmp_path):
         """register-dataset errors if s3-uri is empty."""
         args = self._make_dataset_args(s3_uri="")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_register_dataset(args)
                 assert exc_info.value.code == 1
@@ -739,8 +744,8 @@ class TestRegisterDataset:
     def test_register_dataset_invalid_column_schema(self, capsys, tmp_path):
         """register-dataset errors if column-schema is invalid JSON."""
         args = self._make_dataset_args(column_schema="not-valid-json{}")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_register_dataset(args)
                 assert exc_info.value.code == 1
@@ -752,8 +757,8 @@ class TestRegisterDataset:
         """register-dataset works with row_count=None."""
         args = self._make_dataset_args(row_count=None)
         registry_file = str(tmp_path / "datasets.json")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit):
                     _register_helper.cmd_register_dataset(args)
 
@@ -791,8 +796,8 @@ class TestRegisterEvaluator:
         """register-evaluator outputs valid JSON with required fields."""
         args = self._make_evaluator_args()
 
-        with patch.object(_register_helper, "_EVALUATORS_REGISTRY", str(tmp_path / "evaluators.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._EVALUATORS_REGISTRY", str(tmp_path / "evaluators.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_register_evaluator(args)
 
@@ -810,8 +815,8 @@ class TestRegisterEvaluator:
         args = self._make_evaluator_args()
         registry_file = str(tmp_path / "evaluators.json")
 
-        with patch.object(_register_helper, "_EVALUATORS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._EVALUATORS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit):
                     _register_helper.cmd_register_evaluator(args)
 
@@ -835,8 +840,8 @@ class TestRegisterEvaluator:
             description="Preference model for DPO",
         )
 
-        with patch.object(_register_helper, "_EVALUATORS_REGISTRY", str(tmp_path / "evaluators.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._EVALUATORS_REGISTRY", str(tmp_path / "evaluators.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_register_evaluator(args)
 
@@ -857,8 +862,8 @@ class TestRegisterEvaluator:
             json.dump(existing, f)
 
         args = self._make_evaluator_args()
-        with patch.object(_register_helper, "_EVALUATORS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._EVALUATORS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit):
                     _register_helper.cmd_register_evaluator(args)
 
@@ -870,8 +875,8 @@ class TestRegisterEvaluator:
     def test_register_evaluator_requires_name(self, capsys, tmp_path):
         """register-evaluator errors if name is empty."""
         args = self._make_evaluator_args(name="")
-        with patch.object(_register_helper, "_EVALUATORS_REGISTRY", str(tmp_path / "evaluators.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._EVALUATORS_REGISTRY", str(tmp_path / "evaluators.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_register_evaluator(args)
                 assert exc_info.value.code == 1
@@ -882,8 +887,8 @@ class TestRegisterEvaluator:
     def test_register_evaluator_requires_arn_or_uri(self, capsys, tmp_path):
         """register-evaluator errors if arn-or-uri is empty."""
         args = self._make_evaluator_args(arn_or_uri="")
-        with patch.object(_register_helper, "_EVALUATORS_REGISTRY", str(tmp_path / "evaluators.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._EVALUATORS_REGISTRY", str(tmp_path / "evaluators.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_register_evaluator(args)
                 assert exc_info.value.code == 1
@@ -914,7 +919,7 @@ class TestResolveDataset:
             json.dump(entries, f)
 
         args = Namespace(name="my-dataset", command="resolve-dataset")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_resolve_dataset(args)
 
@@ -931,7 +936,7 @@ class TestResolveDataset:
             json.dump([], f)
 
         args = Namespace(name="nonexistent", command="resolve-dataset")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_resolve_dataset(args)
 
@@ -964,7 +969,7 @@ class TestResolveEvaluator:
             json.dump(entries, f)
 
         args = Namespace(name="math-fn", command="resolve-evaluator")
-        with patch.object(_register_helper, "_EVALUATORS_REGISTRY", registry_file):
+        with patch("register_common._EVALUATORS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_resolve_evaluator(args)
 
@@ -982,7 +987,7 @@ class TestResolveEvaluator:
             json.dump([], f)
 
         args = Namespace(name="nonexistent", command="resolve-evaluator")
-        with patch.object(_register_helper, "_EVALUATORS_REGISTRY", registry_file):
+        with patch("register_common._EVALUATORS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_resolve_evaluator(args)
 
@@ -1141,7 +1146,7 @@ class TestListAdapters:
         )
 
         # Mock sagemaker-core to raise "does not exist"
-        with patch.object(_register_helper, "_check_sagemaker_core"):
+        with patch("register_list._check_sagemaker_core"):
             mock_resources = MagicMock()
             mock_resources.ModelPackage.get_all.side_effect = Exception(
                 "Model Package Group 'nonexistent-project' does not exist"
@@ -1188,7 +1193,7 @@ class TestListAdapters:
         mock_base.inference_specification = None
         mock_base.creation_time = "2025-06-17T10:00:00Z"
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
+        with patch("register_list._check_sagemaker_core"):
             mock_resources = MagicMock()
             mock_resources.ModelPackage.get_all.return_value = [mock_adapter, mock_base]
             with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
@@ -1214,7 +1219,7 @@ class TestListAdapters:
             region="us-west-2",
         )
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
+        with patch("register_list._check_sagemaker_core"):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_list_adapters(args)
 
@@ -1241,7 +1246,7 @@ class TestListAdapters:
             region="us-west-2",
         )
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
+        with patch("register_list._check_sagemaker_core"):
             mock_resources = MagicMock()
             mock_resources.ModelPackage.get_all.side_effect = Exception("Connection timeout")
             with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
@@ -1273,23 +1278,23 @@ class TestGetVersion:
             region="us-west-2",
         )
 
-        mock_pkg = MagicMock()
-        mock_pkg.model_package_arn = "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
-        mock_pkg.model_approval_status = "Approved"
-        mock_pkg.model_package_description = "adapter (sft) on ml.g5.2xlarge"
-        mock_pkg.inference_specification = {
-            "Containers": [{"ModelDataUrl": "s3://bucket/adapter.tar.gz", "Image": "img:latest"}]
-        }
-        mock_pkg.customer_metadata_properties = {
-            "isAdapter": "true",
-            "tuneTechnique": "sft",
-            "parentModelVersionArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/1",
+        mock_sm_client = MagicMock()
+        mock_sm_client.describe_model_package.return_value = {
+            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2",
+            "ModelApprovalStatus": "Approved",
+            "ModelPackageDescription": "adapter (sft) on ml.g5.2xlarge",
+            "InferenceSpecification": {
+                "Containers": [{"ModelDataUrl": "s3://bucket/adapter.tar.gz", "Image": "img:latest"}]
+            },
+            "CustomerMetadataProperties": {
+                "isAdapter": "true",
+                "tuneTechnique": "sft",
+                "parentModelVersionArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/1",
+            },
         }
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
-            mock_resources = MagicMock()
-            mock_resources.ModelPackage.get.return_value = mock_pkg
-            with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
+        with patch("register_resolve._check_sagemaker_core"):
+            with patch("boto3.client", return_value=mock_sm_client):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_get_version(args)
 
@@ -1311,7 +1316,7 @@ class TestGetVersion:
             region="us-west-2",
         )
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
+        with patch("register_resolve._check_sagemaker_core"):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_get_version(args)
 
@@ -1328,7 +1333,7 @@ class TestGetVersion:
             region="us-west-2",
         )
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
+        with patch("register_resolve._check_sagemaker_core"):
             mock_resources = MagicMock()
             mock_resources.ModelPackage.get.side_effect = Exception("Model package does not exist")
             with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
@@ -1362,22 +1367,24 @@ class TestGetVersion:
             region="us-west-2",
         )
 
-        mock_pkg = MagicMock()
-        mock_pkg.model_package_arn = "arn:aws:sagemaker:us-west-2:123:model-package/test-project/1"
-        mock_pkg.model_approval_status = "Approved"
-        mock_pkg.model_package_description = "base model"
-        mock_pkg.inference_specification = {"Containers": [{"Image": "img:latest"}]}
-        mock_pkg.customer_metadata_properties = {"isAdapter": "false"}
+        mock_sm_client = MagicMock()
+        mock_sm_client.describe_model_package.return_value = {
+            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/1",
+            "ModelApprovalStatus": "Approved",
+            "ModelPackageDescription": "base model",
+            "InferenceSpecification": {"Containers": [{"Image": "img:latest"}]},
+            "CustomerMetadataProperties": {"isAdapter": "false"},
+        }
 
-        with patch.object(_register_helper, "_check_sagemaker_core"):
-            mock_resources = MagicMock()
-            mock_resources.ModelPackage.get.return_value = mock_pkg
-            with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
+        with patch("register_resolve._check_sagemaker_core"):
+            with patch("boto3.client", return_value=mock_sm_client):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_get_version(args)
 
                 assert exc_info.value.code == 0
                 captured = capsys.readouterr()
+                output = json.loads(captured.out)
+                assert output["modelDataUrl"] == ""
                 output = json.loads(captured.out)
                 assert output["modelDataUrl"] == ""
 
@@ -1425,10 +1432,10 @@ class TestAIRegistryDataset:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
-            with patch.object(_register_helper, "_register_to_hub", return_value="arn:aws:sagemaker:us-west-2:123:hub/mlcc-registry-123/dataset/sft-train-v1") as mock_hub:
-                with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                    with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
+            with patch("register_dataset._register_to_hub", return_value="arn:aws:sagemaker:us-west-2:123:hub/mlcc-registry-123/dataset/sft-train-v1") as mock_hub:
+                with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                    with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -1447,9 +1454,9 @@ class TestAIRegistryDataset:
         """register-dataset falls back to local JSON when AI Registry import fails."""
         args = self._make_dataset_args()
 
-        with patch.object(_register_helper, "_check_ai_registry", return_value=False):
-            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_resolve._check_ai_registry", return_value=False):
+            with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                     with pytest.raises(SystemExit) as exc_info:
                         _register_helper.cmd_register_dataset(args)
 
@@ -1475,10 +1482,10 @@ class TestAIRegistryDataset:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
-            with patch.object(_register_helper, "_register_to_hub", return_value="arn:hub:dataset") as mock_hub:
-                with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                    with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
+            with patch("register_dataset._register_to_hub", return_value="arn:hub:dataset") as mock_hub:
+                with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                    with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                         with pytest.raises(SystemExit):
                             _register_helper.cmd_register_dataset(args)
 
@@ -1493,13 +1500,13 @@ class TestAIRegistryDataset:
         mock_DataSet = MagicMock()
         mock_DataSet.create.side_effect = Exception("Service unavailable")
 
-        with patch.object(_register_helper, "_check_ai_registry", return_value=True):
+        with patch("register_resolve._check_ai_registry", return_value=True):
             with patch.dict("sys.modules", {
                 "sagemaker.ai_registry": MagicMock(),
                 "sagemaker.ai_registry.dataset": MagicMock(DataSet=mock_DataSet),
             }):
-                with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                    with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+                with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                    with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -1534,12 +1541,12 @@ class TestResolveDatasetAIRegistry:
 
         args = Namespace(name="my-dataset", command="resolve-dataset")
 
-        with patch.object(_register_helper, "_check_ai_registry", return_value=True):
+        with patch("register_resolve._check_ai_registry", return_value=True):
             with patch.dict("sys.modules", {
                 "sagemaker.ai_registry": MagicMock(),
                 "sagemaker.ai_registry.dataset": MagicMock(DataSet=mock_DataSet),
             }):
-                with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
                     with pytest.raises(SystemExit) as exc_info:
                         _register_helper.cmd_resolve_dataset(args)
 
@@ -1566,12 +1573,12 @@ class TestResolveDatasetAIRegistry:
 
         args = Namespace(name="my-dataset", command="resolve-dataset")
 
-        with patch.object(_register_helper, "_check_ai_registry", return_value=True):
+        with patch("register_resolve._check_ai_registry", return_value=True):
             with patch.dict("sys.modules", {
                 "sagemaker.ai_registry": MagicMock(),
                 "sagemaker.ai_registry.dataset": MagicMock(DataSet=mock_DataSet),
             }):
-                with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+                with patch("register_common._DATASETS_REGISTRY", registry_file):
                     with pytest.raises(SystemExit) as exc_info:
                         _register_helper.cmd_resolve_dataset(args)
 
@@ -1596,8 +1603,8 @@ class TestResolveDatasetAIRegistry:
 
         args = Namespace(name="my-dataset", command="resolve-dataset")
 
-        with patch.object(_register_helper, "_check_ai_registry", return_value=False):
-            with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_resolve._check_ai_registry", return_value=False):
+            with patch("register_common._DATASETS_REGISTRY", registry_file):
                 with pytest.raises(SystemExit) as exc_info:
                     _register_helper.cmd_resolve_dataset(args)
 
@@ -1665,7 +1672,7 @@ class TestAdapterDedup:
             "sagemaker.core": MagicMock(),
             "sagemaker.core.resources": MagicMock(),
         }):
-            with patch.object(_register_helper, "_check_sagemaker_core"):
+            with patch("register_model._check_sagemaker_core"):
                 mock_resources = MagicMock()
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
                 # get_all returns the existing matching adapter
@@ -1704,32 +1711,34 @@ class TestAdapterDedup:
             "datasetS3Uri": "s3://bucket/datasets/other/",
         }
 
-        mock_new_pkg = MagicMock()
-        mock_new_pkg.model_package_arn = "arn:aws:sagemaker:us-west-2:123:model-package/test-project/3"
+        mock_sm_client = MagicMock()
+        mock_sm_client.create_model_package.return_value = {
+            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/3"
+        }
 
         with patch.dict("sys.modules", {
             "sagemaker": MagicMock(),
             "sagemaker.core": MagicMock(),
             "sagemaker.core.resources": MagicMock(),
         }):
-            with patch.object(_register_helper, "_check_sagemaker_core"):
+            with patch("register_model._check_sagemaker_core"):
                 mock_resources = MagicMock()
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
                 mock_resources.ModelPackage.get_all.return_value = [mock_non_matching_pkg]
-                mock_resources.ModelPackage.create.return_value = mock_new_pkg
 
                 with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                    with pytest.raises(SystemExit) as exc_info:
-                        _register_helper.cmd_register_adapter(args)
+                    with patch("boto3.client", return_value=mock_sm_client):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_adapter(args)
 
-                    assert exc_info.value.code == 0
-                    captured = capsys.readouterr()
-                    output = json.loads(captured.out)
-                    # Should NOT be deduplicated
-                    assert "deduplicated" not in output
-                    assert output["version"] == 3
-                    # Verify ModelPackage.create WAS called
-                    mock_resources.ModelPackage.create.assert_called_once()
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        # Should NOT be deduplicated
+                        assert "deduplicated" not in output
+                        assert output["version"] == 3
+                        # Verify create_model_package WAS called
+                        mock_sm_client.create_model_package.assert_called_once()
 
     @patch("os.environ", {"AWS_DEFAULT_REGION": "us-west-2", "AWS_REGION": "us-west-2"})
     def test_dedup_check_failure_is_non_fatal(self, capsys):
@@ -1739,35 +1748,37 @@ class TestAdapterDedup:
         mock_mpg = MagicMock()
         mock_mpg.model_package_group_arn = "arn:aws:sagemaker:us-west-2:123:model-package-group/test-project"
 
-        mock_new_pkg = MagicMock()
-        mock_new_pkg.model_package_arn = "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
+        mock_sm_client = MagicMock()
+        mock_sm_client.create_model_package.return_value = {
+            "ModelPackageArn": "arn:aws:sagemaker:us-west-2:123:model-package/test-project/2"
+        }
 
         with patch.dict("sys.modules", {
             "sagemaker": MagicMock(),
             "sagemaker.core": MagicMock(),
             "sagemaker.core.resources": MagicMock(),
         }):
-            with patch.object(_register_helper, "_check_sagemaker_core"):
+            with patch("register_model._check_sagemaker_core"):
                 mock_resources = MagicMock()
                 mock_resources.ModelPackageGroup.create.return_value = mock_mpg
                 # get_all raises an exception (e.g. permission denied)
                 mock_resources.ModelPackage.get_all.side_effect = Exception("Access denied")
-                mock_resources.ModelPackage.create.return_value = mock_new_pkg
 
                 with patch.dict("sys.modules", {"sagemaker.core.resources": mock_resources}):
-                    with pytest.raises(SystemExit) as exc_info:
-                        _register_helper.cmd_register_adapter(args)
+                    with patch("boto3.client", return_value=mock_sm_client):
+                        with pytest.raises(SystemExit) as exc_info:
+                            _register_helper.cmd_register_adapter(args)
 
-                    assert exc_info.value.code == 0
-                    captured = capsys.readouterr()
-                    output = json.loads(captured.out)
-                    # Dedup check failed but registration succeeded
-                    assert "deduplicated" not in output
-                    assert output["version"] == 2
-                    # Verify ModelPackage.create WAS called
-                    mock_resources.ModelPackage.create.assert_called_once()
-                    # Verify warning was printed
-                    assert "Dedup check failed" in captured.err
+                        assert exc_info.value.code == 0
+                        captured = capsys.readouterr()
+                        output = json.loads(captured.out)
+                        # Dedup check failed but registration succeeded
+                        assert "deduplicated" not in output
+                        assert output["version"] == 2
+                        # Verify create_model_package WAS called
+                        mock_sm_client.create_model_package.assert_called_once()
+                        # Verify warning was printed
+                        assert "Dedup check failed" in captured.err
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1898,7 +1909,7 @@ class TestGetLatestVersion:
 
     def test_returns_none_for_unknown_dataset(self, tmp_path):
         """Returns None when dataset is not in registry."""
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+        with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
             result = _get_latest_version("nonexistent")
         assert result is None
 
@@ -1915,7 +1926,7 @@ class TestGetLatestVersion:
         with open(registry_file, "w") as f:
             json.dump(data, f)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             result = _get_latest_version("my-dataset")
 
         assert result["version"] == "1.1.0"
@@ -1929,7 +1940,7 @@ class TestGetLatestVersion:
         with open(registry_file, "w") as f:
             json.dump(data, f)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             result = _get_latest_version("old-dataset")
 
         assert result["version"] == "1.0.0"
@@ -1964,10 +1975,10 @@ class TestDatasetVersioning:
         """First registration of a dataset creates version 1.0.0 (AC-1.1)."""
         args = self._make_versioned_args()
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                with patch.object(_register_helper, "_compute_content_hash", return_value="abc123def4567890"):
-                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                with patch("register_dataset._compute_content_hash", return_value="abc123def4567890"):
+                    with patch("register_resolve._check_ai_registry", return_value=False):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -1998,10 +2009,10 @@ class TestDatasetVersioning:
 
         args = self._make_versioned_args()
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                with patch.object(_register_helper, "_compute_content_hash", return_value="abc123def4567890"):
-                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                with patch("register_dataset._compute_content_hash", return_value="abc123def4567890"):
+                    with patch("register_resolve._check_ai_registry", return_value=False):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -2031,10 +2042,10 @@ class TestDatasetVersioning:
 
         args = self._make_versioned_args()
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                with patch.object(_register_helper, "_compute_content_hash", return_value="newhash111111111"):
-                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                with patch("register_dataset._compute_content_hash", return_value="newhash111111111"):
+                    with patch("register_resolve._check_ai_registry", return_value=False):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -2064,10 +2075,10 @@ class TestDatasetVersioning:
 
         args = self._make_versioned_args(force=True)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                with patch.object(_register_helper, "_compute_content_hash", return_value="abc123def4567890"):
-                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                with patch("register_dataset._compute_content_hash", return_value="abc123def4567890"):
+                    with patch("register_resolve._check_ai_registry", return_value=False):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -2083,10 +2094,10 @@ class TestDatasetVersioning:
         registry_file = str(tmp_path / "datasets.json")
         args = self._make_versioned_args()
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                with patch.object(_register_helper, "_compute_content_hash", return_value="hash1111"):
-                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                with patch("register_dataset._compute_content_hash", return_value="hash1111"):
+                    with patch("register_resolve._check_ai_registry", return_value=False):
                         with pytest.raises(SystemExit):
                             _register_helper.cmd_register_dataset(args)
 
@@ -2119,10 +2130,10 @@ class TestDatasetVersioning:
 
         args = self._make_versioned_args()
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                with patch.object(_register_helper, "_compute_content_hash", return_value="newhash222222222"):
-                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                with patch("register_dataset._compute_content_hash", return_value="newhash222222222"):
+                    with patch("register_resolve._check_ai_registry", return_value=False):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -2150,9 +2161,9 @@ class TestDatasetVersioning:
         """Without region, hash computation is skipped but registration proceeds."""
         args = self._make_versioned_args(region=None)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                with patch("register_resolve._check_ai_registry", return_value=False):
                     with pytest.raises(SystemExit) as exc_info:
                         _register_helper.cmd_register_dataset(args)
 
@@ -2167,11 +2178,11 @@ class TestDatasetVersioning:
         """If hash computation fails, registration proceeds with hash=null."""
         args = self._make_versioned_args()
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-            with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                with patch.object(_register_helper, "_compute_content_hash",
+        with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+            with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                with patch("register_dataset._compute_content_hash",
                                   side_effect=Exception("S3 access denied")):
-                    with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+                    with patch("register_resolve._check_ai_registry", return_value=False):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -2241,7 +2252,7 @@ class TestResolveDatasetVersion:
         """@v1 resolves to the first registered version (AC-2.1)."""
         registry_file = self._make_registry_with_versions(tmp_path)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_dataset_version("alpaca-sft", 1)
 
@@ -2258,7 +2269,7 @@ class TestResolveDatasetVersion:
         """@v2 resolves to the second registered version (AC-2.1)."""
         registry_file = self._make_registry_with_versions(tmp_path)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_dataset_version("alpaca-sft", 2)
 
@@ -2275,7 +2286,7 @@ class TestResolveDatasetVersion:
         """@v3 resolves to the third registered version."""
         registry_file = self._make_registry_with_versions(tmp_path)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_dataset_version("alpaca-sft", 3)
 
@@ -2290,7 +2301,7 @@ class TestResolveDatasetVersion:
         """Requesting a version that doesn't exist prints available versions and exits 1 (AC-2.5)."""
         registry_file = self._make_registry_with_versions(tmp_path)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_dataset_version("alpaca-sft", 5)
 
@@ -2306,7 +2317,7 @@ class TestResolveDatasetVersion:
         """@v0 is invalid (ordinals are 1-based) and exits with error (AC-2.5)."""
         registry_file = self._make_registry_with_versions(tmp_path)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_dataset_version("alpaca-sft", 0)
 
@@ -2319,7 +2330,7 @@ class TestResolveDatasetVersion:
         """Requesting a version for an unknown dataset exits with DATASET_NOT_FOUND."""
         registry_file = self._make_registry_with_versions(tmp_path)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_dataset_version("nonexistent-dataset", 1)
 
@@ -2334,7 +2345,7 @@ class TestResolveDatasetVersion:
         registry_file = tmp_path / "datasets.json"
         registry_file.write_text(json.dumps(registry))
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(registry_file)):
+        with patch("register_common._DATASETS_REGISTRY", str(registry_file)):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_dataset_version("legacy-ds", 1)
 
@@ -2350,7 +2361,7 @@ class TestResolveDatasetVersion:
         registry_file = tmp_path / "datasets.json"
         registry_file.write_text(json.dumps(registry))
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", str(registry_file)):
+        with patch("register_common._DATASETS_REGISTRY", str(registry_file)):
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_dataset_version("legacy-ds", 2)
 
@@ -2364,8 +2375,8 @@ class TestResolveDatasetVersion:
         registry_file = self._make_registry_with_versions(tmp_path)
         args = Namespace(name="alpaca-sft", version=2)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_resolve._check_ai_registry", return_value=False):
                 with pytest.raises(SystemExit) as exc_info:
                     cmd_resolve_dataset(args)
 
@@ -2380,8 +2391,8 @@ class TestResolveDatasetVersion:
         registry_file = self._make_registry_with_versions(tmp_path)
         args = Namespace(name="alpaca-sft", version=None)
 
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-            with patch.object(_register_helper, "_check_ai_registry", return_value=False):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
+            with patch("register_resolve._check_ai_registry", return_value=False):
                 with pytest.raises(SystemExit) as exc_info:
                     cmd_resolve_dataset(args)
 
@@ -2494,7 +2505,7 @@ class TestListDatasetsEnhanced:
             json.dump(entries, f)
 
         args = Namespace(command="list-datasets", technique=None)
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_list_datasets(args)
 
@@ -2522,7 +2533,7 @@ class TestListDatasetsEnhanced:
             json.dump(entries, f)
 
         args = Namespace(command="list-datasets", technique=None)
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_list_datasets(args)
 
@@ -2548,7 +2559,7 @@ class TestListDatasetsEnhanced:
             json.dump(entries, f)
 
         args = Namespace(command="list-datasets", technique="sft")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_list_datasets(args)
 
@@ -2565,7 +2576,7 @@ class TestListDatasetsEnhanced:
             json.dump([], f)
 
         args = Namespace(command="list-datasets", technique=None)
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_list_datasets(args)
 
@@ -2601,7 +2612,7 @@ class TestListDatasetVersions:
             json.dump(entries, f)
 
         args = Namespace(command="list-dataset-versions", name="alpaca-sft")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_list_dataset_versions(args)
 
@@ -2636,7 +2647,7 @@ class TestListDatasetVersions:
             json.dump(entries, f)
 
         args = Namespace(command="list-dataset-versions", name="old-dataset")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_list_dataset_versions(args)
 
@@ -2656,7 +2667,7 @@ class TestListDatasetVersions:
             json.dump([], f)
 
         args = Namespace(command="list-dataset-versions", name="nonexistent")
-        with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
+        with patch("register_common._DATASETS_REGISTRY", registry_file):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_list_dataset_versions(args)
 
@@ -2698,7 +2709,7 @@ class TestGetHubNameFromProfile:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
             result = _get_hub_name_from_profile("us-west-2")
             assert result == "mlcc-registry-123456789012"
 
@@ -2706,7 +2717,7 @@ class TestGetHubNameFromProfile:
         """Returns None when config.json doesn't exist (legacy install)."""
         config_path = tmp_path / "nonexistent" / "config.json"
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
             result = _get_hub_name_from_profile("us-west-2")
             assert result is None
 
@@ -2723,7 +2734,7 @@ class TestGetHubNameFromProfile:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
             result = _get_hub_name_from_profile("us-west-2")
             assert result is None
 
@@ -2733,7 +2744,7 @@ class TestGetHubNameFromProfile:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
             result = _get_hub_name_from_profile("us-west-2")
             assert result is None
 
@@ -2750,7 +2761,7 @@ class TestGetHubNameFromProfile:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
             # Region doesn't match any profile key
             result = _get_hub_name_from_profile("us-west-2")
             assert result == "mlcc-registry-111222333444"
@@ -2767,7 +2778,7 @@ class TestGetHubNameFromProfile:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
             result = _get_hub_name_from_profile(None)
             assert result is None
 
@@ -2776,7 +2787,7 @@ class TestGetHubNameFromProfile:
         config_path = tmp_path / "config.json"
         config_path.write_text("not valid json {{{")
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
             result = _get_hub_name_from_profile("us-west-2")
             assert result is None
 
@@ -2793,7 +2804,7 @@ class TestGetHubNameFromProfile:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
             result = _get_hub_name_from_profile("us-west-2")
             # Should skip the non-dict entry and find the valid one
             assert result == "mlcc-registry-999888777666"
@@ -2937,10 +2948,10 @@ class TestCmdRegisterDatasetHubIntegration:
 
         args = self._make_dataset_args()
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
-            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                    with patch.object(_register_helper, "_register_to_hub", return_value="arn:hub:content") as mock_hub:
+        with patch("register_common._CONFIG_PATH", str(config_path)):
+            with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                    with patch("register_dataset._register_to_hub", return_value="arn:hub:content") as mock_hub:
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -2972,10 +2983,10 @@ class TestCmdRegisterDatasetHubIntegration:
 
         args = self._make_dataset_args()
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
-            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                    with patch.object(_register_helper, "_register_to_hub") as mock_hub:
+        with patch("register_common._CONFIG_PATH", str(config_path)):
+            with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                    with patch("register_dataset._register_to_hub") as mock_hub:
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -2998,11 +3009,11 @@ class TestCmdRegisterDatasetHubIntegration:
 
         args = self._make_dataset_args()
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
-            with patch.object(_register_helper, "_DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
-                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
+            with patch("register_common._DATASETS_REGISTRY", str(tmp_path / "datasets.json")):
+                with patch("register_common._REGISTRY_DIR", str(tmp_path)):
                     # Simulate hub registration failure
-                    with patch.object(_register_helper, "_register_to_hub", return_value=None):
+                    with patch("register_dataset._register_to_hub", return_value=None):
                         with pytest.raises(SystemExit) as exc_info:
                             _register_helper.cmd_register_dataset(args)
 
@@ -3029,10 +3040,10 @@ class TestCmdRegisterDatasetHubIntegration:
         args = self._make_dataset_args()
         registry_file = str(tmp_path / "datasets.json")
 
-        with patch.object(_register_helper, "_CONFIG_PATH", str(config_path)):
-            with patch.object(_register_helper, "_DATASETS_REGISTRY", registry_file):
-                with patch.object(_register_helper, "_REGISTRY_DIR", str(tmp_path)):
-                    with patch.object(_register_helper, "_register_to_hub", return_value="arn:hub:content"):
+        with patch("register_common._CONFIG_PATH", str(config_path)):
+            with patch("register_common._DATASETS_REGISTRY", registry_file):
+                with patch("register_common._REGISTRY_DIR", str(tmp_path)):
+                    with patch("register_dataset._register_to_hub", return_value="arn:hub:content"):
                         with pytest.raises(SystemExit):
                             _register_helper.cmd_register_dataset(args)
 

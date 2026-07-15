@@ -128,8 +128,8 @@ describe('IC_ENV_* Deploy-time Environment Variables (US-3)', () => {
             const output = ejs.render(CONFIG_TEMPLATE, baseVars({ icEnvVars: {} }));
 
             assert.ok(
-                output.includes('# export IC_ENV_VLLM_MAX_MODEL_LEN=8192'),
-                'do/config should have commented IC_ENV examples when empty'
+                output.includes('IC_ENV_VLLM_MAX_MODEL_LEN'),
+                'do/config should have IC_ENV placeholder section for realtime-inference when empty'
             );
         });
 

@@ -1,8 +1,8 @@
 # Optimization
 
-The `do/optimize` script runs SageMaker AI Inference Recommendations to find the optimal instance type and model configuration for your workload. It wraps `CreateAIRecommendationJob` and `DescribeAIRecommendationJob`, providing an interactive workflow that feeds results back into your project's `do/config`.
+`do/optimize` runs SageMaker AI Inference Recommendations to find optimal instance types and model configurations for your workload. It wraps `CreateAIRecommendationJob` / `DescribeAIRecommendationJob`.
 
-Use `do/optimize` after you've deployed and tested your model to answer: *"What's the best instance for my latency/throughput/cost goal?"*
+For Athena-backed config recommendations based on your own benchmark history (no live API needed), use [`do/benchmark --recommend`](benchmarking.md#config-recommendations).
 
 ---
 
@@ -15,15 +15,13 @@ Use `do/optimize` after you've deployed and tested your model to answer: *"What'
 | **IAM permissions** | `sagemaker:CreateAIRecommendationJob`, `CreateAIWorkloadConfig`, `DescribeAIRecommendationJob` (included in bootstrap role) |
 | **Framework** | `transformers` only (uses `VLLM` inference specification) |
 
----
-
 ## Usage
 
 ```bash
 ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]
 ```
 
-### Flags
+## Flags
 
 | Flag | Required | Description |
 |---|---|---|
@@ -31,15 +29,13 @@ Use `do/optimize` after you've deployed and tested your model to answer: *"What'
 | `--instances` | No | Comma-separated instance types to evaluate (max 3) |
 | `--force` | No | Create a new job even if one already exists |
 
-### Instance Resolution
+## Instance Resolution
 
 If `--instances` is not provided, `do/optimize` resolves instance types from (in priority order):
 
 1. `INSTANCE_POOLS` in `do/config` (extracts instance types from JSON)
 2. `INSTANCE_TYPE` in `do/config`
 3. Live endpoint query (for external endpoints)
-
----
 
 ## What It Does
 
@@ -51,8 +47,6 @@ If `--instances` is not provided, `do/optimize` resolves instance types from (in
    - Deploy top recommendation (updates `INSTANCE_TYPE` and `MODEL_PACKAGE_ARN` in `do/config`)
    - Set up instance pools (writes `INSTANCE_POOLS` for heterogeneous deployments)
    - Save for later (stores `OPTIMIZE_MODEL_PACKAGE_ARN` in `do/config`)
-
----
 
 ## Examples
 

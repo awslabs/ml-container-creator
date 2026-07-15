@@ -32,6 +32,23 @@ function retainedBucketFor(moduleName, accountId, region) {
     const map = {
         benchmark: `mlcc-benchmark-results-${accountId}-${region}`,
         training: `mlcc-training-${accountId}-${region}`,
+        core: `mlcc-models-${accountId}-${region}`,
+        ci: `mlcc-codebuild-source-${accountId}-${region}`,
+    };
+    return map[moduleName];
+}
+
+/**
+ * Modules that own a SECOND retained S3 bucket, and the bucket-name template.
+ * The training module owns both the training-data bucket (above) and the
+ * adapters bucket, each RETAINed and each able to exist independently. This
+ * companion map lets the runner detect the adapters bucket's existence
+ * separately, so a re-provision adopts it only when it actually exists.
+ * @returns {string|undefined} bucket name, or undefined if the module owns none
+ */
+function retainedAdaptersBucketFor(moduleName, accountId, region) {
+    const map = {
+        training: `mlcc-training-adapters-${accountId}-${region}`,
     };
     return map[moduleName];
 }
@@ -85,6 +102,11 @@ class CdkModuleRunner {
         if (bucketName && this._bucketExists(bucketName, profile)) {
             if (opts.verbose) console.log(`  ♻️  Existing bucket detected (${bucketName}) — adopting instead of recreating`);
             flags.push('--context adoptExistingBuckets=true');
+        }
+        const adaptersBucketName = retainedAdaptersBucketFor(this.name, profile.accountId, profile.awsRegion);
+        if (adaptersBucketName && this._bucketExists(adaptersBucketName, profile)) {
+            if (opts.verbose) console.log(`  ♻️  Existing adapters bucket detected (${adaptersBucketName}) — adopting instead of recreating`);
+            flags.push('--context adoptExistingAdaptersBucket=true');
         }
         const ecrRepo = retainedEcrRepoFor(this.name);
         if (ecrRepo && this._ecrRepoExists(ecrRepo, profile)) {
@@ -424,7 +446,14 @@ class CdkModuleRunner {
             const map = {};
             if (Array.isArray(outputs)) {
                 for (const o of outputs) {
-                    map[o.OutputKey] = o.OutputValue;
+                    // CfnOutput logical IDs carry an 'Output' suffix (e.g.
+                    // 'AdaptersBucketOutput'), but every consumer — the module
+                    // manifest `exports` list and _denormalizeModuleOutputs —
+                    // expects the bare export name ('AdaptersBucket'). Strip a
+                    // trailing 'Output' so the persisted keys match. Keys that
+                    // don't end in 'Output' (e.g. 'MlflowAppArn') pass through.
+                    const key = o.OutputKey.replace(/Output$/, '');
+                    map[key] = o.OutputValue;
                 }
             }
             return map;

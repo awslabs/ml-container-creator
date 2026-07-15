@@ -9,8 +9,34 @@
 PREFIX="VLLM_"
 ARG_PREFIX="--"
 
-# Internal variables set by the base image — not CLI args
-EXCLUDE_VARS=("VLLM_USAGE_SOURCE" "VLLM_ENABLE_CUDA_COMPATIBILITY" "VLLM_ALLOW_RUNTIME_LORA_UPDATING")
+# ---------------------------------------------------------------------------
+# Positive whitelist via --help introspection.
+#
+# vLLM v0.21+ bakes build-provenance env vars into the Docker image
+# (VLLM_BUILD_URL, VLLM_IMAGE_TAG, VLLM_BUILD_PIPELINE, VLLM_BUILD_COMMIT, and
+# 30+ others) that have NO CLI equivalent. Blindly forwarding every VLLM_* env
+# var as --<name> makes api_server.py reject unknown args and the server never
+# starts. Rather than chase a blocklist that breaks every release, we ask the
+# server which args it actually accepts (--help) and forward only those.
+# ---------------------------------------------------------------------------
+VALID_ARGS_CACHE="/tmp/.vllm-valid-args"
+if [ ! -s "${VALID_ARGS_CACHE}" ]; then
+    python3 -m vllm.entrypoints.openai.api_server --help 2>/dev/null \
+        | grep -oE '\-\-[a-z0-9][a-z0-9-]+' \
+        | sort -u > "${VALID_ARGS_CACHE}" 2>/dev/null || true
+fi
+
+# Fallback blocklist — used only if --help introspection produced nothing
+# (e.g. import error). Keeps the previous behavior for known env-only vars.
+EXCLUDE_VARS=("VLLM_USAGE_SOURCE" "VLLM_ENABLE_CUDA_COMPATIBILITY" "VLLM_ALLOW_RUNTIME_LORA_UPDATING" \
+              "VLLM_BUILD_URL" "VLLM_IMAGE_TAG" "VLLM_BUILD_PIPELINE" "VLLM_BUILD_COMMIT")
+
+_have_whitelist=false
+if [ -s "${VALID_ARGS_CACHE}" ]; then
+    _have_whitelist=true
+else
+    echo "⚠️  Could not introspect vLLM --help; falling back to exclude-list filtering" >&2
+fi
 
 # Declare and populate array of matching environment variables
 mapfile -t env_vars < <(env | grep "^${PREFIX}")
@@ -19,6 +45,15 @@ mapfile -t env_vars < <(env | grep "^${PREFIX}")
 for var in "${env_vars[@]}"; do
     IFS='=' read -r key value <<< "$var"
 
+    # Remove prefix, convert to lowercase, replace underscores with dashes
+    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+
+    # Primary path: only forward args vLLM actually accepts (from --help).
+    if [ "$_have_whitelist" = true ]; then
+        if ! grep -qx -- "${ARG_PREFIX}${arg_name}" "${VALID_ARGS_CACHE}"; then
+            continue
+        fi
+    else
     # Skip excluded variables
     skip=false
     for exclude in "${EXCLUDE_VARS[@]}"; do
@@ -28,9 +63,7 @@ for var in "${env_vars[@]}"; do
         fi
     done
     if [ "$skip" = true ]; then continue; fi
-
-    # Remove prefix, convert to lowercase, replace underscores with dashes
-    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+    fi
 
     # Boolean handling: true = flag only, false = skip entirely
     if [ "$value" = "false" ]; then continue; fi
