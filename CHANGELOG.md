@@ -2,6 +2,69 @@
 
 All notable changes to ml-container-creator are documented here.
 
+## [1.3.4] — 2026-07-15
+
+### 🔧 Validation Run Patch — `do/optimize` Refactor + 25 Bug Fixes
+
+Comprehensive validation run against a real AWS account uncovered and fixed 25 issues.
+The headline change is a full architectural refactor of `do/optimize`.
+
+### Changed (Architecture)
+
+- **`do/optimize` — single responsibility restored** — The Athena recommendation layer added in v1.3.0 has been moved to `do/benchmark --recommend`. `do/optimize` now exclusively manages `CreateAIRecommendationJob` (live SageMaker AI Recommendations API). `--goal <cost|latency|throughput>` is now required.
+- **`do/benchmark --recommend`** — New flag. Queries your Athena benchmark history for proven config improvements. `--apply` writes changes to `do/ic/default.conf` with `.bak` backup. `--metric`, `--no-bedrock` flags available.
+- **`do/deploy --optimize`** — Now calls `do/benchmark --recommend --apply` (Athena-backed, no live API needed) instead of `do/optimize --apply`.
+- **`do/benchmark --compare-baseline`** — Upgraded from single-baseline to full historical comparison: most recent prior run as primary (B), all runs as individual rows (C), min/max/avg range across all runs (D). ADAPTER column shows which adapter was active per run. Self-comparison prevented via timestamp exclusion. `--adapter` flag filters Athena baseline to adapter-specific runs.
+
+### Added
+
+- **`@aws-sdk/client-dynamodb` + `@aws-sdk/util-dynamodb`** added to production dependencies — required by `mcc prove` to write results to DynamoDB; was missing from npm package.
+- **`mcc prove` improvements:**
+  - `generate` auto-prepended to stages (user no longer needs to specify it)
+  - Interactive stage choices cleaned up: `build`+`push` → `submit`; `adapter`/`test-adapter`/`register` moved to opt-in only
+  - Quantization sweep prompt now shows valid values (`fp16, bf16, fp8, int8, int4, awq, gptq`) with examples
+  - `saveProveState` now persists `error` field so failed stage messages are visible in `.prove-state.json`
+  - `executeGenerateStep` now resolves `bin/cli.js` absolute path to avoid PATH issues with nvm-managed node
+  - `--quantization` removed as invalid CLI flag to `mcc generate`; quantization written to `do/ic/default.conf` post-generation instead
+- **BL060** — Research backlog item: correct `HubContentDocument` schema for DataSet `import_hub_content` (fine-tuning datasets). Hub `DataSet` type uses a benchmarking schema — not suitable for SFT/DPO training datasets. `_register_to_hub()` is now a no-op stub.
+- **BL061** — v1.4 planned: `servers/reasoning/` MCP server — stateless provider-agnostic LLM interpretation layer. Default: Bedrock Claude Sonnet. Callers: `do/benchmark --recommend`, `do/optimize`, `GoalPlanner`.
+
+### Fixed (25 bugs from validation run)
+
+| # | Component | Bug | Fix |
+|---|---|---|---|
+| 1 | `templates/do/validate` | Script not executable + wrong path resolution (looked in project dir, not npm global) | Added chmod to both `marketplaceScripts` and `defaultScripts` lists; new 3-path resolution (npm global → local node_modules → dev repo) |
+| 2 | `src/lib/validate-runner.js` | `parseDoConfig` couldn't parse `${VAR:-default}` shell syntax | Regex now resolves `${KEY:-value}` to the default value before storing |
+| 3 | `src/lib/service-model-parser.js` | Only parsed legacy REST-JSON format; GitHub aws-models uses Smithy 2.0 | Added `_parseSmithyModel()` that maps Smithy 2.0 `shapes` to internal Map representation |
+| 4 | `src/lib/payload-builder.js` | Integer fields (IC_GPU_COUNT, InitialInstanceCount, etc.) passed as strings | Added `_toInt()` coercion for all 6 integer fields |
+| 5 | `templates/do/optimize` | `ROLE_ARN` unbound variable crash with `set -u` | Changed to `${ROLE_ARN:-}` |
+| 6 | `templates/do/optimize` | `--apply` without `--goal` silently exited 0 | Now prints actionable error with the two available paths |
+| 7 | `src/agent/execution_config.py` | `do/submit` cost warning said "SageMaker Training Job" | Corrected to "CodeBuild job to build and push Docker image to ECR" |
+| 8 | `src/agent/prompts/system.md` | Advisory REPL proposed `do/build` for build requests | Added "CRITICAL" build-path guidance: always propose `do/submit` for SageMaker deployments |
+| 9 | `infra/bootstrap-modules/sagemaker-domain/stack.ts` | Domain used inference execution role — missing Studio permissions (`ListSpaces`, etc.) | New dedicated `mlcc-studio-execution-role-<profile>` with `AmazonSageMakerFullAccess` + Space/App inline policy |
+| 10 | `templates/do/tune` | Auto-register ARN extraction used fragile regex | New: JSON parse with `model_package_arn`/`arn`/`ModelPackageArn` keys + MPG fallback query |
+| 11 | `templates/do/tune` | Auto-register silently deployed IC to endpoint without user confirmation | Now only registers in MPG, prints `do/adapter add` next-step command |
+| 12 | `templates/do/tune` | `--list-datasets --source` flag not parsed | Added `--source` arg parsing; passes `--source` to `.register_helper.py` |
+| 13 | `templates/do/lib/python/register_dataset.py` (monolith) | `_register_to_hub()` used `create_hub_content` (non-existent API) | Changed to `import_hub_content`, then `HubContentType='DataSet'` (capital S), then profile resolver, then no-op stub (DataSet Hub type uses benchmarking schema) |
+| 14 | `templates/do/lib/python/register_dataset.py` | `_get_hub_name_from_profile` used `startswith(region)` — never matched profile keys like `mcc-us-west-2` | Priority order: `activeProfile` → region-contains → first-found |
+| 15 | `templates/do/lib/python/register_dataset.py` | Empty dimension values (e.g. empty `max_model_len`) formed recommendation groups | Now skips records where dimension value is empty/null |
+| 16 | `templates/do/.optimize_engine.py` | `_parse_local_results` expected flat keys; AIPerf uses `{metadata, metrics}` nested dicts with `{avg, p90...}` | Added `AIPERF_METRIC_MAP` with correct field/sub-key mapping; fallback to `profile_export_aiperf.json` |
+| 17 | `templates/do/.optimize_engine.py` | `_parse_local_results` couldn't extract metrics from `profile_export_aiperf.json` | Extended with `_extract_aiperf()` helper using correct AIPerf field names |
+| 18 | `templates/do/benchmark` | `--compare-baseline` quantization default was `bf16`; vLLM default is `none` | Changed default to `none`; added TP-relaxed fallback query |
+| 19 | `templates/do/.optimize_engine.py` | All Athena SQL queries used `model = 'lowercase'` — Parquet preserves original case | Changed all 4 queries to `LOWER(model) = 'lowercase'` |
+| 20 | `templates/do/benchmark` | `--json` flag didn't suppress `do/config` stdout block | Config source redirected to stderr when in JSON/compare-baseline mode |
+| 21 | `templates/do/benchmark` | `--adapter` flag parsed but never forwarded to Athena baseline query | Added `--adapter-name` to `.optimize_engine.py compare-baseline` argparse; passed from bash |
+| 22 | `templates/do/benchmark` | `--compare-baseline` config block showed even for structured output | Fixed: `--compare-baseline` now also triggers config-to-stderr redirect |
+| 23 | `package.json` | `@aws-sdk/client-dynamodb` missing from production deps | Added to `dependencies` |
+| 24 | `package.json` | `@aws-sdk/util-dynamodb` missing from production deps | Added to `dependencies` |
+| 25 | `src/lib/prove-pipeline-executor.js` | `executeGenerateStep` used `mcc` binary name — not found in nvm subprocess PATH | Resolved `bin/cli.js` absolute path; invokes via `node` directly |
+
+### Known Limitations (deferred to v1.3.x or v1.4)
+
+- `do/optimize` (`CreateAIRecommendationJob`) not validated — requires expensive `p*`/`g*` instance provisioning. Deferred to dedicated validation environment.
+- `mcc prove` live end-to-end run with real deployment — prove infrastructure validated to `generate` stage. Full lifecycle (stage → submit → deploy → test → clean) deferred.
+- DataSet AI Registry Hub registration — `HubContentDocument` schema for SFT/DPO training datasets unknown; `_register_to_hub()` is a no-op stub (BL060).
+
 ## [1.3.0] — 2026-07-10
 
 ### 🤖 Agent Autonomy + Intelligent Optimization

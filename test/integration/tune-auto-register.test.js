@@ -113,14 +113,13 @@ describe('Feature: tune-register-loop — auto-register flow (Req US-1)', functi
             );
         });
 
-        it('extracts adapter deployment ARN using grep and jq', () => {
+        it('extracts adapter deployment ARN using python JSON parsing', () => {
             const section = getHandleCompletionSection();
             assert.ok(
-                section.includes('grep "${adapter_name}"') &&
-                section.includes('grep -E \'^\\{\'') &&
-                section.includes('tail -1') &&
-                section.includes('jq -r \'.model_package_arn\''),
-                'Must extract ARN using grep "${adapter_name}" | grep -E \'^\\{\' | tail -1 | jq -r \'.model_package_arn\''
+                section.includes('model_package_arn') &&
+                section.includes('json.loads') &&
+                section.includes('adapter_deploy_arn'),
+                'Must extract ARN using python JSON parsing from register output'
             );
         });
 
@@ -191,7 +190,7 @@ describe('Feature: tune-register-loop — auto-register flow (Req US-1)', functi
         it('--no-register is documented in --help output', () => {
             assert.ok(
                 tuneScript.includes('--no-register') &&
-                tuneScript.includes('Skip auto-stage and auto-register'),
+                tuneScript.includes('Skip automatic adapter deployment after completion'),
                 'Must document --no-register in help output'
             );
         });
