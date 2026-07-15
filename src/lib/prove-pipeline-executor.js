@@ -86,6 +86,7 @@ export function saveProveState(projectDir, stage, result) {
     mkdirSync(path.dirname(p), { recursive: true });
     const state = loadProveState(projectDir);
     state[stage] = { status: result.status, timestamp: Date.now(), duration: result.duration };
+    if (result.error) state[stage].error = result.error;
     writeFileSync(p, JSON.stringify(state, null, 2));
 }
 
@@ -446,6 +447,20 @@ export async function executeGenerateStep(projectDir, options = {}) {
     const { timeout = 120, verbose = false, config = {} } = options;
     const startTime = Date.now();
 
+    // Resolve the mcc/ml-container-creator binary path.
+    // execFileAsync doesn't source shell profiles so nvm-managed node bins
+    // may not be in PATH. Prefer the absolute path next to this module file.
+    const { resolve, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const { existsSync } = await import('node:fs');
+    const __dir = dirname(fileURLToPath(import.meta.url));
+    // Package root bin directory (two levels up from src/lib/)
+    const pkgRoot = resolve(__dir, '..', '..');
+    const mccBin = resolve(pkgRoot, 'bin', 'cli.js');
+    // Prefer direct node invocation to avoid PATH lookup issues
+    const mccCommand = existsSync(mccBin) ? 'node' : 'mcc';
+    const mccArgs = existsSync(mccBin) ? [mccBin] : [];
+
     // Idempotency check
     const state = loadProveState(projectDir);
     if (state.generate?.status === 'pass') {
@@ -463,15 +478,35 @@ export async function executeGenerateStep(projectDir, options = {}) {
     if (config.model_name) flags.push(`--model-name=${config.model_name}`);
     if (config.deployment_config) flags.push(`--deployment-config=${config.deployment_config}`);
     if (config.instance_type) flags.push(`--instance-type=${config.instance_type}`);
-    if (config.quantization) flags.push(`--quantization=${config.quantization}`);
     if (config.max_model_len) flags.push(`--max-model-len=${config.max_model_len}`);
     if (config.enable_lora) flags.push('--enable-lora');
+    // Note: quantization is a serving-time parameter, not a generation-time CLI flag.
+    // It gets written to do/ic/default.conf after generation (see post-generate block below).
+    // Tell the generator to output files into projectDir directly (not create a subdirectory)
+    flags.push(`--project-dir=${projectDir}`);
+    // Force overwrite in case of a resume (directory already exists from a prior partial run)
+    flags.push('--force');
+
+    const cmdArgs = [...mccArgs, ...flags];
+
+    // Post-generation: write serving-time config overrides to do/ic/default.conf
+    // These are not generation flags but need to be set before deploy.
+    const _writeServingConfig = async () => {
+        const icConfPath = path.join(projectDir, 'do', 'ic', 'default.conf');
+        if (config.quantization && existsSync(icConfPath)) {
+            const { readFileSync, appendFileSync } = await import('node:fs');
+            const current = readFileSync(icConfPath, 'utf8');
+            if (!current.includes('IC_ENV_VLLM_QUANTIZATION')) {
+                appendFileSync(icConfPath, `\nexport IC_ENV_VLLM_QUANTIZATION="${config.quantization}"\n`);
+            }
+        }
+    };
 
     try {
         if (verbose) {
             const { spawn } = await import('node:child_process');
             const result = await new Promise((resolve) => {
-                const child = spawn('mcc', flags, {
+                const child = spawn(mccCommand, cmdArgs, {
                     cwd: projectDir,
                     stdio: ['pipe', 'inherit', 'inherit']
                 });
@@ -484,12 +519,16 @@ export async function executeGenerateStep(projectDir, options = {}) {
 
                 child.on('close', (code) => {
                     clearTimeout(timer);
-                    const r = code === 0
-                        ? { name: 'generate', status: 'pass', duration: Date.now() - startTime }
-                        : {
+                    let r;
+                    if (code === 0) {
+                        _writeServingConfig();
+                        r = { name: 'generate', status: 'pass', duration: Date.now() - startTime };
+                    } else {
+                        r = {
                             name: 'generate', status: 'fail', duration: Date.now() - startTime,
                             error: killed ? `Timeout after ${timeout}s` : `generate exited with code ${code}`
                         };
+                    }
                     saveProveState(projectDir, 'generate', r);
                     resolve(r);
                 });
@@ -504,11 +543,12 @@ export async function executeGenerateStep(projectDir, options = {}) {
             return result;
         }
 
-        await execFileAsync('mcc', flags, {
+        await execFileAsync(mccCommand, cmdArgs, {
             cwd: projectDir,
             timeout: timeout * 1000,
             maxBuffer: 10 * 1024 * 1024
         });
+        await _writeServingConfig();
 
         const result = { name: 'generate', status: 'pass', duration: Date.now() - startTime };
         saveProveState(projectDir, 'generate', result);
