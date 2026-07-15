@@ -156,7 +156,12 @@ export default class ProveCommandHandler {
         // Expand sweep
         const configs = this.expandSweep(proveConfig);
         const concurrency = options.concurrency || 1;
-        const stages = proveConfig.stages;
+        // Always ensure 'generate' is first — it creates the project workspace.
+        // Users don't need to specify it; if missing, prepend it silently.
+        let stages = proveConfig.stages;
+        if (!stages.includes('generate')) {
+            stages = ['generate', ...stages];
+        }
 
         if (options.dryRun) {
             console.log(`🔬 Dry run: would prove ${configs.length} config(s) across ${stages.length} stages`);
@@ -333,10 +338,13 @@ export default class ProveCommandHandler {
             { type: 'input', name: 'instance_type', message: 'Instance type:', default: 'ml.g5.xlarge' },
             {
                 type: 'checkbox', name: 'stages', message: 'Stages to run:',
-                choices: ['generate', 'stage', 'build', 'push', 'deploy', 'test', 'tune', 'adapter', 'test-adapter', 'benchmark', 'register', 'clean'],
-                default: ['generate', 'stage', 'build', 'push', 'deploy', 'test', 'clean']
+                // generate is implicit (not a lifecycle stage in the do/ sense)
+                // build+push are replaced by submit (cloud build, correct architecture)
+                // adapter, test-adapter, register are opt-in only (require prior config or registry commitment)
+                choices: ['stage', 'submit', 'deploy', 'test', 'benchmark', 'tune', 'adapter', 'test-adapter', 'register', 'clean'],
+                default: ['stage', 'submit', 'deploy', 'test', 'clean']
             },
-            { type: 'input', name: 'quantization_sweep', message: 'Quantization sweep (comma-separated, or empty):', default: '' }
+            { type: 'input', name: 'quantization_sweep', message: 'Quantization sweep (comma-separated values to test, or empty to skip)\n  e.g. fp8,bf16  or  fp8,bf16,awq  — valid: fp16, bf16, fp8, int8, int4, awq, gptq:', default: '' }
         ]);
 
         const proveConfig = {

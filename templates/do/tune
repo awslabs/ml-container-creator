@@ -155,6 +155,12 @@ _parse_args() {
             --dry-run) ARG_DRY_RUN=true; shift ;;
             --list-models) ARG_LIST_MODELS=true; shift ;;
             --list-datasets) ARG_LIST_DATASETS=true; shift ;;
+            --source)
+                if [ -z "${2:-}" ]; then
+                    echo "❌ --source requires a value: remote, local, or all"
+                    exit 1
+                fi
+                ARG_DATASET_SOURCE="$2"; shift 2 ;;
             --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
             --column-map)
                 if [ -z "${2:-}" ]; then
@@ -1768,18 +1774,48 @@ if [ "${ARG_LIST_DATASETS}" = true ]; then
     echo "📦 Registered datasets:"
     echo ""
 
-    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets 2>/dev/null) || _ds_output=""
+    _source_flag=""
+    [ -n "${ARG_DATASET_SOURCE:-}" ] && _source_flag="--source ${ARG_DATASET_SOURCE}"
+
+    # shellcheck disable=SC2086
+    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets ${_source_flag} 2>/dev/null) || _ds_output=""
     _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1)
 
     if [ -n "${_ds_json}" ]; then
-        _ds_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('datasets',[])))" 2>/dev/null) || _ds_count=0
-        if [ "${_ds_count}" -gt 0 ]; then
-            printf "  %-20s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
-            printf "  %-20s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
-            echo "${_ds_json}" | python3 -c "
+        # Show Remote DataSets section (if source is remote or all)
+        _remote_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('remote',[])))" 2>/dev/null) || _remote_count=0
+        _local_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('local',[])))" 2>/dev/null) || _local_count=0
+
+        if [ "${_source_flag}" != "--source local" ]; then
+            echo "Remote DataSets (AWS AI Registry):"
+            printf "  %-20s %-10s %-12s %s\n" "NAME" "TECHNIQUE" "VERSION" "CREATED"
+            printf "  %-20s %-10s %-12s %s\n" "----" "---------" "-------" "-------"
+            if [ "${_remote_count}" -gt 0 ]; then
+                echo "${_ds_json}" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-for ds in data.get('datasets', []):
+for ds in data.get('remote', []):
+    name = ds.get('name','')[:20]
+    tech = ds.get('technique','')[:10]
+    version = ds.get('version','')[:12]
+    created = ds.get('created_at','')[:10]
+    print(f'  {name:<20} {tech:<10} {version:<12} {created}')
+" 2>/dev/null
+            else
+                echo "  (none)"
+            fi
+            echo ""
+        fi
+
+        if [ "${_source_flag}" != "--source remote" ]; then
+            echo "Local Datasets:"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
+            if [ "${_local_count}" -gt 0 ]; then
+                echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for ds in data.get('local', []):
     name = ds.get('name','')[:20]
     tech = ds.get('technique','')[:10]
     latest = ds.get('latest_version','')[:10]
@@ -1790,11 +1826,12 @@ for ds in data.get('datasets', []):
     uri = ds.get('s3_uri','')
     print(f'  {name:<20} {tech:<10} {latest:<10} {rows:<8} {uri}')
 " 2>/dev/null
-        else
-            echo "  (none registered)"
+            else
+                echo "  (none)"
+            fi
         fi
     else
-        echo "  (none registered)"
+        echo "  (none)"
     fi
     echo ""
     echo "  Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"

@@ -93,7 +93,7 @@ All generated projects include these `do/` scripts:
 | `./do/run` | Run container locally on port 8080 |
 | `./do/test` | Test local container or deployed endpoint |
 | `./do/validate` | Validate configuration against AWS service models (requires schema sync) |
-| `./do/deploy` | Deploy to the configured deployment target. Flags: `--optimize` (apply benchmark-proven config before deploy), `--no-optimize` (skip optimization), `--dry-run` (validate only) |
+| `./do/deploy` | Deploy to the configured deployment target. Flags: `--optimize` (run `do/benchmark --recommend --apply` before deploying), `--no-optimize` (skip optimization), `--force-ic` (force new IC even if one exists), `--dry-run` (validate only) |
 | `./do/tune` | Fine-tune using SageMaker AI Managed Model Customization (serverless) |
 | `./do/train` | Custom training jobs with your own scripts and hyperparameters |
 | `./do/adapter` | LoRA adapter lifecycle (add, list, remove, update) |
@@ -127,7 +127,7 @@ The `./do/deploy --dry-run` flag also runs schema validation as part of its pre-
 ### Pre-Deploy Optimization
 
 !!! tip "Pre-deploy optimization"
-    `do/deploy --optimize` runs `do/optimize --apply` before deploying, automatically applying any proven serving-config improvements from your benchmark history. Non-fatal — if no data exists or Athena is unavailable, deploy proceeds with the existing config.
+    `do/deploy --optimize` runs `do/benchmark --recommend --apply` before deploying, writing any Athena-proven serving-config improvements to `do/ic/default.conf`. Non-fatal — if no benchmark history exists or Athena is unavailable, deploy proceeds with the existing config.
 
     ```bash
     # Apply proven config improvements, then deploy
@@ -136,6 +136,15 @@ The `./do/deploy --dry-run` flag also runs schema validation as part of its pre-
     # Explicit opt-out (e.g., for pinned configs in CI)
     ./do/deploy --no-optimize
     ```
+
+    !!! note "Already-live endpoints"
+        If the endpoint is already `InService`, `do/deploy` prints "Deployment is already live. Nothing to do." even after optimization runs. To apply the updated config to a running endpoint, force a new inference component:
+        ```bash
+        ./do/deploy --optimize --force-ic
+        ```
+        Or use the explicit workflow: `do/benchmark --recommend --apply` → `do/clean endpoint` → `do/deploy`
+
+    For hardware recommendations (which instance type to use), see [`do/optimize`](optimize.md).
 
 ## Benchmarking
 

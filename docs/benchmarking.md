@@ -52,8 +52,12 @@ Deploy and benchmark:
 | `--clean` | Delete workload config and benchmark job after displaying results |
 | `--no-stale-warning` | Suppress schema registry staleness warning |
 | `--compare-baseline` | Compare latest results against historical best in Athena |
+| `--recommend` | Show Athena-backed config recommendations for current model/instance |
+| `--apply` | (with `--recommend`) Write recommended changes to `do/ic/default.conf` |
+| `--metric <name>` | (with `--recommend`) Metric to optimize (default: `output_token_throughput_tps`) |
+| `--no-bedrock` | (with `--recommend`) Skip Bedrock AI analysis even if available |
 | `--threshold <metric:pct>` | Set regression threshold per metric (repeatable, e.g. `throughput:5`) |
-| `--json` | Output comparison results as JSON (for CI integration) |
+| `--json` | Output comparison/recommendation results as JSON (for CI integration) |
 
 ### IC Resolution
 
@@ -159,6 +163,70 @@ Default when no `--threshold` is specified: all four metrics at 10%.
   run: |
     ./do/benchmark --workload multi_turn_chat
     ./do/benchmark --compare-baseline --threshold throughput:5 --json
+```
+
+---
+
+## Config Recommendations
+
+`--recommend` queries your existing benchmark data in Athena to suggest proven optimal serving configurations. No live benchmarking required — results appear immediately if benchmark data exists for your model and instance.
+
+!!! note "Moved from `do/optimize`"
+    This feature was previously part of `do/optimize`. Since v1.4, Athena-backed recommendations live in `do/benchmark --recommend`, while `do/optimize` focuses exclusively on the SageMaker AI Inference Recommendations API.
+
+### Quick start
+
+```bash
+# See recommendations (dry-run by default)
+./do/benchmark --recommend
+
+# Apply recommended changes to do/ic/default.conf
+./do/benchmark --recommend --apply
+
+# Optimize for latency instead of throughput
+./do/benchmark --recommend --metric ttft_p90_ms
+
+# Raw JSON output for scripting
+./do/benchmark --recommend --json | jq '.recommendations[0]'
+```
+
+### How it works
+
+1. Reads current config from `do/config` and `do/ic/default.conf` (quantization, tensor parallelism, max_model_len, kv_cache_dtype)
+2. Queries Athena `mlcc_ci.benchmark_results` for records matching your model and instance
+3. Falls back to model family, then instance family if no exact match
+4. Ranks configuration changes by expected improvement on the target metric
+5. Displays a recommendation table with confidence levels (HIGH ≥5 runs, MEDIUM 2–4, LOW 1 run or family match)
+6. Optionally calls Bedrock for a plain-language analysis of tradeoffs
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--apply` | Write recommended changes to `do/ic/default.conf` (creates `.bak` backup) |
+| `--json` | Output raw recommendation JSON for scripting |
+| `--metric <name>` | Target metric: `output_token_throughput_tps` (default), `ttft_p90_ms`, `itl_p90_ms`, `cost_per_1m_tokens` |
+| `--no-bedrock` | Skip Bedrock analysis (faster, no cost) |
+
+### Confidence levels
+
+| Level | Criteria |
+|-------|---------|
+| HIGH | ≥5 matching benchmark runs with consistent results (CV < 0.15) |
+| MEDIUM | 2–4 runs, or coefficient of variation ≥ 0.15 |
+| LOW | 1 run, or extrapolated from similar model family / instance family |
+
+### No benchmark data
+
+If no Athena records exist for your model and instance, `--recommend` prints "No recommendations available" and exits 0. Run `./do/benchmark --workload multi_turn_chat` first to generate baseline data, then re-run `--recommend`.
+
+### Deploy integration
+
+`do/deploy --optimize` calls `do/benchmark --recommend --apply` automatically before deploying:
+
+```bash
+# One-command optimize-and-deploy
+./do/deploy --optimize
 ```
 
 ---

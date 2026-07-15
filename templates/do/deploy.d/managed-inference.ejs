@@ -227,7 +227,7 @@ export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 # ── Pre-deploy optimization ────────────────────────────────────────────────────
 if [ "${ARG_OPTIMIZE:-false}" = "true" ]; then
     echo "🔍 Querying optimization recommendations before deploy..."
-    if "${SCRIPT_DIR}/optimize" --apply --no-bedrock 2>/dev/null; then
+    if "${SCRIPT_DIR}/benchmark" --recommend --apply --no-bedrock 2>/dev/null; then
         echo "   ✅ Optimization applied — re-sourcing config"
         # shellcheck source=/dev/null
         source "${SCRIPT_DIR}/config"

@@ -78,6 +78,10 @@ COMPARISON_METRICS = [
     'e2e_latency_p90_ms',
 ]
 
+# Reverse alias map for display
+metric_aliases_reverse = {v: k for k, v in METRIC_ALIASES.items()}
+metric_aliases_reverse.update({m: m for m in COMPARISON_METRICS})  # full name fallback
+
 DEFAULT_THRESHOLD_PCT = 10.0
 
 ATHENA_POLL_INTERVAL = 1.0
@@ -174,7 +178,7 @@ class AthenaQueryEngine:
             f"cost_per_1m_tokens, concurrency, workload, benchmark_job_name, "
             f"run_timestamp, model_family, instance_family "
             f"FROM {self.database}.{self.table} "
-            f"WHERE model = '{model_partition}' "
+            f"WHERE LOWER(model) = '{model_partition}' "
             f"AND instance = '{instance_partition}' "
             f"ORDER BY run_timestamp DESC "
             f"LIMIT {limit}"
@@ -221,28 +225,45 @@ class AthenaQueryEngine:
 
         return [], 'none'
 
-    def query_best_baseline(self, model_name: str, instance_type: str,
-                            quantization: str, tensor_parallel_degree: int) -> dict | None:
-        """Query single best result for exact config. Returns dict or None."""
+    def query_all_baselines(self, model_name: str, instance_type: str,
+                            quantization: str, tensor_parallel_degree: int,
+                            adapter_name: str | None = None,
+                            before_timestamp: str | None = None,
+                            limit: int = 20) -> list[dict]:
+        """Query all historical runs for this config, ordered by run_timestamp DESC."""
         model_partition = _sanitize_partition_value(model_name)
-        instance_partition = instance_type
+        adapter_clause = f"AND adapter_name = '{adapter_name}' " if adapter_name is not None else ''
+        # Exclude current run — run_timestamp is varchar (ISO string), compare lexicographically
+        time_clause = f"AND run_timestamp < '{before_timestamp}' " if before_timestamp else ''
 
         sql = (
             f"SELECT output_token_throughput_tps, request_throughput_rps, "
             f"ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, "
-            f"benchmark_job_name, run_timestamp "
+            f"benchmark_job_name, run_timestamp, adapter_name "
             f"FROM {self.database}.{self.table} "
-            f"WHERE model = '{model_partition}' "
-            f"AND instance = '{instance_partition}' "
+            f"WHERE LOWER(model) = '{model_partition}' "
+            f"AND instance = '{instance_type}' "
             f"AND quantization = '{quantization}' "
             f"AND tensor_parallel_degree = {tensor_parallel_degree} "
-            f"ORDER BY output_token_throughput_tps DESC "
-            f"LIMIT 1"
+            f"{adapter_clause}"
+            f"{time_clause}"
+            f"ORDER BY run_timestamp DESC "
+            f"LIMIT {limit}"
         )
-        records = self._run_query(sql)
-        if records:
-            return records[0]
-        return None
+        return self._run_query(sql)
+
+    def query_best_baseline(self, model_name: str, instance_type: str,
+                            quantization: str, tensor_parallel_degree: int,
+                            adapter_name: str | None = None) -> dict | None:
+        """Query single best result for exact config. Returns dict or None."""
+        records = self.query_all_baselines(
+            model_name=model_name,
+            instance_type=instance_type,
+            quantization=quantization,
+            tensor_parallel_degree=tensor_parallel_degree,
+            adapter_name=adapter_name,
+        )
+        return records[0] if records else None
 
     def _run_query(self, sql: str) -> list[dict]:
         """Execute query and return parsed results."""
@@ -395,10 +416,13 @@ class RecommendationEngine:
             for record in self.records:
                 dim_val = record.get(dimension)
                 metric_val = record.get(self.metric)
-                if dim_val is None or metric_val is None:
+                # Skip records where the dimension value is empty/null — not a meaningful group
+                if dim_val is None or dim_val == '' or metric_val is None:
                     continue
-                # Normalize to string for grouping
+                # Only include records where the recommended value would be actionable
                 dim_key = str(dim_val)
+                if not dim_key.strip():
+                    continue
                 if dim_key not in groups:
                     groups[dim_key] = []
                 groups[dim_key].append(float(metric_val))
@@ -739,6 +763,20 @@ def cmd_compare_baseline(args):
         _error_exit("Could not parse metrics from results file")
         return
 
+    # Extract timestamp of current run to exclude it from baseline query (avoid self-comparison)
+    _current_run_timestamp = None
+    try:
+        _aiperf_path = os.path.join(os.path.dirname(args.results_file), 'profile_export_aiperf.json')
+        if os.path.exists(_aiperf_path):
+            with open(_aiperf_path) as _f:
+                _aiperf = json.load(_f)
+            _ts = _aiperf.get('end_time') or _aiperf.get('start_time')
+            if _ts:
+                # Normalize to Athena TIMESTAMP format: "2026-07-15 14:00:04"
+                _current_run_timestamp = str(_ts)[:19].replace('T', ' ')
+    except Exception:
+        pass  # Non-fatal — include all records if timestamp unavailable
+
     # Query Athena for historical best
     engine = AthenaQueryEngine(
         glue_database=args.glue_database,
@@ -747,81 +785,137 @@ def cmd_compare_baseline(args):
         region=args.region,
     )
 
-    try:
-        baseline = engine.query_best_baseline(
-            model_name=model_name,
-            instance_type=instance_type,
-            quantization=args.quantization,
-            tensor_parallel_degree=args.tensor_parallel,
-        )
-    except Exception as e:
-        _error_exit(f"Athena query failed: {e}")
-        return
+    # Query all historical runs
+    all_records = engine.query_all_baselines(
+        model_name=model_name,
+        instance_type=instance_type,
+        quantization=args.quantization,
+        tensor_parallel_degree=args.tensor_parallel,
+        adapter_name=getattr(args, 'adapter_name', None),
+        before_timestamp=_current_run_timestamp,
+    )
 
-    if not baseline:
-        result = {
-            'status': 'no_baseline',
-            'has_baseline': False,
-            'thresholds_applied': thresholds,
-            'comparisons': [],
-        }
+    if not all_records:
+        result = {'status': 'no_baseline', 'has_baseline': False,
+                  'thresholds_applied': thresholds, 'comparisons': []}
         _output(result)
         return
 
-    # Compare metrics
-    comparisons = []
+    # Most recent run is the primary comparison (Option B)
+    most_recent = all_records[0]
+    run_count = len(all_records)
     has_regression = False
+    comparisons = []
 
     for metric in COMPARISON_METRICS:
-        baseline_val = baseline.get(metric)
         current_val = local_metrics.get(metric)
+        recent_val = most_recent.get(metric)
 
-        if baseline_val is None or current_val is None:
+        if current_val is None or recent_val is None:
             continue
 
-        baseline_val = float(baseline_val)
         current_val = float(current_val)
+        recent_val = float(recent_val)
+
+        # All historical values for range computation (Option D)
+        hist_vals = [float(r[metric]) for r in all_records if r.get(metric) is not None]
+        hist_avg = sum(hist_vals) / len(hist_vals) if hist_vals else None
+        hist_min = min(hist_vals) if hist_vals else None
+        hist_max = max(hist_vals) if hist_vals else None
+
         direction = METRIC_DIRECTION.get(metric, 'higher_is_better')
         threshold_pct = thresholds.get(metric, DEFAULT_THRESHOLD_PCT)
 
-        if baseline_val != 0:
-            delta_pct = ((current_val - baseline_val) / abs(baseline_val)) * 100
-        else:
-            delta_pct = 0.0
+        delta_pct = ((current_val - recent_val) / abs(recent_val)) * 100 if recent_val != 0 else 0.0
 
-        # Determine if regression
         if direction == 'higher_is_better':
-            # Regression if current is lower by more than threshold
             is_regression = delta_pct < -threshold_pct
         else:
-            # Regression if current is higher by more than threshold
             is_regression = delta_pct > threshold_pct
 
-        status = 'regression' if is_regression else 'pass'
         if is_regression:
             has_regression = True
 
         comparisons.append({
             'metric': metric,
-            'baseline': round(baseline_val, 1),
             'current': round(current_val, 1),
+            'most_recent_baseline': round(recent_val, 1),
             'delta_pct': round(delta_pct, 1),
             'direction': direction,
             'threshold_pct': threshold_pct,
-            'status': status,
+            'status': 'regression' if is_regression else 'pass',
+            'historical': {
+                'avg': round(hist_avg, 1) if hist_avg is not None else None,
+                'min': round(hist_min, 1) if hist_min is not None else None,
+                'max': round(hist_max, 1) if hist_max is not None else None,
+                'runs': [round(float(r[metric]), 1) for r in all_records if r.get(metric) is not None],
+            }
         })
 
     result = {
         'status': 'regression' if has_regression else 'pass',
         'has_baseline': True,
-        'baseline_job': baseline.get('benchmark_job_name', ''),
-        'baseline_timestamp': baseline.get('run_timestamp', ''),
+        'most_recent_job': most_recent.get('benchmark_job_name', ''),
+        'most_recent_timestamp': most_recent.get('run_timestamp', ''),
+        'run_count': run_count,
         'thresholds_applied': thresholds,
         'comparisons': comparisons,
     }
 
-    print(json.dumps(result))
-    sys.exit(1 if has_regression else 0)
+    if not args.json_output:
+        # Header table: current vs most_recent with historical range
+        note = f' (1 run — no prior comparison)' if run_count == 1 else f' ({run_count} historical runs)'
+        print(f'\n📊 Performance Comparison vs. Historical Best{note}\n')
+
+        # Primary comparison table
+        header = f'  {"METRIC":<30} {"CURRENT":>10} {"MOST RECENT":>12} {"DELTA":>8}  {"AVG":>10} {"MIN":>10} {"MAX":>10}  {"STATUS"}'
+        sep = '  ' + '─' * (len(header) - 2)
+        print(sep)
+        print(header)
+        print(sep)
+
+        for comp in result['comparisons']:
+            metric_short = metric_aliases_reverse.get(comp['metric'], comp['metric'])
+            current = str(comp['current'])
+            baseline = str(comp['most_recent_baseline'])
+            d = comp['delta_pct']
+            delta = f"{'+' if d > 0 else ('' if d == 0 else '')}{d}%" if d != 0 else '0.0%'
+            hist = comp.get('historical', {})
+            avg_str = str(hist.get('avg', '—')) if hist.get('avg') is not None else '—'
+            min_str = str(hist.get('min', '—')) if hist.get('min') is not None else '—'
+            max_str = str(hist.get('max', '—')) if hist.get('max') is not None else '—'
+            status_icon = '⚠️ REGR' if comp['status'] == 'regression' else '✅ pass'
+            print(f'  {metric_short:<30} {current:>10} {baseline:>12} {delta:>8}  {avg_str:>10} {min_str:>10} {max_str:>10}  {status_icon}')
+
+        print(sep)
+
+        # All historical runs table (Option C)
+        print(f'\n  Historical runs:')
+        run_header = f'  {"DATE":<22} {"ADAPTER":<22} {"THROUGHPUT":>12} {"TTFT P90":>10} {"ITL P90":>10} {"E2E P90":>10}'
+        run_sep = '  ' + '─' * 80
+        print(run_sep)
+        print(run_header)
+        print(run_sep)
+        for r in all_records:
+            ts = str(r.get('run_timestamp', ''))[:19].replace('T', ' ')
+            adapter_label = str(r.get('adapter_name', '') or 'base')[:22]
+            tput = str(round(float(r.get('output_token_throughput_tps', 0) or 0), 1))
+            ttft = str(round(float(r.get('ttft_p90_ms', 0) or 0), 1))
+            itl = str(round(float(r.get('itl_p90_ms', 0) or 0), 1))
+            e2e = str(round(float(r.get('e2e_latency_p90_ms', 0) or 0), 1))
+            print(f'  {ts:<22} {adapter_label:<22} {tput:>12} {ttft:>10} {itl:>10} {e2e:>10}')
+        print(run_sep)
+
+        # Summary
+        regression_count = sum(1 for c in result['comparisons'] if c['status'] == 'regression')
+        if regression_count > 0:
+            print(f'\n   ⚠️  {regression_count} regression(s) detected vs most recent run')
+        else:
+            print(f'\n   ✅ All metrics within threshold vs most recent run')
+        print()
+        sys.exit(1 if has_regression else 0)
+    else:
+        _output(result)
 
 
 def _parse_local_results(results_file: str) -> dict:
@@ -829,6 +923,27 @@ def _parse_local_results(results_file: str) -> dict:
 
     Returns dict with metric names as keys and values.
     """
+    # AIPerf metric name mapping: AIPerf field → (our metric name, sub-key)
+    # profile_export_aiperf.json uses different names and nested dicts.
+    AIPERF_METRIC_MAP = {
+        'output_token_throughput': ('output_token_throughput_tps', 'avg'),
+        'request_throughput':      ('request_throughput_rps', 'avg'),
+        'time_to_first_token':     ('ttft_p90_ms', 'p90'),
+        'time_to_first_output_token': ('ttft_p90_ms', 'p90'),  # alternate name
+        'inter_token_latency':     ('itl_p90_ms', 'p90'),
+        'request_latency':         ('e2e_latency_p90_ms', 'p90'),
+    }
+
+    def _extract_aiperf(data: dict) -> dict:
+        """Extract our standard metrics from a profile_export_aiperf.json dict."""
+        out = {}
+        for aiperf_key, (our_key, sub_key) in AIPERF_METRIC_MAP.items():
+            if aiperf_key in data and isinstance(data[aiperf_key], dict):
+                val = data[aiperf_key].get(sub_key)
+                if val is not None:
+                    out[our_key] = float(val)
+        return out
+
     metrics = {}
     try:
         with open(results_file) as f:
@@ -841,12 +956,32 @@ def _parse_local_results(results_file: str) -> dict:
                 except json.JSONDecodeError:
                     continue
 
-                # Look for aggregate metrics in the record
-                if 'output_token_throughput_tps' in record:
+                # AIPerf profile_export.jsonl records have shape {metadata, metrics}
+                # or flat top-level keys depending on AIPerf version.
+                # Try nested {metrics: {key: {avg, p90...}}} first.
+                record_metrics = record.get('metrics', record)
+
+                # Try AIPerf nested dict format
+                extracted = _extract_aiperf(record_metrics)
+                if extracted:
+                    metrics.update(extracted)
+                # Also try flat keys (older format)
+                elif 'output_token_throughput_tps' in record_metrics:
                     for m in COMPARISON_METRICS:
-                        if m in record and record[m] is not None:
-                            # Take the last (most complete) record's values
-                            metrics[m] = float(record[m])
+                        if m in record_metrics and record_metrics[m] is not None:
+                            metrics[m] = float(record_metrics[m])
+
+        # Fallback: try profile_export_aiperf.json in same directory
+        if not metrics:
+            import os
+            aiperf_path = os.path.join(
+                os.path.dirname(results_file), 'profile_export_aiperf.json'
+            )
+            if os.path.exists(aiperf_path):
+                with open(aiperf_path) as f:
+                    aiperf = json.load(f)
+                metrics = _extract_aiperf(aiperf)
+
     except Exception:
         return {}
 
@@ -914,6 +1049,8 @@ def main():
     p_compare.add_argument('--region', default='us-east-1')
     p_compare.add_argument('--threshold', action='append',
                            help='metric:pct threshold (repeatable)')
+    p_compare.add_argument('--adapter-name', default=None,
+                           help='Filter baseline to this adapter name (empty string = base model only)')
     p_compare.add_argument('--json', dest='json_output', action='store_true', default=False)
     p_compare.set_defaults(func=cmd_compare_baseline)
 

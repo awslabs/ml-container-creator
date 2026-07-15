@@ -5,7 +5,7 @@ from __future__ import annotations
 
 """Adapter helper dispatcher — routes do/adapter subcommands to focused modules.
 
-Subcommands: stage-from-tune, status
+Subcommands: stage-from-tune, stage-from-hub, status
 All output is JSON on stdout for bash consumption.
 """
 

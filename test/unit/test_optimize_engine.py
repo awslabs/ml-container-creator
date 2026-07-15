@@ -321,7 +321,7 @@ class TestAthenaQueryEngineSQL:
 
         call_args = mock_athena.start_query_execution.call_args
         sql = call_args.kwargs.get('QueryString', '')
-        assert "WHERE model = " in sql
+        assert "WHERE LOWER(model) = " in sql
         assert "instance = " in sql
 
 

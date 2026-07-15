@@ -101,6 +101,9 @@ def _build_metadata(args):
         except (json.JSONDecodeError, TypeError):
             _warn("Could not parse benchmark results, skipping")
 
+    # SageMaker requires CustomerMetadataProperties values to have min length 1
+    props = {k: v for k, v in props.items() if v}
+
     return _truncate_metadata(props)
 
 
@@ -125,6 +128,9 @@ def _build_adapter_metadata(args):
     dataset_version = getattr(args, "dataset_version", "") or ""
     if dataset_version:
         props["datasetVersion"] = dataset_version
+
+    # SageMaker requires CustomerMetadataProperties values to have min length 1
+    props = {k: v for k, v in props.items() if v}
 
     return _truncate_metadata(props)
 
