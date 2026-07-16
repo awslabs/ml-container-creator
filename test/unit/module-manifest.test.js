@@ -36,7 +36,7 @@ describe('Module Manifest Schema', () => {
     it('all modules have required fields', () => {
         const requiredFields = [
             'displayName', 'description', 'estimatedMonthlyCost',
-            'required', 'depends', 'stackNameSuffix', 'exports'
+            'required', 'depends', 'exports'
         ];
 
         for (const [name, config] of Object.entries(manifest.modules)) {
@@ -51,8 +51,21 @@ describe('Module Manifest Schema', () => {
             assert.strictEqual(typeof config.description, 'string', `${name}.description must be string`);
             assert.strictEqual(typeof config.required, 'boolean', `${name}.required must be boolean`);
             assert.ok(Array.isArray(config.depends), `${name}.depends must be array`);
-            assert.strictEqual(typeof config.stackNameSuffix, 'string', `${name}.stackNameSuffix must be string`);
             assert.ok(Array.isArray(config.exports), `${name}.exports must be array`);
+
+            // Must have either stackNameSuffix OR stacks[] (mutually exclusive)
+            const hasStackNameSuffix = 'stackNameSuffix' in config;
+            const hasStacks = 'stacks' in config && Array.isArray(config.stacks);
+            assert.ok(
+                hasStackNameSuffix || hasStacks,
+                `Module "${name}" must have either "stackNameSuffix" or "stacks[]"`
+            );
+            if (hasStacks) {
+                assert.ok(!hasStackNameSuffix, `Module "${name}" has both "stackNameSuffix" and "stacks[]" — use one or the other`);
+                assert.ok(config.stacks.length > 0, `Module "${name}" stacks[] must not be empty`);
+            } else {
+                assert.strictEqual(typeof config.stackNameSuffix, 'string', `${name}.stackNameSuffix must be string`);
+            }
         }
     });
 

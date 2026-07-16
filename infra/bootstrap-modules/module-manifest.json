@@ -63,13 +63,13 @@
       "resourceLevel": "profile"
     },
     "hyperpod-cluster": {
-      "displayName": "HyperPod Cluster",
-      "description": "HyperPod cluster config intent (does not create a cluster)",
-      "estimatedMonthlyCost": "$0",
+      "displayName": "HyperPod (EKS + Inference)",
+      "description": "Provisions a full HyperPod EKS environment: VPC, EKS cluster, HyperPod cluster (0-instance), and the SageMaker Inference Operator. Three CDK stacks deployed in sequence.",
+      "estimatedMonthlyCost": "$100+/mo (EKS control plane ~$73 + NAT; compute billed per node-hour when scaled up)",
       "required": false,
       "depends": ["core"],
-      "stackNameSuffix": "hyperpod",
-      "exports": ["ClusterConfigParam", "ClusterStatus"],
+      "stacks": ["eks-cluster", "hyperpod-cluster", "inference-operator"],
+      "exports": ["EksClusterArn", "EksClusterName", "HyperPodClusterArn", "HyperPodClusterName", "InferenceOperatorStatus"],
       "resourceLevel": "profile"
     }
   }

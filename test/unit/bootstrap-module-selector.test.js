@@ -30,7 +30,7 @@ describe('Bootstrap Module Selector', () => {
 
         it('all modules have required fields', () => {
             const manifest = loadModuleManifest();
-            const requiredFields = ['displayName', 'description', 'estimatedMonthlyCost', 'required', 'depends', 'stackNameSuffix', 'exports'];
+            const requiredFields = ['displayName', 'description', 'estimatedMonthlyCost', 'required', 'depends', 'exports'];
 
             for (const [name, config] of Object.entries(manifest.modules)) {
                 for (const field of requiredFields) {
@@ -39,6 +39,11 @@ describe('Bootstrap Module Selector', () => {
                         `Module "${name}" missing field: ${field}`
                     );
                 }
+                // Must have either stackNameSuffix or stacks[]
+                assert.ok(
+                    ('stackNameSuffix' in config) || ('stacks' in config),
+                    `Module "${name}" must have either "stackNameSuffix" or "stacks[]"`
+                );
             }
         });
 

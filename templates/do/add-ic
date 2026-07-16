@@ -22,22 +22,33 @@ source "${SCRIPT_DIR}/config"
 _usage() {
     echo "Usage: ./do/add-ic [name] [options]"
     echo ""
-    echo "Add a new inference component to this project."
+    echo "Add a new inference component to this project, or update an existing one in-place."
     echo ""
     echo "Arguments:"
-    echo "  [name]                     IC name (optional, prompted if not provided)"
+    echo "  [name]                     IC name (required for --update, optional otherwise)"
     echo ""
     echo "Options:"
     echo "  --from-tune                Use model output from do/tune (reads TUNE_OUTPUT_PATH_LATEST)"
     echo "  --model-data <s3-uri>      S3 URI to model data (tar.gz or model directory)"
+    echo "  --update                   Update an existing IC in-place (zero-disruption swap)"
     echo "  --help, -h                 Show this help message"
     echo ""
     echo "Note: --from-tune and --model-data are mutually exclusive."
+    echo ""
+    echo "Update mode (--update):"
+    echo "  Updates the model artifact on an existing deployed IC using UpdateInferenceComponent."
+    echo "  This is a zero-disruption in-place swap — the IC is NOT deleted and recreated."
+    echo "  Reads the deployed IC name from do/ic/<name>.conf (IC_DEPLOYED_NAME)."
     echo ""
     echo "Examples:"
     echo "  ./do/add-ic                                    # Interactive mode"
     echo "  ./do/add-ic tuned-v1 --from-tune               # Use latest tune output"
     echo "  ./do/add-ic tuned-v1 --model-data s3://bucket/model.tar.gz"
+    echo ""
+    echo "  # Update an existing IC in-place:"
+    echo "  ./do/add-ic default --update                   # Re-deploy same artifact"
+    echo "  ./do/add-ic default --update --from-tune       # Swap to latest tune output"
+    echo "  ./do/add-ic default --update --model-data s3://bucket/model.tar.gz"
     echo ""
 }
 
@@ -47,6 +58,7 @@ _usage() {
 IC_NAME=""
 FROM_TUNE=""
 MODEL_DATA=""
+UPDATE_MODE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -62,6 +74,10 @@ while [ $# -gt 0 ]; do
             fi
             MODEL_DATA="$2"
             shift 2
+            ;;
+        --update)
+            UPDATE_MODE="true"
+            shift
             ;;
         --help|-h)
             _usage
@@ -114,6 +130,120 @@ if [ -n "${FROM_TUNE}" ]; then
     MODEL_DATA="${TUNE_OUTPUT_PATH_LATEST}"
     echo "📦 Using tune output: ${MODEL_DATA}"
     echo ""
+fi
+
+# ============================================================
+# UPDATE MODE: In-place update of existing IC
+# ============================================================
+if [ -n "${UPDATE_MODE}" ]; then
+    # IC name is required for --update
+    if [ -z "${IC_NAME}" ]; then
+        echo "❌ IC name is required for --update"
+        echo ""
+        echo "   Usage: ./do/add-ic <ic-name> --update [--from-tune | --model-data <s3-uri>]"
+        echo ""
+        echo "   Available ICs:"
+        if [ -d "${SCRIPT_DIR}/ic" ]; then
+            for conf_file in "${SCRIPT_DIR}"/ic/*.conf; do
+                [ -f "${conf_file}" ] || continue
+                _bn=$(basename "${conf_file}" .conf)
+                echo "     ${_bn}"
+            done
+        else
+            echo "     (none — no do/ic/ directory)"
+        fi
+        exit 1
+    fi
+
+    # Validate IC config exists
+    IC_CONF_PATH="${SCRIPT_DIR}/ic/${IC_NAME}.conf"
+    if [ ! -f "${IC_CONF_PATH}" ]; then
+        echo "❌ IC config not found: do/ic/${IC_NAME}.conf"
+        echo ""
+        echo "   Available ICs:"
+        for conf_file in "${SCRIPT_DIR}"/ic/*.conf; do
+            [ -f "${conf_file}" ] || continue
+            _bn=$(basename "${conf_file}" .conf)
+            echo "     ${_bn}"
+        done
+        exit 1
+    fi
+
+    # Source the IC config to get IC_DEPLOYED_NAME
+    source "${IC_CONF_PATH}"
+
+    if [ -z "${IC_DEPLOYED_NAME:-}" ]; then
+        echo "❌ IC '${IC_NAME}' has never been deployed (no IC_DEPLOYED_NAME in config)."
+        echo ""
+        echo "   Deploy it first with: ./do/deploy --ic ${IC_NAME}"
+        exit 1
+    fi
+
+    # Resolve model data: --model-data > --from-tune > current IC_MODEL_DATA
+    if [ -z "${MODEL_DATA}" ] && [ -n "${IC_MODEL_DATA:-}" ]; then
+        MODEL_DATA="${IC_MODEL_DATA}"
+        echo "📦 Using current model data from IC config: ${MODEL_DATA}"
+        echo ""
+    fi
+
+    # Resolve container image
+    IC_IMAGE="${ECR_REPOSITORY:-}:${IC_IMAGE_TAG:-${PROJECT_NAME}-latest}"
+
+    echo "🔄 Update Inference Component (in-place)"
+    echo "   Project:  ${PROJECT_NAME}"
+    echo "   IC name:  ${IC_DEPLOYED_NAME}"
+    echo "   IC config: do/ic/${IC_NAME}.conf"
+    if [ -n "${MODEL_DATA}" ]; then
+        echo "   Model data: ${MODEL_DATA}"
+    fi
+    echo "   Image:    ${IC_IMAGE}"
+    echo ""
+
+    # Build python args
+    PYTHON_ARGS=(
+        "--ic-name" "${IC_DEPLOYED_NAME}"
+        "--region" "${AWS_REGION:-us-east-1}"
+    )
+    if [ -n "${MODEL_DATA}" ]; then
+        PYTHON_ARGS+=("--model-data" "${MODEL_DATA}")
+    fi
+    if [ -n "${IC_IMAGE}" ]; then
+        PYTHON_ARGS+=("--image" "${IC_IMAGE}")
+    fi
+
+    # Call the update helper
+    UPDATE_OUTPUT=$(python3 "${SCRIPT_DIR}/lib/python/ic_update.py" "${PYTHON_ARGS[@]}")
+    UPDATE_EXIT=$?
+
+    if [ ${UPDATE_EXIT} -ne 0 ]; then
+        echo "❌ IC update failed"
+        echo ""
+        _err_msg=$(echo "${UPDATE_OUTPUT}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('message','Unknown error'))" 2>/dev/null || echo "${UPDATE_OUTPUT}")
+        echo "   ${_err_msg}"
+        exit 4
+    fi
+
+    # Parse result
+    _status=$(echo "${UPDATE_OUTPUT}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('status','Unknown'))" 2>/dev/null)
+    _elapsed=$(echo "${UPDATE_OUTPUT}" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('elapsed_seconds',0))" 2>/dev/null)
+
+    echo ""
+    echo "✅ Inference component updated successfully"
+    echo "   IC name:  ${IC_DEPLOYED_NAME}"
+    echo "   Status:   ${_status}"
+    echo "   Duration: ${_elapsed}s"
+    if [ -n "${MODEL_DATA}" ]; then
+        echo "   Model:    ${MODEL_DATA}"
+    fi
+    echo ""
+
+    # Persist the new model data back to IC config if it changed
+    if [ -n "${MODEL_DATA}" ]; then
+        source "${SCRIPT_DIR}/lib/wait.sh"
+        _update_config_var "IC_MODEL_DATA" "${MODEL_DATA}" "${IC_CONF_PATH}"
+    fi
+
+    exit 0
 fi
 
 echo "➕ Add New Inference Component"

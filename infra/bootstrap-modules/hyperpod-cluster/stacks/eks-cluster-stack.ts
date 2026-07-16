@@ -1,0 +1,493 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+import * as cdk from 'aws-cdk-lib';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as eks from 'aws-cdk-lib/aws-eks';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
+import { Construct } from 'constructs';
+
+export interface MlccEksClusterStackProps extends cdk.StackProps {
+    profileName: string;
+    adoptEks?: boolean;
+    adoptVpc?: boolean;
+    adoptRoles?: boolean;
+    vpcId?: string;
+    eksClusterArn?: string;
+    eksClusterName?: string;
+    clusterSecurityGroupId?: string;
+    privateSubnetIds?: string;
+}
+
+/**
+ * Stack 1 of the HyperPod module: EKS cluster, VPC, IAM roles, and
+ * dependency EKS add-ons required by the Inference Operator.
+ */
+export class MlccEksClusterStack extends cdk.Stack {
+    constructor(scope: Construct, id: string, props: MlccEksClusterStackProps) {
+        super(scope, id, {
+            ...props,
+            terminationProtection: true,
+        });
+
+        const { profileName } = props;
+        const region = this.region;
+
+        cdk.Tags.of(this).add('mlcc:managed-by', 'ml-container-creator');
+        cdk.Tags.of(this).add('mlcc:module', 'hyperpod-cluster');
+        cdk.Tags.of(this).add('mlcc:profile', profileName);
+        cdk.Tags.of(this).add('mlcc:stack', 'eks-cluster');
+
+        const ssmPrefix = `/mlcc/${profileName}/hyperpod`;
+
+        // ─── VPC ────────────────────────────────────────────────────────────
+        let vpc: ec2.IVpc;
+
+        if (props.adoptVpc && props.vpcId) {
+            vpc = ec2.Vpc.fromLookup(this, 'Vpc', { vpcId: props.vpcId });
+        } else {
+            const newVpc = new ec2.Vpc(this, 'Vpc', {
+                maxAzs: 2,
+                natGateways: 1,
+                subnetConfiguration: [
+                    {
+                        cidrMask: 19,
+                        name: 'Public',
+                        subnetType: ec2.SubnetType.PUBLIC,
+                    },
+                    {
+                        cidrMask: 19,
+                        name: 'Private',
+                        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+                    },
+                ],
+            });
+
+            // Required subnet tags for ALB controller and internal load balancers
+            for (const subnet of newVpc.publicSubnets) {
+                cdk.Tags.of(subnet).add('kubernetes.io/role/elb', '1');
+            }
+            for (const subnet of newVpc.privateSubnets) {
+                cdk.Tags.of(subnet).add('kubernetes.io/role/internal-elb', '1');
+            }
+
+            // S3 VPC Gateway endpoint on private route tables
+            newVpc.addGatewayEndpoint('S3Endpoint', {
+                service: ec2.GatewayVpcEndpointAwsService.S3,
+                subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
+            });
+
+            newVpc.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
+            vpc = newVpc;
+        }
+
+        const privateSubnetIds = vpc.privateSubnets.map(s => s.subnetId).join(',');
+
+        new ssm.StringParameter(this, 'PrivateSubnetIdsParam', {
+            parameterName: `${ssmPrefix}/PrivateSubnetIds`,
+            stringValue: privateSubnetIds,
+            description: 'Private subnet IDs for HyperPod EKS cluster',
+        });
+
+        // ─── IAM Roles (RemovalPolicy.RETAIN on all) ────────────────────────
+
+        // EKS cluster role
+        const eksClusterRole = this._createOrAdoptRole(
+            'EksClusterRole',
+            `mlcc-${profileName}-eks-cluster-role`,
+            new iam.ServicePrincipal('eks.amazonaws.com'),
+            ['arn:aws:iam::aws:policy/AmazonEKSClusterPolicy'],
+            props.adoptRoles,
+        );
+
+        // EKS node role
+        const eksNodeRole = this._createOrAdoptRole(
+            'EksNodeRole',
+            `mlcc-${profileName}-eks-node-role`,
+            new iam.ServicePrincipal('ec2.amazonaws.com'),
+            [
+                'arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy',
+                'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly',
+                'arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy',
+            ],
+            props.adoptRoles,
+        );
+
+        // HyperPod instance role
+        const hyperpodInstanceRole = this._createOrAdoptRole(
+            'HyperPodInstanceRole',
+            `mlcc-${profileName}-hyperpod-instance-role`,
+            new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+            ['arn:aws:iam::aws:policy/AmazonSageMakerClusterInstanceRolePolicy'],
+            props.adoptRoles,
+        );
+
+        new ssm.StringParameter(this, 'HyperPodInstanceRoleArnParam', {
+            parameterName: `${ssmPrefix}/HyperPodInstanceRoleArn`,
+            stringValue: hyperpodInstanceRole.roleArn,
+            description: 'HyperPod instance execution role ARN',
+        });
+
+        // ─── EKS Cluster ────────────────────────────────────────────────────
+        let cluster: eks.ICluster;
+        let clusterSecurityGroupId: string;
+
+        if (props.adoptEks && props.eksClusterArn) {
+            cluster = eks.Cluster.fromClusterAttributes(this, 'EksCluster', {
+                clusterName: props.eksClusterName || props.eksClusterArn.split('/').pop()!,
+                clusterSecurityGroupId: props.clusterSecurityGroupId,
+                kubectlRoleArn: eksClusterRole.roleArn,
+            });
+            clusterSecurityGroupId = props.clusterSecurityGroupId || '';
+        } else {
+            const k8sVersion = this.node.tryGetContext('k8sVersion') || '1.31';
+
+            const newCluster = new eks.Cluster(this, 'EksCluster', {
+                version: eks.KubernetesVersion.of(k8sVersion),
+                vpc,
+                vpcSubnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
+                defaultCapacity: 0,
+                role: eksClusterRole,
+                authenticationMode: eks.AuthenticationMode.API_AND_CONFIG_MAP,
+                clusterName: `mlcc-${profileName}-eks`,
+            });
+
+            clusterSecurityGroupId = newCluster.clusterSecurityGroupId;
+            cluster = newCluster;
+
+            // ─── EKS Add-ons ────────────────────────────────────────────────
+
+            // VPC-CNI ≥ v1.18.3 (HyperPod requirement)
+            new eks.CfnAddon(this, 'VpcCniAddon', {
+                clusterName: newCluster.clusterName,
+                addonName: 'vpc-cni',
+                addonVersion: 'v1.18.3-eksbuild.1',
+                resolveConflicts: 'OVERWRITE',
+            });
+
+            // CoreDNS
+            new eks.CfnAddon(this, 'CoreDnsAddon', {
+                clusterName: newCluster.clusterName,
+                addonName: 'coredns',
+                resolveConflicts: 'OVERWRITE',
+            });
+
+            // kube-proxy
+            new eks.CfnAddon(this, 'KubeProxyAddon', {
+                clusterName: newCluster.clusterName,
+                addonName: 'kube-proxy',
+                resolveConflicts: 'OVERWRITE',
+            });
+
+            // ─── Dependency add-ons for Inference Operator ──────────────────
+
+            // aws-mountpoint-s3-csi-driver ≥ v1.14.1-eksbuild.1
+            new eks.CfnAddon(this, 'S3CsiDriverAddon', {
+                clusterName: newCluster.clusterName,
+                addonName: 'aws-mountpoint-s3-csi-driver',
+                addonVersion: 'v1.14.1-eksbuild.1',
+                resolveConflicts: 'OVERWRITE',
+            });
+
+            // aws-fsx-csi-driver ≥ v1.6.0-eksbuild.1
+            new eks.CfnAddon(this, 'FsxCsiDriverAddon', {
+                clusterName: newCluster.clusterName,
+                addonName: 'aws-fsx-csi-driver',
+                addonVersion: 'v1.6.0-eksbuild.1',
+                resolveConflicts: 'OVERWRITE',
+            });
+
+            // metrics-server ≥ v0.7.2-eksbuild.4
+            new eks.CfnAddon(this, 'MetricsServerAddon', {
+                clusterName: newCluster.clusterName,
+                addonName: 'metrics-server',
+                addonVersion: 'v0.7.2-eksbuild.4',
+                resolveConflicts: 'OVERWRITE',
+            });
+
+            // cert-manager ≥ v1.18.2-eksbuild.2
+            new eks.CfnAddon(this, 'CertManagerAddon', {
+                clusterName: newCluster.clusterName,
+                addonName: 'cert-manager',
+                addonVersion: 'v1.18.2-eksbuild.2',
+                resolveConflicts: 'OVERWRITE',
+            });
+
+            // NVIDIA device plugin via addManifest
+            newCluster.addManifest('NvidiaDevicePlugin', {
+                apiVersion: 'apps/v1',
+                kind: 'DaemonSet',
+                metadata: {
+                    name: 'nvidia-device-plugin-daemonset',
+                    namespace: 'kube-system',
+                },
+                spec: {
+                    selector: { matchLabels: { name: 'nvidia-device-plugin-ds' } },
+                    updateStrategy: { type: 'RollingUpdate' },
+                    template: {
+                        metadata: { labels: { name: 'nvidia-device-plugin-ds' } },
+                        spec: {
+                            tolerations: [{ key: 'nvidia.com/gpu', operator: 'Exists', effect: 'NoSchedule' }],
+                            priorityClassName: 'system-node-critical',
+                            containers: [{
+                                image: 'nvcr.io/nvidia/k8s-device-plugin:v0.14.5',
+                                name: 'nvidia-device-plugin-ctr',
+                                env: [{ name: 'FAIL_ON_INIT_ERROR', value: 'false' }],
+                                securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ['ALL'] } },
+                                volumeMounts: [{ name: 'device-plugin', mountPath: '/var/lib/kubelet/device-plugins' }],
+                            }],
+                            volumes: [{ name: 'device-plugin', hostPath: { path: '/var/lib/kubelet/device-plugins' } }],
+                        },
+                    },
+                },
+            });
+
+            // ─── IRSA Roles ─────────────────────────────────────────────────
+
+            const oidcProvider = newCluster.openIdConnectProvider;
+
+            // HyperpodInferenceRole
+            const hyperpodInferenceRole = this._createIrsaRole(
+                'HyperpodInferenceRole',
+                `mlcc-${profileName}-hyperpod-inference-role`,
+                oidcProvider,
+                'hyperpod-inference-system',
+                'hyperpod-inference-controller-manager',
+                ['arn:aws:iam::aws:policy/AmazonSageMakerHyperPodInferenceAccess'],
+                props.adoptRoles,
+            );
+
+            new ssm.StringParameter(this, 'HyperpodInferenceRoleArnParam', {
+                parameterName: `${ssmPrefix}/HyperpodInferenceRoleArn`,
+                stringValue: hyperpodInferenceRole.roleArn,
+            });
+
+            // AlbControllerRole
+            const albControllerRole = this._createIrsaRole(
+                'AlbControllerRole',
+                `mlcc-${profileName}-alb-controller-role`,
+                oidcProvider,
+                'kube-system',
+                'aws-load-balancer-controller',
+                ['arn:aws:iam::aws:policy/AWSLoadBalancerControllerIAMPolicy'],
+                props.adoptRoles,
+            );
+
+            new ssm.StringParameter(this, 'AlbControllerRoleArnParam', {
+                parameterName: `${ssmPrefix}/AlbControllerRoleArn`,
+                stringValue: albControllerRole.roleArn,
+            });
+
+            // AWS Load Balancer Controller Helm chart
+            newCluster.addHelmChart('AwsLoadBalancerController', {
+                chart: 'aws-load-balancer-controller',
+                repository: 'https://aws.github.io/eks-charts',
+                namespace: 'kube-system',
+                release: 'aws-load-balancer-controller',
+                values: {
+                    clusterName: newCluster.clusterName,
+                    serviceAccount: {
+                        create: true,
+                        name: 'aws-load-balancer-controller',
+                        annotations: {
+                            'eks.amazonaws.com/role-arn': albControllerRole.roleArn,
+                        },
+                    },
+                },
+            });
+
+            // KedaOperatorRole
+            const kedaOperatorRole = this._createIrsaRole(
+                'KedaOperatorRole',
+                `mlcc-${profileName}-keda-operator-role`,
+                oidcProvider,
+                'keda',
+                'keda-operator',
+                [],
+                props.adoptRoles,
+            );
+
+            // Add inline CloudWatch + APS read policies for KEDA
+            if (!props.adoptRoles) {
+                (kedaOperatorRole as iam.Role).addToPolicy(new iam.PolicyStatement({
+                    effect: iam.Effect.ALLOW,
+                    actions: [
+                        'cloudwatch:GetMetricData',
+                        'cloudwatch:GetMetricStatistics',
+                        'cloudwatch:ListMetrics',
+                        'cloudwatch:DescribeAlarms',
+                        'aps:QueryMetrics',
+                        'aps:GetLabels',
+                        'aps:GetSeries',
+                        'aps:GetMetricMetadata',
+                    ],
+                    resources: ['*'],
+                }));
+            }
+
+            new ssm.StringParameter(this, 'KedaOperatorRoleArnParam', {
+                parameterName: `${ssmPrefix}/KedaOperatorRoleArn`,
+                stringValue: kedaOperatorRole.roleArn,
+            });
+
+            // S3CsiRole
+            const s3CsiRole = this._createIrsaRole(
+                'S3CsiRole',
+                `mlcc-${profileName}-s3-csi-role`,
+                oidcProvider,
+                'kube-system',
+                's3-csi-driver-sa',
+                [],
+                props.adoptRoles,
+            );
+
+            if (!props.adoptRoles) {
+                (s3CsiRole as iam.Role).addToPolicy(new iam.PolicyStatement({
+                    effect: iam.Effect.ALLOW,
+                    actions: [
+                        's3:GetObject',
+                        's3:PutObject',
+                        's3:ListBucket',
+                        's3:DeleteObject',
+                        's3:GetBucketLocation',
+                    ],
+                    resources: [
+                        `arn:aws:s3:::hyperpod-tls-*`,
+                        `arn:aws:s3:::hyperpod-tls-*/*`,
+                    ],
+                }));
+            }
+
+            new ssm.StringParameter(this, 'S3CsiRoleArnParam', {
+                parameterName: `${ssmPrefix}/S3CsiRoleArn`,
+                stringValue: s3CsiRole.roleArn,
+            });
+
+            // FsxCsiRole
+            const fsxCsiRole = this._createIrsaRole(
+                'FsxCsiRole',
+                `mlcc-${profileName}-fsx-csi-role`,
+                oidcProvider,
+                'kube-system',
+                'fsx-csi-controller-sa',
+                ['arn:aws:iam::aws:policy/AmazonFSxFullAccess'],
+                props.adoptRoles,
+            );
+
+            new ssm.StringParameter(this, 'FsxCsiRoleArnParam', {
+                parameterName: `${ssmPrefix}/FsxCsiRoleArn`,
+                stringValue: fsxCsiRole.roleArn,
+            });
+        }
+
+        // ─── SSM Exports ────────────────────────────────────────────────────
+
+        const eksClusterArn = props.adoptEks && props.eksClusterArn
+            ? props.eksClusterArn
+            : (cluster as eks.Cluster).clusterArn;
+
+        const eksClusterName = props.adoptEks && props.eksClusterName
+            ? props.eksClusterName
+            : (cluster as eks.Cluster).clusterName;
+
+        new ssm.StringParameter(this, 'EksClusterArnParam', {
+            parameterName: `${ssmPrefix}/EksClusterArn`,
+            stringValue: eksClusterArn,
+            description: 'EKS cluster ARN for HyperPod',
+        });
+
+        new ssm.StringParameter(this, 'EksClusterNameParam', {
+            parameterName: `${ssmPrefix}/EksClusterName`,
+            stringValue: eksClusterName,
+            description: 'EKS cluster name for HyperPod',
+        });
+
+        new ssm.StringParameter(this, 'ClusterSecurityGroupIdParam', {
+            parameterName: `${ssmPrefix}/ClusterSecurityGroupId`,
+            stringValue: clusterSecurityGroupId,
+            description: 'EKS cluster security group ID',
+        });
+
+        // ─── CfnOutputs ────────────────────────────────────────────────────
+
+        new cdk.CfnOutput(this, 'EksClusterArnOutput', {
+            value: eksClusterArn,
+            exportName: `mlcc-${profileName}-eks-EksClusterArn`,
+        });
+
+        new cdk.CfnOutput(this, 'EksClusterNameOutput', {
+            value: eksClusterName,
+            exportName: `mlcc-${profileName}-eks-EksClusterName`,
+        });
+
+        new cdk.CfnOutput(this, 'ClusterSecurityGroupIdOutput', {
+            value: clusterSecurityGroupId,
+            exportName: `mlcc-${profileName}-eks-ClusterSecurityGroupId`,
+        });
+
+        new cdk.CfnOutput(this, 'PrivateSubnetIdsOutput', {
+            value: privateSubnetIds,
+            exportName: `mlcc-${profileName}-eks-PrivateSubnetIds`,
+        });
+    }
+
+    /**
+     * Create or adopt an IAM role with RemovalPolicy.RETAIN.
+     */
+    private _createOrAdoptRole(
+        id: string,
+        roleName: string,
+        principal: iam.IPrincipal,
+        managedPolicyArns: string[],
+        adopt?: boolean,
+    ): iam.IRole {
+        if (adopt) {
+            return iam.Role.fromRoleName(this, id, roleName);
+        }
+
+        const role = new iam.Role(this, id, {
+            roleName,
+            assumedBy: principal,
+            managedPolicies: managedPolicyArns.map(arn => iam.ManagedPolicy.fromManagedPolicyArn(this, `${id}Policy${managedPolicyArns.indexOf(arn)}`, arn)),
+        });
+        role.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
+        return role;
+    }
+
+    /**
+     * Create or adopt an IRSA role with OIDC trust and RemovalPolicy.RETAIN.
+     */
+    private _createIrsaRole(
+        id: string,
+        roleName: string,
+        oidcProvider: iam.IOpenIdConnectProvider,
+        namespace: string,
+        serviceAccount: string,
+        managedPolicyArns: string[],
+        adopt?: boolean,
+    ): iam.IRole {
+        if (adopt) {
+            return iam.Role.fromRoleName(this, id, roleName);
+        }
+
+        const conditions = new cdk.CfnJson(this, `${id}Condition`, {
+            value: {
+                [`${oidcProvider.openIdConnectProviderIssuer}:sub`]: `system:serviceaccount:${namespace}:${serviceAccount}`,
+                [`${oidcProvider.openIdConnectProviderIssuer}:aud`]: 'sts.amazonaws.com',
+            },
+        });
+
+        const role = new iam.Role(this, id, {
+            roleName,
+            assumedBy: new iam.FederatedPrincipal(
+                oidcProvider.openIdConnectProviderArn,
+                { StringEquals: conditions },
+                'sts:AssumeRoleWithWebIdentity',
+            ),
+            managedPolicies: managedPolicyArns.map(arn => iam.ManagedPolicy.fromManagedPolicyArn(this, `${id}ManagedPolicy${managedPolicyArns.indexOf(arn)}`, arn)),
+        });
+        role.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
+        return role;
+    }
+}

@@ -100,27 +100,65 @@ export default class BootstrapProfileManager {
             const moduleLines = [];
             for (const moduleName of provisionedModules) {
                 const mod = manifest.modules[moduleName];
-                const suffix = (mod && mod.stackNameSuffix) || moduleName;
-                const stackName = `mlcc-${profile.name}-${suffix}`;
 
-                try {
-                    const stackInfo = this.handler._execAws(
-                        `cloudformation describe-stacks --stack-name ${stackName} --region ${profile.config.awsRegion}`,
-                        profile.config.awsProfile
-                    );
-                    const stack = stackInfo.Stacks && stackInfo.Stacks[0];
-                    if (stack) {
-                        anyModuleStackFound = true;
-                        const status = stack.StackStatus;
-                        const ok = status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE';
-                        const icon = ok ? '✅' : '⚠️';
-                        const label = (mod && mod.displayName) || moduleName;
-                        moduleLines.push(`  ${icon} ${label} (${moduleName}): ${stackName} — ${status}`);
-                    } else {
-                        moduleLines.push(`  ⚠️  ${moduleName}: stack ${stackName} not found`);
+                // Multi-stack modules: check all stacks
+                if (mod && mod.stacks && Array.isArray(mod.stacks)) {
+                    const label = (mod && mod.displayName) || moduleName;
+                    const stackResults = [];
+                    let allOk = true;
+                    for (const stackSuffix of mod.stacks) {
+                        const stackName = `mlcc-${profile.name}-${stackSuffix}`;
+                        try {
+                            const stackInfo = this.handler._execAws(
+                                `cloudformation describe-stacks --stack-name ${stackName} --region ${profile.config.awsRegion}`,
+                                profile.config.awsProfile
+                            );
+                            const stack = stackInfo.Stacks && stackInfo.Stacks[0];
+                            if (stack) {
+                                anyModuleStackFound = true;
+                                const status = stack.StackStatus;
+                                const ok = status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE';
+                                if (!ok) allOk = false;
+                                stackResults.push({ stackSuffix, stackName, status, ok });
+                            } else {
+                                allOk = false;
+                                stackResults.push({ stackSuffix, stackName, status: 'NOT_FOUND', ok: false });
+                            }
+                        } catch {
+                            allOk = false;
+                            stackResults.push({ stackSuffix, stackName, status: 'NOT_FOUND', ok: false });
+                        }
                     }
-                } catch {
-                    moduleLines.push(`  ⚠️  ${moduleName}: stack ${stackName} not found or unreadable`);
+                    const icon = allOk ? '✅' : '⚠️';
+                    moduleLines.push(`  ${icon} ${label} (${moduleName}): ${mod.stacks.length} stacks`);
+                    for (const r of stackResults) {
+                        const sIcon = r.ok ? '  ✓' : '  ✗';
+                        moduleLines.push(`     ${sIcon} ${r.stackName} — ${r.status}`);
+                    }
+                } else {
+                    // Single-stack module
+                    const suffix = (mod && mod.stackNameSuffix) || moduleName;
+                    const stackName = `mlcc-${profile.name}-${suffix}`;
+
+                    try {
+                        const stackInfo = this.handler._execAws(
+                            `cloudformation describe-stacks --stack-name ${stackName} --region ${profile.config.awsRegion}`,
+                            profile.config.awsProfile
+                        );
+                        const stack = stackInfo.Stacks && stackInfo.Stacks[0];
+                        if (stack) {
+                            anyModuleStackFound = true;
+                            const status = stack.StackStatus;
+                            const ok = status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE';
+                            const icon = ok ? '✅' : '⚠️';
+                            const label = (mod && mod.displayName) || moduleName;
+                            moduleLines.push(`  ${icon} ${label} (${moduleName}): ${stackName} — ${status}`);
+                        } else {
+                            moduleLines.push(`  ⚠️  ${moduleName}: stack ${stackName} not found`);
+                        }
+                    } catch {
+                        moduleLines.push(`  ⚠️  ${moduleName}: stack ${stackName} not found or unreadable`);
+                    }
                 }
             }
 
