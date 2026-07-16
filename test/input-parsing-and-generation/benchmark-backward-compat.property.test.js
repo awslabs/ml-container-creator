@@ -29,7 +29,7 @@ const templatesDir = path.join(__dirname, '../../templates/do');
 const configTemplate = readFileSync(path.join(templatesDir, 'config'), 'utf8');
 const cleanTemplatePath = path.join(templatesDir, 'clean');
 const cleanTemplate = readFileSync(cleanTemplatePath, 'utf8');
-const deployTemplate = readFileSync(path.join(templatesDir, 'deploy'), 'utf8');
+const deployTemplate = readFileSync(path.join(templatesDir, 'deploy.d/managed-inference'), 'utf8');
 const logsTemplate = readFileSync(path.join(templatesDir, 'logs'), 'utf8');
 
 /**
@@ -180,8 +180,8 @@ describe('Feature: sagemaker-ai-benchmarking, Property: Backward compatibility w
                 const varsWithBenchmark = buildVars(baseConfig, true);
                 const varsWithoutBenchmark = buildVars(baseConfig, false);
 
-                const outputWith = ejs.render(deployTemplate, varsWithBenchmark, { filename: path.join(templatesDir, 'deploy') });
-                const outputWithout = ejs.render(deployTemplate, varsWithoutBenchmark, { filename: path.join(templatesDir, 'deploy') });
+                const outputWith = ejs.render(deployTemplate, varsWithBenchmark, { filename: path.join(templatesDir, 'deploy.d/managed-inference') });
+                const outputWithout = ejs.render(deployTemplate, varsWithoutBenchmark, { filename: path.join(templatesDir, 'deploy.d/managed-inference') });
 
                 assert.ok(
                     outputWith.includes('./do/benchmark'),

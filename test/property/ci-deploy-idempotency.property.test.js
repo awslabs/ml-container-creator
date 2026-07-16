@@ -9,7 +9,7 @@
  * `do/deploy` SHALL produce no SageMaker AI API mutations and SHALL exit
  * successfully.
  *
- * This test verifies the rendered managed-inference.ejs template contains
+ * This test verifies the rendered managed-inference template contains
  * the correct idempotency logic that skips deployment when the endpoint
  * and inference component are already InService.
  *
@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference.ejs');
+const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference');
 const templateContent = readFileSync(TEMPLATE_PATH, 'utf-8');
 
 // ── Generators ───────────────────────────────────────────────────────────────

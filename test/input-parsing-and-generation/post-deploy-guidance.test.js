@@ -24,8 +24,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load templates
-const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy');
+const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/managed-inference');
 const deployTemplate = readFileSync(deployTemplatePath, 'utf8');
+const asyncDeployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/async-inference');
+const asyncDeployTemplate = readFileSync(asyncDeployTemplatePath, 'utf8');
+const hyperpodDeployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/hyperpod-eks');
+const hyperpodDeployTemplate = readFileSync(hyperpodDeployTemplatePath, 'utf8');
 const testTemplate = readFileSync(path.join(__dirname, '../../templates/do/test'), 'utf8');
 
 /** Base template variables for realtime-inference rendering */
@@ -279,7 +283,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
 
         before(() => {
             const vars = asyncVars();
-            deployOutput = ejs.render(deployTemplate, vars, { filename: deployTemplatePath });
+            deployOutput = ejs.render(asyncDeployTemplate, vars, { filename: asyncDeployTemplatePath });
             testOutput = ejs.render(testTemplate, vars);
         });
 
@@ -350,7 +354,7 @@ describe('Post-Deploy Guidance: What\'s next? suggestions', function () {
 
         before(() => {
             const vars = hyperpodVars();
-            deployOutput = ejs.render(deployTemplate, vars, { filename: deployTemplatePath });
+            deployOutput = ejs.render(hyperpodDeployTemplate, vars, { filename: hyperpodDeployTemplatePath });
             testOutput = ejs.render(testTemplate, vars);
         });
 

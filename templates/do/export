@@ -96,12 +96,12 @@ if [ "${1:-}" = "--json" ]; then
     fi
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
     # HyperPod EKS
-    JSON="${JSON},\"hyperPodCluster\":\"${HYPERPOD_CLUSTER_NAME}\""
-    if [ "${HYPERPOD_NAMESPACE}" != "default" ]; then
-        JSON="${JSON},\"hyperPodNamespace\":\"${HYPERPOD_NAMESPACE}\""
+    JSON="${JSON},\"hyperPodCluster\":\"${HP_CLUSTER_NAME}\""
+    if [ "${HP_NAMESPACE}" != "default" ]; then
+        JSON="${JSON},\"hyperPodNamespace\":\"${HP_NAMESPACE}\""
     fi
-    if [ "${HYPERPOD_REPLICAS}" != "1" ]; then
-        JSON="${JSON},\"hyperPodReplicas\":${HYPERPOD_REPLICAS}"
+    if [ "${HP_REPLICAS}" != "1" ]; then
+        JSON="${JSON},\"hyperPodReplicas\":${HP_REPLICAS}"
     fi
 <% if (fsxVolumeHandle) { %>
     JSON="${JSON},\"fsxVolumeHandle\":\"${FSX_VOLUME_HANDLE}\""
@@ -245,12 +245,12 @@ if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
 fi
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 # HyperPod EKS
-CMD="${CMD} --hyperpod-cluster=${HYPERPOD_CLUSTER_NAME}"
-if [ "${HYPERPOD_NAMESPACE}" != "default" ]; then
-    CMD="${CMD} --hyperpod-namespace=${HYPERPOD_NAMESPACE}"
+CMD="${CMD} --hyperpod-cluster=${HP_CLUSTER_NAME}"
+if [ "${HP_NAMESPACE}" != "default" ]; then
+    CMD="${CMD} --hyperpod-namespace=${HP_NAMESPACE}"
 fi
-if [ "${HYPERPOD_REPLICAS}" != "1" ]; then
-    CMD="${CMD} --hyperpod-replicas=${HYPERPOD_REPLICAS}"
+if [ "${HP_REPLICAS}" != "1" ]; then
+    CMD="${CMD} --hyperpod-replicas=${HP_REPLICAS}"
 fi
 <% if (fsxVolumeHandle) { %>
 CMD="${CMD} --fsx-volume-handle=${FSX_VOLUME_HANDLE}"

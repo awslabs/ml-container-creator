@@ -438,6 +438,7 @@ program
     .option('--force', 'Regenerate all files even if version matches')
     .option('--dry-run', 'Show what would change without writing')
     .option('--no-register', 'Skip do/register after regeneration')
+    .option('--all-targets', 'Generate all deployment targets and migrate HYPERPOD_* to HP_*')
     .action(async (options) => {
         const { default: RegenerateCommandHandler } = await import('../src/lib/regenerate-command-handler.js');
         const handler = new RegenerateCommandHandler(options);

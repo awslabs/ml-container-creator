@@ -58,7 +58,7 @@ describe('batch-transform integration: generated template content', function () 
 
     // Requirement 4.1: do/deploy contains create-transform-job
     it('do/deploy contains create-transform-job when deploymentTarget === batch-transform', () => {
-        result.assertFileContent('do/deploy', 'create-transform-job');
+        result.assertFileContent('do/deploy.d/batch-transform', 'create-transform-job');
     });
 
     // Requirement 5.1: do/test contains describe-transform-job
@@ -68,12 +68,12 @@ describe('batch-transform integration: generated template content', function () 
 
     // Requirement 6.1: do/clean contains batch cleanup target
     it('do/clean contains batch cleanup target when deploymentTarget === batch-transform', () => {
-        result.assertFileContent('do/clean', 'batch');
+        result.assertFileContent('do/clean.d/batch-transform', 'batch');
     });
 
     // Requirement 6.1: do/clean contains stop-transform-job
     it('do/clean contains stop-transform-job when deploymentTarget === batch-transform', () => {
-        result.assertFileContent('do/clean', 'stop-transform-job');
+        result.assertFileContent('do/clean.d/batch-transform', 'stop-transform-job');
     });
 
     // Requirement 13.1: do/logs contains /aws/sagemaker/TransformJobs

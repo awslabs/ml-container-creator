@@ -61,7 +61,7 @@ echo "   Instance type: ${INSTANCE_TYPE}"
 echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
 echo "   SNS success: ${ASYNC_SNS_SUCCESS_TOPIC}"
 echo "   SNS error: ${ASYNC_SNS_ERROR_TOPIC}"
-<% if (asyncMaxConcurrentInvocations) { %>
+<% if (typeof asyncMaxConcurrentInvocations !== 'undefined' && asyncMaxConcurrentInvocations) { %>
 echo "   Max concurrent: ${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
 <% } %>
 
@@ -192,7 +192,7 @@ echo "   Using execution role: ${ROLE_ARN}"
 # Extract bucket name from S3 output path
 ASYNC_S3_BUCKET=$(echo "${ASYNC_S3_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
 
-<% if (!asyncS3OutputPath) { %>
+<% if (typeof asyncS3OutputPath === 'undefined' || !asyncS3OutputPath) { %>
 # Bootstrap default S3 bucket (check-and-create)
 echo "🔍 Checking if S3 bucket exists: ${ASYNC_S3_BUCKET}"
 if ! aws s3api head-bucket --bucket "${ASYNC_S3_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
@@ -233,7 +233,7 @@ echo "✅ Using custom S3 output path: ${ASYNC_S3_OUTPUT_PATH}"
 # Extract topic name from SNS success topic ARN
 ASYNC_SNS_SUCCESS_TOPIC_NAME=$(echo "${ASYNC_SNS_SUCCESS_TOPIC}" | awk -F: '{print $NF}')
 
-<% if (!asyncSnsSuccessTopic) { %>
+<% if (typeof asyncSnsSuccessTopic === 'undefined' || !asyncSnsSuccessTopic) { %>
 # Bootstrap default SNS success topic (check-and-create)
 echo "🔍 Checking if SNS success topic exists: ${ASYNC_SNS_SUCCESS_TOPIC_NAME}"
 if ! aws sns get-topic-attributes --topic-arn "${ASYNC_SNS_SUCCESS_TOPIC}" --region "${AWS_REGION}" 2>/dev/null; then
@@ -278,7 +278,7 @@ ASYNC_SNS_SUCCESS_TOPIC_NAME=$(echo "${ASYNC_SNS_SUCCESS_TOPIC}" | awk -F: '{pri
 # Extract topic name from SNS error topic ARN
 ASYNC_SNS_ERROR_TOPIC_NAME=$(echo "${ASYNC_SNS_ERROR_TOPIC}" | awk -F: '{print $NF}')
 
-<% if (!asyncSnsErrorTopic) { %>
+<% if (typeof asyncSnsErrorTopic === 'undefined' || !asyncSnsErrorTopic) { %>
 # Bootstrap default SNS error topic (check-and-create)
 echo "🔍 Checking if SNS error topic exists: ${ASYNC_SNS_ERROR_TOPIC_NAME}"
 if ! aws sns get-topic-attributes --topic-arn "${ASYNC_SNS_ERROR_TOPIC}" --region "${AWS_REGION}" 2>/dev/null; then

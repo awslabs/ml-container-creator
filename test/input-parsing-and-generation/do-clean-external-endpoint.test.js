@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const templatePath = path.join(__dirname, '../../templates/do/clean');
+const templatePath = path.join(__dirname, '../../templates/do/clean.d/managed-inference');
 const templateContent = readFileSync(templatePath, 'utf8');
 
 function renderClean(vars) {
@@ -106,8 +106,10 @@ describe('External endpoint handling in clean (Requirement 3.5)', () => {
     });
 
     it('should NOT have ic subcommand for non-realtime deployment targets', () => {
+        const asyncTemplatePath = path.join(__dirname, '../../templates/do/clean.d/async-inference');
+        const asyncTemplateContent = readFileSync(asyncTemplatePath, 'utf8');
         const asyncVars = { ...baseVars, deploymentTarget: 'async-inference' };
-        const asyncOutput = renderClean(asyncVars);
+        const asyncOutput = ejs.render(asyncTemplateContent, asyncVars, { filename: asyncTemplatePath });
 
         assert.ok(
             !asyncOutput.includes('clean_ic'),

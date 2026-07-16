@@ -224,7 +224,7 @@ fi
 BATCH_INPUT_BUCKET=$(echo "${BATCH_INPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
 BATCH_OUTPUT_BUCKET=$(echo "${BATCH_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
 
-<% if (!batchInputPath) { %>
+<% if (typeof batchInputPath === 'undefined' || !batchInputPath) { %>
 # Bootstrap default S3 input bucket (check-and-create)
 echo "🔍 Checking if S3 input bucket exists: ${BATCH_INPUT_BUCKET}"
 if ! aws s3api head-bucket --bucket "${BATCH_INPUT_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
@@ -279,7 +279,7 @@ fi
 echo "✅ Using custom S3 input path: ${BATCH_INPUT_PATH}"
 <% } %>
 
-<% if (!batchOutputPath) { %>
+<% if (typeof batchOutputPath === 'undefined' || !batchOutputPath) { %>
 # Bootstrap default S3 output bucket (check-and-create, may be same as input)
 if [ "${BATCH_OUTPUT_BUCKET}" != "${BATCH_INPUT_BUCKET}" ]; then
     echo "🔍 Checking if S3 output bucket exists: ${BATCH_OUTPUT_BUCKET}"

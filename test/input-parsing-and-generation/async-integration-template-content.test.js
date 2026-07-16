@@ -22,10 +22,10 @@ const __dirname = path.dirname(__filename);
 
 // Load all five do/ templates
 const configTemplate = readFileSync(path.join(__dirname, '../../templates/do/config'), 'utf8');
-const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy');
+const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/async-inference');
 const deployTemplate = readFileSync(deployTemplatePath, 'utf8');
 const testTemplate = readFileSync(path.join(__dirname, '../../templates/do/test'), 'utf8');
-const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean');
+const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean.d/async-inference');
 const cleanTemplate = readFileSync(cleanTemplatePath, 'utf8');
 const logsTemplate = readFileSync(path.join(__dirname, '../../templates/do/logs'), 'utf8');
 

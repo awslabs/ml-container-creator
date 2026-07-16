@@ -241,7 +241,6 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
 
             const requiredPromptNames = [
                 'buildTarget',
-                'deploymentTarget',
                 'instanceType',
                 'hyperPodCluster',
                 'awsRegion',

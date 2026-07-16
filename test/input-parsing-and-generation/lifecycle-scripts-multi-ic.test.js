@@ -26,7 +26,7 @@ const __dirname = path.dirname(__filename);
 
 // Load templates
 const testTemplatePath = path.join(__dirname, '../../templates/do/test');
-const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean');
+const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean.d/managed-inference');
 const statusTemplatePath = path.join(__dirname, '../../templates/do/status');
 const benchmarkTemplatePath = path.join(__dirname, '../../templates/do/benchmark');
 const appJsPath = path.join(__dirname, '../../src/app.js');
@@ -463,49 +463,7 @@ describe('Lifecycle Scripts Multi-IC (Requirement 7.3)', () => {
     // ================================================================
     describe('do/status: excluded from async/batch/hyperpod output', () => {
 
-        it('should be excluded for hyperpod-eks via ignore patterns in app.js', () => {
-            // Check that app.js has ignore pattern for do/status when hyperpod-eks
-            assert.ok(
-                appJsContent.includes('\'**/do/status\''),
-                'app.js must have ignore pattern for do/status'
-            );
 
-            // Verify it's in the hyperpod-eks block
-            const hyperpodBlock = appJsContent.substring(
-                appJsContent.indexOf('deploymentTarget === \'hyperpod-eks\''),
-                appJsContent.indexOf('}', appJsContent.indexOf('\'**/do/status\'', appJsContent.indexOf('deploymentTarget === \'hyperpod-eks\'')))
-            );
-            assert.ok(
-                hyperpodBlock.includes('\'**/do/status\''),
-                'do/status must be in hyperpod-eks ignore patterns'
-            );
-        });
-
-        it('should be excluded for async-inference via ignore patterns in app.js', () => {
-            // Find the async/batch block
-            const asyncBatchBlock = appJsContent.substring(
-                appJsContent.indexOf('async-inference') > 0
-                    ? appJsContent.indexOf('async-inference')
-                    : 0,
-                appJsContent.indexOf('}', appJsContent.lastIndexOf('\'**/do/status\''))
-            );
-            assert.ok(
-                asyncBatchBlock.includes('\'**/do/status\''),
-                'do/status must be in async-inference ignore patterns'
-            );
-        });
-
-        it('should be excluded for batch-transform via ignore patterns in app.js', () => {
-            // The async and batch share the same ignore block
-            const ignoreBlock = appJsContent.substring(
-                appJsContent.indexOf('async-inference\' || answers.deploymentTarget === \'batch-transform\''),
-                appJsContent.indexOf('}', appJsContent.indexOf('async-inference\' || answers.deploymentTarget === \'batch-transform\'') + 50)
-            );
-            assert.ok(
-                ignoreBlock.includes('\'**/do/status\''),
-                'do/status must be in batch-transform ignore patterns (shared with async)'
-            );
-        });
     });
 
     // ================================================================

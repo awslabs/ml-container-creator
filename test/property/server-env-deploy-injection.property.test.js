@@ -35,7 +35,7 @@ const PROPERTY_CONFIG = {
 
 // ── Load the managed-inference deploy template ───────────────────────────────
 
-const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference.ejs');
+const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference');
 const DEPLOY_TEMPLATE = readFileSync(TEMPLATE_PATH, 'utf-8'); // eslint-disable-line no-unused-vars
 
 // ── Extract the server-env injection EJS snippet ─────────────────────────────

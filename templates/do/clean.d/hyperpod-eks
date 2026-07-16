@@ -176,8 +176,8 @@ clean_ecr() {
 # Function to clean HyperPod EKS deployment
 clean_hyperpod() {
     echo "🧹 Cleaning HyperPod EKS resources"
-    echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
-    echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+    echo "   Cluster: ${HP_CLUSTER_NAME}"
+    echo "   Namespace: ${HP_NAMESPACE}"
     
     if ! aws sts get-caller-identity &> /dev/null; then
         echo "❌ AWS credentials not configured"
@@ -187,14 +187,14 @@ clean_hyperpod() {
 
     # Get kubeconfig for HyperPod cluster
     echo "🔑 Configuring kubectl for HyperPod cluster..."
-    KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+    KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME}"
 
     EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
-        --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+        --cluster-name "${HP_CLUSTER_NAME}" \
         --region "${AWS_REGION}" \
         --query "Orchestrator.Eks.ClusterArn" \
         --output text 2>&1) || {
-        echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+        echo "❌ Failed to describe HyperPod cluster: ${HP_CLUSTER_NAME}"
         echo "   Check that the cluster exists and you have permission to access it"
         return 1
     }
@@ -211,7 +211,7 @@ clean_hyperpod() {
 
     export KUBECONFIG="${KUBECONFIG_PATH}"
     
-    if ! confirm_action "This will delete the HyperPod deployment in namespace ${HYPERPOD_NAMESPACE}"; then
+    if ! confirm_action "This will delete the HyperPod deployment in namespace ${HP_NAMESPACE}"; then
         return 1
     fi
     
@@ -224,7 +224,7 @@ clean_hyperpod() {
         # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
         RENDERED=$(envsubst < "${manifest}")
         if echo "${RENDERED}" | grep -q '^kind:'; then
-            if ! echo "${RENDERED}" | kubectl delete -n "${HYPERPOD_NAMESPACE}" --ignore-not-found -f - 2>&1; then
+            if ! echo "${RENDERED}" | kubectl delete -n "${HP_NAMESPACE}" --ignore-not-found -f - 2>&1; then
                 DELETE_FAILED=true
             fi
         fi
@@ -232,12 +232,12 @@ clean_hyperpod() {
     if [ "${DELETE_FAILED}" = true ]; then
         echo "❌ Failed to delete some Kubernetes resources"
         echo "   You may need to manually clean up:"
-        echo "   kubectl get all -n ${HYPERPOD_NAMESPACE}"
+        echo "   kubectl get all -n ${HP_NAMESPACE}"
         return 1
     fi
 
     # Mark k8s resources as deleted in manifest (non-blocking)
-    ./do/manifest delete --id "${HYPERPOD_NAMESPACE}/${PROJECT_NAME}" 2>/dev/null || true
+    ./do/manifest delete --id "${HP_NAMESPACE}/${PROJECT_NAME}" 2>/dev/null || true
     
     echo "✅ HyperPod EKS resources cleaned"
 }

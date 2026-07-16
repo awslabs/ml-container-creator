@@ -193,6 +193,12 @@ export default class PromptRunner {
         const regionPreviousAnswers = bootstrapRegion ? { _bootstrapRegion: bootstrapRegion } : {};
         const regionAndTargetAnswers = await this._runPhase(infraRegionAndTargetPrompts, { ...frameworkAnswers, ...regionPreviousAnswers }, explicitConfig, existingConfig);
 
+        // BL062: deploymentTarget no longer prompted — default to realtime-inference for backward compat.
+        // All targets are always generated; DEPLOYMENT_TARGET is a runtime selection.
+        if (!regionAndTargetAnswers.deploymentTarget) {
+            regionAndTargetAnswers.deploymentTarget = explicitConfig.deploymentTarget || 'realtime-inference';
+        }
+
         // NOTE: Base image selection moved to Phase 3 (after instance type resolution)
         // to enable driver-aware filtering. See US-1 ordering constraint in requirements.
 

@@ -23,7 +23,7 @@ const __dirname = path.dirname(__filename);
 
 // Load templates
 const configTemplate = readFileSync(path.join(__dirname, '../../templates/do/config'), 'utf8');
-const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean');
+const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean.d/managed-inference');
 const cleanTemplate = readFileSync(cleanTemplatePath, 'utf8');
 const benchmarkTemplatePath = path.join(__dirname, '../../templates/do/benchmark');
 

@@ -354,28 +354,6 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
 
     // EJS partials — included by templates at render time, not copied to output
     ignorePatterns.push('**/serve.d/**');
-    ignorePatterns.push('**/deploy.d/**');
-    ignorePatterns.push('**/clean.d/**');
-
-    if (answers.deploymentTarget !== 'hyperpod-eks') {
-        ignorePatterns.push('**/hyperpod/**');
-    }
-
-    // HyperPod is kubectl-based — no shared bash helpers or IC configs
-    if (answers.deploymentTarget === 'hyperpod-eks') {
-        ignorePatterns.push('**/do/lib/**');
-        ignorePatterns.push('**/do/ic/**');
-        ignorePatterns.push('**/do/add-ic');
-        ignorePatterns.push('**/do/status');
-        ignorePatterns.push('**/do/optimize');
-    }
-
-    // Async and batch don't use inference components (IC is real-time only)
-    if (answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform') {
-        ignorePatterns.push('**/do/ic/**');
-        ignorePatterns.push('**/do/add-ic');
-        ignorePatterns.push('**/do/status');
-    }
 
     // Resolve architecture
     const resolver = new DeploymentConfigResolver();

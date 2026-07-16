@@ -80,66 +80,61 @@ export CAPACITY_RESERVATION_ARN="<%= capacityReservationArn %>"
 <% } %>
 <% } %>
 
-<% if (deploymentTarget === 'async-inference') { %>
-# SageMaker Async Inference configuration
-export INSTANCE_TYPE="<%= instanceType %>"
-<% if (inferenceAmiVersion) { %>
-export INFERENCE_AMI_VERSION="<%= inferenceAmiVersion %>"
-<% } else { %>
-# Inference AMI version — auto-resolved from CUDA version (uncomment to override)
-# export INFERENCE_AMI_VERSION=""
-<% } %>
-
-# Async-specific configuration
-# ── Profile-resolved values (from ~/.ml-container-creator/config.json) ────
+<% if (typeof asyncMaxConcurrentInvocations !== 'undefined' && asyncMaxConcurrentInvocations) { %>
+# ── Async Inference ──────────────────────────────────────────────────────────
 # ASYNC_S3_OUTPUT_PATH, ASYNC_SNS_SUCCESS_TOPIC, ASYNC_SNS_ERROR_TOPIC — see do/lib/profile.sh
-# ACCOUNT_ID — derived inline in consuming scripts (do/deploy.d/async-inference)
-
-<% if (asyncMaxConcurrentInvocations) { %>
 export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
 <% } else { %>
-# Max concurrent invocations per instance (uncomment to set)
-# export ASYNC_MAX_CONCURRENT_INVOCATIONS=""
-<% } %>
+# ── Async Inference (configure when using async-inference target) ─────────────
+# ASYNC_S3_OUTPUT_PATH, ASYNC_SNS_SUCCESS_TOPIC, ASYNC_SNS_ERROR_TOPIC — see do/lib/profile.sh
+# ASYNC_MAX_CONCURRENT_INVOCATIONS=""
 <% } %>
 
-<% if (deploymentTarget === 'hyperpod-eks') { %>
-# HyperPod EKS configuration
-export HYPERPOD_CLUSTER_NAME="<%= hyperPodCluster %>"
-export HYPERPOD_NAMESPACE="<%= hyperPodNamespace %>"
-export HYPERPOD_REPLICAS="<%= hyperPodReplicas %>"
-<% if (fsxVolumeHandle) { %>
+<% if (typeof hyperPodCluster !== 'undefined' && hyperPodCluster) { %>
+# ── HyperPod EKS ────────────────────────────────────────────────────────────
+export HP_CLUSTER_NAME="<%= hyperPodCluster %>"
+export HP_NAMESPACE="<%= typeof hyperPodNamespace !== 'undefined' ? hyperPodNamespace : 'default' %>"
+export HP_REPLICAS="<%= typeof hyperPodReplicas !== 'undefined' ? hyperPodReplicas : '1' %>"
+<% if (typeof fsxVolumeHandle !== 'undefined' && fsxVolumeHandle) { %>
 export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 <% } else { %>
 # FSx for Lustre volume for shared model storage (uncomment to enable)
 # export FSX_VOLUME_HANDLE=""
 <% } %>
+<% } else { %>
+# ── HyperPod EKS (configure when using hyperpod-eks target) ──────────────────
+# HP_CLUSTER_NAME=""
+# HP_NAMESPACE="default"
+# HP_REPLICAS="1"
+# FSX_VOLUME_HANDLE=""
 <% } %>
 
-<% if (deploymentTarget === 'batch-transform') { %>
-# SageMaker Batch Transform configuration
-export INSTANCE_TYPE="<%= instanceType %>"
-
-# ── Profile-resolved values (from ~/.ml-container-creator/config.json) ────
+<% if (typeof batchInstanceCount !== 'undefined' && batchInstanceCount) { %>
+# ── Batch Transform ──────────────────────────────────────────────────────────
 # BATCH_INPUT_PATH, BATCH_OUTPUT_PATH — see do/lib/profile.sh
-# ACCOUNT_ID — derived inline in consuming scripts (do/deploy.d/batch-transform)
-
 export BATCH_INSTANCE_COUNT="<%= batchInstanceCount %>"
 export BATCH_SPLIT_TYPE="<%= batchSplitType %>"
 export BATCH_STRATEGY="<%= batchStrategy %>"
 export BATCH_JOIN_SOURCE="<%= batchJoinSource || 'None' %>"
-<% if (batchMaxConcurrentTransforms) { %>
+<% if (typeof batchMaxConcurrentTransforms !== 'undefined' && batchMaxConcurrentTransforms) { %>
 export BATCH_MAX_CONCURRENT_TRANSFORMS="<%= batchMaxConcurrentTransforms %>"
 <% } else { %>
-# Max concurrent transforms per instance (uncomment to set)
 # export BATCH_MAX_CONCURRENT_TRANSFORMS=""
 <% } %>
-<% if (batchMaxPayloadInMB) { %>
+<% if (typeof batchMaxPayloadInMB !== 'undefined' && batchMaxPayloadInMB) { %>
 export BATCH_MAX_PAYLOAD_IN_MB="<%= batchMaxPayloadInMB %>"
 <% } else { %>
-# Max payload size in MB (uncomment to set, default: 6)
 # export BATCH_MAX_PAYLOAD_IN_MB=""
 <% } %>
+<% } else { %>
+# ── Batch Transform (configure when using batch-transform target) ────────────
+# BATCH_INPUT_PATH, BATCH_OUTPUT_PATH — see do/lib/profile.sh
+# export BATCH_INSTANCE_COUNT="1"
+# export BATCH_SPLIT_TYPE="Line"
+# export BATCH_STRATEGY="MultiRecord"
+# export BATCH_JOIN_SOURCE="None"
+# export BATCH_MAX_CONCURRENT_TRANSFORMS=""
+# export BATCH_MAX_PAYLOAD_IN_MB=""
 <% } %>
 
 <% if (typeof endpointInitialInstanceCount !== 'undefined' && endpointInitialInstanceCount != null) { %>
@@ -426,6 +421,6 @@ echo "   S3 output: ${BATCH_OUTPUT_PATH}"
 echo "   Split type: ${BATCH_SPLIT_TYPE}"
 echo "   Strategy: ${BATCH_STRATEGY}"
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
-echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
-echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+echo "   HyperPod cluster: ${HP_CLUSTER_NAME}"
+echo "   Namespace: ${HP_NAMESPACE}"
 <% } %>

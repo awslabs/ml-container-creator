@@ -704,21 +704,21 @@ case "${TEST_TARGET}" in
         echo "   Project: ${PROJECT_NAME}"
         echo "   Framework: ${FRAMEWORK}"
         echo "   Model server: ${MODEL_SERVER}"
-        echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
-        echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+        echo "   Cluster: ${HP_CLUSTER_NAME}"
+        echo "   Namespace: ${HP_NAMESPACE}"
         echo "   Region: ${AWS_REGION}"
         echo ""
         
         # Get kubeconfig for HyperPod cluster
         echo "🔑 Configuring kubectl for HyperPod cluster..."
-        KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+        KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME}"
         
         EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
-            --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+            --cluster-name "${HP_CLUSTER_NAME}" \
             --region "${AWS_REGION}" \
             --query "Orchestrator.Eks.ClusterArn" \
             --output text 2>&1) || {
-            echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+            echo "❌ Failed to describe HyperPod cluster: ${HP_CLUSTER_NAME}"
             echo ""
             echo "   Check that:"
             echo "   • The cluster name is correct"
@@ -751,7 +751,7 @@ case "${TEST_TARGET}" in
         echo ""
         echo "🔌 Port-forwarding svc/${PROJECT_NAME} to localhost:${LOCAL_PORT}..."
         kubectl port-forward "svc/${PROJECT_NAME}" "${LOCAL_PORT}:8080" \
-            -n "${HYPERPOD_NAMESPACE}" &
+            -n "${HP_NAMESPACE}" &
         PF_PID=$!
         
         # Wait for port-forward to establish
@@ -765,8 +765,8 @@ case "${TEST_TARGET}" in
             echo "❌ Port-forward failed to start"
             echo ""
             echo "   Check that:"
-            echo "   • The service exists: kubectl get svc ${PROJECT_NAME} -n ${HYPERPOD_NAMESPACE}"
-            echo "   • The deployment is running: kubectl get pods -n ${HYPERPOD_NAMESPACE}"
+            echo "   • The service exists: kubectl get svc ${PROJECT_NAME} -n ${HP_NAMESPACE}"
+            echo "   • The deployment is running: kubectl get pods -n ${HP_NAMESPACE}"
             exit 1
         fi
         echo "✅ Port-forward established"
@@ -942,8 +942,8 @@ else
 <% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
     echo "   • Benchmark performance:      ./do/benchmark"
 <% } %>
-    echo "   • Check pod status:           kubectl get pods -n ${HYPERPOD_NAMESPACE}"
-    echo "   • View pod logs:              kubectl logs -n ${HYPERPOD_NAMESPACE} -l app=${PROJECT_NAME}"
+    echo "   • Check pod status:           kubectl get pods -n ${HP_NAMESPACE}"
+    echo "   • View pod logs:              kubectl logs -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
     echo "   • Register this deployment:   ./do/register"
     echo "   • View logs:                  ./do/logs"
 fi

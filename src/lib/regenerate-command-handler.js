@@ -103,11 +103,13 @@ export default class RegenerateCommandHandler {
      * @param {boolean} [options.dryRun] - Show what would change without writing
      * @param {boolean} [options.force] - Regenerate even if version matches
      * @param {boolean} [options.noRegister] - Skip do/register after regeneration
+     * @param {boolean} [options.allTargets] - Generate all deployment targets (BL062 migration)
      */
-    constructor({ dryRun, force, noRegister } = {}) {
+    constructor({ dryRun, force, noRegister, allTargets } = {}) {
         this.dryRun = dryRun || false;
         this.force = force || false;
         this.noRegister = noRegister || false;
+        this.allTargets = allTargets || false;
     }
 
     /**
@@ -212,6 +214,39 @@ export default class RegenerateCommandHandler {
 
         // Ensure destinationDir is set
         answers.destinationDir = answers.destinationDir || cwd;
+
+        // BL062: --all-targets migration
+        if (this.allTargets) {
+            // Remove deploymentTarget from answers so all targets are generated
+            console.log('   🎯 --all-targets: generating all deployment targets');
+            // Keep deploymentTarget as default for backward compat
+            if (!answers.deploymentTarget) {
+                answers.deploymentTarget = 'realtime-inference';
+            }
+
+            // Migrate HYPERPOD_* → HP_* in existing do/config
+            const existingConfigContent = readFileSync(configPath, 'utf8');
+            let migratedCount = 0;
+            const renames = [
+                ['HYPERPOD_CLUSTER_NAME', 'HP_CLUSTER_NAME'],
+                ['HYPERPOD_EKS_CLUSTER_NAME', 'HP_EKS_CLUSTER_NAME'],
+                ['HYPERPOD_NAMESPACE', 'HP_NAMESPACE'],
+                ['HYPERPOD_REPLICAS', 'HP_REPLICAS'],
+                ['HYPERPOD_SUBNET_ID', 'HP_SUBNET_ID'],
+                ['HYPERPOD_EFA_ENABLED', 'HP_EFA_ENABLED']
+            ];
+            let migratedContent = existingConfigContent;
+            for (const [oldName, newName] of renames) {
+                if (migratedContent.includes(oldName)) {
+                    migratedContent = migratedContent.replace(new RegExp(oldName, 'g'), newName);
+                    migratedCount++;
+                }
+            }
+            if (migratedCount > 0) {
+                writeFileSync(configPath, migratedContent);
+                console.log(`   📝 Renamed ${migratedCount} HYPERPOD_* vars to HP_* in do/config`);
+            }
+        }
 
         if (this.dryRun) {
             console.log('\n📋 Dry run — showing what would be regenerated');

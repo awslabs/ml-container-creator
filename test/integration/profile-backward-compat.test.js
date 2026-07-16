@@ -193,7 +193,7 @@ echo "AWS_REGION=\${AWS_REGION}"
         });
 
         it('do/deploy still sources profile.sh (coexistence with old exports)', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('source "${SCRIPT_DIR}/lib/profile.sh"'),
                 'do/deploy should source profile.sh even when do/config has old exports'
@@ -201,7 +201,7 @@ echo "AWS_REGION=\${AWS_REGION}"
         });
 
         it('do/deploy uses the precedence pattern for ROLE_ARN', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn'),
                 'do/deploy should use ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn..." pattern'
@@ -317,7 +317,7 @@ echo "AWS_REGION=\${AWS_REGION}"
         });
 
         it('do/deploy sources profile.sh', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('source "${SCRIPT_DIR}/lib/profile.sh"'),
                 'do/deploy should source profile.sh'
@@ -341,7 +341,7 @@ echo "AWS_REGION=\${AWS_REGION}"
         });
 
         it('do/deploy uses _PROFILE_ variables for profile-resolved values', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('_PROFILE_roleArn'),
                 'do/deploy should reference _PROFILE_roleArn for role resolution'
@@ -383,7 +383,7 @@ echo "AWS_REGION=\${AWS_REGION}"
         });
 
         it('do/deploy references _PROFILE_roleArn for ROLE_ARN resolution', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('_PROFILE_roleArn'),
                 'do/deploy should use _PROFILE_roleArn for role resolution'
@@ -391,7 +391,7 @@ echo "AWS_REGION=\${AWS_REGION}"
         });
 
         it('do/deploy references _PROFILE_ecrRepositoryName for ECR resolution', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('_PROFILE_ecrRepositoryName'),
                 'do/deploy should use _PROFILE_ecrRepositoryName for ECR resolution'
@@ -399,7 +399,7 @@ echo "AWS_REGION=\${AWS_REGION}"
         });
 
         it('do/deploy references _PROFILE_awsRegion for AWS_REGION resolution', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('_PROFILE_awsRegion'),
                 'do/deploy should use _PROFILE_awsRegion for region resolution'
@@ -454,7 +454,7 @@ echo "ECR_REPOSITORY_NAME=\${ECR_REPOSITORY_NAME}"
         });
 
         it('do/deploy has validation check for empty ROLE_ARN', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('if [ -z "${ROLE_ARN:-}" ]'),
                 'do/deploy should check if ROLE_ARN is empty'
@@ -462,7 +462,7 @@ echo "ECR_REPOSITORY_NAME=\${ECR_REPOSITORY_NAME}"
         });
 
         it('do/deploy error message mentions bootstrap command', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('ml-container-creator bootstrap'),
                 'do/deploy error message should tell user to run ml-container-creator bootstrap'
@@ -470,7 +470,7 @@ echo "ECR_REPOSITORY_NAME=\${ECR_REPOSITORY_NAME}"
         });
 
         it('do/deploy error message mentions setting ROLE_ARN as env var', () => {
-            const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
             assert.ok(
                 deployContent.includes('ROLE_ARN') && deployContent.includes('environment variable'),
                 'do/deploy error message should mention setting ROLE_ARN as an environment variable'
@@ -593,7 +593,7 @@ echo "CHILD_REGION=\${CHILD_REGION}"
                 'include-testing': false
             });
             try {
-                const deployContent = fs.readFileSync(result.file('do/deploy'), 'utf-8');
+                const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf-8');
                 assert.ok(
                     deployContent.includes('export AWS_REGION='),
                     'do/deploy should export AWS_REGION (not just set it)'

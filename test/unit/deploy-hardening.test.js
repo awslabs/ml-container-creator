@@ -24,7 +24,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference.ejs');
+const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference');
 const templateContent = readFileSync(TEMPLATE_PATH, 'utf-8');
 
 // ── CI-Mode Detection (Task 4.1) ────────────────────────────────────────────

@@ -29,7 +29,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const templatePath = path.join(__dirname, '../../templates/do/deploy');
+const templatePath = path.join(__dirname, '../../templates/do/deploy.d/managed-inference');
 const templateContent = readFileSync(templatePath, 'utf8');
 
 /**

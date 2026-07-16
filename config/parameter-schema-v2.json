@@ -143,7 +143,7 @@
                     "hyperpod-eks"
                 ]
             },
-            "phase": "infrastructure",
+            "phase": "deprecated",
             "group": "infrastructure",
             "appliesTo": {
                 "deploymentTargets": [
@@ -157,11 +157,7 @@
                 "section": "infrastructure",
                 "inputType": "select"
             },
-            "prompt": {
-                "message": "Deployment target?",
-                "type": "list"
-            },
-            "deprecated": false,
+            "deprecated": true,
             "since": "0.4.0"
         },
         "instanceType": {

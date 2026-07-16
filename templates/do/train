@@ -944,7 +944,7 @@ _submit_job() {
     # Persist job name to do/config
     _update_config_var "TRAIN_JOB_NAME" "${JOB_NAME}"
     echo "   ✅ Job submitted: ${JOB_NAME}"
-    echo "   Namespace: ${HYPERPOD_NAMESPACE:-default}"
+    echo "   Namespace: ${HP_NAMESPACE:-default}"
     echo ""
 }
 
@@ -978,7 +978,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: ${JOB_NAME}
-  namespace: ${HYPERPOD_NAMESPACE:-default}
+  namespace: ${HP_NAMESPACE:-default}
   labels:
     app: ml-container-creator
     project: ${PROJECT_NAME}
@@ -1040,7 +1040,7 @@ MANIFEST
 # HyperPod EKS: Poll K8s Job status via kubectl.
 _poll_job() {
     local job_name="${JOB_NAME:-$TRAIN_JOB_NAME}"
-    local namespace="${HYPERPOD_NAMESPACE:-default}"
+    local namespace="${HP_NAMESPACE:-default}"
 
     echo "⏳ Polling K8s Job: ${job_name} (namespace: ${namespace})"
     echo "   (Ctrl+C to stop polling — job continues in cluster)"
