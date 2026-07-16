@@ -55,8 +55,7 @@ describe('Feature: marketplace-model-packages, Property 11: Deployment target pr
                             'deployment-config': 'marketplace',
                             'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
                             'instance-type': instanceType,
-                            region,
-                            'deployment-target': deploymentTarget
+                            region
                         });
                     } catch (e) {
                         // Generation failure is acceptable for some combinations
@@ -64,17 +63,21 @@ describe('Feature: marketplace-model-packages, Property 11: Deployment target pr
                     }
 
                     try {
-                        // All targets must use ModelPackageName
+                        // All targets must use ModelPackageName in main deploy
                         result.assertFileContent('do/deploy', 'ModelPackageName');
 
-                        // Target-specific assertions
+                        // BL062: target-specific config is in deploy.d/ sub-scripts (all always present)
                         if (deploymentTarget === 'realtime-inference') {
                             result.assertFileContent('do/deploy', 'CreateEndpointConfig');
                             result.assertFileContent('do/deploy', 'CreateEndpoint');
                         } else if (deploymentTarget === 'async-inference') {
-                            result.assertFileContent('do/deploy', 'async');
+                            // Async config now in deploy.d/async-inference
+                            result.assertFile('do/deploy.d/async-inference');
+                            result.assertFileContent('do/deploy.d/async-inference', 'async');
                         } else if (deploymentTarget === 'batch-transform') {
-                            result.assertFileContent('do/deploy', 'transform');
+                            // Batch config now in deploy.d/batch-transform
+                            result.assertFile('do/deploy.d/batch-transform');
+                            result.assertFileContent('do/deploy.d/batch-transform', 'transform');
                         }
                     } finally {
                         result.cleanup();

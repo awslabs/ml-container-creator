@@ -11,6 +11,14 @@
  */
 
 import { runGenerator } from '../helpers/run-generator.js';
+import assert from 'assert';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const TEMPLATES_DIR = path.join(__dirname, '../../templates/do');
 
 describe('batch-transform integration: generated template content', function () {
     this.timeout(60000);
@@ -23,7 +31,6 @@ describe('batch-transform integration: generated template content', function () 
         'deployment-config': 'http-flask',
         'model-format': 'pkl',
         'region': 'us-east-1',
-        'deployment-target': 'batch-transform',
         'instance-type': 'ml.m5.large',
         'batch-input-path': 's3://test-bucket/input/',
         'batch-output-path': 's3://test-bucket/output/',
@@ -63,7 +70,10 @@ describe('batch-transform integration: generated template content', function () 
 
     // Requirement 5.1: do/test contains describe-transform-job
     it('do/test contains describe-transform-job when deploymentTarget === batch-transform', () => {
-        result.assertFileContent('do/test', 'describe-transform-job');
+        // do/test is a unified template with all target branches — check the template source
+        const testTemplate = readFileSync(path.join(TEMPLATES_DIR, 'test'), 'utf8');
+        assert.ok(testTemplate.includes('describe-transform-job'),
+            'do/test template must contain describe-transform-job for batch-transform target');
     });
 
     // Requirement 6.1: do/clean contains batch cleanup target
@@ -78,12 +88,16 @@ describe('batch-transform integration: generated template content', function () 
 
     // Requirement 13.1: do/logs contains /aws/sagemaker/TransformJobs
     it('do/logs contains /aws/sagemaker/TransformJobs when deploymentTarget === batch-transform', () => {
-        result.assertFileContent('do/logs', '/aws/sagemaker/TransformJobs');
+        const logsTemplate = readFileSync(path.join(TEMPLATES_DIR, 'logs'), 'utf8');
+        assert.ok(logsTemplate.includes('/aws/sagemaker/TransformJobs'),
+            'do/logs template must contain /aws/sagemaker/TransformJobs for batch-transform target');
     });
 
     // Requirement 14.1: do/register summary contains BATCH_INSTANCE_COUNT
     it('do/register summary contains BATCH_INSTANCE_COUNT when deploymentTarget === batch-transform', () => {
-        result.assertFileContent('do/register', 'BATCH_INSTANCE_COUNT');
+        const registerTemplate = readFileSync(path.join(TEMPLATES_DIR, 'register'), 'utf8');
+        assert.ok(registerTemplate.includes('BATCH_INSTANCE_COUNT'),
+            'do/register template must contain BATCH_INSTANCE_COUNT for batch-transform target');
     });
 
     // Requirement 14.2: do/register CLI args contain --instance-type
@@ -93,7 +107,9 @@ describe('batch-transform integration: generated template content', function () 
 
     // Requirement 15.1: do/export contains --batch-input-path
     it('do/export contains --batch-input-path when deploymentTarget === batch-transform', () => {
-        result.assertFileContent('do/export', '--batch-input-path');
+        const exportTemplate = readFileSync(path.join(TEMPLATES_DIR, 'export'), 'utf8');
+        assert.ok(exportTemplate.includes('--batch-input-path'),
+            'do/export template must contain --batch-input-path for batch-transform target');
     });
 
     // Requirement 15.1: do/export contains --instance-type

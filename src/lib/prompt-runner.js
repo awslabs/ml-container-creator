@@ -775,6 +775,18 @@ export default class PromptRunner {
             delete combinedAnswers.customHyperPodCluster;
         }
 
+        // Wire instance-sizer result to HP_GPU_COUNT and HP_NODE_SELECTOR for HyperPod deployments
+        if (combinedAnswers.deploymentTarget === 'hyperpod-eks') {
+            if (combinedAnswers.gpuCount) {
+                combinedAnswers.HP_GPU_COUNT = String(combinedAnswers.gpuCount);
+            } else {
+                combinedAnswers.HP_GPU_COUNT = combinedAnswers.HP_GPU_COUNT || '1';
+            }
+            if (combinedAnswers.instanceType && !combinedAnswers.HP_NODE_SELECTOR) {
+                combinedAnswers.HP_NODE_SELECTOR = combinedAnswers.instanceType;
+            }
+        }
+
         // Propagate max_model_len from instance-sizer context capping (AC-1.7)
         if (this._sizerMaxModelLen) {
             combinedAnswers.sizerMaxModelLen = this._sizerMaxModelLen;

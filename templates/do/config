@@ -95,6 +95,16 @@ export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
 export HP_CLUSTER_NAME="<%= hyperPodCluster %>"
 export HP_NAMESPACE="<%= typeof hyperPodNamespace !== 'undefined' ? hyperPodNamespace : 'default' %>"
 export HP_REPLICAS="<%= typeof hyperPodReplicas !== 'undefined' ? hyperPodReplicas : '1' %>"
+export HP_GPU_COUNT="<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : (typeof gpuCount !== 'undefined' && gpuCount ? gpuCount : '1') %>"
+export HP_NODE_SELECTOR="<%= typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR ? HP_NODE_SELECTOR : '' %>"
+export HP_EFA_ENABLED="<%= typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED ? HP_EFA_ENABLED : 'false' %>"
+export HP_MEM_REQUEST="<%= typeof HP_MEM_REQUEST !== 'undefined' && HP_MEM_REQUEST ? HP_MEM_REQUEST : '' %>"
+export HP_CPU_REQUEST="<%= typeof HP_CPU_REQUEST !== 'undefined' && HP_CPU_REQUEST ? HP_CPU_REQUEST : '' %>"
+<% if (typeof HP_QUEUE !== 'undefined' && HP_QUEUE) { %>
+export HP_QUEUE="<%= HP_QUEUE %>"
+<% } else { %>
+# export HP_QUEUE=""
+<% } %>
 <% if (typeof fsxVolumeHandle !== 'undefined' && fsxVolumeHandle) { %>
 export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 <% } else { %>
@@ -106,6 +116,12 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 # HP_CLUSTER_NAME=""
 # HP_NAMESPACE="default"
 # HP_REPLICAS="1"
+# HP_GPU_COUNT="1"
+# HP_NODE_SELECTOR=""
+# HP_EFA_ENABLED="false"
+# HP_MEM_REQUEST=""
+# HP_CPU_REQUEST=""
+# HP_QUEUE=""
 # FSX_VOLUME_HANDLE=""
 <% } %>
 

@@ -384,8 +384,7 @@ describe('Marketplace Prompt Flow', () => {
                     'deployment-config': 'marketplace',
                     'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
                     'instance-type': 'ml.g5.xlarge',
-                    'region': 'us-east-1',
-                    'deployment-target': 'realtime-inference'
+                    'region': 'us-east-1'
                 });
             } catch (e) {
                 // If generation fails due to missing wiring (task 5.1), skip this test
@@ -415,8 +414,7 @@ describe('Marketplace Prompt Flow', () => {
                     'deployment-config': 'marketplace',
                     'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
                     'instance-type': 'ml.g5.xlarge',
-                    'region': 'us-east-1',
-                    'deployment-target': 'realtime-inference'
+                    'region': 'us-east-1'
                 });
             } catch (e) {
                 // If generation fails due to missing wiring (task 5.1), skip this test

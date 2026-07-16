@@ -7,6 +7,9 @@ metadata:
     app: <%= projectName %>
     framework: <%= framework %>
     managed-by: ml-container-creator
+<% if (typeof HP_QUEUE !== 'undefined' && HP_QUEUE) { %>
+    kueue.x-k8s.io/queue-name: "<%= HP_QUEUE %>"
+<% } %>
 spec:
   replicas: <%= hyperPodReplicas %>
   selector:
@@ -17,6 +20,9 @@ spec:
       labels:
         app: <%= projectName %>
         framework: <%= framework %>
+<% if (typeof HP_QUEUE !== 'undefined' && HP_QUEUE) { %>
+        kueue.x-k8s.io/queue-name: "<%= HP_QUEUE %>"
+<% } %>
     spec:
       containers:
         - name: <%= projectName %>
@@ -27,15 +33,32 @@ spec:
           envFrom:
             - configMapRef:
                 name: <%= projectName %>-config
+          env:
+            - name: VLLM_TENSOR_PARALLEL_SIZE
+              value: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+            - name: NCCL_SOCKET_IFNAME
+              value: "eth"
+            - name: FI_PROVIDER
+              value: "efa"
+            - name: NCCL_PROTOCOL
+              value: "simple"
+<% } %>
           resources:
             requests:
-              cpu: "4"
-              memory: "16Gi"
-              nvidia.com/gpu: "1"
+              cpu: "<%= typeof HP_CPU_REQUEST !== 'undefined' && HP_CPU_REQUEST ? HP_CPU_REQUEST : String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>"
+              memory: "<%= typeof HP_MEM_REQUEST !== 'undefined' && HP_MEM_REQUEST ? HP_MEM_REQUEST : String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) + 'Gi' %>"
+              nvidia.com/gpu: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+              vpc.amazonaws.com/efa: "1"
+<% } %>
             limits:
-              cpu: "8"
-              memory: "32Gi"
-              nvidia.com/gpu: "1"
+              cpu: "<%= typeof HP_CPU_REQUEST !== 'undefined' && HP_CPU_REQUEST ? String(parseInt(HP_CPU_REQUEST) * 2) : String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 8) %>"
+              memory: "<%= typeof HP_MEM_REQUEST !== 'undefined' && HP_MEM_REQUEST ? String(parseInt(HP_MEM_REQUEST) * 2) + 'Gi' : String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 32) + 'Gi' %>"
+              nvidia.com/gpu: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+              vpc.amazonaws.com/efa: "1"
+<% } %>
 <% if (fsxVolumeHandle) { %>
           volumeMounts:
             - name: fsx-storage
@@ -54,8 +77,13 @@ spec:
             initialDelaySeconds: 900
             periodSeconds: 30
             failureThreshold: 5
+<% if (typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR) { %>
+      nodeSelector:
+        node.kubernetes.io/instance-type: "<%= HP_NODE_SELECTOR %>"
+<% } else { %>
       nodeSelector:
         node.kubernetes.io/instance-type: <%= instanceType %>
+<% } %>
       tolerations:
         - key: "nvidia.com/gpu"
           operator: "Exists"

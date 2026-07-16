@@ -21,8 +21,7 @@ describe('Marketplace Generation (Integration)', () => {
         'deployment-config': 'marketplace',
         'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
         'instance-type': 'ml.g5.xlarge',
-        'region': 'us-east-1',
-        'deployment-target': 'realtime-inference'
+        'region': 'us-east-1'
     };
 
     // ── File structure verification ──────────────────────────────────────

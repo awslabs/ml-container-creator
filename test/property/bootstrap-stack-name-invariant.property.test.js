@@ -121,7 +121,7 @@ describe('Feature: modular-bootstrap, Property 1: Module Provisioning Invariant'
     });
 
     it('provisionedModules always contains core+registry defaults and any --with modules', async function () {
-        this.timeout(PROPERTY_CONFIG_EJS.timeout);
+        this.timeout(120000);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T17:50:31.208Z",
+  "generatedAt": "2026-07-16T20:46:01.231Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
   "version": "1.3.4",
@@ -1045,6 +1045,66 @@
       "key": "fsxVolumeHandle",
       "cliFlag": "--fsx-volume-handle",
       "description": "FSx for Lustre volume handle",
+      "type": "string",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hpGpuCount",
+      "cliFlag": "--hp-gpu-count",
+      "description": "Number of GPUs to request per pod (sets nvidia.com/gpu and VLLM_TENSOR_PARALLEL_SIZE)",
+      "type": "integer",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hpNodeSelector",
+      "cliFlag": "--hp-node-selector",
+      "description": "Instance type for Kubernetes nodeSelector (e.g. ml.g5.12xlarge)",
+      "type": "string",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hpEfaEnabled",
+      "cliFlag": "--hp-efa-enabled",
+      "description": "Enable EFA device requests for NCCL optimization (true/false)",
+      "type": "string",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hpMemRequest",
+      "cliFlag": "--hp-mem-request",
+      "description": "Override memory request (e.g. '64Gi'). If empty, auto-scales 16Gi per GPU.",
+      "type": "string",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hpCpuRequest",
+      "cliFlag": "--hp-cpu-request",
+      "description": "Override CPU request (e.g. '16'). If empty, auto-scales 4 CPU per GPU.",
+      "type": "string",
+      "group": "hyperpod",
+      "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": false
+    },
+    {
+      "key": "hpQueue",
+      "cliFlag": "--hp-queue",
+      "description": "Kueue queue name or PriorityClass for fair scheduling",
       "type": "string",
       "group": "hyperpod",
       "phase": "infrastructure",
