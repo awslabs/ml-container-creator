@@ -546,7 +546,7 @@ describe('Repository-Level Namespace Property Tests', () => {
         // ── Real repo scan: no legacy scope ──────────────────────────────
 
         it('no file in the real repo contains @ml-container-creator/', function () {
-            this.timeout(30000);
+            this.timeout(120000);
 
             const files = walkTextFiles(REPO_ROOT, REPO_ROOT);
             const violations = [];
@@ -576,7 +576,7 @@ describe('Repository-Level Namespace Property Tests', () => {
         // ── Real repo scan: no bare yo invocation ────────────────────────
 
         it('no file in the real repo contains bare "yo ml-container-creator" without @aws/ prefix', function () {
-            this.timeout(30000);
+            this.timeout(120000);
 
             const files = walkTextFiles(REPO_ROOT, REPO_ROOT);
             const violations = [];

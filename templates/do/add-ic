@@ -16,6 +16,14 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
+# ── HyperPod guard: IC is a SageMaker managed inference concept ───────────────
+if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
+    echo "❌ do/add-ic is not supported on HyperPod."
+    echo "   Inference Components are a SageMaker managed inference concept."
+    echo "   To load an adapter on HyperPod, use: do/adapter --load-lora"
+    exit 1
+fi
+
 # ============================================================
 # Usage
 # ============================================================
