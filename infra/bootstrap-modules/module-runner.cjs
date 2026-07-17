@@ -360,6 +360,17 @@ class CdkModuleRunner {
 
         console.log(`  🧹 Stack ${stackName} is in ${cfnStatus} (un-updatable) — deleting before redeploy...`);
         try {
+            // Disable termination protection first — failed stacks may still
+            // have it enabled (set by CDK's enableTerminationProtection option).
+            execSync(
+                `aws cloudformation update-termination-protection --no-enable-termination-protection --stack-name ${stackName} --region ${profile.awsRegion}` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+        } catch {
+            // Termination protection may already be off, or stack doesn't support it — continue.
+        }
+        try {
             execSync(
                 `aws cloudformation delete-stack --stack-name ${stackName} --region ${profile.awsRegion}` +
                 (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
@@ -491,9 +502,28 @@ class CdkMultiStackModuleRunner {
     async provision(profile, opts = {}) {
         const allOutputs = {};
 
+        // Pre-flight: ensure the HyperPod service-linked role exists.
+        // SageMaker needs this to manage VPC/subnet resources when creating
+        // a HyperPod cluster. Without it, CreateCluster fails with
+        // "Unable to retrieve subnets".
+        this._ensureHyperPodServiceLinkedRole(profile);
+
         for (let i = 0; i < this.stacks.length; i++) {
             const stackSuffix = this.stacks[i];
             const stackName = getStackName(profile.profileName, stackSuffix);
+
+            // After eks-cluster is deployed, install the HyperPod Helm chart
+            // dependencies before creating the HyperPod cluster. SageMaker
+            // validates that these components exist during CreateCluster.
+            if (stackSuffix === 'hyperpod-cluster') {
+                await this._ensureHyperPodHelmChart(profile);
+            }
+
+            // Before inference-operator, clear any blocking webhooks that aren't
+            // yet served (ALB controller pods may still be scheduling on Fargate).
+            if (stackSuffix === 'inference-operator') {
+                this._clearBlockingWebhooks();
+            }
 
             console.log(`  📦 [${i + 1}/${this.stacks.length}] Stack: ${stackSuffix}`);
 
@@ -510,6 +540,178 @@ class CdkMultiStackModuleRunner {
 
         console.log(`  ✅ All ${this.stacks.length} stacks deployed for ${this.name}`);
         return allOutputs;
+    }
+
+    /**
+     * Ensure the SageMaker HyperPod service-linked role exists. This is
+     * required before CreateCluster can work — SageMaker uses it to access
+     * VPC/subnets. Idempotent: silently succeeds if the role already exists.
+     * @param {object} profile
+     */
+    /**
+     * Clear webhook configurations that block resource creation on a cluster
+     * where webhook-serving pods haven't scheduled yet. These webhooks will be
+     * recreated once the ALB/cert-manager pods are running on Fargate.
+     */
+    _clearBlockingWebhooks() {
+        console.log('    Clearing blocking webhooks...');
+        const webhooks = [
+            'mutatingwebhookconfiguration/aws-load-balancer-webhook',
+            'validatingwebhookconfiguration/aws-load-balancer-webhook',
+            'mutatingwebhookconfiguration/cert-manager-webhook',
+            'validatingwebhookconfiguration/cert-manager-webhook',
+        ];
+        for (const wh of webhooks) {
+            try {
+                execSync(`kubectl delete ${wh} --ignore-not-found`, {
+                    encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+                });
+            } catch {
+                // kubectl not available or cluster not reachable — best effort
+            }
+        }
+    }
+
+    _ensureHyperPodServiceLinkedRole(profile) {
+        try {
+            execSync(
+                `aws iam create-service-linked-role --aws-service-name hyperpod.sagemaker.amazonaws.com` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            console.log('  ✅ Created SageMaker HyperPod service-linked role');
+        } catch {
+            // Already exists — expected on subsequent deploys.
+        }
+    }
+
+    /**
+     * Install the HyperPod Helm chart on the EKS cluster. This chart bundles
+     * device plugins (NVIDIA, Neuron, EFA), health monitoring, Kubeflow Training
+     * Operator, deep health check RBAC, and job-auto-restart — all required
+     * before SageMaker will accept a CreateCluster call.
+     *
+     * Idempotent: if the release already exists, this is a no-op.
+     * @param {object} profile
+     */
+    async _ensureHyperPodHelmChart(profile) {
+        const ssmPrefix = `/mlcc/${profile.profileName}/hyperpod`;
+        const awsFlags = (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '');
+
+        // Get EKS cluster name from SSM
+        let eksClusterName;
+        try {
+            eksClusterName = execSync(
+                `aws ssm get-parameter --name ${ssmPrefix}/EksClusterName --region ${profile.awsRegion} --query "Parameter.Value" --output text${awsFlags}`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            ).trim();
+        } catch {
+            console.log('  ⚠️  Could not read EKS cluster name from SSM — skipping Helm chart install');
+            return;
+        }
+
+        // Check if the release already exists
+        try {
+            execSync(
+                `helm status hyperpod-dependencies --namespace kube-system 2>/dev/null`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            console.log('  ✅ HyperPod Helm chart already installed');
+            return;
+        } catch {
+            // Not installed — proceed
+        }
+
+        console.log('  📦 Installing HyperPod Helm chart dependencies...');
+
+        // Update kubeconfig for the EKS cluster
+        try {
+            execSync(
+                `aws eks update-kubeconfig --name ${eksClusterName} --region ${profile.awsRegion}${awsFlags}`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+        } catch (err) {
+            console.log(`  ⚠️  Could not update kubeconfig: ${err.message.split('\n')[0]}`);
+            throw new Error('Failed to configure kubectl for EKS cluster — cannot install HyperPod Helm chart');
+        }
+
+        // Ensure the caller has EKS cluster access (CDK's creation role is the
+        // only default admin). Without this, helm/kubectl will fail with auth errors.
+        try {
+            const callerArn = execSync(
+                `aws sts get-caller-identity --query "Arn" --output text${awsFlags}`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            ).trim();
+            // Extract the role ARN from the assumed-role ARN
+            // arn:aws:sts::123:assumed-role/RoleName/session → arn:aws:iam::123:role/RoleName
+            const assumedMatch = callerArn.match(/arn:aws:sts::(\d+):assumed-role\/([^/]+)\//);
+            if (assumedMatch) {
+                const roleArn = `arn:aws:iam::${assumedMatch[1]}:role/${assumedMatch[2]}`;
+                execSync(
+                    `aws eks create-access-entry --cluster-name ${eksClusterName} --principal-arn ${roleArn} --region ${profile.awsRegion}${awsFlags}`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+                execSync(
+                    `aws eks associate-access-policy --cluster-name ${eksClusterName} --principal-arn ${roleArn} --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy --access-scope type=cluster --region ${profile.awsRegion}${awsFlags}`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+                console.log(`    ✅ Granted EKS cluster admin access to ${assumedMatch[2]}`);
+            }
+        } catch {
+            // Access entry may already exist — that's fine
+        }
+
+        // Ensure lifecycle script exists in S3 (required by HyperPod CreateCluster).
+        // Uses the core models bucket which must already be provisioned.
+        const lifecycleBucket = `mlcc-models-${profile.accountId}-${profile.awsRegion}`;
+        const lifecycleKey = 'hyperpod-lifecycle/on_create.sh';
+        try {
+            execSync(
+                `aws s3api head-object --bucket ${lifecycleBucket} --key ${lifecycleKey} --region ${profile.awsRegion}${awsFlags}`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+        } catch {
+            // Script doesn't exist — upload a minimal no-op
+            console.log('    Uploading HyperPod lifecycle script to S3...');
+            execSync(
+                `printf '#!/bin/bash\\necho "HyperPod lifecycle: on_create complete"\\nexit 0' | aws s3 cp - s3://${lifecycleBucket}/${lifecycleKey} --region ${profile.awsRegion}${awsFlags}`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+        }
+
+        // Clone the HyperPod CLI repo (if not already cached) and install the chart
+        const tmpDir = path.join(MODULES_ROOT, '.hyperpod-helm-cache');
+        const chartDir = path.join(tmpDir, 'sagemaker-hyperpod-cli', 'helm_chart', 'HyperPodHelmChart');
+
+        if (!require('fs').existsSync(chartDir)) {
+            console.log('    Cloning sagemaker-hyperpod-cli for Helm chart...');
+            require('fs').mkdirSync(tmpDir, { recursive: true });
+            execSync(
+                `git clone --depth 1 https://github.com/aws/sagemaker-hyperpod-cli.git`,
+                { cwd: tmpDir, encoding: 'utf8', stdio: 'inherit' }
+            );
+        }
+
+        // Update Helm dependencies and install
+        try {
+            execSync('helm dependencies update .', {
+                cwd: chartDir, encoding: 'utf8', stdio: 'inherit',
+            });
+
+            // Remove any webhook configurations that may block Helm install.
+            // On a fresh cluster with Fargate, webhook-serving pods (ALB controller,
+            // cert-manager) may not be running yet. These webhooks will be recreated
+            // once the pods schedule on Fargate.
+            console.log('    Clearing blocking webhooks before Helm install...');
+            this._clearBlockingWebhooks();
+
+            execSync('helm install hyperpod-dependencies . --namespace kube-system', {
+                cwd: chartDir, encoding: 'utf8', stdio: 'inherit',
+            });
+            console.log('  ✅ HyperPod Helm chart installed');
+        } catch (err) {
+            throw new Error(`Failed to install HyperPod Helm chart: ${err.message.split('\n')[0]}`);
+        }
     }
 
     /**
@@ -535,6 +737,13 @@ class CdkMultiStackModuleRunner {
         // Build adopt flags for this specific stack
         const adoptFlags = runner._computeAdoptFlags(profile, { verbose: true });
 
+        // Detect retained IAM roles that already exist (from a prior
+        // deploy whose stack was destroyed but roles were RETAIN'd).
+        const roleAdoptFlag = this._detectRetainedRoles(stackSuffix, profile);
+
+        // Detect retained TLS bucket for inference-operator stack
+        const tlsBucketAdoptFlag = this._detectRetainedTlsBucket(stackSuffix, profile);
+
         // Add SSM context flags
         const contextFlags = Object.entries(ssmContext).map(
             ([key, value]) => `--context ${key}=${value}`
@@ -548,6 +757,8 @@ class CdkMultiStackModuleRunner {
             `--context accountId=${profile.accountId}`,
             `--context region=${profile.awsRegion}`,
             ...adoptFlags,
+            ...roleAdoptFlag,
+            ...tlsBucketAdoptFlag,
             ...contextFlags,
         ].filter(Boolean).join(' ');
 
@@ -570,6 +781,124 @@ class CdkMultiStackModuleRunner {
 
         console.log(`    ✅ ${stackSuffix} deployed`);
         return runner._getStackOutputs(stackName, profile);
+    }
+
+    /**
+     * Detect whether retained IAM roles from a prior deployment already exist.
+     * If any of the stack's RETAIN'd roles exist, returns ['--context adoptRoles=true']
+     * so the CDK stack uses fromRoleName() instead of creating new ones.
+     * @param {string} stackSuffix
+     * @param {object} profile
+     * @returns {string[]} context flag array (empty if no roles found)
+     */
+    _detectRetainedRoles(stackSuffix, profile) {
+        // Only the eks-cluster stack creates the RETAIN'd roles
+        if (stackSuffix !== 'eks-cluster') return [];
+
+        const roleNames = [
+            `mlcc-${profile.profileName}-eks-cluster-role`,
+            `mlcc-${profile.profileName}-eks-node-role`,
+            `mlcc-${profile.profileName}-hyperpod-instance-role`,
+            `mlcc-${profile.profileName}-hyperpod-inference-role`,
+            `mlcc-${profile.profileName}-alb-controller-role`,
+            `mlcc-${profile.profileName}-keda-operator-role`,
+            `mlcc-${profile.profileName}-s3-csi-role`,
+            `mlcc-${profile.profileName}-fsx-csi-role`,
+            `mlcc-${profile.profileName}-fargate-pod-exec-role`,
+        ];
+
+        for (const roleName of roleNames) {
+            if (this._iamRoleExists(roleName, profile)) {
+                console.log(`  ♻️  Existing IAM roles detected (${roleName}) — adopting instead of recreating`);
+                return ['--context adoptRoles=true'];
+            }
+        }
+        return [];
+    }
+
+    /**
+     * Check whether an IAM role already exists in the account.
+     * @param {string} roleName
+     * @param {object} profile - { awsRegion, awsProfile? }
+     * @returns {boolean}
+     */
+    _iamRoleExists(roleName, profile) {
+        try {
+            execSync(
+                `aws iam get-role --role-name ${roleName}` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Detect whether the inference-operator's TLS bucket already exists
+     * (RETAIN'd from a prior deploy). Returns context flag if found.
+     * @param {string} stackSuffix
+     * @param {object} profile
+     * @returns {string[]}
+     */
+    _detectRetainedTlsBucket(stackSuffix, profile) {
+        if (stackSuffix !== 'inference-operator') return [];
+
+        const bucketName = `mlcc-hyperpod-tls-${profile.profileName}`;
+        try {
+            execSync(
+                `aws s3api head-bucket --bucket ${bucketName} --region ${profile.awsRegion}` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            console.log(`  ♻️  Existing TLS bucket detected (${bucketName}) — adopting instead of recreating`);
+            return ['--context adoptTlsBucket=true'];
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+
+    /**
+     * Delete all Fargate profiles from the EKS cluster. EKS won't allow
+     * cluster deletion while profiles exist. Waits for each deletion to complete.
+     * @param {object} profile
+     */
+    _deleteAllFargateProfiles(profile) {
+        const awsFlags = (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '');
+        const eksClusterName = `mlcc-${profile.profileName}-eks`;
+
+        let profiles;
+        try {
+            const result = execSync(
+                `aws eks list-fargate-profiles --cluster-name ${eksClusterName} --region ${profile.awsRegion}${awsFlags} --query "fargateProfileNames" --output json`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            profiles = JSON.parse(result);
+        } catch {
+            return; // Cluster doesn't exist or no profiles
+        }
+
+        if (!profiles || profiles.length === 0) return;
+
+        for (const fpName of profiles) {
+            console.log(`      Deleting Fargate profile: ${fpName}...`);
+            try {
+                execSync(
+                    `aws eks delete-fargate-profile --cluster-name ${eksClusterName} --fargate-profile-name ${fpName} --region ${profile.awsRegion}${awsFlags}`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+                execSync(
+                    `aws eks wait fargate-profile-deleted --cluster-name ${eksClusterName} --fargate-profile-name ${fpName} --region ${profile.awsRegion}${awsFlags}`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+            } catch (err) {
+                console.log(`      ⚠️  Could not delete Fargate profile ${fpName}: ${err.message.split('\n')[0]}`);
+            }
+        }
+        console.log('      ✅ Fargate profiles deleted');
     }
 
     /**
@@ -632,6 +961,23 @@ class CdkMultiStackModuleRunner {
 
             console.log(`    [${i + 1}/${reversed.length}] Destroying ${stackSuffix} (${stackName})...`);
 
+            // Disable termination protection if enabled (eks-cluster stack has it)
+            try {
+                execSync(
+                    `aws cloudformation update-termination-protection --no-enable-termination-protection --stack-name ${stackName} --region ${profile.awsRegion}` +
+                    (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+            } catch {
+                // Stack doesn't exist or protection already off — fine
+            }
+
+            // EKS cluster can't be deleted while Fargate profiles exist.
+            // Delete any Fargate profiles before destroying the eks-cluster stack.
+            if (stackSuffix === 'eks-cluster') {
+                this._deleteAllFargateProfiles(profile);
+            }
+
             const cdkCmd = [
                 'npx cdk destroy', stackName,
                 '--force',
@@ -679,34 +1025,12 @@ class CdkMultiStackModuleRunner {
         const awsFlags = `--region ${profile.awsRegion}` +
             (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '');
 
-        // Delete HyperPod cluster
-        try {
-            const clusterName = execSync(
-                `aws ssm get-parameter --name ${ssmPrefix}/HyperPodClusterName --query "Parameter.Value" --output text ${awsFlags}`,
-                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-            ).trim();
-            if (clusterName && clusterName !== 'None') {
-                console.log(`      Deleting HyperPod cluster: ${clusterName}...`);
-                execSync(
-                    `aws sagemaker delete-cluster --cluster-name ${clusterName} ${awsFlags}`,
-                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-                );
-            }
-        } catch (err) {
-            console.log(`      ⚠️  Could not delete HyperPod cluster: ${err.message.split('\n')[0]}`);
-        }
+        // HyperPod cluster is DESTROY'd with the stack (not retained),
+        // so no manual cleanup needed here.
 
-        // Delete TLS bucket
-        try {
-            const bucketName = `hyperpod-tls-${profile.profileName}-${profile.awsRegion}`;
-            console.log(`      Deleting TLS bucket: ${bucketName}...`);
-            execSync(
-                `aws s3 rb s3://${bucketName} --force ${awsFlags}`,
-                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-            );
-        } catch (err) {
-            console.log(`      ⚠️  Could not delete TLS bucket: ${err.message.split('\n')[0]}`);
-        }
+        // TLS bucket — RETAIN'd, skip deletion to avoid S3 DNS propagation issues.
+        // The bucket is cheap to keep and avoids the 24-hour name reuse delay.
+        // To truly remove it: `aws s3 rb s3://mlcc-hyperpod-tls-<profile> --force`
 
         // Delete IAM roles
         const roleNames = [
@@ -718,6 +1042,7 @@ class CdkMultiStackModuleRunner {
             `mlcc-${profile.profileName}-keda-operator-role`,
             `mlcc-${profile.profileName}-s3-csi-role`,
             `mlcc-${profile.profileName}-fsx-csi-role`,
+            `mlcc-${profile.profileName}-fargate-pod-exec-role`,
         ];
         for (const roleName of roleNames) {
             try {

@@ -6,6 +6,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as eks from 'aws-cdk-lib/aws-eks';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import { KubectlV31Layer } from '@aws-cdk/lambda-layer-kubectl-v31';
 import { Construct } from 'constructs';
 
 export interface MlccEksClusterStackProps extends cdk.StackProps {
@@ -123,6 +124,28 @@ export class MlccEksClusterStack extends cdk.Stack {
             props.adoptRoles,
         );
 
+        // SageMaker assumes this role during CreateCluster to validate VpcConfig
+        // subnets. AmazonSageMakerClusterInstanceRolePolicy does NOT include
+        // EC2/VPC permissions, so we add them explicitly.
+        if (!props.adoptRoles) {
+            (hyperpodInstanceRole as iam.Role).addToPolicy(new iam.PolicyStatement({
+                sid: 'VpcSubnetAccess',
+                effect: iam.Effect.ALLOW,
+                actions: [
+                    'ec2:DescribeSubnets',
+                    'ec2:DescribeVpcs',
+                    'ec2:DescribeSecurityGroups',
+                    'ec2:DescribeNetworkInterfaces',
+                    'ec2:CreateNetworkInterface',
+                    'ec2:CreateNetworkInterfacePermission',
+                    'ec2:DeleteNetworkInterface',
+                    'ec2:DeleteNetworkInterfacePermission',
+                    'ec2:DescribeDhcpOptions',
+                ],
+                resources: ['*'],
+            }));
+        }
+
         new ssm.StringParameter(this, 'HyperPodInstanceRoleArnParam', {
             parameterName: `${ssmPrefix}/HyperPodInstanceRoleArn`,
             stringValue: hyperpodInstanceRole.roleArn,
@@ -145,6 +168,7 @@ export class MlccEksClusterStack extends cdk.Stack {
 
             const newCluster = new eks.Cluster(this, 'EksCluster', {
                 version: eks.KubernetesVersion.of(k8sVersion),
+                kubectlLayer: new KubectlV31Layer(this, 'KubectlLayer'),
                 vpc,
                 vpcSubnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
                 defaultCapacity: 0,
@@ -155,6 +179,35 @@ export class MlccEksClusterStack extends cdk.Stack {
 
             clusterSecurityGroupId = newCluster.clusterSecurityGroupId;
             cluster = newCluster;
+
+            // ─── Fargate Profile for system pods ────────────────────────────
+            // Zero-node cluster needs Fargate to run webhook-serving pods
+            // (cert-manager, ALB controller) so Helm installs and EKS addons
+            // don't fail with "no endpoints available for service". Fargate is
+            // pay-per-pod — ~$0.04/hr total for these tiny system pods.
+            const fargateRoleName = `mlcc-${profileName}-fargate-pod-exec-role`;
+            const fargateRole = props.adoptRoles
+                ? iam.Role.fromRoleName(this, 'FargatePodExecutionRole', fargateRoleName)
+                : new iam.Role(this, 'FargatePodExecutionRole', {
+                    roleName: fargateRoleName,
+                    assumedBy: new iam.ServicePrincipal('eks-fargate-pods.amazonaws.com'),
+                    managedPolicies: [
+                        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonEKSFargatePodExecutionRolePolicy'),
+                    ],
+                });
+
+            // Skip Fargate profile creation if adopting — profile already exists
+            if (!props.adoptRoles) {
+                new eks.FargateProfile(this, 'SystemFargateProfile', {
+                    cluster: newCluster,
+                    fargateProfileName: `mlcc-${profileName}-system`,
+                    selectors: [
+                        { namespace: 'kube-system' },
+                        { namespace: 'cert-manager' },
+                    ],
+                    podExecutionRole: fargateRole,
+                });
+            }
 
             // ─── EKS Add-ons ────────────────────────────────────────────────
 
@@ -263,14 +316,195 @@ export class MlccEksClusterStack extends cdk.Stack {
                 stringValue: hyperpodInferenceRole.roleArn,
             });
 
-            // AlbControllerRole
+            // AlbControllerRole — AWS does not ship a managed policy for the ALB
+            // controller. We create the customer-managed policy from the official
+            // iam_policy.json (v2.14.1) as a CDK resource, then attach it via IRSA.
+            const albPolicy = new iam.ManagedPolicy(this, 'AlbControllerPolicy', {
+                managedPolicyName: `mlcc-${profileName}-alb-controller-policy`,
+                statements: [
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['iam:CreateServiceLinkedRole'],
+                        resources: ['*'],
+                        conditions: {
+                            StringEquals: { 'iam:AWSServiceName': 'elasticloadbalancing.amazonaws.com' },
+                        },
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: [
+                            'ec2:DescribeAccountAttributes', 'ec2:DescribeAddresses',
+                            'ec2:DescribeAvailabilityZones', 'ec2:DescribeInternetGateways',
+                            'ec2:DescribeVpcs', 'ec2:DescribeVpcPeeringConnections',
+                            'ec2:DescribeSubnets', 'ec2:DescribeSecurityGroups',
+                            'ec2:DescribeInstances', 'ec2:DescribeNetworkInterfaces',
+                            'ec2:DescribeTags', 'ec2:GetCoipPoolUsage',
+                            'ec2:DescribeCoipPools', 'ec2:GetSecurityGroupsForVpc',
+                            'ec2:DescribeIpamPools', 'ec2:DescribeRouteTables',
+                            'elasticloadbalancing:DescribeLoadBalancers',
+                            'elasticloadbalancing:DescribeLoadBalancerAttributes',
+                            'elasticloadbalancing:DescribeListeners',
+                            'elasticloadbalancing:DescribeListenerCertificates',
+                            'elasticloadbalancing:DescribeSSLPolicies',
+                            'elasticloadbalancing:DescribeRules',
+                            'elasticloadbalancing:DescribeTargetGroups',
+                            'elasticloadbalancing:DescribeTargetGroupAttributes',
+                            'elasticloadbalancing:DescribeTargetHealth',
+                            'elasticloadbalancing:DescribeTags',
+                            'elasticloadbalancing:DescribeTrustStores',
+                            'elasticloadbalancing:DescribeListenerAttributes',
+                            'elasticloadbalancing:DescribeCapacityReservation',
+                        ],
+                        resources: ['*'],
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: [
+                            'cognito-idp:DescribeUserPoolClient',
+                            'acm:ListCertificates', 'acm:DescribeCertificate',
+                            'iam:ListServerCertificates', 'iam:GetServerCertificate',
+                            'waf-regional:GetWebACL', 'waf-regional:GetWebACLForResource',
+                            'waf-regional:AssociateWebACL', 'waf-regional:DisassociateWebACL',
+                            'wafv2:GetWebACL', 'wafv2:GetWebACLForResource',
+                            'wafv2:AssociateWebACL', 'wafv2:DisassociateWebACL',
+                            'shield:GetSubscriptionState', 'shield:DescribeProtection',
+                            'shield:CreateProtection', 'shield:DeleteProtection',
+                        ],
+                        resources: ['*'],
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['ec2:AuthorizeSecurityGroupIngress', 'ec2:RevokeSecurityGroupIngress'],
+                        resources: ['*'],
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['ec2:CreateSecurityGroup'],
+                        resources: ['*'],
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['ec2:CreateTags'],
+                        resources: ['arn:aws:ec2:*:*:security-group/*'],
+                        conditions: {
+                            StringEquals: { 'ec2:CreateAction': 'CreateSecurityGroup' },
+                            Null: { 'aws:RequestTag/elbv2.k8s.aws/cluster': 'false' },
+                        },
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['ec2:CreateTags', 'ec2:DeleteTags'],
+                        resources: ['arn:aws:ec2:*:*:security-group/*'],
+                        conditions: {
+                            Null: {
+                                'aws:RequestTag/elbv2.k8s.aws/cluster': 'true',
+                                'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false',
+                            },
+                        },
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['ec2:AuthorizeSecurityGroupIngress', 'ec2:RevokeSecurityGroupIngress', 'ec2:DeleteSecurityGroup'],
+                        resources: ['*'],
+                        conditions: { Null: { 'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false' } },
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['elasticloadbalancing:CreateLoadBalancer', 'elasticloadbalancing:CreateTargetGroup'],
+                        resources: ['*'],
+                        conditions: { Null: { 'aws:RequestTag/elbv2.k8s.aws/cluster': 'false' } },
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: [
+                            'elasticloadbalancing:CreateListener', 'elasticloadbalancing:DeleteListener',
+                            'elasticloadbalancing:CreateRule', 'elasticloadbalancing:DeleteRule',
+                        ],
+                        resources: ['*'],
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['elasticloadbalancing:AddTags', 'elasticloadbalancing:RemoveTags'],
+                        resources: [
+                            'arn:aws:elasticloadbalancing:*:*:targetgroup/*/*',
+                            'arn:aws:elasticloadbalancing:*:*:loadbalancer/net/*/*',
+                            'arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*',
+                        ],
+                        conditions: {
+                            Null: {
+                                'aws:RequestTag/elbv2.k8s.aws/cluster': 'true',
+                                'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false',
+                            },
+                        },
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['elasticloadbalancing:AddTags', 'elasticloadbalancing:RemoveTags'],
+                        resources: [
+                            'arn:aws:elasticloadbalancing:*:*:listener/net/*/*/*',
+                            'arn:aws:elasticloadbalancing:*:*:listener/app/*/*/*',
+                            'arn:aws:elasticloadbalancing:*:*:listener-rule/net/*/*/*',
+                            'arn:aws:elasticloadbalancing:*:*:listener-rule/app/*/*/*',
+                        ],
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: [
+                            'elasticloadbalancing:ModifyLoadBalancerAttributes',
+                            'elasticloadbalancing:SetIpAddressType',
+                            'elasticloadbalancing:SetSecurityGroups',
+                            'elasticloadbalancing:SetSubnets',
+                            'elasticloadbalancing:DeleteLoadBalancer',
+                            'elasticloadbalancing:ModifyTargetGroup',
+                            'elasticloadbalancing:ModifyTargetGroupAttributes',
+                            'elasticloadbalancing:DeleteTargetGroup',
+                            'elasticloadbalancing:ModifyListenerAttributes',
+                            'elasticloadbalancing:ModifyCapacityReservation',
+                            'elasticloadbalancing:ModifyIpPools',
+                        ],
+                        resources: ['*'],
+                        conditions: { Null: { 'aws:ResourceTag/elbv2.k8s.aws/cluster': 'false' } },
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['elasticloadbalancing:AddTags'],
+                        resources: [
+                            'arn:aws:elasticloadbalancing:*:*:targetgroup/*/*',
+                            'arn:aws:elasticloadbalancing:*:*:loadbalancer/net/*/*',
+                            'arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*',
+                        ],
+                        conditions: {
+                            StringEquals: {
+                                'elasticloadbalancing:CreateAction': ['CreateTargetGroup', 'CreateLoadBalancer'],
+                            },
+                            Null: { 'aws:RequestTag/elbv2.k8s.aws/cluster': 'false' },
+                        },
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: ['elasticloadbalancing:RegisterTargets', 'elasticloadbalancing:DeregisterTargets'],
+                        resources: ['arn:aws:elasticloadbalancing:*:*:targetgroup/*/*'],
+                    }),
+                    new iam.PolicyStatement({
+                        effect: iam.Effect.ALLOW,
+                        actions: [
+                            'elasticloadbalancing:SetWebAcl', 'elasticloadbalancing:ModifyListener',
+                            'elasticloadbalancing:AddListenerCertificates',
+                            'elasticloadbalancing:RemoveListenerCertificates',
+                            'elasticloadbalancing:ModifyRule', 'elasticloadbalancing:SetRulePriorities',
+                        ],
+                        resources: ['*'],
+                    }),
+                ],
+            });
+
             const albControllerRole = this._createIrsaRole(
                 'AlbControllerRole',
                 `mlcc-${profileName}-alb-controller-role`,
                 oidcProvider,
                 'kube-system',
                 'aws-load-balancer-controller',
-                ['arn:aws:iam::aws:policy/AWSLoadBalancerControllerIAMPolicy'],
+                [albPolicy.managedPolicyArn],
                 props.adoptRoles,
             );
 

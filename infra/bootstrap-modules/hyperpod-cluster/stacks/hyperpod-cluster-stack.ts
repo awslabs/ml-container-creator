@@ -8,7 +8,6 @@ import { Construct } from 'constructs';
 
 export interface MlccHyperPodClusterStackProps extends cdk.StackProps {
     profileName: string;
-    adoptCluster?: boolean;
     // Consumed from Stack 1 SSM params (passed as CDK context by module runner)
     eksClusterArn?: string;
     hyperPodInstanceRoleArn?: string;
@@ -54,25 +53,20 @@ export class MlccHyperPodClusterStack extends cdk.Stack {
             || this.node.tryGetContext('instanceType')
             || 'ml.g5.2xlarge';
 
-        // Validate required inputs
+        // Validate required inputs — during destroy, context may be empty.
+        // Return early (empty stack) so CDK can still find and destroy it.
         if (!eksClusterArn) {
-            throw new Error(
-                'HyperPod cluster requires EksClusterArn. ' +
-                'The eks-cluster stack must be deployed first. ' +
-                'Run `bootstrap add-module hyperpod` to deploy the full stack sequence.'
-            );
-        }
-
-        if (props.adoptCluster) {
-            // Adopt-existing: skip CfnCluster creation. The module runner
-            // verifies InService state and writes confirmed ARN/name to SSM.
-            // We just create placeholder SSM params that the runner will overwrite.
             return;
         }
 
         // ─── HyperPod CfnCluster ───────────────────────────────────────────
 
         const clusterName = `mlcc-${profileName}-hyperpod`;
+
+        // LifeCycleConfig is required for all EKS-orchestrated instance groups,
+        // even at 0 instances. Use the core models bucket for the lifecycle script.
+        const lifecycleS3Uri = this.node.tryGetContext('lifecycleS3Uri')
+            || `s3://mlcc-models-${this.account}-${this.region}/hyperpod-lifecycle/`;
 
         const cluster = new sagemaker.CfnCluster(this, 'HyperPodCluster', {
             clusterName,
@@ -86,7 +80,10 @@ export class MlccHyperPodClusterStack extends cdk.Stack {
                 instanceGroupName: 'default-worker',
                 instanceType,
                 executionRole: hyperPodInstanceRoleArn,
-                lifeCycleConfig: undefined as any, // Omit at 0 nodes
+                lifeCycleConfig: {
+                    sourceS3Uri: lifecycleS3Uri,
+                    onCreate: 'on_create.sh',
+                },
             }],
             vpcConfig: {
                 subnets: privateSubnetIds.split(',').filter(Boolean),
@@ -95,8 +92,9 @@ export class MlccHyperPodClusterStack extends cdk.Stack {
             nodeRecovery: 'Automatic',
         });
 
-        // RemovalPolicy.RETAIN — cluster survives teardown
-        cluster.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
+        // RemovalPolicy.DESTROY — cluster is deleted with the stack.
+        // Billable resources should not be silently retained.
+        cluster.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
 
         // ─── SSM Exports ────────────────────────────────────────────────────
 

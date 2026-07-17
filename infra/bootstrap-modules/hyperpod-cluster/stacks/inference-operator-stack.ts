@@ -56,18 +56,15 @@ export class MlccInferenceOperatorStack extends cdk.Stack {
             || this.node.tryGetContext('KedaOperatorRoleArn')
             || '';
 
-        // Validate required inputs
+        // Validate required inputs — during destroy, context may be empty.
+        // Return early (empty stack) so CDK can still find and destroy it.
         if (!hyperPodClusterArn) {
-            throw new Error(
-                'Inference Operator requires HyperPodClusterArn. ' +
-                'The hyperpod-cluster stack must be deployed first. ' +
-                'Run `bootstrap add-module hyperpod` to deploy the full stack sequence.'
-            );
+            return;
         }
 
         // ─── TLS S3 Bucket (RemovalPolicy.RETAIN) ───────────────────────────
 
-        const bucketName = `hyperpod-tls-${profileName}-${region}`;
+        const bucketName = `mlcc-hyperpod-tls-${profileName}`;
         let tlsBucket: s3.IBucket;
 
         if (props.adoptTlsBucket) {

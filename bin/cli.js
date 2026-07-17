@@ -33,9 +33,10 @@ program
 
 // Register all CLI options from generated schema
 for (const opt of cliOptions) {
-    if (opt.hidden) continue;
     const option = new Option(opt.flag, opt.description);
     if (opt.choices) option.choices(opt.choices);
+    if (opt.hidden) option.hideHelp();
+    if (opt.defaultValue !== undefined) option.default(opt.defaultValue);
     if (opt.repeatable) {
         option.argParser(collect);
         option.default([]);

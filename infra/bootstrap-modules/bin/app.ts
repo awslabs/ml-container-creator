@@ -113,7 +113,6 @@ const factories: Record<string, () => cdk.Stack> = {
     }),
     'hyperpod-cluster': () => new MlccHyperPodClusterStack(app, stackName('hyperpod-cluster'), {
         env, profileName,
-        adoptCluster: app.node.tryGetContext('adoptCluster') === 'true',
         eksClusterArn: app.node.tryGetContext('EksClusterArn'),
         hyperPodInstanceRoleArn: app.node.tryGetContext('HyperPodInstanceRoleArn'),
         privateSubnetIds: app.node.tryGetContext('PrivateSubnetIds'),

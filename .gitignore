@@ -33,3 +33,6 @@ site/
 
 # CDK synth output
 cdk.out/
+
+# HyperPod Helm chart cache (cloned at bootstrap time)
+infra/bootstrap-modules/.hyperpod-helm-cache/
