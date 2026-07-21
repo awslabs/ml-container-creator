@@ -358,6 +358,8 @@ elif [ -n "${ENDPOINT_NAME:-}" ]; then
             echo ""
             echo "🧹 Clean up when done:"
             echo "   ./do/clean endpoint"
+            # Ensure status var is set (may have been missed if prior run was interrupted)
+            _update_config "DEPLOYMENT_TARGET_ASYNC_STATUS" "InService"
             exit 0
             ;;
         Creating|Updating)
@@ -390,6 +392,7 @@ if [ -z "${SKIP_TO}" ]; then
 
     _update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
     _update_config_var "ASYNC_ENDPOINT_NAME" "${ENDPOINT_NAME}"
+    _update_config_var "ASYNC_INSTANCE_TYPE" "${INSTANCE_TYPE}"
     _update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
     _update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
 

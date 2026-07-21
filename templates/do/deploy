@@ -522,18 +522,31 @@ if [ -n "$FLAG_TARGET" ]; then
     if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ]; then
         # Existing deployment — switch focus only (FR-4.4, FR-4.5)
         _update_config DEPLOYMENT_TARGET "$FLAG_TARGET"
-        # Resolve ENDPOINT_NAME from target-specific var so do/test, do/logs work
+        # Resolve ENDPOINT_NAME and INSTANCE_TYPE from target-specific vars
         case "$FLAG_TARGET" in
-            managed-inference) _update_config ENDPOINT_NAME "${SMAI_ENDPOINT_NAME:-}" ;;
-            async-inference)   _update_config ENDPOINT_NAME "${ASYNC_ENDPOINT_NAME:-}" ;;
+            managed-inference)
+                _update_config ENDPOINT_NAME "${SMAI_ENDPOINT_NAME:-}"
+                _update_config INSTANCE_TYPE "${SMAI_INSTANCE_TYPE:-}"
+                ;;
+            async-inference)
+                _update_config ENDPOINT_NAME "${ASYNC_ENDPOINT_NAME:-}"
+                _update_config INSTANCE_TYPE "${ASYNC_INSTANCE_TYPE:-}"
+                ;;
+            batch-transform)
+                _update_config INSTANCE_TYPE "${BATCH_INSTANCE_TYPE:-}"
+                ;;
+            hyperpod-eks)
+                _update_config INSTANCE_TYPE "${HP_INSTANCE_TYPE:-}"
+                ;;
         esac
         echo "Focused on $FLAG_TARGET"
         exit 0
     fi
     # No existing deployment — fall through to deploy flow
     _NEEDS_HELPER=1
-    # Deploying to a new target: clear INSTANCE_TYPE so the builder
-    # prompts fresh (a GPU instance from SMAI isn't appropriate for batch)
+    # Deploying to a new target: clear INSTANCE_TYPE in config so the
+    # builder prompts fresh (a GPU instance from SMAI isn't for batch)
+    _update_config "INSTANCE_TYPE" ""
     export INSTANCE_TYPE=""
 fi
 
@@ -607,6 +620,10 @@ import json, sys
 KEY_MAP = {
     'target': 'DEPLOYMENT_TARGET',
     'instance_type': 'INSTANCE_TYPE',
+    'smai_instance_type': 'SMAI_INSTANCE_TYPE',
+    'async_instance_type': 'ASYNC_INSTANCE_TYPE',
+    'batch_instance_type': 'BATCH_INSTANCE_TYPE',
+    'hp_instance_type': 'HP_INSTANCE_TYPE',
     'smai_endpoint_name': 'SMAI_ENDPOINT_NAME',
     'async_endpoint_name': 'ASYNC_ENDPOINT_NAME',
     'endpoint_strategy': 'ENDPOINT_STRATEGY',
@@ -619,7 +636,7 @@ KEY_MAP = {
     'queue': 'HP_QUEUE',
     'async_output_path': 'ASYNC_S3_OUTPUT_PATH',
     'async_sns_topic': 'ASYNC_SNS_TOPIC',
-    'async_max_concurrent': 'ASYNC_MAX_CONCURRENT',
+    'async_max_concurrent': 'ASYNC_MAX_CONCURRENT_INVOCATIONS',
     'batch_input_path': 'BATCH_INPUT_PATH',
     'batch_output_path': 'BATCH_OUTPUT_PATH',
     'batch_split_type': 'BATCH_SPLIT_TYPE',
@@ -652,10 +669,12 @@ _persist_deploy_vars() {
     local config="${SCRIPT_DIR}/config"
     local tmp_config="${config}.tmp.$$"
     local vars=(
-        DEPLOYMENT_TARGET INSTANCE_TYPE SMAI_ENDPOINT_NAME ASYNC_ENDPOINT_NAME
+        DEPLOYMENT_TARGET INSTANCE_TYPE
+        SMAI_INSTANCE_TYPE ASYNC_INSTANCE_TYPE BATCH_INSTANCE_TYPE HP_INSTANCE_TYPE
+        SMAI_ENDPOINT_NAME ASYNC_ENDPOINT_NAME
         ENDPOINT_STRATEGY IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
         HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH
-        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH
+        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH
         BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT
         INFERENCE_AMI_VERSION
     )
@@ -704,7 +723,7 @@ if [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
     for var in DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY \
                IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT \
                HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH \
-               ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH \
+               ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH \
                BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT; do
         val="${!var:-}"
         if [ -n "$val" ]; then
@@ -720,10 +739,23 @@ if [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
 fi
 
 # Resolve ENDPOINT_NAME from the target-specific var before dispatch.
-# This ensures deploy.d/* scripts and do/test, do/logs use the right endpoint.
+# Resolve ENDPOINT_NAME and INSTANCE_TYPE from target-specific vars before dispatch.
+# This ensures deploy.d/* scripts and do/test, do/logs use the right values.
 case "${DEPLOYMENT_TARGET}" in
-    managed-inference) export ENDPOINT_NAME="${SMAI_ENDPOINT_NAME:-${ENDPOINT_NAME:-}}" ;;
-    async-inference)   export ENDPOINT_NAME="${ASYNC_ENDPOINT_NAME:-${ENDPOINT_NAME:-}}" ;;
+    managed-inference)
+        export ENDPOINT_NAME="${SMAI_ENDPOINT_NAME:-${ENDPOINT_NAME:-}}"
+        export INSTANCE_TYPE="${SMAI_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+        ;;
+    async-inference)
+        export ENDPOINT_NAME="${ASYNC_ENDPOINT_NAME:-${ENDPOINT_NAME:-}}"
+        export INSTANCE_TYPE="${ASYNC_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+        ;;
+    batch-transform)
+        export INSTANCE_TYPE="${BATCH_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+        ;;
+    hyperpod-eks)
+        export INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+        ;;
 esac
 
 # Dispatch to target-specific deploy script

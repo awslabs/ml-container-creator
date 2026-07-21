@@ -605,6 +605,7 @@ if [ -z "${SKIP_TO}" ]; then
 
         _update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
         _update_config_var "SMAI_ENDPOINT_NAME" "${ENDPOINT_NAME}"
+        _update_config_var "SMAI_INSTANCE_TYPE" "${INSTANCE_TYPE}"
 
         # Create endpoint configuration via shared helper
         create_endpoint_config

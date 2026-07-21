@@ -668,7 +668,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 default: ''
             });
         }
-        if (!config.ASYNC_MAX_CONCURRENT) {
+        if (!config.ASYNC_MAX_CONCURRENT_INVOCATIONS && !config.ASYNC_MAX_CONCURRENT) {
             answers.async_max_concurrent = await input({
                 message: 'Max concurrent invocations:',
                 default: '1'
@@ -715,6 +715,26 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
     }
 
     console.log('');
+
+    // ── Map shared vars to per-target scoped keys ────────────────────────────
+    // The builder uses generic names internally (instance_type, endpoint_name)
+    // but the config needs target-scoped vars so switching doesn't collide.
+    if (answers.instance_type) {
+        switch (target) {
+        case 'managed-inference':
+            answers.smai_instance_type = answers.instance_type;
+            break;
+        case 'async-inference':
+            answers.async_instance_type = answers.instance_type;
+            break;
+        case 'batch-transform':
+            answers.batch_instance_type = answers.instance_type;
+            break;
+        case 'hyperpod-eks':
+            answers.hp_instance_type = answers.instance_type;
+            break;
+        }
+    }
 
     // Write result
     writeFileSync(outputFile, JSON.stringify(answers));
