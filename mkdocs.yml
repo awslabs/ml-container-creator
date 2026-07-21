@@ -60,6 +60,7 @@ nav:
       - Configuration: configuration.md
       - Secrets Management: secrets.md
       - Deployment & Inference: deployments.md
+      - Interactive Deployment UX: deploy-ux.md
       - Fine-Tuning: fine-tuning.md
       - Custom Training: custom-training.md
       - Agent UX: agent.md

@@ -1,6 +1,6 @@
 # Deployment & Inference
 
-MCC supports four deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Generated projects include a `do/` directory with scripts for the complete container lifecycle — from build through deployment, fine-tuning, and teardown.
+MCC supports four deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Every generated project contains scripts for all four targets — you select which target to deploy to at deploy time, not at generation time. See [Interactive Deployment UX](deploy-ux.md) for the full deploy-time workflow.
 
 ## Build Paths
 
@@ -18,7 +18,7 @@ Local containers may produce `exec` errors when deployed to a different architec
 
 ## Deployment Targets
 
-MCC supports four deployment targets, selected during project generation via the `--deployment-target` option. The chosen target determines how `./do/deploy`, `./do/test`, `./do/clean`, and `./do/logs` behave.
+MCC supports four deployment targets. Select the active target at deploy time using `./do/deploy --target <mode>`. The active target determines how `./do/test`, `./do/clean`, and `./do/logs` behave.
 
 ### SageMaker AI Real-Time Inference (`realtime-inference`)
 
@@ -45,7 +45,7 @@ For existing [SageMaker AI HyperPod](https://aws.amazon.com/sagemaker/hyperpod/)
 - `./do/logs` tails pod logs via `kubectl`.
 - `./do/clean hyperpod` deletes the Kubernetes resources from the namespace.
 
-The generated `do/config` file stores HyperPod-specific variables: `HYPERPOD_CLUSTER_NAME`, `HYPERPOD_NAMESPACE`, `HYPERPOD_REPLICAS`, and optionally `FSX_VOLUME_HANDLE`.
+The generated `do/config` file stores HyperPod-specific variables: `HP_CLUSTER_NAME`, `HP_NAMESPACE`, `HP_REPLICAS`, and optionally `FSX_VOLUME_HANDLE`.
 
 Prerequisites:
 

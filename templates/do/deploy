@@ -187,35 +187,47 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: ./do/deploy [--target <mode>] [--instance-type <type>] [--status] [--dry-run] [deploy-script-flags...]"
+            echo "Usage: ./do/deploy [--target <mode>] [OPTIONS]"
+            echo ""
+            echo "Without --target and with no DEPLOYMENT_TARGET set in do/config, launches"
+            echo "an interactive prompt flow to select target and configure deployment."
             echo ""
             echo "Targets:"
-            echo "  managed-inference   SageMaker Real-Time Inference"
-            echo "  async-inference     SageMaker Async Inference"
-            echo "  batch-transform     SageMaker Batch Transform"
-            echo "  hyperpod-eks        SageMaker HyperPod (EKS)"
+            echo "  managed-inference   SageMaker real-time endpoint with Inference Component"
+            echo "  async-inference     SageMaker async endpoint with S3 output"
+            echo "  batch-transform     SageMaker batch transform job"
+            echo "  hyperpod-eks        SageMaker HyperPod EKS cluster"
             echo ""
             echo "Options:"
-            echo "  --target <mode>         Deployment target"
-            echo "  --instance-type <type>  Instance type for deployment"
-            echo "  --endpoint-name <name>  Endpoint name (managed/async)"
-            echo "  --endpoint-strategy <s> Strategy: new, existing, heterogeneous"
-            echo "  --instance-types <list> Comma-separated instance types (heterogeneous)"
-            echo "  --gpu-count <n>         GPU count (auto-detected if omitted)"
-            echo "  --cluster-name <name>   HyperPod EKS cluster name"
-            echo "  --namespace <ns>        Kubernetes namespace (default: 'default')"
-            echo "  --replicas <n>          Number of replicas (default: '1')"
-            echo "  --queue <name>          Kueue queue name"
-            echo "  --async-output-path <p> S3 output path for async inference"
-            echo "  --async-sns-topic <arn> SNS topic ARN for async notifications"
+            echo "  --target <mode>         Select or switch deployment target"
+            echo "                          If target already has an active deployment, switches"
+            echo "                          focus without redeploying (updates DEPLOYMENT_TARGET)."
+            echo "  --instance-type <type>  Instance type for deployment (skip instance-type prompt)"
+            echo "  --status                Show deployment state for all targets; no deployment"
+            echo "  --dry-run               Show resolved config without deploying"
+            echo "  --reconfigure           Re-prompt all deployment settings for active target"
+            echo ""
+            echo "Managed / Async Inference flags:"
+            echo "  --endpoint-name <name>      Endpoint name (default: \${PROJECT_NAME}-ep)"
+            echo "  --endpoint-strategy <s>     new | existing | heterogeneous"
+            echo "  --instance-types <list>     Comma-separated types (heterogeneous strategy)"
+            echo "  --async-output-path <p>     S3 output path"
+            echo "  --async-sns-topic <arn>     SNS topic ARN for completion notifications"
             echo "  --async-max-concurrent <n>  Max concurrent async invocations"
-            echo "  --batch-input-path <p>  S3 input path for batch transform"
-            echo "  --batch-output-path <p> S3 output path for batch transform"
-            echo "  --batch-split-type <t>  Batch split type: Line, RecordIO, None"
-            echo "  --batch-strategy <s>    Batch strategy: MultiRecord, SingleRecord"
+            echo ""
+            echo "Batch Transform flags:"
+            echo "  --batch-input-path <p>      S3 input path (required)"
+            echo "  --batch-output-path <p>     S3 output path (required)"
+            echo "  --batch-split-type <t>      Line | RecordIO | None (default: Line)"
+            echo "  --batch-strategy <s>        MultiRecord | SingleRecord"
             echo "  --batch-max-concurrent <n>  Max concurrent transforms"
-            echo "  --answers-file <path>   JSON answers file for non-interactive mode"
-            echo "  --reconfigure           Re-prompt deployment config (cleans active deployment first)"
+            echo ""
+            echo "HyperPod EKS flags:"
+            echo "  --cluster-name <name>   HyperPod cluster name"
+            echo "  --namespace <ns>        Kubernetes namespace (default: default)"
+            echo "  --replicas <n>          Pod replicas (default: 1)"
+            echo "  --gpu-count <n>         GPUs per pod (auto-detected from instance type)"
+            echo "  --queue <name>          Kueue queue name"
             echo "  --status                Show deployment state for all targets and exit"
             echo "  --dry-run               Show resolved config and command without deploying"
             echo ""
@@ -264,9 +276,22 @@ _backfill_status_var() {
     # Try to detect status from live API
     local live_status=""
     case "$target" in
-        managed-inference|async-inference)
+        managed-inference)
             local ep_name="${ENDPOINT_NAME:-}"
-            if [ -n "$ep_name" ]; then
+            # Only back-fill if there's an IC deployed (SMAI uses ICs)
+            if [ -n "$ep_name" ] && [ -n "${INFERENCE_COMPONENT_NAME:-}" ]; then
+                live_status=$(aws sagemaker describe-endpoint \
+                    --endpoint-name "$ep_name" \
+                    --region "${AWS_REGION:-us-east-1}" \
+                    --query 'EndpointStatus' \
+                    --output text 2>/dev/null) || live_status=""
+            fi
+            ;;
+        async-inference)
+            # Async uses model-based endpoints (no IC). Only back-fill
+            # if ASYNC_S3_OUTPUT_PATH is set (indicates prior async deploy)
+            local ep_name="${ENDPOINT_NAME:-}"
+            if [ -n "$ep_name" ] && [ -n "${ASYNC_S3_OUTPUT_PATH:-}" ]; then
                 live_status=$(aws sagemaker describe-endpoint \
                     --endpoint-name "$ep_name" \
                     --region "${AWS_REGION:-us-east-1}" \
@@ -372,10 +397,62 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
         if [ "${_RECONFIG_CLEAN:-Y}" != "n" ] && [ "${_RECONFIG_CLEAN:-Y}" != "N" ]; then
             echo ""
             echo "   🧹 Cleaning ${_RECONFIG_TARGET}..."
-            "${SCRIPT_DIR}/clean" --target "${_RECONFIG_TARGET}" endpoint --force 2>/dev/null || true
+            # Each target has its own cleanup subcommand
+            case "$_RECONFIG_TARGET" in
+                managed-inference) "${SCRIPT_DIR}/clean" --target managed-inference endpoint --force 2>/dev/null || true ;;
+                async-inference)   "${SCRIPT_DIR}/clean" --target async-inference endpoint --force 2>/dev/null || true ;;
+                batch-transform)   "${SCRIPT_DIR}/clean" --target batch-transform batch --force 2>/dev/null || true ;;
+                hyperpod-eks)      "${SCRIPT_DIR}/clean" --target hyperpod-eks hyperpod --force 2>/dev/null || true ;;
+            esac
             _update_config "$_RECONFIG_STATUS_VAR" ""
+            # Clear IC deployment refs from do/ic/*.conf
+            if [ "$_RECONFIG_TARGET" = "managed-inference" ] || [ "$_RECONFIG_TARGET" = "async-inference" ]; then
+                for _ic_conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                    [ -f "$_ic_conf" ] || continue
+                    sed -i.bak '/^export IC_DEPLOYED_NAME=/d;/^export IC_DEPLOYED_AT=/d' "$_ic_conf"
+                    rm -f "${_ic_conf}.bak"
+                done
+            fi
             echo "   ✅ Cleaned"
             echo ""
+        else
+            echo ""
+            echo "   ⚠️  WARNING: The existing deployment will continue running"
+            echo "   and incurring charges. You are responsible for cleaning"
+            echo "   it up manually."
+            echo ""
+            read -rp "   Proceed without cleanup? (y/N) " _RECONFIG_ABANDON
+            if [ "${_RECONFIG_ABANDON:-N}" != "y" ] && [ "${_RECONFIG_ABANDON:-N}" != "Y" ]; then
+                echo "   Aborted."
+                exit 0
+            fi
+            echo ""
+            # Clear old deployment references per target
+            case "$_RECONFIG_TARGET" in
+                managed-inference)
+                    _update_config "INFERENCE_COMPONENT_NAME" ""
+                    _update_config "IC_DEPLOYED_AT" ""
+                    _update_config "ENDPOINT_NAME" ""
+                    _update_config "ENDPOINT_CONFIG_NAME" ""
+                    # Clear deployed IC references from do/ic/*.conf
+                    # (preserves IC_ENV_*, IC_GPU_COUNT, etc.)
+                    for _ic_conf in "${SCRIPT_DIR}"/ic/*.conf; do
+                        [ -f "$_ic_conf" ] || continue
+                        sed -i.bak '/^export IC_DEPLOYED_NAME=/d;/^export IC_DEPLOYED_AT=/d' "$_ic_conf"
+                        rm -f "${_ic_conf}.bak"
+                    done
+                    ;;
+                async-inference)
+                    _update_config "ENDPOINT_NAME" ""
+                    _update_config "ENDPOINT_CONFIG_NAME" ""
+                    ;;
+                hyperpod-eks)
+                    _update_config "HP_DEPLOYMENT_NAME" ""
+                    ;;
+                batch-transform)
+                    # Batch jobs are one-shot — no persistent resource to clear
+                    ;;
+            esac
         fi
     fi
 
@@ -423,8 +500,6 @@ fi
 # ── Switch-or-deploy logic (FR-4.4) ──────────────────────────
 # If --target was provided and that target already has a deployment,
 # just switch focus without redeploying (CP-5: <1 second).
-# Skip when --reconfigure already set _NEEDS_HELPER=1.
-if [ "${FLAG_RECONFIGURE:-0}" -eq 0 ]; then
 _NEEDS_HELPER=0
 if [ -n "$FLAG_TARGET" ]; then
     # Map target to its status variable name
@@ -442,10 +517,12 @@ if [ -n "$FLAG_TARGET" ]; then
         echo "Focused on $FLAG_TARGET"
         exit 0
     fi
-    # No existing deployment — need the helper to resolve vars (FR-3.2)
+    # No existing deployment — fall through to deploy flow
     _NEEDS_HELPER=1
+    # Deploying to a new target: clear INSTANCE_TYPE so the builder
+    # prompts fresh (a GPU instance from SMAI isn't appropriate for batch)
+    export INSTANCE_TYPE=""
 fi
-fi  # end FLAG_RECONFIGURE guard
 
 # Also check: target is set but required vars are missing (e.g.,
 # INSTANCE_TYPE empty). Invoke helper to prompt only for missing values.
@@ -469,6 +546,9 @@ fi
 # invoke the interactive deploy builder (FR-2.1, FR-2.6, FR-3.2)
 _HELPER_INVOKED=0
 if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
+    # Invoke the deploy helper prompt to collect deployment parameters
+    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" 2>/dev/null || true
+
     _DEPLOY_JSON_TMP=$(mktemp "${TMPDIR:-/tmp}/mlcc-deploy-config.XXXXXX")
     trap 'rm -f "$_DEPLOY_JSON_TMP"' EXIT
 

@@ -54,8 +54,8 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
 # Async-specific derived variables
-_ASYNC_BUCKET="${_PROFILE_asyncS3Bucket:-mlcc-async-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}"
-ASYNC_S3_OUTPUT_PATH="${ASYNC_S3_OUTPUT_PATH:-s3://${_ASYNC_BUCKET}/${PROJECT_NAME}/output/}"
+_ASYNC_BUCKET="${_PROFILE_asyncS3Bucket:-${_PROFILE_modelsS3Bucket:-mlcc-models-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}}"
+ASYNC_S3_OUTPUT_PATH="${ASYNC_S3_OUTPUT_PATH:-s3://${_ASYNC_BUCKET}/async-output/${PROJECT_NAME}/}"
 ASYNC_SNS_SUCCESS_TOPIC="${ASYNC_SNS_SUCCESS_TOPIC:-arn:aws:sns:${_PROFILE_awsRegion:-us-east-1}:${_PROFILE_accountId:-unknown}:ml-container-creator-${PROJECT_NAME}-async-success}"
 ASYNC_SNS_ERROR_TOPIC="${ASYNC_SNS_ERROR_TOPIC:-arn:aws:sns:${_PROFILE_awsRegion:-us-east-1}:${_PROFILE_accountId:-unknown}:ml-container-creator-${PROJECT_NAME}-async-error}"
 

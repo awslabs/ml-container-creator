@@ -3,6 +3,7 @@
 .idea/
 .kiro/**
 !.kiro/steering.md
+!.kiro/hyperpod-ops-surface.md
 .pytest_cache/
 .scripts/
 .vscode/

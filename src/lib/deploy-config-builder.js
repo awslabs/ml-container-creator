@@ -130,13 +130,13 @@ async function callMcpTool(serverName, toolName, toolArgs, opts = {}) {
 
 // ── Instance sizing ──────────────────────────────────────────────────────────
 
-async function getInstanceRecommendations(modelName, _region) {
+async function getInstanceRecommendations(modelName, _region, deploymentTarget) {
     if (!modelName) return { single: [], multi: [] };
 
     const result = await callMcpTool('instance-sizer', 'get_instance_recommendation', {
         modelName,
         limit: 40,
-        context: { deploymentTarget: 'realtime-inference' }
+        context: { deploymentTarget: deploymentTarget || 'realtime-inference' }
     }, { timeout: 60000 });
 
     if (result?.choices?.instanceType?.length > 0) {
@@ -241,10 +241,23 @@ async function getClusters(region) {
         const metadata = result.metadata || {};
         return result.choices.hyperPodCluster.map(name => {
             const info = metadata[name];
-            const gpuTotal = info?.instanceGroups?.reduce(
+            const instanceGroups = info?.instanceGroups || [];
+            const gpuTotal = instanceGroups.reduce(
                 (sum, g) => sum + (g.gpuCapacity?.total || 0), 0
             ) || 0;
-            return { name, gpuTotal, queues: info?.queues || [] };
+            // Extract unique instance types available on this cluster
+            const instanceTypes = [...new Set(
+                instanceGroups
+                    .map(g => g.instanceType)
+                    .filter(Boolean)
+            )];
+            return {
+                name,
+                gpuTotal,
+                queues: info?.queues || [],
+                instanceTypes,
+                instanceGroups
+            };
         });
     }
     return [];
@@ -296,9 +309,9 @@ function resolveInferenceAmiVersion(deploymentConfig) {
 
 // ── Instance type prompt with split display ──────────────────────────────────
 
-async function promptInstanceType(modelName, region, strategy) {
+async function promptInstanceType(modelName, region, strategy, deploymentTarget) {
     const spinner = ora('Querying instance-sizer...').start();
-    const { single, multi, estimatedVram } = await getInstanceRecommendations(modelName, region);
+    const { single, multi, estimatedVram } = await getInstanceRecommendations(modelName, region, deploymentTarget);
     const totalRecs = single.length + multi.length;
     if (totalRecs > 0) {
         spinner.succeed(`${totalRecs} recommendation(s)`);
@@ -463,7 +476,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 if (selected === '__custom__') {
                     answers.endpoint_name = await input({ message: 'Endpoint name:' });
                     // Custom endpoint — need instance type
-                    answers.instance_type = await promptInstanceType(modelName, region, 'new');
+                    answers.instance_type = await promptInstanceType(modelName, region, 'new', target);
                 } else {
                     answers.endpoint_name = selected;
                     // Instance type comes from the endpoint — no sizer needed
@@ -479,10 +492,10 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                     default: `${projectName}-ep`
                 });
                 // No endpoint found — need instance type
-                answers.instance_type = await promptInstanceType(modelName, region, 'new');
+                answers.instance_type = await promptInstanceType(modelName, region, 'new', target);
             }
         } else {
-            answers.instance_type = await promptInstanceType(modelName, region, answers.endpoint_strategy);
+            answers.instance_type = await promptInstanceType(modelName, region, answers.endpoint_strategy, target);
         }
     } else {
         answers.instance_type = config.INSTANCE_TYPE;
@@ -527,13 +540,14 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
 
     } else if (target === 'hyperpod-eks') {
         // Cluster selection
+        let selectedCluster = null;
         if (!config.HP_CLUSTER_NAME) {
             const clusterSpinner = ora('Querying cluster-picker...').start();
             const clusters = await getClusters(region);
             clusterSpinner.stop();
             if (clusters.length > 0) {
                 const choices = clusters.map(c => ({
-                    name: `${c.name} (${c.gpuTotal} GPUs)`,
+                    name: `${c.name} (${c.gpuTotal} GPUs, ${c.instanceTypes.join(', ')})`,
                     value: c.name
                 }));
                 answers.cluster_name = await select({
@@ -541,11 +555,12 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                     choices
                 });
 
-                // Store queues from selected cluster
-                const selected = clusters.find(c => c.name === answers.cluster_name);
-                if (selected?.queues?.length > 0) {
+                selectedCluster = clusters.find(c => c.name === answers.cluster_name);
+
+                // Queue selection from cluster metadata
+                if (selectedCluster?.queues?.length > 0) {
                     const queueChoices = [
-                        ...selected.queues.map(q => ({ name: q, value: q })),
+                        ...selectedCluster.queues.map(q => ({ name: q, value: q })),
                         { name: '(skip — no queue)', value: '' }
                     ];
                     answers.queue = await select({
@@ -559,6 +574,40 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 const result = { error: 'No HyperPod cluster found. Run: mcc bootstrap add-module hyperpod' };
                 writeFileSync(outputFile, JSON.stringify(result));
                 return result;
+            }
+        }
+
+        // Instance type — use cluster's available instance types, not generic sizer
+        if (!config.INSTANCE_TYPE && !preInstanceType) {
+            const clusterInstanceTypes = selectedCluster?.instanceTypes || [];
+            if (clusterInstanceTypes.length > 0) {
+                // Show instance types from the cluster's node groups
+                const choices = clusterInstanceTypes.map(t => {
+                    const group = selectedCluster.instanceGroups.find(g => g.instanceType === t);
+                    const gpus = group?.gpuCapacity?.total || 0;
+                    const count = group?.count || 0;
+                    return {
+                        name: `${t} (${gpus} GPUs, ${count} nodes)`,
+                        value: t
+                    };
+                });
+                choices.push({ name: 'Custom (enter manually)', value: '__custom__' });
+
+                const selected = await select({
+                    message: 'Instance type (from cluster node groups):',
+                    choices
+                });
+                if (selected === '__custom__') {
+                    answers.instance_type = await input({
+                        message: 'Instance type:',
+                        validate: v => v.startsWith('ml.') ? true : 'Must start with ml.'
+                    });
+                } else {
+                    answers.instance_type = selected;
+                }
+            } else {
+                // No cluster info available — fall back to sizer
+                answers.instance_type = await promptInstanceType(modelName, region, null, target);
             }
         }
 

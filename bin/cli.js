@@ -54,7 +54,18 @@ program.action((projectNameArgs, options) => {
         console.error('❌ Cannot specify both --ngc-token and --ngc-token-arn. Use one or the other.');
         process.exit(1);
     }
-    return run(projectNameArgs?.[0] || null, options);
+
+    // Strip Commander default values from options so they don't override
+    // environment variables in the config precedence chain.
+    // Only pass options that were explicitly provided on the command line.
+    const explicitOptions = {};
+    for (const [key, value] of Object.entries(options)) {
+        if (program.getOptionValueSource(key) !== 'default') {
+            explicitOptions[key] = value;
+        }
+    }
+
+    return run(projectNameArgs?.[0] || null, explicitOptions);
 });
 
 // Custom help formatting — group options into logical sections (root command only)

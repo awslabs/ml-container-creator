@@ -12,12 +12,12 @@
  */
 
 import { ServiceQuotasClient, ListServiceQuotasCommand } from '@aws-sdk/client-service-quotas';
-import { SageMakerClient, ListEndpointsCommand, DescribeEndpointCommand, ListTrainingPlansCommand } from '@aws-sdk/client-sagemaker';
+import { SageMakerClient, ListEndpointsCommand, DescribeEndpointCommand, DescribeEndpointConfigCommand, ListTrainingPlansCommand } from '@aws-sdk/client-sagemaker';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const SAGEMAKER_SERVICE_CODE = 'sagemaker';
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_CACHE_TTL_MS = 300000; // 5 minutes
 const QUOTA_NAME_PATTERN = /^(ml\.[a-z0-9]+\.[a-z0-9]+) for endpoint usage$/;
 
@@ -180,7 +180,9 @@ class QuotaResolver {
 
     /**
      * Fetch currently deployed endpoint instances and count per type.
-     * Calls DescribeEndpoint for each InService endpoint to get variant details.
+     * For IC-based endpoints, InstanceType is in EndpointConfig (not
+     * in the live ProductionVariants). We DescribeEndpoint to get the
+     * config name, then DescribeEndpointConfig for instance type.
      *
      * @returns {Promise<Map>} Map: instanceType → deployed instance count
      */
@@ -203,16 +205,37 @@ class QuotaResolver {
             nextToken = response.NextToken;
         } while (nextToken);
 
-        // Then describe each to get instance type + count from variants
+        // Then describe each to get instance type + count
         const describePromises = endpointNames.slice(0, 50).map(async (name) => {
             try {
-                const resp = await this.sagemakerClient.send(
+                const epResp = await this.sagemakerClient.send(
                     new DescribeEndpointCommand({ EndpointName: name })
                 );
-                for (const variant of (resp.ProductionVariants || [])) {
+
+                // Try live variants first (non-IC endpoints)
+                let found = false;
+                for (const variant of (epResp.ProductionVariants || [])) {
                     if (variant.CurrentInstanceCount && variant.InstanceType) {
                         const current = deployedMap.get(variant.InstanceType) || 0;
                         deployedMap.set(variant.InstanceType, current + variant.CurrentInstanceCount);
+                        found = true;
+                    }
+                }
+
+                // IC-based endpoints: InstanceType is null in live
+                // variants. Get it from the EndpointConfig instead.
+                if (!found && epResp.EndpointConfigName) {
+                    const cfgResp = await this.sagemakerClient.send(
+                        new DescribeEndpointConfigCommand({
+                            EndpointConfigName: epResp.EndpointConfigName
+                        })
+                    );
+                    for (const variant of (cfgResp.ProductionVariants || [])) {
+                        if (variant.InstanceType) {
+                            const count = epResp.ProductionVariants?.[0]?.CurrentInstanceCount || variant.InitialInstanceCount || 1;
+                            const current = deployedMap.get(variant.InstanceType) || 0;
+                            deployedMap.set(variant.InstanceType, current + count);
+                        }
                     }
                 }
             } catch {
@@ -221,6 +244,9 @@ class QuotaResolver {
         });
 
         await Promise.allSettled(describePromises);
+        if (deployedMap.size > 0) {
+            log(`Deployed instance counts: ${[...deployedMap].map(([k, v]) => `${k}=${v}`).join(', ')}`);
+        }
         return deployedMap;
     }
 
