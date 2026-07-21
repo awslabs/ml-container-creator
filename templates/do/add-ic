@@ -24,6 +24,14 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
     exit 1
 fi
 
+# ── Async/Batch guard: ICs require real-time endpoints ────────────────────────
+if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "❌ do/add-ic is not supported on ${DEPLOYMENT_TARGET}."
+    echo "   Inference Components require a real-time (managed-inference) endpoint."
+    echo "   Switch target: do/deploy --target managed-inference"
+    exit 1
+fi
+
 # ============================================================
 # Usage
 # ============================================================

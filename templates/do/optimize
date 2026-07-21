@@ -15,6 +15,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/wait.sh"
 
+# ── Target guard: AI Recommendations requires a real-time IC endpoint ─────────
+if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ] || [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
+    echo "❌ do/optimize (AI Recommendations) is not supported on ${DEPLOYMENT_TARGET}."
+    echo "   AI Recommendations requires a real-time managed-inference endpoint."
+    echo ""
+    echo "   For config recommendations without a live endpoint, use:"
+    echo "   ./do/benchmark --recommend"
+    exit 1
+fi
+
 # ── Parse flags ───────────────────────────────────────────────────────────────
 GOAL=""
 INSTANCES_ARG=""

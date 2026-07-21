@@ -20,6 +20,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
+# ── Target guard: adapters require IC-based real-time endpoints ───────────────
+if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "❌ do/adapter is not supported on ${DEPLOYMENT_TARGET}."
+    echo "   LoRA adapters require a real-time (managed-inference) endpoint with ICs."
+    echo "   Switch target: do/deploy --target managed-inference"
+    exit 1
+fi
+
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 # ADAPTER_S3_BUCKET is provided by profile.sh from moduleOutputs.training.AdaptersBucket.
 # No invented fallback — a missing value means the training module isn't provisioned (guarded below).

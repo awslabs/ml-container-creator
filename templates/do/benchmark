@@ -26,6 +26,21 @@ fi
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
+# ── Target guard: benchmark uses InvokeEndpoint (real-time only) ──────────────
+if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ]; then
+    echo "❌ do/benchmark is not supported on async-inference."
+    echo "   AIPerf benchmarking uses synchronous InvokeEndpoint calls."
+    echo "   Async endpoints only support invoke-endpoint-async."
+    echo "   Switch target: do/deploy --target managed-inference"
+    exit 1
+fi
+if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "❌ do/benchmark is not supported on batch-transform."
+    echo "   AIPerf benchmarking requires a real-time endpoint."
+    echo "   Switch target: do/deploy --target managed-inference"
+    exit 1
+fi
+
 # ── Parse flags ───────────────────────────────────────────────────────────────
 CLEAN_AFTER=false
 FORCE=false

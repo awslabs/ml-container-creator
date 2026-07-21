@@ -30,6 +30,15 @@ else
     IC_ARG="${1:-}"
 fi
 
+# ── Batch guard: batch has no persistent endpoint to test ─────────────────────
+if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "❌ do/test is not supported on batch-transform."
+    echo "   Batch jobs process input data and write results to S3."
+    echo "   Check job status: aws sagemaker describe-transform-job --transform-job-name <name>"
+    echo "   View output: aws s3 ls ${BATCH_OUTPUT_PATH:-s3://...}"
+    exit 1
+fi
+
 # Determine test mode based on ENDPOINT_NAME in config
 if [ -z "${ENDPOINT_NAME:-}" ]; then
     echo "🧪 Testing local container at localhost:8080"
@@ -225,9 +234,13 @@ else
     
     # Resolve inference component name
     # Precedence: do/adapters/ → do/ic/ → legacy config
+    # Skip for non-IC targets (async, batch — they use model-based endpoints)
     IC_NAME=""
     ADAPTER_MODEL_NAME=""
-    if [ -n "${IC_ARG}" ] && [ -f "${SCRIPT_DIR}/adapters/${IC_ARG}.conf" ]; then
+    if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+        # No IC for these targets — invoke endpoint directly
+        IC_NAME=""
+    elif [ -n "${IC_ARG}" ] && [ -f "${SCRIPT_DIR}/adapters/${IC_ARG}.conf" ]; then
         # Argument matches an adapter name — use adapter IC
         ADAPTER_IC_NAME=""
         source "${SCRIPT_DIR}/adapters/${IC_ARG}.conf"
