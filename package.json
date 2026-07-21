@@ -122,6 +122,7 @@
     "commander": "13.1.0",
     "ejs": "^3.1.10",
     "minimatch": "^10.2.4",
+    "ora": "^9.4.1",
     "tinyglobby": "^0.2.16"
   },
   "devDependencies": {

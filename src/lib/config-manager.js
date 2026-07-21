@@ -796,19 +796,25 @@ export default class ConfigManager {
     _generateProjectName(architecture) {
         const adjectives = [
             'smart', 'fast', 'clever', 'bright', 'swift', 'agile', 'sharp', 'quick',
-            'wise', 'keen', 'bold', 'sleek', 'neat', 'cool', 'fresh', 'prime'
+            'wise', 'keen', 'bold', 'sleek', 'neat', 'cool', 'fresh', 'prime',
+            'vivid', 'rapid', 'elite', 'noble', 'lucid', 'adept', 'deft', 'epic',
+            'crisp', 'vital', 'zen', 'hyper', 'turbo', 'mega', 'ultra', 'cosmic',
+            'lunar', 'solar', 'quantum', 'atomic', 'pixel', 'cyber', 'neon', 'stellar',
+            'iron', 'amber', 'coral', 'jade', 'onyx', 'ruby', 'opal', 'ivory'
         ];
         
         const architectureNames = {
-            'http': ['http', 'api', 'serve'],
-            'transformers': ['llm', 'transformer', 'gpt', 'bert', 'ai'],
-            'triton': ['triton', 'inference', 'nvidia'],
-            'diffusors': ['diffusion', 'image', 'vllm-omni']
+            'http': ['http', 'api', 'serve', 'rest', 'flask', 'web', 'endpoint'],
+            'transformers': ['llm', 'transformer', 'gpt', 'bert', 'ai', 'lm', 'nlp', 'vllm', 'chat', 'instruct'],
+            'triton': ['triton', 'inference', 'nvidia', 'tensor', 'gpu', 'cuda'],
+            'diffusors': ['diffusion', 'image', 'vllm-omni', 'pixel', 'canvas', 'gen', 'vision']
         };
         
         const suffixes = [
             'model', 'predictor', 'classifier', 'engine', 'service', 'api',
-            'container', 'deployment', 'inference', 'ml', 'ai', 'bot'
+            'container', 'deployment', 'inference', 'ml', 'ai', 'bot',
+            'hub', 'core', 'node', 'agent', 'pilot', 'runner',
+            'forge', 'lab', 'ops', 'stack', 'flow', 'mesh'
         ];
         
         // Get random elements

@@ -35,11 +35,35 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Default
-DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-managed-inference}"
-if [ "$DEPLOYMENT_TARGET" = "realtime-inference" ]; then
+# Normalize alias
+if [ "${DEPLOYMENT_TARGET:-}" = "realtime-inference" ]; then
     DEPLOYMENT_TARGET="managed-inference"
 fi
+
+# If no target configured, prompt interactively (matching do/deploy pattern)
+if [ -z "${DEPLOYMENT_TARGET:-}" ]; then
+    if command -v node &>/dev/null && [ -t 0 ]; then
+        _CLEAN_TARGET=$(node -e "
+import { select } from '@inquirer/prompts';
+const target = await select({
+    message: 'Which deployment to clean up?',
+    choices: [
+        { name: 'Managed Inference', value: 'managed-inference' },
+        { name: 'Async Inference', value: 'async-inference' },
+        { name: 'Batch Transform', value: 'batch-transform' },
+        { name: 'HyperPod EKS', value: 'hyperpod-eks' },
+    ],
+});
+process.stdout.write(target);
+" 2>/dev/null) || _CLEAN_TARGET=""
+        if [ -n "$_CLEAN_TARGET" ]; then
+            DEPLOYMENT_TARGET="$_CLEAN_TARGET"
+        fi
+    fi
+fi
+
+# Final default
+DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-managed-inference}"
 
 # Dispatch
 case "$DEPLOYMENT_TARGET" in

@@ -159,31 +159,61 @@ def discover_mcp() -> MCPClient | None:
 
 
 def _load_mcp_config() -> dict[str, Any] | None:
-    """Load MCP server configuration from ~/.kiro/settings/mcp.json.
+    """Load MCP server configuration.
+
+    Search order:
+        1. $MCP_CONFIG — explicit path override
+        2. config/mcp.json — workspace-level (relative to project root)
+        3. .kiro/settings/mcp.json — workspace-level (Kiro convention)
+        4. ~/.kiro/settings/mcp.json — user-level
 
     Returns:
-        Parsed mcpServers config dict if the file exists and is valid JSON,
-        None otherwise.
+        Parsed mcpServers config dict if found and valid, None otherwise.
     """
-    config_path = MCP_CONFIG_PATH
+    candidates = []
 
-    if not os.path.isfile(config_path):
-        return None
+    # Explicit override
+    explicit = os.environ.get("MCP_CONFIG")
+    if explicit:
+        candidates.append(explicit)
 
-    try:
-        with open(config_path) as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning("MCP: failed to read %s: %s", config_path, e)
-        return None
+    # Workspace-level: walk up from this file to find project root
+    # (templates/do/lib/python/mcp_client.py → 4 levels up = project root)
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    # Walk up looking for config/mcp.json or .kiro/settings/mcp.json
+    search_dir = this_dir
+    for _ in range(6):
+        parent = os.path.dirname(search_dir)
+        if parent == search_dir:
+            break
+        search_dir = parent
+        candidates.append(os.path.join(search_dir, "config", "mcp.json"))
+        candidates.append(
+            os.path.join(search_dir, ".kiro", "settings", "mcp.json")
+        )
 
-    # Validate structure
-    servers = data.get("mcpServers")
-    if not isinstance(servers, dict) or not servers:
-        logger.warning("MCP: %s has no valid mcpServers section", config_path)
-        return None
+    # User-level fallback
+    candidates.append(MCP_CONFIG_PATH)
 
-    return data
+    for config_path in candidates:
+        if not os.path.isfile(config_path):
+            continue
+
+        try:
+            with open(config_path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("MCP: failed to read %s: %s", config_path, e)
+            continue
+
+        servers = data.get("mcpServers")
+        if not isinstance(servers, dict) or not servers:
+            continue
+
+        logger.debug("MCP: loaded config from %s", config_path)
+        return data
+
+    return None
 
 
 # ---------------------------------------------------------------------------

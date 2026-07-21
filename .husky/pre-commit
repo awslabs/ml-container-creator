@@ -38,3 +38,10 @@ fi
 
 # 4. Command generator sync check
 node scripts/sync-command-generator.js --check
+
+# 5. Remove __pycache__ directories from staging area
+git diff --cached --name-only | grep -E '__pycache__' | while read f; do
+    git rm -r --cached "$f" 2>/dev/null || true
+done
+
+git ls-files --cached | grep '__pycache__' | xargs git rm --cached -r 2>/dev/null || true

@@ -22,7 +22,7 @@ import instance_sizer
 # Suppress ALL logging to prevent stdout pollution (JSON output contract)
 logging.disable(logging.CRITICAL)
 
-from deploy_schema import SCHEMAS  # noqa: E402
+from deploy_schema import SCHEMAS, normalize_target  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # MCP fallback warning message (FR-2.4)
@@ -270,6 +270,8 @@ def diff_config(target: str, config_vars: dict[str, str]) -> dict[str, str | Non
         Required vars with no value have None as the default.
         Optional vars not present in config have their schema default.
     """
+    if target not in SCHEMAS:
+        target = normalize_target(target)
     if target not in SCHEMAS:
         raise ValueError(f"Unknown target: {target!r}")
 
@@ -1233,6 +1235,7 @@ def run_prompt_flow(
     effective_target = pre_target or target_from_env or config_vars.get("DEPLOYMENT_TARGET")
 
     target = prompt_target_selection(effective_target or None)
+    target = normalize_target(target)
 
     # Apply pre-set instance type to config for diffing
     if pre_instance_type:

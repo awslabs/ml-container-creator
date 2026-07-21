@@ -76,11 +76,30 @@ STATUS_VARS: dict[str, str] = {
 }
 
 
+# Target aliases for backward compatibility (v1.3 → v1.4 rename)
+TARGET_ALIASES: dict[str, str] = {
+    "realtime-inference": "managed-inference",
+}
+
+
+def normalize_target(target: str) -> str:
+    """Normalize a target name, resolving any aliases.
+
+    Args:
+        target: Target name (may be an alias like "realtime-inference").
+
+    Returns:
+        The canonical target name (e.g. "managed-inference").
+    """
+    return TARGET_ALIASES.get(target, target)
+
+
 def validate_config(target: str, config_vars: dict[str, str]) -> list[str]:
     """Check *config_vars* against the schema for *target*.
 
     Args:
         target: One of the keys in SCHEMAS (e.g. "managed-inference").
+            Also accepts aliases (e.g. "realtime-inference").
         config_vars: Mapping of variable names to their current values
                      (as read from do/config or provided via flags).
 
@@ -91,6 +110,7 @@ def validate_config(target: str, config_vars: dict[str, str]) -> list[str]:
     Raises:
         ValueError: If *target* is not a recognized deployment target.
     """
+    target = normalize_target(target)
     if target not in SCHEMAS:
         raise ValueError(
             f"Unknown deployment target: {target!r}. "

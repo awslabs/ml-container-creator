@@ -222,9 +222,9 @@ _ci_handle_existing_endpoint() {
     esac
 }
 
-# Source configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config"
+# Configuration is already sourced by the do/deploy dispatcher.
+# Resolve SCRIPT_DIR to do/ (parent of deploy.d/) for lib/ access.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────

@@ -12,7 +12,7 @@
  */
 
 import { ServiceQuotasClient, ListServiceQuotasCommand } from '@aws-sdk/client-service-quotas';
-import { SageMakerClient, ListEndpointsCommand, ListTrainingPlansCommand } from '@aws-sdk/client-sagemaker';
+import { SageMakerClient, ListEndpointsCommand, DescribeEndpointCommand, ListTrainingPlansCommand } from '@aws-sdk/client-sagemaker';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -180,14 +180,16 @@ class QuotaResolver {
 
     /**
      * Fetch currently deployed endpoint instances and count per type.
-     * Paginates through all endpoints.
+     * Calls DescribeEndpoint for each InService endpoint to get variant details.
      *
-     * @returns {Promise<Map>} Map: instanceType → deployed count
+     * @returns {Promise<Map>} Map: instanceType → deployed instance count
      */
     async _fetchDeployedCounts() {
         const deployedMap = new Map();
         let nextToken = undefined;
 
+        // First, list all InService endpoints
+        const endpointNames = [];
         do {
             const command = new ListEndpointsCommand({
                 StatusEquals: 'InService',
@@ -195,30 +197,30 @@ class QuotaResolver {
             });
 
             const response = await this.sagemakerClient.send(command);
-
-            for (const endpoint of (response.Endpoints || [])) {
-                // ListEndpoints returns endpoint summaries; instance type info
-                // is in the ProductionVariants. We count each endpoint as 1
-                // instance of its configured type. For more accurate counts,
-                // DescribeEndpoint would be needed, but that's too many API calls.
-                // The endpoint name often encodes the instance type, but the
-                // reliable approach is to count endpoints and map via config.
-                // For now, we track endpoint counts by checking production variants
-                // if available, otherwise skip.
-                if (endpoint.ProductionVariants) {
-                    for (const variant of endpoint.ProductionVariants) {
-                        if (variant.InstanceType) {
-                            const current = deployedMap.get(variant.InstanceType) || 0;
-                            const count = variant.CurrentInstanceCount || 1;
-                            deployedMap.set(variant.InstanceType, current + count);
-                        }
-                    }
-                }
+            for (const ep of (response.Endpoints || [])) {
+                endpointNames.push(ep.EndpointName);
             }
-
             nextToken = response.NextToken;
         } while (nextToken);
 
+        // Then describe each to get instance type + count from variants
+        const describePromises = endpointNames.slice(0, 50).map(async (name) => {
+            try {
+                const resp = await this.sagemakerClient.send(
+                    new DescribeEndpointCommand({ EndpointName: name })
+                );
+                for (const variant of (resp.ProductionVariants || [])) {
+                    if (variant.CurrentInstanceCount && variant.InstanceType) {
+                        const current = deployedMap.get(variant.InstanceType) || 0;
+                        deployedMap.set(variant.InstanceType, current + variant.CurrentInstanceCount);
+                    }
+                }
+            } catch {
+                // Skip endpoints that fail to describe
+            }
+        });
+
+        await Promise.allSettled(describePromises);
         return deployedMap;
     }
 

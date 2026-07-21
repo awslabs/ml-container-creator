@@ -265,6 +265,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Path to JSON answers file for non-interactive mode",
     )
+    prompt_parser.add_argument(
+        "--output-file",
+        default="",
+        help="Write JSON output to this file instead of stdout",
+    )
     # -- per-target optional flags (FR-3.1, FR-3.5) --
     prompt_parser.add_argument(
         "--endpoint-name",
