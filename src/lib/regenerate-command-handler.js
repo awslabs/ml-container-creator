@@ -68,7 +68,12 @@ function shellVarsToAnswers(shellVars) {
         QUANTIZATION: 'quantization',
         HF_TOKEN_ARN: 'hfTokenArn',
         NGC_TOKEN_ARN: 'ngcTokenArn',
-        GENERATOR_VERSION: 'generatorVersion'
+        GENERATOR_VERSION: 'generatorVersion',
+        // Per-target deployment status vars (FR-9.3: preserved on regeneration)
+        DEPLOYMENT_TARGET_SMAI_STATUS: 'deploymentTargetSmaiStatus',
+        DEPLOYMENT_TARGET_HP_STATUS: 'deploymentTargetHpStatus',
+        DEPLOYMENT_TARGET_ASYNC_STATUS: 'deploymentTargetAsyncStatus',
+        DEPLOYMENT_TARGET_BATCH_STATUS: 'deploymentTargetBatchStatus'
     };
 
     for (const [shellKey, value] of Object.entries(shellVars)) {

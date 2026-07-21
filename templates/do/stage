@@ -125,6 +125,7 @@ print(p.get('roleArn', ''))
     if [ -n "${hf_token_secret_arn}" ]; then
         hf_token_value=$(aws secretsmanager get-secret-value \
             --secret-id "${hf_token_secret_arn}" \
+            --region "${AWS_REGION}" \
             --query SecretString --output text 2>/dev/null) || hf_token_value=""
     elif [ -n "${HF_TOKEN:-}" ]; then
         hf_token_value="${HF_TOKEN}"
@@ -330,7 +331,7 @@ fi
 # ── Resolve HuggingFace token (for gated models) ─────────────────────────────
 if [ -n "${HF_TOKEN_ARN:-}" ] && [ -z "${HF_TOKEN:-}" ]; then
     echo "🔐 Resolving HuggingFace token from Secrets Manager..."
-    HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text) || {
+    HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --region "${AWS_REGION}" --query SecretString --output text) || {
         echo "⚠️  Failed to resolve HF token from Secrets Manager (continuing without token)"
         HF_TOKEN=""
     }

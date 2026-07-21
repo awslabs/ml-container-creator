@@ -6,6 +6,14 @@ set -e
 set -u
 set -o pipefail
 
+# ── Trap: write Failed status on non-zero exit (FR-4.2) ───────────
+_mark_hp_failed() {
+    if type _update_config &>/dev/null; then
+        _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
+    fi
+}
+trap '_mark_hp_failed' ERR
+
 # Parse flags
 FORCE_NEW=false
 FORCE_IC=false
@@ -309,6 +317,9 @@ kill ${STATUS_PID} 2>/dev/null
 wait ${STATUS_PID} 2>/dev/null
 
 echo "✅ HyperPod EKS deployment complete!"
+
+# ── Write per-target status (FR-4.2) ─────────────────────────────
+_update_config "DEPLOYMENT_TARGET_HP_STATUS" "Running"
 echo ""
 echo "📋 Deployment Details:"
 echo "   Cluster: ${HP_CLUSTER_NAME}"

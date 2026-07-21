@@ -41,7 +41,17 @@ export ENABLE_LORA=true
 <% } %>
 
 # Deployment configuration — WHERE the model runs
+<% if (typeof deploymentTarget !== 'undefined' && deploymentTarget) { %>
 export DEPLOYMENT_TARGET="<%= deploymentTarget %>"
+<% } else { %>
+export DEPLOYMENT_TARGET=""
+<% } %>
+
+# ── Per-target deployment status (updated by do/deploy on success/failure) ────
+export DEPLOYMENT_TARGET_SMAI_STATUS="<%= typeof deploymentTargetSmaiStatus !== 'undefined' && deploymentTargetSmaiStatus ? deploymentTargetSmaiStatus : '' %>"
+export DEPLOYMENT_TARGET_HP_STATUS="<%= typeof deploymentTargetHpStatus !== 'undefined' && deploymentTargetHpStatus ? deploymentTargetHpStatus : '' %>"
+export DEPLOYMENT_TARGET_ASYNC_STATUS="<%= typeof deploymentTargetAsyncStatus !== 'undefined' && deploymentTargetAsyncStatus ? deploymentTargetAsyncStatus : '' %>"
+export DEPLOYMENT_TARGET_BATCH_STATUS="<%= typeof deploymentTargetBatchStatus !== 'undefined' && deploymentTargetBatchStatus ? deploymentTargetBatchStatus : '' %>"
 
 <% if (deploymentTarget === 'realtime-inference') { %>
 # SageMaker Real-Time Inference configuration
@@ -49,7 +59,7 @@ export DEPLOYMENT_TARGET="<%= deploymentTarget %>"
 # External endpoint — attaching IC to an existing running endpoint
 export ENDPOINT_NAME="<%= existingEndpointName %>"
 export ENDPOINT_EXTERNAL=true
-<% } else { %>
+<% } else if (typeof instanceType !== 'undefined' && instanceType) { %>
 export INSTANCE_TYPE="<%= instanceType %>"
 <% if (typeof instancePools !== 'undefined' && instancePools && instancePools.length > 1) { %>
 # Instance pools: heterogeneous instance types with priority-based fallback
@@ -77,10 +87,22 @@ export CAPACITY_RESERVATION_ARN="<%= capacityReservationArn %>"
 # Note: Mutually exclusive with INSTANCE_POOLS — reservation takes precedence.
 # export CAPACITY_RESERVATION_ARN=""
 <% } %>
+<% } else { %>
+# SageMaker Real-Time Inference (populated at deploy time)
+export INSTANCE_TYPE=""
+# export INSTANCE_POOLS='[]'
+# export INFERENCE_AMI_VERSION=""
+# export CAPACITY_RESERVATION_ARN=""
 <% } %>
+<% } else { %>
+# SageMaker Real-Time Inference (populated at deploy time)
+export INSTANCE_TYPE=""
+# export INSTANCE_POOLS='[]'
+# export INFERENCE_AMI_VERSION=""
+# export CAPACITY_RESERVATION_ARN=""
 <% } %>
 
-<% if (typeof asyncMaxConcurrentInvocations !== 'undefined' && asyncMaxConcurrentInvocations) { %>
+<% if (typeof asyncMaxConcurrentInvocations !== 'undefined' && asyncMaxConcurrentInvocations && deploymentTarget === 'async-inference') { %>
 # ── Async Inference ──────────────────────────────────────────────────────────
 # ASYNC_S3_OUTPUT_PATH, ASYNC_SNS_SUCCESS_TOPIC, ASYNC_SNS_ERROR_TOPIC — see do/lib/profile.sh
 export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
@@ -90,7 +112,7 @@ export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
 # ASYNC_MAX_CONCURRENT_INVOCATIONS=""
 <% } %>
 
-<% if (typeof hyperPodCluster !== 'undefined' && hyperPodCluster) { %>
+<% if (typeof hyperPodCluster !== 'undefined' && hyperPodCluster && deploymentTarget === 'hyperpod-eks') { %>
 # ── HyperPod EKS ────────────────────────────────────────────────────────────
 export HP_CLUSTER_NAME="<%= hyperPodCluster %>"
 export HP_NAMESPACE="<%= typeof hyperPodNamespace !== 'undefined' ? hyperPodNamespace : 'default' %>"
@@ -125,7 +147,7 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 # FSX_VOLUME_HANDLE=""
 <% } %>
 
-<% if (typeof batchInstanceCount !== 'undefined' && batchInstanceCount) { %>
+<% if (typeof batchInstanceCount !== 'undefined' && batchInstanceCount && deploymentTarget === 'batch-transform') { %>
 # ── Batch Transform ──────────────────────────────────────────────────────────
 # BATCH_INPUT_PATH, BATCH_OUTPUT_PATH — see do/lib/profile.sh
 export BATCH_INSTANCE_COUNT="<%= batchInstanceCount %>"
@@ -366,7 +388,7 @@ export <%= key %>=${<%= key %>:-<%= value %>}
 export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage || '' %>}
 
 # Allow environment variable overrides
-<% if ((deploymentTarget === 'realtime-inference' && !(typeof existingEndpointName !== 'undefined' && existingEndpointName)) || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
+<% if (typeof instanceType !== 'undefined' && instanceType && !(typeof existingEndpointName !== 'undefined' && existingEndpointName)) { %>
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 <% } %>
 
@@ -376,7 +398,7 @@ echo "   Project: ${PROJECT_NAME}"
 echo "   Config:  ${DEPLOYMENT_CONFIG}"
 echo "   Region:  ${AWS_REGION}"
 echo "   Build target: ${BUILD_TARGET}"
-echo "   Deployment target: ${DEPLOYMENT_TARGET}"
+echo "   Deployment target: ${DEPLOYMENT_TARGET:-<not set — configure at deploy time>}"
 <% if (orderedEnvVars && orderedEnvVars.length > 0) { %>
 echo "   Runtime env vars: <%= orderedEnvVars.length %>"
 <% } %>

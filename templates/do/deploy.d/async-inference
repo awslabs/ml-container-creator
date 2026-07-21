@@ -6,6 +6,14 @@ set -e
 set -u
 set -o pipefail
 
+# ── Trap: write Failed status on non-zero exit (FR-4.2) ───────────
+_mark_async_failed() {
+    if type _update_config &>/dev/null; then
+        _update_config "DEPLOYMENT_TARGET_ASYNC_STATUS" "Failed"
+    fi
+}
+trap '_mark_async_failed' ERR
+
 # Parse flags
 FORCE_NEW=false
 FORCE_IC=false
@@ -505,6 +513,9 @@ if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
 fi
 
 echo "✅ Async deployment complete!"
+
+# ── Write per-target status (FR-4.2) ─────────────────────────────
+_update_config "DEPLOYMENT_TARGET_ASYNC_STATUS" "InService"
 echo ""
 echo "📋 Deployment Details:"
 echo "   Endpoint: ${ENDPOINT_NAME}"

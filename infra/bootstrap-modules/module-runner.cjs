@@ -516,7 +516,10 @@ class CdkMultiStackModuleRunner {
             // dependencies before creating the HyperPod cluster. SageMaker
             // validates that these components exist during CreateCluster.
             if (stackSuffix === 'hyperpod-cluster') {
-                await this._ensureHyperPodHelmChart(profile);
+                this._ensureEksOperatorAccess(profile);
+                await this._ensureHyperPodHelmChart(profile, opts);
+                this._ensureCdkExecRolePassRole(profile);
+                this._ensureHyperPodInstanceRoleVpcAccess(profile);
             }
 
             // Before inference-operator, clear any blocking webhooks that aren't
@@ -591,10 +594,16 @@ class CdkMultiStackModuleRunner {
      * Operator, deep health check RBAC, and job-auto-restart — all required
      * before SageMaker will accept a CreateCluster call.
      *
-     * Idempotent: if the release already exists, this is a no-op.
+     * Idempotent: uses `helm upgrade --install` so re-runs are safe.
+     * Skipped entirely when adoptEks=true (existing cluster already has the chart).
      * @param {object} profile
+     * @param {object} [opts] - { adoptEks?: boolean }
      */
-    async _ensureHyperPodHelmChart(profile) {
+    async _ensureHyperPodHelmChart(profile, opts = {}) {
+        if (opts.adoptEks) {
+            console.log('  ⏭️  Skipping HyperPod Helm chart install (adoptEks=true — existing cluster)');
+            return;
+        }
         const ssmPrefix = `/mlcc/${profile.profileName}/hyperpod`;
         const awsFlags = (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '');
 
@@ -612,12 +621,16 @@ class CdkMultiStackModuleRunner {
 
         // Check if the release already exists
         try {
-            execSync(
-                `helm status hyperpod-dependencies --namespace kube-system 2>/dev/null`,
+            const helmStatus = execSync(
+                `helm status hyperpod-dependencies --namespace kube-system --output json 2>/dev/null`,
                 { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
             );
-            console.log('  ✅ HyperPod Helm chart already installed');
-            return;
+            const status = JSON.parse(helmStatus);
+            if (status.info && status.info.status === 'deployed') {
+                console.log('  ✅ HyperPod Helm chart already installed');
+                return;
+            }
+            console.log(`  ⚠️  HyperPod Helm chart in state "${status.info?.status}" — reinstalling`);
         } catch {
             // Not installed — proceed
         }
@@ -705,12 +718,142 @@ class CdkMultiStackModuleRunner {
             console.log('    Clearing blocking webhooks before Helm install...');
             this._clearBlockingWebhooks();
 
-            execSync('helm install hyperpod-dependencies . --namespace kube-system', {
+            execSync('helm upgrade --install hyperpod-dependencies . --namespace kube-system --create-namespace', {
                 cwd: chartDir, encoding: 'utf8', stdio: 'inherit',
             });
             console.log('  ✅ HyperPod Helm chart installed');
         } catch (err) {
             throw new Error(`Failed to install HyperPod Helm chart: ${err.message.split('\n')[0]}`);
+        }
+    }
+
+    /**
+     * Ensure the CDK CloudFormation execution role has iam:PassRole permission
+     * to pass mlcc-* roles to sagemaker.amazonaws.com. CloudFormation uses the
+     * cfn-exec role (not the operator role) when making API calls during stack
+     * deployment — without this, CreateCluster fails with "Unable to retrieve
+     * subnets" despite the operator role having correct PassRole permissions.
+     * Idempotent: PutRolePolicy is safe to call multiple times.
+     */
+    _ensureCdkExecRolePassRole(profile) {
+        const awsFlags = profile.awsProfile ? ` --profile ${profile.awsProfile}` : '';
+        const region = profile.awsRegion || 'us-east-1';
+        const accountId = profile.accountId;
+
+        if (!accountId) {
+            console.log('  ⚠️  No accountId in profile — skipping cfn-exec PassRole patch');
+            return;
+        }
+
+        const roleName = `cdk-hnb659fds-cfn-exec-role-${accountId}-${region}`;
+        const policyDoc = JSON.stringify({
+            Version: '2012-10-17',
+            Statement: [{
+                Sid: 'MlccHyperPodPassRole',
+                Effect: 'Allow',
+                Action: 'iam:PassRole',
+                Resource: `arn:aws:iam::${accountId}:role/mlcc-*`,
+                Condition: {
+                    StringEquals: { 'iam:PassedToService': 'sagemaker.amazonaws.com' }
+                }
+            }]
+        });
+
+        try {
+            execSync(
+                `aws iam put-role-policy --role-name ${roleName} --policy-name MlccHyperPodPassRole --policy-document '${policyDoc}'${awsFlags}`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            console.log(`  ✅ CDK cfn-exec role PassRole policy applied`);
+        } catch (err) {
+            console.log(`  ⚠️  Could not patch cfn-exec role PassRole: ${err.message?.split('\n')[0] || err}`);
+            console.log('     If CreateCluster fails with "Unable to retrieve subnets", run manually:');
+            console.log(`     aws iam put-role-policy --role-name ${roleName} --policy-name MlccHyperPodPassRole --policy-document '<json>'`);
+        }
+    }
+
+    /**
+     * Ensure the HyperPod instance role has the VPC subnet access policy that
+     * SageMaker requires when validating VpcConfig during CreateCluster.
+     * AmazonSageMakerClusterInstanceRolePolicy alone does NOT include these EC2
+     * permissions — they must be added as an inline policy. This is idempotent.
+     */
+    _ensureHyperPodInstanceRoleVpcAccess(profile) {
+        const awsFlags = profile.awsProfile ? ` --profile ${profile.awsProfile}` : '';
+        const roleName = `mlcc-${profile.profileName}-hyperpod-instance-role`;
+        const policyDoc = JSON.stringify({
+            Version: '2012-10-17',
+            Statement: [{
+                Sid: 'VpcSubnetAccess',
+                Effect: 'Allow',
+                Action: [
+                    'ec2:DescribeSubnets',
+                    'ec2:DescribeVpcs',
+                    'ec2:DescribeSecurityGroups',
+                    'ec2:DescribeNetworkInterfaces',
+                    'ec2:CreateNetworkInterface',
+                    'ec2:DeleteNetworkInterface',
+                    'ec2:DescribeNetworkInterfaceAttribute'
+                ],
+                Resource: '*'
+            }]
+        });
+
+        try {
+            execSync(
+                `aws iam put-role-policy --role-name ${roleName} --policy-name VpcSubnetAccess --policy-document '${policyDoc}'${awsFlags}`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            console.log(`  ✅ HyperPod instance role VPC access policy applied`);
+        } catch (err) {
+            console.log(`  ⚠️  Could not apply VPC access policy to ${roleName}: ${err.message?.split('\n')[0] || err}`);
+        }
+    }
+
+    /**
+     * Grant the current AWS caller (operator) cluster-admin access to the EKS
+     * cluster so kubectl works without manual console steps. Uses EKS access
+     * entries (works with API_AND_CONFIG_MAP auth mode). Idempotent.
+     */
+    _ensureEksOperatorAccess(profile) {
+        const awsFlags = profile.awsProfile ? ` --profile ${profile.awsProfile}` : '';
+        const region = profile.awsRegion || 'us-east-1';
+        const clusterName = `mlcc-${profile.profileName}-eks`;
+
+        // Get the current caller ARN (the operator)
+        let callerArn;
+        try {
+            const identity = JSON.parse(
+                execSync(`aws sts get-caller-identity --output json${awsFlags}`, {
+                    encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+                })
+            );
+            // Convert assumed-role session ARN → role ARN for the access entry
+            callerArn = identity.Arn.replace(
+                /arn:aws:sts::(\d+):assumed-role\/(.+?)\/.+/,
+                'arn:aws:iam::$1:role/$2'
+            );
+        } catch {
+            console.log('  ⚠️  Could not determine caller identity — skipping EKS access entry');
+            return;
+        }
+
+        const createCmd = `aws eks create-access-entry --cluster-name ${clusterName} --principal-arn ${callerArn} --region ${region}${awsFlags}`;
+        const assocCmd = `aws eks associate-access-policy --cluster-name ${clusterName} --principal-arn ${callerArn} --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy --access-scope type=cluster --region ${region}${awsFlags}`;
+
+        try {
+            execSync(createCmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+        } catch (e) {
+            // Already exists — that's fine
+            if (!e.stderr?.includes('already exists') && !e.message?.includes('already exists')) {
+                console.log(`  ⚠️  Could not create EKS access entry: ${e.message?.split('\n')[0]}`);
+            }
+        }
+        try {
+            execSync(assocCmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+            console.log(`  ✅ EKS cluster-admin access granted to ${callerArn}`);
+        } catch (e) {
+            console.log(`  ⚠️  Could not associate EKS admin policy: ${e.message?.split('\n')[0]}`);
         }
     }
 

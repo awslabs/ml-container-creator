@@ -140,6 +140,25 @@ export async function run(projectName, options) {
 
         answers = configManager.getFinalConfiguration();
 
+        // FR-1.7, FR-1.8: Ensure deployment defaults for skip-prompts mode.
+        // deploymentTarget defaults to 'realtime-inference' from parameter-matrix.
+        // If instanceType is not explicitly provided, auto-size from architecture heuristic.
+        if (!answers.deploymentTarget) {
+            answers.deploymentTarget = 'realtime-inference';
+        }
+        if (!answers.instanceType) {
+            // Use architecture-based heuristic: transformers/diffusors → GPU, predictor/http → CPU
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
+            const HEURISTIC_DEFAULTS = {
+                'transformers': 'ml.g5.xlarge',
+                'diffusors': 'ml.g5.2xlarge',
+                'predictor': 'ml.m5.large',
+                'http': 'ml.m5.large'
+            };
+            answers.instanceType = HEURISTIC_DEFAULTS[architecture] || 'ml.g5.xlarge';
+            console.log(`   • Instance type auto-sized: ${answers.instanceType} (from architecture: ${architecture || 'default'})`);
+        }
+
         // Infer modelSource from model name prefix if not set
         const modelName = answers.modelName;
         if (!answers.modelSource && modelName) {

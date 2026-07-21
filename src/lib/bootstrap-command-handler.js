@@ -1450,6 +1450,12 @@ export default class BootstrapCommandHandler {
         // Confirm removal
         if (!options.force) {
             this._warnPersistentBuckets([moduleName], profileConfig);
+            if (moduleName === 'hyperpod-cluster') {
+                console.log('\n  ⚠️  EKS cluster deletion via CloudFormation can take 30-60 minutes.');
+                console.log('     For faster teardown, consider deleting the HyperPod cluster first:');
+                console.log(`       aws sagemaker delete-cluster --cluster-name mlcc-${name}-hyperpod --region ${profileConfig.awsRegion}`);
+                console.log('     Then delete the EKS cluster from the AWS EKS console before running this command.\n');
+            }
             const { confirm } = await this._promptFn([{
                 type: 'confirm',
                 name: 'confirm',

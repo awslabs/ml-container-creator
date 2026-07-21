@@ -8,6 +8,7 @@ dependencies = [
     "huggingface-hub>=0.25.0",
     "hf-transfer>=0.1.8",
     "pyarrow>=17.0.0",
+    "questionary>=2.0.0",
     "sagemaker-core>=1.0.0",
     "sagemaker[train]>=3.0.0",
     "sagemaker[serve]>=3.0.0",

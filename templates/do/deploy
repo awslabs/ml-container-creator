@@ -9,7 +9,43 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
-# Parse --target flag (overrides DEPLOYMENT_TARGET for this invocation)
+# ── Config persistence helper ─────────────────────────────
+# Persists a key=value pair to do/config. If the key already exists, it is
+# replaced in-place; otherwise it is appended. Uses | as the sed delimiter
+# to avoid issues with / in paths (e.g. s3://...).
+_update_config() {
+    local key="$1" value="$2"
+    local config="${SCRIPT_DIR}/config"
+    if grep -q "^export ${key}=" "$config" 2>/dev/null; then
+        sed -i.bak \
+          "s|^export ${key}=.*|export ${key}=\"${value}\"|" \
+          "$config"
+        rm -f "${config}.bak"
+    else
+        echo "export ${key}=\"${value}\"" >> "$config"
+    fi
+}
+
+# Parse flags (--target stored as FLAG_TARGET to detect user-provided vs config)
+FLAG_TARGET=""
+FLAG_INSTANCE=""
+ANSWERS_FILE=""
+FLAG_ENDPOINT_NAME=""
+FLAG_ENDPOINT_STRATEGY=""
+FLAG_INSTANCE_TYPES=""
+FLAG_GPU_COUNT=""
+FLAG_CLUSTER_NAME=""
+FLAG_NAMESPACE=""
+FLAG_REPLICAS=""
+FLAG_QUEUE=""
+FLAG_ASYNC_OUTPUT_PATH=""
+FLAG_ASYNC_SNS_TOPIC=""
+FLAG_ASYNC_MAX_CONCURRENT=""
+FLAG_BATCH_INPUT_PATH=""
+FLAG_BATCH_OUTPUT_PATH=""
+FLAG_BATCH_SPLIT_TYPE=""
+FLAG_BATCH_STRATEGY=""
+FLAG_BATCH_MAX_CONCURRENT=""
 DEPLOY_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -19,19 +55,170 @@ while [ $# -gt 0 ]; do
                 echo "❌ --target requires a value (managed-inference, async-inference, batch-transform, hyperpod-eks)"
                 exit 1
             fi
-            DEPLOYMENT_TARGET="$1"
+            FLAG_TARGET="$1"
+            shift
+            ;;
+        --instance-type)
+            shift
+            if [ $# -eq 0 ]; then
+                echo "❌ --instance-type requires a value"
+                exit 1
+            fi
+            FLAG_INSTANCE="$1"
+            shift
+            ;;
+        --answers-file)
+            shift
+            if [ $# -eq 0 ]; then
+                echo "❌ --answers-file requires a path"
+                exit 1
+            fi
+            ANSWERS_FILE="$1"
+            shift
+            ;;
+        --endpoint-name)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --endpoint-name requires a value"; exit 1; fi
+            FLAG_ENDPOINT_NAME="$1"
+            shift
+            ;;
+        --endpoint-strategy)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --endpoint-strategy requires a value"; exit 1; fi
+            FLAG_ENDPOINT_STRATEGY="$1"
+            shift
+            ;;
+        --instance-types)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --instance-types requires a value"; exit 1; fi
+            FLAG_INSTANCE_TYPES="$1"
+            shift
+            ;;
+        --gpu-count)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --gpu-count requires a value"; exit 1; fi
+            FLAG_GPU_COUNT="$1"
+            shift
+            ;;
+        --cluster-name)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --cluster-name requires a value"; exit 1; fi
+            FLAG_CLUSTER_NAME="$1"
+            shift
+            ;;
+        --namespace)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --namespace requires a value"; exit 1; fi
+            FLAG_NAMESPACE="$1"
+            shift
+            ;;
+        --replicas)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --replicas requires a value"; exit 1; fi
+            FLAG_REPLICAS="$1"
+            shift
+            ;;
+        --queue)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --queue requires a value"; exit 1; fi
+            FLAG_QUEUE="$1"
+            shift
+            ;;
+        --async-output-path)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --async-output-path requires a value"; exit 1; fi
+            FLAG_ASYNC_OUTPUT_PATH="$1"
+            shift
+            ;;
+        --async-sns-topic)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --async-sns-topic requires a value"; exit 1; fi
+            FLAG_ASYNC_SNS_TOPIC="$1"
+            shift
+            ;;
+        --async-max-concurrent)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --async-max-concurrent requires a value"; exit 1; fi
+            FLAG_ASYNC_MAX_CONCURRENT="$1"
+            shift
+            ;;
+        --batch-input-path)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --batch-input-path requires a value"; exit 1; fi
+            FLAG_BATCH_INPUT_PATH="$1"
+            shift
+            ;;
+        --batch-output-path)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --batch-output-path requires a value"; exit 1; fi
+            FLAG_BATCH_OUTPUT_PATH="$1"
+            shift
+            ;;
+        --batch-split-type)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --batch-split-type requires a value"; exit 1; fi
+            FLAG_BATCH_SPLIT_TYPE="$1"
+            shift
+            ;;
+        --batch-strategy)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --batch-strategy requires a value"; exit 1; fi
+            FLAG_BATCH_STRATEGY="$1"
+            shift
+            ;;
+        --batch-max-concurrent)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --batch-max-concurrent requires a value"; exit 1; fi
+            FLAG_BATCH_MAX_CONCURRENT="$1"
+            shift
+            ;;
+        --status)
+            FLAG_STATUS=1
+            shift
+            ;;
+        --dry-run)
+            FLAG_DRY_RUN=1
             shift
             ;;
         --help|-h)
-            echo "Usage: ./do/deploy [--target <mode>] [deploy-script-flags...]"
+            echo "Usage: ./do/deploy [--target <mode>] [--instance-type <type>] [--status] [--dry-run] [deploy-script-flags...]"
             echo ""
             echo "Targets:"
-            echo "  managed-inference   SageMaker Real-Time Inference (default)"
+            echo "  managed-inference   SageMaker Real-Time Inference"
             echo "  async-inference     SageMaker Async Inference"
             echo "  batch-transform     SageMaker Batch Transform"
             echo "  hyperpod-eks        SageMaker HyperPod (EKS)"
             echo ""
+            echo "Options:"
+            echo "  --target <mode>         Deployment target"
+            echo "  --instance-type <type>  Instance type for deployment"
+            echo "  --endpoint-name <name>  Endpoint name (managed/async)"
+            echo "  --endpoint-strategy <s> Strategy: new, existing, heterogeneous"
+            echo "  --instance-types <list> Comma-separated instance types (heterogeneous)"
+            echo "  --gpu-count <n>         GPU count (auto-detected if omitted)"
+            echo "  --cluster-name <name>   HyperPod EKS cluster name"
+            echo "  --namespace <ns>        Kubernetes namespace (default: 'default')"
+            echo "  --replicas <n>          Number of replicas (default: '1')"
+            echo "  --queue <name>          Kueue queue name"
+            echo "  --async-output-path <p> S3 output path for async inference"
+            echo "  --async-sns-topic <arn> SNS topic ARN for async notifications"
+            echo "  --async-max-concurrent <n>  Max concurrent async invocations"
+            echo "  --batch-input-path <p>  S3 input path for batch transform"
+            echo "  --batch-output-path <p> S3 output path for batch transform"
+            echo "  --batch-split-type <t>  Batch split type: Line, RecordIO, None"
+            echo "  --batch-strategy <s>    Batch strategy: MultiRecord, SingleRecord"
+            echo "  --batch-max-concurrent <n>  Max concurrent transforms"
+            echo "  --answers-file <path>   JSON answers file for non-interactive mode"
+            echo "  --status                Show deployment state for all targets and exit"
+            echo "  --dry-run               Show resolved config and command without deploying"
+            echo ""
             echo "The --target flag overrides DEPLOYMENT_TARGET from do/config."
+            echo "If no target is configured and no --target flag is provided,"
+            echo "an interactive prompt flow guides deployment setup."
+            echo ""
+            echo "If all required flags for a target are provided, deploy proceeds"
+            echo "without interactive prompts (FR-3.2)."
+            echo ""
             echo "After a successful deploy, DEPLOYMENT_TARGET is written back to do/config."
             exit 0
             ;;
@@ -42,12 +229,275 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Default to managed-inference if not set
-DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-managed-inference}"
+# Apply --target flag if provided
+if [ -n "$FLAG_TARGET" ]; then
+    DEPLOYMENT_TARGET="$FLAG_TARGET"
+fi
+
+# ── Status var back-fill for v1.4 migration (FR-9.1) ─────────────────────
+# v1.4 projects have DEPLOYMENT_TARGET set but no per-target status vars.
+# On first run with the new code, back-fill the status var so that
+# switch-or-deploy logic works correctly.
+_backfill_status_var() {
+    local target="${DEPLOYMENT_TARGET:-}"
+    [ -z "$target" ] && return 0
+
+    local status_var=""
+    case "$target" in
+        managed-inference) status_var="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
+        hyperpod-eks)      status_var="DEPLOYMENT_TARGET_HP_STATUS" ;;
+        async-inference)   status_var="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
+        batch-transform)   status_var="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        *) return 0 ;;
+    esac
+
+    # Only back-fill if status var is empty (not yet migrated)
+    [ -n "${!status_var:-}" ] && return 0
+
+    # Try to detect status from live API
+    local live_status=""
+    case "$target" in
+        managed-inference|async-inference)
+            local ep_name="${ENDPOINT_NAME:-}"
+            if [ -n "$ep_name" ]; then
+                live_status=$(aws sagemaker describe-endpoint \
+                    --endpoint-name "$ep_name" \
+                    --region "${AWS_REGION:-us-east-1}" \
+                    --query 'EndpointStatus' \
+                    --output text 2>/dev/null) || live_status=""
+            fi
+            ;;
+        hyperpod-eks)
+            # If cluster name and instance type are set, assume running
+            if [ -n "${HP_CLUSTER_NAME:-}" ] && [ -n "${INSTANCE_TYPE:-}" ]; then
+                live_status="Running"
+            fi
+            ;;
+        batch-transform)
+            # Batch jobs are one-shot; if config exists, mark as completed
+            if [ -n "${BATCH_INPUT_PATH:-}" ] && [ -n "${BATCH_OUTPUT_PATH:-}" ]; then
+                live_status="Completed"
+            fi
+            ;;
+    esac
+
+    # Write back-fill if we got a status
+    if [ -n "$live_status" ]; then
+        _update_config "$status_var" "$live_status"
+        # Also export so current run sees it
+        export "$status_var=$live_status"
+    fi
+}
+
+_backfill_status_var
+
+# ── Status display (FR-2.8, FR-4.7) ──────────────────────────
+# Show deployment state for all targets without triggering prompts or redeployment.
+if [ "${FLAG_STATUS:-0}" -eq 1 ]; then
+    status_json=$(python3 "${SCRIPT_DIR}/.deploy_helper.py" status \
+      --config-file "${SCRIPT_DIR}/config" \
+      ${FLAG_TARGET:+--target "$FLAG_TARGET"})
+    echo "$status_json" | python3 -c "
+import json, sys
+
+data = json.load(sys.stdin)
+targets = data.get('targets', {})
+active = data.get('active_target', '')
+
+# Determine max target name length for alignment
+max_len = max((len(n) for n in targets), default=0)
+
+for name, info in targets.items():
+    status = info.get('status', 'not deployed')
+    instance = info.get('instance_type', '')
+    details = []
+    if instance:
+        details.append(instance)
+    # Target-specific details
+    if name == 'managed-inference' and info.get('endpoint_name'):
+        details.append(info['endpoint_name'])
+    elif name == 'hyperpod-eks' and info.get('gpu_count'):
+        details.append(f\"{info['gpu_count']} GPUs\")
+    elif name == 'async-inference' and info.get('s3_output_path'):
+        details.append(info['s3_output_path'])
+    elif name == 'batch-transform' and info.get('input_path'):
+        details.append(info['input_path'])
+    padding = ' ' * (max_len - len(name) + 2)
+    if status == 'not deployed':
+        print(f'  {name}:{padding}\u2014 (not deployed)')
+    else:
+        detail_str = f' ({(chr(44) + chr(32)).join(details)})' if details else ''
+        print(f'  {name}:{padding}{status}{detail_str}')
+
+print()
+print(f'  Active target: {active or \"(none)\"}')
+"
+    exit 0
+fi
+
+# ── Switch-or-deploy logic (FR-4.4) ──────────────────────────
+# If --target was provided and that target already has a deployment,
+# just switch focus without redeploying (CP-5: <1 second).
+_NEEDS_HELPER=0
+if [ -n "$FLAG_TARGET" ]; then
+    # Map target to its status variable name
+    case "$FLAG_TARGET" in
+        managed-inference) _STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
+        hyperpod-eks)      _STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
+        async-inference)   _STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
+        batch-transform)   _STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        *)                 _STATUS_VAR="" ;;
+    esac
+
+    if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ]; then
+        # Existing deployment — switch focus only (FR-4.4, FR-4.5)
+        _update_config DEPLOYMENT_TARGET "$FLAG_TARGET"
+        echo "Focused on $FLAG_TARGET"
+        exit 0
+    fi
+    # No existing deployment — need the helper to resolve vars (FR-3.2)
+    _NEEDS_HELPER=1
+fi
+
+# If DEPLOYMENT_TARGET is still empty (not in config AND no --target flag),
+# or if --target was provided with no existing deployment (_NEEDS_HELPER),
+# invoke the interactive deploy helper (FR-2.1, FR-2.6, FR-3.2)
+_HELPER_INVOKED=0
+if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
+    json_output=$(python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt \
+      --config-file "${SCRIPT_DIR}/config" \
+      --target "${FLAG_TARGET:-}" \
+      --instance-type "${FLAG_INSTANCE:-}" \
+      --answers-file "${ANSWERS_FILE:-}" \
+      ${FLAG_ENDPOINT_NAME:+--endpoint-name "$FLAG_ENDPOINT_NAME"} \
+      ${FLAG_ENDPOINT_STRATEGY:+--endpoint-strategy "$FLAG_ENDPOINT_STRATEGY"} \
+      ${FLAG_INSTANCE_TYPES:+--instance-types "$FLAG_INSTANCE_TYPES"} \
+      ${FLAG_GPU_COUNT:+--gpu-count "$FLAG_GPU_COUNT"} \
+      ${FLAG_CLUSTER_NAME:+--cluster-name "$FLAG_CLUSTER_NAME"} \
+      ${FLAG_NAMESPACE:+--namespace "$FLAG_NAMESPACE"} \
+      ${FLAG_REPLICAS:+--replicas "$FLAG_REPLICAS"} \
+      ${FLAG_QUEUE:+--queue "$FLAG_QUEUE"} \
+      ${FLAG_ASYNC_OUTPUT_PATH:+--async-output-path "$FLAG_ASYNC_OUTPUT_PATH"} \
+      ${FLAG_ASYNC_SNS_TOPIC:+--async-sns-topic "$FLAG_ASYNC_SNS_TOPIC"} \
+      ${FLAG_ASYNC_MAX_CONCURRENT:+--async-max-concurrent "$FLAG_ASYNC_MAX_CONCURRENT"} \
+      ${FLAG_BATCH_INPUT_PATH:+--batch-input-path "$FLAG_BATCH_INPUT_PATH"} \
+      ${FLAG_BATCH_OUTPUT_PATH:+--batch-output-path "$FLAG_BATCH_OUTPUT_PATH"} \
+      ${FLAG_BATCH_SPLIT_TYPE:+--batch-split-type "$FLAG_BATCH_SPLIT_TYPE"} \
+      ${FLAG_BATCH_STRATEGY:+--batch-strategy "$FLAG_BATCH_STRATEGY"} \
+      ${FLAG_BATCH_MAX_CONCURRENT:+--batch-max-concurrent "$FLAG_BATCH_MAX_CONCURRENT"})
+    # Parse JSON response and export all vars
+    eval "$(echo "$json_output" | python3 -c "
+import json, sys
+KEY_MAP = {
+    'target': 'DEPLOYMENT_TARGET',
+    'instance_type': 'INSTANCE_TYPE',
+    'endpoint_name': 'ENDPOINT_NAME',
+    'endpoint_strategy': 'ENDPOINT_STRATEGY',
+    'instance_types': 'INSTANCE_TYPES',
+    'gpu_count': 'IC_GPU_COUNT',
+    'cluster_name': 'HP_CLUSTER_NAME',
+    'hp_gpu_count': 'HP_GPU_COUNT',
+    'namespace': 'HP_NAMESPACE',
+    'replicas': 'HP_REPLICAS',
+    'queue': 'HP_QUEUE',
+    'async_output_path': 'ASYNC_S3_OUTPUT_PATH',
+    'async_sns_topic': 'ASYNC_SNS_TOPIC',
+    'async_max_concurrent': 'ASYNC_MAX_CONCURRENT',
+    'batch_input_path': 'BATCH_INPUT_PATH',
+    'batch_output_path': 'BATCH_OUTPUT_PATH',
+    'batch_split_type': 'BATCH_SPLIT_TYPE',
+    'batch_strategy': 'BATCH_STRATEGY',
+    'batch_max_concurrent': 'BATCH_MAX_CONCURRENT',
+}
+data = json.load(sys.stdin)
+if 'error' in data:
+    err = data['error']
+    print(f'echo \"❌ {err}\" >&2; exit 1')
+else:
+    for key, var in KEY_MAP.items():
+        if key in data and data[key]:
+            val = str(data[key]).replace('\"', '\\\\\"')
+            print(f'export {var}=\"{val}\"')
+")"
+    _HELPER_INVOKED=1
+fi
+
+# ── Persist answers before dispatch (FR-2.5, CP-7) ────────
+# Write all deployment vars to do/config so retry doesn't re-prompt.
+# Only writes vars that have non-empty values. Runs only when the
+# interactive helper was invoked (first deploy or missing config).
+#
+# ATOMICITY (CP-7): All vars are applied to a temp copy of config,
+# then atomically replaced via `mv` (POSIX atomic on same filesystem).
+# Either ALL vars are written, or NONE are — no partial writes.
+_persist_deploy_vars() {
+    local config="${SCRIPT_DIR}/config"
+    local tmp_config="${config}.tmp.$$"
+    local vars=(
+        DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY
+        IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
+        HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH
+        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH
+        BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT
+    )
+
+    # Copy current config to temp file
+    cp "$config" "$tmp_config"
+
+    # Apply all changes to the temp file
+    for var in "${vars[@]}"; do
+        local val="${!var:-}"
+        if [ -n "$val" ]; then
+            if grep -q "^export ${var}=" "$tmp_config" 2>/dev/null; then
+                sed -i.bak \
+                  "s|^export ${var}=.*|export ${var}=\"${val}\"|" \
+                  "$tmp_config"
+                rm -f "${tmp_config}.bak"
+            else
+                echo "export ${var}=\"${val}\"" >> "$tmp_config"
+            fi
+        fi
+    done
+
+    # Atomic replace: mv is atomic on POSIX when src and dst are on
+    # the same filesystem. If we crash before mv, original is intact.
+    mv "$tmp_config" "$config"
+}
+
+if [ "$_HELPER_INVOKED" -eq 1 ]; then
+    _persist_deploy_vars
+fi
 
 # Normalize legacy value
 if [ "$DEPLOYMENT_TARGET" = "realtime-inference" ]; then
     DEPLOYMENT_TARGET="managed-inference"
+fi
+
+# ── Dry-run output (FR-3.6, CP-4) ────────────────────────────
+# Show resolved config and the command that would execute, without deploying.
+if [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
+    echo "── Dry Run ──────────────────────────────────────────────"
+    echo ""
+    echo "Target: $DEPLOYMENT_TARGET"
+    echo "Script: ${SCRIPT_DIR}/deploy.d/${DEPLOYMENT_TARGET}"
+    echo ""
+    echo "Resolved configuration:"
+    for var in DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY \
+               IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT \
+               HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH \
+               ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH \
+               BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT; do
+        val="${!var:-}"
+        if [ -n "$val" ]; then
+            echo "  $var=$val"
+        fi
+    done
+    echo ""
+    echo "Would execute:"
+    echo "  source ${SCRIPT_DIR}/deploy.d/${DEPLOYMENT_TARGET} ${DEPLOY_ARGS[*]:-}"
+    echo ""
+    echo "── No changes made (dry run) ──────────────────────────"
+    exit 0
 fi
 
 # Dispatch to target-specific deploy script
@@ -72,8 +522,4 @@ case "$DEPLOYMENT_TARGET" in
 esac
 
 # Write DEPLOYMENT_TARGET back to do/config after successful deploy
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-if grep -q '^export DEPLOYMENT_TARGET=' "${SCRIPT_DIR}/config" 2>/dev/null; then
-    sed -i.bak "s|^export DEPLOYMENT_TARGET=.*|export DEPLOYMENT_TARGET=\"${DEPLOYMENT_TARGET}\" # Active target — set by: do/deploy --target ${DEPLOYMENT_TARGET} (${TIMESTAMP})|" "${SCRIPT_DIR}/config"
-    rm -f "${SCRIPT_DIR}/config.bak"
-fi
+_update_config DEPLOYMENT_TARGET "$DEPLOYMENT_TARGET"

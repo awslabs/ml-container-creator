@@ -204,6 +204,10 @@ export class MlccEksClusterStack extends cdk.Stack {
                     selectors: [
                         { namespace: 'kube-system' },
                         { namespace: 'cert-manager' },
+                        { namespace: 'aws-hyperpod' },
+                        { namespace: 'hyperpod-inference-system' },
+                        { namespace: 'kubeflow' },
+                        { namespace: 'keda' },
                     ],
                     podExecutionRole: fargateRole,
                 });

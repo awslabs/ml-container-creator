@@ -19,17 +19,10 @@ import {
     modelProfilePrompts,
     modulePrompts,
     infraRegionAndTargetPrompts,
-    infraExistingEndpointPrompts,
-    infraInstancePrompts,
-    infraAsyncPrompts,
-    infraBatchTransformPrompts,
-    infraHyperPodPrompts,
     infraBuildPrompts,
     projectPrompts,
     destinationPrompts,
-    baseImagePrompts,
-    filterByCudaGeneration,
-    instanceCatalogRaw
+    baseImagePrompts
 } from './prompts/index.js';
 
 import fs from 'fs';
@@ -210,244 +203,16 @@ export default class PromptRunner {
         // 3a. Region query
         await this.mcpQueryRunner._queryMcpForRegion(frameworkAnswers, explicitConfig);
 
-        // 3a2. Existing endpoint prompt (only for realtime-inference)
-        // Requirements: 3.3, 4.3, 4.4 — endpoint-picker MCP query
-        let existingEndpointAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'realtime-inference') {
-            // First ask if user wants to attach to existing endpoint (no MCP call yet)
-            const attachAnswer = await this._runPhase(
-                [infraExistingEndpointPrompts[0]],
-                { ...regionAndTargetAnswers },
-                explicitConfig,
-                existingConfig
-            );
+        // FR-1.1, FR-1.2, FR-1.3, FR-1.4, FR-1.5: Deployment prompts removed from generation.
+        // Endpoint, instance type, async, batch, and HyperPod prompts are now handled at deploy time
+        // by do/deploy (see Tasks 6-11). Only region, base image, and build target remain here.
+        const existingEndpointAnswers = {};
+        const instanceAnswers = {};
 
-            if (attachAnswer.useExistingEndpoint === 'yes') {
-                // Only now query endpoint-picker MCP server
-                const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
-                await this.mcpQueryRunner._queryMcpForEndpoints({ ...regionAndTargetAnswers, awsRegion: resolvedRegion }, explicitConfig);
-
-                const endpointPreviousAnswers = {
-                    ...regionAndTargetAnswers,
-                    ...attachAnswer,
-                    ...(this._mcpEndpointChoices ? { _mcpEndpointChoices: this._mcpEndpointChoices } : {})
-                };
-                existingEndpointAnswers = await this._runPhase(
-                    infraExistingEndpointPrompts.slice(1),
-                    endpointPreviousAnswers,
-                    explicitConfig,
-                    existingConfig
-                );
-                existingEndpointAnswers.useExistingEndpoint = 'yes';
-
-                // Resolve custom endpoint name
-                if (existingEndpointAnswers.customExistingEndpointName) {
-                    existingEndpointAnswers.existingEndpointName = existingEndpointAnswers.customExistingEndpointName;
-                    delete existingEndpointAnswers.customExistingEndpointName;
-                }
-            } else {
-                existingEndpointAnswers = attachAnswer;
-            }
-        }
-
-        // 3b. Instance type — query instance-sizer with full context (model + profile + CUDA)
-        let instanceAnswers = {};
-        // Skip instance prompts when attaching to an existing endpoint (instance is inherited)
-        const useExistingEndpoint = !!(existingEndpointAnswers.existingEndpointName);
-        const needsInstance = !useExistingEndpoint && (regionAndTargetAnswers.deploymentTarget === 'realtime-inference' ||
-            regionAndTargetAnswers.deploymentTarget === 'async-inference' ||
-            regionAndTargetAnswers.deploymentTarget === 'batch-transform' ||
-            regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks');
-
-        if (needsInstance) {
-            // Determine architecture type for heuristic fallback
-            const modelArchitecture = frameworkAnswers.architecture || frameworkAnswers.deploymentConfig?.split('-')[0];
-
-            // Skip sizer query if --instance-type was provided via CLI
-            if (!explicitConfig.instanceType) {
-                // Skip sizer for predictor models (CPU-only)
-                if (modelArchitecture === 'predictor' || modelArchitecture === 'http') {
-                    // Architecture heuristic: predictor → ml.m5.large
-                    console.log('   ℹ️  Predictor model: defaulting to CPU instance (ml.m5.large)');
-                    this._architectureHeuristicDefault = 'ml.m5.large';
-                } else if (phase1ModelId && phase1ModelId !== 'Custom (enter manually)') {
-                    // Query instance-sizer with full context
-                    await this.mcpQueryRunner._queryMcpForInstanceSizing(frameworkAnswers, modelFormatAnswers, explicitConfig, {
-                        cudaVersion: null, // base image not yet selected (moved after instance resolution)
-                        profileEnvVars: this._selectedProfileEnvVars || {}
-                    });
-                } else {
-                    // No model known — use architecture heuristic
-                    await this.mcpQueryRunner._queryMcpForInstance(frameworkAnswers, explicitConfig);
-                }
-            }
-
-            // Build instance prompt choices from sizer results
-            const mcpInstanceChoices = this._mcpInstanceSizerChoices || this.configManager?.mcpChoices?.instanceType;
-            const instancePreviousAnswers = {
-                ...regionAndTargetAnswers,
-                ...(mcpInstanceChoices && mcpInstanceChoices.length > 0 ? { _mcpInstanceChoices: mcpInstanceChoices } : {}),
-                ...(this._architectureHeuristicDefault ? { _architectureHeuristicDefault: this._architectureHeuristicDefault } : {})
-            };
-            instanceAnswers = await this._runPhase(infraInstancePrompts, instancePreviousAnswers, explicitConfig, existingConfig);
-
-            // Apply architecture heuristic fallback when sizer returns empty
-            if (!instanceAnswers.instanceType && !explicitConfig.instanceType && this._architectureHeuristicDefault) {
-                instanceAnswers.instanceType = this._architectureHeuristicDefault;
-            }
-
-            // Process multi-select instance type results (Requirements: 6.4)
-            // When user selects multiple instances via checkbox, derive instanceType and instancePools
-            if (instanceAnswers.instanceTypeSelections && instanceAnswers.instanceTypeSelections.length > 0) {
-                let selections = instanceAnswers.instanceTypeSelections.slice(0, 5); // Cap at 5 (API limit)
-
-                // Resolve custom input: replace __custom_input__ sentinel with parsed instances
-                if (selections.includes('__custom_input__') && instanceAnswers.customInstanceTypeSelections) {
-                    const customInstances = instanceAnswers.customInstanceTypeSelections
-                        .split(',').map(s => s.trim()).filter(s => s.length > 0);
-                    // Remove the sentinel and any other MCP selections, replace with custom entries
-                    selections = selections.filter(s => s !== '__custom_input__');
-                    selections = [...selections, ...customInstances];
-                    delete instanceAnswers.customInstanceTypeSelections;
-                } else if (selections.includes('__custom_input__')) {
-                    // Sentinel selected but no custom input provided — remove it
-                    selections = selections.filter(s => s !== '__custom_input__');
-                }
-
-                // Cap at 5 after custom expansion
-                if (selections.length > 5) {
-                    console.log('   ⚠️  Maximum 5 instance types allowed. Using first 5 selections.');
-                    selections = selections.slice(0, 5);
-                }
-
-                // Filter to same CUDA generation and warn about incompatible removals
-                const { filtered, generation, removed } = filterByCudaGeneration(selections);
-                if (removed.length > 0) {
-                    console.log(`   ⚠️  Removed incompatible instances (different CUDA generation): ${removed.join(', ')}`);
-                    console.log(`   Keeping ${generation} generation: ${filtered.join(', ')}`);
-                }
-
-                const finalSelections = filtered.length > 0 ? filtered : selections;
-
-                if (finalSelections.length === 1) {
-                    // Single selection → standard single instance type (no pools)
-                    instanceAnswers.instanceType = finalSelections[0];
-                    console.log(`   ✓ Single instance selected: ${finalSelections[0]}`);
-                } else {
-                    // Multiple selections → instance pools with priority = selection order
-                    instanceAnswers.instanceType = finalSelections[0]; // backward compat: first is primary
-                    instanceAnswers.instancePools = finalSelections.map((it, idx) => ({
-                        InstanceType: it,
-                        Priority: idx + 1
-                    }));
-
-                    // Auto-generate multi-spec IC config from catalog
-                    instanceAnswers.instancePoolSpecs = finalSelections.map(it => {
-                        const entry = instanceCatalogRaw[it];
-                        return {
-                            instanceType: it,
-                            gpuCount: entry?.gpus || 1,
-                            minMemoryMb: entry?.gpuMemoryGb ? entry.gpuMemoryGb * 1024 : 1024
-                        };
-                    });
-
-                    console.log(`   ✓ Instance pools configured (${finalSelections.length} types):`);
-                    finalSelections.forEach((it, idx) => {
-                        const entry = instanceCatalogRaw[it];
-                        const gpus = entry?.gpus || '?';
-                        const mem = entry?.gpuMemoryGb || '?';
-                        console.log(`     Priority ${idx + 1}: ${it} (${gpus} GPUs, ${mem}GB GPU memory)`);
-                    });
-                }
-
-                // Clean up the raw selections from answers (not needed downstream)
-                delete instanceAnswers.instanceTypeSelections;
-            }
-        }
-
-        // In auto-prompt mode, use instance-sizer's top recommendation as the instance type
-        if (this.configManager?.isAutoPrompt() && this._mcpInstanceSizerChoices && this._mcpInstanceSizerChoices.length > 0) {
-            const sizerRecommendation = this._mcpInstanceSizerChoices[0];
-            if (!explicitConfig.instanceType) {
-                instanceAnswers.instanceType = sizerRecommendation;
-                console.log(`   ✓ Auto-prompt: using instance-sizer recommendation: ${sizerRecommendation}`);
-            }
-        }
-
-        // Auto-set tensor parallelism when sizer recommends TP > 1
-        // Requirements: 4.8
-        if (this._instanceSizerMetadata) {
-            const sizerRecs = this._instanceSizerMetadata.recommendations || [];
-            const finalInstanceType = instanceAnswers.customInstanceType || instanceAnswers.instanceType;
-            const matchingRec = sizerRecs.find(r => r.instanceType === finalInstanceType);
-            // Only use sizer TP recommendation if user selected a recommended instance
-            // Custom instances resolve TP from the instance catalog in template-variable-resolver
-            if (matchingRec && matchingRec.tensorParallelism > 1) {
-                this._autoTensorParallelism = matchingRec.tensorParallelism;
-                this._autoGpuCount = matchingRec.gpuCount;
-                console.log(`   ✓ Auto-set tensor parallelism: TP=${matchingRec.tensorParallelism} (${matchingRec.gpuCount} GPUs)`);
-            }
-
-            // Display capacity type confirmation for selected instance
-            // Requirements: 5.4
-            if (matchingRec && matchingRec.capacityType) {
-                if (matchingRec.capacityType === 'reserved') {
-                    const resType = matchingRec.reservationType === 'capacity-block' ? 'Capacity Block' : 'ODCR';
-                    const endInfo = matchingRec.reservationType === 'capacity-block' && matchingRec.reservationInfo?.endDate
-                        ? `, ends ${new Date(matchingRec.reservationInfo.endDate).toLocaleDateString()}`
-                        : '';
-                    console.log(`   ✓ Using reserved capacity — ${resType} (reservation ${matchingRec.reservationInfo?.reservationId || 'unknown'}${endInfo})`);
-                } else if (matchingRec.capacityType === 'ftp') {
-                    console.log(`   ✓ Using reserved capacity (plan ${matchingRec.ftpInfo?.planName || 'unknown'})`);
-                } else {
-                    const headroom = matchingRec.quotaHeadroom;
-                    console.log(`   ✓ Using on-demand capacity (quota headroom: ${headroom ?? 'unknown'})`);
-                }
-            }
-
-            // Extract reservation ARN from selected instance for deployment config
-            // Requirements: 2.3
-            if (matchingRec && matchingRec.capacityType === 'reserved' && matchingRec.reservationInfo?.reservationArn) {
-                this._selectedCapacityReservationArn = matchingRec.reservationInfo.reservationArn;
-            }
-        }
-
-        // 3b2. Base image selection — AFTER instance type resolved (US-1 ordering constraint)
-        // Pass resolved instanceType and tensorParallelSize for driver-aware filtering
-        let resolvedInstanceType = instanceAnswers.customInstanceType || instanceAnswers.instanceType;
-        let resolvedTensorParallelSize = this._autoTensorParallelism || 1;
-
-        // For existing endpoints: resolve instance type from the endpoint (US-1 ordering constraint)
-        // The instance type is needed for driver-aware base image filtering even though the user
-        // doesn't select it manually. Pattern reused from do/lib/resolve-instance.sh.
-        if (!resolvedInstanceType && existingEndpointAnswers.existingEndpointName) {
-            const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
-            resolvedInstanceType = await this.mcpQueryRunner._resolveEndpointInstanceType(
-                existingEndpointAnswers.existingEndpointName,
-                resolvedRegion
-            );
-            // Store resolved instance type for downstream use (IC config, GPU count derivation)
-            if (resolvedInstanceType) {
-                existingEndpointAnswers._resolvedEndpointInstanceType = resolvedInstanceType;
-                // Propagate as instanceType so template-variable-resolver derives
-                // icGpuCount and tensorParallelSize from the instance catalog.
-                // Without this, IC_GPU_COUNT defaults to 1 even for multi-GPU instances.
-                existingEndpointAnswers.instanceType = resolvedInstanceType;
-
-                // Derive GPU count from instance catalog for immediate use (TP for base image filtering)
-                const endpointInstanceEntry = instanceCatalogRaw[resolvedInstanceType];
-                if (endpointInstanceEntry?.gpus && endpointInstanceEntry.gpus > 1) {
-                    existingEndpointAnswers.gpuCount = endpointInstanceEntry.gpus;
-                    existingEndpointAnswers.tensorParallelSize = endpointInstanceEntry.gpus;
-                    this._autoTensorParallelism = endpointInstanceEntry.gpus;
-                    this._autoGpuCount = endpointInstanceEntry.gpus;
-                    console.log(`   ✓ Endpoint instance ${resolvedInstanceType}: ${endpointInstanceEntry.gpus} GPUs (TP=${endpointInstanceEntry.gpus})`);
-                }
-            }
-        }
-
-        // Re-read tensor parallel size after potential endpoint resolution update
-        resolvedTensorParallelSize = this._autoTensorParallelism || 1;
+        // Instance type and deployment target are no longer resolved at generation time.
+        // Pass null for instanceType to downstream consumers (base image, CUDA resolution).
+        const resolvedInstanceType = null;
+        const resolvedTensorParallelSize = 1;
 
         await this.mcpQueryRunner._queryMcpForBaseImage(frameworkAnswers, explicitConfig, {
             instanceType: resolvedInstanceType,
@@ -472,39 +237,20 @@ export default class PromptRunner {
         // Extract CUDA version from selected base image for CUDA/AMI auto-resolution
         const selectedBaseImageCuda = this._extractCudaFromBaseImage(baseImageAnswers);
 
-        // 3c. Async-specific prompts (only when deploymentTarget === 'async-inference')
-        let asyncAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'async-inference') {
-            asyncAnswers = await this._runPhase(infraAsyncPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
-        }
+        // FR-1.5: Async/batch prompts removed from generation (handled at deploy time)
+        const asyncAnswers = {};
+        const batchTransformAnswers = {};
 
-        // 3d. Batch transform-specific prompts (only when deploymentTarget === 'batch-transform')
-        let batchTransformAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'batch-transform') {
-            batchTransformAnswers = await this._runPhase(
-                infraBatchTransformPrompts,
-                { ...regionAndTargetAnswers },
-                explicitConfig,
-                existingConfig
-            );
-        }
-
-        // 3e. CUDA/AMI auto-resolution
-        const instanceType = instanceAnswers.customInstanceType || instanceAnswers.instanceType;
+        // 3e. CUDA/AMI auto-resolution — pass null for instanceType since it's no longer known at generation time
         const cudaAnswer = await this.cudaResolver._promptCudaVersion(
-            instanceType,
+            null, // instanceType not known at generation time (FR-1.2)
             frameworkAnswers.framework,
             null, // frameworkVersion not yet known in Phase 3
             selectedBaseImageCuda // base image CUDA version for intersection
         );
 
-        // 3f. HyperPod prompts — only query MCP and prompt when deployment target is hyperpod-eks
-        let hyperPodAnswers = {};
-        if (regionAndTargetAnswers.deploymentTarget === 'hyperpod-eks') {
-            const resolvedRegion = regionAndTargetAnswers.customAwsRegion || regionAndTargetAnswers.awsRegion;
-            await this.mcpQueryRunner._queryMcpForHyperPod({ ...regionAndTargetAnswers, awsRegion: resolvedRegion }, explicitConfig);
-            hyperPodAnswers = await this._runPhase(infraHyperPodPrompts, { ...regionAndTargetAnswers }, explicitConfig, existingConfig);
-        }
+        // FR-1.4: HyperPod prompts removed from generation (handled at deploy time)
+        const hyperPodAnswers = {};
 
         // 3g. Build target + role ARN (always)
         const buildAnswers = await this._runPhase(infraBuildPrompts, { ...regionAndTargetAnswers, ...instanceAnswers, ...hyperPodAnswers }, explicitConfig, existingConfig);
@@ -603,14 +349,7 @@ export default class PromptRunner {
         const loraAnswers = { enableLora: true };
 
         // Validate instance type against framework requirements (now that framework version is known)
-        const finalInstanceType = infraAnswers.customInstanceType || infraAnswers.instanceType;
-        if (finalInstanceType && frameworkVersionAnswers.frameworkVersion) {
-            await this.mcpQueryRunner._validateAndDisplayInstanceType(
-                finalInstanceType,
-                frameworkAnswers.framework,
-                frameworkVersionAnswers.frameworkVersion
-            );
-        }
+        // FR-1.2: Instance type is no longer resolved at generation time — skip validation
 
         // ══════════════════════════════════════════════════════════════════════
         // Phase 5 — Project (project name + destination)
@@ -664,11 +403,7 @@ export default class PromptRunner {
             combinedAnswers.artifactUri = this._mcpArtifactUri;
         }
 
-        // Flow capacity reservation ARN from instance-sizer selection
-        // Requirements: 2.3
-        if (this._selectedCapacityReservationArn) {
-            combinedAnswers.capacityReservationArn = this._selectedCapacityReservationArn;
-        }
+        // FR-1.2: Capacity reservation is now a deploy-time concern, not generation-time
 
         // Validate: non-HF model sources require an artifact URI
         // Without it, the serve script can't download the model at runtime
@@ -748,44 +483,12 @@ export default class PromptRunner {
             delete combinedAnswers.customModelName;
         }
 
-        // Handle custom instance type
-        if (combinedAnswers.customInstanceType) {
-            combinedAnswers.instanceType = combinedAnswers.customInstanceType;
-            delete combinedAnswers.customInstanceType;
-        }
+        // Handle custom instance type — no longer applies at generation time (FR-1.2)
+        // Instance type resolution happens at deploy time via do/deploy
 
-        // Propagate tensor parallelism from instance-sizer to templates
-        // Requirements: 4.8 — auto-set TP when sizer recommends > 1
-        if (this._autoTensorParallelism) {
-            combinedAnswers.tensorParallelSize = this._autoTensorParallelism;
-            combinedAnswers.gpuCount = this._autoGpuCount;
-        } else if (this._instanceSizerMetadata) {
-            const sizerInstanceType = combinedAnswers.instanceType;
-            const sizerRecs = this._instanceSizerMetadata.recommendations || [];
-            const matchingRec = sizerRecs.find(r => r.instanceType === sizerInstanceType);
-            if (matchingRec && matchingRec.tensorParallelism > 1) {
-                combinedAnswers.tensorParallelSize = matchingRec.tensorParallelism;
-                combinedAnswers.gpuCount = matchingRec.gpuCount;
-            }
-        }
+        // FR-1.2: Tensor parallelism is now resolved at deploy time when instance type is known
 
-        // Handle custom HyperPod cluster name
-        if (combinedAnswers.customHyperPodCluster) {
-            combinedAnswers.hyperPodCluster = combinedAnswers.customHyperPodCluster;
-            delete combinedAnswers.customHyperPodCluster;
-        }
-
-        // Wire instance-sizer result to HP_GPU_COUNT and HP_NODE_SELECTOR for HyperPod deployments
-        if (combinedAnswers.deploymentTarget === 'hyperpod-eks') {
-            if (combinedAnswers.gpuCount) {
-                combinedAnswers.HP_GPU_COUNT = String(combinedAnswers.gpuCount);
-            } else {
-                combinedAnswers.HP_GPU_COUNT = combinedAnswers.HP_GPU_COUNT || '1';
-            }
-            if (combinedAnswers.instanceType && !combinedAnswers.HP_NODE_SELECTOR) {
-                combinedAnswers.HP_NODE_SELECTOR = combinedAnswers.instanceType;
-            }
-        }
+        // FR-1.4: HyperPod wiring is now handled at deploy time
 
         // Propagate max_model_len from instance-sizer context capping (AC-1.7)
         if (this._sizerMaxModelLen) {

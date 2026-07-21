@@ -73,9 +73,11 @@ describe('Deploy Script Dispatch Behavior (BL062)', () => {
             assert.ok(deployContent.includes('--target'), 'dispatcher must support --target flag');
         });
 
-        it('should default DEPLOYMENT_TARGET to managed-inference', () => {
-            assert.ok(deployContent.includes('DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-managed-inference}"'),
-                'dispatcher must default to managed-inference');
+        it('should call deploy helper when DEPLOYMENT_TARGET is empty', () => {
+            assert.ok(deployContent.includes('.deploy_helper.py'),
+                'dispatcher must call deploy helper when target is empty');
+            assert.ok(deployContent.includes('if [ -z "${DEPLOYMENT_TARGET:-}" ]'),
+                'dispatcher must check for empty DEPLOYMENT_TARGET');
         });
 
         it('should normalize realtime-inference to managed-inference', () => {

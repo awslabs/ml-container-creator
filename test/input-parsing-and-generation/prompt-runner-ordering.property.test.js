@@ -57,19 +57,6 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
         return match ? mcpQueryRunnerSource.indexOf(match[0]) : -1;
     }
 
-    /**
-     * Helper to find all positions of a pattern in the source code
-     */
-    function findAllPositions(pattern) {
-        const positions = [];
-        let match;
-        const regex = new RegExp(pattern, 'g');
-        while ((match = regex.exec(promptRunnerSource)) !== null) {
-            positions.push(match.index);
-        }
-        return positions;
-    }
-
     describe('Phase Ordering in run() Method', () => {
         /**
          * Property 3a: ML Configuration (Phase 1 - What) runs before Infrastructure (Phase 2/3)
@@ -360,119 +347,82 @@ describe('Property 3: Infrastructure-First Prompt Ordering', () => {
 
     describe('HyperPod MCP Query Integration', () => {
         /**
-         * Property 3j: HyperPod MCP query must be wired for hyperpod-eks deployment target
-         * 
-         * Validates: Requirements 12.1, 12.2, 12.3
+         * Property 3j: HyperPod MCP query is now handled at deploy time (FR-1.4)
+         * Generation no longer queries for HyperPod clusters.
+         * The _queryMcpForHyperPod method still exists as a delegation but is not called in run().
          */
-        it('should have _queryMcpForHyperPod method for HyperPod cluster discovery', function() {
+        it('should NOT call _queryMcpForHyperPod during generation (moved to deploy time)', function() {
             this.timeout(10000);
 
-            // Check that _queryMcpForHyperPod method exists
+            // The method delegation still exists for backward compat
             const methodPattern = /_queryMcpForHyperPod\s*\(/;
             const methodPos = findPosition(methodPattern);
-
             assert.ok(
                 methodPos !== -1,
-                '_queryMcpForHyperPod method must exist in prompt-runner.js'
+                '_queryMcpForHyperPod delegation should still exist for other flows'
             );
 
-            // Check that it's called when deploymentTarget is hyperpod-eks
-            const callPattern = /if\s*\([^)]*deploymentTarget\s*===\s*['"]hyperpod-eks['"]/;
+            // But the conditional call in run() should be removed
+            const callPattern = /if\s*\([^)]*deploymentTarget\s*===\s*['"]hyperpod-eks['"]\s*\)\s*\{[^}]*_queryMcpForHyperPod/;
             const callPos = findPosition(callPattern);
-
             assert.ok(
-                callPos !== -1,
-                'Conditional check for deploymentTarget === hyperpod-eks must exist'
-            );
-
-            // Check that _queryMcpForHyperPod is called within that conditional
-            const queryCallPattern = /_queryMcpForHyperPod\s*\(/g;
-            const queryCallPositions = findAllPositions(queryCallPattern.source);
-
-            assert.ok(
-                queryCallPositions.length > 0,
-                '_queryMcpForHyperPod must be called at least once'
+                callPos === -1,
+                'Generation flow should NOT conditionally call _queryMcpForHyperPod (FR-1.4)'
             );
         });
 
         /**
-         * Property 3k: HyperPod MCP query should query hyperpod-cluster-picker server
-         * 
-         * Validates: Requirements 12.1, 12.2
+         * Property 3k: HyperPod MCP query should still exist in mcp-query-runner (for deploy time)
          */
-        it('should query hyperpod-cluster-picker MCP server', function() {
+        it('should still reference hyperpod-cluster-picker in mcp-query-runner', function() {
             this.timeout(10000);
 
-            // Check that the method references hyperpod-cluster-picker (in mcp-query-runner.js)
             const serverNamePattern = /hyperpod-cluster-picker/;
             const serverNamePos = findMcpPosition(serverNamePattern);
 
             assert.ok(
                 serverNamePos !== -1,
-                'hyperpod-cluster-picker server name must be referenced in prompt-runner.js'
-            );
-
-            // Check that queryMcpServer is called with hyperpod-cluster-picker
-            const queryMcpPattern = /queryMcpServer\s*\(\s*['"]hyperpod-cluster-picker['"]/;
-            const queryMcpPos = findMcpPosition(queryMcpPattern);
-
-            assert.ok(
-                queryMcpPos !== -1,
-                'queryMcpServer must be called with hyperpod-cluster-picker'
+                'hyperpod-cluster-picker server name must still be referenced in mcp-query-runner.js'
             );
         });
     });
 
     describe('Instance Sizer Integration', () => {
         /**
-         * Property 3l: Base image selection must happen AFTER instance type is resolved
-         * (US-1 ordering constraint: base image needs instanceType for driver-aware filtering)
-         * 
-         * Validates: Requirement US-1
+         * Property 3l: Instance type resolution removed from generation (FR-1.2).
+         * Base image selection no longer depends on instance type at generation time.
+         * The base image query now passes null for instanceType.
          */
-        it('should select base image after instance type resolution', function() {
+        it('should pass null instanceType to base image query (FR-1.2)', function() {
             this.timeout(10000);
 
-            const instanceRunPhasePos = findPosition(/_runPhase\(infraInstancePrompts/);
+            // Base image query must still exist
             const baseImageRunPhasePos = findPosition(/_runPhase\(\s*baseImagePrompts/);
-
-            assert.ok(
-                instanceRunPhasePos !== -1,
-                '_runPhase(infraInstancePrompts) must exist'
-            );
             assert.ok(
                 baseImageRunPhasePos !== -1,
                 '_runPhase(baseImagePrompts) must exist'
             );
+
+            // Instance type should be set to null for base image queries
+            const nullInstancePattern = /resolvedInstanceType\s*=\s*null/;
+            const nullPos = findPosition(nullInstancePattern);
             assert.ok(
-                instanceRunPhasePos < baseImageRunPhasePos,
-                `infraInstancePrompts (pos ${instanceRunPhasePos}) must run before baseImagePrompts (pos ${baseImageRunPhasePos}) — driver-aware filtering requires instance type`
+                nullPos !== -1,
+                'resolvedInstanceType should be set to null (instance type not known at generation time)'
             );
         });
 
         /**
-         * Property 3m: Instance-sizer query must happen AFTER model is known
-         * 
-         * Validates: Requirement 4.4
+         * Property 3m: Instance-sizer is no longer called during generation (FR-1.2)
          */
-        it('should query instance-sizer after model selection', function() {
+        it('should NOT call instance-sizer during generation (moved to deploy time)', function() {
             this.timeout(10000);
 
-            const modelFormatRunPhasePos = findPosition(/_runPhase\(\s*modelFormatPrompts/);
-            // Look for the actual call in run() with await, not the delegation definition
+            // The await call to _queryMcpForInstanceSizing should no longer exist in run()
             const sizerQueryPos = findPosition(/await this\.mcpQueryRunner\._queryMcpForInstanceSizing/);
-
             assert.ok(
-                modelFormatRunPhasePos !== -1,
-                '_runPhase(modelFormatPrompts) must exist'
-            );
-            assert.ok(
-                sizerQueryPos !== -1,
-                '_queryMcpForInstanceSizing must exist'
-            );
-            assert.ok(
-                modelFormatRunPhasePos < sizerQueryPos,
-                `modelFormatPrompts (pos ${modelFormatRunPhasePos}) must run before instance-sizer query (pos ${sizerQueryPos})`
+                sizerQueryPos === -1,
+                '_queryMcpForInstanceSizing should NOT be called during generation (FR-1.2)'
             );
         });
     });
