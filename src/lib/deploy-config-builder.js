@@ -474,11 +474,11 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                     choices
                 });
                 if (selected === '__custom__') {
-                    answers.endpoint_name = await input({ message: 'Endpoint name:' });
+                    answers.smai_endpoint_name = await input({ message: 'Endpoint name:' });
                     // Custom endpoint — need instance type
                     answers.instance_type = await promptInstanceType(modelName, region, 'new', target);
                 } else {
-                    answers.endpoint_name = selected;
+                    answers.smai_endpoint_name = selected;
                     // Instance type comes from the endpoint — no sizer needed
                     const ep = endpoints.find(e => e.name === selected);
                     if (ep?.instanceType) {
@@ -487,7 +487,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                     }
                 }
             } else {
-                answers.endpoint_name = await input({
+                answers.smai_endpoint_name = await input({
                     message: 'Endpoint name:',
                     default: `${projectName}-ep`
                 });
@@ -515,11 +515,13 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
 
     if (target === 'managed-inference') {
         // Endpoint name (for new/heterogeneous — existing was handled above)
-        if (answers.endpoint_strategy !== 'existing' && !config.ENDPOINT_NAME) {
-            answers.endpoint_name = await input({
+        if (answers.endpoint_strategy !== 'existing' && !config.SMAI_ENDPOINT_NAME) {
+            answers.smai_endpoint_name = await input({
                 message: 'Endpoint name:',
                 default: `${projectName}-ep`
             });
+        } else if (answers.endpoint_strategy !== 'existing') {
+            answers.smai_endpoint_name = config.SMAI_ENDPOINT_NAME;
         }
 
         // Heterogeneous instance types — already handled by promptInstanceType
@@ -636,6 +638,14 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
         }
 
     } else if (target === 'async-inference') {
+        // Async endpoint name (separate from SMAI)
+        if (!config.ASYNC_ENDPOINT_NAME) {
+            answers.async_endpoint_name = await input({
+                message: 'Async endpoint name:',
+                default: `${projectName}-async-ep`
+            });
+        }
+
         if (!config.ASYNC_S3_OUTPUT_PATH) {
             // Try to get bucket from profile
             let defaultPath = '';

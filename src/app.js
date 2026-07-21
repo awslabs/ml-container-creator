@@ -497,6 +497,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         // Marketplace overlays its own config, deploy, and test templates
         ignorePatterns.push('**/do/config');
         ignorePatterns.push('**/do/deploy');
+        ignorePatterns.push('**/do/.deploy_helper.py');
         ignorePatterns.push('**/do/test');
         ignorePatterns.push('**/do/README.md');
         ignorePatterns.push('**/do/export');

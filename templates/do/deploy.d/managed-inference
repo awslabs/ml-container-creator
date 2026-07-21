@@ -604,6 +604,7 @@ if [ -z "${SKIP_TO}" ]; then
         ENDPOINT_NAME="${PROJECT_NAME}-endpoint-${TIMESTAMP}"
 
         _update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
+        _update_config_var "SMAI_ENDPOINT_NAME" "${ENDPOINT_NAME}"
 
         # Create endpoint configuration via shared helper
         create_endpoint_config

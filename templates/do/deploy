@@ -321,7 +321,10 @@ _backfill_status_var() {
     fi
 }
 
-_backfill_status_var
+# Back-fill disabled: in multi-target scenarios, the shared ENDPOINT_NAME
+# var causes incorrect status detection across targets. Status is managed
+# explicitly by each target's deploy.d script on success/failure.
+# _backfill_status_var
 
 # ── Status display (FR-2.8, FR-4.7) ──────────────────────────
 # Show deployment state for all targets without triggering prompts or redeployment.
@@ -432,6 +435,7 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
                 managed-inference)
                     _update_config "INFERENCE_COMPONENT_NAME" ""
                     _update_config "IC_DEPLOYED_AT" ""
+                    _update_config "SMAI_ENDPOINT_NAME" ""
                     _update_config "ENDPOINT_NAME" ""
                     _update_config "ENDPOINT_CONFIG_NAME" ""
                     # Clear deployed IC references from do/ic/*.conf
@@ -443,6 +447,7 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
                     done
                     ;;
                 async-inference)
+                    _update_config "ASYNC_ENDPOINT_NAME" ""
                     _update_config "ENDPOINT_NAME" ""
                     _update_config "ENDPOINT_CONFIG_NAME" ""
                     ;;
@@ -461,6 +466,7 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
     _update_config "INFERENCE_AMI_VERSION" ""
     case "$_RECONFIG_TARGET" in
         managed-inference)
+            _update_config "SMAI_ENDPOINT_NAME" ""
             _update_config "ENDPOINT_NAME" ""
             _update_config "ENDPOINT_STRATEGY" ""
             _update_config "INSTANCE_TYPES" ""
@@ -474,6 +480,8 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
             _update_config "HP_QUEUE" ""
             ;;
         async-inference)
+            _update_config "ASYNC_ENDPOINT_NAME" ""
+            _update_config "ENDPOINT_NAME" ""
             _update_config "ASYNC_S3_OUTPUT_PATH" ""
             _update_config "ASYNC_SNS_TOPIC" ""
             _update_config "ASYNC_MAX_CONCURRENT" ""
@@ -514,6 +522,11 @@ if [ -n "$FLAG_TARGET" ]; then
     if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ]; then
         # Existing deployment — switch focus only (FR-4.4, FR-4.5)
         _update_config DEPLOYMENT_TARGET "$FLAG_TARGET"
+        # Resolve ENDPOINT_NAME from target-specific var so do/test, do/logs work
+        case "$FLAG_TARGET" in
+            managed-inference) _update_config ENDPOINT_NAME "${SMAI_ENDPOINT_NAME:-}" ;;
+            async-inference)   _update_config ENDPOINT_NAME "${ASYNC_ENDPOINT_NAME:-}" ;;
+        esac
         echo "Focused on $FLAG_TARGET"
         exit 0
     fi
@@ -594,7 +607,8 @@ import json, sys
 KEY_MAP = {
     'target': 'DEPLOYMENT_TARGET',
     'instance_type': 'INSTANCE_TYPE',
-    'endpoint_name': 'ENDPOINT_NAME',
+    'smai_endpoint_name': 'SMAI_ENDPOINT_NAME',
+    'async_endpoint_name': 'ASYNC_ENDPOINT_NAME',
     'endpoint_strategy': 'ENDPOINT_STRATEGY',
     'instance_types': 'INSTANCE_TYPES',
     'gpu_count': 'IC_GPU_COUNT',
@@ -638,11 +652,12 @@ _persist_deploy_vars() {
     local config="${SCRIPT_DIR}/config"
     local tmp_config="${config}.tmp.$$"
     local vars=(
-        DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY
-        IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
+        DEPLOYMENT_TARGET INSTANCE_TYPE SMAI_ENDPOINT_NAME ASYNC_ENDPOINT_NAME
+        ENDPOINT_STRATEGY IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
         HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH
         ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH
         BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT
+        INFERENCE_AMI_VERSION
     )
 
     # Copy current config to temp file
@@ -703,6 +718,13 @@ if [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
     echo "── No changes made (dry run) ──────────────────────────"
     exit 0
 fi
+
+# Resolve ENDPOINT_NAME from the target-specific var before dispatch.
+# This ensures deploy.d/* scripts and do/test, do/logs use the right endpoint.
+case "${DEPLOYMENT_TARGET}" in
+    managed-inference) export ENDPOINT_NAME="${SMAI_ENDPOINT_NAME:-${ENDPOINT_NAME:-}}" ;;
+    async-inference)   export ENDPOINT_NAME="${ASYNC_ENDPOINT_NAME:-${ENDPOINT_NAME:-}}" ;;
+esac
 
 # Dispatch to target-specific deploy script
 case "$DEPLOYMENT_TARGET" in

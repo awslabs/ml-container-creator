@@ -66,7 +66,7 @@ _check_active_deployment() {
             ;;
 
         async-inference)
-            local endpoint_name="${ENDPOINT_NAME:-${PROJECT_NAME:-}}-async"
+            local endpoint_name="${ENDPOINT_NAME:-}"
 
             if [ -z "${endpoint_name}" ]; then
                 echo "⚠️  No ENDPOINT_NAME configured for async inference."
