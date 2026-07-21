@@ -52,6 +52,12 @@ jobs:
         if: matrix.node-version == '24.x'
         run: node scripts/validate-servers.js
 
+      - name: Python tests
+        if: matrix.node-version == '24.x'
+        run: |
+          python3 -m pip install -q pytest questionary
+          python3 -m pytest test/unit/ -q --tb=short
+
       - name: Validate namespaces
         if: matrix.node-version == '24.x'
         run: node scripts/validate-namespaces.js

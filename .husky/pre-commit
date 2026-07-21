@@ -12,7 +12,18 @@ fi
 # 1. Lint staged JS files (fast — only changed files)
 npx lint-staged
 
-# 2. Codegen parity check (ensures schema-manifest + generated files are fresh)
+# 2. Python syntax check on staged .py files in templates/do/lib/python/
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+if [ -n "$STAGED_PY" ]; then
+    for pyfile in $STAGED_PY; do
+        if ! python3 -c "import ast; ast.parse(open('$pyfile').read())" 2>/dev/null; then
+            echo "❌ Python syntax error in: $pyfile"
+            exit 1
+        fi
+    done
+fi
+
+# 3. Codegen parity check (ensures schema-manifest + generated files are fresh)
 #    Only run full codegen if schema/source files that affect generation are staged.
 #    Otherwise just verify no unstaged drift exists in generated dirs.
 CODEGEN_TRIGGERS="config/parameter-schema-v2.json|scripts/codegen-|servers/lib/catalogs/"
@@ -25,5 +36,5 @@ if git diff --cached --name-only | grep -qE "$CODEGEN_TRIGGERS"; then
     fi
 fi
 
-# 3. Command generator sync check
+# 4. Command generator sync check
 node scripts/sync-command-generator.js --check
