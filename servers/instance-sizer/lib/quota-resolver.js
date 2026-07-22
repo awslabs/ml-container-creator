@@ -19,6 +19,15 @@ import { SageMakerClient, ListEndpointsCommand, DescribeEndpointCommand, Describ
 const SAGEMAKER_SERVICE_CODE = 'sagemaker';
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_CACHE_TTL_MS = 300000; // 5 minutes
+
+// Quota name patterns per deployment target
+const QUOTA_PATTERNS = {
+    'managed-inference': /^(ml\.[a-z0-9]+\.[a-z0-9]+) for endpoint usage$/,
+    'async-inference': /^(ml\.[a-z0-9]+\.[a-z0-9]+) for endpoint usage$/,
+    'batch-transform': /^(ml\.[a-z0-9]+\.[a-z0-9]+) for transform job usage$/,
+    'hyperpod-eks': /^(ml\.[a-z0-9]+\.[a-z0-9]+) for cluster usage$/
+};
+// Default fallback (endpoint usage)
 const QUOTA_NAME_PATTERN = /^(ml\.[a-z0-9]+\.[a-z0-9]+) for endpoint usage$/;
 
 // ── Logging ──────────────────────────────────────────────────────────────────
@@ -92,21 +101,25 @@ class QuotaResolver {
     /**
      * Get quota headroom for a list of instance types.
      *
-     * Queries Service Quotas for SageMaker endpoint instance limits and
-     * ListEndpoints to count currently deployed instances per type.
+     * Queries Service Quotas for SageMaker instance limits appropriate to the
+     * deployment target, and counts currently deployed instances per type.
      * Headroom = quota limit - deployed count.
      *
      * @param {string[]} instanceTypes - Instance types to check (e.g., ['ml.g5.xlarge'])
+     * @param {object} [options={}]
+     * @param {string} [options.deploymentTarget] - Target to select the right quota pattern
      * @returns {Promise<Map|null>} Map: instanceType → { quota, deployed, headroom }, or null on failure
      */
-    async getQuotaHeadroom(instanceTypes) {
-        const cacheKey = 'quotaHeadroom';
+    async getQuotaHeadroom(instanceTypes, options = {}) {
+        const deploymentTarget = options.deploymentTarget || 'managed-inference';
+        const cacheKey = `quotaHeadroom:${deploymentTarget}`;
         const cached = this._getCached(cacheKey);
         if (cached) return cached;
 
         try {
+            const quotaPattern = QUOTA_PATTERNS[deploymentTarget] || QUOTA_NAME_PATTERN;
             const [quotaMap, deployedMap] = await Promise.allSettled([
-                this._fetchServiceQuotas(),
+                this._fetchServiceQuotas(quotaPattern),
                 this._fetchDeployedCounts()
             ]);
 
@@ -151,9 +164,10 @@ class QuotaResolver {
      * Fetch all SageMaker service quotas for endpoint instance types.
      * Paginates through all results.
      *
+     * @param {RegExp} pattern - Regex to extract instance type from quota name
      * @returns {Promise<Map>} Map: instanceType → quota limit (number)
      */
-    async _fetchServiceQuotas() {
+    async _fetchServiceQuotas(pattern) {
         const quotaMap = new Map();
         let nextToken = undefined;
 
@@ -166,7 +180,8 @@ class QuotaResolver {
             const response = await this.quotasClient.send(command);
 
             for (const quota of (response.Quotas || [])) {
-                const instanceType = this._parseQuotaName(quota.QuotaName || '');
+                const match = (quota.QuotaName || '').match(pattern);
+                const instanceType = match ? match[1] : null;
                 if (instanceType && quota.Value !== null && quota.Value !== undefined) {
                     quotaMap.set(instanceType, quota.Value);
                 }
@@ -393,4 +408,4 @@ class QuotaResolver {
     }
 }
 
-export { QuotaResolver, QUOTA_NAME_PATTERN, SAGEMAKER_SERVICE_CODE, DEFAULT_TIMEOUT_MS, DEFAULT_CACHE_TTL_MS };
+export { QuotaResolver, QUOTA_NAME_PATTERN, QUOTA_PATTERNS, SAGEMAKER_SERVICE_CODE, DEFAULT_TIMEOUT_MS, DEFAULT_CACHE_TTL_MS };

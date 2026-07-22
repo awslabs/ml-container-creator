@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
 # ── Batch guard: batch logs are in a different log group ──────────────────────
+<% if (deploymentTarget !== 'hyperpod-eks') { %>
 if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
     echo "📋 Batch Transform logs"
     echo "   Log group: /aws/sagemaker/TransformJobs"
@@ -19,6 +20,7 @@ if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
     echo "   aws logs tail /aws/sagemaker/TransformJobs --log-stream-name-prefix <job-name> --follow"
     exit 0
 fi
+<% } %>
 
 <% if (deploymentTarget === 'realtime-inference') { %>
 # ============================================================

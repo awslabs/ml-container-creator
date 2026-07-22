@@ -351,7 +351,7 @@ async function handleGetInstanceRecommendation(params) {
                 const quotaResolver = new QuotaResolver(region);
                 const instanceTypes = unfilteredRecs.map(r => r.instanceType);
                 const [quotas, reservations, ftps] = await Promise.allSettled([
-                    quotaResolver.getQuotaHeadroom(instanceTypes),
+                    quotaResolver.getQuotaHeadroom(instanceTypes, { deploymentTarget: context?.deploymentTarget }),
                     quotaResolver.getCapacityReservations(),
                     quotaResolver.getTrainingPlans()
                 ]);
@@ -501,7 +501,7 @@ async function handleGetInstanceRecommendation(params) {
 
             const instanceTypes = recommendations.map(r => r.instanceType);
             const [quotas, reservations, ftps] = await Promise.allSettled([
-                quotaResolver.getQuotaHeadroom(instanceTypes),
+                quotaResolver.getQuotaHeadroom(instanceTypes, { deploymentTarget: context?.deploymentTarget }),
                 quotaResolver.getCapacityReservations(),
                 quotaResolver.getTrainingPlans()
             ]);
