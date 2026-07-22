@@ -248,8 +248,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Apply --target flag if provided
+# Apply --target flag if provided (normalize aliases)
 if [ -n "$FLAG_TARGET" ]; then
+    case "$FLAG_TARGET" in
+        realtime|realtime-inference) FLAG_TARGET="managed-inference" ;;
+        hyperpod)                   FLAG_TARGET="hyperpod-eks" ;;
+        batch)                      FLAG_TARGET="batch-transform" ;;
+        async)                      FLAG_TARGET="async-inference" ;;
+    esac
     DEPLOYMENT_TARGET="$FLAG_TARGET"
 fi
 

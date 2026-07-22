@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { execSync } from 'node:child_process';
 import { DynamicResolver } from '../lib/dynamic-resolver.js';
 import {
     calculateTotalGpus,
@@ -138,7 +139,40 @@ function _detectAwsProfiles() {
  * @param {object} options - { limit }
  * @returns {Promise<Array<{ clusterName: string, clusterArn: string, status: string, instanceGroups: Array }>>}
  */
-async function fetchHyperPodClusters(client, { limit = 10 } = {}) {
+/**
+ * Fetch raw instance group data for a cluster via AWS CLI.
+ * Used as a fallback when the SDK version doesn't deserialize InstanceRequirements
+ * (a newer API field for flexible instance groups).
+ *
+ * @param {string} clusterName
+ * @param {string} region
+ * @param {string} [profile]
+ * @returns {Object} map of groupName → { instanceType, instanceTypes, isFlexible }
+ */
+function fetchFlexibleGroupsViaCLI(clusterName, region, profile) {
+    try {
+        const profileArg = profile ? `--profile ${profile}` : '';
+        const cmd = `aws sagemaker describe-cluster --cluster-name "${clusterName}" --region ${region} ${profileArg} --query 'InstanceGroups[].{Name:InstanceGroupName,Type:InstanceType,Req:InstanceRequirements}' --output json 2>/dev/null`;
+        const raw = execSync(cmd, { timeout: 10000 }).toString();
+        const groups = JSON.parse(raw);
+        const result = {};
+        for (const g of groups) {
+            const req = g.Req;
+            const flexible = !g.Type && !!req;
+            const instanceTypes = (req && req.DesiredInstanceTypes) || (g.Type ? [g.Type] : []);
+            result[g.Name] = {
+                instanceType: g.Type || (instanceTypes[0] || null),
+                instanceTypes,
+                isFlexible: flexible
+            };
+        }
+        return result;
+    } catch {
+        return {};
+    }
+}
+
+async function fetchHyperPodClusters(client, { limit = 10, region = 'us-east-1', profile = null } = {}) {
     const clusters = [];
     let nextToken;
 
@@ -180,11 +214,28 @@ async function fetchHyperPodClusters(client, { limit = 10 } = {}) {
             const orchestrator = detail.Orchestrator?.Eks ? 'EKS' : 'Slurm';
             if (orchestrator !== 'EKS') continue;
 
-            const instanceGroups = (detail.InstanceGroups || []).map(g => ({
-                name: g.InstanceGroupName,
-                instanceType: g.InstanceType,
-                count: g.CurrentCount ?? g.TargetCount ?? 0
-            }));
+            // The AWS SDK may not deserialize InstanceRequirements (newer API field).
+            // Detect flexible groups by checking if any group is missing InstanceType,
+            // then fall back to CLI to fetch the raw data.
+            const sdkGroups = detail.InstanceGroups || [];
+            const hasFlexible = sdkGroups.some(g => !g.InstanceType);
+            const flexData = hasFlexible
+                ? fetchFlexibleGroupsViaCLI(cluster.clusterName, region, profile)
+                : {};
+
+            const instanceGroups = sdkGroups.map(g => {
+                const flex = flexData[g.InstanceGroupName] || {};
+                const instanceType = g.InstanceType || flex.instanceType || null;
+                const instanceTypes = flex.instanceTypes || (instanceType ? [instanceType] : []);
+                const isFlexible = !g.InstanceType && flex.isFlexible === true;
+                return {
+                    name: g.InstanceGroupName,
+                    instanceType,
+                    instanceTypes,
+                    count: g.CurrentCount ?? g.TargetCount ?? 0,
+                    isFlexible
+                };
+            });
 
             eksClusters.push({
                 clusterName: cluster.clusterName,
@@ -335,7 +386,7 @@ class ClusterResolver extends DynamicResolver {
         if (this._profile) {
             try {
                 const client = _createClientWithProfile(this._region, this._profile);
-                clusters = await fetchHyperPodClusters(client, { limit });
+                clusters = await fetchHyperPodClusters(client, { limit, region: this._region, profile: this._profile });
             } catch (err) {
                 log(`Profile "${this._profile}" failed: ${err.message}`);
                 lastError = err;
@@ -346,7 +397,7 @@ class ClusterResolver extends DynamicResolver {
         if (!clusters) {
             try {
                 const client = createSageMakerClient(this._region, this._clientFactory);
-                clusters = await fetchHyperPodClusters(client, { limit });
+                clusters = await fetchHyperPodClusters(client, { limit, region: this._region, profile: null });
             } catch (err) {
                 log(`Default credential chain failed: ${err.message}`);
                 lastError = err;
@@ -359,7 +410,7 @@ class ClusterResolver extends DynamicResolver {
             for (const p of profiles) {
                 try {
                     const client = _createClientWithProfile(this._region, p);
-                    clusters = await fetchHyperPodClusters(client, { limit });
+                    clusters = await fetchHyperPodClusters(client, { limit, region: this._region, profile: p });
                     log(`Profile "${p}" succeeded`);
                     break;
                 } catch (err) {
@@ -427,7 +478,7 @@ server.tool(
                 try {
                     log(`Trying explicit profile: ${profile}`);
                     const client = _createClientWithProfile(region, profile);
-                    clusters = await fetchHyperPodClusters(client, { limit });
+                    clusters = await fetchHyperPodClusters(client, { limit, region, profile });
                 } catch (err) {
                     log(`Profile "${profile}" failed: ${err.message}`);
                     lastError = err;
@@ -439,7 +490,7 @@ server.tool(
                 try {
                     log('Trying default credential chain');
                     const client = createSageMakerClient(region);
-                    clusters = await fetchHyperPodClusters(client, { limit });
+                    clusters = await fetchHyperPodClusters(client, { limit, region, profile });
                 } catch (err) {
                     log(`Default credential chain failed: ${err.message}`);
                     lastError = err;
@@ -454,7 +505,7 @@ server.tool(
                     for (const p of profiles) {
                         try {
                             const client = _createClientWithProfile(region, p);
-                            clusters = await fetchHyperPodClusters(client, { limit });
+                            clusters = await fetchHyperPodClusters(client, { limit, region, profile: p });
                             log(`Profile "${p}" succeeded`);
                             break;
                         } catch (err) {

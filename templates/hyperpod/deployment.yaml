@@ -26,7 +26,7 @@ spec:
     spec:
       containers:
         - name: <%= projectName %>
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.<%= awsRegion %>.amazonaws.com/ml-container-creator:<%= projectName %>-latest
+          image: ${ECR_IMAGE}
           ports:
             - containerPort: 8080
               protocol: TCP

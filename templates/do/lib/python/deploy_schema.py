@@ -79,6 +79,10 @@ STATUS_VARS: dict[str, str] = {
 # Target aliases for backward compatibility (v1.3 → v1.4 rename)
 TARGET_ALIASES: dict[str, str] = {
     "realtime-inference": "managed-inference",
+    "realtime": "managed-inference",
+    "hyperpod": "hyperpod-eks",
+    "batch": "batch-transform",
+    "async": "async-inference",
 }
 
 

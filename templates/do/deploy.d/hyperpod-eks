@@ -50,6 +50,7 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
+ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"
@@ -208,6 +209,12 @@ echo "📄 Applying Kubernetes manifests from hyperpod/..."
 # Substitute shell variables (e.g. ${AWS_ACCOUNT_ID}) in manifests before applying
 export AWS_ACCOUNT_ID
 export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+# Portable envsubst shim — works on macOS without gettext installed
+# Falls back to perl (always available on macOS/Linux) if envsubst is not found
+if ! command -v envsubst &>/dev/null; then
+    envsubst() { perl -pe 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge'; }
+fi
 
 APPLY_OUTPUT=""
 APPLY_EXIT_CODE=0

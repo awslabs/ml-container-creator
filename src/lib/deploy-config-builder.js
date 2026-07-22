@@ -32,7 +32,10 @@ const GENERATOR_ROOT = resolve(__dirname, '..', '..');
 // ── Target aliases (v1.3 backward compat) ────────────────────────────────────
 
 const TARGET_ALIASES = {
-    'realtime-inference': 'managed-inference'
+    'realtime-inference': 'managed-inference',
+    'hyperpod': 'hyperpod-eks',
+    'batch': 'batch-transform',
+    'async': 'async-inference'
 };
 
 function normalizeTarget(target) {
@@ -235,7 +238,7 @@ async function getEndpoints(region) {
 
 async function getClusters(region) {
     const result = await callMcpTool('hyperpod-cluster-picker', 'get_hyperpod_clusters', {
-        parameters: ['clusterName', 'gpuCapacity'],
+        parameters: ['hyperPodCluster'],
         context: { awsRegion: region }
     }, { timeout: 60000 });
 
@@ -248,9 +251,10 @@ async function getClusters(region) {
                 (sum, g) => sum + (g.gpuCapacity?.total || 0), 0
             ) || 0;
             // Extract unique instance types available on this cluster
+            // Flexible groups have instanceTypes array; fixed groups have a single instanceType
             const instanceTypes = [...new Set(
                 instanceGroups
-                    .map(g => g.instanceType)
+                    .flatMap(g => g.instanceTypes || (g.instanceType ? [g.instanceType] : []))
                     .filter(Boolean)
             )];
             return {
@@ -455,7 +459,10 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
     }
 
     // ── Instance type ────────────────────────────────────────────────────────
-    if (preInstanceType) {
+    // Skip for hyperpod-eks — instance type comes from cluster node groups (below)
+    if (target === 'hyperpod-eks') {
+        // Handled in target-specific section
+    } else if (preInstanceType) {
         answers.instance_type = preInstanceType;
     } else if (!config.INSTANCE_TYPE) {
         if (target === 'managed-inference' && answers.endpoint_strategy === 'existing') {
@@ -579,6 +586,15 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 writeFileSync(outputFile, JSON.stringify(result));
                 return result;
             }
+        } else {
+            // Cluster already configured — still fetch metadata to populate instance type choices
+            const clusterSpinner = ora('Loading cluster info...').start();
+            const clusters = await getClusters(region);
+            clusterSpinner.stop();
+            selectedCluster = clusters.find(c => c.name === config.HP_CLUSTER_NAME) || null;
+            if (selectedCluster) {
+                console.log(`   Cluster: ${config.HP_CLUSTER_NAME} (from config)`);
+            }
         }
 
         // Instance type — use cluster's available instance types, not generic sizer
@@ -587,11 +603,15 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
             if (clusterInstanceTypes.length > 0) {
                 // Show instance types from the cluster's node groups
                 const choices = clusterInstanceTypes.map(t => {
-                    const group = selectedCluster.instanceGroups.find(g => g.instanceType === t);
+                    // Match against both fixed instanceType and flexible instanceTypes array
+                    const group = selectedCluster.instanceGroups.find(g =>
+                        g.instanceType === t || (g.instanceTypes && g.instanceTypes.includes(t))
+                    );
                     const gpus = group?.gpuCapacity?.total || 0;
                     const count = group?.count || 0;
+                    const flex = group?.isFlexible ? ' (flexible)' : '';
                     return {
-                        name: `${t} (${gpus} GPUs, ${count} nodes)`,
+                        name: `${t} (${gpus} GPUs, ${count} nodes${flex})`,
                         value: t
                     };
                 });
