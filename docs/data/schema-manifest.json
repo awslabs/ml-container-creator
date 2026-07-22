@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-07-16T21:14:48.236Z",
+  "generatedAt": "2026-07-22T14:55:36.959Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "1.3.4",
+  "version": "1.4.0",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -497,7 +497,7 @@
       "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)",
       "type": "enum",
       "group": "infrastructure",
-      "phase": "deprecated",
+      "phase": "infrastructure",
       "deprecated": true,
       "hasWidget": true
     },

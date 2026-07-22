@@ -165,6 +165,10 @@ export class MlccCoreStack extends cdk.Stack {
             resources: [
                 'arn:aws:s3:::ml-container-creator-*', 'arn:aws:s3:::ml-container-creator-*/*',
                 'arn:aws:s3:::mlcc-*', 'arn:aws:s3:::mlcc-*/*',
+                // JumpStart model cache — required for do/tune with JumpStart model IDs
+                'arn:aws:s3:::jumpstart-cache-prod-*', 'arn:aws:s3:::jumpstart-cache-prod-*/*',
+                // SageMaker-managed staging buckets used during training jobs
+                'arn:aws:s3:::sagemaker-*', 'arn:aws:s3:::sagemaker-*/*',
             ],
         }));
 

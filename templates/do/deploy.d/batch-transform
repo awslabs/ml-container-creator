@@ -365,6 +365,12 @@ _update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
 echo "📦 Creating SageMaker model: ${MODEL_NAME_SM}"
 
 # Build primary container spec
+# Inject SAGEMAKER_BATCH=true for batch transform mode
+if [ -n "${CONTAINER_ENV_JSON}" ]; then
+    CONTAINER_ENV_JSON="${CONTAINER_ENV_JSON},\"SAGEMAKER_BATCH\":\"true\""
+else
+    CONTAINER_ENV_JSON="\"SAGEMAKER_BATCH\":\"true\""
+fi
 BATCH_PRIMARY_CONTAINER="{\"Image\":\"${ECR_REPOSITORY}:${IMAGE_TAG}\""
 if [ -n "${CONTAINER_ENV_JSON}" ]; then
     BATCH_PRIMARY_CONTAINER="${BATCH_PRIMARY_CONTAINER},\"Environment\":{${CONTAINER_ENV_JSON}}"
