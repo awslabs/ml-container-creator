@@ -97,12 +97,10 @@ def _build_metadata(args):
             bench = json.loads(args.benchmark_results) if isinstance(args.benchmark_results, str) else args.benchmark_results
             if isinstance(bench, dict):
                 for bkey, bval in bench.items():
-                    props[f"benchmark_{bkey}"] = str(bval)
+                    if str(bval):
+                        props[f"benchmark_{bkey}"] = str(bval)
         except (json.JSONDecodeError, TypeError):
             _warn("Could not parse benchmark results, skipping")
-
-    # SageMaker requires CustomerMetadataProperties values to have min length 1
-    props = {k: v for k, v in props.items() if v}
 
     return _truncate_metadata(props)
 
@@ -128,9 +126,6 @@ def _build_adapter_metadata(args):
     dataset_version = getattr(args, "dataset_version", "") or ""
     if dataset_version:
         props["datasetVersion"] = dataset_version
-
-    # SageMaker requires CustomerMetadataProperties values to have min length 1
-    props = {k: v for k, v in props.items() if v}
 
     return _truncate_metadata(props)
 

@@ -577,8 +577,14 @@ class TestCmdRegisterAdapter:
     def test_register_adapter_requires_project_name_at_runtime(self, capsys):
         """cmd_register_adapter exits with error if project_name is empty."""
         args = self._make_adapter_args(project_name="")
+        mock_sagemaker = MagicMock()
 
-        with patch("register_model._check_sagemaker_core"):
+        with patch("register_model._check_sagemaker_core"), \
+             patch.dict(sys.modules, {
+                 "sagemaker": mock_sagemaker,
+                 "sagemaker.core": mock_sagemaker,
+                 "sagemaker.core.resources": mock_sagemaker,
+             }):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_register_adapter(args)
 
@@ -590,8 +596,14 @@ class TestCmdRegisterAdapter:
     def test_register_adapter_requires_parent_version_arn_at_runtime(self, capsys):
         """cmd_register_adapter exits with error if parent_version_arn is empty."""
         args = self._make_adapter_args(parent_version_arn="")
+        mock_sagemaker = MagicMock()
 
-        with patch("register_model._check_sagemaker_core"):
+        with patch("register_model._check_sagemaker_core"), \
+             patch.dict(sys.modules, {
+                 "sagemaker": mock_sagemaker,
+                 "sagemaker.core": mock_sagemaker,
+                 "sagemaker.core.resources": mock_sagemaker,
+             }):
             with pytest.raises(SystemExit) as exc_info:
                 _register_helper.cmd_register_adapter(args)
 

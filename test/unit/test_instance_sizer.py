@@ -310,6 +310,14 @@ class TestRecommendForModel:
 # ---------------------------------------------------------------------------
 
 
+try:
+    import huggingface_hub  # noqa: F401
+    HAS_HUGGINGFACE_HUB = True
+except ImportError:
+    HAS_HUGGINGFACE_HUB = False
+
+
+@pytest.mark.skipif(not HAS_HUGGINGFACE_HUB, reason="huggingface_hub not installed")
 class TestResolveModelParams:
     """Verify resolve_model_params() parses HF config.json correctly.
 

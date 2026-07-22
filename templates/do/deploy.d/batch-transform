@@ -412,7 +412,7 @@ TRANSFORM_JOB_JSON="{
     },
     \"TransformOutput\": {
         \"S3OutputPath\": \"${BATCH_OUTPUT_PATH}\"
-        $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"Accept\": \"application/json\", \"AssembleWith\": \"${BATCH_SPLIT_TYPE}\"")
+        $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"Accept\": \"application/json\", \"AssembleWith\": \"${BATCH_SPLIT_TYPE}\"" || true)
     },
     \"TransformResources\": {
         \"InstanceType\": \"${INSTANCE_TYPE}\",
@@ -421,7 +421,7 @@ TRANSFORM_JOB_JSON="{
     \"MaxConcurrentTransforms\": ${BATCH_MAX_CONCURRENT_TRANSFORMS:-1},
     \"MaxPayloadInMB\": ${BATCH_MAX_PAYLOAD_IN_MB:-6},
     \"BatchStrategy\": \"${BATCH_STRATEGY}\"
-    $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"DataProcessing\": { \"JoinSource\": \"Input\" }")
+    $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"DataProcessing\": { \"JoinSource\": \"Input\" }" || true)
 }"
 
 # Step 3: Create transform job

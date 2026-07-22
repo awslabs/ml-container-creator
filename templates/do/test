@@ -30,13 +30,87 @@ else
     IC_ARG="${1:-}"
 fi
 
-# ── Batch guard: batch has no persistent endpoint to test ─────────────────────
+# ── Batch test: submit a test transform job and wait for results ──────────────
 if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
-    echo "❌ do/test is not supported on batch-transform."
-    echo "   Batch jobs process input data and write results to S3."
-    echo "   Check job status: aws sagemaker describe-transform-job --transform-job-name <name>"
-    echo "   View output: aws s3 ls ${BATCH_OUTPUT_PATH:-s3://...}"
-    exit 1
+    echo "🧪 Testing batch transform"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Region: ${AWS_REGION}"
+    echo ""
+
+    _BATCH_INPUT="${BATCH_INPUT_PATH:-}"
+    _BATCH_OUTPUT="${BATCH_OUTPUT_PATH:-}"
+    _BATCH_MODEL="${SAGEMAKER_MODEL_NAME:-${PROJECT_NAME}-batch-model}"
+
+    if [ -z "${_BATCH_INPUT}" ]; then
+        echo "❌ No BATCH_INPUT_PATH configured."
+        echo "   Run: do/deploy --target batch-transform"
+        exit 1
+    fi
+
+    _TEST_JOB_NAME="${PROJECT_NAME}-batch-test-$(date +%s)"
+    echo "🚀 Submitting test transform job: ${_TEST_JOB_NAME}"
+    echo "   Model: ${_BATCH_MODEL}"
+    echo "   Input: ${_BATCH_INPUT}"
+    echo "   Output: ${_BATCH_OUTPUT}"
+    echo ""
+
+    if ! aws sagemaker create-transform-job \
+        --transform-job-name "${_TEST_JOB_NAME}" \
+        --model-name "${_BATCH_MODEL}" \
+        --transform-input "{\"DataSource\":{\"S3DataSource\":{\"S3DataType\":\"S3Prefix\",\"S3Uri\":\"${_BATCH_INPUT}\"}},\"ContentType\":\"application/json\",\"SplitType\":\"${BATCH_SPLIT_TYPE:-Line}\"}" \
+        --transform-output "{\"S3OutputPath\":\"${_BATCH_OUTPUT}\"}" \
+        --transform-resources "{\"InstanceType\":\"${INSTANCE_TYPE:-ml.g5.xlarge}\",\"InstanceCount\":${BATCH_INSTANCE_COUNT:-1}}" \
+        --region "${AWS_REGION}" 2>&1; then
+        echo "❌ Failed to create test transform job"
+        exit 1
+    fi
+
+    echo ""
+    echo "⏳ Waiting for transform job to complete..."
+
+    _POLL_INTERVAL=15
+    _MAX_WAIT=600
+    _ELAPSED=0
+
+    while [ "${_ELAPSED}" -lt "${_MAX_WAIT}" ]; do
+        _STATUS=$(aws sagemaker describe-transform-job \
+            --transform-job-name "${_TEST_JOB_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "TransformJobStatus" \
+            --output text 2>/dev/null) || _STATUS="Unknown"
+
+        case "${_STATUS}" in
+            Completed)
+                echo ""
+                echo "✅ Transform job completed (${_ELAPSED}s)"
+                echo ""
+                echo "── Output ──"
+                echo "   ${_BATCH_OUTPUT}"
+                aws s3 ls "${_BATCH_OUTPUT}" --region "${AWS_REGION}" 2>/dev/null | head -10
+                exit 0
+                ;;
+            Failed|Stopped)
+                echo ""
+                echo "❌ Transform job ${_STATUS}"
+                _REASON=$(aws sagemaker describe-transform-job \
+                    --transform-job-name "${_TEST_JOB_NAME}" \
+                    --region "${AWS_REGION}" \
+                    --query "FailureReason" \
+                    --output text 2>/dev/null)
+                [ -n "${_REASON}" ] && echo "   Reason: ${_REASON}"
+                exit 1
+                ;;
+        esac
+
+        sleep "${_POLL_INTERVAL}"
+        _ELAPSED=$((_ELAPSED + _POLL_INTERVAL))
+        printf "   %s (%ds)...\r" "${_STATUS}" "${_ELAPSED}"
+    done
+
+    echo ""
+    echo "⚠️  Timed out after ${_MAX_WAIT}s (job still ${_STATUS})"
+    echo "   Check: aws sagemaker describe-transform-job --transform-job-name ${_TEST_JOB_NAME} --region ${AWS_REGION}"
+    exit 0
 fi
 
 # Determine test mode based on ENDPOINT_NAME in config

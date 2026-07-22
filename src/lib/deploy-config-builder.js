@@ -155,13 +155,12 @@ async function getInstanceRecommendations(modelName, _region, deploymentTarget) 
             let quotaStr = '';
             if (r.quotaHeadroom !== undefined && r.quotaLimit !== undefined) {
                 quotaStr = ` [${r.quotaHeadroom}/${r.quotaLimit} avail]`;
-            } else if (r.quotaStatus === 'available') {
-                quotaStr = ' [quota: ok]';
             } else if (r.quotaStatus === 'zero-quota') {
                 quotaStr = ' [quota: 0]';
             } else if (r.quotaStatus === 'limited') {
                 quotaStr = ' [quota: low]';
             }
+            // 'available' with no numbers = no data, omit display
 
             let label;
             if (gpuCount > 1) {
@@ -174,7 +173,8 @@ async function getInstanceRecommendations(modelName, _region, deploymentTarget) 
                 name: r.displayLabel || label,
                 value: r.instanceType,
                 gpuCount,
-                headroom
+                headroom,
+                utilPct
             };
         };
 
@@ -184,9 +184,11 @@ async function getInstanceRecommendations(modelName, _region, deploymentTarget) 
         const byHeadroom = (a, b) => b.headroom - a.headroom;
 
         // Filter: only show instances with room (headroom > 0 or unknown)
+        // and reasonable utilization (>= 10% — skip wildly oversized instances)
         const hasRoom = (r) => r.headroom === -1 || r.headroom > 0;
+        const MIN_UTIL_PERCENT = 10;
 
-        const single = all.filter(r => r.gpuCount === 1 && hasRoom(r))
+        const single = all.filter(r => r.gpuCount === 1 && hasRoom(r) && (r.utilPct >= MIN_UTIL_PERCENT || r.utilPct === '?'))
             .sort(byHeadroom).slice(0, 10);
         const multi = all.filter(r => r.gpuCount > 1 && hasRoom(r))
             .sort(byHeadroom).slice(0, 10);

@@ -210,12 +210,27 @@ class TestCheckSchemaDivergenceDivergent:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+try:
+    import huggingface_hub  # noqa: F401
+    HAS_HUGGINGFACE_HUB = True
+except ImportError:
+    HAS_HUGGINGFACE_HUB = False
+
+try:
+    import pyarrow  # noqa: F401
+    HAS_PYARROW = True
+except ImportError:
+    HAS_PYARROW = False
+
+
+@pytest.mark.skipif(not HAS_HUGGINGFACE_HUB, reason="huggingface_hub not installed")
 class TestInspectFileSchemas:
     """Test _inspect_file_schemas with mocked file downloads.
 
     Validates: Requirements 3.1, 3.6
     """
 
+    @pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow not installed")
     def test_inspect_file_schemas_parquet_file(self, tmp_path):
         """Parquet file inspection extracts correct column names."""
         import pyarrow as pa
