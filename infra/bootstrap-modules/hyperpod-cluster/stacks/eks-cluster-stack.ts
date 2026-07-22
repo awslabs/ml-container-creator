@@ -196,22 +196,23 @@ export class MlccEksClusterStack extends cdk.Stack {
                     ],
                 });
 
-            // Skip Fargate profile creation if adopting — profile already exists
-            if (!props.adoptRoles) {
-                new eks.FargateProfile(this, 'SystemFargateProfile', {
-                    cluster: newCluster,
-                    fargateProfileName: `mlcc-${profileName}-system`,
-                    selectors: [
-                        { namespace: 'kube-system' },
-                        { namespace: 'cert-manager' },
-                        { namespace: 'aws-hyperpod' },
-                        { namespace: 'hyperpod-inference-system' },
-                        { namespace: 'kubeflow' },
-                        { namespace: 'keda' },
-                    ],
-                    podExecutionRole: fargateRole,
-                });
-            }
+            // Fargate profiles are cluster-scoped (not account-scoped like IAM
+            // roles). When a cluster is recreated, the profile must also be
+            // recreated — always create it regardless of adoptRoles.
+            // NOTE: Fargate profiles support max 5 selectors. KEDA pods run in
+            // hyperpod-inference-system so a separate keda selector is not needed.
+            new eks.FargateProfile(this, 'SystemFargateProfile', {
+                cluster: newCluster,
+                fargateProfileName: `mlcc-${profileName}-system`,
+                selectors: [
+                    { namespace: 'kube-system' },
+                    { namespace: 'cert-manager' },
+                    { namespace: 'aws-hyperpod' },
+                    { namespace: 'hyperpod-inference-system' },
+                    { namespace: 'kubeflow' },
+                ],
+                podExecutionRole: fargateRole,
+            });
 
             // ─── EKS Add-ons ────────────────────────────────────────────────
 
@@ -314,6 +315,18 @@ export class MlccEksClusterStack extends cdk.Stack {
                 ['arn:aws:iam::aws:policy/AmazonSageMakerHyperPodInferenceAccess'],
                 props.adoptRoles,
             );
+
+            // The inference operator calls UpdateClusterInference and passes its
+            // own role ARN. The managed policy doesn't include iam:PassRole, so
+            // we add it explicitly (self-referencing).
+            if (!props.adoptRoles) {
+                (hyperpodInferenceRole as iam.Role).addToPolicy(new iam.PolicyStatement({
+                    sid: 'PassSelfRole',
+                    effect: iam.Effect.ALLOW,
+                    actions: ['iam:PassRole'],
+                    resources: [`arn:aws:iam::${this.account}:role/mlcc-${profileName}-hyperpod-inference-role`],
+                }));
+            }
 
             new ssm.StringParameter(this, 'HyperpodInferenceRoleArnParam', {
                 parameterName: `${ssmPrefix}/HyperpodInferenceRoleArn`,
@@ -525,6 +538,9 @@ export class MlccEksClusterStack extends cdk.Stack {
                 release: 'aws-load-balancer-controller',
                 values: {
                     clusterName: newCluster.clusterName,
+                    // Fargate nodes don't expose IMDS, so VPC ID must be explicit
+                    vpcId: vpc.vpcId,
+                    region: this.region,
                     serviceAccount: {
                         create: true,
                         name: 'aws-load-balancer-controller',

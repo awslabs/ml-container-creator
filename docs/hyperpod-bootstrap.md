@@ -55,10 +55,11 @@ do/build && do/push && do/deploy
 
 - **VPC**: 2 AZs, public + private subnets, NAT gateway, S3 endpoint
 - **EKS Cluster**: K8s 1.31, `API_AND_CONFIG_MAP` auth mode, OIDC provider
+- **Fargate Profile**: System pod scheduling (see below)
 - **Add-ons**: vpc-cni (≥1.18.3), coredns, kube-proxy, metrics-server, cert-manager, S3 CSI, FSx CSI
 - **NVIDIA Device Plugin**: DaemonSet for GPU scheduling
 - **AWS Load Balancer Controller**: Helm chart for ALB/NLB ingress
-- **IAM Roles** (8 total, all `RETAIN`):
+- **IAM Roles** (9 total, all `RETAIN`):
   - EKS cluster role
   - EKS node role
   - HyperPod instance role
@@ -67,6 +68,32 @@ do/build && do/push && do/deploy
   - KedaOperatorRole (IRSA)
   - S3CsiRole (IRSA)
   - FsxCsiRole (IRSA)
+  - Fargate pod execution role
+
+#### Fargate Profile: Why System Pods Need It
+
+The cluster starts with zero GPU nodes to avoid idle compute costs. But
+Kubernetes requires certain system pods to be running before the cluster can
+function — creating a chicken-and-egg problem. Fargate solves this by providing
+serverless compute for lightweight control-plane workloads.
+
+The Fargate profile covers five namespaces:
+
+| Namespace | Pods | Purpose |
+|-----------|------|---------|
+| `kube-system` | CoreDNS, metrics-server, VPC-CNI, ALB controller, FSx/MPI operators | Core cluster infrastructure: DNS resolution, pod networking, metrics, storage |
+| `cert-manager` | cert-manager, CA injector, webhook | TLS certificate issuance for admission webhooks. Without it, the inference operator's webhooks can't serve. |
+| `aws-hyperpod` | HyperPod system agents | HyperPod-managed components for node lifecycle |
+| `hyperpod-inference-system` | Inference controller, ALB ingress, KEDA | The HyperPod inference operator stack: workload routing, event-driven autoscaling, load balancer management |
+| `kubeflow` | Training operators (PyTorchJob, etc.) | Distributed training job orchestration |
+
+**Without Fargate**, these pods sit `Pending` indefinitely. And without CoreDNS +
+VPC-CNI + cert-manager running, GPU nodes cannot properly register with the cluster
+— resulting in a deadlock where nodes never launch.
+
+**Cost**: Fargate charges ~$0.04/vCPU/hr and ~$0.004/GB/hr. These are small pods
+(typically 256m–500m CPU, 512MB–1GB RAM). Total system overhead is roughly **$2–4/day**,
+far cheaper than keeping a GPU instance running to host control-plane pods.
 
 ### Stack 2: HyperPod Cluster (`MlccHyperPodClusterStack`)
 
