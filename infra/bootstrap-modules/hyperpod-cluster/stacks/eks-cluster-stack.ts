@@ -216,7 +216,19 @@ export class MlccEksClusterStack extends cdk.Stack {
 
             // ─── EKS Add-ons ────────────────────────────────────────────────
 
-            // VPC-CNI ≥ v1.18.3 (HyperPod requirement)
+            // Fargate toleration config — Fargate nodes have a taint that must be
+            // tolerated for pods to schedule. Addons deployed as Deployments (not
+            // DaemonSets) need this when running on a Fargate-only cluster.
+            const fargateToleration = JSON.stringify({
+                tolerations: [{
+                    key: 'eks.amazonaws.com/compute-type',
+                    operator: 'Equal',
+                    value: 'fargate',
+                    effect: 'NoSchedule',
+                }],
+            });
+
+            // VPC-CNI ≥ v1.18.3 (HyperPod requirement) — runs as DaemonSet, no toleration needed
             new eks.CfnAddon(this, 'VpcCniAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'vpc-cni',
@@ -224,14 +236,23 @@ export class MlccEksClusterStack extends cdk.Stack {
                 resolveConflicts: 'OVERWRITE',
             });
 
-            // CoreDNS
+            // CoreDNS — Deployment, needs Fargate toleration
             new eks.CfnAddon(this, 'CoreDnsAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'coredns',
                 resolveConflicts: 'OVERWRITE',
+                configurationValues: JSON.stringify({
+                    computeType: 'Fargate',
+                    tolerations: [{
+                        key: 'eks.amazonaws.com/compute-type',
+                        operator: 'Equal',
+                        value: 'fargate',
+                        effect: 'NoSchedule',
+                    }],
+                }),
             });
 
-            // kube-proxy
+            // kube-proxy — DaemonSet, no toleration needed
             new eks.CfnAddon(this, 'KubeProxyAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'kube-proxy',
@@ -240,7 +261,7 @@ export class MlccEksClusterStack extends cdk.Stack {
 
             // ─── Dependency add-ons for Inference Operator ──────────────────
 
-            // aws-mountpoint-s3-csi-driver ≥ v1.14.1-eksbuild.1
+            // aws-mountpoint-s3-csi-driver ≥ v1.14.1-eksbuild.1 — DaemonSet, no toleration needed
             new eks.CfnAddon(this, 'S3CsiDriverAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'aws-mountpoint-s3-csi-driver',
@@ -248,28 +269,63 @@ export class MlccEksClusterStack extends cdk.Stack {
                 resolveConflicts: 'OVERWRITE',
             });
 
-            // aws-fsx-csi-driver ≥ v1.6.0-eksbuild.1
+            // aws-fsx-csi-driver ≥ v1.6.0-eksbuild.1 — controller is a Deployment
             new eks.CfnAddon(this, 'FsxCsiDriverAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'aws-fsx-csi-driver',
                 addonVersion: 'v1.6.0-eksbuild.1',
                 resolveConflicts: 'OVERWRITE',
+                configurationValues: JSON.stringify({
+                    controller: {
+                        tolerations: [{
+                            key: 'eks.amazonaws.com/compute-type',
+                            operator: 'Equal',
+                            value: 'fargate',
+                            effect: 'NoSchedule',
+                        }],
+                    },
+                }),
             });
 
-            // metrics-server ≥ v0.7.2-eksbuild.4
+            // metrics-server ≥ v0.7.2-eksbuild.4 — Deployment, needs Fargate toleration
             new eks.CfnAddon(this, 'MetricsServerAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'metrics-server',
                 addonVersion: 'v0.7.2-eksbuild.4',
                 resolveConflicts: 'OVERWRITE',
+                configurationValues: fargateToleration,
             });
 
-            // cert-manager ≥ v1.18.2-eksbuild.2
+            // cert-manager ≥ v1.18.2-eksbuild.2 — Deployments, needs Fargate toleration
             new eks.CfnAddon(this, 'CertManagerAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'cert-manager',
                 addonVersion: 'v1.18.2-eksbuild.2',
                 resolveConflicts: 'OVERWRITE',
+                configurationValues: JSON.stringify({
+                    tolerations: [{
+                        key: 'eks.amazonaws.com/compute-type',
+                        operator: 'Equal',
+                        value: 'fargate',
+                        effect: 'NoSchedule',
+                    }],
+                    webhook: {
+                        tolerations: [{
+                            key: 'eks.amazonaws.com/compute-type',
+                            operator: 'Equal',
+                            value: 'fargate',
+                            effect: 'NoSchedule',
+                        }],
+                    },
+                    cainjector: {
+                        tolerations: [{
+                            key: 'eks.amazonaws.com/compute-type',
+                            operator: 'Equal',
+                            value: 'fargate',
+                            effect: 'NoSchedule',
+                        }],
+                    },
+                }),
             });
 
             // NVIDIA device plugin via addManifest

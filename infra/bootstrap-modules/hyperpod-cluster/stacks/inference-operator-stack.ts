@@ -81,38 +81,13 @@ export class MlccInferenceOperatorStack extends cdk.Stack {
         }
 
         // ─── Inference Operator EKS Add-on ──────────────────────────────────
-
-        if (!props.adoptInferenceAddon) {
-            const configValues = JSON.stringify({
-                executionRoleArn: hyperpodInferenceRoleArn,
-                tlsCertificateS3Bucket: bucketName,
-                hyperpodClusterArn: hyperPodClusterArn,
-                alb: {
-                    serviceAccount: {
-                        create: true,
-                        roleArn: albControllerRoleArn,
-                    },
-                },
-                keda: {
-                    auth: {
-                        aws: {
-                            irsa: {
-                                roleArn: kedaOperatorRoleArn,
-                            },
-                        },
-                    },
-                },
-            });
-
-            const addon = new eks.CfnAddon(this, 'InferenceOperatorAddon', {
-                clusterName: eksClusterName,
-                addonName: 'amazon-sagemaker-hyperpod-inference',
-                configurationValues: configValues,
-                resolveConflicts: 'OVERWRITE',
-            });
-
-            addon.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
-        }
+        // NOTE: The inference operator addon is installed by the module-runner
+        // as a post-stack CLI step (not via CloudFormation) because its health
+        // check can exceed CloudFormation's timeout. The addon's controller
+        // calls EnableClusterInference which is an async SageMaker operation
+        // that can take 5-15+ minutes to complete. CloudFormation fails the
+        // resource if any pod is still initializing when it times out.
+        // See module-runner.cjs _installInferenceAddon().
 
         // ─── SSM Exports ────────────────────────────────────────────────────
 

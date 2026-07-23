@@ -541,6 +541,10 @@ class CdkMultiStackModuleRunner {
             Object.assign(allOutputs, outputs);
         }
 
+        // Post-deploy: install inference operator addon via CLI (not CloudFormation)
+        // to avoid CloudFormation timeout on the slow EnableClusterInference call.
+        await this._installInferenceAddon(profile);
+
         console.log(`  ✅ All ${this.stacks.length} stacks deployed for ${this.name}`);
         return allOutputs;
     }
@@ -573,6 +577,129 @@ class CdkMultiStackModuleRunner {
                 // kubectl not available or cluster not reachable — best effort
             }
         }
+    }
+
+    /**
+     * Install the SageMaker HyperPod inference operator as an EKS addon via CLI.
+     * Done outside CloudFormation because the addon's controller calls
+     * EnableClusterInference (async SageMaker API) which can take 5-15+ minutes,
+     * exceeding CloudFormation's health check timeout.
+     * Idempotent: skips if addon already exists and is ACTIVE/DEGRADED.
+     * @param {object} profile
+     */
+    async _installInferenceAddon(profile) {
+        const awsFlags = (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '');
+        const eksClusterName = `mlcc-${profile.profileName}-eks`;
+
+        // Check if addon already exists
+        try {
+            const result = execSync(
+                `aws eks describe-addon --cluster-name ${eksClusterName} --addon-name amazon-sagemaker-hyperpod-inference --region ${profile.awsRegion}${awsFlags} --query "addon.status" --output text`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            const status = result.trim();
+            if (status === 'ACTIVE' || status === 'DEGRADED') {
+                console.log(`  ✅ Inference operator addon already installed (${status})`);
+                return;
+            }
+            // If CREATE_FAILED, delete and recreate
+            if (status === 'CREATE_FAILED') {
+                console.log('  ♻️  Inference addon in CREATE_FAILED state — deleting for reinstall...');
+                execSync(
+                    `aws eks delete-addon --cluster-name ${eksClusterName} --addon-name amazon-sagemaker-hyperpod-inference --region ${profile.awsRegion}${awsFlags}`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+                // Wait a bit for deletion
+                execSync('sleep 30', { stdio: 'pipe' });
+            }
+        } catch {
+            // Addon doesn't exist — proceed with creation
+        }
+
+        // Read context values for addon config
+        const ssmPrefix = `/mlcc/${profile.profileName}/hyperpod`;
+        const getParam = (key) => {
+            try {
+                return execSync(
+                    `aws ssm get-parameter --name ${ssmPrefix}/${key} --region ${profile.awsRegion}${awsFlags} --query "Parameter.Value" --output text`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                ).trim();
+            } catch { return ''; }
+        };
+
+        const hyperpodClusterArn = getParam('HyperPodClusterArn')
+            || this._readSsmParamsForContext?.(profile)?.HyperPodClusterArn || '';
+        const hyperpodInferenceRoleArn = getParam('HyperpodInferenceRoleArn') || '';
+        const albControllerRoleArn = getParam('AlbControllerRoleArn') || '';
+        const kedaOperatorRoleArn = getParam('KedaOperatorRoleArn') || '';
+        const tlsBucketName = `mlcc-hyperpod-tls-${profile.profileName}`;
+
+        if (!hyperpodClusterArn) {
+            console.log('  ⚠️  Skipping inference addon — HyperPod cluster ARN not found');
+            return;
+        }
+
+        const configValues = JSON.stringify({
+            executionRoleArn: hyperpodInferenceRoleArn,
+            tlsCertificateS3Bucket: tlsBucketName,
+            hyperpodClusterArn: hyperpodClusterArn,
+            alb: {
+                serviceAccount: {
+                    create: true,
+                    roleArn: albControllerRoleArn,
+                },
+            },
+            keda: {
+                auth: {
+                    aws: {
+                        irsa: {
+                            roleArn: kedaOperatorRoleArn,
+                        },
+                    },
+                },
+            },
+        });
+
+        console.log('  📦 Installing inference operator addon...');
+        try {
+            execSync(
+                `aws eks create-addon --cluster-name ${eksClusterName} --addon-name amazon-sagemaker-hyperpod-inference --configuration-values '${configValues.replace(/'/g, "'\\''")}' --resolve-conflicts OVERWRITE --region ${profile.awsRegion}${awsFlags}`,
+                { encoding: 'utf8', stdio: 'inherit' }
+            );
+        } catch (err) {
+            console.log(`  ⚠️  Inference addon creation command failed: ${err.message.split('\n')[0]}`);
+            console.log('      The addon may still be initializing. Check status with:');
+            console.log(`      aws eks describe-addon --cluster-name ${eksClusterName} --addon-name amazon-sagemaker-hyperpod-inference --region ${profile.awsRegion}`);
+            return;
+        }
+
+        // Poll for addon to become ACTIVE (up to 10 min)
+        console.log('  ⏳ Waiting for inference operator to become active (up to 10 min)...');
+        const startTime = Date.now();
+        const timeout = 600000; // 10 minutes
+        while (Date.now() - startTime < timeout) {
+            try {
+                const result = execSync(
+                    `aws eks describe-addon --cluster-name ${eksClusterName} --addon-name amazon-sagemaker-hyperpod-inference --region ${profile.awsRegion}${awsFlags} --query "addon.status" --output text`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+                const status = result.trim();
+                if (status === 'ACTIVE') {
+                    console.log('  ✅ Inference operator addon is ACTIVE');
+                    return;
+                }
+                if (status === 'CREATE_FAILED') {
+                    console.log(`  ⚠️  Inference operator addon failed. Check pods in hyperpod-inference-system namespace.`);
+                    return;
+                }
+                // CREATING or DEGRADED — keep waiting
+            } catch {
+                // describe failed — keep trying
+            }
+            execSync('sleep 30', { stdio: 'pipe' });
+        }
+        console.log('  ⚠️  Inference operator addon did not reach ACTIVE within 10 minutes.');
+        console.log('      It may still be initializing. This is non-blocking for basic deploys.');
     }
 
     _ensureHyperPodServiceLinkedRole(profile) {
@@ -1045,6 +1172,142 @@ class CdkMultiStackModuleRunner {
     }
 
     /**
+     * Detach the ALB controller managed policy from its IRSA role before stack
+     * deletion. The role uses RemovalPolicy.RETAIN so it persists, but CDK needs
+     * to delete the policy resource — which fails if it's still attached.
+     * @param {object} profile
+     */
+    _detachAlbPolicy(profile) {
+        const awsFlags = (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '');
+        const roleName = `mlcc-${profile.profileName}-alb-controller-role`;
+        const policyName = `mlcc-${profile.profileName}-alb-controller-policy`;
+        const accountId = profile.accountId;
+        const policyArn = `arn:aws:iam::${accountId}:policy/${policyName}`;
+
+        try {
+            execSync(
+                `aws iam detach-role-policy --role-name ${roleName} --policy-arn ${policyArn} --region ${profile.awsRegion}${awsFlags}`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            console.log(`      ✅ Detached ALB policy from ${roleName}`);
+        } catch {
+            // Role or policy doesn't exist, or already detached — fine
+        }
+    }
+
+    /**
+     * Delete orphaned ENIs in the VPC's private subnets. HyperPod leaves behind
+     * ENIs from failed node scaling attempts. These block subnet deletion.
+     * @param {object} profile
+     */
+    _cleanupOrphanedENIs(profile) {
+        const awsFlags = (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '');
+        const vpcName = `mlcc-${profile.profileName}-eks`;
+
+        // Discover VPC ID from SSM or by tag
+        let vpcId;
+        try {
+            const result = execSync(
+                `aws ec2 describe-vpcs --filters "Name=tag:Name,Values=*${profile.profileName}*" --region ${profile.awsRegion}${awsFlags} --query "Vpcs[0].VpcId" --output text`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            vpcId = result.trim();
+            if (!vpcId || vpcId === 'None') return;
+        } catch {
+            return;
+        }
+
+        // Find all ENIs in the VPC that are available (not attached)
+        let eniIds;
+        try {
+            const result = execSync(
+                `aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=${vpcId}" "Name=status,Values=available" --region ${profile.awsRegion}${awsFlags} --query "NetworkInterfaces[].NetworkInterfaceId" --output json`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            eniIds = JSON.parse(result);
+        } catch {
+            return;
+        }
+
+        if (!eniIds || eniIds.length === 0) return;
+
+        console.log(`      Cleaning ${eniIds.length} orphaned ENI(s)...`);
+        for (const eniId of eniIds) {
+            try {
+                execSync(
+                    `aws ec2 delete-network-interface --network-interface-id ${eniId} --region ${profile.awsRegion}${awsFlags}`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+            } catch {
+                // May already be gone or in-use — skip
+            }
+        }
+        console.log('      ✅ Orphaned ENIs cleaned');
+    }
+
+    /**
+     * Delete NAT gateways in the VPC so subnets, route tables, and EIPs can be
+     * freed. Waits for each NAT gateway to reach 'deleted' state.
+     * @param {object} profile
+     */
+    _deleteNatGateways(profile) {
+        const awsFlags = (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '');
+
+        // Discover VPC ID
+        let vpcId;
+        try {
+            const result = execSync(
+                `aws ec2 describe-vpcs --filters "Name=tag:Name,Values=*${profile.profileName}*" --region ${profile.awsRegion}${awsFlags} --query "Vpcs[0].VpcId" --output text`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            vpcId = result.trim();
+            if (!vpcId || vpcId === 'None') return;
+        } catch {
+            return;
+        }
+
+        // Find NAT gateways in the VPC
+        let natGateways;
+        try {
+            const result = execSync(
+                `aws ec2 describe-nat-gateways --filter "Name=vpc-id,Values=${vpcId}" "Name=state,Values=available" --region ${profile.awsRegion}${awsFlags} --query "NatGateways[].NatGatewayId" --output json`,
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            natGateways = JSON.parse(result);
+        } catch {
+            return;
+        }
+
+        if (!natGateways || natGateways.length === 0) return;
+
+        console.log(`      Deleting ${natGateways.length} NAT gateway(s)...`);
+        for (const natId of natGateways) {
+            try {
+                execSync(
+                    `aws ec2 delete-nat-gateway --nat-gateway-id ${natId} --region ${profile.awsRegion}${awsFlags}`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+            } catch (err) {
+                console.log(`      ⚠️  Could not delete NAT gateway ${natId}: ${err.message.split('\n')[0]}`);
+            }
+        }
+
+        // Wait for NAT gateways to finish deleting (they release ENIs/EIPs on deletion)
+        console.log('      Waiting for NAT gateway deletion...');
+        for (const natId of natGateways) {
+            try {
+                execSync(
+                    `aws ec2 wait nat-gateway-available --nat-gateway-ids ${natId} --region ${profile.awsRegion}${awsFlags}`,
+                    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 120000 }
+                );
+            } catch {
+                // Timeout or already deleted — continue
+            }
+        }
+        console.log('      ✅ NAT gateways deleted');
+    }
+
+    /**
      * Read SSM params exported by previously deployed stacks and return as
      * key-value context map for the next stack.
      * @param {object} profile
@@ -1119,6 +1382,12 @@ class CdkMultiStackModuleRunner {
             // Delete any Fargate profiles before destroying the eks-cluster stack.
             if (stackSuffix === 'eks-cluster') {
                 this._deleteAllFargateProfiles(profile);
+                // Detach ALB controller policy from its RETAIN'd role so CDK can delete the policy.
+                this._detachAlbPolicy(profile);
+                // Clean up orphaned ENIs in VPC subnets (left behind by HyperPod failed scaling attempts).
+                this._cleanupOrphanedENIs(profile);
+                // Delete NAT gateways so subnets and EIPs can be freed.
+                this._deleteNatGateways(profile);
             }
 
             const cdkCmd = [
