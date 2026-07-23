@@ -11,7 +11,7 @@
     "test": "mocha --require ts-node/register test/**/*.test.ts --exit --reporter spec"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.175.1",
+    "aws-cdk-lib": "^2.260.0",
     "constructs": "^10.4.2",
     "yaml": "^2.7.0"
   },
