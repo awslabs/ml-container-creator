@@ -1100,8 +1100,10 @@ if [ "${FORCE}" = false ] && [ -n "${BENCHMARK_JOB_NAME:-}" ]; then
             if [ "${EXISTING_STATUS}" = "Failed" ] && [ -n "${FAILURE_REASON}" ] && [ "${FAILURE_REASON}" != "None" ]; then
                 echo "   Reason: ${FAILURE_REASON}"
             fi
-            echo "   Use --force to start a new benchmark."
-            exit 1
+            echo "   Starting a new benchmark job..."
+            echo ""
+            # Clear stale job name so a fresh one is generated below
+            BENCHMARK_JOB_NAME=""
             ;;
         *)
             # Job doesn't exist or can't be described — proceed with new job
