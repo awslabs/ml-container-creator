@@ -1341,10 +1341,9 @@ echo "⚙️  Step 1: Creating AI Workload Config: ${WORKLOAD_CONFIG_NAME}"
 BENCHMARK_TOKENIZER="${HF_MODEL_ID:-${MODEL_NAME}}"
 PARAMS_JSON="{\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN},\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${BENCHMARK_TOKENIZER}\""
 
-# Add optional request_count if specified
-if [ -n "${BENCHMARK_REQUEST_COUNT:-}" ]; then
-    PARAMS_JSON="${PARAMS_JSON},\"request_count\":${BENCHMARK_REQUEST_COUNT}"
-fi
+# AIPerf requires at least one of request_count or duration per phase.
+# Default to 100 requests for a quick profile run.
+PARAMS_JSON="${PARAMS_JSON},\"request_count\":${BENCHMARK_REQUEST_COUNT:-100}"
 
 PARAMS_JSON="${PARAMS_JSON}}"
 
