@@ -1598,65 +1598,26 @@ _handle_completion() {
         echo "🔄 Auto-registering adapter: ${adapter_name}"
         echo ""
 
-        # Step 1: Stage adapter and deploy as IC via do/adapter add.
-        # This automatically deploys the adapter to the running endpoint.
-        # Use --no-register on do/tune to skip auto-registration entirely.
-        local adapter_add_output
-        if adapter_add_output=$("${SCRIPT_DIR}/adapter" add "${adapter_name}" --from-tune "${ARG_TECHNIQUE}" 2>&1); then
-            echo "   ✅ Adapter staged: ${adapter_name}"
-
-            # Step 2: Register in deployment MPG via do/register
-            local register_output
-            if register_output=$("${SCRIPT_DIR}/register" 2>&1); then
-                echo "   ✅ Registration complete"
-
-                # Extract adapter ARN from register output
-                local adapter_deploy_arn
-                adapter_deploy_arn=$(echo "${register_output}" | python3 -c "
-import sys, json
-for line in sys.stdin:
-    line = line.strip()
-    if line.startswith('{'):
-        try:
-            data = json.loads(line)
-            arn = data.get('model_package_arn') or data.get('arn') or data.get('ModelPackageArn')
-            if arn and arn != 'null' and 'sagemaker' in arn:
-                print(arn)
-                break
-        except: pass
-" 2>/dev/null) || adapter_deploy_arn=""
-
-                # Fallback: query the MPG directly for the latest adapter version
-                if [ -z "${adapter_deploy_arn}" ] || [ "${adapter_deploy_arn}" = "null" ]; then
-                    adapter_deploy_arn=$(aws sagemaker list-model-packages \
-                        --model-package-group-name "${PROJECT_NAME}" \
-                        --sort-by "CreationTime" --sort-order "Descending" \
-                        --max-results 1 \
-                        --region "${REGION}" \
-                        --query 'ModelPackageSummaryList[0].ModelPackageArn' \
-                        --output text 2>/dev/null) || adapter_deploy_arn=""
-                fi
-
-                if [ -n "${adapter_deploy_arn}" ] && [ "${adapter_deploy_arn}" != "null" ]; then
-                    _update_config_var "TUNE_ADAPTER_DEPLOY_ARN_${technique_upper}" "${adapter_deploy_arn}"
-                    echo "   ✅ Deployment ARN stored: ${adapter_deploy_arn}"
-                else
-                    echo "   ⚠️  Could not extract adapter deployment ARN from register output"
-                    echo "      (adapter was staged and registered — ARN can be found via do/register --status)"
-                fi
-                echo ""
-            else
-                echo "   ⚠️  Registration failed (adapter was staged successfully)"
-                echo "      Run manually: ./do/register"
-                echo ""
-            fi
-        else
-            echo "   ⚠️  Adapter staging failed"
-            echo "      Run manually:"
-            echo "        ./do/adapter add ${adapter_name} --from-tune ${ARG_TECHNIQUE}"
-            echo "        ./do/register"
-            echo ""
-        fi
+        # Write adapter conf file with weights URI for later deployment.
+        # Does NOT deploy the adapter IC to the live endpoint — the user
+        # should explicitly run do/adapter add when ready to deploy.
+        local _adapter_conf_dir="${SCRIPT_DIR}/adapters"
+        mkdir -p "${_adapter_conf_dir}"
+        local _adapter_conf="${_adapter_conf_dir}/${adapter_name}.conf"
+        cat > "${_adapter_conf}" <<ADAPTER_CONF
+# Auto-registered by do/tune (${ARG_TECHNIQUE})
+# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+export ADAPTER_NAME="${adapter_name}"
+export ADAPTER_WEIGHTS_URI="${artifact_path}"
+export ADAPTER_TECHNIQUE="${ARG_TECHNIQUE}"
+export ADAPTER_SOURCE="tune"
+ADAPTER_CONF
+        echo "   ✅ Adapter registered: ${adapter_name}"
+        echo "      Weights: ${artifact_path}"
+        echo ""
+        echo "   Deploy to live endpoint:"
+        echo "     ./do/adapter add ${adapter_name} --from-tune ${ARG_TECHNIQUE}"
+        echo ""
     elif [ "${output_type}" = "adapter" ]; then
         # --no-register: print next steps as before
         local dataset_slug
