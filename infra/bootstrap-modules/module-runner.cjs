@@ -1379,7 +1379,9 @@ class CdkMultiStackModuleRunner {
             }
 
             // EKS cluster can't be deleted while Fargate profiles exist.
-            // Delete any Fargate profiles before destroying the eks-cluster stack.
+            // Delete Fargate profiles before CDK destroy. CloudFormation may
+            // also try to delete the profile (as a custom resource) — if it
+            // fails with "not found", we retry with --retain-resources below.
             if (stackSuffix === 'eks-cluster') {
                 this._deleteAllFargateProfiles(profile);
                 // Detach ALB controller policy from its RETAIN'd role so CDK can delete the policy.
@@ -1414,7 +1416,42 @@ class CdkMultiStackModuleRunner {
                 });
                 console.log(`    ✅ ${stackSuffix} destroyed`);
             } catch (err) {
-                throw new Error(`CDK destroy failed for ${this.name}/${stackSuffix}: ${err.message}`);
+                // If eks-cluster stack destroy fails (common with custom resources
+                // already deleted), retry with CloudFormation delete-stack --retain
+                if (stackSuffix === 'eks-cluster') {
+                    console.log(`    ⚠️  CDK destroy failed — retrying with resource skip...`);
+                    try {
+                        // Get failed resources from the stack
+                        const failedResources = execSync(
+                            `aws cloudformation describe-stack-resources --stack-name ${stackName} --region ${profile.awsRegion}` +
+                            (profile.awsProfile ? ` --profile ${profile.awsProfile}` : '') +
+                            ` --query "StackResources[?ResourceStatus=='DELETE_FAILED'].LogicalResourceId" --output json`,
+                            { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+                        );
+                        const resourcesToRetain = JSON.parse(failedResources);
+                        if (resourcesToRetain.length > 0) {
+                            const retainArgs = resourcesToRetain.map(r => `"${r}"`).join(' ');
+                            execSync(
+                                `aws cloudformation delete-stack --stack-name ${stackName} --retain-resources ${retainArgs} --region ${profile.awsRegion}` +
+                                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                                { encoding: 'utf8', stdio: 'inherit' }
+                            );
+                            // Wait for deletion
+                            execSync(
+                                `aws cloudformation wait stack-delete-complete --stack-name ${stackName} --region ${profile.awsRegion}` +
+                                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                                { encoding: 'utf8', stdio: 'inherit', timeout: 300000 }
+                            );
+                            console.log(`    ✅ ${stackSuffix} destroyed (with retained resources)`);
+                        } else {
+                            throw err;
+                        }
+                    } catch (retryErr) {
+                        throw new Error(`CDK destroy failed for ${this.name}/${stackSuffix}: ${err.message}`);
+                    }
+                } else {
+                    throw new Error(`CDK destroy failed for ${this.name}/${stackSuffix}: ${err.message}`);
+                }
             }
         }
 

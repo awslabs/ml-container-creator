@@ -206,9 +206,39 @@ print(p.get('roleArn', ''))
 
 # ── Check if model is already an S3 URI ──────────────────────────────────────
 if [[ "${MODEL_NAME}" == s3://* ]]; then
-    echo "✅ Model is already an S3 URI: ${MODEL_NAME}"
-    echo "   Nothing to stage."
-    exit 0
+    # Model is an S3 URI — verify it's accessible
+    if aws s3 ls "${MODEL_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+        if [ "${FORCE}" = true ]; then
+            echo "⚠️  Model exists at S3 URI but --force specified — re-staging..."
+            echo "   To re-stage from HuggingFace, set MODEL_NAME to the HF model ID in do/config."
+            # Extract HF model ID from the S3 path (convention: s3://bucket/models/<org>/<repo>/)
+            HF_MODEL_ID=$(echo "${MODEL_NAME}" | sed -E 's|s3://[^/]+/models/||; s|/$||')
+            if [ -n "${HF_MODEL_ID}" ] && [[ "${HF_MODEL_ID}" == */* ]]; then
+                echo "   Detected HuggingFace model ID: ${HF_MODEL_ID}"
+                MODEL_NAME="${HF_MODEL_ID}"
+            else
+                echo "   Could not extract HuggingFace model ID from S3 path."
+                echo "   Set MODEL_NAME in do/config to the HF model ID (e.g., meta-llama/Llama-3.2-1B-Instruct)"
+                exit 1
+            fi
+        else
+            echo "✅ Model verified at S3 URI: ${MODEL_NAME}"
+            exit 0
+        fi
+    else
+        echo "⚠️  Model S3 URI not accessible: ${MODEL_NAME}"
+        echo "   This may be from a different account or the object was deleted."
+        # Try to extract HF model ID and re-stage
+        HF_MODEL_ID=$(echo "${MODEL_NAME}" | sed -E 's|s3://[^/]+/models/||; s|/$||')
+        if [ -n "${HF_MODEL_ID}" ] && [[ "${HF_MODEL_ID}" == */* ]]; then
+            echo "   Re-staging from HuggingFace: ${HF_MODEL_ID}"
+            MODEL_NAME="${HF_MODEL_ID}"
+        else
+            echo "   Could not extract HuggingFace model ID from S3 path."
+            echo "   Set MODEL_NAME in do/config to the HF model ID (e.g., meta-llama/Llama-3.2-1B-Instruct)"
+            exit 1
+        fi
+    fi
 fi
 
 echo "📦 Staging model: ${MODEL_NAME}"

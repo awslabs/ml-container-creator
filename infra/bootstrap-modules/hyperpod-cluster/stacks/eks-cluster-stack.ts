@@ -237,12 +237,14 @@ export class MlccEksClusterStack extends cdk.Stack {
             });
 
             // CoreDNS — Deployment, needs Fargate toleration
+            // replicaCount: 1 to avoid pod scheduling issues during rolling updates on Fargate
             new eks.CfnAddon(this, 'CoreDnsAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'coredns',
                 resolveConflicts: 'OVERWRITE',
                 configurationValues: JSON.stringify({
                     computeType: 'Fargate',
+                    replicaCount: 1,
                     tolerations: [{
                         key: 'eks.amazonaws.com/compute-type',
                         operator: 'Equal',
@@ -297,12 +299,14 @@ export class MlccEksClusterStack extends cdk.Stack {
             });
 
             // cert-manager ≥ v1.18.2-eksbuild.2 — Deployments, needs Fargate toleration
+            // replicaCount: 1 per component to avoid rolling update scheduling issues
             new eks.CfnAddon(this, 'CertManagerAddon', {
                 clusterName: newCluster.clusterName,
                 addonName: 'cert-manager',
                 addonVersion: 'v1.18.2-eksbuild.2',
                 resolveConflicts: 'OVERWRITE',
                 configurationValues: JSON.stringify({
+                    replicaCount: 1,
                     tolerations: [{
                         key: 'eks.amazonaws.com/compute-type',
                         operator: 'Equal',
@@ -310,6 +314,7 @@ export class MlccEksClusterStack extends cdk.Stack {
                         effect: 'NoSchedule',
                     }],
                     webhook: {
+                        replicaCount: 1,
                         tolerations: [{
                             key: 'eks.amazonaws.com/compute-type',
                             operator: 'Equal',
@@ -318,6 +323,7 @@ export class MlccEksClusterStack extends cdk.Stack {
                         }],
                     },
                     cainjector: {
+                        replicaCount: 1,
                         tolerations: [{
                             key: 'eks.amazonaws.com/compute-type',
                             operator: 'Equal',
