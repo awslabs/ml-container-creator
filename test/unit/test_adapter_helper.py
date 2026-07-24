@@ -187,7 +187,11 @@ class TestDependencyChecks:
         """_check_sagemaker_core does not exit when sagemaker_core is importable."""
         # Mock the import
         mock_module = MagicMock()
-        with patch.dict(sys.modules, {"sagemaker_core": mock_module, "sagemaker_core.resources": mock_module}):
+        with patch.dict(sys.modules, {
+            "sagemaker": mock_module,
+            "sagemaker.core": mock_module,
+            "sagemaker.core.resources": mock_module,
+        }):
             # Should not raise
             _adapter_helper._check_sagemaker_core()
 

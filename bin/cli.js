@@ -33,9 +33,10 @@ program
 
 // Register all CLI options from generated schema
 for (const opt of cliOptions) {
-    if (opt.hidden) continue;
     const option = new Option(opt.flag, opt.description);
     if (opt.choices) option.choices(opt.choices);
+    if (opt.hidden) option.hideHelp();
+    if (opt.defaultValue !== undefined) option.default(opt.defaultValue);
     if (opt.repeatable) {
         option.argParser(collect);
         option.default([]);
@@ -53,7 +54,18 @@ program.action((projectNameArgs, options) => {
         console.error('❌ Cannot specify both --ngc-token and --ngc-token-arn. Use one or the other.');
         process.exit(1);
     }
-    return run(projectNameArgs?.[0] || null, options);
+
+    // Strip Commander default values from options so they don't override
+    // environment variables in the config precedence chain.
+    // Only pass options that were explicitly provided on the command line.
+    const explicitOptions = {};
+    for (const [key, value] of Object.entries(options)) {
+        if (program.getOptionValueSource(key) !== 'default') {
+            explicitOptions[key] = value;
+        }
+    }
+
+    return run(projectNameArgs?.[0] || null, explicitOptions);
 });
 
 // Custom help formatting — group options into logical sections (root command only)
@@ -438,6 +450,7 @@ program
     .option('--force', 'Regenerate all files even if version matches')
     .option('--dry-run', 'Show what would change without writing')
     .option('--no-register', 'Skip do/register after regeneration')
+    .option('--all-targets', 'Generate all deployment targets and migrate HYPERPOD_* to HP_*')
     .action(async (options) => {
         const { default: RegenerateCommandHandler } = await import('../src/lib/regenerate-command-handler.js');
         const handler = new RegenerateCommandHandler(options);

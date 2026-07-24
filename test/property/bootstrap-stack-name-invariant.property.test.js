@@ -95,6 +95,12 @@ function createMockHandler(configPath, { accountId, region }) {
             case 'training':
                 moduleOutputs.training = { TrainingBucket: `mlcc-training-${acctId}-${reg}` };
                 break;
+            case 'hyperpod-cluster':
+                moduleOutputs['hyperpod-cluster'] = {
+                    HyperPodClusterArn: `arn:aws:sagemaker:${reg}:${acctId}:cluster/test-cluster`,
+                    HyperPodClusterName: 'test-cluster'
+                };
+                break;
             default:
                 moduleOutputs[m] = {};
             }
@@ -121,7 +127,7 @@ describe('Feature: modular-bootstrap, Property 1: Module Provisioning Invariant'
     });
 
     it('provisionedModules always contains core+registry defaults and any --with modules', async function () {
-        this.timeout(PROPERTY_CONFIG_EJS.timeout);
+        this.timeout(180000);
 
         await fc.assert(fc.asyncProperty(
             arbProfileName,

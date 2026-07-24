@@ -31,6 +31,9 @@ import { MlccTrainingStack } from '../training/stack';
 import { MlccCiStack } from '../ci/stack';
 import { MlccSagemakerDomainStack } from '../sagemaker-domain/stack';
 import { MlccHyperpodStack } from '../hyperpod-cluster/stack';
+import { MlccEksClusterStack } from '../hyperpod-cluster/stacks/eks-cluster-stack';
+import { MlccHyperPodClusterStack } from '../hyperpod-cluster/stacks/hyperpod-cluster-stack';
+import { MlccInferenceOperatorStack } from '../hyperpod-cluster/stacks/inference-operator-stack';
 
 // Load module manifest
 const manifestPath = path.resolve(__dirname, '..', 'module-manifest.json');
@@ -95,6 +98,38 @@ const factories: Record<string, () => cdk.Stack> = {
     hyperpod: () => new MlccHyperpodStack(app, stackName('hyperpod'), {
         env, profileName,
         description: `MLCC HyperPod Cluster (profile: ${profileName})`,
+    }),
+    'eks-cluster': () => new MlccEksClusterStack(app, stackName('eks-cluster'), {
+        env, profileName,
+        adoptEks: app.node.tryGetContext('adoptEks') === 'true',
+        adoptVpc: app.node.tryGetContext('adoptVpc') === 'true',
+        adoptRoles: app.node.tryGetContext('adoptRoles') === 'true',
+        vpcId: app.node.tryGetContext('vpcId'),
+        eksClusterArn: app.node.tryGetContext('EksClusterArn'),
+        eksClusterName: app.node.tryGetContext('EksClusterName'),
+        clusterSecurityGroupId: app.node.tryGetContext('ClusterSecurityGroupId'),
+        privateSubnetIds: app.node.tryGetContext('PrivateSubnetIds'),
+        description: `MLCC EKS Cluster — HyperPod Stack 1 (profile: ${profileName})`,
+    }),
+    'hyperpod-cluster': () => new MlccHyperPodClusterStack(app, stackName('hyperpod-cluster'), {
+        env, profileName,
+        eksClusterArn: app.node.tryGetContext('EksClusterArn'),
+        hyperPodInstanceRoleArn: app.node.tryGetContext('HyperPodInstanceRoleArn'),
+        privateSubnetIds: app.node.tryGetContext('PrivateSubnetIds'),
+        clusterSecurityGroupId: app.node.tryGetContext('ClusterSecurityGroupId'),
+        instanceType: app.node.tryGetContext('instanceType'),
+        description: `MLCC HyperPod Cluster — Stack 2 (profile: ${profileName})`,
+    }),
+    'inference-operator': () => new MlccInferenceOperatorStack(app, stackName('inference-operator'), {
+        env, profileName,
+        adoptTlsBucket: app.node.tryGetContext('adoptTlsBucket') === 'true',
+        adoptInferenceAddon: app.node.tryGetContext('adoptInferenceAddon') === 'true',
+        eksClusterName: app.node.tryGetContext('EksClusterName'),
+        hyperPodClusterArn: app.node.tryGetContext('HyperPodClusterArn'),
+        hyperpodInferenceRoleArn: app.node.tryGetContext('HyperpodInferenceRoleArn'),
+        albControllerRoleArn: app.node.tryGetContext('AlbControllerRoleArn'),
+        kedaOperatorRoleArn: app.node.tryGetContext('KedaOperatorRoleArn'),
+        description: `MLCC Inference Operator — HyperPod Stack 3 (profile: ${profileName})`,
     }),
 };
 

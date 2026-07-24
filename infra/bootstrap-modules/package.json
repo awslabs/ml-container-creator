@@ -11,13 +11,14 @@
     "destroy": "cdk destroy"
   },
   "dependencies": {
+    "@aws-cdk/lambda-layer-kubectl-v31": "^2.1.0",
     "aws-cdk-lib": "^2.150.0",
     "constructs": "^10.3.0"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0",
     "aws-cdk": "^2.150.0",
     "ts-node": "^10.9.2",
-    "@types/node": "^20.0.0"
+    "typescript": "^5.5.0"
   }
 }

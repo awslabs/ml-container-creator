@@ -137,7 +137,7 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
                     'hyperpod-eks must tail logs with -f (follow) and -l (label selector)'
                 );
                 assert.ok(
-                    output.includes('${HYPERPOD_NAMESPACE}'),
+                    output.includes('${HP_NAMESPACE}'),
                     'hyperpod-eks must reference the configured namespace'
                 );
 

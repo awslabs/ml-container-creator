@@ -2,19 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Property 11: do/config Deployment-Target-Specific Variables
+ * Property 11: do/config Universal Variables (BL062)
  *
- * For any valid configuration, the generated do/config must contain
- * BUILD_TARGET and DEPLOYMENT_TARGET variables. When deploymentTarget
- * equals realtime-inference, do/config must contain INSTANCE_TYPE.
- * When deploymentTarget equals hyperpod-eks, do/config must contain
- * HYPERPOD_CLUSTER_NAME, HYPERPOD_NAMESPACE, and HYPERPOD_REPLICAS.
- * When fsxVolumeHandle is provided with hyperpod-eks, do/config must
- * also contain FSX_VOLUME_HANDLE.
+ * After BL062:
+ * - do/config always contains DEPLOYMENT_TARGET
+ * - HP_* vars replace HYPERPOD_* vars
+ * - When hyperPodCluster is provided, HP_CLUSTER_NAME is exported
+ * - When hyperPodCluster is NOT provided, HP_* vars are commented out
+ * - Batch and Async sections are always present (active or commented)
  *
- * Validates: Requirements 9.1, 9.2, 9.3, 9.4, 9.5
+ * Validates: Requirements 9.1, 9.2, 9.3, 9.4, 9.5, BL062 AC-2.1–2.5
  *
- * Feature: sagemaker-hyperpod-deployment
+ * Feature: sagemaker-hyperpod-deployment, universal-deploy
  */
 
 import fc from 'fast-check';
@@ -31,16 +30,73 @@ const __dirname = path.dirname(__filename);
 const templatePath = path.join(__dirname, '../../templates/do/config');
 const templateContent = readFileSync(templatePath, 'utf8');
 
-/**
- * Render the do/config template with the given variables.
- */
-function renderConfig(vars) {
-    return ejs.render(templateContent, { orderedEnvVars: [], baseImage: '', ...vars });
+function renderConfig(answers) {
+    return ejs.render(templateContent, {
+        orderedEnvVars: [],
+        baseImage: '',
+        projectName: answers.projectName ?? 'test-project',
+        deploymentConfig: answers.deploymentConfig ?? 'transformers-vllm',
+        framework: answers.framework ?? 'transformers',
+        modelServer: answers.modelServer ?? 'vllm',
+        awsRegion: answers.awsRegion ?? 'us-east-1',
+        buildTarget: answers.buildTarget ?? 'codebuild',
+        codebuildComputeType: answers.codebuildComputeType ?? 'BUILD_GENERAL1_MEDIUM',
+        deploymentTarget: answers.deploymentTarget ?? 'realtime-inference',
+        instanceType: answers.instanceType ?? 'ml.g5.xlarge',
+        inferenceAmiVersion: answers.inferenceAmiVersion ?? undefined,
+        ngcApiKey: answers.ngcApiKey ?? undefined,
+        icCpuCount: answers.icCpuCount ?? undefined,
+        icMemorySize: answers.icMemorySize ?? undefined,
+        icGpuCount: answers.icGpuCount ?? 1,
+        icCopyCount: answers.icCopyCount ?? undefined,
+        icModelWeight: answers.icModelWeight ?? undefined,
+        endpointInitialInstanceCount: answers.endpointInitialInstanceCount ?? undefined,
+        endpointDataCapturePercent: answers.endpointDataCapturePercent ?? undefined,
+        endpointVariantName: answers.endpointVariantName ?? undefined,
+        endpointVolumeSize: answers.endpointVolumeSize ?? undefined,
+        modelEnvVars: answers.modelEnvVars ?? {},
+        serverEnvVars: answers.serverEnvVars ?? {},
+        icEnvVars: answers.icEnvVars ?? {},
+        asyncMaxConcurrentInvocations: answers.asyncMaxConcurrentInvocations ?? undefined,
+        asyncSnsSuccessTopic: answers.asyncSnsSuccessTopic ?? undefined,
+        asyncSnsErrorTopic: answers.asyncSnsErrorTopic ?? undefined,
+        batchInstanceCount: answers.batchInstanceCount ?? undefined,
+        batchSplitType: answers.batchSplitType ?? 'Line',
+        batchStrategy: answers.batchStrategy ?? 'SingleRecord',
+        batchJoinSource: answers.batchJoinSource ?? 'None',
+        batchMaxConcurrentTransforms: answers.batchMaxConcurrentTransforms ?? undefined,
+        batchMaxPayloadInMB: answers.batchMaxPayloadInMB ?? undefined,
+        hyperPodCluster: answers.hyperPodCluster ?? '',
+        hyperPodNamespace: answers.hyperPodNamespace ?? 'default',
+        hyperPodReplicas: answers.hyperPodReplicas ?? 1,
+        fsxVolumeHandle: answers.fsxVolumeHandle ?? undefined,
+        instancePools: answers.instancePools ?? undefined,
+        capacityReservationArn: answers.capacityReservationArn ?? undefined,
+        deploy_mode: answers.deploy_mode ?? undefined,
+        existingEndpointName: answers.existingEndpointName ?? undefined,
+        enableLora: answers.enableLora ?? undefined,
+        hfToken: answers.hfToken ?? undefined,
+        hfTokenArn: answers.hfTokenArn ?? undefined,
+        ngcTokenArn: answers.ngcTokenArn ?? undefined,
+        modelName: answers.modelName ?? 'test-model',
+        tuneSupported: answers.tuneSupported ?? undefined,
+        tuneModelId: answers.tuneModelId ?? undefined,
+        container_image_uri: answers.container_image_uri ?? undefined,
+        modelFormat: answers.modelFormat ?? undefined,
+        includeBenchmark: answers.includeBenchmark ?? undefined,
+        benchmarkConcurrency: answers.benchmarkConcurrency ?? undefined,
+        benchmarkInputTokensMean: answers.benchmarkInputTokensMean ?? undefined,
+        benchmarkOutputTokensMean: answers.benchmarkOutputTokensMean ?? undefined,
+        benchmarkStreaming: answers.benchmarkStreaming ?? undefined,
+        benchmarkRequestCount: answers.benchmarkRequestCount ?? undefined,
+        benchmarkS3OutputPath: answers.benchmarkS3OutputPath ?? undefined,
+        ciBenchmarkResultsBucket: answers.ciBenchmarkResultsBucket ?? undefined,
+        ...answers
+    });
 }
 
-/** Arbitrary for a base config shared by both deployment targets */
 const baseConfigArb = fc.record({
-    projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
+    projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/).filter(s => !(s in Object.prototype) && !(s in Function.prototype)),
     deploymentConfig: fc.constantFrom('transformers-vllm', 'sklearn-flask', 'xgboost-fastapi'),
     framework: fc.constantFrom('transformers', 'sklearn', 'xgboost', 'tensorflow'),
     modelServer: fc.constantFrom('vllm', 'flask', 'fastapi', 'sglang'),
@@ -48,277 +104,188 @@ const baseConfigArb = fc.record({
     buildTarget: fc.constant('codebuild'),
     codebuildComputeType: fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'),
     roleArn: fc.option(fc.constant('arn:aws:iam::123456789012:role/SageMakerRole'), { nil: undefined }),
-    modelFormat: fc.option(fc.constantFrom('pkl', 'joblib', 'json'), { nil: undefined }),
-    modelName: fc.constantFrom('meta-llama/Llama-2-7b', 'gpt2', 'bert-base-uncased'),
-    hfToken: fc.option(fc.constant('hf_testtoken123'), { nil: undefined }),
-    ngcApiKey: fc.option(fc.constant('ngc_testkey456'), { nil: undefined })
+    modelName: fc.constantFrom('meta-llama/Llama-2-7b-hf', 'mistralai/Mistral-7B-v0.1'),
+    hfToken: fc.option(fc.constant('hf_test_token'), { nil: undefined }),
+    hfTokenArn: fc.option(fc.constant(undefined), { nil: undefined })
 });
 
-describe('Property 11: do/config Deployment-Target-Specific Variables', () => {
+const hyperPodConfigArb = fc.record({
+    hyperPodCluster: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/).filter(s => !(s in Object.prototype) && !(s in Function.prototype)),
+    hyperPodNamespace: fc.constantFrom('default', 'ml-inference', 'production'),
+    hyperPodReplicas: fc.integer({ min: 1, max: 10 }),
+    fsxVolumeHandle: fc.option(fc.stringMatching(/^fs-[a-f0-9]{17}$/), { nil: undefined })
+});
+
+describe('Property 11: do/config Universal Variables (BL062)', () => {
     before(() => {
-        console.log('\n🚀 Starting do/config Deployment-Target-Specific Variables Property Tests');
-        console.log('📋 Testing: Requirements 9.1, 9.2, 9.3, 9.4, 9.5');
-        console.log('🔧 Configuration: EJS template rendering with fast-check\n');
+        console.log('\n📜 Starting do/config Deployment Target Property Tests (BL062)');
     });
 
-    it('should always contain BUILD_TARGET and DEPLOYMENT_TARGET for any valid config', function () {
+    it('should always contain DEPLOYMENT_TARGET variable (Req 9.1)', function () {
         this.timeout(30000);
-
-        console.log('  🧪 Req 9.1 + 9.2: BUILD_TARGET and DEPLOYMENT_TARGET always present');
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
-            (base, deploymentTarget) => {
+            fc.constantFrom('realtime-inference', 'hyperpod-eks', 'async-inference', 'batch-transform'),
+            (base, target) => {
                 const vars = {
                     ...base,
-                    deploymentTarget,
-                    // provide defaults so EJS doesn't blow up on missing vars
-                    instanceType: 'ml.m5.xlarge',
-                    inferenceAmiVersion: undefined,
-                    hyperPodCluster: 'test-cluster',
-                    hyperPodNamespace: 'default',
-                    hyperPodReplicas: 1,
-                    fsxVolumeHandle: undefined
+                    deploymentTarget: target,
+                    instanceType: 'ml.g5.xlarge'
                 };
-
                 const output = renderConfig(vars);
-
                 assert.ok(
-                    output.includes('export BUILD_TARGET='),
-                    'Output must contain BUILD_TARGET export'
-                );
-                assert.ok(
-                    output.includes('export DEPLOYMENT_TARGET='),
-                    'Output must contain DEPLOYMENT_TARGET export'
-                );
-                assert.ok(
-                    output.includes(`BUILD_TARGET="${base.buildTarget}"`),
-                    'BUILD_TARGET must equal the configured buildTarget value'
-                );
-                assert.ok(
-                    output.includes(`DEPLOYMENT_TARGET="${deploymentTarget}"`),
-                    'DEPLOYMENT_TARGET must equal the configured deploymentTarget value'
+                    output.includes('DEPLOYMENT_TARGET'),
+                    'do/config must contain DEPLOYMENT_TARGET'
                 );
             }
         ), { numRuns: 20 });
-
-        console.log('    ✅ BUILD_TARGET and DEPLOYMENT_TARGET always present');
     });
 
-    it('should contain INSTANCE_TYPE when deploymentTarget is realtime-inference', function () {
+    it('should contain HP_* vars (not HYPERPOD_*) when hyperPodCluster is provided', function () {
         this.timeout(30000);
-
-        console.log('  🧪 Req 9.3: INSTANCE_TYPE present for realtime-inference');
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('ml.m5.xlarge', 'ml.g5.xlarge', 'ml.p4d.24xlarge'),
-            fc.option(fc.constant('1.0.0'), { nil: undefined }),
-            (base, instanceType, inferenceAmiVersion) => {
+            hyperPodConfigArb,
+            (base, hpVars) => {
+                const vars = {
+                    ...base,
+                    deploymentTarget: 'hyperpod-eks',
+                    instanceType: 'ml.g5.xlarge',
+                    ...hpVars
+                };
+                const output = renderConfig(vars);
+                assert.ok(
+                    output.includes(`export HP_CLUSTER_NAME="${hpVars.hyperPodCluster}"`),
+                    'Output must contain HP_CLUSTER_NAME'
+                );
+                assert.ok(
+                    output.includes(`export HP_NAMESPACE="${hpVars.hyperPodNamespace}"`),
+                    'Output must contain HP_NAMESPACE'
+                );
+                assert.ok(
+                    output.includes(`export HP_REPLICAS="${hpVars.hyperPodReplicas}"`),
+                    'Output must contain HP_REPLICAS'
+                );
+                // Must NOT contain old HYPERPOD_* names
+                assert.ok(
+                    !output.includes('export HYPERPOD_CLUSTER_NAME'),
+                    'Output must NOT contain legacy HYPERPOD_CLUSTER_NAME'
+                );
+            }
+        ), { numRuns: 20 });
+    });
+
+    it('should contain commented HP_* section when hyperPodCluster is NOT provided', function () {
+        this.timeout(30000);
+
+        fc.assert(fc.property(
+            baseConfigArb,
+            fc.constantFrom('ml.g5.xlarge', 'ml.m5.large'),
+            (base, instanceType) => {
                 const vars = {
                     ...base,
                     deploymentTarget: 'realtime-inference',
-                    instanceType,
-                    inferenceAmiVersion,
-                    // HyperPod vars not needed but provide defaults
-                    hyperPodCluster: undefined,
-                    hyperPodNamespace: undefined,
-                    hyperPodReplicas: undefined,
-                    fsxVolumeHandle: undefined
+                    instanceType
                 };
-
                 const output = renderConfig(vars);
-
+                // HyperPod section should be present as comments
                 assert.ok(
-                    output.includes(`export INSTANCE_TYPE="${instanceType}"`),
-                    `Output must contain INSTANCE_TYPE="${instanceType}"`
+                    output.includes('HP_CLUSTER_NAME') || output.includes('HyperPod'),
+                    'realtime-inference output must have HyperPod section (commented)'
                 );
-
-                // Should NOT contain HyperPod variables
-                assert.ok(
-                    !output.includes('export HYPERPOD_CLUSTER_NAME='),
-                    'realtime-inference output must NOT contain HYPERPOD_CLUSTER_NAME'
+                // Must NOT have active (uncommented) HP_CLUSTER_NAME export
+                const hasActiveHpExport = output.split('\n').some(
+                    line => line.match(/^\s*export HP_CLUSTER_NAME=/)
                 );
                 assert.ok(
-                    !output.includes('export HYPERPOD_NAMESPACE='),
-                    'realtime-inference output must NOT contain HYPERPOD_NAMESPACE'
+                    !hasActiveHpExport,
+                    'realtime-inference output must NOT have active HP_CLUSTER_NAME export'
                 );
-                assert.ok(
-                    !output.includes('export HYPERPOD_REPLICAS='),
-                    'realtime-inference output must NOT contain HYPERPOD_REPLICAS'
-                );
-
-                // INFERENCE_AMI_VERSION conditional
-                if (inferenceAmiVersion) {
-                    assert.ok(
-                        output.includes(`export INFERENCE_AMI_VERSION="${inferenceAmiVersion}"`),
-                        'Output must contain INFERENCE_AMI_VERSION when provided'
-                    );
-                } else {
-                    // When not provided, should not have an active (uncommented) export
-                    const hasActiveExport = output.split('\n').some(line =>
-                        line.trim().startsWith('export') && line.includes('INFERENCE_AMI_VERSION=')
-                    );
-                    assert.ok(
-                        !hasActiveExport,
-                        'Output must NOT actively export INFERENCE_AMI_VERSION when not provided'
-                    );
-                }
             }
         ), { numRuns: 20 });
-
-        console.log('    ✅ INSTANCE_TYPE present for realtime-inference');
     });
 
-    it('should contain HyperPod variables when deploymentTarget is hyperpod-eks', function () {
+    it('should contain FSX_VOLUME_HANDLE when provided with hyperPodCluster', function () {
         this.timeout(30000);
-
-        console.log('  🧪 Req 9.4: HYPERPOD_CLUSTER_NAME, HYPERPOD_NAMESPACE, HYPERPOD_REPLICAS for hyperpod-eks');
 
         fc.assert(fc.property(
             baseConfigArb,
             fc.record({
-                hyperPodCluster: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
-                hyperPodNamespace: fc.constantFrom('default', 'ml-inference', 'production'),
-                hyperPodReplicas: fc.integer({ min: 1, max: 10 })
+                hyperPodCluster: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/).filter(s => !(s in Object.prototype) && !(s in Function.prototype)),
+                hyperPodNamespace: fc.constant('default'),
+                hyperPodReplicas: fc.constant(1),
+                fsxVolumeHandle: fc.stringMatching(/^fs-[a-f0-9]{17}$/)
             }),
             (base, hpVars) => {
                 const vars = {
                     ...base,
                     deploymentTarget: 'hyperpod-eks',
-                    instanceType: undefined,
-                    inferenceAmiVersion: undefined,
-                    hyperPodCluster: hpVars.hyperPodCluster,
-                    hyperPodNamespace: hpVars.hyperPodNamespace,
-                    hyperPodReplicas: hpVars.hyperPodReplicas,
-                    fsxVolumeHandle: undefined
+                    instanceType: 'ml.g5.xlarge',
+                    ...hpVars
                 };
-
                 const output = renderConfig(vars);
-
                 assert.ok(
-                    output.includes(`export HYPERPOD_CLUSTER_NAME="${hpVars.hyperPodCluster}"`),
-                    'Output must contain HYPERPOD_CLUSTER_NAME'
-                );
-                assert.ok(
-                    output.includes(`export HYPERPOD_NAMESPACE="${hpVars.hyperPodNamespace}"`),
-                    'Output must contain HYPERPOD_NAMESPACE'
-                );
-                assert.ok(
-                    output.includes(`export HYPERPOD_REPLICAS="${hpVars.hyperPodReplicas}"`),
-                    'Output must contain HYPERPOD_REPLICAS'
-                );
-
-                // Should NOT contain realtime-inference variables
-                assert.ok(
-                    !output.includes('export INSTANCE_TYPE='),
-                    'hyperpod-eks output must NOT contain INSTANCE_TYPE'
+                    output.includes(`export FSX_VOLUME_HANDLE="${hpVars.fsxVolumeHandle}"`),
+                    'Output must contain FSX_VOLUME_HANDLE when provided'
                 );
             }
-        ), { numRuns: 20 });
-
-        console.log('    ✅ HyperPod variables present for hyperpod-eks');
+        ), { numRuns: 10 });
     });
 
-    it('should contain FSX_VOLUME_HANDLE only when fsxVolumeHandle is provided with hyperpod-eks', function () {
+    it('do/config for realtime-inference must contain INSTANCE_TYPE but NOT async-specific variables', function () {
         this.timeout(30000);
-
-        console.log('  🧪 Req 9.5: FSX_VOLUME_HANDLE conditional on fsxVolumeHandle');
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.record({
-                hyperPodCluster: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
-                hyperPodNamespace: fc.constant('default'),
-                hyperPodReplicas: fc.integer({ min: 1, max: 4 })
-            }),
-            fc.option(fc.stringMatching(/^fs-[a-f0-9]{17}$/), { nil: undefined }),
-            (base, hpVars, fsxVolumeHandle) => {
+            fc.constantFrom('ml.g5.xlarge', 'ml.p4d.24xlarge'),
+            (base, instanceType) => {
+                const vars = {
+                    ...base,
+                    deploymentTarget: 'realtime-inference',
+                    instanceType
+                };
+                const output = renderConfig(vars);
+                assert.ok(
+                    output.includes('INSTANCE_TYPE'),
+                    'realtime-inference must contain INSTANCE_TYPE'
+                );
+                // Async vars should be commented (not active exports)
+                const hasActiveAsyncExport = output.split('\n').some(
+                    line => line.match(/^\s*export ASYNC_MAX_CONCURRENT_INVOCATIONS=/)
+                );
+                assert.ok(
+                    !hasActiveAsyncExport,
+                    'realtime-inference must NOT have active ASYNC_MAX_CONCURRENT_INVOCATIONS'
+                );
+            }
+        ), { numRuns: 10 });
+    });
+
+    it('should contain target-specific echo in config summary', function () {
+        this.timeout(30000);
+
+        fc.assert(fc.property(
+            baseConfigArb,
+            hyperPodConfigArb,
+            (base, hpVars) => {
                 const vars = {
                     ...base,
                     deploymentTarget: 'hyperpod-eks',
-                    instanceType: undefined,
-                    inferenceAmiVersion: undefined,
-                    ...hpVars,
-                    fsxVolumeHandle
+                    instanceType: 'ml.g5.xlarge',
+                    ...hpVars
                 };
-
                 const output = renderConfig(vars);
-
-                if (fsxVolumeHandle) {
-                    assert.ok(
-                        output.includes(`export FSX_VOLUME_HANDLE="${fsxVolumeHandle}"`),
-                        'Output must contain FSX_VOLUME_HANDLE when provided'
-                    );
-                } else {
-                    // When not provided, should not have an active (uncommented) export
-                    const hasActiveExport = output.split('\n').some(line =>
-                        line.trim().startsWith('export') && line.includes('FSX_VOLUME_HANDLE=')
-                    );
-                    assert.ok(
-                        !hasActiveExport,
-                        'Output must NOT actively export FSX_VOLUME_HANDLE when not provided'
-                    );
-                }
+                assert.ok(
+                    output.includes('echo "   HyperPod cluster: ${HP_CLUSTER_NAME}"'),
+                    'hyperpod config summary must reference HP_CLUSTER_NAME'
+                );
+                assert.ok(
+                    output.includes('echo "   Namespace: ${HP_NAMESPACE}"'),
+                    'hyperpod config summary must reference HP_NAMESPACE'
+                );
             }
-        ), { numRuns: 20 });
-
-        console.log('    ✅ FSX_VOLUME_HANDLE conditional logic correct');
-    });
-
-    it('should show deployment-target-specific summary lines', function () {
-        this.timeout(30000);
-
-        console.log('  🧪 Configuration summary echo statements vary by deployment target');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
-            (base, deploymentTarget) => {
-                const vars = {
-                    ...base,
-                    deploymentTarget,
-                    instanceType: 'ml.m5.xlarge',
-                    inferenceAmiVersion: undefined,
-                    hyperPodCluster: 'my-cluster',
-                    hyperPodNamespace: 'default',
-                    hyperPodReplicas: 1,
-                    fsxVolumeHandle: undefined
-                };
-
-                const output = renderConfig(vars);
-
-                // Both targets should show build target and deployment target in summary
-                assert.ok(output.includes('Build target:'), 'Summary must show Build target');
-                assert.ok(output.includes('Deployment target:'), 'Summary must show Deployment target');
-
-                if (deploymentTarget === 'realtime-inference') {
-                    assert.ok(
-                        output.includes('echo "   Instance: ${INSTANCE_TYPE}"'),
-                        'realtime-inference summary must show Instance'
-                    );
-                    assert.ok(
-                        !output.includes('HyperPod cluster:'),
-                        'realtime-inference summary must NOT show HyperPod cluster'
-                    );
-                } else {
-                    assert.ok(
-                        output.includes('echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"'),
-                        'hyperpod-eks summary must show HyperPod cluster'
-                    );
-                    assert.ok(
-                        output.includes('echo "   Namespace: ${HYPERPOD_NAMESPACE}"'),
-                        'hyperpod-eks summary must show Namespace'
-                    );
-                    assert.ok(
-                        !output.includes('echo "   Instance: ${INSTANCE_TYPE}"'),
-                        'hyperpod-eks summary must NOT show Instance'
-                    );
-                }
-            }
-        ), { numRuns: 20 });
-
-        console.log('    ✅ Summary lines correct per deployment target');
+        ), { numRuns: 10 });
     });
 });

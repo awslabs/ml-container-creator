@@ -35,6 +35,7 @@ const PROPERTY_CONFIG = { numRuns: NUM_RUNS, timeout: 30000, seed: 42, verbose: 
 /**
  * The base set of top-level do/ scripts that ALL marketplace projects must contain,
  * regardless of deployment target.
+ * BL062: All scripts are now always generated (status included universally).
  */
 const BASE_DO_SCRIPTS = new Set([
     'config',
@@ -46,6 +47,7 @@ const BASE_DO_SCRIPTS = new Set([
     'ci',
     'manifest',
     'stage',
+    'status',
     'benchmark',
     '.benchmark_writer.py',
     'optimize',
@@ -54,16 +56,10 @@ const BASE_DO_SCRIPTS = new Set([
 
 /**
  * Returns the exact expected set of do/ scripts for a given deployment target.
- * - realtime-inference: includes do/status (endpoint status check)
- * - async-inference: no do/status (no persistent endpoint to check)
- * - batch-transform: no do/status (no persistent endpoint to check)
+ * BL062: All targets now produce the same script set (deploy.d/ handles dispatch).
  */
-function getExpectedDoScripts(deploymentTarget) {
-    const scripts = new Set(BASE_DO_SCRIPTS);
-    if (deploymentTarget === 'realtime-inference') {
-        scripts.add('status');
-    }
-    return scripts;
+function getExpectedDoScripts(_deploymentTarget) {
+    return new Set(BASE_DO_SCRIPTS);
 }
 
 /**
@@ -128,7 +124,6 @@ const arbMarketplaceCliOptions = fc.record({
         'model-name': `marketplace://${modelPackageArn}`,
         'instance-type': instanceType,
         'region': awsRegion,
-        'deployment-target': deploymentTarget,
         'project-name': projectName
     }
 }));
@@ -339,7 +334,7 @@ describe('Feature: marketplace-model-packages, Property 3: Marketplace file incl
             ), { numRuns: PROPERTY_CONFIG.numRuns, seed: PROPERTY_CONFIG.seed, verbose: PROPERTY_CONFIG.verbose });
         });
 
-        it('for any valid marketplace config, do/ has only lib as subdirectory (no ic/, adapters/, etc.)', function () {
+        it('for any valid marketplace config, do/ has only lib, deploy.d, and clean.d as subdirectories (no ic/, adapters/, etc.)', function () {
             this.timeout(120000);
 
             fc.assert(fc.property(
@@ -350,13 +345,14 @@ describe('Feature: marketplace-model-packages, Property 3: Marketplace file incl
 
                     const doSubdirs = getDoSubdirs(result.dir);
 
-                    // Only 'lib' should be a subdirectory
-                    const unexpected = doSubdirs.filter(d => d !== 'lib');
+                    // BL062: deploy.d/ and clean.d/ are now always generated alongside lib/
+                    const allowedSubdirs = new Set(['lib', 'deploy.d', 'clean.d']);
+                    const unexpected = doSubdirs.filter(d => !allowedSubdirs.has(d));
                     assert.deepStrictEqual(
                         unexpected,
                         [],
                         `Unexpected subdirectories in do/: [${unexpected.join(', ')}]. ` +
-                        'Only do/lib/ should exist for marketplace projects.'
+                        `Only ${[...allowedSubdirs].join(', ')} should exist for marketplace projects.`
                     );
 
                     result.cleanup();

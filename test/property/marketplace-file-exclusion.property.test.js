@@ -69,14 +69,13 @@ const arbMarketplaceCliOptions = fc.record({
     awsRegion: arbAwsRegion,
     instanceType: arbInstanceType,
     deploymentTarget: arbDeploymentTarget
-}).map(({ projectName, modelPackageArn, awsRegion, instanceType, deploymentTarget }) => ({
+}).map(({ projectName, modelPackageArn, awsRegion, instanceType }) => ({
     projectName,
     cliOptions: {
         'deployment-config': 'marketplace',
         'model-name': `marketplace://${modelPackageArn}`,
         'instance-type': instanceType,
         'region': awsRegion,
-        'deployment-target': deploymentTarget,
         'project-name': projectName
     }
 }));
@@ -135,7 +134,7 @@ describe('Feature: marketplace-model-packages, Property 2: Marketplace file excl
 
         const arbRealtimeOptions = arbMarketplaceCliOptions.map(input => ({
             ...input,
-            cliOptions: { ...input.cliOptions, 'deployment-target': 'realtime-inference' }
+            cliOptions: { ...input.cliOptions }
         }));
 
         fc.assert(fc.property(
@@ -159,7 +158,7 @@ describe('Feature: marketplace-model-packages, Property 2: Marketplace file excl
 
         const arbAsyncOptions = arbMarketplaceCliOptions.map(input => ({
             ...input,
-            cliOptions: { ...input.cliOptions, 'deployment-target': 'async-inference' }
+            cliOptions: { ...input.cliOptions }
         }));
 
         fc.assert(fc.property(
@@ -183,7 +182,7 @@ describe('Feature: marketplace-model-packages, Property 2: Marketplace file excl
 
         const arbBatchOptions = arbMarketplaceCliOptions.map(input => ({
             ...input,
-            cliOptions: { ...input.cliOptions, 'deployment-target': 'batch-transform' }
+            cliOptions: { ...input.cliOptions }
         }));
 
         fc.assert(fc.property(

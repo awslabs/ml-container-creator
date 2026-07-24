@@ -126,9 +126,36 @@ def _register_to_hub(hub_name, name, s3_uri, technique, description, region):
     Local JSON registry (~/.ml-container-creator/datasets.json) is the canonical
     store for fine-tuning datasets.
     """
-    # Hub registration not supported for fine-tuning datasets — local only.
-    return None
-
+    try:
+        import boto3
+        sm_client = boto3.client("sagemaker", region_name=region)
+        hub_content_document = json.dumps({
+            "Source": s3_uri,
+            "CustomizationTechnique": technique or "sft",
+        })
+        create_params = {
+            "HubName": hub_name,
+            "HubContentName": name,
+            "HubContentType": "Dataset",
+            "DocumentSchemaVersion": "1.0.0",
+            "HubContentDocument": hub_content_document,
+        }
+        if description:
+            create_params["HubContentDescription"] = description
+        response = sm_client.create_hub_content(**create_params)
+        hub_content_arn = response.get("HubContentArn", "")
+        print(f"Registered dataset '{name}' to hub '{hub_name}' (ARN: {hub_content_arn})", file=sys.stderr)
+        return hub_content_arn
+    except Exception as e:
+        error_msg = str(e).lower()
+        if ("resourcenotfound" in error_msg or "resource not found" in error_msg
+                or "does not exist" in error_msg or "hub" in error_msg and "not found" in error_msg):
+            _warn(
+                f"Hub '{hub_name}' not found. "
+                "Run `ml-container-creator bootstrap` to provision the AI Registry hub."
+            )
+            print("    Falling back to local JSON registry.", file=sys.stderr)
+            return None
         if "already exists" in error_msg or "resourceinuse" in error_msg:
             print(f"Dataset '{name}' already exists in hub '{hub_name}' (idempotent)", file=sys.stderr)
             try:
@@ -138,7 +165,6 @@ def _register_to_hub(hub_name, name, s3_uri, technique, description, region):
                 return describe_resp.get("HubContentArn", "")
             except Exception:
                 return ""
-
         _warn(
             f"Failed to register dataset to hub '{hub_name}': {e}\n"
             "    If this persists, run `ml-container-creator bootstrap` to verify hub provisioning.\n"

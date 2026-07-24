@@ -29,21 +29,21 @@ const __dirname = path.dirname(__filename);
 const templatesDir = path.join(__dirname, '../../templates/do');
 
 const configTemplate = readFileSync(path.join(templatesDir, 'config'), 'utf8');
-const deployTemplate = readFileSync(path.join(templatesDir, 'deploy'), 'utf8');
+const deployTemplate = readFileSync(path.join(templatesDir, 'deploy.d/managed-inference'), 'utf8');
 const testTemplate = readFileSync(path.join(templatesDir, 'test'), 'utf8');
-const cleanTemplate = readFileSync(path.join(templatesDir, 'clean'), 'utf8');
+const cleanTemplate = readFileSync(path.join(templatesDir, 'clean.d/managed-inference'), 'utf8');
 const logsTemplate = readFileSync(path.join(templatesDir, 'logs'), 'utf8');
 
 /**
  * Render a template with the given variables.
  */
 function renderTemplate(template, vars) {
-    return ejs.render(template, { orderedEnvVars: [], baseImage: '', ...vars }, { filename: path.join(templatesDir, 'deploy') });
+    return ejs.render(template, { orderedEnvVars: [], baseImage: '', ...vars }, { filename: path.join(templatesDir, 'template') });
 }
 
 /** Arbitrary for a realtime-inference configuration with async vars set to undefined */
 const managedInferenceConfigArb = fc.record({
-    projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
+    projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/).filter(s => !(s in Object.prototype) && !(s in Function.prototype)),
     deploymentConfig: fc.constantFrom(
         'http-flask', 'http-fastapi',
         'transformers-vllm', 'transformers-sglang'
@@ -106,27 +106,28 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
                     'realtime-inference do/config must contain INSTANCE_TYPE'
                 );
 
-                // Must NOT contain async-specific variables
+                // Async section is always present (BL062) but must NOT actively
+                // export async variables for realtime-inference (they remain commented out)
                 assert.ok(
-                    !output.includes('ASYNC_S3_OUTPUT_PATH'),
-                    'realtime-inference do/config must NOT contain ASYNC_S3_OUTPUT_PATH'
+                    !output.includes('export ASYNC_S3_OUTPUT_PATH='),
+                    'realtime-inference do/config must NOT export ASYNC_S3_OUTPUT_PATH'
                 );
                 assert.ok(
-                    !output.includes('ASYNC_SNS_SUCCESS_TOPIC'),
-                    'realtime-inference do/config must NOT contain ASYNC_SNS_SUCCESS_TOPIC'
+                    !output.includes('export ASYNC_SNS_SUCCESS_TOPIC='),
+                    'realtime-inference do/config must NOT export ASYNC_SNS_SUCCESS_TOPIC'
                 );
                 assert.ok(
-                    !output.includes('ASYNC_SNS_ERROR_TOPIC'),
-                    'realtime-inference do/config must NOT contain ASYNC_SNS_ERROR_TOPIC'
+                    !output.includes('export ASYNC_SNS_ERROR_TOPIC='),
+                    'realtime-inference do/config must NOT export ASYNC_SNS_ERROR_TOPIC'
                 );
                 assert.ok(
-                    !output.includes('ASYNC_MAX_CONCURRENT_INVOCATIONS'),
-                    'realtime-inference do/config must NOT contain ASYNC_MAX_CONCURRENT_INVOCATIONS'
+                    !output.match(/^export ASYNC_MAX_CONCURRENT_INVOCATIONS="/m),
+                    'realtime-inference do/config must NOT actively export ASYNC_MAX_CONCURRENT_INVOCATIONS'
                 );
             }
         ), { numRuns: 30 });
 
-        console.log('    ✅ do/config backward compatible — no async variables leak');
+        console.log('    ✅ do/config backward compatible — async variables not actively exported');
     });
 
     it('do/deploy for realtime-inference must contain SageMaker IC logic but NOT async deploy logic', function () {

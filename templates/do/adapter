@@ -20,6 +20,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
+# ── Target guard: adapters require IC-based real-time endpoints ───────────────
+if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "❌ do/adapter is not supported on ${DEPLOYMENT_TARGET}."
+    echo "   LoRA adapters require a real-time (managed-inference) endpoint with ICs."
+    echo "   Switch target: do/deploy --target managed-inference"
+    exit 1
+fi
+
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 # ADAPTER_S3_BUCKET is provided by profile.sh from moduleOutputs.training.AdaptersBucket.
 # No invented fallback — a missing value means the training module isn't provisioned (guarded below).
@@ -1156,11 +1164,24 @@ _adapter_add() {
             local _existing_ic_name=""
             _existing_ic_name=$(grep "^export ADAPTER_IC_NAME=" "${SCRIPT_DIR}/adapters/${adapter_name}.conf" 2>/dev/null | sed 's/^export ADAPTER_IC_NAME="//' | sed 's/"$//' || echo "")
             if [ -n "${_existing_ic_name}" ]; then
+                echo "   Deleting existing IC: ${_existing_ic_name}..."
                 aws sagemaker delete-inference-component \
                     --inference-component-name "${_existing_ic_name}" \
                     --region "${AWS_REGION}" 2>/dev/null || true
-                # Brief wait for deletion to propagate
-                sleep 5
+                # Wait for IC to be fully deleted (async operation)
+                local _wait_count=0
+                while [ ${_wait_count} -lt 30 ]; do
+                    local _ic_status=""
+                    _ic_status=$(aws sagemaker describe-inference-component \
+                        --inference-component-name "${_existing_ic_name}" \
+                        --region "${AWS_REGION}" \
+                        --query 'InferenceComponentStatus' --output text 2>/dev/null || echo "GONE")
+                    if [ "${_ic_status}" = "GONE" ] || [ "${_ic_status}" = "None" ]; then
+                        break
+                    fi
+                    sleep 5
+                    _wait_count=$((_wait_count + 1))
+                done
             fi
             rm -f "${SCRIPT_DIR}/adapters/${adapter_name}.conf"
         else

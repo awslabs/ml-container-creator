@@ -10,6 +10,18 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config"
 
+# ── Batch guard: batch logs are in a different log group ──────────────────────
+<% if (deploymentTarget !== 'hyperpod-eks') { %>
+if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "📋 Batch Transform logs"
+    echo "   Log group: /aws/sagemaker/TransformJobs"
+    echo ""
+    echo "   View logs for a specific job:"
+    echo "   aws logs tail /aws/sagemaker/TransformJobs --log-stream-name-prefix <job-name> --follow"
+    exit 0
+fi
+<% } %>
+
 <% if (deploymentTarget === 'realtime-inference') { %>
 # ============================================================
 # SageMaker Real-Time Inference Logs (CloudWatch)
@@ -342,22 +354,22 @@ aws logs tail "${LOG_GROUP}" \
 POD_SELECTOR="${1:-app=${PROJECT_NAME}}"
 
 echo "📋 Tailing logs for HyperPod EKS deployment"
-echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
-echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+echo "   Cluster: ${HP_CLUSTER_NAME}"
+echo "   Namespace: ${HP_NAMESPACE}"
 echo "   Selector: ${POD_SELECTOR}"
 echo "   Region: ${AWS_REGION}"
 echo ""
 
 # Get kubeconfig for HyperPod cluster
 echo "🔑 Configuring kubectl for HyperPod cluster..."
-KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME}"
 
 EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
-    --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+    --cluster-name "${HP_CLUSTER_NAME}" \
     --region "${AWS_REGION}" \
     --query "Orchestrator.Eks.ClusterArn" \
     --output text 2>&1) || {
-    echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+    echo "❌ Failed to describe HyperPod cluster: ${HP_CLUSTER_NAME}"
     echo ""
     echo "   Check that:"
     echo "   • The cluster name is correct"
@@ -389,15 +401,15 @@ if ! kubectl cluster-info &> /dev/null; then
 fi
 
 # Check if any pods match the selector
-POD_COUNT=$(kubectl get pods -n "${HYPERPOD_NAMESPACE}" -l "${POD_SELECTOR}" --no-headers 2>/dev/null | wc -l || echo "0")
+POD_COUNT=$(kubectl get pods -n "${HP_NAMESPACE}" -l "${POD_SELECTOR}" --no-headers 2>/dev/null | wc -l || echo "0")
 if [ "${POD_COUNT}" -eq 0 ]; then
     echo "⚠️  No pods found matching selector: ${POD_SELECTOR}"
-    echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+    echo "   Namespace: ${HP_NAMESPACE}"
     echo ""
     echo "   Run ./do/deploy first to create the deployment."
     echo ""
     echo "   To list all pods in the namespace:"
-    echo "   kubectl get pods -n ${HYPERPOD_NAMESPACE}"
+    echo "   kubectl get pods -n ${HP_NAMESPACE}"
     exit 1
 fi
 
@@ -409,6 +421,6 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Tail logs from all matching pods
-kubectl logs -f -l "${POD_SELECTOR}" -n "${HYPERPOD_NAMESPACE}" --all-containers --prefix
+kubectl logs -f -l "${POD_SELECTOR}" -n "${HP_NAMESPACE}" --all-containers --prefix
 
 <% } %>

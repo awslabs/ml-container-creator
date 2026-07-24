@@ -26,6 +26,21 @@ fi
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
+# ── Target guard: benchmark uses InvokeEndpoint (real-time only) ──────────────
+if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ]; then
+    echo "❌ do/benchmark is not supported on async-inference."
+    echo "   AIPerf benchmarking uses synchronous InvokeEndpoint calls."
+    echo "   Async endpoints only support invoke-endpoint-async."
+    echo "   Switch target: do/deploy --target managed-inference"
+    exit 1
+fi
+if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "❌ do/benchmark is not supported on batch-transform."
+    echo "   AIPerf benchmarking requires a real-time endpoint."
+    echo "   Switch target: do/deploy --target managed-inference"
+    exit 1
+fi
+
 # ── Parse flags ───────────────────────────────────────────────────────────────
 CLEAN_AFTER=false
 FORCE=false
@@ -1085,8 +1100,10 @@ if [ "${FORCE}" = false ] && [ -n "${BENCHMARK_JOB_NAME:-}" ]; then
             if [ "${EXISTING_STATUS}" = "Failed" ] && [ -n "${FAILURE_REASON}" ] && [ "${FAILURE_REASON}" != "None" ]; then
                 echo "   Reason: ${FAILURE_REASON}"
             fi
-            echo "   Use --force to start a new benchmark."
-            exit 1
+            echo "   Starting a new benchmark job..."
+            echo ""
+            # Clear stale job name so a fresh one is generated below
+            BENCHMARK_JOB_NAME=""
             ;;
         *)
             # Job doesn't exist or can't be described — proceed with new job
@@ -1326,10 +1343,9 @@ echo "⚙️  Step 1: Creating AI Workload Config: ${WORKLOAD_CONFIG_NAME}"
 BENCHMARK_TOKENIZER="${HF_MODEL_ID:-${MODEL_NAME}}"
 PARAMS_JSON="{\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN},\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${BENCHMARK_TOKENIZER}\""
 
-# Add optional request_count if specified
-if [ -n "${BENCHMARK_REQUEST_COUNT:-}" ]; then
-    PARAMS_JSON="${PARAMS_JSON},\"request_count\":${BENCHMARK_REQUEST_COUNT}"
-fi
+# AIPerf requires at least one of request_count or duration per phase.
+# Default to 100 requests for a quick profile run.
+PARAMS_JSON="${PARAMS_JSON},\"request_count\":${BENCHMARK_REQUEST_COUNT:-100}"
 
 PARAMS_JSON="${PARAMS_JSON}}"
 

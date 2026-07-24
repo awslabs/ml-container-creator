@@ -119,7 +119,7 @@ function filterByCudaGeneration(instanceTypes) {
  * Ordering: Region → Deployment Target → Instance/HyperPod → Build Target → Role
  */
 
-// Sub-phase A: Region + Deployment Target (always asked first)
+// Sub-phase A: Region (deployment target removed — BL062: all targets always generated)
 const infraRegionAndTargetPrompts = [
     {
         type: 'list',
@@ -142,18 +142,6 @@ const infraRegionAndTargetPrompts = [
         name: 'customAwsRegion',
         message: 'Enter AWS region (e.g., us-west-2, eu-west-1):',
         when: answers => answers.awsRegion === 'custom'
-    },
-    {
-        type: 'list',
-        name: 'deploymentTarget',
-        message: 'Deployment target?',
-        choices: [
-            { name: 'SageMaker Real-Time Inference', value: 'realtime-inference' },
-            { name: 'SageMaker Async Inference', value: 'async-inference' },
-            { name: 'SageMaker Batch Transform', value: 'batch-transform' },
-            { name: 'SageMaker HyperPod - EKS', value: 'hyperpod-eks' }
-        ],
-        default: 'realtime-inference'
     }
 ];
 

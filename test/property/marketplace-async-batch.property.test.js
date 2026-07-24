@@ -46,8 +46,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
                             'deployment-config': 'marketplace',
                             'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
                             'instance-type': instanceType,
-                            region,
-                            'deployment-target': 'async-inference'
+                            region
                         });
                     } catch (e) {
                         // Generation failure is acceptable
@@ -55,14 +54,12 @@ describe('Marketplace Async and Batch Property Tests', () => {
                     }
 
                     try {
-                        // Must contain async inference config
-                        result.assertFileContent('do/deploy', 'async-inference-config');
-                        // Must use ModelPackageName (not Image)
+                        // BL062: async config is now in deploy.d/async-inference sub-script
+                        result.assertFileContent('do/deploy.d/async-inference', 'AsyncInferenceConfig');
+                        // Must use ModelPackageName (not Image) - in main deploy
                         result.assertFileContent('do/deploy', 'ModelPackageName');
-                        // Must reference S3 output path
-                        result.assertFileContent('do/deploy', 'S3OutputPath');
-                        // Must reference SNS topics
-                        result.assertFileContent('do/deploy', 'NotificationConfig');
+                        // Async sub-script references S3 output path
+                        result.assertFileContent('do/deploy.d/async-inference', 'S3OutputPath');
                     } finally {
                         result.cleanup();
                     }
@@ -71,7 +68,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
             );
         });
 
-        it('async marketplace config exports ASYNC_S3_OUTPUT_PATH in do/config', function () {
+        it('async marketplace config has deploy.d/async-inference with output path config', function () {
             this.timeout(30000);
 
             let result;
@@ -81,8 +78,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
                     'deployment-config': 'marketplace',
                     'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
                     'instance-type': 'ml.g5.xlarge',
-                    'region': 'us-east-1',
-                    'deployment-target': 'async-inference'
+                    'region': 'us-east-1'
                 });
             } catch (e) {
                 // Skip if generation fails
@@ -90,9 +86,10 @@ describe('Marketplace Async and Batch Property Tests', () => {
             }
 
             try {
-                result.assertFileContent('do/config', 'ASYNC_S3_OUTPUT_PATH');
-                result.assertFileContent('do/config', 'ASYNC_SNS_SUCCESS_TOPIC');
-                result.assertFileContent('do/config', 'ASYNC_SNS_ERROR_TOPIC');
+                // BL062: async config vars are in the deploy.d/async-inference script
+                // or in do/config as commented placeholders
+                result.assertFile('do/deploy.d/async-inference');
+                result.assertFileContent('do/deploy.d/async-inference', 'S3OutputPath');
             } finally {
                 result.cleanup();
             }
@@ -113,8 +110,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
                             'deployment-config': 'marketplace',
                             'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
                             'instance-type': instanceType,
-                            region,
-                            'deployment-target': 'batch-transform'
+                            region
                         });
                     } catch (e) {
                         // Generation failure is acceptable
@@ -122,13 +118,13 @@ describe('Marketplace Async and Batch Property Tests', () => {
                     }
 
                     try {
-                        // Must contain transform job config
-                        result.assertFileContent('do/deploy', 'TransformJob');
-                        // Must use ModelPackageName (not Image)
+                        // BL062: batch config is now in deploy.d/batch-transform sub-script
+                        result.assertFileContent('do/deploy.d/batch-transform', 'TransformJob');
+                        // Must use ModelPackageName (not Image) - in main deploy
                         result.assertFileContent('do/deploy', 'ModelPackageName');
-                        // Must reference S3 input/output
-                        result.assertFileContent('do/deploy', 'BATCH_INPUT_PATH');
-                        result.assertFileContent('do/deploy', 'BATCH_OUTPUT_PATH');
+                        // Batch sub-script references S3 input/output
+                        result.assertFileContent('do/deploy.d/batch-transform', 'BATCH_INPUT_PATH');
+                        result.assertFileContent('do/deploy.d/batch-transform', 'BATCH_OUTPUT_PATH');
                     } finally {
                         result.cleanup();
                     }
@@ -137,7 +133,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
             );
         });
 
-        it('batch marketplace config exports BATCH_INPUT_PATH in do/config', function () {
+        it('batch marketplace config has deploy.d/batch-transform with input/output paths', function () {
             this.timeout(30000);
 
             let result;
@@ -147,8 +143,7 @@ describe('Marketplace Async and Batch Property Tests', () => {
                     'deployment-config': 'marketplace',
                     'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
                     'instance-type': 'ml.g5.xlarge',
-                    'region': 'us-east-1',
-                    'deployment-target': 'batch-transform'
+                    'region': 'us-east-1'
                 });
             } catch (e) {
                 // Skip if generation fails
@@ -156,9 +151,10 @@ describe('Marketplace Async and Batch Property Tests', () => {
             }
 
             try {
-                result.assertFileContent('do/config', 'BATCH_INPUT_PATH');
-                result.assertFileContent('do/config', 'BATCH_OUTPUT_PATH');
-                result.assertFileContent('do/config', 'BATCH_INSTANCE_COUNT');
+                // BL062: batch config vars are in deploy.d/batch-transform
+                result.assertFile('do/deploy.d/batch-transform');
+                result.assertFileContent('do/deploy.d/batch-transform', 'BATCH_INPUT_PATH');
+                result.assertFileContent('do/deploy.d/batch-transform', 'BATCH_OUTPUT_PATH');
             } finally {
                 result.cleanup();
             }

@@ -6,6 +6,14 @@ set -e
 set -u
 set -o pipefail
 
+# ── Trap: write Failed status on non-zero exit (FR-4.2) ───────────
+_mark_hp_failed() {
+    if type _update_config &>/dev/null; then
+        _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
+    fi
+}
+trap '_mark_hp_failed' ERR
+
 # Parse flags
 FORCE_NEW=false
 FORCE_IC=false
@@ -35,13 +43,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Source configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config"
+# Configuration is already sourced by the do/deploy dispatcher.
+# Resolve SCRIPT_DIR to do/ (parent of deploy.d/) for lib/ access.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
+ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"
@@ -49,9 +58,9 @@ echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
 echo "   Region: ${AWS_REGION}"
 echo "   Build target: ${BUILD_TARGET}"
 echo "   Deployment target: ${DEPLOYMENT_TARGET}"
-echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
-echo "   Namespace: ${HYPERPOD_NAMESPACE}"
-echo "   Replicas: ${HYPERPOD_REPLICAS}"
+echo "   HyperPod cluster: ${HP_CLUSTER_NAME}"
+echo "   Namespace: ${HP_NAMESPACE}"
+echo "   Replicas: ${HP_REPLICAS}"
 
 # Check AWS credentials
 echo "🔍 Validating AWS credentials..."
@@ -130,15 +139,15 @@ fi
 
 # Get kubeconfig for HyperPod cluster
 echo "🔑 Configuring kubectl for HyperPod cluster..."
-KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HYPERPOD_CLUSTER_NAME}"
+KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME}"
 
 # Step 1: Describe the HyperPod cluster to get the underlying EKS cluster ARN
 EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
-    --cluster-name "${HYPERPOD_CLUSTER_NAME}" \
+    --cluster-name "${HP_CLUSTER_NAME}" \
     --region "${AWS_REGION}" \
     --query "Orchestrator.Eks.ClusterArn" \
     --output text 2>&1) || {
-    echo "❌ Failed to describe HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+    echo "❌ Failed to describe HyperPod cluster: ${HP_CLUSTER_NAME}"
     echo ""
     echo "   Error details:"
     echo "   ${EKS_CLUSTER_ARN}"
@@ -156,7 +165,7 @@ EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
 
 # Step 2: Extract the EKS cluster name from the ARN
 EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
-echo "   HyperPod cluster: ${HYPERPOD_CLUSTER_NAME}"
+echo "   HyperPod cluster: ${HP_CLUSTER_NAME}"
 echo "   EKS cluster: ${EKS_CLUSTER_NAME}"
 
 # Step 3: Update kubeconfig using the EKS cluster
@@ -189,8 +198,8 @@ fi
 echo "✅ Connected to HyperPod cluster"
 
 # Create namespace if it doesn't exist
-echo "📁 Ensuring namespace exists: ${HYPERPOD_NAMESPACE}"
-if ! kubectl create namespace "${HYPERPOD_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
+echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
+if ! kubectl create namespace "${HP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
     echo "⚠️  Warning: Could not create/verify namespace"
 fi
 
@@ -201,13 +210,19 @@ echo "📄 Applying Kubernetes manifests from hyperpod/..."
 export AWS_ACCOUNT_ID
 export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
 
+# Portable envsubst shim — works on macOS without gettext installed
+# Falls back to perl (always available on macOS/Linux) if envsubst is not found
+if ! command -v envsubst &>/dev/null; then
+    envsubst() { perl -pe 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge'; }
+fi
+
 APPLY_OUTPUT=""
 APPLY_EXIT_CODE=0
 for manifest in hyperpod/*.yaml; do
     # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
     RENDERED=$(envsubst < "${manifest}")
     if echo "${RENDERED}" | grep -q '^kind:'; then
-        FILE_OUTPUT=$(echo "${RENDERED}" | kubectl apply -n "${HYPERPOD_NAMESPACE}" -f - 2>&1) || {
+        FILE_OUTPUT=$(echo "${RENDERED}" | kubectl apply -n "${HP_NAMESPACE}" -f - 2>&1) || {
             APPLY_EXIT_CODE=$?
         }
         APPLY_OUTPUT="${APPLY_OUTPUT}${FILE_OUTPUT}\n"
@@ -224,9 +239,9 @@ if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then
     echo "   Common issues:"
     echo "   • Insufficient node capacity - check available GPU nodes"
     echo "   • Resource requests exceed node capacity"
-    echo "   • RBAC permissions - ensure you have permission to create resources in namespace '${HYPERPOD_NAMESPACE}'"
+    echo "   • RBAC permissions - ensure you have permission to create resources in namespace '${HP_NAMESPACE}'"
     echo "   • Invalid manifest syntax"
-<% if (fsxVolumeHandle) { %>
+<% if (typeof fsxVolumeHandle !== 'undefined' && fsxVolumeHandle) { %>
     echo "   • PVC creation failure - verify the FSx CSI driver is installed on the cluster"
     echo "     kubectl get csidriver -o name | grep fsx"
 <% } %>
@@ -234,7 +249,7 @@ if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then
     echo "   Debug commands:"
     echo "   kubectl get nodes -o wide"
     echo "   kubectl describe nodes"
-    echo "   kubectl get events -n ${HYPERPOD_NAMESPACE}"
+    echo "   kubectl get events -n ${HP_NAMESPACE}"
     exit ${APPLY_EXIT_CODE}
 fi
 
@@ -243,16 +258,16 @@ echo "✅ Kubernetes manifests applied"
 # Record k8s deployment and service in manifest (non-blocking)
 ./do/manifest add \
     --type k8s-deployment \
-    --id "${HYPERPOD_NAMESPACE}/${PROJECT_NAME}" \
+    --id "${HP_NAMESPACE}/${PROJECT_NAME}" \
     --project "${PROJECT_NAME}" \
-    --meta "{\"namespace\":\"${HYPERPOD_NAMESPACE}\",\"deploymentName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HYPERPOD_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
+    --meta "{\"namespace\":\"${HP_NAMESPACE}\",\"deploymentName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HP_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
     2>/dev/null || true
 
 ./do/manifest add \
     --type k8s-service \
-    --id "${HYPERPOD_NAMESPACE}/${PROJECT_NAME}" \
+    --id "${HP_NAMESPACE}/${PROJECT_NAME}" \
     --project "${PROJECT_NAME}" \
-    --meta "{\"namespace\":\"${HYPERPOD_NAMESPACE}\",\"serviceName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HYPERPOD_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
+    --meta "{\"namespace\":\"${HP_NAMESPACE}\",\"serviceName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HP_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
     2>/dev/null || true
 
 # Wait for deployment to be ready
@@ -265,7 +280,7 @@ echo ""
 (
     while true; do
         sleep 30
-        POD_STATUS=$(kubectl get pods -n "${HYPERPOD_NAMESPACE}" -l app=${PROJECT_NAME} \
+        POD_STATUS=$(kubectl get pods -n "${HP_NAMESPACE}" -l app=${PROJECT_NAME} \
             --no-headers 2>/dev/null | head -5)
         if [ -n "${POD_STATUS}" ]; then
             echo "   📊 $(date +%H:%M:%S) Pod status:"
@@ -276,7 +291,7 @@ echo ""
 STATUS_PID=$!
 trap "kill ${STATUS_PID} 2>/dev/null; wait ${STATUS_PID} 2>/dev/null" EXIT
 
-ROLLOUT_OUTPUT=$(kubectl rollout status deployment/${PROJECT_NAME} -n "${HYPERPOD_NAMESPACE}" --timeout=${DEPLOY_TIMEOUT}s 2>&1) || {
+ROLLOUT_OUTPUT=$(kubectl rollout status deployment/${PROJECT_NAME} -n "${HP_NAMESPACE}" --timeout=${DEPLOY_TIMEOUT}s 2>&1) || {
     ROLLOUT_EXIT_CODE=$?
     kill ${STATUS_PID} 2>/dev/null
     echo ""
@@ -286,20 +301,20 @@ ROLLOUT_OUTPUT=$(kubectl rollout status deployment/${PROJECT_NAME} -n "${HYPERPO
     echo "   ${ROLLOUT_OUTPUT}"
     echo ""
     echo "   Current pod state:"
-    kubectl get pods -n "${HYPERPOD_NAMESPACE}" -l app=${PROJECT_NAME} -o wide 2>/dev/null
+    kubectl get pods -n "${HP_NAMESPACE}" -l app=${PROJECT_NAME} -o wide 2>/dev/null
     echo ""
     echo "   Debug commands:"
-    echo "   kubectl describe pods -n ${HYPERPOD_NAMESPACE} -l app=${PROJECT_NAME}"
-    echo "   kubectl logs -n ${HYPERPOD_NAMESPACE} -l app=${PROJECT_NAME} --tail=100"
+    echo "   kubectl describe pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
+    echo "   kubectl logs -n ${HP_NAMESPACE} -l app=${PROJECT_NAME} --tail=100"
     echo ""
     echo "   Common issues:"
     echo "   • Image pull errors - check ECR permissions"
     echo "   • Resource scheduling - insufficient GPU nodes"
     echo "   • Container crash - check application logs"
-<% if (fsxVolumeHandle) { %>
+<% if (typeof fsxVolumeHandle !== 'undefined' && fsxVolumeHandle) { %>
     echo "   • PVC binding errors - verify FSx CSI driver is installed on the cluster"
-    echo "     kubectl get pvc -n ${HYPERPOD_NAMESPACE}"
-    echo "     kubectl describe pvc -n ${HYPERPOD_NAMESPACE}"
+    echo "     kubectl get pvc -n ${HP_NAMESPACE}"
+    echo "     kubectl describe pvc -n ${HP_NAMESPACE}"
     echo "     kubectl get csidriver -o name | grep fsx"
 <% } %>
     exit ${ROLLOUT_EXIT_CODE}
@@ -309,18 +324,21 @@ kill ${STATUS_PID} 2>/dev/null
 wait ${STATUS_PID} 2>/dev/null
 
 echo "✅ HyperPod EKS deployment complete!"
+
+# ── Write per-target status (FR-4.2) ─────────────────────────────
+_update_config "DEPLOYMENT_TARGET_HP_STATUS" "Running"
 echo ""
 echo "📋 Deployment Details:"
-echo "   Cluster: ${HYPERPOD_CLUSTER_NAME}"
-echo "   Namespace: ${HYPERPOD_NAMESPACE}"
+echo "   Cluster: ${HP_CLUSTER_NAME}"
+echo "   Namespace: ${HP_NAMESPACE}"
 echo "   Deployment: ${PROJECT_NAME}"
-echo "   Replicas: ${HYPERPOD_REPLICAS}"
+echo "   Replicas: ${HP_REPLICAS}"
 echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"
 echo ""
 echo "📋 What's next?"
 echo "   • Test your deployment:       ./do/test"
-echo "   • Check pod status:           kubectl get pods -n ${HYPERPOD_NAMESPACE}"
-echo "   • View pod logs:              kubectl logs -n ${HYPERPOD_NAMESPACE} -l app=${PROJECT_NAME}"
+echo "   • Check pod status:           kubectl get pods -n ${HP_NAMESPACE}"
+echo "   • View pod logs:              kubectl logs -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
 <% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
 echo "   • Benchmark performance:      ./do/benchmark"
 <% } %>

@@ -6,6 +6,14 @@ set -e
 set -u
 set -o pipefail
 
+# ── Trap: write Failed status on non-zero exit (FR-4.2) ───────────
+_mark_batch_failed() {
+    if type _update_config &>/dev/null; then
+        _update_config "DEPLOYMENT_TARGET_BATCH_STATUS" "Failed"
+    fi
+}
+trap '_mark_batch_failed' ERR
+
 # Parse flags
 FORCE_NEW=false
 FORCE_IC=false
@@ -35,9 +43,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Source configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config"
+# Configuration is already sourced by the do/deploy dispatcher.
+# Resolve SCRIPT_DIR to do/ (parent of deploy.d/) for lib/ access.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
@@ -46,9 +54,9 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
 # Batch-specific derived variables
-_BATCH_BUCKET="${_PROFILE_batchS3Bucket:-mlcc-batch-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}"
-BATCH_INPUT_PATH="${BATCH_INPUT_PATH:-s3://${_BATCH_BUCKET}/${PROJECT_NAME}/input/}"
-BATCH_OUTPUT_PATH="${BATCH_OUTPUT_PATH:-s3://${_BATCH_BUCKET}/${PROJECT_NAME}/output/}"
+_BATCH_BUCKET="${_PROFILE_batchS3Bucket:-${_PROFILE_modelsS3Bucket:-mlcc-models-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}}"
+BATCH_INPUT_PATH="${BATCH_INPUT_PATH:-s3://${_BATCH_BUCKET}/batch-input/${PROJECT_NAME}/}"
+BATCH_OUTPUT_PATH="${BATCH_OUTPUT_PATH:-s3://${_BATCH_BUCKET}/batch-output/${PROJECT_NAME}/}"
 
 echo "🚀 Deploying to AWS"
 echo "   Project: ${PROJECT_NAME}"
@@ -224,7 +232,7 @@ fi
 BATCH_INPUT_BUCKET=$(echo "${BATCH_INPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
 BATCH_OUTPUT_BUCKET=$(echo "${BATCH_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
 
-<% if (!batchInputPath) { %>
+<% if (typeof batchInputPath === 'undefined' || !batchInputPath) { %>
 # Bootstrap default S3 input bucket (check-and-create)
 echo "🔍 Checking if S3 input bucket exists: ${BATCH_INPUT_BUCKET}"
 if ! aws s3api head-bucket --bucket "${BATCH_INPUT_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
@@ -279,7 +287,7 @@ fi
 echo "✅ Using custom S3 input path: ${BATCH_INPUT_PATH}"
 <% } %>
 
-<% if (!batchOutputPath) { %>
+<% if (typeof batchOutputPath === 'undefined' || !batchOutputPath) { %>
 # Bootstrap default S3 output bucket (check-and-create, may be same as input)
 if [ "${BATCH_OUTPUT_BUCKET}" != "${BATCH_INPUT_BUCKET}" ]; then
     echo "🔍 Checking if S3 output bucket exists: ${BATCH_OUTPUT_BUCKET}"
@@ -357,6 +365,12 @@ _update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
 echo "📦 Creating SageMaker model: ${MODEL_NAME_SM}"
 
 # Build primary container spec
+# Inject SAGEMAKER_BATCH=true for batch transform mode
+if [ -n "${CONTAINER_ENV_JSON}" ]; then
+    CONTAINER_ENV_JSON="${CONTAINER_ENV_JSON},\"SAGEMAKER_BATCH\":\"true\""
+else
+    CONTAINER_ENV_JSON="\"SAGEMAKER_BATCH\":\"true\""
+fi
 BATCH_PRIMARY_CONTAINER="{\"Image\":\"${ECR_REPOSITORY}:${IMAGE_TAG}\""
 if [ -n "${CONTAINER_ENV_JSON}" ]; then
     BATCH_PRIMARY_CONTAINER="${BATCH_PRIMARY_CONTAINER},\"Environment\":{${CONTAINER_ENV_JSON}}"
@@ -404,7 +418,7 @@ TRANSFORM_JOB_JSON="{
     },
     \"TransformOutput\": {
         \"S3OutputPath\": \"${BATCH_OUTPUT_PATH}\"
-        $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"Accept\": \"application/json\", \"AssembleWith\": \"${BATCH_SPLIT_TYPE}\"")
+        $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"Accept\": \"application/json\", \"AssembleWith\": \"${BATCH_SPLIT_TYPE}\"" || true)
     },
     \"TransformResources\": {
         \"InstanceType\": \"${INSTANCE_TYPE}\",
@@ -413,7 +427,7 @@ TRANSFORM_JOB_JSON="{
     \"MaxConcurrentTransforms\": ${BATCH_MAX_CONCURRENT_TRANSFORMS:-1},
     \"MaxPayloadInMB\": ${BATCH_MAX_PAYLOAD_IN_MB:-6},
     \"BatchStrategy\": \"${BATCH_STRATEGY}\"
-    $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"DataProcessing\": { \"JoinSource\": \"Input\" }")
+    $([ "${BATCH_JOIN_SOURCE:-None}" = "Input" ] && echo ",\"DataProcessing\": { \"JoinSource\": \"Input\" }" || true)
 }"
 
 # Step 3: Create transform job
@@ -474,6 +488,8 @@ while true; do
     case "${JOB_STATUS}" in
         Completed)
             echo "✅ Transform job completed successfully!"
+            # ── Write per-target status (FR-4.2) ─────────────────────────────
+            _update_config "DEPLOYMENT_TARGET_BATCH_STATUS" "Completed"
             break
             ;;
         Failed)

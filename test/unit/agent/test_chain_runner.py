@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+strands = pytest.importorskip("strands", reason="strands-agents not installed")
+
 from src.agent.chain_runner import ChainRunner, ChainResult
 from src.agent.execution_config import ExecutionConfig
 from src.agent.goal_planner import PlanStep

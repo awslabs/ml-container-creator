@@ -20,9 +20,10 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
+
+pa = pytest.importorskip("pyarrow", reason="pyarrow not installed")
+pq = pytest.importorskip("pyarrow.parquet", reason="pyarrow not installed")
 
 
 # ── Import the module under test ──────────────────────────────────────────────

@@ -242,7 +242,9 @@ class TestCheckMcpServers:
         """The real project has config/mcp.json with servers defined."""
         hc = EnvironmentHealthCheck()
         result = hc._check_mcp_servers()
-        # This uses the actual project's config/mcp.json
+        # config/mcp.json is gitignored — may not be present in CI
+        if result.status == "fail" and "not found" in result.message:
+            pytest.skip("config/mcp.json not present (gitignored, local-only)")
         assert result.status == "pass"
         assert "servers configured" in result.message
 

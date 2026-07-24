@@ -8,7 +8,7 @@
  * CI_MODE is active, the stdout output SHALL be a valid JSON object
  * containing all required fields with correct types.
  *
- * This test renders the managed-inference.ejs template and verifies
+ * This test renders the managed-inference template and verifies
  * that the _ci_emit_error function produces valid JSON with the
  * required schema for all error types.
  *
@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference.ejs');
+const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference');
 const templateContent = readFileSync(TEMPLATE_PATH, 'utf-8');
 
 // ── Generators ───────────────────────────────────────────────────────────────

@@ -6,6 +6,14 @@ set -e
 set -u
 set -o pipefail
 
+# ── Trap: write Failed status on non-zero exit (FR-4.2) ───────────
+_mark_async_failed() {
+    if type _update_config &>/dev/null; then
+        _update_config "DEPLOYMENT_TARGET_ASYNC_STATUS" "Failed"
+    fi
+}
+trap '_mark_async_failed' ERR
+
 # Parse flags
 FORCE_NEW=false
 FORCE_IC=false
@@ -35,9 +43,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Source configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config"
+# Configuration is already sourced by the do/deploy dispatcher.
+# Resolve SCRIPT_DIR to do/ (parent of deploy.d/) for lib/ access.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
@@ -46,8 +54,8 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
 # Async-specific derived variables
-_ASYNC_BUCKET="${_PROFILE_asyncS3Bucket:-mlcc-async-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}"
-ASYNC_S3_OUTPUT_PATH="${ASYNC_S3_OUTPUT_PATH:-s3://${_ASYNC_BUCKET}/${PROJECT_NAME}/output/}"
+_ASYNC_BUCKET="${_PROFILE_asyncS3Bucket:-${_PROFILE_modelsS3Bucket:-mlcc-models-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}}"
+ASYNC_S3_OUTPUT_PATH="${ASYNC_S3_OUTPUT_PATH:-s3://${_ASYNC_BUCKET}/async-output/${PROJECT_NAME}/}"
 ASYNC_SNS_SUCCESS_TOPIC="${ASYNC_SNS_SUCCESS_TOPIC:-arn:aws:sns:${_PROFILE_awsRegion:-us-east-1}:${_PROFILE_accountId:-unknown}:ml-container-creator-${PROJECT_NAME}-async-success}"
 ASYNC_SNS_ERROR_TOPIC="${ASYNC_SNS_ERROR_TOPIC:-arn:aws:sns:${_PROFILE_awsRegion:-us-east-1}:${_PROFILE_accountId:-unknown}:ml-container-creator-${PROJECT_NAME}-async-error}"
 
@@ -61,7 +69,7 @@ echo "   Instance type: ${INSTANCE_TYPE}"
 echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
 echo "   SNS success: ${ASYNC_SNS_SUCCESS_TOPIC}"
 echo "   SNS error: ${ASYNC_SNS_ERROR_TOPIC}"
-<% if (asyncMaxConcurrentInvocations) { %>
+<% if (typeof asyncMaxConcurrentInvocations !== 'undefined' && asyncMaxConcurrentInvocations) { %>
 echo "   Max concurrent: ${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
 <% } %>
 
@@ -192,7 +200,7 @@ echo "   Using execution role: ${ROLE_ARN}"
 # Extract bucket name from S3 output path
 ASYNC_S3_BUCKET=$(echo "${ASYNC_S3_OUTPUT_PATH}" | sed 's|s3://||' | cut -d'/' -f1)
 
-<% if (!asyncS3OutputPath) { %>
+<% if (typeof asyncS3OutputPath === 'undefined' || !asyncS3OutputPath) { %>
 # Bootstrap default S3 bucket (check-and-create)
 echo "🔍 Checking if S3 bucket exists: ${ASYNC_S3_BUCKET}"
 if ! aws s3api head-bucket --bucket "${ASYNC_S3_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
@@ -233,7 +241,7 @@ echo "✅ Using custom S3 output path: ${ASYNC_S3_OUTPUT_PATH}"
 # Extract topic name from SNS success topic ARN
 ASYNC_SNS_SUCCESS_TOPIC_NAME=$(echo "${ASYNC_SNS_SUCCESS_TOPIC}" | awk -F: '{print $NF}')
 
-<% if (!asyncSnsSuccessTopic) { %>
+<% if (typeof asyncSnsSuccessTopic === 'undefined' || !asyncSnsSuccessTopic) { %>
 # Bootstrap default SNS success topic (check-and-create)
 echo "🔍 Checking if SNS success topic exists: ${ASYNC_SNS_SUCCESS_TOPIC_NAME}"
 if ! aws sns get-topic-attributes --topic-arn "${ASYNC_SNS_SUCCESS_TOPIC}" --region "${AWS_REGION}" 2>/dev/null; then
@@ -278,7 +286,7 @@ ASYNC_SNS_SUCCESS_TOPIC_NAME=$(echo "${ASYNC_SNS_SUCCESS_TOPIC}" | awk -F: '{pri
 # Extract topic name from SNS error topic ARN
 ASYNC_SNS_ERROR_TOPIC_NAME=$(echo "${ASYNC_SNS_ERROR_TOPIC}" | awk -F: '{print $NF}')
 
-<% if (!asyncSnsErrorTopic) { %>
+<% if (typeof asyncSnsErrorTopic === 'undefined' || !asyncSnsErrorTopic) { %>
 # Bootstrap default SNS error topic (check-and-create)
 echo "🔍 Checking if SNS error topic exists: ${ASYNC_SNS_ERROR_TOPIC_NAME}"
 if ! aws sns get-topic-attributes --topic-arn "${ASYNC_SNS_ERROR_TOPIC}" --region "${AWS_REGION}" 2>/dev/null; then
@@ -350,6 +358,8 @@ elif [ -n "${ENDPOINT_NAME:-}" ]; then
             echo ""
             echo "🧹 Clean up when done:"
             echo "   ./do/clean endpoint"
+            # Ensure status var is set (may have been missed if prior run was interrupted)
+            _update_config "DEPLOYMENT_TARGET_ASYNC_STATUS" "InService"
             exit 0
             ;;
         Creating|Updating)
@@ -381,6 +391,8 @@ if [ -z "${SKIP_TO}" ]; then
     ENDPOINT_NAME="${PROJECT_NAME}-async-ep-${TIMESTAMP}"
 
     _update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
+    _update_config_var "ASYNC_ENDPOINT_NAME" "${ENDPOINT_NAME}"
+    _update_config_var "ASYNC_INSTANCE_TYPE" "${INSTANCE_TYPE}"
     _update_config_var "ENDPOINT_CONFIG_NAME" "${ENDPOINT_CONFIG_NAME}"
     _update_config_var "SAGEMAKER_MODEL_NAME" "${MODEL_NAME_SM}"
 
@@ -505,6 +517,9 @@ if [ -z "${SKIP_TO}" ] || [ "${SKIP_TO}" = "wait_endpoint" ]; then
 fi
 
 echo "✅ Async deployment complete!"
+
+# ── Write per-target status (FR-4.2) ─────────────────────────────
+_update_config "DEPLOYMENT_TARGET_ASYNC_STATUS" "InService"
 echo ""
 echo "📋 Deployment Details:"
 echo "   Endpoint: ${ENDPOINT_NAME}"

@@ -56,5 +56,13 @@ ADAPTER_S3_BUCKET="${ADAPTER_S3_BUCKET:-${_PROFILE_adapterS3Bucket:-}}"
 MODELS_S3_BUCKET="${MODELS_S3_BUCKET:-${_PROFILE_modelsS3Bucket:-}}"
 CODEBUILD_SOURCE_S3_BUCKET="${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}"
 
+# Export AWS_PROFILE so boto3/sagemaker-core Python scripts authenticate
+# using the same profile as the CLI. Without this, Python SDK calls fail
+# with "Unable to locate credentials" when the profile uses SSO or
+# federated credentials.
+if [ -z "${AWS_PROFILE:-}" ] && [ -n "${_PROFILE_awsProfile:-}" ]; then
+    export AWS_PROFILE="${_PROFILE_awsProfile}"
+fi
+
 # NOTE: set -u is NOT re-enabled here. The caller is responsible for managing
 # their own shell options.

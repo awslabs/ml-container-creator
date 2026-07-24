@@ -157,11 +157,7 @@
                 "section": "infrastructure",
                 "inputType": "select"
             },
-            "prompt": {
-                "message": "Deployment target?",
-                "type": "list"
-            },
-            "deprecated": false,
+            "deprecated": true,
             "since": "0.4.0"
         },
         "instanceType": {
@@ -1803,6 +1799,159 @@
             "prompt": null,
             "deprecated": false,
             "since": "0.4.0"
+        },
+        "hpGpuCount": {
+            "type": "integer",
+            "description": "Number of GPUs to request per pod (sets nvidia.com/gpu and VLLM_TENSOR_PARALLEL_SIZE)",
+            "cliFlag": "--hp-gpu-count",
+            "cliArgName": "count",
+            "envVar": null,
+            "templateVar": "HP_GPU_COUNT",
+            "configKey": "hpGpuCount",
+            "default": 1,
+            "validation": {
+                "min": 1,
+                "max": 8
+            },
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "1.4.0"
+        },
+        "hpNodeSelector": {
+            "type": "string",
+            "description": "Instance type for Kubernetes nodeSelector (e.g. ml.g5.12xlarge)",
+            "cliFlag": "--hp-node-selector",
+            "cliArgName": "type",
+            "envVar": null,
+            "templateVar": "HP_NODE_SELECTOR",
+            "configKey": "hpNodeSelector",
+            "default": "",
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "1.4.0"
+        },
+        "hpEfaEnabled": {
+            "type": "string",
+            "description": "Enable EFA device requests for NCCL optimization (true/false)",
+            "cliFlag": "--hp-efa-enabled",
+            "cliArgName": "enabled",
+            "envVar": null,
+            "templateVar": "HP_EFA_ENABLED",
+            "configKey": "hpEfaEnabled",
+            "default": "false",
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "1.4.0"
+        },
+        "hpMemRequest": {
+            "type": "string",
+            "description": "Override memory request (e.g. '64Gi'). If empty, auto-scales 16Gi per GPU.",
+            "cliFlag": "--hp-mem-request",
+            "cliArgName": "mem",
+            "envVar": null,
+            "templateVar": "HP_MEM_REQUEST",
+            "configKey": "hpMemRequest",
+            "default": "",
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "1.4.0"
+        },
+        "hpCpuRequest": {
+            "type": "string",
+            "description": "Override CPU request (e.g. '16'). If empty, auto-scales 4 CPU per GPU.",
+            "cliFlag": "--hp-cpu-request",
+            "cliArgName": "cpu",
+            "envVar": null,
+            "templateVar": "HP_CPU_REQUEST",
+            "configKey": "hpCpuRequest",
+            "default": "",
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "1.4.0"
+        },
+        "hpQueue": {
+            "type": "string",
+            "description": "Kueue queue name or PriorityClass for fair scheduling",
+            "cliFlag": "--hp-queue",
+            "cliArgName": "queue",
+            "envVar": null,
+            "templateVar": "HP_QUEUE",
+            "configKey": "hpQueue",
+            "default": "",
+            "validation": {},
+            "phase": "infrastructure",
+            "group": "hyperpod",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "hyperpod-eks"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": null,
+            "prompt": null,
+            "deprecated": false,
+            "since": "1.4.0"
         },
         "modelEnv": {
             "type": "string",

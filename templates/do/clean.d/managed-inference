@@ -7,7 +7,7 @@ set -u
 set -o pipefail
 
 # Source configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
@@ -521,7 +521,7 @@ clean_endpoint() {
 
     # Remove saved names from config
     if grep -q "^export ENDPOINT_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
-        sed -i.bak '/^# Last deployed resources/d;/^export ENDPOINT_NAME=/d;/^export ENDPOINT_CONFIG_NAME=/d;/^export INFERENCE_COMPONENT_NAME=/d' "${SCRIPT_DIR}/config"
+        sed -i.bak '/^# Last deployed resources/d;/^export ENDPOINT_NAME=/d;/^export SMAI_ENDPOINT_NAME=/d;/^export ENDPOINT_CONFIG_NAME=/d;/^export INFERENCE_COMPONENT_NAME=/d' "${SCRIPT_DIR}/config"
         rm -f "${SCRIPT_DIR}/config.bak"
     fi
     
@@ -893,7 +893,7 @@ clean_reset_config() {
     # Vars representing endpoint attachment / last-deployed state. Removing them
     # returns the project to "create a fresh endpoint on next deploy" behavior.
     local _removed=()
-    for _var in ENDPOINT_EXTERNAL ENDPOINT_NAME ENDPOINT_CONFIG_NAME \
+    for _var in ENDPOINT_EXTERNAL ENDPOINT_NAME SMAI_ENDPOINT_NAME ENDPOINT_CONFIG_NAME \
                 INFERENCE_COMPONENT_NAME DEPLOYED_INSTANCE_TYPE; do
         if grep -q "^export ${_var}=" "${_config_file}" 2>/dev/null; then
             sed -i.bak "/^export ${_var}=/d" "${_config_file}"

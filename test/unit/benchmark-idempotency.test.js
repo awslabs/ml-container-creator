@@ -220,23 +220,23 @@ describe('Benchmark Idempotency', () => {
         });
     });
 
-    describe('do/benchmark template: Failed/Stopped suggests --force', () => {
-        it('should suggest --force when previous job Failed or Stopped', () => {
+    describe('do/benchmark template: Failed/Stopped auto-recovers', () => {
+        it('should auto-recover from Failed/Stopped by starting a new job', () => {
             assert.ok(
-                benchmarkTemplate.includes('Use --force to start a new benchmark'),
-                'must suggest --force for Failed/Stopped jobs'
+                benchmarkTemplate.includes('Starting a new benchmark job'),
+                'must auto-recover from Failed/Stopped jobs by starting fresh'
             );
         });
 
-        it('should exit with error on Failed/Stopped status', () => {
-            // Check that the Failed|Stopped case contains exit 1
+        it('should clear BENCHMARK_JOB_NAME on Failed/Stopped status', () => {
+            // Check that the Failed|Stopped case clears the job name
             const failedSection = benchmarkTemplate.substring(
                 benchmarkTemplate.indexOf('Failed|Stopped)'),
                 benchmarkTemplate.indexOf(';;', benchmarkTemplate.indexOf('Failed|Stopped)'))
             );
             assert.ok(
-                failedSection.includes('exit 1'),
-                'must exit with error on Failed/Stopped status'
+                failedSection.includes('BENCHMARK_JOB_NAME=""'),
+                'must clear BENCHMARK_JOB_NAME on Failed/Stopped so a fresh job is created'
             );
         });
 

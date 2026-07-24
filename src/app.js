@@ -140,6 +140,25 @@ export async function run(projectName, options) {
 
         answers = configManager.getFinalConfiguration();
 
+        // FR-1.7, FR-1.8: Ensure deployment defaults for skip-prompts mode.
+        // deploymentTarget defaults to 'realtime-inference' from parameter-matrix.
+        // If instanceType is not explicitly provided, auto-size from architecture heuristic.
+        if (!answers.deploymentTarget) {
+            answers.deploymentTarget = 'realtime-inference';
+        }
+        if (!answers.instanceType) {
+            // Use architecture-based heuristic: transformers/diffusors → GPU, predictor/http → CPU
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
+            const HEURISTIC_DEFAULTS = {
+                'transformers': 'ml.g5.xlarge',
+                'diffusors': 'ml.g5.2xlarge',
+                'predictor': 'ml.m5.large',
+                'http': 'ml.m5.large'
+            };
+            answers.instanceType = HEURISTIC_DEFAULTS[architecture] || 'ml.g5.xlarge';
+            console.log(`   • Instance type auto-sized: ${answers.instanceType} (from architecture: ${architecture || 'default'})`);
+        }
+
         // Infer modelSource from model name prefix if not set
         const modelName = answers.modelName;
         if (!answers.modelSource && modelName) {
@@ -354,28 +373,6 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
 
     // EJS partials — included by templates at render time, not copied to output
     ignorePatterns.push('**/serve.d/**');
-    ignorePatterns.push('**/deploy.d/**');
-    ignorePatterns.push('**/clean.d/**');
-
-    if (answers.deploymentTarget !== 'hyperpod-eks') {
-        ignorePatterns.push('**/hyperpod/**');
-    }
-
-    // HyperPod is kubectl-based — no shared bash helpers or IC configs
-    if (answers.deploymentTarget === 'hyperpod-eks') {
-        ignorePatterns.push('**/do/lib/**');
-        ignorePatterns.push('**/do/ic/**');
-        ignorePatterns.push('**/do/add-ic');
-        ignorePatterns.push('**/do/status');
-        ignorePatterns.push('**/do/optimize');
-    }
-
-    // Async and batch don't use inference components (IC is real-time only)
-    if (answers.deploymentTarget === 'async-inference' || answers.deploymentTarget === 'batch-transform') {
-        ignorePatterns.push('**/do/ic/**');
-        ignorePatterns.push('**/do/add-ic');
-        ignorePatterns.push('**/do/status');
-    }
 
     // Resolve architecture
     const resolver = new DeploymentConfigResolver();
@@ -500,6 +497,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         // Marketplace overlays its own config, deploy, and test templates
         ignorePatterns.push('**/do/config');
         ignorePatterns.push('**/do/deploy');
+        ignorePatterns.push('**/do/.deploy_helper.py');
         ignorePatterns.push('**/do/test');
         ignorePatterns.push('**/do/README.md');
         ignorePatterns.push('**/do/export');

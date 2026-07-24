@@ -59,7 +59,22 @@ The bootstrap command uses a **modular CDK stack** architecture. Each module is 
 | training | training | core | TrainingBucket, TrainingRoleArn, MlflowAppArn |
 | ci | ci | core, benchmark, registry | CodeBuildProject, CiTableName |
 | sagemaker-domain | sagemaker-domain | core | DomainId, UserProfileName |
-| hyperpod-cluster | hyperpod | core | ClusterArn, ClusterName |
+| hyperpod-cluster | **3 stacks** (see below) | core | EksClusterArn, HyperPodClusterArn, InferenceOperatorStatus |
+
+### HyperPod Module (Multi-Stack)
+
+The `hyperpod-cluster` module is the only multi-stack module. It deploys THREE CDK stacks in sequence via `CdkMultiStackModuleRunner`:
+
+1. `eks-cluster` — VPC + EKS control plane + 8 IAM roles (RETAIN) + dependency add-ons
+2. `hyperpod-cluster` — `sagemaker.CfnCluster` at 0 instances (RETAIN)
+3. `inference-operator` — `amazon-sagemaker-hyperpod-inference` EKS add-on + TLS bucket (RETAIN)
+
+**Key patterns:**
+- `module-manifest.json` uses `stacks[]` array instead of `stackNameSuffix` for this module
+- The module runner reads SSM params from each completed stack and passes them as `--context` to the next
+- `CdkMultiStackModuleRunner` in `module-runner.cjs` orchestrates sequential deploy and reverse teardown
+- RETAIN policy: IAM roles, HyperPod cluster, TLS bucket survive normal teardown; only `--force-delete` removes them
+- Adopt-existing: if SSM params exist from a prior deploy, sets `adoptX=true` context flags
 
 **Key flows:**
 - `bootstrap` (no args) → `_handleLanding` (shows status or getting-started)

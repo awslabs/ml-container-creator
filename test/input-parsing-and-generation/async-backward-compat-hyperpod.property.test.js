@@ -29,9 +29,9 @@ const __dirname = path.dirname(__filename);
 const templatesDir = path.join(__dirname, '../../templates/do');
 
 const configTemplate = readFileSync(path.join(templatesDir, 'config'), 'utf8');
-const deployTemplate = readFileSync(path.join(templatesDir, 'deploy'), 'utf8');
+const deployTemplate = readFileSync(path.join(templatesDir, 'deploy.d/hyperpod-eks'), 'utf8');
 const testTemplate = readFileSync(path.join(templatesDir, 'test'), 'utf8');
-const cleanTemplate = readFileSync(path.join(templatesDir, 'clean'), 'utf8');
+const cleanTemplate = readFileSync(path.join(templatesDir, 'clean.d/hyperpod-eks'), 'utf8');
 const logsTemplate = readFileSync(path.join(templatesDir, 'logs'), 'utf8');
 
 /**
@@ -43,7 +43,7 @@ function renderTemplate(template, vars) {
 
 /** Arbitrary for a hyperpod-eks configuration with async vars set to undefined */
 const hyperpodEksConfigArb = fc.record({
-    projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
+    projectName: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/).filter(s => !(s in Object.prototype) && !(s in Function.prototype)),
     deploymentConfig: fc.constantFrom(
         'http-flask', 'http-fastapi',
         'transformers-vllm', 'transformers-sglang'
@@ -54,8 +54,8 @@ const hyperpodEksConfigArb = fc.record({
     buildTarget: fc.constant('codebuild'),
     codebuildComputeType: fc.constantFrom('BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'),
     deploymentTarget: fc.constant('hyperpod-eks'),
-    hyperPodCluster: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
-    hyperPodNamespace: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
+    hyperPodCluster: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/).filter(s => !(s in Object.prototype) && !(s in Function.prototype)),
+    hyperPodNamespace: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/).filter(s => !(s in Object.prototype) && !(s in Function.prototype)),
     hyperPodReplicas: fc.constantFrom(1, 2, 3, 4),
     modelName: fc.constantFrom('meta-llama/Llama-2-7b-hf', 'openai/gpt-oss-20b'),
     hfToken: fc.constantFrom('hf_test123', undefined),
@@ -70,12 +70,12 @@ describe('Feature: async-inference-endpoint, Property 6: Backward compatibility 
         console.log('🔧 Configuration: EJS template rendering with fast-check\n');
     });
 
-    it('do/config for hyperpod-eks must contain HYPERPOD_CLUSTER_NAME, HYPERPOD_NAMESPACE, HYPERPOD_REPLICAS but NOT async-specific variables', function () {
+    it('do/config for hyperpod-eks must contain HP_CLUSTER_NAME, HP_NAMESPACE, HP_REPLICAS but NOT async-specific variables', function () {
         /**
          * **Validates: Requirements 10.2, 10.4**
          *
          * When deploymentTarget === 'hyperpod-eks', do/config must contain
-         * HYPERPOD_CLUSTER_NAME, HYPERPOD_NAMESPACE, HYPERPOD_REPLICAS and
+         * HP_CLUSTER_NAME, HP_NAMESPACE, HP_REPLICAS and
          * must NOT contain ASYNC_S3_OUTPUT_PATH, ASYNC_SNS_SUCCESS_TOPIC,
          * ASYNC_SNS_ERROR_TOPIC, or ASYNC_MAX_CONCURRENT_INVOCATIONS.
          */
@@ -102,34 +102,35 @@ describe('Feature: async-inference-endpoint, Property 6: Backward compatibility 
 
                 // Must contain HyperPod-specific variables
                 assert.ok(
-                    output.includes('HYPERPOD_CLUSTER_NAME'),
-                    'hyperpod-eks do/config must contain HYPERPOD_CLUSTER_NAME'
+                    output.includes('HP_CLUSTER_NAME'),
+                    'hyperpod-eks do/config must contain HP_CLUSTER_NAME'
                 );
                 assert.ok(
-                    output.includes('HYPERPOD_NAMESPACE'),
-                    'hyperpod-eks do/config must contain HYPERPOD_NAMESPACE'
+                    output.includes('HP_NAMESPACE'),
+                    'hyperpod-eks do/config must contain HP_NAMESPACE'
                 );
                 assert.ok(
-                    output.includes('HYPERPOD_REPLICAS'),
-                    'hyperpod-eks do/config must contain HYPERPOD_REPLICAS'
+                    output.includes('HP_REPLICAS'),
+                    'hyperpod-eks do/config must contain HP_REPLICAS'
                 );
 
-                // Must NOT contain async-specific variables
+                // Must NOT actively export async-specific variables
+                // (async section comments are always present under BL062 but must not export values)
                 assert.ok(
-                    !output.includes('ASYNC_S3_OUTPUT_PATH'),
-                    'hyperpod-eks do/config must NOT contain ASYNC_S3_OUTPUT_PATH'
+                    !output.includes('export ASYNC_S3_OUTPUT_PATH='),
+                    'hyperpod-eks do/config must NOT export ASYNC_S3_OUTPUT_PATH'
                 );
                 assert.ok(
-                    !output.includes('ASYNC_SNS_SUCCESS_TOPIC'),
-                    'hyperpod-eks do/config must NOT contain ASYNC_SNS_SUCCESS_TOPIC'
+                    !output.includes('export ASYNC_SNS_SUCCESS_TOPIC='),
+                    'hyperpod-eks do/config must NOT export ASYNC_SNS_SUCCESS_TOPIC'
                 );
                 assert.ok(
-                    !output.includes('ASYNC_SNS_ERROR_TOPIC'),
-                    'hyperpod-eks do/config must NOT contain ASYNC_SNS_ERROR_TOPIC'
+                    !output.includes('export ASYNC_SNS_ERROR_TOPIC='),
+                    'hyperpod-eks do/config must NOT export ASYNC_SNS_ERROR_TOPIC'
                 );
                 assert.ok(
-                    !output.includes('ASYNC_MAX_CONCURRENT_INVOCATIONS'),
-                    'hyperpod-eks do/config must NOT contain ASYNC_MAX_CONCURRENT_INVOCATIONS'
+                    !output.match(/^export ASYNC_MAX_CONCURRENT_INVOCATIONS="/m),
+                    'hyperpod-eks do/config must NOT actively export ASYNC_MAX_CONCURRENT_INVOCATIONS'
                 );
             }
         ), { numRuns: 30 });

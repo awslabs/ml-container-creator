@@ -482,17 +482,20 @@ describe('Feature: from-registry + multi-adapter E2E — Validate AC-4.1 through
 
     describe('Auto-register flow links adapters with parent model via do/register', () => {
 
-        it('do/tune _handle_completion calls do/register after adapter add', () => {
+        it('do/tune _handle_completion writes adapter conf file for later deployment', () => {
             assert.ok(
-                tuneScript.includes('"${SCRIPT_DIR}/register"'),
-                'do/tune must call do/register as subprocess after adapter staging'
+                tuneScript.includes('ADAPTER_WEIGHTS_URI') &&
+                tuneScript.includes('adapter_name') &&
+                tuneScript.includes('.conf'),
+                'do/tune must write adapter conf file with weights URI for later deployment'
             );
         });
 
-        it('do/tune auto-register stores TUNE_ADAPTER_DEPLOY_ARN after registration', () => {
+        it('do/tune auto-register prints deploy command for user', () => {
             assert.ok(
-                tuneScript.includes('TUNE_ADAPTER_DEPLOY_ARN'),
-                'Must store TUNE_ADAPTER_DEPLOY_ARN after successful auto-register'
+                tuneScript.includes('./do/adapter add') &&
+                tuneScript.includes('--from-tune'),
+                'Must print do/adapter add command for user to deploy manually'
             );
         });
 

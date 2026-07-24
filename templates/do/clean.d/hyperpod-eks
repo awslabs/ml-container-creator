@@ -7,7 +7,7 @@ set -u
 set -o pipefail
 
 # Source configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
@@ -36,18 +36,18 @@ done
 
 # Function to display usage
 show_usage() {
-    echo "Usage: ./do/clean [local|ecr|batch|codebuild|all]"
+    echo "Usage: ./do/clean [local|ecr|hyperpod|codebuild|all]"
     echo ""
     echo "Cleanup targets:"
     echo "  local     - Remove local Docker images"
     echo "  ecr       - Remove images from Amazon ECR"
-    echo "  batch     - Stop running transform job and delete SageMaker model"
+    echo "  hyperpod  - Delete HyperPod EKS deployment and services"
     echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
     echo "  all       - Perform all cleanup operations"
     echo ""
     echo "Examples:"
     echo "  ./do/clean local      # Remove local Docker images only"
-    echo "  ./do/clean batch      # Stop transform job and delete model"
+    echo "  ./do/clean hyperpod   # Delete HyperPod EKS resources only"
     echo "  ./do/clean codebuild  # Delete CodeBuild project and rebuild fresh"
     echo "  ./do/clean all        # Clean up everything"
 }
@@ -77,7 +77,7 @@ clean_local() {
     LOCAL_PATTERN="^${PROJECT_NAME}:"
     ECR_PATTERN="\.dkr\.ecr\..*\.amazonaws\.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-"
 
-    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -qE "${LOCAL_PATTERN}|${ECR_PATTERN}"; then
+    if ! command -v docker &>/dev/null || ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -qE "${LOCAL_PATTERN}|${ECR_PATTERN}"; then
         echo "ℹ️  No local images found for ${PROJECT_NAME}"
         return 0
     fi
@@ -173,105 +173,79 @@ clean_ecr() {
     fi
 }
 
-# Function to clean SageMaker managed inference batch resources
-clean_batch() {
-    echo "🧹 Cleaning SageMaker managed inference batch resources"
-    echo "   Project: ${PROJECT_NAME}"
-    echo "   Region: ${AWS_REGION}"
+# Function to clean HyperPod EKS deployment
+clean_hyperpod() {
+    echo "🧹 Cleaning HyperPod EKS resources"
+    echo "   Cluster: ${HP_CLUSTER_NAME}"
+    echo "   Namespace: ${HP_NAMESPACE}"
     
     if ! aws sts get-caller-identity &> /dev/null; then
         echo "❌ AWS credentials not configured"
         echo "   Run: aws configure"
         exit 4
     fi
-    
-    local TJ_NAME="${TRANSFORM_JOB_NAME:-}"
-    local SM_MODEL_NAME="${SAGEMAKER_MODEL_NAME:-}"
 
-    if [ -z "${TJ_NAME}" ] && [ -z "${SM_MODEL_NAME}" ]; then
-        echo "❌ No transform job or model name found"
-        echo "   Run ./do/deploy first, or set TRANSFORM_JOB_NAME in do/config"
+    # Get kubeconfig for HyperPod cluster
+    echo "🔑 Configuring kubectl for HyperPod cluster..."
+    KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME}"
+
+    EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+        --cluster-name "${HP_CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "Orchestrator.Eks.ClusterArn" \
+        --output text 2>&1) || {
+        echo "❌ Failed to describe HyperPod cluster: ${HP_CLUSTER_NAME}"
+        echo "   Check that the cluster exists and you have permission to access it"
+        return 1
+    }
+
+    EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+
+    if ! aws eks update-kubeconfig \
+        --name "${EKS_CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+        echo "❌ Failed to configure kubectl for EKS cluster: ${EKS_CLUSTER_NAME}"
         return 1
     fi
 
-    echo ""
-    echo "Checking for SageMaker resources..."
+    export KUBECONFIG="${KUBECONFIG_PATH}"
+    
+    if ! confirm_action "This will delete the HyperPod deployment in namespace ${HP_NAMESPACE}"; then
+        return 1
+    fi
+    
+    # Delete Kubernetes resources
+    echo "🗑️  Deleting Kubernetes resources..."
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    export AWS_ACCOUNT_ID
 
-    local JOB_EXISTS=false
-    local JOB_STATUS=""
-    if [ -n "${TJ_NAME}" ]; then
-        JOB_STATUS=$(aws sagemaker describe-transform-job \
-            --transform-job-name "${TJ_NAME}" \
-            --region "${AWS_REGION}" \
-            --query 'TransformJobStatus' \
-            --output text 2>/dev/null || echo "")
-        if [ -n "${JOB_STATUS}" ]; then
-            JOB_EXISTS=true
-            echo "   ✓ Transform job: ${TJ_NAME} (${JOB_STATUS})"
-        else
-            echo "ℹ️  Transform job not found: ${TJ_NAME}"
+    # Portable envsubst shim — works on macOS without gettext installed
+    if ! command -v envsubst &>/dev/null; then
+        envsubst() { perl -pe 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge'; }
+    fi
+
+    DELETE_FAILED=false
+    for manifest in hyperpod/*.yaml; do
+        # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
+        RENDERED=$(envsubst < "${manifest}")
+        if echo "${RENDERED}" | grep -q '^kind:'; then
+            if ! echo "${RENDERED}" | kubectl delete -n "${HP_NAMESPACE}" --ignore-not-found -f - 2>&1; then
+                DELETE_FAILED=true
+            fi
         fi
-    fi
-
-    local MODEL_EXISTS=false
-    if [ -n "${SM_MODEL_NAME}" ]; then
-        if aws sagemaker describe-model \
-            --model-name "${SM_MODEL_NAME}" \
-            --region "${AWS_REGION}" &> /dev/null; then
-            MODEL_EXISTS=true
-            echo "   ✓ SageMaker model: ${SM_MODEL_NAME}"
-        else
-            echo "ℹ️  SageMaker model not found: ${SM_MODEL_NAME}"
-        fi
-    fi
-
-    if [ "${JOB_EXISTS}" = false ] && [ "${MODEL_EXISTS}" = false ]; then
-        echo "ℹ️  No batch transform resources found to clean"
-        return 0
-    fi
-
-    if ! confirm_action "This will stop the transform job (if running) and delete the SageMaker model"; then
+    done
+    if [ "${DELETE_FAILED}" = true ]; then
+        echo "❌ Failed to delete some Kubernetes resources"
+        echo "   You may need to manually clean up:"
+        echo "   kubectl get all -n ${HP_NAMESPACE}"
         return 1
     fi
 
-    # Stop transform job if in progress
-    if [ "${JOB_EXISTS}" = true ] && [ "${JOB_STATUS}" = "InProgress" ]; then
-        echo "🗑️  Stopping transform job: ${TJ_NAME}"
-        if aws sagemaker stop-transform-job \
-            --transform-job-name "${TJ_NAME}" \
-            --region "${AWS_REGION}" &> /dev/null; then
-            echo "⏳ Waiting for transform job to stop..."
-            aws sagemaker wait transform-job-completed-or-stopped \
-                --transform-job-name "${TJ_NAME}" \
-                --region "${AWS_REGION}" 2>/dev/null || sleep 15
-            echo "✅ Transform job stopped"
-
-            AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-            ./do/manifest delete --id "arn:aws:sagemaker:${AWS_REGION}:${AWS_ACCOUNT_ID}:transform-job/${TJ_NAME}" 2>/dev/null || true
-        else
-            echo "❌ Failed to stop transform job"
-        fi
-    fi
-
-    # Delete SageMaker model
-    if [ "${MODEL_EXISTS}" = true ]; then
-        echo "🗑️  Deleting SageMaker model: ${SM_MODEL_NAME}"
-        if aws sagemaker delete-model \
-            --model-name "${SM_MODEL_NAME}" \
-            --region "${AWS_REGION}" &> /dev/null; then
-            echo "✅ SageMaker model deleted"
-        else
-            echo "❌ Failed to delete SageMaker model"
-        fi
-    fi
-
-    # Remove saved names from config
-    if grep -q "^export TRANSFORM_JOB_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
-        sed -i.bak '/^# Last deployed resources/d;/^export TRANSFORM_JOB_NAME=/d;/^export SAGEMAKER_MODEL_NAME=/d' "${SCRIPT_DIR}/config"
-        rm -f "${SCRIPT_DIR}/config.bak"
-    fi
+    # Mark k8s resources as deleted in manifest (non-blocking)
+    ./do/manifest delete --id "${HP_NAMESPACE}/${PROJECT_NAME}" 2>/dev/null || true
     
-    echo "✅ SageMaker managed inference batch resources cleaned"
+    echo "✅ HyperPod EKS resources cleaned"
 }
 
 # Function to clean CodeBuild project and related resources
@@ -373,7 +347,8 @@ echo "🧹 Cleanup script for ${PROJECT_NAME}"
 echo ""
 
 if [ -z "${CLEANUP_TARGET}" ]; then
-    CLEANUP_TARGET="batch"
+    show_usage
+    exit 0
 fi
 
 case "${CLEANUP_TARGET}" in
@@ -383,8 +358,8 @@ case "${CLEANUP_TARGET}" in
     ecr)
         clean_ecr
         ;;
-    batch)
-        clean_batch
+    hyperpod)
+        clean_hyperpod
         ;;
     codebuild)
         clean_codebuild
@@ -447,9 +422,9 @@ case "${CLEANUP_TARGET}" in
         
         echo ""
         
-        # Clean SageMaker managed inference batch resources
-        if clean_batch; then
-            CLEANED_ITEMS+=("SageMaker managed inference batch resources")
+        # Clean HyperPod EKS resources
+        if clean_hyperpod; then
+            CLEANED_ITEMS+=("HyperPod EKS resources")
         fi
         
         echo ""

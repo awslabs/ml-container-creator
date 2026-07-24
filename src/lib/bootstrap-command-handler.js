@@ -87,6 +87,7 @@ export default class BootstrapCommandHandler {
             else if (arg === '--non-interactive') extractedOptions.nonInteractive = true;
             else if (arg === '--ignore-staleness') extractedOptions.ignoreStaleness = true;
             else if (arg === '--dry-run') extractedOptions.dryRun = true;
+            else if (arg === '--force-delete') extractedOptions.forceDelete = true;
             else if (arg.startsWith('--with=')) extractedOptions.with = arg.slice('--with='.length);
             else if (arg === '--with' && i + 1 < args.length) { extractedOptions.with = args[++i]; }
             else cleanArgs.push(arg);
@@ -435,8 +436,13 @@ export default class BootstrapCommandHandler {
             console.log('   Modules to provision (in order):');
             for (const moduleName of ordered) {
                 const mod = manifest.modules[moduleName];
-                const sn = `mlcc-${profileName}-${mod.stackNameSuffix}`;
-                console.log(`     ${mod.displayName} (${moduleName}) → ${sn}  ~${mod.estimatedMonthlyCost || '$0'}/mo`);
+                if (mod.stacks && Array.isArray(mod.stacks)) {
+                    const stackList = mod.stacks.map(s => `mlcc-${profileName}-${s}`).join(', ');
+                    console.log(`     ${mod.displayName} (${moduleName}) → [${stackList}]  ~${mod.estimatedMonthlyCost || '$0'}/mo`);
+                } else {
+                    const sn = `mlcc-${profileName}-${mod.stackNameSuffix}`;
+                    console.log(`     ${mod.displayName} (${moduleName}) → ${sn}  ~${mod.estimatedMonthlyCost || '$0'}/mo`);
+                }
             }
             console.log(`\n   Profile: ${profileName}`);
             console.log(`   Region:  ${region}`);
@@ -559,15 +565,26 @@ export default class BootstrapCommandHandler {
             console.log('\n🔍 Dry run — showing pending changes per module (nothing will be applied).\n');
             console.log(`   Modules: ${ordered.join(', ')}\n`);
             this._ensureModuleDeps();
-            const { CdkModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
+            const { CdkModuleRunner, CdkMultiStackModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
             for (const moduleName of ordered) {
-                const runner = new CdkModuleRunner(moduleName, manifest.modules[moduleName].stackNameSuffix);
-                await runner.diff({
-                    accountId: profileConfig.accountId,
-                    awsRegion: profileConfig.awsRegion,
-                    awsProfile: profileConfig.awsProfile,
-                    profileName: name
-                });
+                const mod = manifest.modules[moduleName];
+                if (mod.stacks && Array.isArray(mod.stacks)) {
+                    const runner = new CdkMultiStackModuleRunner(moduleName, mod.stacks);
+                    await runner.diff({
+                        accountId: profileConfig.accountId,
+                        awsRegion: profileConfig.awsRegion,
+                        awsProfile: profileConfig.awsProfile,
+                        profileName: name
+                    });
+                } else {
+                    const runner = new CdkModuleRunner(moduleName, mod.stackNameSuffix);
+                    await runner.diff({
+                        accountId: profileConfig.accountId,
+                        awsRegion: profileConfig.awsRegion,
+                        awsProfile: profileConfig.awsProfile,
+                        profileName: name
+                    });
+                }
             }
             console.log('\n   Re-run without --dry-run to apply these changes.');
             return;
@@ -614,8 +631,14 @@ export default class BootstrapCommandHandler {
         console.log(`\n✅ Update complete for profile "${name}"`);
         console.log('   Modules re-deployed (CloudFormation applied any template changes):');
         for (const moduleName of ordered) {
-            const sn = `mlcc-${name}-${manifest.modules[moduleName].stackNameSuffix}`;
-            console.log(`     • ${moduleName} → ${sn}`);
+            const mod = manifest.modules[moduleName];
+            if (mod.stacks && Array.isArray(mod.stacks)) {
+                const stackList = mod.stacks.map(s => `mlcc-${name}-${s}`).join(', ');
+                console.log(`     • ${moduleName} → [${stackList}]`);
+            } else {
+                const sn = `mlcc-${name}-${mod.stackNameSuffix}`;
+                console.log(`     • ${moduleName} → ${sn}`);
+            }
         }
         console.log('   Run `ml-container-creator bootstrap status` to verify stack states.');
 
@@ -1059,6 +1082,19 @@ export default class BootstrapCommandHandler {
             if (outputs.ci.CiTableName) profileData.ciTableName = outputs.ci.CiTableName;
             if (outputs.ci.SourceBucket) profileData.codebuildSourceS3Bucket = outputs.ci.SourceBucket;
         }
+
+        // hyperpod-cluster → hyperpodClusterName, hyperpodEksClusterName, hyperpodSubnetId
+        if (outputs['hyperpod-cluster']) {
+            if (outputs['hyperpod-cluster'].HyperPodClusterName) {
+                profileData.hyperpodClusterName = outputs['hyperpod-cluster'].HyperPodClusterName;
+            }
+            if (outputs['hyperpod-cluster'].EksClusterName) {
+                profileData.hyperpodEksClusterName = outputs['hyperpod-cluster'].EksClusterName;
+            }
+            if (outputs['hyperpod-cluster'].EksClusterArn) {
+                profileData.hyperpodEksClusterArn = outputs['hyperpod-cluster'].EksClusterArn;
+            }
+        }
     }
 
     /**
@@ -1074,13 +1110,21 @@ export default class BootstrapCommandHandler {
      * @returns {Promise<object|null>} Map of module name → outputs, or null if fatal failure
      */
     async _provisionModules(ordered, manifest, profileName, accountId, region, awsProfile, opts = {}) {
-        const { CdkModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
+        const { CdkModuleRunner, CdkMultiStackModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
         const moduleOutputs = {};
         this._ensureModuleDeps();
 
         for (const moduleName of ordered) {
             const mod = manifest.modules[moduleName];
-            const runner = new CdkModuleRunner(moduleName, mod.stackNameSuffix);
+            let runner;
+
+            // Multi-stack modules use CdkMultiStackModuleRunner
+            if (mod.stacks && Array.isArray(mod.stacks)) {
+                runner = new CdkMultiStackModuleRunner(moduleName, mod.stacks);
+            } else {
+                runner = new CdkModuleRunner(moduleName, mod.stackNameSuffix);
+            }
+
             try {
                 const outputs = await runner.provision({
                     accountId,
@@ -1223,6 +1267,36 @@ export default class BootstrapCommandHandler {
         // Dry-run: preview what would happen without provisioning
         if (options.dryRun) {
             const mod = manifest.modules[moduleName];
+
+            if (mod.stacks && Array.isArray(mod.stacks)) {
+                // Multi-stack module dry-run
+                console.log('\n🔍 Dry run — no resources will be created.\n');
+                console.log(`   Module:       ${mod.displayName} (${moduleName})`);
+                console.log(`   Est. cost:    ~${mod.estimatedMonthlyCost || '$0'}/mo`);
+                console.log(`   Depends on:   ${(mod.depends || []).join(', ') || '(none)'}`);
+                console.log(`\n   Stacks (${mod.stacks.length}, deployed in sequence):`);
+                for (let i = 0; i < mod.stacks.length; i++) {
+                    const sn = `mlcc-${name}-${mod.stacks[i]}`;
+                    console.log(`     ${i + 1}. ${sn}`);
+                }
+                console.log('\n   Cost breakdown:');
+                console.log('     • EKS control plane: ~$73/mo');
+                console.log('     • NAT gateway: ~$32/mo');
+                console.log('     • Compute: billed per node-hour when scaled up');
+                console.log('\n   Retained on remove (survives teardown):');
+                console.log('     • IAM roles (7)');
+                console.log('     • HyperPod cluster');
+                console.log('     • TLS S3 bucket');
+                console.log('\n   Estimated creation time: ~20-35 min');
+                console.log('     (EKS cluster ~10 min + HyperPod cluster ~10-20 min)');
+                console.log('\n   Exports (CfnOutputs):');
+                for (const exp of (mod.exports || [])) {
+                    console.log(`     - ${exp}`);
+                }
+                console.log('\n   Re-run without --dry-run to apply.');
+                return;
+            }
+
             const stackName = `mlcc-${name}-${mod.stackNameSuffix}`;
             console.log('\n🔍 Dry run — no resources will be created.\n');
             console.log(`   Module:       ${mod.displayName} (${moduleName})`);
@@ -1245,8 +1319,15 @@ export default class BootstrapCommandHandler {
 
         // Provision using module-runner
         console.log(`\n🚀 Adding module: ${manifest.modules[moduleName].displayName}`);
-        const { CdkModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
-        const runner = new CdkModuleRunner(moduleName, manifest.modules[moduleName].stackNameSuffix);
+        const { CdkModuleRunner, CdkMultiStackModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
+        const mod = manifest.modules[moduleName];
+        let runner;
+
+        if (mod.stacks && Array.isArray(mod.stacks)) {
+            runner = new CdkMultiStackModuleRunner(moduleName, mod.stacks);
+        } else {
+            runner = new CdkModuleRunner(moduleName, mod.stackNameSuffix);
+        }
 
         try {
             const outputs = await runner.provision({
@@ -1310,17 +1391,35 @@ export default class BootstrapCommandHandler {
         // Dry-run: preview the teardown without destroying anything
         if (options.dryRun) {
             const mod = manifest.modules[moduleName];
-            const stackName = `mlcc-${name}-${mod.stackNameSuffix}`;
             const toRemove = [...dependents, moduleName];
             console.log('\n🔍 Dry run — no resources will be destroyed.\n');
             console.log(`   Module:       ${mod.displayName} (${moduleName})`);
-            console.log(`   CDK stack:    ${stackName}`);
+            if (mod.stacks && Array.isArray(mod.stacks)) {
+                console.log(`   CDK stacks:   ${mod.stacks.map(s => `mlcc-${name}-${s}`).join(', ')}`);
+            } else {
+                console.log(`   CDK stack:    mlcc-${name}-${mod.stackNameSuffix}`);
+            }
             if (dependents.length > 0) {
                 console.log(`   ⚠️  Cascade:   ${dependents.join(', ')} depend on this module and would also be removed`);
             }
             console.log('\n   Stacks that would be destroyed (in order):');
             for (const m of toRemove) {
-                console.log(`     - mlcc-${name}-${manifest.modules[m].stackNameSuffix}`);
+                const mMod = manifest.modules[m];
+                if (mMod.stacks && Array.isArray(mMod.stacks)) {
+                    // Multi-stack: destroy in reverse order
+                    const reversed = [...mMod.stacks].reverse();
+                    for (const s of reversed) {
+                        console.log(`     - mlcc-${name}-${s}`);
+                    }
+                } else {
+                    console.log(`     - mlcc-${name}-${mMod.stackNameSuffix}`);
+                }
+            }
+            if (mod.stacks && Array.isArray(mod.stacks)) {
+                console.log('\n   Retained (survives normal teardown):');
+                console.log('     • IAM roles (7) — use --force-delete to remove');
+                console.log('     • HyperPod cluster — use --force-delete to remove');
+                console.log('     • TLS S3 bucket — use --force-delete to remove');
             }
             const remaining = provisioned.filter(m => !toRemove.includes(m));
             console.log('\n   Profile update:');
@@ -1351,6 +1450,12 @@ export default class BootstrapCommandHandler {
         // Confirm removal
         if (!options.force) {
             this._warnPersistentBuckets([moduleName], profileConfig);
+            if (moduleName === 'hyperpod-cluster') {
+                console.log('\n  ⚠️  EKS cluster deletion via CloudFormation can take 30-60 minutes.');
+                console.log('     For faster teardown, consider deleting the HyperPod cluster first:');
+                console.log(`       aws sagemaker delete-cluster --cluster-name mlcc-${name}-hyperpod --region ${profileConfig.awsRegion}`);
+                console.log('     Then delete the EKS cluster from the AWS EKS console before running this command.\n');
+            }
             const { confirm } = await this._promptFn([{
                 type: 'confirm',
                 name: 'confirm',
@@ -1363,18 +1468,43 @@ export default class BootstrapCommandHandler {
             }
         }
 
+        // --force-delete confirmation for HyperPod (destroys retained resources)
+        if ((options.forceDelete || options['force-delete']) && moduleName === 'hyperpod-cluster') {
+            const { confirmForceDelete } = await this._promptFn([{
+                type: 'input',
+                name: 'confirmForceDelete',
+                message: 'This will permanently destroy the HyperPod cluster, IAM roles, and TLS S3 bucket. Type the cluster name to confirm:'
+            }]);
+            const expectedName = `mlcc-${name}-hyperpod`;
+            if (confirmForceDelete !== expectedName) {
+                console.log(`   ❌ Confirmation failed. Expected "${expectedName}". Aborted.`);
+                return;
+            }
+        }
+
         // Teardown
         console.log(`\n🗑️  Removing module: ${manifest.modules[moduleName].displayName}`);
-        const { CdkModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
-        const runner = new CdkModuleRunner(moduleName, manifest.modules[moduleName].stackNameSuffix);
+        const { CdkModuleRunner, CdkMultiStackModuleRunner } = await import('../../infra/bootstrap-modules/module-runner.cjs');
+        const mod = manifest.modules[moduleName];
+        let runner;
+
+        if (mod.stacks && Array.isArray(mod.stacks)) {
+            runner = new CdkMultiStackModuleRunner(moduleName, mod.stacks);
+        } else {
+            runner = new CdkModuleRunner(moduleName, mod.stackNameSuffix);
+        }
 
         try {
+            const teardownOpts = {};
+            if (options.forceDelete || options['force-delete']) {
+                teardownOpts.forceDelete = true;
+            }
             await runner.teardown({
                 accountId: profileConfig.accountId,
                 awsRegion: profileConfig.awsRegion,
                 awsProfile: profileConfig.awsProfile,
                 profileName: name
-            });
+            }, teardownOpts);
 
             // Update profile
             profileConfig.provisionedModules = provisioned.filter(m => m !== moduleName);

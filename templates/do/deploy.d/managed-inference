@@ -6,6 +6,15 @@ set -e
 set -u
 set -o pipefail
 
+# ── Trap: write Failed status on non-zero exit (FR-4.2) ───────────
+_mark_smai_failed() {
+    # Only write if _update_config is available (sourced by parent dispatcher)
+    if type _update_config &>/dev/null; then
+        _update_config "DEPLOYMENT_TARGET_SMAI_STATUS" "Failed"
+    fi
+}
+trap '_mark_smai_failed' ERR
+
 # Parse flags
 FORCE_NEW=false
 FORCE_IC=false
@@ -213,9 +222,9 @@ _ci_handle_existing_endpoint() {
     esac
 }
 
-# Source configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config"
+# Configuration is already sourced by the do/deploy dispatcher.
+# Resolve SCRIPT_DIR to do/ (parent of deploy.d/) for lib/ access.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
@@ -595,6 +604,8 @@ if [ -z "${SKIP_TO}" ]; then
         ENDPOINT_NAME="${PROJECT_NAME}-endpoint-${TIMESTAMP}"
 
         _update_config_var "ENDPOINT_NAME" "${ENDPOINT_NAME}"
+        _update_config_var "SMAI_ENDPOINT_NAME" "${ENDPOINT_NAME}"
+        _update_config_var "SMAI_INSTANCE_TYPE" "${INSTANCE_TYPE}"
 
         # Create endpoint configuration via shared helper
         create_endpoint_config
@@ -1026,6 +1037,9 @@ except:
 fi
 
 echo "✅ Deployment complete!"
+
+# ── Write per-target status (FR-4.2) ─────────────────────────────
+_update_config "DEPLOYMENT_TARGET_SMAI_STATUS" "InService"
 echo ""
 echo "📋 Deployment Details:"
 echo "   Endpoint: ${ENDPOINT_NAME}"
