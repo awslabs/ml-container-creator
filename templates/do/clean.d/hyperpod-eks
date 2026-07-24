@@ -77,7 +77,7 @@ clean_local() {
     LOCAL_PATTERN="^${PROJECT_NAME}:"
     ECR_PATTERN="\.dkr\.ecr\..*\.amazonaws\.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-"
 
-    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -qE "${LOCAL_PATTERN}|${ECR_PATTERN}"; then
+    if ! command -v docker &>/dev/null || ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -qE "${LOCAL_PATTERN}|${ECR_PATTERN}"; then
         echo "ℹ️  No local images found for ${PROJECT_NAME}"
         return 0
     fi
@@ -219,6 +219,12 @@ clean_hyperpod() {
     echo "🗑️  Deleting Kubernetes resources..."
     AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
     export AWS_ACCOUNT_ID
+
+    # Portable envsubst shim — works on macOS without gettext installed
+    if ! command -v envsubst &>/dev/null; then
+        envsubst() { perl -pe 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge'; }
+    fi
+
     DELETE_FAILED=false
     for manifest in hyperpod/*.yaml; do
         # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
