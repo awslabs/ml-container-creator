@@ -54,7 +54,7 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
 # Batch-specific derived variables
-_BATCH_BUCKET="${_PROFILE_batchS3Bucket:-${_PROFILE_modelsS3Bucket:-mlcc-models-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}}"
+_BATCH_BUCKET="${_PROFILE_batchS3Bucket:-${_PROFILE_coreS3Bucket:-${_PROFILE_modelsS3Bucket:-mlcc-core-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}}}}"
 BATCH_INPUT_PATH="${BATCH_INPUT_PATH:-s3://${_BATCH_BUCKET}/batch-input/${PROJECT_NAME}/}"
 BATCH_OUTPUT_PATH="${BATCH_OUTPUT_PATH:-s3://${_BATCH_BUCKET}/batch-output/${PROJECT_NAME}/}"
 

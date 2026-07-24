@@ -373,30 +373,6 @@ const modelFormatPrompts = [
 const modelServerPrompts = [];
 
 /**
- * Model loading strategy prompt
- * Asks user whether to bake model into image at build time or download at container startup.
- * Requirements: 13.1, 13.2, 13.3, 13.4, 13.5
- */
-const modelLoadStrategyPrompts = [
-    {
-        type: 'list',
-        name: 'modelLoadStrategy',
-        message: 'How should the model be loaded?\n'
-            + '  Build-time: Bakes model into image (larger image, faster startup)\n'
-            + '  Runtime: Downloads at container startup (smaller image, slower startup)',
-        choices: [
-            { name: 'Runtime (download at startup)', value: 'runtime' },
-            { name: 'Build-time (bake into image) [EXPERIMENTAL]', value: 'build-time' }
-        ],
-        default: 'runtime',
-        when: (answers) => {
-            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
-            return architecture === 'transformers' || architecture === 'diffusors';
-        }
-    }
-];
-
-/**
  * Model profile selection prompts (for registry system)
  * Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.10
  */
@@ -551,7 +527,6 @@ export {
     frameworkProfilePrompts,
     modelFormatPrompts,
     modelServerPrompts,
-    modelLoadStrategyPrompts,
     modelProfilePrompts,
     hfTokenPrompts,
     ngcApiKeyPrompts

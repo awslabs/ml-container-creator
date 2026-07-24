@@ -52,8 +52,9 @@ CI_BENCHMARK_RESULTS_BUCKET="${CI_BENCHMARK_RESULTS_BUCKET:-${_PROFILE_ciBenchma
 # Training module buckets (denormalized from moduleOutputs.training by bootstrap)
 S3_BUCKET="${S3_BUCKET:-${_PROFILE_trainingS3Bucket:-}}"
 ADAPTER_S3_BUCKET="${ADAPTER_S3_BUCKET:-${_PROFILE_adapterS3Bucket:-}}"
-# Models bucket (staged weights) — from moduleOutputs.core.ModelsBucket
-MODELS_S3_BUCKET="${MODELS_S3_BUCKET:-${_PROFILE_modelsS3Bucket:-}}"
+# Core bucket (staged weights, lifecycle scripts, etc.) — from moduleOutputs.core.ModelsBucket
+# _PROFILE_coreS3Bucket is the canonical key (BL072); _PROFILE_modelsS3Bucket is the deprecated alias
+MODELS_S3_BUCKET="${MODELS_S3_BUCKET:-${_PROFILE_coreS3Bucket:-${_PROFILE_modelsS3Bucket:-}}}"
 CODEBUILD_SOURCE_S3_BUCKET="${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}"
 
 # Export AWS_PROFILE so boto3/sagemaker-core Python scripts authenticate

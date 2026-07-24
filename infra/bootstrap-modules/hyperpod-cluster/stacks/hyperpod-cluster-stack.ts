@@ -66,7 +66,7 @@ export class MlccHyperPodClusterStack extends cdk.Stack {
         // LifeCycleConfig is required for all EKS-orchestrated instance groups,
         // even at 0 instances. Use the core models bucket for the lifecycle script.
         const lifecycleS3Uri = this.node.tryGetContext('lifecycleS3Uri')
-            || `s3://mlcc-models-${this.account}-${this.region}/hyperpod-lifecycle/`;
+            || `s3://mlcc-core-${this.account}-${this.region}/hyperpod-lifecycle/`;
 
         const cluster = new sagemaker.CfnCluster(this, 'HyperPodCluster', {
             clusterName,

@@ -13,7 +13,6 @@ export {
     frameworkProfilePrompts,
     modelFormatPrompts,
     modelServerPrompts,
-    modelLoadStrategyPrompts,
     modelProfilePrompts,
     hfTokenPrompts,
     ngcApiKeyPrompts

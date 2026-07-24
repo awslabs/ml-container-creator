@@ -35,7 +35,7 @@ export class MlccCoreStack extends cdk.Stack {
         // Bootstrap-owned; do/ scripts NEVER create buckets. RETAIN — staged
         // weights are large and expensive to re-download. Adopt-if-exists so a
         // re-provision against a retained bucket doesn't collide on create.
-        const modelsBucketName = `mlcc-models-${this.account}-${this.region}`;
+        const modelsBucketName = `mlcc-core-${this.account}-${this.region}`;
         this.modelsBucket = adoptExistingBuckets
             ? s3.Bucket.fromBucketName(this, 'ModelsBucketResource', modelsBucketName)
             : new s3.Bucket(this, 'ModelsBucketResource', {

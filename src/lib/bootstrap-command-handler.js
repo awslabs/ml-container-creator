@@ -1050,11 +1050,14 @@ export default class BootstrapCommandHandler {
     _denormalizeModuleOutputs(profileData) {
         const outputs = profileData.moduleOutputs || {};
 
-        // core → roleArn, ecrRepositoryName, modelsS3Bucket
+        // core → roleArn, ecrRepositoryName, coreS3Bucket (+ modelsS3Bucket alias for backward compat)
         if (outputs.core) {
             if (outputs.core.RoleArn) profileData.roleArn = outputs.core.RoleArn;
             if (outputs.core.EcrRepositoryName) profileData.ecrRepositoryName = outputs.core.EcrRepositoryName;
-            if (outputs.core.ModelsBucket) profileData.modelsS3Bucket = outputs.core.ModelsBucket;
+            if (outputs.core.ModelsBucket) {
+                profileData.coreS3Bucket = outputs.core.ModelsBucket;
+                profileData.modelsS3Bucket = outputs.core.ModelsBucket; // deprecated alias — remove in v1.6
+            }
         }
 
         // benchmark → ciBenchmarkResultsBucket, benchmarkS3Bucket, ciGlueDatabase

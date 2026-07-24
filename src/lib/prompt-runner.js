@@ -15,7 +15,6 @@ import {
     frameworkProfilePrompts,
     modelFormatPrompts,
     modelServerPrompts,
-    modelLoadStrategyPrompts,
     modelProfilePrompts,
     modulePrompts,
     infraRegionAndTargetPrompts,
@@ -315,14 +314,6 @@ export default class PromptRunner {
             existingConfig
         );
 
-        // Model loading strategy prompt (build-time vs runtime)
-        const modelLoadStrategyAnswers = await this._runPhase(
-            modelLoadStrategyPrompts,
-            { ...frameworkAnswers, ...engineAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers },
-            explicitConfig,
-            existingConfig
-        );
-
         // Secret prompts — registry-driven secret selection (replaces hardcoded hfToken/ngcApiKey prompts)
         const secretPreviousAnswers = { ...frameworkAnswers, ...engineAnswers, ...frameworkVersionAnswers, ...frameworkProfileAnswers, ...modelFormatAnswers, ...modelServerAnswers, ...modelProfileAnswers };
         const secretAnswers = await this.secretsPromptRunner._runSecretPrompts(secretPreviousAnswers, explicitConfig, existingConfig);
@@ -378,7 +369,6 @@ export default class PromptRunner {
             ...modelFormatAnswers,
             ...modelServerAnswers,
             ...modelProfileAnswers,
-            ...modelLoadStrategyAnswers,
             ...hfTokenAnswers,
             ...ngcApiKeyAnswers,
             ...moduleAnswers,

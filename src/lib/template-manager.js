@@ -130,10 +130,8 @@ export default class TemplateManager {
             this._validateChoice('deploymentTarget', supportedOptions.deploymentTargets);
         }
 
-        // Validate HyperPod EKS specific fields
-        if (this.answers.deploymentTarget === 'hyperpod-eks') {
-            this._validateHyperPodConfig();
-        }
+        // HyperPod EKS cluster is selected at deploy time (do/deploy --target hyperpod-eks),
+        // not at generation time — skip validation here (BL062 Universal Deploy).
 
         // Validate async inference specific fields
         this._validateAsyncConfig();
@@ -315,9 +313,8 @@ export default class TemplateManager {
         if (!this.answers.includeBenchmark) return;
 
         // Gate to supported deployment targets
-        if (this.answers.deploymentTarget === 'hyperpod-eks') {
-            throw new Error('⚠️  Benchmarking is only supported with managed-inference, async-inference, and batch-transform deployment targets');
-        }
+        // BL062: deploymentTarget is no longer a generation-time concept — all targets are always
+        // generated. Benchmarking support per target is enforced at runtime in do/benchmark.
 
         // Validate numeric parameters
         if (this.answers.benchmarkConcurrency !== undefined) {
@@ -380,7 +377,8 @@ export default class TemplateManager {
      */
     _validateChoice(field, supportedValues, value = null) {
         const actualValue = value || this.answers[field];
-        if (actualValue && !supportedValues.includes(actualValue)) {
+        // Skip validation for unresolved shell variable references (e.g. "${AWS_REGION:-us-west-2}")
+        if (actualValue && !actualValue.includes('${') && !supportedValues.includes(actualValue)) {
             throw new Error(`⚠️  ${actualValue} not implemented yet for ${field}.`);
         }
     }

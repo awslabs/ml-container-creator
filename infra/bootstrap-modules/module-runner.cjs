@@ -32,7 +32,7 @@ function retainedBucketFor(moduleName, accountId, region) {
     const map = {
         benchmark: `mlcc-benchmark-results-${accountId}-${region}`,
         training: `mlcc-training-${accountId}-${region}`,
-        core: `mlcc-models-${accountId}-${region}`,
+        core: `mlcc-core-${accountId}-${region}`,
         ci: `mlcc-codebuild-source-${accountId}-${region}`,
     };
     return map[moduleName];
@@ -803,7 +803,7 @@ class CdkMultiStackModuleRunner {
 
         // Ensure lifecycle script exists in S3 (required by HyperPod CreateCluster).
         // Uses the core models bucket which must already be provisioned.
-        const lifecycleBucket = `mlcc-models-${profile.accountId}-${profile.awsRegion}`;
+        const lifecycleBucket = `mlcc-core-${profile.accountId}-${profile.awsRegion}`;
         const lifecycleKey = 'hyperpod-lifecycle/on_create.sh';
         try {
             execSync(

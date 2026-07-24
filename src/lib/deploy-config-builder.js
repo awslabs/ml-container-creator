@@ -675,7 +675,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 const homedir = process.env.HOME || '';
                 const pCfg = JSON.parse(readFileSync(join(homedir, '.ml-container-creator/config.json'), 'utf8'));
                 const profile = pCfg.profiles?.[pCfg.activeProfile] || {};
-                const bucket = profile.modelsS3Bucket || '';
+                const bucket = profile.coreS3Bucket || profile.modelsS3Bucket || '';
                 if (bucket) defaultPath = `s3://${bucket}/async-output/${projectName}/`;
             } catch { /* best-effort */ }
 
@@ -710,7 +710,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 const homedir = process.env.HOME || '';
                 const pCfg = JSON.parse(readFileSync(join(homedir, '.ml-container-creator/config.json'), 'utf8'));
                 const profile = pCfg.profiles?.[pCfg.activeProfile] || {};
-                const bucket = profile.modelsS3Bucket || '';
+                const bucket = profile.coreS3Bucket || profile.modelsS3Bucket || '';
                 if (bucket) defaultPath = `s3://${bucket}/batch-output/${projectName}/`;
             } catch { /* best-effort */ }
 

@@ -964,10 +964,15 @@ _adapter_add() {
             fi
 
             local stage_result
-            stage_result=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" stage "${stage_args[@]}" 2>/dev/null | grep -E '^\{' | tail -1) || {
+            local _stage_stderr
+            _stage_stderr=$(mktemp)
+            stage_result=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" stage "${stage_args[@]}" 2>"${_stage_stderr}" | grep -E '^\{' | tail -1) || {
+                cat "${_stage_stderr}" >&2
+                rm -f "${_stage_stderr}"
                 echo "❌ Failed to submit adapter staging job"
                 exit 1
             }
+            rm -f "${_stage_stderr}"
 
             weights_uri=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('adapter_s3_uri',''))" 2>/dev/null) || weights_uri=""
             if [ -z "${weights_uri}" ]; then

@@ -17,8 +17,6 @@
 
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import { modelLoadStrategyPrompts } from '../../src/lib/prompts/index.js';
-
 // ── Helper: simulate _ensureTemplateVariables defaults logic ─────────────────
 // This mirrors the defaults object from index.js _ensureTemplateVariables()
 // without requiring full generator instantiation.
@@ -26,8 +24,7 @@ import { modelLoadStrategyPrompts } from '../../src/lib/prompts/index.js';
 function applyDefaults(answers = {}) {
     const defaults = {
         modelSource: 'huggingface',
-        artifactUri: '',
-        modelLoadStrategy: 'runtime'
+        artifactUri: ''
     };
     const result = { ...answers };
     Object.entries(defaults).forEach(([key, value]) => {
@@ -146,136 +143,4 @@ describe('Feature: model-server-loading-adapter — generator answer flow', () =
         });
     });
 
-    // ── modelLoadStrategy defaults ───────────────────────────────────────
-
-    describe('modelLoadStrategy defaults (Req 13.5)', () => {
-
-        it('defaults to "runtime" when not explicitly set', () => {
-            // **Validates: Requirements 13.5**
-            const result = applyDefaults({});
-            assert.strictEqual(result.modelLoadStrategy, 'runtime');
-        });
-
-        it('preserves explicit "build-time" value', () => {
-            // **Validates: Requirements 13.5**
-            const result = applyDefaults({ modelLoadStrategy: 'build-time' });
-            assert.strictEqual(result.modelLoadStrategy, 'build-time');
-        });
-
-        it('preserves explicit "runtime" value', () => {
-            // **Validates: Requirements 13.5**
-            const result = applyDefaults({ modelLoadStrategy: 'runtime' });
-            assert.strictEqual(result.modelLoadStrategy, 'runtime');
-        });
-    });
-
-    // ── modelLoadStrategy prompt definition ──────────────────────────────
-
-    describe('modelLoadStrategy prompt definition (Req 13.1, 13.2, 13.5)', () => {
-
-        const prompt = modelLoadStrategyPrompts[0];
-
-        it('prompt exists and has name "modelLoadStrategy"', () => {
-            // **Validates: Requirements 13.1**
-            assert.ok(prompt, 'modelLoadStrategyPrompts must contain at least one prompt');
-            assert.strictEqual(prompt.name, 'modelLoadStrategy');
-        });
-
-        it('prompt type is "list"', () => {
-            // **Validates: Requirements 13.1**
-            assert.strictEqual(prompt.type, 'list');
-        });
-
-        it('prompt default is "runtime"', () => {
-            // **Validates: Requirements 13.5**
-            assert.strictEqual(prompt.default, 'runtime');
-        });
-
-        it('prompt message explains trade-offs', () => {
-            // **Validates: Requirements 13.2**
-            assert.ok(
-                prompt.message.includes('Build-time'),
-                'Prompt message must mention build-time option'
-            );
-            assert.ok(
-                prompt.message.includes('Runtime'),
-                'Prompt message must mention runtime option'
-            );
-        });
-
-        it('prompt choices include runtime and build-time', () => {
-            // **Validates: Requirements 13.1**
-            const values = prompt.choices.map(c => c.value);
-            assert.ok(values.includes('runtime'), 'Choices must include runtime');
-            assert.ok(values.includes('build-time'), 'Choices must include build-time');
-        });
-
-        it('when() returns true for transformers architecture', () => {
-            // **Validates: Requirements 13.1**
-            assert.strictEqual(
-                prompt.when({ architecture: 'transformers' }),
-                true,
-                'Prompt must be shown for transformers architecture'
-            );
-        });
-
-        it('when() returns true for diffusors architecture', () => {
-            // **Validates: Requirements 13.1**
-            assert.strictEqual(
-                prompt.when({ architecture: 'diffusors' }),
-                true,
-                'Prompt must be shown for diffusors architecture'
-            );
-        });
-
-        it('when() returns true when architecture derived from deploymentConfig', () => {
-            // **Validates: Requirements 13.1**
-            assert.strictEqual(
-                prompt.when({ deploymentConfig: 'transformers-vllm' }),
-                true,
-                'Prompt must be shown when deploymentConfig starts with transformers'
-            );
-            assert.strictEqual(
-                prompt.when({ deploymentConfig: 'diffusors-vllm-omni' }),
-                true,
-                'Prompt must be shown when deploymentConfig starts with diffusors'
-            );
-        });
-
-        it('when() returns false for http architecture', () => {
-            // **Validates: Requirements 13.1**
-            assert.strictEqual(
-                prompt.when({ architecture: 'http' }),
-                false,
-                'Prompt must NOT be shown for http architecture'
-            );
-        });
-
-        it('when() returns false for triton architecture', () => {
-            // **Validates: Requirements 13.1**
-            assert.strictEqual(
-                prompt.when({ architecture: 'triton' }),
-                false,
-                'Prompt must NOT be shown for triton architecture'
-            );
-        });
-
-        it('when() returns false for sklearn deploymentConfig', () => {
-            // **Validates: Requirements 13.1**
-            assert.strictEqual(
-                prompt.when({ deploymentConfig: 'http-flask' }),
-                false,
-                'Prompt must NOT be shown for http-flask deploymentConfig'
-            );
-        });
-
-        it('when() returns false for triton deploymentConfig', () => {
-            // **Validates: Requirements 13.1**
-            assert.strictEqual(
-                prompt.when({ deploymentConfig: 'triton-fil' }),
-                false,
-                'Prompt must NOT be shown for triton-fil deploymentConfig'
-            );
-        });
-    });
 });
