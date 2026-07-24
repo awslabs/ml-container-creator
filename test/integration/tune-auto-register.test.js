@@ -97,37 +97,34 @@ describe('Feature: tune-register-loop — auto-register flow (Req US-1)', functi
             );
         });
 
-        it('calls do/adapter add as subprocess with --from-tune technique', () => {
+        it('writes adapter conf file with weights URI', () => {
             const section = getHandleCompletionSection();
             assert.ok(
-                section.includes('"${SCRIPT_DIR}/adapter" add "${adapter_name}" --from-tune "${ARG_TECHNIQUE}"'),
-                'Must call "${SCRIPT_DIR}/adapter" add "${adapter_name}" --from-tune "${ARG_TECHNIQUE}" as subprocess'
+                section.includes('ADAPTER_WEIGHTS_URI') &&
+                section.includes('.conf'),
+                'Must write adapter conf file with ADAPTER_WEIGHTS_URI'
             );
         });
 
-        it('calls do/register as subprocess on adapter-add success', () => {
+        it('does NOT call do/adapter add as subprocess (user deploys manually)', () => {
             const section = getHandleCompletionSection();
+            // The auto-register block should NOT invoke adapter add — only print the command
+            const autoRegBlock = section.substring(
+                section.indexOf('Auto-registering'),
+                section.indexOf('--no-register') > 0 ? section.indexOf('--no-register') : section.length
+            );
             assert.ok(
-                section.includes('"${SCRIPT_DIR}/register"'),
-                'Must call "${SCRIPT_DIR}/register" as subprocess'
+                !autoRegBlock.includes('"${SCRIPT_DIR}/adapter" add "${adapter_name}" --from-tune'),
+                'Must NOT call adapter add as subprocess — user deploys manually'
             );
         });
 
-        it('extracts adapter deployment ARN using python JSON parsing', () => {
+        it('prints do/adapter add command for user to run manually', () => {
             const section = getHandleCompletionSection();
             assert.ok(
-                section.includes('model_package_arn') &&
-                section.includes('json.loads') &&
-                section.includes('adapter_deploy_arn'),
-                'Must extract ARN using python JSON parsing from register output'
-            );
-        });
-
-        it('stores TUNE_ADAPTER_DEPLOY_ARN_${technique_upper} via _update_config_var', () => {
-            const section = getHandleCompletionSection();
-            assert.ok(
-                section.includes('_update_config_var "TUNE_ADAPTER_DEPLOY_ARN_${technique_upper}"'),
-                'Must store TUNE_ADAPTER_DEPLOY_ARN_${technique_upper} in do/config via _update_config_var'
+                section.includes('./do/adapter add') &&
+                section.includes('--from-tune'),
+                'Must print do/adapter add command for user to deploy manually'
             );
         });
 
@@ -200,73 +197,40 @@ describe('Feature: tune-register-loop — auto-register flow (Req US-1)', functi
     // Part (c): Subprocess failure is non-fatal
     // ══════════════════════════════════════════════════════════════════════
 
-    describe('(c) subprocess failure is non-fatal (warning printed, exit 0)', () => {
+    describe('(c) auto-register is non-fatal and does not deploy', () => {
 
-        it('uses if pattern to capture adapter-add exit code', () => {
+        it('does not call do/adapter add in the auto-register path', () => {
             const section = getHandleCompletionSection();
-            assert.ok(
-                section.includes('if adapter_add_output=$('),
-                'Must use "if adapter_add_output=$(...)" pattern to capture exit code non-fatally'
-            );
+            // After "Auto-registering" the script should write conf, not invoke adapter add
+            const autoRegStart = section.indexOf('Auto-registering');
+            if (autoRegStart > 0) {
+                const block = section.substring(autoRegStart, autoRegStart + 800);
+                assert.ok(
+                    !block.includes('"${SCRIPT_DIR}/adapter" add'),
+                    'Auto-register must not invoke adapter add subprocess'
+                );
+            }
         });
 
-        it('prints warning when adapter staging fails', () => {
+        it('does not exit 1 in the auto-register path', () => {
             const section = getHandleCompletionSection();
-            assert.ok(
-                section.includes('Adapter staging failed') ||
-                section.includes('adapter staging failed'),
-                'Must print warning message when adapter staging fails'
-            );
-        });
-
-        it('suggests manual commands on failure (do/adapter add + do/register)', () => {
-            const section = getHandleCompletionSection();
-            assert.ok(
-                section.includes('./do/adapter add') &&
-                section.includes('./do/register'),
-                'Must suggest manual commands (./do/adapter add ... + ./do/register) on failure'
-            );
-        });
-
-        it('does not exit 1 in the auto-register failure path', () => {
-            const section = getHandleCompletionSection();
-            // Find the auto-register block (between the adapter condition and the elif/else)
-            const autoRegisterStart = section.indexOf('Auto-register');
+            const autoRegisterStart = section.indexOf('Auto-registering');
             const noRegisterStart = section.indexOf('--no-register');
             if (autoRegisterStart > 0 && noRegisterStart > autoRegisterStart) {
                 const autoRegisterBlock = section.substring(autoRegisterStart, noRegisterStart);
                 assert.ok(
                     !autoRegisterBlock.includes('exit 1'),
-                    'Auto-register failure path must not contain exit 1 — failures are non-fatal'
+                    'Auto-register path must not contain exit 1'
                 );
-            } else {
-                // Fallback: check that the overall function doesn't exit 1 in the adapter staging failure messages
-                const stagingFailIdx = section.indexOf('Adapter staging failed');
-                if (stagingFailIdx > 0) {
-                    // Check the 300 chars after failure message for exit 1
-                    const afterFail = section.substring(stagingFailIdx, stagingFailIdx + 300);
-                    assert.ok(
-                        !afterFail.includes('exit 1'),
-                        'After "Adapter staging failed" warning, must not exit 1'
-                    );
-                }
             }
         });
 
-        it('registration failure is also non-fatal', () => {
+        it('writes conf file unconditionally (no failure possible)', () => {
             const section = getHandleCompletionSection();
             assert.ok(
-                section.includes('Registration failed') ||
-                section.includes('registration failed'),
-                'Must print warning when registration fails (non-fatal)'
-            );
-        });
-
-        it('uses if pattern to capture register exit code', () => {
-            const section = getHandleCompletionSection();
-            assert.ok(
-                section.includes('if register_output=$('),
-                'Must use "if register_output=$(...)" pattern to capture register exit code non-fatally'
+                section.includes('cat > "${_adapter_conf}"') ||
+                section.includes('_adapter_conf'),
+                'Must write adapter conf file directly (no subprocess failure possible)'
             );
         });
     });

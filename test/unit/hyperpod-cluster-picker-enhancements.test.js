@@ -375,7 +375,8 @@ describe('H3: Extended buildResponse format', () => {
         assert.ok(cluster, 'cluster metadata present');
         assert.ok(cluster.instanceGroups[0].gpuCapacity, 'gpuCapacity present');
         assert.strictEqual(cluster.instanceGroups[0].gpuCapacity.total, 12); // 3 * 4
-        assert.strictEqual(cluster.instanceGroups[0].gpuCapacity.availability, 'unknown');
+        // availability is 'known' when GPU total can be calculated from instance type
+        assert.strictEqual(cluster.instanceGroups[0].gpuCapacity.availability, 'known');
     });
 
     it('metadata.recommendation present when modelParams provided', () => {
