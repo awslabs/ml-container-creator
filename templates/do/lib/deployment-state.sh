@@ -17,7 +17,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 _check_active_deployment() {
-    local target="${DEPLOYMENT_TARGET:-managed-inference}"
+    local target="${DEPLOYMENT_TARGET:-realtime-inference}"
 
     case "$target" in
         hyperpod-eks)
