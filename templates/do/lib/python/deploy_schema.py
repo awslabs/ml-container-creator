@@ -78,7 +78,7 @@ STATUS_VARS: dict[str, str] = {
 
 # Target aliases for backward compatibility (v1.4 → v1.5 rename)
 TARGET_ALIASES: dict[str, str] = {
-    "managed-inference": "realtime-inference",
+    "realtime-inference": "realtime-inference",
     "realtime": "realtime-inference",
     "hyperpod": "hyperpod-eks",
     "batch": "batch-transform",
@@ -102,8 +102,8 @@ def validate_config(target: str, config_vars: dict[str, str]) -> list[str]:
     """Check *config_vars* against the schema for *target*.
 
     Args:
-        target: One of the keys in SCHEMAS (e.g. "managed-inference").
-            Also accepts aliases (e.g. "managed-inference").
+        target: One of the keys in SCHEMAS (e.g. "realtime-inference").
+            Also accepts aliases (e.g. "realtime-inference").
         config_vars: Mapping of variable names to their current values
                      (as read from do/config or provided via flags).
 

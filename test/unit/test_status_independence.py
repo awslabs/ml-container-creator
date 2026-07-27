@@ -64,7 +64,7 @@ def read_config_var(config_path: str, key: str) -> str:
 
 INITIAL_CONFIG = """\
 #!/bin/bash
-export DEPLOYMENT_TARGET="managed-inference"
+export DEPLOYMENT_TARGET="realtime-inference"
 export DEPLOYMENT_TARGET_SMAI_STATUS="InService"
 export DEPLOYMENT_TARGET_HP_STATUS="Running"
 export DEPLOYMENT_TARGET_ASYNC_STATUS="InService"
@@ -92,7 +92,7 @@ class TestStatusVarIndependence:
     @pytest.mark.parametrize(
         "target,new_status",
         [
-            ("managed-inference", "Failed"),
+            ("realtime-inference", "Failed"),
             ("hyperpod-eks", "Failed"),
             ("async-inference", "Failed"),
             ("batch-transform", "InProgress"),
@@ -162,15 +162,15 @@ class TestStatusVarIndependence:
 
         Validates: Requirements CP-8, FR-4.1
         """
-        # Deploy to managed-inference (overwrite existing)
-        update_config(config_file, "DEPLOYMENT_TARGET", "managed-inference")
+        # Deploy to realtime-inference (overwrite existing)
+        update_config(config_file, "DEPLOYMENT_TARGET", "realtime-inference")
         update_config(config_file, "DEPLOYMENT_TARGET_SMAI_STATUS", "Creating")
 
         # Deploy to hyperpod-eks
         update_config(config_file, "DEPLOYMENT_TARGET", "hyperpod-eks")
         update_config(config_file, "DEPLOYMENT_TARGET_HP_STATUS", "Creating")
 
-        # Verify managed-inference status was not touched by the HP deploy
+        # Verify realtime-inference status was not touched by the HP deploy
         assert read_config_var(config_file, "DEPLOYMENT_TARGET_SMAI_STATUS") == "Creating"
 
         # Now HP succeeds
@@ -201,7 +201,7 @@ class TestStatusVarIndependence:
         Validates: Requirements FR-4.2
         """
         expected_targets = {
-            "managed-inference",
+            "realtime-inference",
             "hyperpod-eks",
             "async-inference",
             "batch-transform",

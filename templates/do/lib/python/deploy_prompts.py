@@ -262,7 +262,7 @@ def diff_config(target: str, config_vars: dict[str, str]) -> dict[str, str | Non
     missing, the value is the default from the schema.
 
     Args:
-        target: Deployment target key (e.g. "managed-inference").
+        target: Deployment target key (e.g. "realtime-inference").
         config_vars: Current config variable values.
 
     Returns:
@@ -374,7 +374,7 @@ def prompt_target_selection(pre_set_target: str | None = None) -> str:
         pre_set_target: Pre-selected target value, or None to prompt.
 
     Returns:
-        Selected target string (e.g. "managed-inference").
+        Selected target string (e.g. "realtime-inference").
     """
     if pre_set_target:
         return pre_set_target

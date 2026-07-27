@@ -108,11 +108,11 @@ class TestCmdPromptDelegation:
     @patch.object(deploy_helper, "run_prompt_flow")
     def test_passes_target_when_provided(self, mock_flow) -> None:
         """Non-empty --target is passed through to run_prompt_flow."""
-        args = _make_prompt_args(target="managed-inference")
+        args = _make_prompt_args(target="realtime-inference")
         cmd_prompt(args)
         mock_flow.assert_called_once_with(
             config_path="/tmp/config",
-            pre_target="managed-inference",
+            pre_target="realtime-inference",
             pre_instance_type=None,
         )
 
@@ -173,7 +173,7 @@ class TestAnswersFileLoading:
     def test_loads_valid_json_into_env(self, mock_flow, tmp_path, monkeypatch) -> None:
         """Valid JSON answers file is loaded into DEPLOY_ANSWERS env var."""
         monkeypatch.delenv("DEPLOY_ANSWERS", raising=False)
-        answers = {"target": "managed-inference", "instance_type": "ml.g5.xlarge"}
+        answers = {"target": "realtime-inference", "instance_type": "ml.g5.xlarge"}
         answers_file = tmp_path / "answers.json"
         answers_file.write_text(json.dumps(answers))
 
@@ -345,7 +345,7 @@ class TestFlagPassthrough:
         """Non-empty flags are serialized into DEPLOY_ANSWERS env var."""
         monkeypatch.delenv("DEPLOY_ANSWERS", raising=False)
         args = _make_prompt_args(
-            target="managed-inference",
+            target="realtime-inference",
             instance_type="ml.g5.xlarge",
             endpoint_name="my-ep",
         )
@@ -353,7 +353,7 @@ class TestFlagPassthrough:
         raw = os.environ.get("DEPLOY_ANSWERS")
         assert raw is not None
         answers = json.loads(raw)
-        assert answers["target"] == "managed-inference"
+        assert answers["target"] == "realtime-inference"
         assert answers["instance_type"] == "ml.g5.xlarge"
         assert answers["endpoint_name"] == "my-ep"
         monkeypatch.delenv("DEPLOY_ANSWERS", raising=False)
@@ -363,7 +363,7 @@ class TestFlagPassthrough:
         """Empty (default) flag values are omitted from DEPLOY_ANSWERS."""
         monkeypatch.delenv("DEPLOY_ANSWERS", raising=False)
         args = _make_prompt_args(
-            target="managed-inference",
+            target="realtime-inference",
             instance_type="ml.g5.xlarge",
         )
         cmd_prompt(args)
@@ -387,10 +387,10 @@ class TestFlagPassthrough:
 
     @patch.object(deploy_helper, "run_prompt_flow")
     def test_all_managed_inference_flags(self, mock_flow, monkeypatch) -> None:
-        """All managed-inference flags produce complete DEPLOY_ANSWERS."""
+        """All realtime-inference flags produce complete DEPLOY_ANSWERS."""
         monkeypatch.delenv("DEPLOY_ANSWERS", raising=False)
         args = _make_prompt_args(
-            target="managed-inference",
+            target="realtime-inference",
             instance_type="ml.g5.xlarge",
             endpoint_name="prod-ep",
             endpoint_strategy="new",
@@ -399,7 +399,7 @@ class TestFlagPassthrough:
         )
         cmd_prompt(args)
         answers = json.loads(os.environ["DEPLOY_ANSWERS"])
-        assert answers["target"] == "managed-inference"
+        assert answers["target"] == "realtime-inference"
         assert answers["instance_type"] == "ml.g5.xlarge"
         assert answers["endpoint_name"] == "prod-ep"
         assert answers["endpoint_strategy"] == "new"
@@ -493,7 +493,7 @@ class TestFlagAnswerFileMerge:
         monkeypatch.delenv("DEPLOY_ANSWERS", raising=False)
         answers_file = tmp_path / "answers.json"
         answers_file.write_text(json.dumps({
-            "target": "managed-inference",
+            "target": "realtime-inference",
             "instance_type": "ml.g5.xlarge",
             "endpoint_name": "file-ep",
         }))
@@ -507,7 +507,7 @@ class TestFlagAnswerFileMerge:
         # Flag value wins over file value
         assert answers["endpoint_name"] == "flag-ep"
         # File values are preserved for non-overridden keys
-        assert answers["target"] == "managed-inference"
+        assert answers["target"] == "realtime-inference"
         assert answers["instance_type"] == "ml.g5.xlarge"
         monkeypatch.delenv("DEPLOY_ANSWERS", raising=False)
 
@@ -551,7 +551,7 @@ class TestParserAllFlags:
         args = parser.parse_args([
             "prompt",
             "--config-file", "do/config",
-            "--target", "managed-inference",
+            "--target", "realtime-inference",
             "--instance-type", "ml.g5.xlarge",
             "--endpoint-name", "my-endpoint",
             "--endpoint-strategy", "new",
@@ -570,7 +570,7 @@ class TestParserAllFlags:
             "--batch-strategy", "MultiRecord",
             "--batch-max-concurrent", "3",
         ])
-        assert args.target == "managed-inference"
+        assert args.target == "realtime-inference"
         assert args.instance_type == "ml.g5.xlarge"
         assert args.endpoint_name == "my-endpoint"
         assert args.endpoint_strategy == "new"
@@ -648,7 +648,7 @@ class TestCmdStatusAllTargets:
     def test_all_targets_present_in_output(self, tmp_path, capsys) -> None:
         """Status output includes all 4 deployment targets."""
         config_file = tmp_path / "config"
-        config_file.write_text('export DEPLOYMENT_TARGET="managed-inference"\n')
+        config_file.write_text('export DEPLOYMENT_TARGET="realtime-inference"\n')
 
         args = _make_status_args(config_file=str(config_file))
 
@@ -660,7 +660,7 @@ class TestCmdStatusAllTargets:
         output = json.loads(captured.out)
 
         assert "targets" in output
-        assert "managed-inference" in output["targets"]
+        assert "realtime-inference" in output["targets"]
         assert "hyperpod-eks" in output["targets"]
         assert "async-inference" in output["targets"]
         assert "batch-transform" in output["targets"]
@@ -669,7 +669,7 @@ class TestCmdStatusAllTargets:
         """Target with a populated status var shows that status value."""
         config_file = tmp_path / "config"
         config_file.write_text(
-            'export DEPLOYMENT_TARGET="managed-inference"\n'
+            'export DEPLOYMENT_TARGET="realtime-inference"\n'
             'export DEPLOYMENT_TARGET_SMAI_STATUS="InService"\n'
             'export INSTANCE_TYPE="ml.g5.xlarge"\n'
         )
@@ -683,13 +683,13 @@ class TestCmdStatusAllTargets:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
 
-        assert output["targets"]["managed-inference"]["status"] == "InService"
+        assert output["targets"]["realtime-inference"]["status"] == "InService"
 
     def test_undeployed_targets_show_not_deployed(self, tmp_path, capsys) -> None:
         """Targets without status vars show 'not deployed'."""
         config_file = tmp_path / "config"
         config_file.write_text(
-            'export DEPLOYMENT_TARGET="managed-inference"\n'
+            'export DEPLOYMENT_TARGET="realtime-inference"\n'
             'export DEPLOYMENT_TARGET_SMAI_STATUS="InService"\n'
         )
 
@@ -764,7 +764,7 @@ class TestCmdStatusPopulatedConfig:
         """Multiple targets with status vars show their respective statuses."""
         config_file = tmp_path / "config"
         config_file.write_text(
-            'export DEPLOYMENT_TARGET="managed-inference"\n'
+            'export DEPLOYMENT_TARGET="realtime-inference"\n'
             'export DEPLOYMENT_TARGET_SMAI_STATUS="InService"\n'
             'export DEPLOYMENT_TARGET_HP_STATUS="Running"\n'
             'export DEPLOYMENT_TARGET_ASYNC_STATUS=""\n'
@@ -784,7 +784,7 @@ class TestCmdStatusPopulatedConfig:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
 
-        assert output["targets"]["managed-inference"]["status"] == "InService"
+        assert output["targets"]["realtime-inference"]["status"] == "InService"
         assert output["targets"]["hyperpod-eks"]["status"] == "Running"
         assert output["targets"]["async-inference"]["status"] == "not deployed"
         assert output["targets"]["batch-transform"]["status"] == "not deployed"
@@ -805,7 +805,7 @@ class TestCmdStatusTargetFilter:
         """Passing --target shows only that target in the output."""
         config_file = tmp_path / "config"
         config_file.write_text(
-            'export DEPLOYMENT_TARGET="managed-inference"\n'
+            'export DEPLOYMENT_TARGET="realtime-inference"\n'
             'export DEPLOYMENT_TARGET_SMAI_STATUS="InService"\n'
             'export DEPLOYMENT_TARGET_HP_STATUS="Running"\n'
             'export INSTANCE_TYPE="ml.g5.xlarge"\n'
@@ -814,7 +814,7 @@ class TestCmdStatusTargetFilter:
 
         args = _make_status_args(
             config_file=str(config_file),
-            target="managed-inference",
+            target="realtime-inference",
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -826,7 +826,7 @@ class TestCmdStatusTargetFilter:
 
         # Only one target in the output
         assert len(output["targets"]) == 1
-        assert "managed-inference" in output["targets"]
+        assert "realtime-inference" in output["targets"]
         assert "hyperpod-eks" not in output["targets"]
 
     def test_target_flag_filters_to_hyperpod(self, tmp_path, capsys) -> None:
@@ -869,10 +869,10 @@ class TestCmdStatusPerTargetDetails:
     """
 
     def test_managed_inference_includes_endpoint_details(self, tmp_path, capsys) -> None:
-        """managed-inference target includes endpoint_name and endpoint_strategy."""
+        """realtime-inference target includes endpoint_name and endpoint_strategy."""
         config_file = tmp_path / "config"
         config_file.write_text(
-            'export DEPLOYMENT_TARGET="managed-inference"\n'
+            'export DEPLOYMENT_TARGET="realtime-inference"\n'
             'export DEPLOYMENT_TARGET_SMAI_STATUS="InService"\n'
             'export INSTANCE_TYPE="ml.g5.xlarge"\n'
             'export ENDPOINT_NAME="wise-bert-service-ep"\n'
@@ -881,7 +881,7 @@ class TestCmdStatusPerTargetDetails:
 
         args = _make_status_args(
             config_file=str(config_file),
-            target="managed-inference",
+            target="realtime-inference",
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -891,7 +891,7 @@ class TestCmdStatusPerTargetDetails:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
 
-        mi = output["targets"]["managed-inference"]
+        mi = output["targets"]["realtime-inference"]
         assert mi["endpoint_name"] == "wise-bert-service-ep"
         assert mi["endpoint_strategy"] == "new"
 
@@ -980,13 +980,13 @@ class TestCmdStatusPerTargetDetails:
         """Missing detail vars default to empty string in output."""
         config_file = tmp_path / "config"
         config_file.write_text(
-            'export DEPLOYMENT_TARGET="managed-inference"\n'
+            'export DEPLOYMENT_TARGET="realtime-inference"\n'
             'export DEPLOYMENT_TARGET_SMAI_STATUS="InService"\n'
         )
 
         args = _make_status_args(
             config_file=str(config_file),
-            target="managed-inference",
+            target="realtime-inference",
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -996,7 +996,7 @@ class TestCmdStatusPerTargetDetails:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
 
-        mi = output["targets"]["managed-inference"]
+        mi = output["targets"]["realtime-inference"]
         assert mi["endpoint_name"] == ""
         assert mi["endpoint_strategy"] == ""
 
@@ -1016,7 +1016,7 @@ class TestCmdStatusActiveTarget:
         """active_target field reflects DEPLOYMENT_TARGET value."""
         config_file = tmp_path / "config"
         config_file.write_text(
-            'export DEPLOYMENT_TARGET="managed-inference"\n'
+            'export DEPLOYMENT_TARGET="realtime-inference"\n'
             'export DEPLOYMENT_TARGET_SMAI_STATUS="InService"\n'
         )
 
@@ -1029,7 +1029,7 @@ class TestCmdStatusActiveTarget:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
 
-        assert output["active_target"] == "managed-inference"
+        assert output["active_target"] == "realtime-inference"
 
     def test_active_target_hyperpod(self, tmp_path, capsys) -> None:
         """active_target correctly reflects hyperpod-eks when set."""
@@ -1120,7 +1120,7 @@ class TestNoTtyDetection:
         monkeypatch.setattr("sys.stdin", __import__("io").StringIO(""))
 
         args = _make_prompt_args(
-            target="managed-inference",
+            target="realtime-inference",
             instance_type="ml.g5.xlarge",
         )
         cmd_prompt(args)

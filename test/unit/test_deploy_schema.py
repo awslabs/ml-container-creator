@@ -13,7 +13,7 @@ from deploy_schema import SCHEMAS, STATUS_VARS, validate_config
 # Schema structure tests
 # ---------------------------------------------------------------------------
 
-EXPECTED_TARGETS = ["managed-inference", "hyperpod-eks", "async-inference", "batch-transform"]
+EXPECTED_TARGETS = ["realtime-inference", "hyperpod-eks", "async-inference", "batch-transform"]
 
 
 class TestSchemaStructure:
@@ -50,19 +50,19 @@ class TestValidateConfig:
     def test_all_required_present_returns_empty(self) -> None:
         """When all required vars are non-empty, validation passes."""
         config = {"INSTANCE_TYPE": "ml.g5.xlarge", "ENDPOINT_NAME": "my-endpoint"}
-        result = validate_config("managed-inference", config)
+        result = validate_config("realtime-inference", config)
         assert result == []
 
     def test_missing_var_returned(self) -> None:
         """Missing vars appear in the returned list."""
         config = {"INSTANCE_TYPE": "ml.g5.xlarge"}
-        result = validate_config("managed-inference", config)
+        result = validate_config("realtime-inference", config)
         assert "ENDPOINT_NAME" in result
 
     def test_empty_var_treated_as_missing(self) -> None:
         """Empty string values count as missing."""
         config = {"INSTANCE_TYPE": "", "ENDPOINT_NAME": "my-endpoint"}
-        result = validate_config("managed-inference", config)
+        result = validate_config("realtime-inference", config)
         assert "INSTANCE_TYPE" in result
 
     def test_all_missing_returns_full_list(self) -> None:
@@ -79,7 +79,7 @@ class TestValidateConfig:
     def test_optional_vars_not_in_missing(self) -> None:
         """Optional vars with defaults are never reported as missing."""
         config = {"INSTANCE_TYPE": "ml.g5.xlarge", "ENDPOINT_NAME": "ep"}
-        result = validate_config("managed-inference", config)
+        result = validate_config("realtime-inference", config)
         # Optional vars like ENDPOINT_STRATEGY should not appear
         assert "ENDPOINT_STRATEGY" not in result
         assert "IC_GPU_COUNT" not in result
