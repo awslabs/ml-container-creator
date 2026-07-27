@@ -2,7 +2,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Add a new inference component to this project.
+# do/add-ic — Add a new inference component to this project.
+#
+# @mlcc-script
+# type: deployment-centric
+# guard: deployment-active
+# lifecycle: post-deploy
+# targets: realtime-inference
+
 # Creates a new IC config file in do/ic/ and deploys it immediately.
 #
 # Usage:
@@ -14,6 +21,7 @@ set -u
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 
 # ── HyperPod guard: IC is a SageMaker managed inference concept ───────────────

@@ -25,7 +25,7 @@ const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean');
 const cleanContent = readFileSync(cleanTemplatePath, 'utf8');
 
 // clean.d/ target files
-const managedCleanPath = path.join(__dirname, '../../templates/do/clean.d/managed-inference');
+const managedCleanPath = path.join(__dirname, '../../templates/do/clean.d/realtime-inference');
 const hyperpodCleanPath = path.join(__dirname, '../../templates/do/clean.d/hyperpod-eks');
 const asyncCleanPath = path.join(__dirname, '../../templates/do/clean.d/async-inference');
 const batchCleanPath = path.join(__dirname, '../../templates/do/clean.d/batch-transform');
@@ -67,7 +67,7 @@ describe('Clean Script Dispatch Behavior (BL062)', () => {
 
     describe('Property: clean.d/ files all exist', () => {
         it('should have all 4 target clean files', () => {
-            assert.ok(existsSync(managedCleanPath), 'clean.d/managed-inference must exist');
+            assert.ok(existsSync(managedCleanPath), 'clean.d/realtime-inference must exist');
             assert.ok(existsSync(hyperpodCleanPath), 'clean.d/hyperpod-eks must exist');
             assert.ok(existsSync(asyncCleanPath), 'clean.d/async-inference must exist');
             assert.ok(existsSync(batchCleanPath), 'clean.d/batch-transform must exist');

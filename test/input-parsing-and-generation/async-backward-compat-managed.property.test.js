@@ -29,9 +29,9 @@ const __dirname = path.dirname(__filename);
 const templatesDir = path.join(__dirname, '../../templates/do');
 
 const configTemplate = readFileSync(path.join(templatesDir, 'config'), 'utf8');
-const deployTemplate = readFileSync(path.join(templatesDir, 'deploy.d/managed-inference'), 'utf8');
+const deployTemplate = readFileSync(path.join(templatesDir, 'deploy.d/realtime-inference'), 'utf8');
 const testTemplate = readFileSync(path.join(templatesDir, 'test'), 'utf8');
-const cleanTemplate = readFileSync(path.join(templatesDir, 'clean.d/managed-inference'), 'utf8');
+const cleanTemplate = readFileSync(path.join(templatesDir, 'clean.d/realtime-inference'), 'utf8');
 const logsTemplate = readFileSync(path.join(templatesDir, 'logs'), 'utf8');
 
 /**

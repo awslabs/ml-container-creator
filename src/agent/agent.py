@@ -23,6 +23,7 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 from strands import Agent, tool
 from strands.tools.mcp import MCPClient
+from strands.models.anthropic import AnthropicModel
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from config_loader import load_agent_config
@@ -589,8 +590,23 @@ def main() -> None:
         system_prompt = _build_system_prompt(context)
 
         # Create the Strands agent
+        if config.provider == "claude-direct":
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                print("\n\033[31mError:\033[0m provider=claude-direct requires ANTHROPIC_API_KEY env var.")
+                print("  Set: export ANTHROPIC_API_KEY=sk-ant-...")
+                sys.exit(1)
+            model = AnthropicModel(
+                model_id=config.model_id,
+                max_tokens=4096,
+                client_args={"api_key": api_key},
+            )
+            print(f"  \033[34mℹ\033[0m Using Anthropic direct API (model: {config.model_id})")
+        else:
+            model = config.model_id  # Strands resolves Bedrock internally from a string
+
         agent = Agent(
-            model=config.model_id,
+            model=model,
             system_prompt=system_prompt,
             tools=tools,
         )
@@ -608,6 +624,7 @@ def main() -> None:
             print("  • Check AWS credentials (aws sts get-caller-identity)")
             print("  • Verify Bedrock model access in your AWS account")
             print("  • Run with --offline for static reference mode")
+            print("  • Use Claude direct API: set MCC_PROVIDER=claude-direct and ANTHROPIC_API_KEY=<key>")
         else:
             print(f"\n\033[31mError:\033[0m Failed to initialize agent: {error_msg}")
             print("  Try running with --offline for static reference mode.")

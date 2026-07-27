@@ -7,6 +7,8 @@
  * model server, model load strategy, model profile, HF token, NGC API key.
  */
 
+import { discoverSecrets } from './secrets-discovery.js';
+
 /**
  * Phase 1: Core ML configuration (moved to first)
  * Flattened deployment configuration combining architecture + backend
@@ -519,6 +521,88 @@ const ngcApiKeyPrompts = [
     }
 ];
 
+/**
+ * BL067: Async factory that builds HF token prompts with Secrets Manager discovery.
+ * 
+ * Queries Secrets Manager for existing secrets matching HuggingFace naming patterns,
+ * and returns either a list-type prompt (if secrets found) or the existing input-type
+ * prompt (fallback).
+ *
+ * Requirements: 1.1, 1.2, 1.3, 1.4, 6.1
+ *
+ * @param {object} answers - Current answers object (must include awsProfile, awsRegion)
+ * @returns {Promise<Array>} Array of prompt definitions
+ */
+async function buildHfTokenPrompts(answers) {
+    try {
+        const awsProfile = answers.awsProfile || '';
+        const awsRegion = answers.awsRegion || '';
+
+        if (!awsRegion) {
+            return hfTokenPrompts;
+        }
+
+        // Query multiple naming patterns (Requirement 1.1)
+        const [hfSecrets, hfTokenSecrets, hfUnderscoreSecrets] = await Promise.all([
+            discoverSecrets('huggingface', awsProfile, awsRegion),
+            discoverSecrets('hf-token', awsProfile, awsRegion),
+            discoverSecrets('hf_token', awsProfile, awsRegion)
+        ]);
+
+        // Deduplicate by ARN
+        const arnSet = new Set();
+        const allSecrets = [];
+        for (const secret of [...hfSecrets, ...hfTokenSecrets, ...hfUnderscoreSecrets]) {
+            if (!arnSet.has(secret.arn)) {
+                arnSet.add(secret.arn);
+                allSecrets.push(secret);
+            }
+        }
+
+        if (allSecrets.length > 0) {
+            // Requirement 1.2: list-type prompt with discovered secrets
+            return [{
+                type: 'list',
+                name: 'hfToken',
+                message: 'Select HuggingFace token source:',
+                choices: [
+                    ...allSecrets.map(secret => {
+                        const truncatedArn = secret.arn.length > 60
+                            ? `${secret.arn.slice(0, 57)}...`
+                            : secret.arn;
+                        return {
+                            name: `🔒 ${secret.name} (${truncatedArn})`,
+                            value: { arn: secret.arn },
+                            short: secret.name
+                        };
+                    }),
+                    { name: '✨ Create a new secret', value: { createNew: true }, short: 'Create new' },
+                    { name: '⏭️  Skip / configure later', value: { skip: true }, short: 'Skip' }
+                ],
+                when: (promptAnswers) => {
+                    const architecture = promptAnswers.architecture || promptAnswers.deploymentConfig?.split('-')[0];
+                    const backend = promptAnswers.backend || promptAnswers.deploymentConfig?.split('-').slice(1).join('-');
+                    const isTransformers = architecture === 'transformers';
+                    const isDiffusors = architecture === 'diffusors';
+                    const isTritonLlm = architecture === 'triton' && (backend === 'vllm' || backend === 'tensorrtllm');
+                    if (!isTransformers && !isDiffusors && !isTritonLlm) return false;
+                    const modelSource = promptAnswers.modelSource;
+                    if (modelSource && modelSource !== 'huggingface') return false;
+                    const modelName = promptAnswers.customModelName || promptAnswers.modelName;
+                    if (modelName && modelName.startsWith('s3://')) return false;
+                    return true;
+                }
+            }];
+        }
+
+        // Requirement 1.3: no secrets found — return existing input prompt
+        return hfTokenPrompts;
+    } catch {
+        // Requirement 1.4: fallback on any error
+        return hfTokenPrompts;
+    }
+}
+
 export {
     deploymentConfigPrompts,
     frameworkPrompts,
@@ -529,5 +613,6 @@ export {
     modelServerPrompts,
     modelProfilePrompts,
     hfTokenPrompts,
+    buildHfTokenPrompts,
     ngcApiKeyPrompts
 };

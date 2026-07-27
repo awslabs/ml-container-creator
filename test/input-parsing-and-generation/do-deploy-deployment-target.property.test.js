@@ -9,7 +9,7 @@
  *
  * Tests verify:
  * - do/deploy contains dispatch logic for all 4 targets
- * - do/deploy.d/managed-inference contains SageMaker IC logic
+ * - do/deploy.d/realtime-inference contains SageMaker IC logic
  * - do/deploy.d/hyperpod-eks contains kubectl logic
  * - do/deploy.d/async-inference contains async-specific logic
  * - do/deploy.d/batch-transform contains batch transform logic
@@ -35,7 +35,7 @@ const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy');
 const deployContent = readFileSync(deployTemplatePath, 'utf8');
 
 // deploy.d/ target files
-const managedInferencePath = path.join(__dirname, '../../templates/do/deploy.d/managed-inference');
+const managedInferencePath = path.join(__dirname, '../../templates/do/deploy.d/realtime-inference');
 const hyperpodEksPath = path.join(__dirname, '../../templates/do/deploy.d/hyperpod-eks');
 const asyncInferencePath = path.join(__dirname, '../../templates/do/deploy.d/async-inference');
 const batchTransformPath = path.join(__dirname, '../../templates/do/deploy.d/batch-transform');
@@ -93,7 +93,7 @@ describe('Deploy Script Dispatch Behavior (BL062)', () => {
 
     describe('Property: do/deploy.d/ files all exist', () => {
         it('should have managed-inference target file', () => {
-            assert.ok(existsSync(managedInferencePath), 'deploy.d/managed-inference must exist');
+            assert.ok(existsSync(managedInferencePath), 'deploy.d/realtime-inference must exist');
         });
 
         it('should have hyperpod-eks target file', () => {
@@ -109,7 +109,7 @@ describe('Deploy Script Dispatch Behavior (BL062)', () => {
         });
     });
 
-    describe('Property: deploy.d/managed-inference contains SageMaker IC logic', () => {
+    describe('Property: deploy.d/realtime-inference contains SageMaker IC logic', () => {
         it('should contain ECR image verification for any valid deployment target (Req 5.6)', function() {
             this.timeout(10000);
             fc.assert(fc.property(baseConfigArb, (config) => {

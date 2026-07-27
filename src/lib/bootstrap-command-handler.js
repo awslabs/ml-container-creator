@@ -130,6 +130,9 @@ export default class BootstrapCommandHandler {
         case 'add-module':
             await this._handleModuleAdd(args[1], options);
             break;
+        case 'add-secret':
+            await this._handleAddSecret(args[1], args[2], options);
+            break;
         case 'remove-module':
             await this._handleModuleRemove(args[1], options);
             break;
@@ -1635,5 +1638,54 @@ EXAMPLES:
      */
     _displayProgress(emoji, message) {
         console.log(`${emoji} ${message}`);
+    }
+
+    /**
+     * Register a secret ARN in the active bootstrap profile's secrets map.
+     * Usage: mcc bootstrap add-secret <type> <arn>
+     * Supported types: hfToken, ngcApiKey
+     *
+     * @param {string} secretType - The secret type key (e.g. 'hfToken')
+     * @param {string} arn - The Secrets Manager ARN
+     */
+    async _handleAddSecret(secretType, arn, _options) {
+        const VALID_TYPES = ['hfToken', 'ngcApiKey'];
+        const ARN_PATTERN = /^arn:aws:secretsmanager:[a-z0-9-]+:\d{12}:secret:.+/;
+
+        if (!secretType || !arn) {
+            console.error('❌ Usage: mcc bootstrap add-secret <type> <arn>');
+            console.error(`   Valid types: ${VALID_TYPES.join(', ')}`);
+            console.error('   Example: mcc bootstrap add-secret hfToken arn:aws:secretsmanager:us-west-2:123456789012:secret=hf-token-abc123');
+            process.exit(1);
+        }
+
+        if (!VALID_TYPES.includes(secretType)) {
+            console.error(`❌ Unknown secret type: ${secretType}`);
+            console.error(`   Valid types: ${VALID_TYPES.join(', ')}`);
+            process.exit(1);
+        }
+
+        if (!ARN_PATTERN.test(arn)) {
+            console.error(`❌ Invalid ARN format: ${arn}`);
+            console.error('   Expected: arn:aws:secretsmanager:<region>:<account>:secret=<name>');
+            process.exit(1);
+        }
+
+        const config = this.bootstrapConfig.loadConfig();
+        const activeProfile = config.activeProfile;
+        if (!config.profiles[activeProfile]) {
+            console.error(`❌ Active profile not found: ${activeProfile}`);
+            process.exit(1);
+        }
+
+        if (!config.profiles[activeProfile].secrets) {
+            config.profiles[activeProfile].secrets = {};
+        }
+        config.profiles[activeProfile].secrets[secretType] = arn;
+        this.bootstrapConfig.saveConfig(config);
+
+        console.log(`✅ Registered ${secretType} secret for profile '${activeProfile}'`);
+        console.log(`   ARN: ${arn}`);
+        console.log(`   Scripts will resolve this secret via _PROFILE_secrets_${secretType}`);
     }
 }

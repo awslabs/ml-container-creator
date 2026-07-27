@@ -57,6 +57,37 @@ ADAPTER_S3_BUCKET="${ADAPTER_S3_BUCKET:-${_PROFILE_adapterS3Bucket:-}}"
 MODELS_S3_BUCKET="${MODELS_S3_BUCKET:-${_PROFILE_coreS3Bucket:-${_PROFILE_modelsS3Bucket:-}}}"
 CODEBUILD_SOURCE_S3_BUCKET="${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}"
 
+# ── Profile secrets (BL076) ───────────────────────────────────────────────
+# Secret ARNs are stored in the active bootstrap profile's 'secrets' map.
+# profile.sh exports them as _PROFILE_secrets_<key> so scripts can resolve
+# them without hardcoding account-specific ARNs.
+if command -v python3 &>/dev/null; then
+    _PROFILE_SECRETS_RAW=$(python3 -c "
+import json, os
+try:
+    with open(os.path.expanduser('~/.ml-container-creator/config.json')) as f:
+        c = json.load(f)
+    p = c['profiles'][c['activeProfile']]
+    for k, v in p.get('secrets', {}).items():
+        if isinstance(v, str) and all(c.isalnum() or c == '_' for c in k):
+            print(f'_PROFILE_secrets_{k}=\"{v}\"')
+except:
+    pass
+" 2>/dev/null) || _PROFILE_SECRETS_RAW=""
+    if [ -n "${_PROFILE_SECRETS_RAW}" ]; then
+        eval "${_PROFILE_SECRETS_RAW}"
+    fi
+fi
+
+# ── Bucket resolver (BL076) ───────────────────────────────────────────────
+# Constructs an MLCC S3 bucket name from the active profile at runtime,
+# eliminating hardcoded account IDs in do/config.
+# Usage: $(_resolve_bucket core)  → mlcc-core-<accountId>-<region>
+_resolve_bucket() {
+    local purpose="${1:?_resolve_bucket requires a purpose argument}"
+    echo "mlcc-${purpose}-${_PROFILE_accountId:-unknown}-${_PROFILE_awsRegion:-us-east-1}"
+}
+
 # Export AWS_PROFILE so boto3/sagemaker-core Python scripts authenticate
 # using the same profile as the CLI. Without this, Python SDK calls fail
 # with "Unable to locate credentials" when the profile uses SSO or

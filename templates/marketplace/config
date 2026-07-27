@@ -87,7 +87,7 @@ export BENCHMARK_REQUEST_COUNT=""
 <% if (benchmarkS3OutputPath) { %>
 export BENCHMARK_S3_OUTPUT_PATH="<%= benchmarkS3OutputPath %>"
 <% } else { %>
-export BENCHMARK_S3_OUTPUT_PATH="s3://mlcc-benchmark-$(aws sts get-caller-identity --query Account --output text)-${AWS_REGION}/${PROJECT_NAME}/"
+export BENCHMARK_S3_OUTPUT_PATH="s3://$(_resolve_bucket benchmark)/${PROJECT_NAME}/benchmarks/"
 <% } %>
 export BENCHMARK_JOB_NAME=""
 export BENCHMARK_WORKLOAD_CONFIG_NAME=""

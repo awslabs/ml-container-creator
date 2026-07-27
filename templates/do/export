@@ -1,12 +1,21 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/export — Export current configuration as CLI command, JSON, or notebook.
+#
+# @mlcc-script
+# type: model-centric
+# guard: none
+# lifecycle: metadata
+# targets: all
 
 # Export current configuration as a CLI command, JSON object, or Jupyter notebook
 # Usage: ./do/export [--json | --notebook]
 
 # Source configuration (suppress the summary output)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config" > /dev/null 2>&1
 
 # ── Notebook output mode ──────────────────────────────────────────────────────

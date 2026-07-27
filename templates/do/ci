@@ -1,6 +1,14 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/ci — CI integration harness for SageMaker managed inference.
+#
+# @mlcc-script
+# type: model-centric
+# guard: none
+# lifecycle: ci
+# targets: realtime-inference
 
 set -e
 set -u
@@ -8,6 +16,7 @@ set -o pipefail
 
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 
 # ── HyperPod guard: CI harness is SageMaker managed inference specific ────────

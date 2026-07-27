@@ -81,6 +81,7 @@ nav:
       - Architecture: how-it-works.md
       - Schema-Driven Architecture: dev/schema-driven-architecture.md
       - Template System: dev/template-system.md
+      - do/ Script Contracts: do-script-contract.md
       - MCP Server Development: dev/mcp-server-development.md
       - Registries and Catalogs: dev/registries-and-catalogs.md
       - Validation System: dev/validation-system.md

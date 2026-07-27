@@ -22,6 +22,7 @@ class AgentConfig:
     """Resolved agent configuration (immutable after creation)."""
 
     model_id: str
+    provider: str
     mcp_servers: list[str]
     input_cost_per_1k: float
     output_cost_per_1k: float
@@ -32,6 +33,7 @@ class AgentConfig:
 
 _DEFAULTS = AgentConfig(
     model_id="us.anthropic.claude-sonnet-4-20250514",
+    provider="bedrock",
     mcp_servers=[
         "instance-sizer",
         "base-image-picker",
@@ -204,8 +206,18 @@ def load_agent_config(config_path: Path | None = None) -> AgentConfig:
         _valid_int_nn,
     )
 
+    provider = _resolve_field(
+        "provider",
+        "MCC_PROVIDER",
+        file_data.get("provider"),
+        _DEFAULTS.provider,
+        str,
+        lambda v: v in ("bedrock", "claude-direct"),
+    )
+
     return AgentConfig(
         model_id=model_id,
+        provider=provider,
         mcp_servers=mcp_servers,
         input_cost_per_1k=input_cost_per_1k,
         output_cost_per_1k=output_cost_per_1k,

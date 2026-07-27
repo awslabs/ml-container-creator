@@ -1,6 +1,14 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/register — Register deployment to the deployment registry.
+#
+# @mlcc-script
+# type: hybrid
+# guard: none
+# lifecycle: publish
+# targets: all
 
 set -e
 set -u
@@ -8,6 +16,7 @@ set -o pipefail
 
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
@@ -103,6 +112,8 @@ EVALUATOR_TECHNIQUE=""
 EVALUATOR_DESCRIPTION=""
 EXCLUDE_ADAPTERS=""
 BASE_ONLY=false
+WITH_ENDPOINT=false
+WITH_METRICS=false
 
 # ── Dataset subcommand arg parsing ────────────────────────────────────────────
 if [ "${SUBCOMMAND}" = "dataset" ]; then
@@ -317,6 +328,22 @@ else
             ;;
         --base-only)
             BASE_ONLY=true
+            shift
+            ;;
+        --with-endpoint)
+            _require_guard deployment-active
+            WITH_ENDPOINT=true
+            shift
+            ;;
+        --with-metrics)
+            _require_guard deployment-active
+            WITH_METRICS=true
+            shift
+            ;;
+        --ic)
+            echo "⚠️  '--ic' is deprecated — use '--with-endpoint'" >&2
+            _require_guard deployment-active
+            WITH_ENDPOINT=true
             shift
             ;;
         *)

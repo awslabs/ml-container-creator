@@ -10,6 +10,7 @@ import { execSync } from 'node:child_process';
 import { SECRET_CLASSIFICATIONS } from './secret-classification.js';
 import { isSecretsManagerArn } from './arn-detection.js';
 import BootstrapConfig from './bootstrap-config.js';
+import { discoverSecrets, createSecret } from './prompts/secrets-discovery.js';
 
 export default class SecretsPromptRunner {
     constructor(runner) {
@@ -116,6 +117,50 @@ export default class SecretsPromptRunner {
             const region = activeProfile.config.awsRegion;
             if (!profile || !region) return [];
 
+            // BL067: Use SDK-based name-pattern discovery for hf-token secrets
+            // (Requirement 1.1) — search by naming convention in addition to tags
+            if (secretType === 'hf-token') {
+                const namePatterns = ['huggingface', 'hf-token', 'hf_token'];
+                const results = await Promise.all(
+                    namePatterns.map(pattern => discoverSecrets(pattern, profile, region))
+                );
+
+                // Deduplicate by ARN
+                const arnSet = new Set();
+                const allSecrets = [];
+                for (const secrets of results) {
+                    for (const secret of secrets) {
+                        if (!arnSet.has(secret.arn)) {
+                            arnSet.add(secret.arn);
+                            allSecrets.push(secret);
+                        }
+                    }
+                }
+
+                // Also try existing tag-based discovery as fallback
+                if (allSecrets.length === 0) {
+                    return this._listManagedSecretsByTag(secretType, profile, region);
+                }
+
+                return allSecrets;
+            }
+
+            // For non-hf-token types, use the existing tag-based discovery
+            return this._listManagedSecretsByTag(secretType, profile, region);
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Legacy tag-based secret listing using AWS CLI.
+     * @param {string} secretType - The secret type tag value
+     * @param {string} profile - AWS profile name
+     * @param {string} region - AWS region
+     * @returns {Promise<Array<{name: string, arn: string}>>}
+     */
+    async _listManagedSecretsByTag(secretType, profile, region) {
+        try {
             const command = `aws secretsmanager list-secrets --filters Key=tag-key,Values=mlcc:managed-by Key=tag-value,Values=ml-container-creator --region ${region} --profile ${profile} --output json`;
             const output = execSync(command, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 });
             const trimmed = output.trim();
@@ -150,6 +195,7 @@ export default class SecretsPromptRunner {
                 value: secret.arn,
                 short: secret.name
             })),
+            { name: '✨ Create a new secret', value: '__create_new__', short: 'Create new' },
             { name: '✏️  Enter plaintext token', value: '__plaintext__', short: 'Plaintext' },
             { name: '⏭️  Skip (use environment variable)', value: '__skip__', short: 'Skip' }
         ];
@@ -169,7 +215,91 @@ export default class SecretsPromptRunner {
             return this._promptPlaintextEntry(classification, previousAnswers);
         }
 
+        // BL067: Inline secret creation (Requirement 2.1)
+        if (secretSelection === '__create_new__') {
+            return this._promptCreateNewSecret(classification, previousAnswers);
+        }
+
         return { [arnConfigKey]: secretSelection };
+    }
+
+    /**
+     * BL067: Inline secret creation flow (Requirement 2.1, 2.2).
+     * Prompts for token value and secret name, creates the secret in Secrets Manager.
+     * Falls back to plaintext entry on failure.
+     *
+     * @param {object} classification - Secret classification object
+     * @param {object} previousAnswers - Answers from previous prompt phases
+     * @returns {Promise<object>} Object with ARN or plaintext token key
+     */
+    async _promptCreateNewSecret(classification, previousAnswers) {
+        const arnConfigKey = this._getArnConfigKey(classification);
+
+        // Prompt for the raw token value (masked)
+        const { newTokenValue } = await this.runner._runPrompts([{
+            type: 'password',
+            name: 'newTokenValue',
+            message: `Enter ${classification.promptLabel} value:`,
+            mask: '*',
+            validate: (input) => {
+                if (!input || input.trim() === '') {
+                    return `${classification.promptLabel} value is required`;
+                }
+                return true;
+            }
+        }]);
+
+        if (!newTokenValue || newTokenValue.trim() === '') {
+            return {};
+        }
+
+        // Determine default name
+        const projectName = previousAnswers.projectName || 'project';
+        const defaultName = `mlcc-hf-token-${projectName}`;
+
+        // Prompt for secret name
+        const { newSecretName } = await this.runner._runPrompts([{
+            type: 'input',
+            name: 'newSecretName',
+            message: 'Secret name in Secrets Manager:',
+            default: defaultName
+        }]);
+
+        const secretName = (newSecretName || defaultName).trim();
+
+        // Get profile and region
+        try {
+            const bootstrapConfig = new BootstrapConfig();
+            const activeProfile = bootstrapConfig.getActiveProfile();
+            const awsProfile = activeProfile?.config?.awsProfile || previousAnswers.awsProfile || '';
+            const region = activeProfile?.config?.awsRegion || previousAnswers.awsRegion || '';
+
+            const result = await createSecret(secretName, newTokenValue.trim(), awsProfile, region);
+            console.log(`   ✅ Secret created: ${result.arn}`);
+
+            // BL076 integration: write ARN to profile if available
+            if (activeProfile) {
+                try {
+                    const config = bootstrapConfig.read();
+                    if (config && config.profiles && config.profiles[activeProfile.name]) {
+                        if (!config.profiles[activeProfile.name].secrets) {
+                            config.profiles[activeProfile.name].secrets = {};
+                        }
+                        config.profiles[activeProfile.name].secrets.hfToken = result.arn;
+                        bootstrapConfig.write(config);
+                    }
+                } catch {
+                    // Non-fatal: profile write failure doesn't block generation
+                }
+            }
+
+            return { [arnConfigKey]: result.arn };
+        } catch (err) {
+            // Requirement 2.2: Fall back to plaintext on creation failure
+            console.error(`   ❌ Failed to create secret: ${err.message}`);
+            console.log('   Falling back to manual entry.\n');
+            return this._promptPlaintextEntry(classification, previousAnswers);
+        }
     }
 
     async _promptPlaintextEntry(classification, _previousAnswers) {

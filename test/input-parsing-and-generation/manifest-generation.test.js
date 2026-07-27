@@ -24,7 +24,7 @@ const templatesDir = path.join(__dirname, '../../templates');
 const libDir = path.join(__dirname, '../../src/lib');
 
 // Load templates used by the tests
-const deployTemplate = readFileSync(path.join(templatesDir, 'do/deploy.d/managed-inference'), 'utf8');
+const deployTemplate = readFileSync(path.join(templatesDir, 'do/deploy.d/realtime-inference'), 'utf8');
 const _pushTemplate = readFileSync(path.join(templatesDir, 'do/push'), 'utf8'); // eslint-disable-line no-unused-vars
 const _submitTemplate = readFileSync(path.join(templatesDir, 'do/submit'), 'utf8'); // eslint-disable-line no-unused-vars
 const _cleanTemplate = readFileSync(path.join(templatesDir, 'do/clean'), 'utf8'); // eslint-disable-line no-unused-vars
@@ -177,7 +177,7 @@ describe('Manifest Generation Integration Tests', function () {
     // ================================================================
     describe('do/deploy manifest integration', () => {
         it('should contain ./do/manifest add calls for realtime-inference', () => {
-            const output = ejs.render(deployTemplate, managedInferenceVars(), { filename: path.join(templatesDir, 'do/deploy.d/managed-inference') });
+            const output = ejs.render(deployTemplate, managedInferenceVars(), { filename: path.join(templatesDir, 'do/deploy.d/realtime-inference') });
 
             assert.ok(
                 output.includes('./do/manifest add'),
@@ -248,7 +248,7 @@ describe('Manifest Generation Integration Tests', function () {
     describe('do/clean manifest integration', () => {
         it('should contain ./do/manifest delete calls', () => {
             // clean is now a dispatcher; check the managed-inference partial
-            const content = readFileSync(path.join(templatesDir, 'do/clean.d/managed-inference'), 'utf8');
+            const content = readFileSync(path.join(templatesDir, 'do/clean.d/realtime-inference'), 'utf8');
 
             assert.ok(
                 content.includes('./do/manifest delete'),
@@ -257,7 +257,7 @@ describe('Manifest Generation Integration Tests', function () {
         });
 
         it('should mark endpoint resources as deleted', () => {
-            const content = readFileSync(path.join(templatesDir, 'do/clean.d/managed-inference'), 'utf8');
+            const content = readFileSync(path.join(templatesDir, 'do/clean.d/realtime-inference'), 'utf8');
 
             // Verify delete calls reference the expected resource types via ARN patterns
             assert.ok(

@@ -1,0 +1,14 @@
+{
+    "name": "@amzn/ml-container-creator-reasoning",
+    "version": "1.0.0",
+    "description": "MCP server providing a stateless reasoning/interpretation tool powered by Amazon Bedrock.",
+    "modes": {
+        "static": false,
+        "smart": true,
+        "discover": false
+    },
+    "catalogs": {},
+    "tool": {
+        "name": "interpret"
+    }
+}

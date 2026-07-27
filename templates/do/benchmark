@@ -1,7 +1,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/benchmark — Run SageMaker AI Benchmark against deployed endpoint.
+#
+# @mlcc-script
+# type: deployment-centric
+# guard: deployment-active
+# lifecycle: post-deploy
+# targets: all
 
-# do/benchmark — Run SageMaker AI Benchmark against deployed endpoint
 # Uses NVIDIA AIPerf via the SageMaker AI Benchmarking service to measure
 # LLM endpoint performance: throughput, latency, TTFT, and ITL.
 
@@ -15,6 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _BENCHMARK_JSON_MODE=false
 for _arg in "$@"; do [ "$_arg" = "--json" ] || [ "$_arg" = "--compare-baseline" ] && _BENCHMARK_JSON_MODE=true && break; done
 
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 if [ "${_BENCHMARK_JSON_MODE}" = true ]; then
     # Source config with stdout redirected to stderr — config vars load correctly,
     # but the "Configuration loaded" header goes to stderr (visible in terminal,
@@ -531,6 +539,27 @@ _recommend_update_or_append() {
 
     # Default: display recommendations
     _display_recommendations "${_RECOMMEND_RESULT}"
+
+    # AI Interpretation via Reasoning MCP server (non-blocking — skipped if unavailable)
+    if [ "${ARG_NO_BEDROCK}" = "false" ] && [ "${MCC_NO_BEDROCK:-0}" != "1" ] && [ -n "${_RECOMMEND_RESULT}" ]; then
+        _REASONING_OUT=$(python3 "$(dirname "${BASH_SOURCE[0]}")/lib/python/mcp_client.py" \
+            --server reasoning \
+            --tool interpret \
+            --input "{
+                \"context\": \"Project: ${PROJECT_NAME}, model: ${MODEL_NAME:-unknown}, instance: ${INSTANCE_TYPE:-unknown}\",
+                \"data\": ${_RECOMMEND_RESULT},
+                \"objective\": \"Explain these configuration recommendations in plain language and flag any known interaction risks between the suggested settings\"
+            }" 2>/dev/null) || _REASONING_OUT=""
+        if [ -n "${_REASONING_OUT}" ]; then
+            _INTERP=$(echo "${_REASONING_OUT}" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('interpretation',''))" 2>/dev/null) || _INTERP=""
+            if [ -n "${_INTERP}" ]; then
+                echo ""
+                echo "AI Interpretation:"
+                echo "${_INTERP}" | fold -s -w 80 | sed 's/^/  /'
+            fi
+        fi
+    fi
+
     exit 0
 fi
 

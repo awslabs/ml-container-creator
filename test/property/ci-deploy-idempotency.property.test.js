@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference');
+const TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/realtime-inference');
 const templateContent = readFileSync(TEMPLATE_PATH, 'utf-8');
 
 // ── Generators ───────────────────────────────────────────────────────────────

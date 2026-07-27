@@ -1,9 +1,15 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/optimize — Run SageMaker AI Inference Recommendations.
+#
+# @mlcc-script
+# type: deployment-centric
+# guard: deployment-active
+# lifecycle: post-deploy
+# targets: realtime-inference, hyperpod-eks
 
-# do/optimize — Run SageMaker AI Inference Recommendations to find optimal
-# instance types and model configurations for your workload.
 # Wraps CreateAIRecommendationJob / DescribeAIRecommendationJob.
 
 set -e
@@ -12,6 +18,7 @@ set -o pipefail
 
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/wait.sh"
 

@@ -1,8 +1,15 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/stage — Pre-stage model weights from HuggingFace to S3.
+#
+# @mlcc-script
+# type: model-centric
+# guard: none
+# lifecycle: publish
+# targets: all
 
-# do/stage — Pre-stage model weights from HuggingFace to S3
 # Submits a SageMaker Processing Job that downloads from HuggingFace
 # and writes directly to S3 — no local disk usage.
 #
@@ -21,6 +28,7 @@ set -o pipefail
 
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/staged-assets.sh"
@@ -196,10 +204,16 @@ print(p.get('roleArn', ''))
     # Update config if requested and we have a valid S3 URI
     if [ "${UPDATE_CONFIG}" = true ] && [ -n "${s3_uri}" ] && [ "${job_status}" != "Submitted" ]; then
         CONFIG_FILE="${SCRIPT_DIR}/config"
-        sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${s3_uri}\"|" "${CONFIG_FILE}"
+        # BL076: write to STAGED_MODEL_PATH instead of overwriting MODEL_NAME (preserves HF model ID)
+        if grep -q '^export STAGED_MODEL_PATH=' "${CONFIG_FILE}"; then
+            sed -i.bak "s|^export STAGED_MODEL_PATH=.*|export STAGED_MODEL_PATH=\"${s3_uri}\"|" "${CONFIG_FILE}"
+        else
+            echo "" >> "${CONFIG_FILE}"
+            echo "export STAGED_MODEL_PATH=\"${s3_uri}\"" >> "${CONFIG_FILE}"
+        fi
         rm -f "${CONFIG_FILE}.bak"
         echo ""
-        echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
+        echo "   ✅ Updated STAGED_MODEL_PATH in do/config (MODEL_NAME preserved: ${MODEL_NAME})"
         echo "   Subsequent tasks (submit, deploy) will pull from S3."
     fi
 }
@@ -327,12 +341,18 @@ if [ "${FORCE}" = false ]; then
         echo ""
         if [ "${UPDATE_CONFIG}" = true ]; then
             CONFIG_FILE="${SCRIPT_DIR}/config"
-            sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
+            # BL076: write to STAGED_MODEL_PATH instead of overwriting MODEL_NAME
+            if grep -q '^export STAGED_MODEL_PATH=' "${CONFIG_FILE}"; then
+                sed -i.bak "s|^export STAGED_MODEL_PATH=.*|export STAGED_MODEL_PATH=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
+            else
+                echo "" >> "${CONFIG_FILE}"
+                echo "export STAGED_MODEL_PATH=\"${MODEL_S3_URI}\"" >> "${CONFIG_FILE}"
+            fi
             rm -f "${CONFIG_FILE}.bak"
-            echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
+            echo "   ✅ Updated STAGED_MODEL_PATH in do/config (MODEL_NAME preserved: ${MODEL_NAME})"
         else
             echo "   To use this staged model, set in do/config:"
-            echo "   export MODEL_NAME=\"${MODEL_S3_URI}\""
+            echo "   export STAGED_MODEL_PATH=\"${MODEL_S3_URI}\""
         fi
         exit 0
     fi

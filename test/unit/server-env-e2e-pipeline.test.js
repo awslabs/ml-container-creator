@@ -57,13 +57,13 @@ describe('Server-Env E2E Pipeline (Task 3.4, FTP-3: 3.1, 3.4, 3.5)', () => {
                 `do/config should use runtime-override pattern: \${${expectedKey}:-fp8}`
             );
 
-            // --- Verify do/deploy.d/managed-inference ---
+            // --- Verify do/deploy.d/realtime-inference ---
             // do/deploy is now a dispatcher; server env injection lives in
-            // do/deploy.d/managed-inference
-            const deployPath = result.file('do/deploy.d/managed-inference');
+            // do/deploy.d/realtime-inference
+            const deployPath = result.file('do/deploy.d/realtime-inference');
             assert.ok(
                 fs.existsSync(deployPath),
-                'do/deploy.d/managed-inference should exist in generated project'
+                'do/deploy.d/realtime-inference should exist in generated project'
             );
 
             const deployContent = fs.readFileSync(deployPath, 'utf8');
@@ -71,19 +71,19 @@ describe('Server-Env E2E Pipeline (Task 3.4, FTP-3: 3.1, 3.4, 3.5)', () => {
             // Verify the server env injection section exists
             assert.ok(
                 deployContent.includes('Inject server environment variables into container Environment'),
-                'do/deploy.d/managed-inference should contain server env injection section header'
+                'do/deploy.d/realtime-inference should contain server env injection section header'
             );
 
             // Verify the specific key is referenced in the deploy script
             assert.ok(
                 deployContent.includes(expectedKey),
-                `do/deploy.d/managed-inference should reference ${expectedKey} for injection into container Environment`
+                `do/deploy.d/realtime-inference should reference ${expectedKey} for injection into container Environment`
             );
 
             // Verify the injection pattern adds the var to CONTAINER_ENV_JSON
             assert.ok(
                 deployContent.includes('CONTAINER_ENV_JSON'),
-                'do/deploy.d/managed-inference should build CONTAINER_ENV_JSON with server env vars'
+                'do/deploy.d/realtime-inference should build CONTAINER_ENV_JSON with server env vars'
             );
 
         } finally {
@@ -126,12 +126,12 @@ describe('Server-Env E2E Pipeline (Task 3.4, FTP-3: 3.1, 3.4, 3.5)', () => {
                 );
             }
 
-            // Verify do/deploy.d/managed-inference references all keys
-            const deployContent = fs.readFileSync(result.file('do/deploy.d/managed-inference'), 'utf8');
+            // Verify do/deploy.d/realtime-inference references all keys
+            const deployContent = fs.readFileSync(result.file('do/deploy.d/realtime-inference'), 'utf8');
             for (const key of expectedKeys) {
                 assert.ok(
                     deployContent.includes(key),
-                    `do/deploy.d/managed-inference should reference ${key} for container injection`
+                    `do/deploy.d/realtime-inference should reference ${key} for container injection`
                 );
             }
 
