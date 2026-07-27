@@ -43,7 +43,8 @@ export default class SecretsPromptRunner {
                 continue;
             }
 
-            const managedSecrets = await this._listManagedSecrets(classification.identifier);
+            const managedSecrets = await this._listManagedSecrets(classification.identifier)
+                .catch(() => []);  // Graceful fallback: treat errors as no secrets found
 
             if (managedSecrets.length > 0) {
                 const answer = await this._promptSecretSelection(classification, managedSecrets, previousAnswers);

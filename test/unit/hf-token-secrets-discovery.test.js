@@ -134,7 +134,7 @@ describe('BL067 — HF Token Secrets Manager Discovery', () => {
             });
 
             // Override _listManagedSecrets to throw error
-            runner._listManagedSecrets = async () => { throw new Error('AccessDenied'); };
+            runner.secretsPromptRunner._listManagedSecrets = async () => { throw new Error('AccessDenied'); };
 
             // The runner should catch the error and fall back gracefully
             // Actually, _runSecretPrompts calls _listManagedSecrets within a try/catch
