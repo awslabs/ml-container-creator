@@ -133,7 +133,7 @@ def get_clusters(region: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 TARGETS: list[dict[str, str]] = [
-    {"value": "managed-inference", "name": "Managed Inference (SageMaker real-time endpoint)"},
+    {"value": "realtime-inference", "name": "Real-time Inference (SageMaker)"},
     {"value": "async-inference", "name": "Async Inference (SageMaker async endpoint)"},
     {"value": "batch-transform", "name": "Batch Transform (SageMaker batch job)"},
     {"value": "hyperpod-eks", "name": "HyperPod EKS (GPU cluster inference)"},
