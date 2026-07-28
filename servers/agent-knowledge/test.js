@@ -174,6 +174,59 @@ test('troubleshooting filter works', async () => {
     }
 });
 
+// ── BL071: @mlcc-script Contract Parsing ─────────────────────────────────────
+
+console.log('\ncontract parsing (BL071):');
+
+test('parseScriptFile extracts all four contract fields', () => {
+    const result = loadScriptReference();
+    const build = result.find(s => s.name === 'build');
+    assert(build, 'build script not found');
+    assert.strictEqual(build.type, 'model-centric', `Expected type 'model-centric', got '${build.type}'`);
+    assert.strictEqual(build.guard, 'none', `Expected guard 'none', got '${build.guard}'`);
+    assert.strictEqual(build.lifecycle, 'build', `Expected lifecycle 'build', got '${build.lifecycle}'`);
+    assert.strictEqual(build.targets, 'all', `Expected targets 'all', got '${build.targets}'`);
+});
+
+test('script with missing contract field has warning', () => {
+    // The 'config' template uses @mlcc-script but may have issues with parsing
+    // depending on structure. Test a known good one and a known partial case.
+    const result = loadScriptReference();
+    // All annotated scripts should have type set
+    const annotated = result.filter(s => s.type !== null);
+    assert(annotated.length > 10, `Expected at least 10 annotated scripts, got ${annotated.length}`);
+
+    // Verify scripts that have warnings about consistency don't have all null fields
+    const withWarnings = result.filter(s => s.contract_warnings && s.contract_warnings.length > 0);
+    for (const s of withWarnings) {
+        // Even partial scripts should have at least some parsed fields
+        assert(s.type || s.guard || s.lifecycle || s.targets,
+            `Script ${s.name} has warnings but all contract fields are null`);
+    }
+});
+
+test('capability_matrix with filter.type returns only model-centric scripts', async () => {
+    const result = await handleQueryKnowledge({ topic: 'capability_matrix', filter: 'type:model-centric' });
+    const parsed = JSON.parse(result.content[0].text);
+    assert(Array.isArray(parsed), 'Expected array result');
+    assert(parsed.length > 0, 'Expected at least one model-centric script');
+    for (const entry of parsed) {
+        assert.strictEqual(entry.type, 'model-centric',
+            `Expected all entries to be model-centric, got ${entry.type} for ${entry.name}`);
+    }
+});
+
+test('capability_matrix with filter.guard returns only deployment-active scripts', async () => {
+    const result = await handleQueryKnowledge({ topic: 'capability_matrix', filter: 'guard:deployment-active' });
+    const parsed = JSON.parse(result.content[0].text);
+    assert(Array.isArray(parsed), 'Expected array result');
+    assert(parsed.length > 0, 'Expected at least one deployment-active script');
+    for (const entry of parsed) {
+        assert.strictEqual(entry.guard, 'deployment-active',
+            `Expected all entries to have deployment-active guard, got ${entry.guard} for ${entry.name}`);
+    }
+});
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed`);

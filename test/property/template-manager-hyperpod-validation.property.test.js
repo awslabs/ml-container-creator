@@ -88,7 +88,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
-        it('empty or missing hyperPodCluster always fails validation (Req 10.3)', function () {
+        it.skip('empty or missing hyperPodCluster always fails validation (Req 10.3) [BL062: moved to deploy-time]', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
@@ -121,7 +121,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
-        it('invalid namespace always fails validation (Req 10.4, 10.6)', function () {
+        it.skip('invalid namespace always fails validation (Req 10.4, 10.6) [BL062: moved to deploy-time]', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
@@ -149,7 +149,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
-        it('invalid replicas always fails validation (Req 10.5, 10.6)', function () {
+        it.skip('invalid replicas always fails validation (Req 10.5, 10.6) [BL062: moved to deploy-time]', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
 
             fc.assert(fc.property(
@@ -177,7 +177,7 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
             ), { numRuns: PROPERTY_CONFIG.numRuns, verbose: PROPERTY_CONFIG.verbose });
         });
 
-        it('validation errors always include descriptive field name (Req 10.6)', function () {
+        it.skip('validation errors always include descriptive field name (Req 10.6) [BL062: moved to deploy-time]', function () {
             this.timeout(PROPERTY_CONFIG.timeout);
 
             // Test cluster error message

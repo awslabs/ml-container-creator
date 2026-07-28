@@ -230,7 +230,6 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
         baseImage: null,
         modelSource: 'huggingface',
         artifactUri: '',
-        modelLoadStrategy: 'runtime',
         existingEndpointName: null,
         enableLora: true,
         maxLoras: 30,

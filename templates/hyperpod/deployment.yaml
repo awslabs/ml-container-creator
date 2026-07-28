@@ -36,6 +36,13 @@ spec:
           env:
             - name: VLLM_TENSOR_PARALLEL_SIZE
               value: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+<% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
+            - name: VLLM_ENABLE_LORA
+              value: "true"
+<% } else { %>
+            - name: VLLM_ENABLE_LORA
+              value: "${VLLM_ENABLE_LORA:-}"
+<% } %>
 <% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
             - name: NCCL_SOCKET_IFNAME
               value: "eth"

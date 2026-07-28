@@ -26,7 +26,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATUS_TEMPLATE_PATH = resolve(__dirname, '../../templates/do/status');
 const STATUS_TEMPLATE = readFileSync(STATUS_TEMPLATE_PATH, 'utf-8');
 
-const DEPLOY_TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/managed-inference');
+const DEPLOY_TEMPLATE_PATH = resolve(__dirname, '../../templates/do/deploy.d/realtime-inference');
 const DEPLOY_TEMPLATE = readFileSync(DEPLOY_TEMPLATE_PATH, 'utf-8');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -127,13 +127,15 @@ export default class TemplateManager {
 
         // Validate deploymentTarget
         if (this.answers.deploymentTarget) {
+            // BL073: normalize deprecated 'managed-inference' alias from pre-v1.5 projects
+            if (this.answers.deploymentTarget === 'managed-inference') {
+                this.answers.deploymentTarget = 'realtime-inference';
+            }
             this._validateChoice('deploymentTarget', supportedOptions.deploymentTargets);
         }
 
-        // Validate HyperPod EKS specific fields
-        if (this.answers.deploymentTarget === 'hyperpod-eks') {
-            this._validateHyperPodConfig();
-        }
+        // HyperPod EKS cluster is selected at deploy time (do/deploy --target hyperpod-eks),
+        // not at generation time — skip validation here (BL062 Universal Deploy).
 
         // Validate async inference specific fields
         this._validateAsyncConfig();
@@ -145,7 +147,8 @@ export default class TemplateManager {
         this._validateBenchmarkConfig();
         
         // Validate instance type format (ml.*.*) - only for realtime-inference
-        if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
+        // Skip validation for unresolved shell variable references (e.g. "${INSTANCE_TYPE:-ml.g5.xlarge}")
+        if (this.answers.instanceType && this.answers.instanceType !== 'custom' && !this.answers.instanceType.includes('${')) {
             const instancePattern = /^ml\.[a-z0-9-]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
             if (!instancePattern.test(this.answers.instanceType)) {
                 throw new Error(`⚠️  Invalid instance type format: ${this.answers.instanceType}. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g5.xlarge)`);
@@ -160,48 +163,6 @@ export default class TemplateManager {
                 this._validateChoice('testType', supportedOptions.testTypes, testType);
             }
         }
-    }
-
-    /**
-     * Validates HyperPod EKS specific configuration
-     * @private
-     * @throws {Error} If HyperPod configuration is invalid
-     */
-    _validateHyperPodConfig() {
-        // Validate hyperPodCluster is non-empty
-        if (!this.answers.hyperPodCluster || this.answers.hyperPodCluster.trim() === '') {
-            throw new Error('⚠️  hyperPodCluster is required when deploymentTarget is "hyperpod-eks". Please provide a valid HyperPod cluster name.');
-        }
-
-        // Validate hyperPodNamespace conforms to RFC 1123 DNS label format
-        if (this.answers.hyperPodNamespace) {
-            if (!this._isValidRfc1123DnsLabel(this.answers.hyperPodNamespace)) {
-                throw new Error(`⚠️  Invalid hyperPodNamespace: "${this.answers.hyperPodNamespace}". Namespace must conform to RFC 1123 DNS label format: lowercase alphanumeric characters or hyphens, must start and end with an alphanumeric character, and be at most 63 characters.`);
-            }
-        }
-
-        // Validate hyperPodReplicas is an integer >= 1
-        if (this.answers.hyperPodReplicas !== undefined) {
-            const replicas = this.answers.hyperPodReplicas;
-            if (!Number.isInteger(replicas) || replicas < 1) {
-                throw new Error(`⚠️  Invalid hyperPodReplicas: "${replicas}". Replicas must be an integer greater than or equal to 1.`);
-            }
-        }
-    }
-
-    /**
-     * Validates a string conforms to RFC 1123 DNS label format
-     * @private
-     * @param {string} value - The value to validate
-     * @returns {boolean} True if valid RFC 1123 DNS label
-     */
-    _isValidRfc1123DnsLabel(value) {
-        if (!value || typeof value !== 'string') {
-            return false;
-        }
-        // RFC 1123 DNS label: lowercase alphanumeric, hyphens allowed (not at start/end), max 63 chars
-        const rfc1123Pattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
-        return value.length <= 63 && rfc1123Pattern.test(value);
     }
 
     /**
@@ -315,9 +276,8 @@ export default class TemplateManager {
         if (!this.answers.includeBenchmark) return;
 
         // Gate to supported deployment targets
-        if (this.answers.deploymentTarget === 'hyperpod-eks') {
-            throw new Error('⚠️  Benchmarking is only supported with managed-inference, async-inference, and batch-transform deployment targets');
-        }
+        // BL062: deploymentTarget is no longer a generation-time concept — all targets are always
+        // generated. Benchmarking support per target is enforced at runtime in do/benchmark.
 
         // Validate numeric parameters
         if (this.answers.benchmarkConcurrency !== undefined) {
@@ -380,7 +340,8 @@ export default class TemplateManager {
      */
     _validateChoice(field, supportedValues, value = null) {
         const actualValue = value || this.answers[field];
-        if (actualValue && !supportedValues.includes(actualValue)) {
+        // Skip validation for unresolved shell variable references (e.g. "${AWS_REGION:-us-west-2}")
+        if (actualValue && !actualValue.includes('${') && !supportedValues.includes(actualValue)) {
             throw new Error(`⚠️  ${actualValue} not implemented yet for ${field}.`);
         }
     }

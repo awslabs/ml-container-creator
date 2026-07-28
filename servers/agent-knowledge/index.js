@@ -99,6 +99,40 @@ function parseScriptFile(filePath) {
         const content = readFileSync(filePath, 'utf8');
         const name = basename(filePath);
 
+        // ── Parse @mlcc-script contract block ────────────────────────────────────
+        let contractType = null;
+        let contractGuard = null;
+        let contractLifecycle = null;
+        let contractTargets = null;
+        const contractWarnings = [];
+
+        const mlccBlockMatch = content.match(/#\s*@mlcc-script[\s\S]*?(?=\n[^#\s]|\n\n)/);
+        if (mlccBlockMatch) {
+            const block = mlccBlockMatch[0];
+            const typeMatch = block.match(/^# type:\s*(.+)/m);
+            const guardMatch = block.match(/^# guard:\s*(.+)/m);
+            const lifecycleMatch = block.match(/^# lifecycle:\s*(.+)/m);
+            const targetsMatch = block.match(/^# targets:\s*(.+)/m);
+
+            if (typeMatch) contractType = typeMatch[1].trim();
+            if (guardMatch) contractGuard = guardMatch[1].trim();
+            if (lifecycleMatch) contractLifecycle = lifecycleMatch[1].trim();
+            if (targetsMatch) contractTargets = targetsMatch[1].trim();
+
+            // Validate consistency
+            if (!contractType) contractWarnings.push('Missing required field: type');
+            if (!contractGuard) contractWarnings.push('Missing required field: guard');
+            if (!contractLifecycle) contractWarnings.push('Missing required field: lifecycle');
+            if (!contractTargets) contractWarnings.push('Missing required field: targets');
+
+            if (contractType === 'model-centric' && contractGuard === 'deployment-active') {
+                contractWarnings.push('type \'model-centric\' with guard \'deployment-active\' is unusual. Model-centric scripts typically use guard \'none\' or \'model-staged\'.');
+            }
+            if (contractType === 'deployment-centric' && contractGuard === 'none' && name !== 'deploy') {
+                contractWarnings.push('type \'deployment-centric\' with guard \'none\' is unusual. Deployment-centric scripts typically need a deployment check.');
+            }
+        }
+
         // Extract purpose from first comment block (lines starting with #, after shebang)
         const lines = content.split('\n');
         let purpose = '';
@@ -181,7 +215,12 @@ function parseScriptFile(filePath) {
             reads,
             writes,
             lifecycle_position: LIFECYCLE_POSITIONS[name] || 'unknown',
-            common_failures: commonFailures
+            common_failures: commonFailures,
+            type: contractType,
+            guard: contractGuard,
+            lifecycle: contractLifecycle,
+            targets: contractTargets,
+            contract_warnings: contractWarnings.length > 0 ? contractWarnings : undefined
         };
     } catch (err) {
         return {
@@ -192,6 +231,10 @@ function parseScriptFile(filePath) {
             writes: [],
             lifecycle_position: LIFECYCLE_POSITIONS[basename(filePath)] || 'unknown',
             common_failures: [],
+            type: null,
+            guard: null,
+            lifecycle: null,
+            targets: null,
             error: err.message,
             partial: true
         };
@@ -498,11 +541,25 @@ async function handleQueryKnowledge({ topic, filter, context }) {
         let scripts = getCached('script_reference', loadScriptReference);
         if (filter && Array.isArray(scripts)) {
             const filterLower = filter.toLowerCase();
-            scripts = scripts.filter(s =>
-                s.name.toLowerCase().includes(filterLower) ||
-                    s.purpose.toLowerCase().includes(filterLower) ||
-                    s.lifecycle_position.toLowerCase().includes(filterLower)
-            );
+
+            // Support explicit type: and guard: prefixes
+            const typeMatch = filter.match(/\btype:\s*(\S+)/i);
+            const guardMatch = filter.match(/\bguard:\s*(\S+)/i);
+
+            if (typeMatch || guardMatch) {
+                if (typeMatch) {
+                    scripts = scripts.filter(s => s.type === typeMatch[1]);
+                }
+                if (guardMatch) {
+                    scripts = scripts.filter(s => s.guard === guardMatch[1]);
+                }
+            } else {
+                scripts = scripts.filter(s =>
+                    s.name.toLowerCase().includes(filterLower) ||
+                        s.purpose.toLowerCase().includes(filterLower) ||
+                        s.lifecycle_position.toLowerCase().includes(filterLower)
+                );
+            }
         }
         result = scripts;
         break;
@@ -530,7 +587,50 @@ async function handleQueryKnowledge({ topic, filter, context }) {
     case 'capability_matrix': {
         // Load shipped matrix (cached) then merge local overrides fresh each call (AC-1.5)
         const cacheKey = `capability_matrix:${filter || ''}`;
-        const shipped = getCached(cacheKey, () => loadCapabilityMatrix(filter || null));
+
+        // Support structured filter for type/guard via filter string (e.g., "type:model-centric")
+        let filterType = null;
+        let filterGuard = null;
+        let plainFilter = filter || null;
+
+        if (filter) {
+            const typeMatch = filter.match(/\btype:\s*(\S+)/);
+            const guardMatch = filter.match(/\bguard:\s*(\S+)/);
+            if (typeMatch) {
+                filterType = typeMatch[1];
+                plainFilter = filter.replace(typeMatch[0], '').trim() || null;
+            }
+            if (guardMatch) {
+                filterGuard = guardMatch[1];
+                plainFilter = (plainFilter || '').replace(guardMatch[0], '').trim() || null;
+            }
+        }
+
+        // If type/guard filters specified, return script-based capability data
+        if (filterType || filterGuard) {
+            let scripts = getCached('script_reference', loadScriptReference);
+            if (Array.isArray(scripts)) {
+                if (filterType) {
+                    scripts = scripts.filter(s => s.type === filterType);
+                }
+                if (filterGuard) {
+                    scripts = scripts.filter(s => s.guard === filterGuard);
+                }
+                result = scripts.map(s => ({
+                    name: s.name,
+                    type: s.type,
+                    guard: s.guard,
+                    lifecycle: s.lifecycle,
+                    targets: s.targets,
+                    purpose: s.purpose
+                }));
+            } else {
+                result = scripts;
+            }
+            break;
+        }
+
+        const shipped = getCached(cacheKey, () => loadCapabilityMatrix(plainFilter));
 
         // Merge project-local overrides at query time
         const projectDir = resolveProjectDir(context);
@@ -671,6 +771,7 @@ export {
     loadConfigReference,
     loadTroubleshooting,
     loadCapabilityMatrix,
+    parseScriptFile,
     server,
     PACKAGE_ROOT
 };

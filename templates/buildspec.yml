@@ -25,19 +25,7 @@ phases:
     commands:
       - echo Build started on `date`
       - echo Building the Docker image for project $PROJECT_NAME...
-<% if (typeof modelLoadStrategy !== 'undefined' && modelLoadStrategy === 'build-time' && typeof modelSource !== 'undefined' && modelSource && modelSource !== 'huggingface') { %>
-      - |
-        # Export IAM role credentials for docker build
-        eval $(aws configure export-credentials --format env 2>/dev/null || true)
-        docker build \
-          --build-arg AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
-          --build-arg AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
-          --build-arg AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN}" \
-          --build-arg AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
-          -t $REPOSITORY_URI:$PROJECT_TAG .
-<% } else { %>
       - docker build -t $REPOSITORY_URI:$PROJECT_TAG .
-<% } %>
       - docker tag $REPOSITORY_URI:$PROJECT_TAG $REPOSITORY_URI:$PROJECT_NAME-latest
       - docker tag $REPOSITORY_URI:$PROJECT_TAG $REPOSITORY_URI:latest
       - echo Build completed on `date`

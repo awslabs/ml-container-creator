@@ -130,6 +130,9 @@ export default class BootstrapCommandHandler {
         case 'add-module':
             await this._handleModuleAdd(args[1], options);
             break;
+        case 'add-secret':
+            await this._handleAddSecret(args[1], args[2], options);
+            break;
         case 'remove-module':
             await this._handleModuleRemove(args[1], options);
             break;
@@ -1050,11 +1053,14 @@ export default class BootstrapCommandHandler {
     _denormalizeModuleOutputs(profileData) {
         const outputs = profileData.moduleOutputs || {};
 
-        // core → roleArn, ecrRepositoryName, modelsS3Bucket
+        // core → roleArn, ecrRepositoryName, coreS3Bucket (+ modelsS3Bucket alias for backward compat)
         if (outputs.core) {
             if (outputs.core.RoleArn) profileData.roleArn = outputs.core.RoleArn;
             if (outputs.core.EcrRepositoryName) profileData.ecrRepositoryName = outputs.core.EcrRepositoryName;
-            if (outputs.core.ModelsBucket) profileData.modelsS3Bucket = outputs.core.ModelsBucket;
+            if (outputs.core.ModelsBucket) {
+                profileData.coreS3Bucket = outputs.core.ModelsBucket;
+                profileData.modelsS3Bucket = outputs.core.ModelsBucket; // deprecated alias — remove in v1.6
+            }
         }
 
         // benchmark → ciBenchmarkResultsBucket, benchmarkS3Bucket, ciGlueDatabase
@@ -1632,5 +1638,54 @@ EXAMPLES:
      */
     _displayProgress(emoji, message) {
         console.log(`${emoji} ${message}`);
+    }
+
+    /**
+     * Register a secret ARN in the active bootstrap profile's secrets map.
+     * Usage: mcc bootstrap add-secret <type> <arn>
+     * Supported types: hfToken, ngcApiKey
+     *
+     * @param {string} secretType - The secret type key (e.g. 'hfToken')
+     * @param {string} arn - The Secrets Manager ARN
+     */
+    async _handleAddSecret(secretType, arn, _options) {
+        const VALID_TYPES = ['hfToken', 'ngcApiKey'];
+        const ARN_PATTERN = /^arn:aws:secretsmanager:[a-z0-9-]+:\d{12}:secret:.+/;
+
+        if (!secretType || !arn) {
+            console.error('❌ Usage: mcc bootstrap add-secret <type> <arn>');
+            console.error(`   Valid types: ${VALID_TYPES.join(', ')}`);
+            console.error('   Example: mcc bootstrap add-secret hfToken arn:aws:secretsmanager:us-west-2:123456789012:secret:hf-token-abc123');
+            process.exit(1);
+        }
+
+        if (!VALID_TYPES.includes(secretType)) {
+            console.error(`❌ Unknown secret type: ${secretType}`);
+            console.error(`   Valid types: ${VALID_TYPES.join(', ')}`);
+            process.exit(1);
+        }
+
+        if (!ARN_PATTERN.test(arn)) {
+            console.error(`❌ Invalid ARN format: ${arn}`);
+            console.error('   Expected: arn:aws:secretsmanager:<region>:<account>:secret:<name>');
+            process.exit(1);
+        }
+
+        const config = this.config.read();
+        const activeProfile = config.activeProfile;
+        if (!config.profiles[activeProfile]) {
+            console.error(`❌ Active profile not found: ${activeProfile}`);
+            process.exit(1);
+        }
+
+        if (!config.profiles[activeProfile].secrets) {
+            config.profiles[activeProfile].secrets = {};
+        }
+        config.profiles[activeProfile].secrets[secretType] = arn;
+        this.config.write(config);
+
+        console.log(`✅ Registered ${secretType} secret for profile '${activeProfile}'`);
+        console.log(`   ARN: ${arn}`);
+        console.log(`   Scripts will resolve this secret via _PROFILE_secrets_${secretType}`);
     }
 }

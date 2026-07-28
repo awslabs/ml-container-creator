@@ -2,6 +2,12 @@
 # do-framework configuration
 # This file is sourced by all do scripts
 # Generated: <%= new Date().toISOString() %>
+#
+# @mlcc-script
+# type: model-centric
+# guard: none
+# lifecycle: configuration
+# targets: all
 
 # Project identification
 export PROJECT_NAME="<%= projectName %>"
@@ -112,7 +118,7 @@ export ASYNC_MAX_CONCURRENT_INVOCATIONS="<%= asyncMaxConcurrentInvocations %>"
 # ASYNC_MAX_CONCURRENT_INVOCATIONS=""
 <% } %>
 
-<% if (typeof hyperPodCluster !== 'undefined' && hyperPodCluster && deploymentTarget === 'hyperpod-eks') { %>
+<% if (typeof hyperPodCluster !== 'undefined' && hyperPodCluster && hyperPodCluster.trim()) { %>
 # ── HyperPod EKS ────────────────────────────────────────────────────────────
 export HP_CLUSTER_NAME="<%= hyperPodCluster %>"
 export HP_NAMESPACE="<%= typeof hyperPodNamespace !== 'undefined' ? hyperPodNamespace : 'default' %>"
@@ -133,18 +139,22 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 # FSx for Lustre volume for shared model storage (uncomment to enable)
 # export FSX_VOLUME_HANDLE=""
 <% } %>
+# LoRA hot-loading via vLLM REST API (requires --enable-lora in deployment.yaml)
+# export HP_LORA_ENABLED=false
 <% } else { %>
 # ── HyperPod EKS (configure when using hyperpod-eks target) ──────────────────
-# HP_CLUSTER_NAME=""
-# HP_NAMESPACE="default"
-# HP_REPLICAS="1"
-# HP_GPU_COUNT="1"
-# HP_NODE_SELECTOR=""
-# HP_EFA_ENABLED="false"
-# HP_MEM_REQUEST=""
-# HP_CPU_REQUEST=""
+export HP_CLUSTER_NAME="${HP_CLUSTER_NAME:-}"
+export HP_NAMESPACE="${HP_NAMESPACE:-default}"
+export HP_REPLICAS="${HP_REPLICAS:-1}"
+export HP_GPU_COUNT="${HP_GPU_COUNT:-1}"
+export HP_NODE_SELECTOR="${HP_NODE_SELECTOR:-}"
+export HP_EFA_ENABLED="${HP_EFA_ENABLED:-false}"
+export HP_MEM_REQUEST="${HP_MEM_REQUEST:-}"
+export HP_CPU_REQUEST="${HP_CPU_REQUEST:-}"
 # HP_QUEUE=""
 # FSX_VOLUME_HANDLE=""
+# LoRA hot-loading via vLLM REST API (requires --enable-lora in deployment.yaml)
+# export HP_LORA_ENABLED=false
 <% } %>
 
 <% if (typeof batchInstanceCount !== 'undefined' && batchInstanceCount && deploymentTarget === 'batch-transform') { %>
@@ -283,17 +293,15 @@ export MODEL_NAME="<%= modelName %>"
 # HuggingFace Model ID — preserved even after do/stage rewrites MODEL_NAME to S3.
 # Used by do/benchmark (tokenizer), do/tune (model catalog), and do/test (chat template).
 export HF_MODEL_ID="<%= modelName %>"
-# Secrets Manager integration: when an ARN is configured, do-scripts resolve the
-# secret at the appropriate stage (build-time or runtime). When a plaintext value
-# is configured, it is exported directly. The _ARN suffix signals resolution is needed.
-<% if (typeof hfTokenArn !== 'undefined' && hfTokenArn) { %>
-export HF_TOKEN_ARN="<%= hfTokenArn %>"
-<% } else if (hfToken) { %>
+# Secrets: ARNs are resolved from the active bootstrap profile at runtime (BL076).
+# Set via: mcc bootstrap add-secret hfToken <arn>
+# Override here only if you need to use a different ARN than the profile default.
+<% if (hfToken) { %>
 export HF_TOKEN="<%= hfToken %>"
 <% } %>
-<% if (typeof ngcTokenArn !== 'undefined' && ngcTokenArn) { %>
-export NGC_API_KEY_ARN="<%= ngcTokenArn %>"
-<% } else if (ngcApiKey) { %>
+# export HF_TOKEN_ARN=""   # profile default: _PROFILE_secrets_hfToken
+# export NGC_API_KEY_ARN="" # profile default: _PROFILE_secrets_ngcApiKey
+<% if (ngcApiKey) { %>
 export NGC_API_KEY="<%= ngcApiKey %>"
 <% } %>
 
@@ -323,14 +331,11 @@ export TUNE_MODEL_ID="<%= tuneModelId %>"
 <% if (framework === 'diffusors') { %>
 export MODEL_NAME="<%= modelName %>"
 export HF_MODEL_ID="<%= modelName %>"
-# Secrets Manager integration: when an ARN is configured, do-scripts resolve the
-# secret at the appropriate stage (build-time or runtime). When a plaintext value
-# is configured, it is exported directly. The _ARN suffix signals resolution is needed.
-<% if (typeof hfTokenArn !== 'undefined' && hfTokenArn) { %>
-export HF_TOKEN_ARN="<%= hfTokenArn %>"
-<% } else if (hfToken) { %>
+# Secrets: ARNs are resolved from the active bootstrap profile at runtime (BL076).
+<% if (hfToken) { %>
 export HF_TOKEN="<%= hfToken %>"
 <% } %>
+# export HF_TOKEN_ARN=""   # profile default: _PROFILE_secrets_hfToken
 <% } %>
 
 <% if (modelFormat) { %>
@@ -355,7 +360,7 @@ export BENCHMARK_REQUEST_COUNT=""
 <% if (benchmarkS3OutputPath) { %>
 export BENCHMARK_S3_OUTPUT_PATH="<%= benchmarkS3OutputPath %>"
 <% } else { %>
-export BENCHMARK_S3_OUTPUT_PATH="s3://mlcc-benchmark-$(aws sts get-caller-identity --query Account --output text)-${AWS_REGION}/${PROJECT_NAME}/"
+export BENCHMARK_S3_OUTPUT_PATH=""  # Resolved at runtime from profile (benchmarkS3Bucket)
 <% } %>
 export BENCHMARK_JOB_NAME=""
 export BENCHMARK_WORKLOAD_CONFIG_NAME=""

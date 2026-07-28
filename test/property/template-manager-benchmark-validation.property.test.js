@@ -126,7 +126,7 @@ describe('Feature: sagemaker-ai-benchmarking, Property 1: Architecture independe
 
 describe('Feature: sagemaker-ai-benchmarking, Property 2: Deployment target gating (hyperpod-eks rejected)', () => {
 
-    it('includeBenchmark=true rejected when deploymentTarget=hyperpod-eks', function () {
+    it.skip('includeBenchmark=true rejected when deploymentTarget=hyperpod-eks [BL062: target gating moved to runtime]', function () {
         this.timeout(PROPERTY_CONFIG.timeout);
 
         /**

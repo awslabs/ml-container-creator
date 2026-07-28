@@ -1,8 +1,15 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/stage — Pre-stage model weights from HuggingFace to S3.
+#
+# @mlcc-script
+# type: model-centric
+# guard: none
+# lifecycle: publish
+# targets: all
 
-# do/stage — Pre-stage model weights from HuggingFace to S3
 # Submits a SageMaker Processing Job that downloads from HuggingFace
 # and writes directly to S3 — no local disk usage.
 #
@@ -21,6 +28,7 @@ set -o pipefail
 
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/staged-assets.sh"
@@ -104,13 +112,8 @@ _submit_processing_job() {
     echo "   Storage: ${PROCESSING_JOB_VOLUME_GB} GB"
     echo ""
 
-    # Resolve execution role from profile
-    local execution_role
-    execution_role=$(echo "${_PROFILE_JSON}" | python3 -c "
-import sys, json
-p = json.load(sys.stdin)
-print(p.get('roleArn', ''))
-" 2>/dev/null) || execution_role=""
+    # Resolve execution role from profile (set by profile.sh)
+    local execution_role="${ROLE_ARN:-}"
 
     if [ -z "${execution_role}" ]; then
         echo "❌ No execution role configured."
@@ -120,8 +123,9 @@ print(p.get('roleArn', ''))
     fi
 
     # Resolve HF token (optional — for gated models)
+    # BL076: fall back to profile secrets when ARN is not explicitly set in do/config
     local hf_token_value=""
-    local hf_token_secret_arn="${HF_TOKEN_ARN:-}"
+    local hf_token_secret_arn="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
     if [ -n "${hf_token_secret_arn}" ]; then
         hf_token_value=$(aws secretsmanager get-secret-value \
             --secret-id "${hf_token_secret_arn}" \
@@ -196,10 +200,16 @@ print(p.get('roleArn', ''))
     # Update config if requested and we have a valid S3 URI
     if [ "${UPDATE_CONFIG}" = true ] && [ -n "${s3_uri}" ] && [ "${job_status}" != "Submitted" ]; then
         CONFIG_FILE="${SCRIPT_DIR}/config"
-        sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${s3_uri}\"|" "${CONFIG_FILE}"
+        # BL076: write to STAGED_MODEL_PATH instead of overwriting MODEL_NAME (preserves HF model ID)
+        if grep -q '^export STAGED_MODEL_PATH=' "${CONFIG_FILE}"; then
+            sed -i.bak "s|^export STAGED_MODEL_PATH=.*|export STAGED_MODEL_PATH=\"${s3_uri}\"|" "${CONFIG_FILE}"
+        else
+            echo "" >> "${CONFIG_FILE}"
+            echo "export STAGED_MODEL_PATH=\"${s3_uri}\"" >> "${CONFIG_FILE}"
+        fi
         rm -f "${CONFIG_FILE}.bak"
         echo ""
-        echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
+        echo "   ✅ Updated STAGED_MODEL_PATH in do/config (MODEL_NAME preserved: ${MODEL_NAME})"
         echo "   Subsequent tasks (submit, deploy) will pull from S3."
     fi
 }
@@ -246,35 +256,12 @@ echo "   Project: ${PROJECT_NAME}"
 echo ""
 
 # ── Resolve profile for S3 bucket ────────────────────────────────────────────
-_PROFILE_JSON=""
-if command -v python3 &>/dev/null; then
-    _PROFILE_JSON=$(python3 -c "
-import json, os
-config_path = os.path.expanduser('~/.ml-container-creator/config.json')
-try:
-    with open(config_path) as f:
-        config = json.load(f)
-    profile = config['profiles'][config['activeProfile']]
-    print(json.dumps(profile))
-except:
-    print('{}')
-" 2>/dev/null) || _PROFILE_JSON="{}"
-fi
-
-# Extract the models S3 bucket from profile (used for model staging).
-# The profile is the SOLE source of truth for bucket names — bootstrap writes
-# modelsS3Bucket from the core CDK stack output (ModelsBucket). Do NOT reconstruct
-# a name from a convention: an empty value means bootstrap has not provisioned it
-# (guarded below). Staged weights belong in the dedicated models bucket, NOT the
-# benchmark-results bucket.
-STAGE_S3_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "
-import sys, json
-p = json.load(sys.stdin)
-print(p.get('modelsS3Bucket', ''))
-" 2>/dev/null) || STAGE_S3_BUCKET=""
+# MODELS_S3_BUCKET is set by profile.sh (sourced above) using the canonical
+# coreS3Bucket key with modelsS3Bucket as a deprecated fallback.
+STAGE_S3_BUCKET="${MODELS_S3_BUCKET:-}"
 
 if [ -z "${STAGE_S3_BUCKET}" ]; then
-    echo "❌ No models S3 bucket recorded in profile (modelsS3Bucket is empty)."
+    echo "❌ No models S3 bucket recorded in profile (coreS3Bucket/modelsS3Bucket is empty)."
     echo "   Run 'ml-container-creator bootstrap' to set up your profile."
     exit 1
 fi
@@ -327,12 +314,18 @@ if [ "${FORCE}" = false ]; then
         echo ""
         if [ "${UPDATE_CONFIG}" = true ]; then
             CONFIG_FILE="${SCRIPT_DIR}/config"
-            sed -i.bak "s|^export MODEL_NAME=.*|export MODEL_NAME=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
+            # BL076: write to STAGED_MODEL_PATH instead of overwriting MODEL_NAME
+            if grep -q '^export STAGED_MODEL_PATH=' "${CONFIG_FILE}"; then
+                sed -i.bak "s|^export STAGED_MODEL_PATH=.*|export STAGED_MODEL_PATH=\"${MODEL_S3_URI}\"|" "${CONFIG_FILE}"
+            else
+                echo "" >> "${CONFIG_FILE}"
+                echo "export STAGED_MODEL_PATH=\"${MODEL_S3_URI}\"" >> "${CONFIG_FILE}"
+            fi
             rm -f "${CONFIG_FILE}.bak"
-            echo "   ✅ Updated MODEL_NAME in do/config → S3-backed"
+            echo "   ✅ Updated STAGED_MODEL_PATH in do/config (MODEL_NAME preserved: ${MODEL_NAME})"
         else
             echo "   To use this staged model, set in do/config:"
-            echo "   export MODEL_NAME=\"${MODEL_S3_URI}\""
+            echo "   export STAGED_MODEL_PATH=\"${MODEL_S3_URI}\""
         fi
         exit 0
     fi
@@ -359,6 +352,8 @@ if ! aws sts get-caller-identity &>/dev/null; then
 fi
 
 # ── Resolve HuggingFace token (for gated models) ─────────────────────────────
+# BL076: fall back to profile secrets when ARN is not explicitly set in do/config
+HF_TOKEN_ARN="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
 if [ -n "${HF_TOKEN_ARN:-}" ] && [ -z "${HF_TOKEN:-}" ]; then
     echo "🔐 Resolving HuggingFace token from Secrets Manager..."
     HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --region "${AWS_REGION}" --query SecretString --output text) || {

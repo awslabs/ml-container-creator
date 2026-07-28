@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const CLEAN_TEMPLATE_PATH = resolve(__dirname, '../../templates/do/clean.d/managed-inference');
+const CLEAN_TEMPLATE_PATH = resolve(__dirname, '../../templates/do/clean.d/realtime-inference');
 const CLEAN_TEMPLATE = readFileSync(CLEAN_TEMPLATE_PATH, 'utf-8');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

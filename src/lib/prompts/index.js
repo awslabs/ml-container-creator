@@ -13,9 +13,9 @@ export {
     frameworkProfilePrompts,
     modelFormatPrompts,
     modelServerPrompts,
-    modelLoadStrategyPrompts,
     modelProfilePrompts,
     hfTokenPrompts,
+    buildHfTokenPrompts,
     ngcApiKeyPrompts
 } from './model-prompts.js';
 
@@ -46,3 +46,8 @@ export {
     projectPrompts,
     destinationPrompts
 } from './project-prompts.js';
+
+export {
+    discoverSecrets,
+    createSecret
+} from './secrets-discovery.js';

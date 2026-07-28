@@ -31,11 +31,11 @@ const logsTemplate = readFileSync(path.join(templatesDir, 'logs'), 'utf8');
 const testTemplate = readFileSync(path.join(templatesDir, 'test'), 'utf8');
 
 // deploy.d/ target-specific templates
-const managedDeployTemplate = readFileSync(path.join(templatesDir, 'deploy.d/managed-inference'), 'utf8');
+const managedDeployTemplate = readFileSync(path.join(templatesDir, 'deploy.d/realtime-inference'), 'utf8');
 const hyperpodDeployTemplate = readFileSync(path.join(templatesDir, 'deploy.d/hyperpod-eks'), 'utf8');
 
 // clean.d/ target-specific templates
-const managedCleanTemplate = readFileSync(path.join(templatesDir, 'clean.d/managed-inference'), 'utf8');
+const managedCleanTemplate = readFileSync(path.join(templatesDir, 'clean.d/realtime-inference'), 'utf8');
 const hyperpodCleanTemplate = readFileSync(path.join(templatesDir, 'clean.d/hyperpod-eks'), 'utf8');
 
 function renderTemplate(template, vars, templateName) {
@@ -96,9 +96,9 @@ describe('Property 6: Unified Script Generation (BL062)', () => {
                     includeBenchmark: false
                 };
 
-                const output = renderTemplate(managedDeployTemplate, vars, 'deploy.d/managed-inference');
-                assert.ok(output.startsWith('#!/bin/bash'), 'deploy.d/managed-inference must start with shebang');
-                assert.ok(output.length > 100, 'deploy.d/managed-inference must contain substantial content');
+                const output = renderTemplate(managedDeployTemplate, vars, 'deploy.d/realtime-inference');
+                assert.ok(output.startsWith('#!/bin/bash'), 'deploy.d/realtime-inference must start with shebang');
+                assert.ok(output.length > 100, 'deploy.d/realtime-inference must contain substantial content');
                 assert.ok(
                     output.includes('create-inference-component') || output.includes('SageMaker') || output.includes('sagemaker'),
                     'realtime-inference deploy must contain SageMaker logic'
@@ -148,9 +148,9 @@ describe('Property 6: Unified Script Generation (BL062)', () => {
                     includeBenchmark: false
                 };
 
-                const output = renderTemplate(managedCleanTemplate, vars, 'clean.d/managed-inference');
-                assert.ok(output.startsWith('#!/bin/bash'), 'clean.d/managed-inference must start with shebang');
-                assert.ok(output.length > 100, 'clean.d/managed-inference must contain substantial content');
+                const output = renderTemplate(managedCleanTemplate, vars, 'clean.d/realtime-inference');
+                assert.ok(output.startsWith('#!/bin/bash'), 'clean.d/realtime-inference must start with shebang');
+                assert.ok(output.length > 100, 'clean.d/realtime-inference must contain substantial content');
                 assert.ok(
                     output.includes('endpoint') || output.includes('sagemaker') || output.includes('delete'),
                     'realtime-inference clean must contain endpoint cleanup'
@@ -232,14 +232,14 @@ describe('Property 6: Unified Script Generation (BL062)', () => {
     });
 
     it('should have all 4 deploy.d/ target files', () => {
-        assert.ok(existsSync(path.join(templatesDir, 'deploy.d/managed-inference')));
+        assert.ok(existsSync(path.join(templatesDir, 'deploy.d/realtime-inference')));
         assert.ok(existsSync(path.join(templatesDir, 'deploy.d/async-inference')));
         assert.ok(existsSync(path.join(templatesDir, 'deploy.d/batch-transform')));
         assert.ok(existsSync(path.join(templatesDir, 'deploy.d/hyperpod-eks')));
     });
 
     it('should have all 4 clean.d/ target files', () => {
-        assert.ok(existsSync(path.join(templatesDir, 'clean.d/managed-inference')));
+        assert.ok(existsSync(path.join(templatesDir, 'clean.d/realtime-inference')));
         assert.ok(existsSync(path.join(templatesDir, 'clean.d/async-inference')));
         assert.ok(existsSync(path.join(templatesDir, 'clean.d/batch-transform')));
         assert.ok(existsSync(path.join(templatesDir, 'clean.d/hyperpod-eks')));

@@ -216,12 +216,13 @@ describe('PromptRunner Secret Prompt Integration (Requirements 8.1–8.9)', () =
             assert.strictEqual(promptCalls[0].name, 'secretSelection');
             assert.strictEqual(promptCalls[0].type, 'list');
 
-            // Choices should include managed secret + plaintext + skip
+            // Choices should include managed secret + create new + plaintext + skip
             const choices = promptCalls[0].choices;
-            assert.strictEqual(choices.length, 3);
+            assert.strictEqual(choices.length, 4);
             assert.strictEqual(choices[0].value, testArn);
-            assert.strictEqual(choices[1].value, '__plaintext__');
-            assert.strictEqual(choices[2].value, '__skip__');
+            assert.strictEqual(choices[1].value, '__create_new__');
+            assert.strictEqual(choices[2].value, '__plaintext__');
+            assert.strictEqual(choices[3].value, '__skip__');
 
             // Result should store the ARN
             assert.deepStrictEqual(result, { hfTokenArn: testArn });
@@ -247,9 +248,9 @@ describe('PromptRunner Secret Prompt Integration (Requirements 8.1–8.9)', () =
 
             const result = await runner._promptSecretSelection(classification, managedSecrets, {});
 
-            // Should have 4 choices: 2 secrets + plaintext + skip
+            // Should have 5 choices: 2 secrets + create new + plaintext + skip
             const choices = promptCalls[0].choices;
-            assert.strictEqual(choices.length, 4);
+            assert.strictEqual(choices.length, 5);
             assert.strictEqual(choices[0].value, arn1);
             assert.strictEqual(choices[1].value, arn2);
 

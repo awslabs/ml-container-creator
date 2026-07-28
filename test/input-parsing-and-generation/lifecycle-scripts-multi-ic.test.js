@@ -26,7 +26,7 @@ const __dirname = path.dirname(__filename);
 
 // Load templates
 const testTemplatePath = path.join(__dirname, '../../templates/do/test');
-const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean.d/managed-inference');
+const cleanTemplatePath = path.join(__dirname, '../../templates/do/clean.d/realtime-inference');
 const statusTemplatePath = path.join(__dirname, '../../templates/do/status');
 const benchmarkTemplatePath = path.join(__dirname, '../../templates/do/benchmark');
 const appJsPath = path.join(__dirname, '../../src/app.js');

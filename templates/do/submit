@@ -1,6 +1,14 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/submit — Submit a CodeBuild job to build the container image.
+#
+# @mlcc-script
+# type: model-centric
+# guard: none
+# lifecycle: build
+# targets: all
 
 set -e
 set -u
@@ -8,6 +16,7 @@ set -o pipefail
 
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 

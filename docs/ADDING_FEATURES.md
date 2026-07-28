@@ -873,3 +873,48 @@ Then create a Pull Request on GitHub with:
 - [EJS Documentation](https://ejs.co/)
 - [Mocha Testing Framework](https://mochajs.org/)
 - [SageMaker AI BYOC Guide](https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms.html)
+
+---
+
+## Adding a New `do/` Script
+
+Every `do/` script in MLCC has a machine-readable contract that controls runtime behavior and advisory agent suggestions. See [do-script-contract.md](do-script-contract.md) for the full reference.
+
+### Step 1: Define the contract
+
+Answer four questions:
+1. **What does my script operate on?** → `type` (model-centric, deployment-centric, hybrid)
+2. **What must exist before it runs?** → `guard` (none, artifact-ready, model-staged, deployment-active, training-infra)
+3. **When in the lifecycle does it fit?** → `lifecycle`
+4. **Which targets does it apply to?** → `targets` (all, or comma-separated list)
+
+### Step 2: Create the script from template
+
+```bash
+#!/usr/bin/env bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# do/myscript — One-line description.
+#
+# @mlcc-script
+# type: <model-centric | deployment-centric | hybrid>
+# guard: <none | artifact-ready | model-staged | deployment-active | training-infra>
+# lifecycle: <value from schema>
+# targets: <all | target1, target2>
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"   # ← auto-enforces declared guard
+source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
+
+# Your script logic here
+```
+
+### Step 3: Add the script to `templates/do/README.md`
+
+### Step 4: Add contract tests
+
+Add tests in `test/unit/do-script-contracts.test.js`:
+- Guard enforcement test (exits code 3 when guard not met)
+- Happy path test (succeeds when guard is satisfied)

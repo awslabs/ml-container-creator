@@ -184,7 +184,7 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 # Maps each target to the config variables that provide context details
 _TARGET_DETAIL_VARS: dict[str, dict[str, str]] = {
-    "managed-inference": {
+    "realtime-inference": {
         "endpoint_name": "ENDPOINT_NAME",
         "endpoint_strategy": "ENDPOINT_STRATEGY",
     },
@@ -207,11 +207,11 @@ def _get_target_details(target: str, config_vars: dict[str, str]) -> dict[str, s
     """Extract target-specific context details from config variables.
 
     Each target has specific details that provide useful context in status
-    output (e.g., endpoint name for managed-inference, cluster name for
+    output (e.g., endpoint name for realtime-inference, cluster name for
     hyperpod-eks).
 
     Args:
-        target: Deployment target key (e.g. "managed-inference").
+        target: Deployment target key (e.g. "realtime-inference").
         config_vars: Parsed config variable mapping.
 
     Returns:
@@ -274,7 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
     prompt_parser.add_argument(
         "--endpoint-name",
         default="",
-        help="Endpoint name (managed-inference, async-inference)",
+        help="Endpoint name (realtime-inference, async-inference)",
     )
     prompt_parser.add_argument(
         "--endpoint-strategy",

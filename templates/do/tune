@@ -1,8 +1,15 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/tune — SageMaker AI Managed Model Customization.
+#
+# @mlcc-script
+# type: model-centric
+# guard: training-infra
+# lifecycle: training
+# targets: all
 
-# do/tune — SageMaker AI Managed Model Customization
 # Wraps SageMaker managed fine-tuning for supported foundation models.
 # Supports SFT, DPO, RLAIF, and RLVR techniques.
 
@@ -12,6 +19,7 @@ set -o pipefail
 
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
@@ -991,8 +999,8 @@ _validate_dataset() {
         if [ -n "${hf_split}" ]; then
             stage_args+=(--hf-split "${hf_split}")
         fi
-        if [ -n "${HF_TOKEN_ARN:-}" ]; then
-            stage_args+=(--hf-secret-name "${HF_TOKEN_ARN}")
+        if [ -n "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}" ]; then
+            stage_args+=(--hf-secret-name "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}")
         fi
         if [ -n "${ARG_COLUMN_MAP}" ]; then
             stage_args+=(--column-map "${ARG_COLUMN_MAP}")

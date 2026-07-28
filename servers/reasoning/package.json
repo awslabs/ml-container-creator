@@ -1,0 +1,16 @@
+{
+  "name": "@amzn/ml-container-creator-reasoning",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MCP server providing a stateless reasoning/interpretation tool powered by Amazon Bedrock.",
+  "type": "module",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.25"
+  }
+}

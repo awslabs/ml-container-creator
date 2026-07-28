@@ -1,9 +1,15 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-
-# do/adapter — Manage LoRA adapter inference components
 #
+# do/adapter — Manage LoRA adapter inference components.
+#
+# @mlcc-script
+# type: deployment-centric
+# guard: deployment-active
+# lifecycle: post-deploy
+# targets: realtime-inference, hyperpod-eks
+
 # Usage:
 #   ./do/adapter add <name> --weights <s3-uri>
 #   ./do/adapter list
@@ -17,15 +23,213 @@ set -o pipefail
 
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Target guard: adapters require IC-based real-time endpoints ───────────────
 if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
     echo "❌ do/adapter is not supported on ${DEPLOYMENT_TARGET}."
-    echo "   LoRA adapters require a real-time (managed-inference) endpoint with ICs."
-    echo "   Switch target: do/deploy --target managed-inference"
+    echo "   LoRA adapters require a real-time (realtime-inference) endpoint with ICs."
+    echo "   Switch target: do/deploy --target realtime-inference"
     exit 1
+fi
+
+# ── HyperPod path ─────────────────────────────────────────────────────────────
+if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
+    _adapter_hyperpod() {
+        # Guard: HP_LORA_ENABLED must be true
+        if [ "${HP_LORA_ENABLED:-false}" != "true" ]; then
+            echo "❌ LoRA is not enabled for this HyperPod deployment."
+            echo "   Set HP_LORA_ENABLED=true in do/config and redeploy: do/deploy --target hyperpod-eks"
+            exit 1
+        fi
+
+        # Parse subcommand
+        local CMD="${1:-}"
+        shift || true
+
+        # Redirect SAMI-only subcommands
+        case "${CMD}" in
+            add|remove|update|from-hub|from-tune|from-train|from-registry)
+                echo "❌ 'do/adapter ${CMD}' uses SageMaker Inference Components and is not supported on HyperPod."
+                echo "   To load a LoRA adapter on HyperPod: do/adapter --load-lora <name> --weights <s3-uri>"
+                exit 1
+                ;;
+        esac
+
+        # Parse HP-specific flags
+        local LORA_NAME=""
+        local WEIGHTS_URI=""
+        local ACTION=""
+
+        case "${CMD}" in
+            --load-lora)
+                ACTION="load"
+                LORA_NAME="${1:-}"
+                shift || true
+                if [ -z "${LORA_NAME}" ]; then
+                    echo "❌ --load-lora requires a name argument"
+                    echo "   Usage: do/adapter --load-lora <name> --weights <s3-uri>"
+                    exit 1
+                fi
+                # Parse --weights
+                while [ $# -gt 0 ]; do
+                    case "$1" in
+                        --weights)
+                            shift
+                            WEIGHTS_URI="${1:-}"
+                            shift || true
+                            ;;
+                        *)
+                            echo "❌ Unknown option: $1"
+                            exit 1
+                            ;;
+                    esac
+                done
+                if [ -z "${WEIGHTS_URI}" ]; then
+                    echo "❌ --load-lora requires --weights <s3-uri>"
+                    echo "   Usage: do/adapter --load-lora <name> --weights <s3-uri>"
+                    exit 1
+                fi
+                ;;
+            --unload-lora)
+                ACTION="unload"
+                LORA_NAME="${1:-}"
+                shift || true
+                if [ -z "${LORA_NAME}" ]; then
+                    echo "❌ --unload-lora requires a name argument"
+                    echo "   Usage: do/adapter --unload-lora <name>"
+                    exit 1
+                fi
+                ;;
+            list)
+                ACTION="list"
+                ;;
+            --help|-h|"")
+                echo "Usage: ./do/adapter <command> [options]"
+                echo ""
+                echo "HyperPod commands (DEPLOYMENT_TARGET=hyperpod-eks):"
+                echo "  --load-lora <name> --weights <s3-uri>   Hot-load a LoRA adapter into vLLM"
+                echo "  --unload-lora <name>                    Unload a LoRA adapter from vLLM"
+                echo "  list                                    List loaded LoRA adapters"
+                echo ""
+                echo "Examples:"
+                echo "  ./do/adapter --load-lora ectsum --weights s3://my-bucket/adapters/ectsum/"
+                echo "  ./do/adapter list"
+                echo "  ./do/adapter --unload-lora ectsum"
+                exit 0
+                ;;
+            *)
+                echo "❌ Unknown command: ${CMD}"
+                echo "   Run ./do/adapter --help for usage."
+                exit 1
+                ;;
+        esac
+
+        # ── Port-forward setup (same pattern as do/test HP path) ──────────────
+        echo "🔌 Port-forwarding svc/${PROJECT_NAME} to localhost:${HP_LOCAL_PORT:-8080}..."
+
+        # Get kubeconfig for HyperPod cluster
+        KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME}"
+        EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+            --cluster-name "${HP_CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Orchestrator.Eks.ClusterArn" \
+            --output text 2>&1) || {
+            echo "❌ Failed to describe HyperPod cluster: ${HP_CLUSTER_NAME}"
+            exit 4
+        }
+        EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+        if ! aws eks update-kubeconfig \
+            --name "${EKS_CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            --kubeconfig "${KUBECONFIG_PATH}" &>/dev/null; then
+            echo "❌ Failed to configure kubectl for cluster: ${EKS_CLUSTER_NAME}"
+            exit 4
+        fi
+        export KUBECONFIG="${KUBECONFIG_PATH}"
+
+        kubectl port-forward "svc/${PROJECT_NAME}" "${HP_LOCAL_PORT:-8080}:8080" \
+            -n "${HP_NAMESPACE:-default}" &
+        _PF_PID=$!
+        trap "kill ${_PF_PID} 2>/dev/null || true" EXIT
+        sleep 3
+
+        if ! kill -0 ${_PF_PID} 2>/dev/null; then
+            echo "❌ Port-forward failed to start"
+            echo "   Check: kubectl get svc ${PROJECT_NAME} -n ${HP_NAMESPACE:-default}"
+            exit 1
+        fi
+        echo "✅ Port-forward established"
+        echo ""
+
+        local BASE_URL="http://localhost:${HP_LOCAL_PORT:-8080}"
+
+        # ── Dispatch to lora_vllm.py ─────────────────────────────────────────
+        case "${ACTION}" in
+            load)
+                echo "📦 Loading LoRA adapter '${LORA_NAME}' from ${WEIGHTS_URI}..."
+                local RESULT
+                RESULT=$(python3 "${SCRIPT_DIR}/lib/python/lora_vllm.py" load "${LORA_NAME}" "${WEIGHTS_URI}" "${BASE_URL}")
+                if echo "${RESULT}" | python3 -c "import sys,json; r=json.load(sys.stdin); sys.exit(0 if r.get('success') else 1)" 2>/dev/null; then
+                    echo "✓ LoRA adapter '${LORA_NAME}' loaded from ${WEIGHTS_URI}"
+                else
+                    local STATUS_CODE
+                    STATUS_CODE=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status_code',0))" 2>/dev/null || echo "0")
+                    local ERROR_MSG
+                    ERROR_MSG=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null || echo "Unknown error")
+                    if [ "${STATUS_CODE}" = "409" ]; then
+                        echo "❌ LoRA adapter '${LORA_NAME}' already exists."
+                        echo "   Unload it first: do/adapter --unload-lora ${LORA_NAME}"
+                    else
+                        echo "❌ Failed to load LoRA adapter '${LORA_NAME}'"
+                        echo "   Error: ${ERROR_MSG}"
+                    fi
+                    exit 1
+                fi
+                ;;
+            unload)
+                echo "🗑️  Unloading LoRA adapter '${LORA_NAME}'..."
+                local RESULT
+                RESULT=$(python3 "${SCRIPT_DIR}/lib/python/lora_vllm.py" unload "${LORA_NAME}" "${BASE_URL}")
+                if echo "${RESULT}" | python3 -c "import sys,json; r=json.load(sys.stdin); sys.exit(0 if r.get('success') else 1)" 2>/dev/null; then
+                    echo "✓ LoRA adapter '${LORA_NAME}' unloaded"
+                else
+                    local ERROR_MSG
+                    ERROR_MSG=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null || echo "Unknown error")
+                    echo "❌ Failed to unload LoRA adapter '${LORA_NAME}'"
+                    echo "   Error: ${ERROR_MSG}"
+                    exit 1
+                fi
+                ;;
+            list)
+                echo "📋 Listing loaded LoRA adapters on ${PROJECT_NAME}..."
+                echo ""
+                local RESULT
+                RESULT=$(python3 "${SCRIPT_DIR}/lib/python/lora_vllm.py" list "${BASE_URL}")
+                local COUNT
+                COUNT=$(echo "${RESULT}" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+                if [ "${COUNT}" = "0" ]; then
+                    echo "   No LoRA adapters loaded."
+                    echo ""
+                    echo "   Load one: do/adapter --load-lora <name> --weights <s3-uri>"
+                else
+                    printf "   %-30s %s\n" "NAME" "PATH"
+                    printf "   %-30s %s\n" "----" "----"
+                    echo "${RESULT}" | python3 -c "
+import sys, json
+loras = json.load(sys.stdin)
+for l in loras:
+    print(f'   {l[\"name\"]:<30} {l.get(\"path\", \"\")}')
+"
+                fi
+                ;;
+        esac
+    }
+
+    _adapter_hyperpod "$@"
+    exit $?
 fi
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
@@ -964,10 +1168,15 @@ _adapter_add() {
             fi
 
             local stage_result
-            stage_result=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" stage "${stage_args[@]}" 2>/dev/null | grep -E '^\{' | tail -1) || {
+            local _stage_stderr
+            _stage_stderr=$(mktemp)
+            stage_result=$(python3 "${SCRIPT_DIR}/.adapter_helper.py" stage "${stage_args[@]}" 2>"${_stage_stderr}" | grep -E '^\{' | tail -1) || {
+                cat "${_stage_stderr}" >&2
+                rm -f "${_stage_stderr}"
                 echo "❌ Failed to submit adapter staging job"
                 exit 1
             }
+            rm -f "${_stage_stderr}"
 
             weights_uri=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('adapter_s3_uri',''))" 2>/dev/null) || weights_uri=""
             if [ -z "${weights_uri}" ]; then

@@ -28,7 +28,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Template paths
-const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/managed-inference');
+const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/realtime-inference');
 const addIcTemplatePath = path.join(__dirname, '../../templates/do/add-ic');
 const libInferenceComponentPath = path.join(__dirname, '../../templates/do/lib/inference-component.sh');
 const defaultConfTemplatePath = path.join(__dirname, '../../templates/do/ic/default.conf');

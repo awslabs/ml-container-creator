@@ -190,18 +190,18 @@ describe('Property 11: do/config Universal Variables (BL062)', () => {
                     instanceType
                 };
                 const output = renderConfig(vars);
-                // HyperPod section should be present as comments
+                // HyperPod section should be present (with env-var defaults for cross-target switching)
                 assert.ok(
                     output.includes('HP_CLUSTER_NAME') || output.includes('HyperPod'),
-                    'realtime-inference output must have HyperPod section (commented)'
+                    'realtime-inference output must have HyperPod section'
                 );
-                // Must NOT have active (uncommented) HP_CLUSTER_NAME export
-                const hasActiveHpExport = output.split('\n').some(
-                    line => line.match(/^\s*export HP_CLUSTER_NAME=/)
+                // HP_CLUSTER_NAME should be exported with an empty default (not a hardcoded cluster)
+                const hasHardcodedCluster = output.split('\n').some(
+                    line => line.match(/^\s*export HP_CLUSTER_NAME="[^$]/)
                 );
                 assert.ok(
-                    !hasActiveHpExport,
-                    'realtime-inference output must NOT have active HP_CLUSTER_NAME export'
+                    !hasHardcodedCluster,
+                    'realtime-inference output must NOT have hardcoded HP_CLUSTER_NAME value'
                 );
             }
         ), { numRuns: 20 });

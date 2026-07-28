@@ -77,7 +77,7 @@ describe('DLC-Direct Project Generation (--no-build)', () => {
     describe('deploy template DLC-direct guard', () => {
         it('managed-inference has DEPLOY_MODE conditional for image verification', () => {
             const deployTemplate = readFileSync(
-                join(PROJECT_ROOT, 'templates/do/deploy.d/managed-inference'), 'utf8'
+                join(PROJECT_ROOT, 'templates/do/deploy.d/realtime-inference'), 'utf8'
             );
             assert.ok(deployTemplate.includes('deploy_mode === \'dlc-direct\''),
                 'Deploy template should check deploy_mode');

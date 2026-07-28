@@ -103,6 +103,8 @@ IMAGE_TAG="${PROJECT_NAME}-latest"
 # ============================================================
 CONTAINER_ENV_JSON=""
 
+# BL076: fall back to profile secrets when ARN is not explicitly set in do/config
+HF_TOKEN_ARN="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
 if [ -n "${HF_TOKEN_ARN:-}" ]; then
     echo "🔐 Resolving HuggingFace token from Secrets Manager..."
     RESOLVED_HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text --region "${AWS_REGION}") || {
@@ -209,6 +211,14 @@ echo "📄 Applying Kubernetes manifests from hyperpod/..."
 # Substitute shell variables (e.g. ${AWS_ACCOUNT_ID}) in manifests before applying
 export AWS_ACCOUNT_ID
 export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+# Export VLLM_ENABLE_LORA for envsubst — allows HP_LORA_ENABLED in do/config
+# to dynamically control LoRA at deploy time without regeneration (BL065)
+if [ "${HP_LORA_ENABLED:-false}" = "true" ]; then
+    export VLLM_ENABLE_LORA="true"
+else
+    export VLLM_ENABLE_LORA=""
+fi
 
 # Portable envsubst shim — works on macOS without gettext installed
 # Falls back to perl (always available on macOS/Linux) if envsubst is not found

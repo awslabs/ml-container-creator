@@ -16,7 +16,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 SCHEMAS: dict[str, dict[str, Any]] = {
-    "managed-inference": {
+    "realtime-inference": {
         "required": [
             "INSTANCE_TYPE",
             "ENDPOINT_NAME",
@@ -69,17 +69,17 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 
 STATUS_VARS: dict[str, str] = {
-    "managed-inference": "DEPLOYMENT_TARGET_SMAI_STATUS",
+    "realtime-inference": "DEPLOYMENT_TARGET_SMAI_STATUS",
     "hyperpod-eks": "DEPLOYMENT_TARGET_HP_STATUS",
     "async-inference": "DEPLOYMENT_TARGET_ASYNC_STATUS",
     "batch-transform": "DEPLOYMENT_TARGET_BATCH_STATUS",
 }
 
 
-# Target aliases for backward compatibility (v1.3 → v1.4 rename)
+# Target aliases for backward compatibility (v1.4 → v1.5 rename)
 TARGET_ALIASES: dict[str, str] = {
-    "realtime-inference": "managed-inference",
-    "realtime": "managed-inference",
+    "realtime-inference": "realtime-inference",
+    "realtime": "realtime-inference",
     "hyperpod": "hyperpod-eks",
     "batch": "batch-transform",
     "async": "async-inference",
@@ -93,7 +93,7 @@ def normalize_target(target: str) -> str:
         target: Target name (may be an alias like "realtime-inference").
 
     Returns:
-        The canonical target name (e.g. "managed-inference").
+        The canonical target name (e.g. "realtime-inference").
     """
     return TARGET_ALIASES.get(target, target)
 
@@ -102,7 +102,7 @@ def validate_config(target: str, config_vars: dict[str, str]) -> list[str]:
     """Check *config_vars* against the schema for *target*.
 
     Args:
-        target: One of the keys in SCHEMAS (e.g. "managed-inference").
+        target: One of the keys in SCHEMAS (e.g. "realtime-inference").
             Also accepts aliases (e.g. "realtime-inference").
         config_vars: Mapping of variable names to their current values
                      (as read from do/config or provided via flags).

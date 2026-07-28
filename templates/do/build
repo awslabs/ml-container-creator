@@ -1,6 +1,14 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/build — Build the Docker container image.
+#
+# @mlcc-script
+# type: model-centric
+# guard: none
+# lifecycle: build
+# targets: all
 
 set -e
 set -u
@@ -8,6 +16,7 @@ set -o pipefail
 
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
@@ -33,6 +42,8 @@ fi
 PLATFORM_FLAG="--platform linux/amd64"
 
 # --- Secrets Manager resolution (build-time) ---
+# BL076: fall back to profile secrets when ARN is not explicitly set in do/config
+HF_TOKEN_ARN="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
 if [ -n "${HF_TOKEN_ARN:-}" ]; then
     echo "🔐 Resolving HuggingFace token from Secrets Manager..."
     HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text) || {
@@ -42,6 +53,7 @@ if [ -n "${HF_TOKEN_ARN:-}" ]; then
     export HF_TOKEN
 fi
 
+NGC_API_KEY_ARN="${NGC_API_KEY_ARN:-${_PROFILE_secrets_ngcApiKey:-}}"
 if [ -n "${NGC_API_KEY_ARN:-}" ]; then
     echo "🔐 Resolving NGC API key from Secrets Manager..."
     NGC_API_KEY=$(aws secretsmanager get-secret-value --secret-id "${NGC_API_KEY_ARN}" --query SecretString --output text) || {

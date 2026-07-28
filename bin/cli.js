@@ -179,7 +179,7 @@ program
     .command('bootstrap')
     .description('Set up modular AWS infrastructure (core, benchmark, registry, training, ci)')
     .passThroughOptions()
-    .argument('[action]', 'Bootstrap action (add, remove, add-module, remove-module, status, use, list, scan, prune, update, migrate, sync-schemas, sync-model-families)')
+    .argument('[action]', 'Bootstrap action (add, remove, add-module, remove-module, add-secret, status, use, list, scan, prune, update, migrate, sync-schemas, sync-model-families)')
     .argument('[args...]', 'Additional arguments')
     .option('--profile <profile>', 'AWS profile name')
     .option('--region <region>', 'AWS region')
@@ -233,7 +233,7 @@ program
 
 program
     .command('registry')
-    .description('Registry operations (list, get, remove, replay, export, import, search) — experimental, may be reconciled with do/register')
+    .description('Registry operations (list, get, remove, replay, export, import, search, log)')
     .argument('<action>', 'Registry action (log, list, get, remove, replay, export, import, search)')
     .argument('[args...]', 'Additional arguments')
     .option('--backend <backend>', 'Filter by backend')
@@ -281,56 +281,6 @@ program
         const handler = new SecretsCommandHandler();
         const allArgs = action ? [action, ...args] : [];
         await handler.handle(allArgs, options);
-    });
-
-program
-    .command('configure')
-    .description('Interactive configuration setup (experimental)')
-    .action(async () => {
-        const { runPrompts } = await import('../src/prompt-adapter.js');
-
-        console.log('\n🔧 ML Container Creator Configuration (experimental)');
-        console.log('\nThis will help you set up configuration files for your project.\n');
-
-        const answers = await runPrompts([
-            {
-                type: 'list',
-                name: 'configType',
-                message: 'What type of configuration would you like to create?',
-                choices: [
-                    { name: 'Show CLI option examples', value: 'cli' },
-                    { name: 'Show environment variable examples', value: 'env' }
-                ]
-            }
-        ]);
-
-        if (answers.configType === 'cli') {
-            console.log(`
-💻 CLI Examples:
-
-  # Basic sklearn project
-  ml-container-creator --deployment-config=http-flask --model-format=pkl --skip-prompts
-
-  # Transformers with vLLM
-  ml-container-creator --deployment-config=transformers-vllm \\
-    --model-name=meta-llama/Llama-2-7b-chat-hf \\
-    --instance-type=ml.g5.xlarge --skip-prompts
-
-  # Using a config file
-  ml-container-creator --config=my-config.json --skip-prompts
-`);
-        } else if (answers.configType === 'env') {
-            console.log(`
-🌍 Environment Variables:
-
-  export ML_INSTANCE_TYPE="ml.m5.large"
-  export AWS_REGION="us-east-1"
-  export AWS_ROLE="arn:aws:iam::123456789012:role/SageMakerRole"
-  export HF_TOKEN="hf_..."
-
-  Then run: ml-container-creator --deployment-config=http-flask --skip-prompts
-`);
-        }
     });
 
 program

@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const templatePath = path.join(__dirname, '../../templates/do/clean.d/managed-inference');
+const templatePath = path.join(__dirname, '../../templates/do/clean.d/realtime-inference');
 const templateContent = readFileSync(templatePath, 'utf8');
 
 function renderClean(vars) {

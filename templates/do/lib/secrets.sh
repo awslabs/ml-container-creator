@@ -12,9 +12,13 @@
 resolve_secrets() {
     CONTAINER_ENV_JSON=""
 
-    if [ -n "${HF_TOKEN_ARN:-}" ]; then
+    # BL076: resolve ARN from do/config first, then fall back to active bootstrap profile secret
+    local _hf_arn="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
+    local _ngc_arn="${NGC_API_KEY_ARN:-${_PROFILE_secrets_ngcApiKey:-}}"
+
+    if [ -n "${_hf_arn}" ]; then
         echo "🔐 Resolving HuggingFace token from Secrets Manager..."
-        RESOLVED_HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text --region "${AWS_REGION}") || {
+        RESOLVED_HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${_hf_arn}" --query SecretString --output text --region "${AWS_REGION}") || {
             echo "❌ Failed to resolve HuggingFace token from Secrets Manager"
             exit 3
         }
@@ -23,9 +27,9 @@ resolve_secrets() {
         CONTAINER_ENV_JSON="\"HF_TOKEN\":\"${HF_TOKEN}\""
     fi
 
-    if [ -n "${NGC_API_KEY_ARN:-}" ]; then
+    if [ -n "${_ngc_arn}" ]; then
         echo "🔐 Resolving NGC API key from Secrets Manager..."
-        RESOLVED_NGC_KEY=$(aws secretsmanager get-secret-value --secret-id "${NGC_API_KEY_ARN}" --query SecretString --output text --region "${AWS_REGION}") || {
+        RESOLVED_NGC_KEY=$(aws secretsmanager get-secret-value --secret-id "${_ngc_arn}" --query SecretString --output text --region "${AWS_REGION}") || {
             echo "❌ Failed to resolve NGC API key from Secrets Manager"
             exit 3
         }

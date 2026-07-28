@@ -32,7 +32,7 @@ const GENERATOR_ROOT = resolve(__dirname, '..', '..');
 // ── Target aliases (v1.3 backward compat) ────────────────────────────────────
 
 const TARGET_ALIASES = {
-    'realtime-inference': 'managed-inference',
+    'managed-inference': 'realtime-inference',
     'hyperpod': 'hyperpod-eks',
     'batch': 'batch-transform',
     'async': 'async-inference'
@@ -428,21 +428,21 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
         target = await select({
             message: 'Deployment target:',
             choices: [
-                { name: 'Managed Inference (SageMaker real-time)', value: 'managed-inference' },
+                { name: 'Real-time Inference (SageMaker)', value: 'realtime-inference' },
                 { name: 'Async Inference (SageMaker async)', value: 'async-inference' },
                 { name: 'Batch Transform (SageMaker batch)', value: 'batch-transform' },
                 { name: 'HyperPod EKS (GPU cluster)', value: 'hyperpod-eks' }
             ],
-            default: 'managed-inference'
+            default: 'realtime-inference'
         });
     }
 
     const answers = { target };
 
-    // ── Endpoint strategy (for managed-inference) ────────────────────────────
+    // ── Endpoint strategy (for realtime-inference) ───────────────────────────
     // Asked FIRST because it determines which MCP server to call next:
     // new/heterogeneous → instance-sizer, existing → endpoint-picker
-    if (target === 'managed-inference') {
+    if (target === 'realtime-inference' || target === 'managed-inference') {
         if (!config.ENDPOINT_STRATEGY) {
             answers.endpoint_strategy = await select({
                 message: 'Endpoint strategy:',
@@ -465,7 +465,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
     } else if (preInstanceType) {
         answers.instance_type = preInstanceType;
     } else if (!config.INSTANCE_TYPE) {
-        if (target === 'managed-inference' && answers.endpoint_strategy === 'existing') {
+        if ((target === 'realtime-inference' || target === 'managed-inference') && answers.endpoint_strategy === 'existing') {
             // For existing endpoints, query endpoint-picker
             const epSpinner = ora('Querying endpoint-picker...').start();
             const endpoints = await getEndpoints(region);
@@ -522,7 +522,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
 
     // ── Target-specific prompts ──────────────────────────────────────────────
 
-    if (target === 'managed-inference') {
+    if (target === 'realtime-inference' || target === 'managed-inference') {
         // Endpoint name (for new/heterogeneous — existing was handled above)
         if (answers.endpoint_strategy !== 'existing' && !config.SMAI_ENDPOINT_NAME) {
             answers.smai_endpoint_name = await input({
@@ -675,7 +675,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 const homedir = process.env.HOME || '';
                 const pCfg = JSON.parse(readFileSync(join(homedir, '.ml-container-creator/config.json'), 'utf8'));
                 const profile = pCfg.profiles?.[pCfg.activeProfile] || {};
-                const bucket = profile.modelsS3Bucket || '';
+                const bucket = profile.coreS3Bucket || profile.modelsS3Bucket || '';
                 if (bucket) defaultPath = `s3://${bucket}/async-output/${projectName}/`;
             } catch { /* best-effort */ }
 
@@ -710,7 +710,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 const homedir = process.env.HOME || '';
                 const pCfg = JSON.parse(readFileSync(join(homedir, '.ml-container-creator/config.json'), 'utf8'));
                 const profile = pCfg.profiles?.[pCfg.activeProfile] || {};
-                const bucket = profile.modelsS3Bucket || '';
+                const bucket = profile.coreS3Bucket || profile.modelsS3Bucket || '';
                 if (bucket) defaultPath = `s3://${bucket}/batch-output/${projectName}/`;
             } catch { /* best-effort */ }
 
@@ -743,7 +743,8 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
     // but the config needs target-scoped vars so switching doesn't collide.
     if (answers.instance_type) {
         switch (target) {
-        case 'managed-inference':
+        case 'realtime-inference':
+        case 'managed-inference':  // deprecated alias
             answers.smai_instance_type = answers.instance_type;
             break;
         case 'async-inference':

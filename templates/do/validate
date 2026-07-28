@@ -1,6 +1,14 @@
 #!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# do/validate — Schema-driven validation for generated deploy payloads.
+#
+# @mlcc-script
+# type: model-centric
+# guard: none
+# lifecycle: pre-deploy
+# targets: all
 
 # Schema-driven validation for generated deploy payloads.
 # Validates configuration against AWS service models before deployment.
@@ -18,6 +26,7 @@ set -u
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Parse flags

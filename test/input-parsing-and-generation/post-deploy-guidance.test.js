@@ -24,7 +24,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load templates
-const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/managed-inference');
+const deployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/realtime-inference');
 const deployTemplate = readFileSync(deployTemplatePath, 'utf8');
 const asyncDeployTemplatePath = path.join(__dirname, '../../templates/do/deploy.d/async-inference');
 const asyncDeployTemplate = readFileSync(asyncDeployTemplatePath, 'utf8');

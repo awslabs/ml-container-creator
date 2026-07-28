@@ -110,7 +110,11 @@ export const SERVER_REGISTRY_SOURCES = {
     },
     sglang: {
         repo: 'sgl-project/sglang',
-        file: 'python/sglang/srt/models/model_registry.py',
+        // SGLang removed model_registry.py in v0.5.x — architectures are now registered via
+        // @ModelRegistry.register decorators in individual model files. The central registry
+        // file no longer exists. SGLang architecture support is maintained manually in
+        // servers/lib/catalogs/model-arch-support.json instead.
+        file: null,
         tagPrefix: 'v',
         parser: parseSglangRegistry
     },
@@ -146,13 +150,27 @@ export const syncArchitectures = async (catalogPath) => {
             if (!version) continue;
 
             const tag = `${source.tagPrefix}${version}`;
-            const url = `https://raw.githubusercontent.com/${source.repo}/${tag}/${source.file}`;
+
+            // Skip servers where the registry file no longer exists upstream (e.g. sglang)
+            if (source.file === null) {
+                console.log(`   ⏭  ${server} ${version}: skipped (no upstream registry file — maintained manually)`);
+                continue;
+            }
+
+            const candidates = source.fileCandidates
+                ? source.fileCandidates.map(f => `https://raw.githubusercontent.com/${source.repo}/${tag}/${f}`)
+                : [`https://raw.githubusercontent.com/${source.repo}/${tag}/${source.file}`];
 
             try {
-                const response = await fetch(url);
-                if (!response.ok) {
-                    summary.failures.push({ server, version, reason: `HTTP ${response.status}` });
-                    console.log(`   ⚠️  ${server} ${version}: fetch failed (HTTP ${response.status})`);
+                let response;
+                for (const url of candidates) {
+                    response = await fetch(url);
+                    if (response.ok) { break; }
+                }
+                if (!response?.ok) {
+                    const tried = candidates.map(u => u.split('/').slice(-1)[0]).join(', ');
+                    summary.failures.push({ server, version, reason: `HTTP ${response?.status ?? 'no response'} (tried: ${tried})` });
+                    console.log(`   ⚠️  ${server} ${version}: all paths 404 (tried: ${tried})`);
                     continue;
                 }
                 const content = await response.text();

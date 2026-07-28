@@ -161,29 +161,17 @@ ENV MODEL_ARTIFACT_URI="<%= artifactUri %>"
 
 # Set the model name for the transformer model
 <% if (modelServer === 'vllm') { %>
-<% if (typeof modelLoadStrategy !== 'undefined' && modelLoadStrategy === 'build-time' && (typeof modelSource === 'undefined' || !modelSource || modelSource === 'huggingface')) { %>
-ENV VLLM_MODEL="/opt/ml/model"
-<% } else { %>
 ENV VLLM_MODEL="<%= modelName %>"
-<% } %>
 <% if (typeof modelSource !== 'undefined' && modelSource && modelSource !== 'huggingface') { %>
 # Model will be resolved at container startup by the serve script
 <% } %>
 <% } else if (modelServer === 'sglang') { %>
-<% if (typeof modelLoadStrategy !== 'undefined' && modelLoadStrategy === 'build-time' && (typeof modelSource === 'undefined' || !modelSource || modelSource === 'huggingface')) { %>
-ENV SGLANG_MODEL_PATH="/opt/ml/model"
-<% } else { %>
 ENV SGLANG_MODEL_PATH="<%= modelName %>"
-<% } %>
 <% if (typeof modelSource !== 'undefined' && modelSource && modelSource !== 'huggingface') { %>
 # Model will be resolved at container startup by the serve script
 <% } %>
 <% } else if (modelServer === 'tensorrt-llm') { %>
-<% if (typeof modelLoadStrategy !== 'undefined' && modelLoadStrategy === 'build-time' && (typeof modelSource === 'undefined' || !modelSource || modelSource === 'huggingface')) { %>
-ENV TRTLLM_MODEL="/opt/ml/model"
-<% } else { %>
 ENV TRTLLM_MODEL="<%= modelName %>"
-<% } %>
 <% if (typeof modelSource !== 'undefined' && modelSource && modelSource !== 'huggingface') { %>
 # Model will be resolved at container startup by the serve script
 <% } %>
@@ -256,26 +244,6 @@ ENV SGLANG_MAX_LORAS=<%= maxLoras %>
 RUN pip install --no-cache-dir awscli
 
 <% } %>
-<% if (typeof modelLoadStrategy !== 'undefined' && modelLoadStrategy === 'build-time') { %>
-# Build-time model download
-# ⚠️  Credentials required during docker build.
-#   Build with: DOCKER_BUILDKIT=1 docker build --secret id=aws,src=$HOME/.aws/credentials .
-#   Or in CodeBuild: pass AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN as build args.
-<% if (typeof modelSource === 'undefined' || !modelSource || modelSource === 'huggingface') { %>
-ARG HF_TOKEN
-RUN huggingface-cli download <%= modelName %> --local-dir /opt/ml/model
-<% } else if (typeof artifactUri !== 'undefined' && artifactUri) { %>
-ARG AWS_ACCESS_KEY_ID
-ARG AWS_SECRET_ACCESS_KEY
-ARG AWS_SESSION_TOKEN
-ARG AWS_DEFAULT_REGION=<%= (typeof awsRegion !== 'undefined' && awsRegion) ? awsRegion : 'us-east-1' %>
-RUN AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
-    AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
-    AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN} \
-    AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION} \
-    aws s3 sync <%= artifactUri %> /opt/ml/model
-<% } %>
-<% } %>
 <% if (modelServer === 'tensorrt-llm') { %>
 # Install nginx and curl for reverse proxy and health checks
 RUN apt-get update && \
@@ -291,7 +259,6 @@ RUN chmod +x /usr/bin/serve_trtllm
 
 # Copy startup script
 COPY code/cuda_compat.sh /usr/bin/cuda_compat.sh
-COPY code/cw_log_forwarder.py /usr/bin/cw_log_forwarder.py
 COPY code/start_server.sh /usr/bin/start_server.sh
 RUN chmod +x /usr/bin/start_server.sh /usr/bin/cuda_compat.sh
 
@@ -314,7 +281,6 @@ RUN pip install --no-cache-dir aiohttp
 
 <% } %>
 COPY code/cuda_compat.sh /usr/bin/cuda_compat.sh
-COPY code/cw_log_forwarder.py /usr/bin/cw_log_forwarder.py
 COPY code/serve /usr/bin/serve
 <% if (enableLora && (modelServer === 'vllm' || modelServer === 'sglang')) { %>
 COPY code/adapter_sidecar.py /usr/bin/adapter_sidecar.py
