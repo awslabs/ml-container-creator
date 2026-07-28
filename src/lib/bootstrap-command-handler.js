@@ -1655,7 +1655,7 @@ EXAMPLES:
         if (!secretType || !arn) {
             console.error('❌ Usage: mcc bootstrap add-secret <type> <arn>');
             console.error(`   Valid types: ${VALID_TYPES.join(', ')}`);
-            console.error('   Example: mcc bootstrap add-secret hfToken arn:aws:secretsmanager:us-west-2:123456789012:secret=hf-token-abc123');
+            console.error('   Example: mcc bootstrap add-secret hfToken arn:aws:secretsmanager:us-west-2:123456789012:secret:hf-token-abc123');
             process.exit(1);
         }
 
@@ -1667,7 +1667,7 @@ EXAMPLES:
 
         if (!ARN_PATTERN.test(arn)) {
             console.error(`❌ Invalid ARN format: ${arn}`);
-            console.error('   Expected: arn:aws:secretsmanager:<region>:<account>:secret=<name>');
+            console.error('   Expected: arn:aws:secretsmanager:<region>:<account>:secret:<name>');
             process.exit(1);
         }
 

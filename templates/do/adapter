@@ -30,8 +30,8 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 # ── Target guard: adapters require IC-based real-time endpoints ───────────────
 if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
     echo "❌ do/adapter is not supported on ${DEPLOYMENT_TARGET}."
-    echo "   LoRA adapters require a real-time (managed-inference) endpoint with ICs."
-    echo "   Switch target: do/deploy --target managed-inference"
+    echo "   LoRA adapters require a real-time (realtime-inference) endpoint with ICs."
+    echo "   Switch target: do/deploy --target realtime-inference"
     exit 1
 fi
 

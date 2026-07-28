@@ -8,6 +8,7 @@
 #
 # Source of truth: pyproject.toml
 
+anthropic>=0.120.0
 boto3>=1.35.0
 huggingface_hub>=0.25.0
 hf_transfer>=0.1.8

@@ -42,7 +42,7 @@ _check_active_deployment() {
 
             if [ -z "${endpoint_name}" ]; then
                 echo "⚠️  No ENDPOINT_NAME configured. Cannot verify deployment state."
-                echo "   Deploy first: ./do/deploy --target managed-inference"
+                echo "   Deploy first: ./do/deploy --target realtime-inference"
                 exit 0
             fi
 
@@ -60,7 +60,7 @@ _check_active_deployment() {
 
             if [ "${status}" != "InService" ]; then
                 echo "⚠️  Endpoint '${endpoint_name}' is not InService (status: ${status:-not found})."
-                echo "   Deploy first: ./do/deploy --target managed-inference"
+                echo "   Deploy first: ./do/deploy --target realtime-inference"
                 exit 0
             fi
             ;;

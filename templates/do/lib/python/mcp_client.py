@@ -617,3 +617,64 @@ def _parse_jsonrpc_response(raw: str) -> dict[str, Any] | None:
         return None
 
     return response.get("result")
+
+# ---------------------------------------------------------------------------
+# CLI interface — used by do/benchmark --recommend for reasoning MCP calls
+# ---------------------------------------------------------------------------
+
+
+def _cli_main() -> None:
+    """CLI entry point for MCP tool invocation from shell scripts.
+
+    Usage:
+        python3 mcp_client.py --server <name> --tool <tool> --input '<json>'
+
+    Discovers the MCP server, calls the specified tool with the given JSON
+    input, and prints the result as JSON to stdout. Exits 0 on success,
+    1 on failure (with empty stdout so callers can detect failure).
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="MCP tool CLI — call an MCP server tool from the command line"
+    )
+    parser.add_argument(
+        "--server", required=True, help="MCP server name (e.g. reasoning)"
+    )
+    parser.add_argument(
+        "--tool", required=True, help="Tool name within the server (e.g. interpret)"
+    )
+    parser.add_argument(
+        "--input", required=True, help="JSON string of tool arguments"
+    )
+
+    args = parser.parse_args()
+
+    # Parse input JSON
+    try:
+        arguments = json.loads(args.input)
+    except json.JSONDecodeError as e:
+        print(f"Error: invalid JSON input: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Discover MCP
+    client = discover_mcp()
+    if client is None:
+        # MCP unavailable — silent failure (caller handles empty output)
+        sys.exit(1)
+
+    # Build the tool_name as "server/tool" for subprocess transport routing
+    tool_name = f"{args.server}/{args.tool}"
+
+    # Call the tool
+    result = call_tool(client, tool_name, arguments)
+
+    if result is None:
+        sys.exit(1)
+
+    # Print result as JSON to stdout
+    print(json.dumps(result))
+
+
+if __name__ == "__main__":
+    _cli_main()

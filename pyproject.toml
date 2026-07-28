@@ -4,6 +4,7 @@ version = "0.13.4"
 description = "Python dependencies for ml-container-creator do/ lifecycle scripts"
 requires-python = ">=3.10"
 dependencies = [
+    "anthropic>=0.120.0",
     "boto3>=1.35.0",
     "huggingface-hub>=0.25.0",
     "hf-transfer>=0.1.8",

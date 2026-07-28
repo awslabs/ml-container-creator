@@ -210,6 +210,14 @@ echo "📄 Applying Kubernetes manifests from hyperpod/..."
 export AWS_ACCOUNT_ID
 export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
 
+# Export VLLM_ENABLE_LORA for envsubst — allows HP_LORA_ENABLED in do/config
+# to dynamically control LoRA at deploy time without regeneration (BL065)
+if [ "${HP_LORA_ENABLED:-false}" = "true" ]; then
+    export VLLM_ENABLE_LORA="true"
+else
+    export VLLM_ENABLE_LORA=""
+fi
+
 # Portable envsubst shim — works on macOS without gettext installed
 # Falls back to perl (always available on macOS/Linux) if envsubst is not found
 if ! command -v envsubst &>/dev/null; then

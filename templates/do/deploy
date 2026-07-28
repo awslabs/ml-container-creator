@@ -62,7 +62,7 @@ while [ $# -gt 0 ]; do
         --target)
             shift
             if [ $# -eq 0 ]; then
-                echo "❌ --target requires a value (managed-inference, async-inference, batch-transform, hyperpod-eks)"
+                echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks)"
                 exit 1
             fi
             FLAG_TARGET="$1"
@@ -201,7 +201,7 @@ while [ $# -gt 0 ]; do
             echo "an interactive prompt flow to select target and configure deployment."
             echo ""
             echo "Targets:"
-            echo "  managed-inference   SageMaker real-time endpoint with Inference Component"
+            echo "  realtime-inference  SageMaker real-time endpoint with Inference Component"
             echo "  async-inference     SageMaker async endpoint with S3 output"
             echo "  batch-transform     SageMaker batch transform job"
             echo "  hyperpod-eks        SageMaker HyperPod EKS cluster"
@@ -259,7 +259,11 @@ done
 # Apply --target flag if provided (normalize aliases)
 if [ -n "$FLAG_TARGET" ]; then
     case "$FLAG_TARGET" in
-        realtime|managed|managed-inference) FLAG_TARGET="realtime-inference" ;;
+        managed|managed-inference|n)
+            echo "⚠️  '${FLAG_TARGET}' is deprecated — use 'realtime-inference'" >&2
+            FLAG_TARGET="realtime-inference"
+            ;;
+        realtime)                   FLAG_TARGET="realtime-inference" ;;
         hyperpod)                   FLAG_TARGET="hyperpod-eks" ;;
         batch)                      FLAG_TARGET="batch-transform" ;;
         async)                      FLAG_TARGET="async-inference" ;;
@@ -363,7 +367,7 @@ for name, info in targets.items():
     if instance:
         details.append(instance)
     # Target-specific details
-    if name == 'managed-inference' and info.get('endpoint_name'):
+    if name == 'realtime-inference' and info.get('endpoint_name'):
         details.append(info['endpoint_name'])
     elif name == 'hyperpod-eks' and info.get('gpu_count'):
         details.append(f\"{info['gpu_count']} GPUs\")
@@ -788,7 +792,7 @@ case "$DEPLOYMENT_TARGET" in
         ;;
     *)
         echo "❌ Unknown DEPLOYMENT_TARGET: $DEPLOYMENT_TARGET"
-        echo "   Valid targets: managed-inference, async-inference, batch-transform, hyperpod-eks"
+        echo "   Valid targets: realtime-inference, async-inference, batch-transform, hyperpod-eks"
         exit 1
         ;;
 esac

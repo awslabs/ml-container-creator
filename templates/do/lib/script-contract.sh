@@ -42,7 +42,7 @@ _guard_model_staged() {
 }
 
 _guard_deployment_active() {
-    # Checks DEPLOYMENT_TARGET_*_STATUS == InService
+    # Checks DEPLOYMENT_TARGET_*_STATUS is a valid active state for the target
     local target="${DEPLOYMENT_TARGET:-realtime-inference}"
     local status_var
     case "$target" in
@@ -52,7 +52,16 @@ _guard_deployment_active() {
         batch-transform) status_var="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
         *) status_var="" ;;
     esac
-    [ -n "$status_var" ] && [ "${!status_var:-}" = "InService" ] && return 0
+    if [ -n "$status_var" ]; then
+        local _status="${!status_var:-}"
+        # Each target writes a different success status:
+        #   realtime-inference/async-inference → InService
+        #   hyperpod-eks → Running
+        #   batch-transform → Completed
+        case "$_status" in
+            InService|Running|Completed) return 0 ;;
+        esac
+    fi
     _contract_violation "deployment-active" \
         "No active deployment found for target: ${target}" \
         "Run: do/deploy --target ${target}"

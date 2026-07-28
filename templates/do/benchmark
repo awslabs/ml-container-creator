@@ -39,13 +39,13 @@ if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ]; then
     echo "❌ do/benchmark is not supported on async-inference."
     echo "   AIPerf benchmarking uses synchronous InvokeEndpoint calls."
     echo "   Async endpoints only support invoke-endpoint-async."
-    echo "   Switch target: do/deploy --target managed-inference"
+    echo "   Switch target: do/deploy --target realtime-inference"
     exit 1
 fi
 if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
     echo "❌ do/benchmark is not supported on batch-transform."
     echo "   AIPerf benchmarking requires a real-time endpoint."
-    echo "   Switch target: do/deploy --target managed-inference"
+    echo "   Switch target: do/deploy --target realtime-inference"
     exit 1
 fi
 

@@ -39,6 +39,9 @@ spec:
 <% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
             - name: VLLM_ENABLE_LORA
               value: "true"
+<% } else { %>
+            - name: VLLM_ENABLE_LORA
+              value: "${VLLM_ENABLE_LORA:-}"
 <% } %>
 <% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
             - name: NCCL_SOCKET_IFNAME
