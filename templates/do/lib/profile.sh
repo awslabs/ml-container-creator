@@ -79,6 +79,75 @@ except:
     fi
 fi
 
+# ── Secret auto-discovery (BL067 runtime extension) ───────────────────────
+# If no hfToken secret is registered in the active profile, attempt to
+# discover one from Secrets Manager by name pattern. This enables seamless
+# profile switching: when you move to a new account/region that has an HF
+# token stored under a known naming convention, it's found automatically.
+# Discovery is non-blocking — failures are silent and scripts fall back to
+# prompting or proceeding without a token.
+if [ -z "${_PROFILE_secrets_hfToken:-}" ] && command -v python3 &>/dev/null && [ -n "${_PROFILE_awsRegion:-}" ]; then
+    _DISCOVERED_HF_ARN=$(python3 -c "
+import boto3, os, sys
+region = '${_PROFILE_awsRegion:-us-east-1}'
+profile_name = '${_PROFILE_awsProfile:-}'
+try:
+    session_args = {'region_name': region}
+    if profile_name:
+        session_args['profile_name'] = profile_name
+    session = boto3.Session(**session_args)
+    client = session.client('secretsmanager', region_name=region)
+    # Search for secrets matching common MLCC HF token naming patterns
+    for name_filter in ['mlcc', 'huggingface', 'hf-token', 'hf_token']:
+        resp = client.list_secrets(Filters=[{'Key': 'name', 'Values': [name_filter]}], MaxResults=10)
+        for secret in resp.get('SecretList', []):
+            sname = (secret.get('Name') or '').lower()
+            # Match secrets that look like HF tokens (contain 'hf' and 'token')
+            if 'hf' in sname and 'token' in sname:
+                print(secret['ARN'])
+                sys.exit(0)
+            # Also match 'huggingface' named secrets
+            if 'huggingface' in sname:
+                print(secret['ARN'])
+                sys.exit(0)
+except:
+    pass
+" 2>/dev/null) || _DISCOVERED_HF_ARN=""
+    if [ -n "${_DISCOVERED_HF_ARN}" ]; then
+        _PROFILE_secrets_hfToken="${_DISCOVERED_HF_ARN}"
+    fi
+fi
+
+# NGC API key auto-discovery (same pattern as HF token)
+if [ -z "${_PROFILE_secrets_ngcApiKey:-}" ] && command -v python3 &>/dev/null && [ -n "${_PROFILE_awsRegion:-}" ]; then
+    _DISCOVERED_NGC_ARN=$(python3 -c "
+import boto3, sys
+region = '${_PROFILE_awsRegion:-us-east-1}'
+profile_name = '${_PROFILE_awsProfile:-}'
+try:
+    session_args = {'region_name': region}
+    if profile_name:
+        session_args['profile_name'] = profile_name
+    session = boto3.Session(**session_args)
+    client = session.client('secretsmanager', region_name=region)
+    for name_filter in ['mlcc', 'ngc', 'nvidia']:
+        resp = client.list_secrets(Filters=[{'Key': 'name', 'Values': [name_filter]}], MaxResults=10)
+        for secret in resp.get('SecretList', []):
+            sname = (secret.get('Name') or '').lower()
+            if 'ngc' in sname and ('api' in sname or 'key' in sname or 'token' in sname):
+                print(secret['ARN'])
+                sys.exit(0)
+            if 'nvidia' in sname and ('api' in sname or 'key' in sname):
+                print(secret['ARN'])
+                sys.exit(0)
+except:
+    pass
+" 2>/dev/null) || _DISCOVERED_NGC_ARN=""
+    if [ -n "${_DISCOVERED_NGC_ARN}" ]; then
+        _PROFILE_secrets_ngcApiKey="${_DISCOVERED_NGC_ARN}"
+    fi
+fi
+
 # ── Bucket resolver (BL076) ───────────────────────────────────────────────
 # Constructs an MLCC S3 bucket name from the active profile at runtime,
 # eliminating hardcoded account IDs in do/config.

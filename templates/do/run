@@ -78,6 +78,8 @@ if [ -n "${MODEL_DIR:-}" ]; then
 fi
 
 # --- Secrets Manager resolution (runtime) ---
+# BL076: fall back to profile secrets when ARN is not explicitly set in do/config
+HF_TOKEN_ARN="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
 if [ -n "${HF_TOKEN_ARN:-}" ]; then
     echo "🔐 Resolving HuggingFace token from Secrets Manager..."
     HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text) || {

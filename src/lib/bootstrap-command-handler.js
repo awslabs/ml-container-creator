@@ -1671,7 +1671,7 @@ EXAMPLES:
             process.exit(1);
         }
 
-        const config = this.bootstrapConfig.loadConfig();
+        const config = this.config.read();
         const activeProfile = config.activeProfile;
         if (!config.profiles[activeProfile]) {
             console.error(`❌ Active profile not found: ${activeProfile}`);
@@ -1682,7 +1682,7 @@ EXAMPLES:
             config.profiles[activeProfile].secrets = {};
         }
         config.profiles[activeProfile].secrets[secretType] = arn;
-        this.bootstrapConfig.saveConfig(config);
+        this.config.write(config);
 
         console.log(`✅ Registered ${secretType} secret for profile '${activeProfile}'`);
         console.log(`   ARN: ${arn}`);

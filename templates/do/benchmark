@@ -1320,6 +1320,8 @@ fi
 # If HF_TOKEN is available (plaintext or resolved from ARN), store it in Secrets Manager.
 SECRET_ARN=""
 
+# BL076: fall back to profile secrets when ARN is not explicitly set in do/config
+HF_TOKEN_ARN="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
 if [ -n "${HF_TOKEN_ARN:-}" ]; then
     # Already using Secrets Manager ARN — use it directly
     SECRET_ARN="${HF_TOKEN_ARN}"

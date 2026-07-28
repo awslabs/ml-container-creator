@@ -107,9 +107,13 @@ _MLCC_TYPE=$(grep -m1 '^# type:' "$_MLCC_SCRIPT_PATH" 2>/dev/null | sed 's/# typ
 
 # Source config to load guard-relevant variables (DEPLOYMENT_TARGET, status vars, etc.)
 # before enforcement. This is safe to re-source since config only exports variables.
+# Temporarily disable nounset (-u) since older generated configs may reference
+# unset variables without :- guards (e.g., pre-v1.5 HyperPod vars).
 _MLCC_SCRIPT_DIR="$(cd "$(dirname "$_MLCC_SCRIPT_PATH")" && pwd)"
 if [ -f "${_MLCC_SCRIPT_DIR}/config" ]; then
+    set +u 2>/dev/null || true
     source "${_MLCC_SCRIPT_DIR}/config" 2>/dev/null || true
+    set -u 2>/dev/null || true
 fi
 
 # Auto-enforce declared guard

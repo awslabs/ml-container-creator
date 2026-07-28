@@ -127,6 +127,10 @@ export default class TemplateManager {
 
         // Validate deploymentTarget
         if (this.answers.deploymentTarget) {
+            // BL073: normalize deprecated 'managed-inference' alias from pre-v1.5 projects
+            if (this.answers.deploymentTarget === 'managed-inference') {
+                this.answers.deploymentTarget = 'realtime-inference';
+            }
             this._validateChoice('deploymentTarget', supportedOptions.deploymentTargets);
         }
 
@@ -143,7 +147,8 @@ export default class TemplateManager {
         this._validateBenchmarkConfig();
         
         // Validate instance type format (ml.*.*) - only for realtime-inference
-        if (this.answers.instanceType && this.answers.instanceType !== 'custom') {
+        // Skip validation for unresolved shell variable references (e.g. "${INSTANCE_TYPE:-ml.g5.xlarge}")
+        if (this.answers.instanceType && this.answers.instanceType !== 'custom' && !this.answers.instanceType.includes('${')) {
             const instancePattern = /^ml\.[a-z0-9-]+\.(nano|micro|small|medium|large|xlarge|[0-9]+xlarge)$/;
             if (!instancePattern.test(this.answers.instanceType)) {
                 throw new Error(`⚠️  Invalid instance type format: ${this.answers.instanceType}. Expected format: ml.{family}.{size} (e.g., ml.m5.large, ml.g5.xlarge)`);

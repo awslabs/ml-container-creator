@@ -999,8 +999,8 @@ _validate_dataset() {
         if [ -n "${hf_split}" ]; then
             stage_args+=(--hf-split "${hf_split}")
         fi
-        if [ -n "${HF_TOKEN_ARN:-}" ]; then
-            stage_args+=(--hf-secret-name "${HF_TOKEN_ARN}")
+        if [ -n "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}" ]; then
+            stage_args+=(--hf-secret-name "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}")
         fi
         if [ -n "${ARG_COLUMN_MAP}" ]; then
             stage_args+=(--column-map "${ARG_COLUMN_MAP}")

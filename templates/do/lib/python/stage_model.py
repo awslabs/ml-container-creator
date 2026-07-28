@@ -36,39 +36,45 @@ if python3 -c "import hf_transfer" 2>/dev/null; then
     export HF_XET_HIGH_PERFORMANCE=1
 else
     echo "hf_transfer not available - using standard download"
-    unset HF_XET_HIGH_PERFORMANCE 2>/dev/null || true
 fi
 
-# Set HF token if provided
+# Set HF token if provided — export explicitly for all child processes
+# and persist to token cache so xet transfer and all download paths use it
 if [ -n "${HF_TOKEN:-}" ]; then
     echo "Using provided HuggingFace token"
+    export HF_TOKEN
+    # Write token directly to huggingface cache (most reliable across all library versions)
+    mkdir -p ~/.cache/huggingface
+    echo -n "${HF_TOKEN}" > ~/.cache/huggingface/token
 fi
 
 # Download model from HuggingFace
 echo ""
 echo "Downloading model: ${MODEL_ID}"
 
-# Use 'hf' CLI if available (modern), fall back to python snapshot_download
-DOWNLOAD_CMD=""
-if command -v hf &>/dev/null; then
-    DOWNLOAD_CMD="hf"
-fi
-
-DOWNLOAD_ARGS="${MODEL_ID} --local-dir /opt/ml/processing/model"
+# When a token is provided, ALWAYS use the Python API directly — the 'hf' CLI
+# and xet transfer have inconsistent token handling across versions.
+# For unauthenticated models, the CLI is fine.
 if [ -n "${HF_TOKEN:-}" ]; then
-    DOWNLOAD_ARGS="${DOWNLOAD_ARGS} --token ${HF_TOKEN}"
-fi
-
-if [ -n "${DOWNLOAD_CMD}" ]; then
-    ${DOWNLOAD_CMD} download ${DOWNLOAD_ARGS}
-else
-    # Fallback: use Python API directly
     python3 -c "
 from huggingface_hub import snapshot_download
-import os
-token = os.environ.get('HF_TOKEN', None)
-snapshot_download('${MODEL_ID}', local_dir='/opt/ml/processing/model', token=token)
+snapshot_download('${MODEL_ID}', local_dir='/opt/ml/processing/model', token='${HF_TOKEN}')
 "
+else
+    # Unauthenticated path: use 'hf' CLI if available, else Python API
+    DOWNLOAD_CMD=""
+    if command -v hf &>/dev/null; then
+        DOWNLOAD_CMD="hf"
+    fi
+
+    if [ -n "${DOWNLOAD_CMD}" ]; then
+        ${DOWNLOAD_CMD} download ${MODEL_ID} --local-dir /opt/ml/processing/model
+    else
+        python3 -c "
+from huggingface_hub import snapshot_download
+snapshot_download('${MODEL_ID}', local_dir='/opt/ml/processing/model')
+"
+    fi
 fi
 
 echo ""
