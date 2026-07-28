@@ -36,6 +36,10 @@ try:
             # Sanitize: only allow alphanumeric key names
             if k.isalnum() or all(c.isalnum() or c == '_' for c in k):
                 print(f'_PROFILE_{k}=\"{v}\"')
+    # Emit provisionedModules as comma-separated string for guard checks
+    modules = p.get('provisionedModules', [])
+    if isinstance(modules, list) and modules:
+        print(f'_PROFILE_provisionedModules=\"{(\",\").join(modules)}\"')
 except:
     pass
 " 2>/dev/null) || _PROFILE_RAW=""

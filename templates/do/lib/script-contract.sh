@@ -69,7 +69,8 @@ _guard_deployment_active() {
 
 _guard_training_infra() {
     # Checks training bootstrap module is provisioned
-    [ "${_PROFILE_trainingInfraProvisioned:-}" = "true" ] && return 0
+    # _PROFILE_provisionedModules is a comma-separated list emitted by profile.sh
+    [[ ",${_PROFILE_provisionedModules:-}," == *",training,"* ]] && return 0
     _contract_violation "training-infra" \
         "Training infrastructure is not provisioned." \
         "Run: mcc bootstrap add-module training"
@@ -105,14 +106,17 @@ _MLCC_SCRIPT_PATH="${BASH_SOURCE[1]:-}"
 _MLCC_GUARD=$(grep -m1 '^# guard:' "$_MLCC_SCRIPT_PATH" 2>/dev/null | sed 's/# guard: *//')
 _MLCC_TYPE=$(grep -m1 '^# type:' "$_MLCC_SCRIPT_PATH" 2>/dev/null | sed 's/# type: *//')
 
-# Source config to load guard-relevant variables (DEPLOYMENT_TARGET, status vars, etc.)
-# before enforcement. This is safe to re-source since config only exports variables.
+# Source config and profile to load guard-relevant variables (DEPLOYMENT_TARGET,
+# status vars, _PROFILE_provisionedModules, etc.) before enforcement.
 # Temporarily disable nounset (-u) since older generated configs may reference
 # unset variables without :- guards (e.g., pre-v1.5 HyperPod vars).
 _MLCC_SCRIPT_DIR="$(cd "$(dirname "$_MLCC_SCRIPT_PATH")" && pwd)"
 if [ -f "${_MLCC_SCRIPT_DIR}/config" ]; then
     set +u 2>/dev/null || true
     source "${_MLCC_SCRIPT_DIR}/config" 2>/dev/null || true
+    if [ -f "${_MLCC_SCRIPT_DIR}/lib/profile.sh" ]; then
+        source "${_MLCC_SCRIPT_DIR}/lib/profile.sh" 2>/dev/null || true
+    fi
     set -u 2>/dev/null || true
 fi
 
