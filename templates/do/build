@@ -43,20 +43,20 @@ PLATFORM_FLAG="--platform linux/amd64"
 
 # --- Secrets Manager resolution (build-time) ---
 # BL076: fall back to profile secrets when ARN is not explicitly set in do/config
-_hf_arn="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
-if [ -n "${_hf_arn}" ]; then
+HF_TOKEN_ARN="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
+if [ -n "${HF_TOKEN_ARN:-}" ]; then
     echo "🔐 Resolving HuggingFace token from Secrets Manager..."
-    HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${_hf_arn}" --query SecretString --output text) || {
+    HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text) || {
         echo "❌ Failed to resolve HuggingFace token from Secrets Manager"
         exit 3
     }
     export HF_TOKEN
 fi
 
-_ngc_arn="${NGC_API_KEY_ARN:-${_PROFILE_secrets_ngcApiKey:-}}"
-if [ -n "${_ngc_arn}" ]; then
+NGC_API_KEY_ARN="${NGC_API_KEY_ARN:-${_PROFILE_secrets_ngcApiKey:-}}"
+if [ -n "${NGC_API_KEY_ARN:-}" ]; then
     echo "🔐 Resolving NGC API key from Secrets Manager..."
-    NGC_API_KEY=$(aws secretsmanager get-secret-value --secret-id "${_ngc_arn}" --query SecretString --output text) || {
+    NGC_API_KEY=$(aws secretsmanager get-secret-value --secret-id "${NGC_API_KEY_ARN}" --query SecretString --output text) || {
         echo "❌ Failed to resolve NGC API key from Secrets Manager"
         exit 3
     }

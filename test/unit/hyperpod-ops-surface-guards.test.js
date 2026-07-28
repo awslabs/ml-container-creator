@@ -330,9 +330,9 @@ describe('deployment-state.sh shared library (BL063)', () => {
             );
         });
 
-        it('suggests do/deploy --target managed-inference when not InService', () => {
+        it('suggests do/deploy --target realtime-inference when not InService', () => {
             assert.ok(
-                scriptContains(DEPLOYMENT_STATE_SCRIPT, 'do/deploy --target managed-inference'),
+                scriptContains(DEPLOYMENT_STATE_SCRIPT, 'do/deploy --target realtime-inference'),
                 'should suggest the correct deploy command for SMAI'
             );
         });
