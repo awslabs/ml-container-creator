@@ -124,6 +124,7 @@ def _fetch_config_from_hf(model_id: str, hf_token: str | None = None) -> dict[st
 
 
 LOCAL_CATALOG_FILENAME = "model-sizes.json"
+LOCAL_MODELS_FILENAME = "models.json"
 
 
 def _load_local_catalog(catalog_path: Path) -> dict[str, Any]:
@@ -139,6 +140,75 @@ def _load_local_catalog(catalog_path: Path) -> dict[str, Any]:
 def _save_local_catalog(catalog_path: Path, catalog: dict[str, Any]) -> None:
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
     catalog_path.write_text(json.dumps(catalog, indent=2))
+
+
+def _derive_family(model_id: str) -> str:
+    """Derive a models.json 'family' from a model ID.
+
+    Strips the org prefix and lowercases, e.g.:
+        'zai-org/GLM-5.3'       → 'glm-5.3'
+        'zai-org/GLM-5.3-Flash' → 'glm-5.3-flash'
+        'THUDM/glm-4'           → 'glm-4'
+    """
+    base = model_id.rstrip("*")
+    name = base.split("/", 1)[1] if "/" in base else base
+    return name.strip().lower()
+
+
+def _tags_from_architecture(architecture: str | None) -> list[str]:
+    """Derive models.json tags from the HF architecture, defaulting to text-generation."""
+    # All currently-supported staged models are causal LMs → text-generation.
+    # Architecture is retained in the entry; tags stay conservative/minimal.
+    return ["text-generation"]
+
+
+def _write_models_json_entry(
+    project_dir: str,
+    pattern_key: str,
+    model_id: str,
+    architecture: str | None,
+) -> None:
+    """Write a companion entry to .mlcc/models.json keyed by the same glob pattern.
+
+    The instance-sizer validation requires every model-sizes pattern to be backed
+    by a models.json entry, so register_model() keeps both catalogs in sync. The
+    entry follows the servers/lib/catalogs/models.json schema (minimum fields).
+    Best-effort and non-fatal: any error is swallowed so staging still succeeds.
+    """
+    try:
+        models_path = Path(project_dir) / ".mlcc" / LOCAL_MODELS_FILENAME
+
+        if models_path.exists():
+            try:
+                catalog = json.loads(models_path.read_text())
+            except Exception:
+                catalog = {}
+        else:
+            catalog = {}
+        if not isinstance(catalog, dict):
+            catalog = {}
+
+        # Idempotent: skip if the pattern is already present.
+        if pattern_key in catalog:
+            return
+
+        catalog[pattern_key] = {
+            "family": _derive_family(model_id),
+            "gated": False,
+            "tags": _tags_from_architecture(architecture),
+            "architecture": architecture if architecture else None,
+            "chatTemplate": "",
+            "frameworkCompatibility": {"vllm": ">=0.5.0", "sglang": ">=0.3.0"},
+            "validationLevel": "community-validated",
+            "modelType": "transformer",
+            "tasks": ["text-generation"],
+        }
+
+        models_path.parent.mkdir(parents=True, exist_ok=True)
+        models_path.write_text(json.dumps(catalog, indent=2))
+    except Exception:
+        # Non-fatal — model-sizes registration is the primary path.
+        pass
 
 
 def _model_key_pattern(model_id: str) -> str:
@@ -215,6 +285,15 @@ def register_model(
     models[pattern_key] = {k: v for k, v in entry.items() if k not in ("modelId", "source")}
 
     _save_local_catalog(catalog_path, catalog)
+
+    # Keep .mlcc/models.json in sync so every model-sizes pattern is backed by a
+    # models.json entry (instance-sizer validation requirement).
+    _write_models_json_entry(
+        project_dir=project_dir,
+        pattern_key=pattern_key,
+        model_id=model_id,
+        architecture=entry.get("architecture"),
+    )
 
     if verbose:
         param_str = ""

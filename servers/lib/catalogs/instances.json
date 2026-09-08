@@ -774,7 +774,7 @@
             "notes": "8x NVIDIA H100 SXM GPUs (640GB total NVLink). Fits 300B+ models",
             "gpuMemoryGb": 80,
             "gpuType": "NVIDIA H100",
-            "costTier": "ultra"
+            "costTier": "very-high"
         },
         "ml.p5e.48xlarge": {
             "category": "gpu",
@@ -792,7 +792,7 @@
             "notes": "8x NVIDIA H200 NVL GPUs (1128GB total NVLink). Fits 400B+ models",
             "gpuMemoryGb": 141,
             "gpuType": "NVIDIA H200",
-            "costTier": "ultra"
+            "costTier": "very-high"
         }
     },
     "recommendations": {
