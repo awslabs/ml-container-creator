@@ -63,6 +63,22 @@
             },
             "notes": "vLLM 0.20.2 adds Gemma 4 support, CUDA 12.9, improved multi-GPU. Requires CUDA compat on drivers < 570.",
             "validationLevel": "community-validated",
+            "features": {
+                "speculative": {
+                    "supported": true,
+                    "api": "consolidated",
+                    "flag": "--speculative-config",
+                    "schema": {
+                        "method": "enum: draft-model | eagle | eagle2 | eagle3 | ngram | medusa | mtp",
+                        "model": "string: draft model HF ID or local path",
+                        "num_speculative_tokens": "int: draft tokens per step (default 5)",
+                        "draft_tensor_parallel_size": "int: tensor parallel size for draft model",
+                        "disable_by_batch_size": "int: auto-disable above this batch size"
+                    },
+                    "envVarStrategy": "serve-wrapper",
+                    "notes": "Build --n JSON from SPECULATIVE_* env vars in serve script. No native VLLM_SPECULATIVE_CONFIG env var."
+                }
+            },
             "supportedModelTypes": [
                 "afmoe",
                 "apertus",
@@ -343,6 +359,22 @@
             },
             "notes": "vLLM 0.20.2 adds Gemma 4 support, CUDA 12.9, improved multi-GPU. Requires CUDA compat on drivers < 570.",
             "validationLevel": "community-validated",
+            "features": {
+                "speculative": {
+                    "supported": true,
+                    "api": "consolidated",
+                    "flag": "--speculative-config",
+                    "schema": {
+                        "method": "enum: draft-model | eagle | eagle2 | eagle3 | ngram | medusa | mtp",
+                        "model": "string: draft model HF ID or local path",
+                        "num_speculative_tokens": "int: draft tokens per step (default 5)",
+                        "draft_tensor_parallel_size": "int: tensor parallel size for draft model",
+                        "disable_by_batch_size": "int: auto-disable above this batch size"
+                    },
+                    "envVarStrategy": "serve-wrapper",
+                    "notes": "Build --n JSON from SPECULATIVE_* env vars in serve script. No native VLLM_SPECULATIVE_CONFIG env var."
+                }
+            },
             "supportedModelTypes": [
                 "afmoe",
                 "apertus",
@@ -623,6 +655,22 @@
             },
             "notes": "vLLM 0.20.2 adds Gemma 4 support, CUDA 12.9, improved multi-GPU. Requires CUDA compat on drivers < 570.",
             "validationLevel": "community-validated",
+            "features": {
+                "speculative": {
+                    "supported": true,
+                    "api": "consolidated",
+                    "flag": "--speculative-config",
+                    "schema": {
+                        "method": "enum: draft-model | eagle | eagle2 | eagle3 | ngram | medusa | mtp",
+                        "model": "string: draft model HF ID or local path",
+                        "num_speculative_tokens": "int: draft tokens per step (default 5)",
+                        "draft_tensor_parallel_size": "int: tensor parallel size for draft model",
+                        "disable_by_batch_size": "int: auto-disable above this batch size"
+                    },
+                    "envVarStrategy": "serve-wrapper",
+                    "notes": "Build --n JSON from SPECULATIVE_* env vars in serve script. No native VLLM_SPECULATIVE_CONFIG env var."
+                }
+            },
             "supportedModelTypes": [
                 "afmoe",
                 "apertus",
@@ -893,7 +941,20 @@
                 }
             },
             "notes": "SGLang 0.2.0 features RadixAttention for automatic KV cache reuse. Experimental support",
-            "validationLevel": "experimental"
+            "validationLevel": "experimental",
+            "features": {
+                "speculative": {
+                    "supported": true,
+                    "api": "discrete-flags",
+                    "flags": {
+                        "--speculative-algorithm": "enum: EAGLE | EAGLE2 | EAGLE3 | NEXTN (uppercase)",
+                        "--speculative-draft-model-path": "string: draft model path",
+                        "--speculative-num-draft-tokens": "int: draft tokens per step",
+                        "--speculative-eagle-topk": "int: EAGLE tree top-k"
+                    },
+                    "notes": "SGLang uses discrete flags. Algorithm enum is UPPERCASE (vs vLLM lowercase)."
+                }
+            }
         },
         {
             "image": "lmsysorg/sglang:v0.5.14",
@@ -946,6 +1007,19 @@
             },
             "notes": "SGLang 0.2.0 features RadixAttention for automatic KV cache reuse. Experimental support",
             "validationLevel": "experimental",
+            "features": {
+                "speculative": {
+                    "supported": true,
+                    "api": "discrete-flags",
+                    "flags": {
+                        "--speculative-algorithm": "enum: EAGLE | EAGLE2 | EAGLE3 | NEXTN (uppercase)",
+                        "--speculative-draft-model-path": "string: draft model path",
+                        "--speculative-num-draft-tokens": "int: draft tokens per step",
+                        "--speculative-eagle-topk": "int: EAGLE tree top-k"
+                    },
+                    "notes": "SGLang uses discrete flags. Algorithm enum is UPPERCASE (vs vLLM lowercase)."
+                }
+            },
             "min_driver_version": "570.86",
             "cuda_toolkit": "12.8",
             "transformers_version": "4.51.0"
@@ -1001,6 +1075,19 @@
             },
             "notes": "SGLang 0.2.0 features RadixAttention for automatic KV cache reuse. Experimental support",
             "validationLevel": "experimental",
+            "features": {
+                "speculative": {
+                    "supported": true,
+                    "api": "discrete-flags",
+                    "flags": {
+                        "--speculative-algorithm": "enum: EAGLE | EAGLE2 | EAGLE3 | NEXTN (uppercase)",
+                        "--speculative-draft-model-path": "string: draft model path",
+                        "--speculative-num-draft-tokens": "int: draft tokens per step",
+                        "--speculative-eagle-topk": "int: EAGLE tree top-k"
+                    },
+                    "notes": "SGLang uses discrete flags. Algorithm enum is UPPERCASE (vs vLLM lowercase)."
+                }
+            },
             "min_driver_version": "570.86",
             "cuda_toolkit": "12.8",
             "transformers_version": "4.51.0"

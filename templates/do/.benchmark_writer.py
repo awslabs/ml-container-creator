@@ -338,7 +338,7 @@ def _extract_base_image_version(base_image):
     return ''
 
 
-def enrich_records(config, results, run_timestamp=None, instance_catalog=None):
+def enrich_records(config, results, run_timestamp=None, instance_catalog=None, gpu_metrics=None):
     """Build enriched records from config context and benchmark results.
 
     Each metrics entry becomes one enriched record with all Athena columns populated.
@@ -348,6 +348,14 @@ def enrich_records(config, results, run_timestamp=None, instance_catalog=None):
         results: dict with benchmark results (job_name, metrics array)
         run_timestamp: Optional datetime for run_timestamp. Defaults to now UTC.
         instance_catalog: Optional pre-loaded instance catalog dict. If None, loaded from disk.
+        gpu_metrics: Optional dict of collected GPU efficiency signals (BL086).
+            May contain any of: gpu_utilization_avg, gpu_utilization_max,
+            gpu_memory_used_avg_gb, gpu_memory_util_avg, kv_cache_util_avg,
+            kv_cache_util_max, prefix_cache_hit_rate, queue_depth_running_avg,
+            queue_depth_waiting_avg, queue_depth_waiting_max. It may also carry a
+            'metrics_source' key set by the caller; when absent, provenance is
+            derived from which signal groups are present. Missing signals → NULL
+            columns (additive-only migration).
 
     Returns:
         list of enriched record dicts (one per concurrency level).
@@ -395,6 +403,36 @@ def enrich_records(config, results, run_timestamp=None, instance_catalog=None):
 
     # Get metrics from results
     metrics = results.get('metrics', []) if isinstance(results, dict) else []
+
+    # ── GPU efficiency signals (BL086) ────────────────────────────────────────
+    # Merge collected signals (if any) and derive metrics_source provenance.
+    # The 11 new columns are additive/nullable: absent signals → None (NULL).
+    gpu_metrics = gpu_metrics or {}
+    _CW_KEYS = (
+        'gpu_utilization_avg', 'gpu_utilization_max',
+        'gpu_memory_used_avg_gb', 'gpu_memory_util_avg',
+    )
+    _ENGINE_KEYS = (
+        'kv_cache_util_avg', 'kv_cache_util_max', 'prefix_cache_hit_rate',
+        'queue_depth_running_avg', 'queue_depth_waiting_avg', 'queue_depth_waiting_max',
+    )
+    gpu_columns = {k: gpu_metrics.get(k) for k in (_CW_KEYS + _ENGINE_KEYS)}
+
+    # Provenance: honor an explicit metrics_source from the caller, else derive
+    # from which signal groups actually contributed.
+    metrics_source = gpu_metrics.get('metrics_source')
+    if metrics_source is None:
+        _has_cw = any(gpu_metrics.get(k) is not None for k in _CW_KEYS)
+        _has_engine = any(gpu_metrics.get(k) is not None for k in _ENGINE_KEYS)
+        if _has_cw and _has_engine:
+            metrics_source = 'both'
+        elif _has_cw:
+            metrics_source = 'cloudwatch'
+        elif _has_engine:
+            metrics_source = 'engine_metrics'
+        else:
+            metrics_source = 'none'
+    gpu_columns['metrics_source'] = metrics_source
 
     # Helper: unwrap aiperf metric dicts to scalar values
     # Derived metrics: {'unit': 'requests/sec', 'avg': 9.57} → 9.57
@@ -511,6 +549,8 @@ def enrich_records(config, results, run_timestamp=None, instance_catalog=None):
             'run_timestamp': run_timestamp.isoformat(),
             'region': region,
             'adapter_name': config.get('adapter_name', ''),
+            # GPU efficiency signals + provenance (BL086); None → NULL column.
+            **gpu_columns,
         }
         records.append(record)
 
@@ -944,6 +984,22 @@ def get_parquet_schema():
         pa.field("run_timestamp", pa.string()),
         pa.field("region", pa.string()),
         pa.field("adapter_name", pa.string()),
+
+        # GPU efficiency signals (BL086; all nullable — NULL = signal unavailable)
+        # Phase 1: CloudWatch (all engines, all targets)
+        pa.field("gpu_utilization_avg", pa.float64()),
+        pa.field("gpu_utilization_max", pa.float64()),
+        pa.field("gpu_memory_used_avg_gb", pa.float64()),
+        pa.field("gpu_memory_util_avg", pa.float64()),
+        # Phase 2: engine /metrics (HyperPod EKS only)
+        pa.field("kv_cache_util_avg", pa.float64()),
+        pa.field("kv_cache_util_max", pa.float64()),
+        pa.field("prefix_cache_hit_rate", pa.float64()),
+        pa.field("queue_depth_running_avg", pa.float64()),
+        pa.field("queue_depth_waiting_avg", pa.float64()),
+        pa.field("queue_depth_waiting_max", pa.float64()),
+        # Provenance
+        pa.field("metrics_source", pa.string()),
     ])
 
 
@@ -1192,6 +1248,73 @@ def _parse_jsonl_to_metrics(jsonl_path, concurrency=None):
 # ── Command: write ────────────────────────────────────────────────────────────
 
 
+def _collect_gpu_signals(args, input_data):
+    """Assemble GPU efficiency signals for the benchmark record (BL086).
+
+    Combines two sources (both non-fatal — any failure contributes no signals):
+      * CloudWatch (Phase 1): via gpu_metrics.collect_cloudwatch(), when the
+        endpoint name and run window are supplied.
+      * Engine /metrics (Phase 2): pre-collected JSON from --gpu-metrics-file,
+        produced by do/benchmark's port-forward scrape on HyperPod EKS.
+
+    Returns a merged dict of signals plus a derived 'metrics_source' provenance
+    value (cloudwatch | engine_metrics | both | none). Never raises.
+    """
+    from datetime import datetime as _dt
+
+    signals = {}
+
+    # ── Phase 1: CloudWatch enrichment (all engines/targets) ───────────────
+    endpoint_name = getattr(args, 'endpoint_name', None)
+    run_start = getattr(args, 'run_start', None)
+    run_end = getattr(args, 'run_end', None)
+    if endpoint_name and run_start and run_end:
+        try:
+            import importlib.util as _ilu
+            _gm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib', 'python', 'gpu_metrics.py')
+            if not os.path.exists(_gm_path):
+                # do/ layout: this file lives in do/, helper in do/lib/python/
+                _gm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib', 'python', 'gpu_metrics.py')
+            _spec = _ilu.spec_from_file_location('gpu_metrics', _gm_path)
+            _gm = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_gm)
+
+            start_dt = _dt.fromisoformat(run_start.replace('Z', '+00:00'))
+            end_dt = _dt.fromisoformat(run_end.replace('Z', '+00:00'))
+            region = input_data.get('region', os.environ.get('AWS_REGION', ''))
+
+            cw = _gm.collect_cloudwatch(
+                endpoint_name,
+                getattr(args, 'variant_name', None) or 'AllTraffic',
+                getattr(args, 'ic_name', None) or '',
+                start_dt,
+                end_dt,
+                region,
+            )
+            if isinstance(cw, dict):
+                signals.update(cw)
+        except Exception:
+            pass  # Non-fatal: no CloudWatch signals.
+
+    # ── Phase 2: engine /metrics (pre-collected JSON from bash scrape) ─────
+    gpu_metrics_file = getattr(args, 'gpu_metrics_file', None)
+    if gpu_metrics_file:
+        try:
+            with open(gpu_metrics_file, 'r') as f:
+                engine_signals = json.load(f)
+            if isinstance(engine_signals, dict):
+                # Only merge recognized numeric signal keys; ignore any error field.
+                for k, v in engine_signals.items():
+                    if k != 'error' and v is not None:
+                        signals[k] = v
+        except Exception:
+            pass  # Non-fatal: no engine signals.
+
+    # Provenance is derived downstream in enrich_records() from which signal
+    # groups are present; return the merged dict (enrich_records sets the source).
+    return signals
+
+
 def cmd_write(args):
     """Validate, enrich, and write benchmark results to S3 as Parquet.
 
@@ -1274,6 +1397,10 @@ def cmd_write(args):
         emit_validation_error(errors)
         return  # Never reached, but explicit
 
+    # ── Collect GPU efficiency signals (BL086) ─────────────────────────────
+    # Non-fatal: any collection error yields no signals (metrics_source='none').
+    gpu_signals = _collect_gpu_signals(args, input_data)
+
     # ── Dry-run mode: output enriched records as JSON, skip S3 ──────────────
     if args.dry_run:
         timestamp = datetime.now(timezone.utc)
@@ -1284,7 +1411,7 @@ def cmd_write(args):
         if isinstance(benchmark_data, dict) and 'job_name' in benchmark_data:
             results_obj['job_name'] = benchmark_data['job_name']
 
-        enriched_records = enrich_records(config_context, results_obj, timestamp)
+        enriched_records = enrich_records(config_context, results_obj, timestamp, gpu_metrics=gpu_signals)
 
         # Compute intended S3 path (use bucket if provided, else placeholder)
         bucket = args.bucket or f'mlcc-benchmark-results-<accountId>-{input_data["region"]}'
@@ -1313,7 +1440,7 @@ def cmd_write(args):
     if isinstance(benchmark_data, dict) and 'job_name' in benchmark_data:
         results_obj['job_name'] = benchmark_data['job_name']
 
-    enriched_records = enrich_records(config_context, results_obj, timestamp)
+    enriched_records = enrich_records(config_context, results_obj, timestamp, gpu_metrics=gpu_signals)
 
     if not enriched_records:
         _error_exit("No records produced from benchmark metrics")
@@ -1621,6 +1748,32 @@ def main():
     write_parser.add_argument(
         '--dry-run', dest='dry_run', action='store_true',
         help='Output enriched records as JSON without writing to S3'
+    )
+
+    # ── GPU efficiency signals (BL086) ─────────────────────────────────────
+    write_parser.add_argument(
+        '--endpoint-name', dest='endpoint_name', default=None,
+        help='SageMaker endpoint name (enables post-run CloudWatch GPU enrichment)'
+    )
+    write_parser.add_argument(
+        '--variant-name', dest='variant_name', default=None,
+        help='Production variant name for CloudWatch GPU enrichment (default: AllTraffic)'
+    )
+    write_parser.add_argument(
+        '--ic-name', dest='ic_name', default=None,
+        help='Inference component name for per-IC CloudWatch GPU enrichment'
+    )
+    write_parser.add_argument(
+        '--run-start', dest='run_start', default=None,
+        help='ISO 8601 UTC benchmark run start time (for the CloudWatch query window)'
+    )
+    write_parser.add_argument(
+        '--run-end', dest='run_end', default=None,
+        help='ISO 8601 UTC benchmark run end time (for the CloudWatch query window)'
+    )
+    write_parser.add_argument(
+        '--gpu-metrics-file', dest='gpu_metrics_file', default=None,
+        help='Path to a JSON file of pre-collected engine /metrics signals (Phase 2 EKS scrape)'
     )
 
     args = parser.parse_args()

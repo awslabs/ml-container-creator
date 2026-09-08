@@ -236,6 +236,7 @@ export function buildNewEntry(serverSource, tag, nearestEntry) {
         if (nearestEntry.accelerator) entry.accelerator = structuredClone(nearestEntry.accelerator);
         if (nearestEntry.notes) entry.notes = nearestEntry.notes;
         if (nearestEntry.validationLevel) entry.validationLevel = nearestEntry.validationLevel;
+        if (nearestEntry.features) entry.features = structuredClone(nearestEntry.features);
     }
 
     return entry;
@@ -262,7 +263,8 @@ export function deepMergeEntry(existingEntry, tag, serverSource) {
         labels: {
             ...existingEntry.labels,
             framework_version: versionWithoutV
-        }
+        },
+        ...(existingEntry.features ? { features: existingEntry.features } : {})
     };
 }
 

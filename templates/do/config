@@ -141,6 +141,17 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 <% } %>
 # LoRA hot-loading via vLLM REST API (requires --enable-lora in deployment.yaml)
 # export HP_LORA_ENABLED=false
+# Speculative decoding (optional — requires HP_SPECULATIVE_MODEL to be set)
+# export HP_SPECULATIVE_ENABLED=false
+# export HP_SPECULATIVE_ALGORITHM=draft-model   # draft-model|eagle|eagle2|eagle3|ngram|mtp|medusa
+# export HP_SPECULATIVE_MODEL=""                # HF model ID or local path (NOT s3://)
+# export HP_SPECULATIVE_NUM_TOKENS=5
+# export HP_SPECULATIVE_NUM_STEPS=""            # optional
+# export HP_SPECULATIVE_DRAFT_TP=""             # vLLM only: draft tensor-parallel size
+# export HP_SPECULATIVE_EAGLE_TOPK=""           # SGLang only: EAGLE tree top-k
+# export HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE="" # vLLM only: auto-disable threshold
+# Benchmark engine /metrics scrape (optional — collects KV cache, prefix cache, queue depth)
+# export HP_BENCHMARK_METRICS_ENABLED=false  # set true to scrape engine /metrics after do/benchmark
 <% } else { %>
 # ── HyperPod EKS (configure when using hyperpod-eks target) ──────────────────
 export HP_CLUSTER_NAME="${HP_CLUSTER_NAME:-}"
@@ -155,6 +166,17 @@ export HP_CPU_REQUEST="${HP_CPU_REQUEST:-}"
 # FSX_VOLUME_HANDLE=""
 # LoRA hot-loading via vLLM REST API (requires --enable-lora in deployment.yaml)
 # export HP_LORA_ENABLED=false
+# Speculative decoding (optional — requires HP_SPECULATIVE_MODEL to be set)
+# export HP_SPECULATIVE_ENABLED=false
+# export HP_SPECULATIVE_ALGORITHM=draft-model   # draft-model|eagle|eagle2|eagle3|ngram|mtp|medusa
+# export HP_SPECULATIVE_MODEL=""                # HF model ID or local path (NOT s3://)
+# export HP_SPECULATIVE_NUM_TOKENS=5
+# export HP_SPECULATIVE_NUM_STEPS=""            # optional
+# export HP_SPECULATIVE_DRAFT_TP=""             # vLLM only: draft tensor-parallel size
+# export HP_SPECULATIVE_EAGLE_TOPK=""           # SGLang only: EAGLE tree top-k
+# export HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE="" # vLLM only: auto-disable threshold
+# Benchmark engine /metrics scrape (optional — collects KV cache, prefix cache, queue depth)
+# export HP_BENCHMARK_METRICS_ENABLED=false  # set true to scrape engine /metrics after do/benchmark
 <% } %>
 
 <% if (typeof batchInstanceCount !== 'undefined' && batchInstanceCount && deploymentTarget === 'batch-transform') { %>

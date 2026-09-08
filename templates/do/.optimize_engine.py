@@ -176,7 +176,8 @@ class AthenaQueryEngine:
             f"max_model_len, kv_cache_dtype, output_token_throughput_tps, "
             f"request_throughput_rps, ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, "
             f"cost_per_1m_tokens, concurrency, workload, benchmark_job_name, "
-            f"run_timestamp, model_family, instance_family "
+            f"run_timestamp, model_family, instance_family, "
+            f"kv_cache_util_avg, prefix_cache_hit_rate, queue_depth_waiting_avg, metrics_source "
             f"FROM {self.database}.{self.table} "
             f"WHERE LOWER(model) = '{model_partition}' "
             f"AND instance = '{instance_partition}' "
@@ -194,7 +195,8 @@ class AthenaQueryEngine:
                 f"max_model_len, kv_cache_dtype, output_token_throughput_tps, "
                 f"request_throughput_rps, ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, "
                 f"cost_per_1m_tokens, concurrency, workload, benchmark_job_name, "
-                f"run_timestamp, model_family, instance_family "
+                f"run_timestamp, model_family, instance_family, "
+            f"kv_cache_util_avg, prefix_cache_hit_rate, queue_depth_waiting_avg, metrics_source "
                 f"FROM {self.database}.{self.table} "
                 f"WHERE model_family = '{model_family}' "
                 f"AND instance = '{instance_partition}' "
@@ -212,7 +214,8 @@ class AthenaQueryEngine:
                 f"max_model_len, kv_cache_dtype, output_token_throughput_tps, "
                 f"request_throughput_rps, ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, "
                 f"cost_per_1m_tokens, concurrency, workload, benchmark_job_name, "
-                f"run_timestamp, model_family, instance_family "
+                f"run_timestamp, model_family, instance_family, "
+            f"kv_cache_util_avg, prefix_cache_hit_rate, queue_depth_waiting_avg, metrics_source "
                 f"FROM {self.database}.{self.table} "
                 f"WHERE model_family = '{model_family}' "
                 f"AND instance_family = '{instance_family}' "
@@ -239,7 +242,9 @@ class AthenaQueryEngine:
         sql = (
             f"SELECT output_token_throughput_tps, request_throughput_rps, "
             f"ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, "
-            f"benchmark_job_name, run_timestamp, adapter_name "
+            f"benchmark_job_name, run_timestamp, adapter_name, "
+            f"gpu_utilization_avg, kv_cache_util_avg, prefix_cache_hit_rate, "
+            f"queue_depth_waiting_avg, metrics_source "
             f"FROM {self.database}.{self.table} "
             f"WHERE LOWER(model) = '{model_partition}' "
             f"AND instance = '{instance_type}' "
@@ -363,6 +368,11 @@ class AthenaQueryEngine:
             'ttft_p90_ms', 'itl_p90_ms', 'e2e_latency_p90_ms',
             'cost_per_1m_tokens', 'concurrency', 'tensor_parallel_degree',
             'max_model_len',
+            # GPU efficiency signals (BL086)
+            'gpu_utilization_avg', 'gpu_utilization_max',
+            'gpu_memory_used_avg_gb', 'gpu_memory_util_avg',
+            'kv_cache_util_avg', 'kv_cache_util_max', 'prefix_cache_hit_rate',
+            'queue_depth_running_avg', 'queue_depth_waiting_avg', 'queue_depth_waiting_max',
         ]
         for field in numeric_fields:
             if field in record and record[field]:
@@ -498,6 +508,74 @@ class RecommendationEngine:
         # Sort by improvement descending
         recommendations.sort(key=lambda r: r['improvement_pct'], reverse=True)
         return recommendations
+
+    def compute_efficiency_recommendations(self) -> list[dict]:
+        """Compute GPU-efficiency recommendations from the new signals (BL086).
+
+        Efficiency rules fire only for records with valid provenance
+        (metrics_source != 'none'), so rows lacking real signals never drive a
+        recommendation (Property 4). Rules (design.md § Component 6):
+          * kv_cache_util_avg > 0.95      → reduce IC_COPY_COUNT or increase VRAM
+          * prefix_cache_hit_rate < 0.10  → review prompt templating
+          * queue_depth_waiting_avg > 5   → scale IC_COPY_COUNT
+
+        Returns a list of efficiency recommendation dicts.
+        """
+        recs: list[dict] = []
+        if not self.records:
+            return recs
+
+        def _num(rec, key):
+            val = rec.get(key)
+            try:
+                return float(val) if val not in (None, '') else None
+            except (ValueError, TypeError):
+                return None
+
+        # Consider only records with real signal provenance.
+        sourced = [
+            r for r in self.records
+            if str(r.get('metrics_source', 'none')).strip() not in ('', 'none')
+        ]
+        if not sourced:
+            return recs
+
+        def _avg(key):
+            vals = [_num(r, key) for r in sourced]
+            vals = [v for v in vals if v is not None]
+            return (sum(vals) / len(vals)) if vals else None
+
+        kv = _avg('kv_cache_util_avg')
+        if kv is not None and kv > 0.95:
+            recs.append({
+                'type': 'efficiency',
+                'signal': 'kv_cache_util_avg',
+                'observed': round(kv, 3),
+                'threshold': 0.95,
+                'recommendation': 'Reduce IC_COPY_COUNT or increase VRAM — KV cache is nearly saturated.',
+            })
+
+        hit_rate = _avg('prefix_cache_hit_rate')
+        if hit_rate is not None and hit_rate < 0.10:
+            recs.append({
+                'type': 'efficiency',
+                'signal': 'prefix_cache_hit_rate',
+                'observed': round(hit_rate, 3),
+                'threshold': 0.10,
+                'recommendation': 'Low prefix cache hit rate — review prompt templating for shared prefixes.',
+            })
+
+        waiting = _avg('queue_depth_waiting_avg')
+        if waiting is not None and waiting > 5:
+            recs.append({
+                'type': 'efficiency',
+                'signal': 'queue_depth_waiting_avg',
+                'observed': round(waiting, 2),
+                'threshold': 5,
+                'recommendation': 'Requests are queueing — scale IC_COPY_COUNT to add capacity.',
+            })
+
+        return recs
 
     def compute_no_change_dimensions(self) -> list[str]:
         """Return dimensions where current value is already optimal."""
@@ -708,6 +786,7 @@ def cmd_recommend(args):
 
     recommendations = rec_engine.compute_recommendations()
     no_change = rec_engine.compute_no_change_dimensions()
+    efficiency_recommendations = rec_engine.compute_efficiency_recommendations()
 
     result = {
         'status': 'ok',
@@ -718,12 +797,13 @@ def cmd_recommend(args):
         'total_records_found': len(records),
         'current_config': current_config,
         'recommendations': recommendations,
+        'efficiency_recommendations': efficiency_recommendations,
         'no_change_dimensions': no_change,
     }
 
     # Optionally add Bedrock interpretation
-    if args.bedrock_interpret and recommendations:
-        analysis = bedrock_interpret(recommendations, current_config, args.region)
+    if args.bedrock_interpret and (recommendations or efficiency_recommendations):
+        analysis = bedrock_interpret(recommendations + efficiency_recommendations, current_config, args.region)
         if analysis:
             result['analysis'] = analysis
 
@@ -852,6 +932,25 @@ def cmd_compare_baseline(args):
             }
         })
 
+    # ── GPU efficiency signals (BL086) ─────────────────────────────────────
+    # Surface the new efficiency columns when populated; skip rows whose
+    # provenance is 'none' (no real signals).
+    _EFF_COLS = ('gpu_utilization_avg', 'kv_cache_util_avg',
+                 'prefix_cache_hit_rate', 'queue_depth_waiting_avg')
+    efficiency_rows = []
+    for r in all_records:
+        source = str(r.get('metrics_source', 'none') or 'none').strip()
+        if source in ('', 'none'):
+            continue
+        row = {'metrics_source': source, 'run_timestamp': r.get('run_timestamp', '')}
+        for col in _EFF_COLS:
+            val = r.get(col)
+            try:
+                row[col] = float(val) if val not in (None, '') else None
+            except (ValueError, TypeError):
+                row[col] = None
+        efficiency_rows.append(row)
+
     result = {
         'status': 'regression' if has_regression else 'pass',
         'has_baseline': True,
@@ -860,6 +959,7 @@ def cmd_compare_baseline(args):
         'run_count': run_count,
         'thresholds_applied': thresholds,
         'comparisons': comparisons,
+        'efficiency': efficiency_rows,
     }
 
     if not args.json_output:
@@ -905,6 +1005,25 @@ def cmd_compare_baseline(args):
             e2e = str(round(float(r.get('e2e_latency_p90_ms', 0) or 0), 1))
             print(f'  {ts:<22} {adapter_label:<22} {tput:>12} {ttft:>10} {itl:>10} {e2e:>10}')
         print(run_sep)
+
+        # GPU efficiency signals table (BL086) — only rows with real provenance.
+        if result['efficiency']:
+            print(f'\n  GPU efficiency signals:')
+            eff_header = f'  {"DATE":<22} {"SOURCE":<16} {"GPU_UTIL":>10} {"KV_CACHE":>10} {"PREFIX_HIT":>11} {"Q_WAIT":>8}'
+            eff_sep = '  ' + '─' * 80
+            print(eff_sep)
+            print(eff_header)
+            print(eff_sep)
+            for r in result['efficiency']:
+                ts = str(r.get('run_timestamp', ''))[:19].replace('T', ' ')
+                src = str(r.get('metrics_source', ''))[:16]
+
+                def _f(v):
+                    return '—' if v is None else str(round(v, 3))
+                print(f'  {ts:<22} {src:<16} {_f(r.get("gpu_utilization_avg")):>10} '
+                      f'{_f(r.get("kv_cache_util_avg")):>10} {_f(r.get("prefix_cache_hit_rate")):>11} '
+                      f'{_f(r.get("queue_depth_waiting_avg")):>8}')
+            print(eff_sep)
 
         # Summary
         regression_count = sum(1 for c in result['comparisons'] if c['status'] == 'regression')

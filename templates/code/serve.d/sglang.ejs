@@ -67,6 +67,41 @@ for var in "${env_vars[@]}"; do
     fi
 done
 
+# ---------------------------------------------------------------------------
+# Speculative decoding (BL085) — SGLang discrete flags.
+# The deployment template injects SPECULATIVE_* env vars (engine-neutral). This
+# wrapper maps them to SGLang's discrete `--speculative-*` flags. The algorithm
+# enum is UPPERCASE for SGLang (EAGLE|EAGLE2|EAGLE3|NEXTN) vs vLLM's lowercase;
+# this wrapper owns the casing/name conversion. Neither engine accepts s3://
+# draft paths, so guard HP_SPECULATIVE_MODEL first (AD-3).
+# ---------------------------------------------------------------------------
+if [ -n "${HP_SPECULATIVE_MODEL:-}" ] && [[ "${HP_SPECULATIVE_MODEL}" == s3://* ]]; then
+    echo "❌ HP_SPECULATIVE_MODEL must be a HuggingFace model ID or local path, not an s3:// URI. Stage it first with do/stage." >&2
+    exit 1
+fi
+if [ -n "${SPECULATIVE_ALGORITHM:-}" ]; then
+    # Engine-neutral (lowercase) → SGLang (UPPERCASE) algorithm mapping.
+    _spec_algo=$(echo "${SPECULATIVE_ALGORITHM}" | tr '[:lower:]' '[:upper:]')
+    case "${_spec_algo}" in
+        NGRAM|MEDUSA)
+            echo "❌ HP_SPECULATIVE_ALGORITHM='${SPECULATIVE_ALGORITHM}' is vLLM-only and not supported by SGLang. Use eagle, eagle2, eagle3, draft-model, or mtp." >&2
+            exit 1
+            ;;
+        DRAFT-MODEL|DRAFT_MODEL) _spec_algo="STANDALONE" ;;
+        MTP)                     _spec_algo="NEXTN" ;;
+    esac
+    SERVER_ARGS+=(--speculative-algorithm "${_spec_algo}")
+    if [ -n "${SPECULATIVE_DRAFT_MODEL_PATH:-}" ]; then
+        SERVER_ARGS+=(--speculative-draft-model-path "${SPECULATIVE_DRAFT_MODEL_PATH}")
+    fi
+    if [ -n "${SPECULATIVE_NUM_DRAFT_TOKENS:-}" ]; then
+        SERVER_ARGS+=(--speculative-num-draft-tokens "${SPECULATIVE_NUM_DRAFT_TOKENS}")
+    fi
+    if [ -n "${SPECULATIVE_EAGLE_TOPK:-}" ]; then
+        SERVER_ARGS+=(--speculative-eagle-topk "${SPECULATIVE_EAGLE_TOPK}")
+    fi
+fi
+
 echo "-------------------------------------------------------------------"
 echo "SGLang engine args: [${SERVER_ARGS[@]}]"
 echo "-------------------------------------------------------------------"
