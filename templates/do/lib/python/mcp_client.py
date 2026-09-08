@@ -471,6 +471,7 @@ def mcp_recommend_instance(
     client: MCPClient,
     model_name: str,
     precision: str,
+    project_dir: str | None = None,
 ) -> dict[str, Any] | None:
     """Call MCP instance-sizer/recommend and return the recommendation.
 
@@ -483,6 +484,8 @@ def mcp_recommend_instance(
         client: MCPClient instance from discover_mcp().
         model_name: Model identifier (e.g. "meta-llama/Llama-2-7b-hf").
         precision: Data type string (e.g. "float16", "int8").
+        project_dir: Absolute path to the project directory. When provided,
+            the instance-sizer checks .mlcc/model-sizes.json for local catalog entries.
 
     Returns:
         Dict with ``instance_type``, and optionally ``gpu_count`` and
@@ -492,7 +495,11 @@ def mcp_recommend_instance(
     result = call_tool(
         client,
         "instance-sizer/recommend",
-        {"model": model_name, "precision": precision},
+        {
+            "model": model_name,
+            "precision": precision,
+            **({"context": {"projectDir": project_dir}} if project_dir else {}),
+        },
     )
 
     if result is None:

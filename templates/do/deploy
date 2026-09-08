@@ -591,7 +591,9 @@ fi
 _HELPER_INVOKED=0
 if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
     # Invoke the deploy helper prompt to collect deployment parameters
-    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" 2>/dev/null || true
+    _PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+    MLCC_PROJECT_DIR="${_PROJECT_ROOT}" \
+    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" --project-dir "${_PROJECT_ROOT}" 2>/dev/null || true
 
     _DEPLOY_JSON_TMP=$(mktemp "${TMPDIR:-/tmp}/mlcc-deploy-config.XXXXXX")
     trap 'rm -f "$_DEPLOY_JSON_TMP"' EXIT

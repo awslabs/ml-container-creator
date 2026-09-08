@@ -36,7 +36,11 @@ _MCP_FALLBACK_WARNING: str = "MCP servers unavailable \u2014 recommendations dis
 # ---------------------------------------------------------------------------
 
 
-def get_instance_recommendation(model_name: str, precision: str = "float16") -> str | None:
+def get_instance_recommendation(
+    model_name: str,
+    precision: str = "float16",
+    project_dir: str | None = None,
+) -> str | None:
     """Get instance type recommendation, trying MCP first then built-in heuristic.
 
     Attempts to use MCP instance-sizer for the recommendation. If MCP is
@@ -49,6 +53,8 @@ def get_instance_recommendation(model_name: str, precision: str = "float16") -> 
     Args:
         model_name: HF Hub model identifier (e.g. "meta-llama/Llama-2-7b-hf").
         precision: Data type string (e.g. "float16", "int8").
+        project_dir: Absolute path to the project dir. Passed to the instance-sizer
+            so it can check .mlcc/model-sizes.json for locally-registered models.
 
     Returns:
         SageMaker instance type string (e.g. "ml.g6.xlarge"), or None if
@@ -59,7 +65,7 @@ def get_instance_recommendation(model_name: str, precision: str = "float16") -> 
     client = discover_mcp()
 
     if client is not None:
-        result = mcp_recommend_instance(client, model_name, precision)
+        result = mcp_recommend_instance(client, model_name, precision, project_dir=project_dir)
         if result is not None:
             return result.get("instance_type")
 
@@ -428,7 +434,8 @@ def prompt_instance_type(
     # Get MCP recommendation if we have a model name
     recommendation: str | None = None
     if model_name:
-        recommendation = get_instance_recommendation(model_name, "float16")
+        project_dir = os.environ.get("MLCC_PROJECT_DIR") or None
+        recommendation = get_instance_recommendation(model_name, "float16", project_dir=project_dir)
 
     # Use recommendation as default, falling back to provided default
     effective_default = recommendation or default or ""
@@ -854,7 +861,8 @@ def prompt_instance_types(config_vars: dict[str, str]) -> str:
     model_name = config_vars.get("MODEL_NAME") or config_vars.get("HF_MODEL_ID") or ""
     recommendation: str | None = None
     if model_name:
-        recommendation = get_instance_recommendation(model_name, "float16")
+        project_dir = os.environ.get("MLCC_PROJECT_DIR") or None
+        recommendation = get_instance_recommendation(model_name, "float16", project_dir=project_dir)
 
     # Pre-add recommended instance as first entry
     if recommendation:

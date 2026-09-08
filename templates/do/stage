@@ -197,6 +197,21 @@ _submit_processing_job() {
         echo "   S3 URI: ${s3_uri}"
     fi
 
+    # ── Catalog registration ───────────────────────────────────────────────────
+    # After a successful stage, register the model's metadata into the project-
+    # local instance-sizer catalog so GPU utilization estimates are accurate.
+    if [ "${job_status}" = "Completed" ] || [ "${job_status}" = "AlreadyStaged" ]; then
+        local _hf_model_id="${HF_MODEL_ID:-${MODEL_NAME}}"
+        local _staged_uri_for_catalog="${s3_uri}"
+        local _hf_token_for_catalog="${hf_token_value:-${HF_TOKEN:-}}"
+        python3 "${SCRIPT_DIR}/lib/python/catalog_registration.py" \
+            --model-id "${_hf_model_id}" \
+            --project-dir "${SCRIPT_DIR%/do}" \
+            --staged-uri "${_staged_uri_for_catalog}" \
+            ${_hf_token_for_catalog:+--hf-token "${_hf_token_for_catalog}"} \
+            || true  # non-fatal: catalog registration failure does not block staging
+    fi
+
     # Update config if requested and we have a valid S3 URI
     if [ "${UPDATE_CONFIG}" = true ] && [ -n "${s3_uri}" ] && [ "${job_status}" != "Submitted" ]; then
         CONFIG_FILE="${SCRIPT_DIR}/config"
@@ -449,6 +464,16 @@ echo ""
 echo "✅ Model staged successfully!"
 echo ""
 echo "   S3 URI: ${MODEL_S3_URI}"
+echo ""
+
+# ── Catalog registration (local mode) ─────────────────────────────────────────
+python3 "${SCRIPT_DIR}/lib/python/catalog_registration.py" \
+    --model-id "${HF_MODEL_ID:-${MODEL_NAME}}" \
+    --project-dir "${SCRIPT_DIR%/do}" \
+    --staged-uri "${MODEL_S3_URI}" \
+    ${HF_TOKEN:+--hf-token "${HF_TOKEN}"} \
+    || true  # non-fatal
+
 echo ""
 if [ "${UPDATE_CONFIG}" = true ]; then
     CONFIG_FILE="${SCRIPT_DIR}/config"

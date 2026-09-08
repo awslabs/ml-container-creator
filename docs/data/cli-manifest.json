@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T14:26:03.533Z",
+  "generatedAt": "2026-09-08T14:42:44.747Z",
   "version": "1.5.2",
   "cliOptions": [
     {
@@ -1047,6 +1047,33 @@
       "memGb": 1536,
       "family": "p6-b200",
       "costTier": "very-high"
+    },
+    "ml.p4d.24xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA A100",
+      "gpuMemoryGb": 40,
+      "vcpus": 96,
+      "memGb": 1152,
+      "family": "p4d",
+      "costTier": "high"
+    },
+    "ml.p5.48xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA H100",
+      "gpuMemoryGb": 80,
+      "vcpus": 192,
+      "memGb": 2048,
+      "family": "p5",
+      "costTier": "ultra"
+    },
+    "ml.p5e.48xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA H200",
+      "gpuMemoryGb": 141,
+      "vcpus": 192,
+      "memGb": 2048,
+      "family": "p5e",
+      "costTier": "ultra"
     }
   },
   "deploymentTargets": [
