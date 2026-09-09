@@ -322,7 +322,10 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
 
             fc.assert(fc.property(
                 fc.string({ minLength: 1, maxLength: 30 })
-                    .filter(s => !['realtime-inference', 'hyperpod-eks'].includes(s)),
+                    // Exclude the valid targets AND any value containing '${': _validateChoice
+                    // intentionally skips validation for unresolved shell-variable references
+                    // (e.g. "${AWS_REGION:-us-west-2}"), so those legitimately do not throw.
+                    .filter(s => !['realtime-inference', 'hyperpod-eks'].includes(s) && !s.includes('${')),
                 (deploymentTarget) => {
                     const answers = {
                         ...baseValidAnswers,
