@@ -89,52 +89,6 @@
             "deprecated": false,
             "since": "0.5.0"
         },
-        "backend": {
-            "type": "enum",
-            "description": "Alias for --deployment-config: architecture+engine pair (e.g. transformers-vllm, diffusors-vllm-omni, http-flask).",
-            "cliFlag": "--backend",
-            "cliArgName": "config",
-            "envVar": null,
-            "templateVar": null,
-            "configKey": "deploymentConfig",
-            "aliasOf": "deploymentConfig",
-            "skipCodegen": true,
-            "default": null,
-            "validation": {
-                "enum": [
-                    "http-flask",
-                    "http-fastapi",
-                    "transformers-vllm",
-                    "transformers-sglang",
-                    "transformers-tensorrt-llm",
-                    "transformers-lmi",
-                    "transformers-djl",
-                    "triton-fil",
-                    "triton-onnxruntime",
-                    "triton-tensorflow",
-                    "triton-pytorch",
-                    "triton-vllm",
-                    "triton-tensorrtllm",
-                    "triton-python",
-                    "diffusors-vllm-omni",
-                    "marketplace"
-                ]
-            },
-            "phase": "model",
-            "group": "model",
-            "appliesTo": {
-                "deploymentTargets": [
-                    "*"
-                ],
-                "architectures": [
-                    "*"
-                ]
-            },
-            "widget": null,
-            "prompt": null,
-            "deprecated": false,
-            "since": "1.6.0"
-        },
         "modelName": {
             "type": "string",
             "description": "Model identifier (hf-org/model, s3://..., registry://..., marketplace://...)",

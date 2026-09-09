@@ -40,10 +40,6 @@ const helpGroups = {};
 
 for (const param of Object.values(schema.parameters)) {
     if (!param.cliFlag) continue;
-    // Skip alias/synthetic params (e.g. --backend, which is hand-registered in
-    // bin/cli.js as an alias for --deployment-config). Emitting them here would
-    // create a duplicate Commander option.
-    if (param.skipCodegen) continue;
 
     const flag = param.cliArgName
         ? `${param.cliFlag} <${param.cliArgName}>`
