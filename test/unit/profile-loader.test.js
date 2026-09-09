@@ -33,13 +33,16 @@ function runProfileLoader(homeDir, extraScript = '') {
 set -e
 set -o pipefail
 export HOME="${homeDir}"
+# Skip AWS Secrets Manager auto-discovery — these are offline unit tests and
+# the discovery calls would otherwise block on credential/endpoint resolution.
+export MLCC_SKIP_SECRET_DISCOVERY=1
 source "${PROFILE_SH}"
 ${extraScript}
 `;
     writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
     const result = execSync(`bash "${scriptPath}"`, {
         encoding: 'utf-8',
-        env: { ...process.env, HOME: homeDir },
+        env: { ...process.env, HOME: homeDir, MLCC_SKIP_SECRET_DISCOVERY: '1' },
         timeout: 10000
     });
     return result;
