@@ -58,12 +58,14 @@ def _ts():
 class TestParquetSchema:
     def test_schema_includes_all_11_new_columns(self):
         """Req 4.2: parquet schema includes the 11 new columns."""
+        pytest.importorskip('pyarrow')
         schema = _bw.get_parquet_schema()
         names = set(schema.names)
         for col in _NEW_COLUMNS:
             assert col in names, f"missing schema column: {col}"
 
     def test_metrics_source_is_string_others_double(self):
+        pytest.importorskip('pyarrow')
         schema = _bw.get_parquet_schema()
         field = schema.field('metrics_source')
         assert 'string' in str(field.type)
