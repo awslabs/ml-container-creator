@@ -294,7 +294,10 @@
                 "voxtral_realtime",
                 "whisper",
                 "zamba2"
-            ]
+            ],
+            "min_driver_version": "580.0",
+            "cuda_toolkit": "12.9",
+            "transformers_version": "4.55.0"
         },
         {
             "image": "vllm/vllm-openai:v0.25.0",
@@ -590,7 +593,10 @@
                 "voxtral_realtime",
                 "whisper",
                 "zamba2"
-            ]
+            ],
+            "min_driver_version": "580.0",
+            "cuda_toolkit": "12.9",
+            "transformers_version": "4.55.0"
         },
         {
             "image": "vllm/vllm-openai:v0.24.0",
@@ -887,7 +893,10 @@
                 "voxtral_realtime",
                 "whisper",
                 "zamba2"
-            ]
+            ],
+            "min_driver_version": "580.0",
+            "cuda_toolkit": "12.9",
+            "transformers_version": "4.54.0"
         }
     ],
     "sglang": [
@@ -954,7 +963,10 @@
                     },
                     "notes": "SGLang uses discrete flags. Algorithm enum is UPPERCASE (vs vLLM lowercase)."
                 }
-            }
+            },
+            "min_driver_version": "570.86",
+            "cuda_toolkit": "12.8",
+            "transformers_version": "4.52.0"
         },
         {
             "image": "lmsysorg/sglang:v0.5.14",

@@ -227,6 +227,8 @@ def _extract_value(raw: str) -> str:
 
     Handles double-quoted, single-quoted, and unquoted values.
     Strips trailing inline comments for unquoted values.
+    Also resolves bash default-value expressions ${VAR:-default} to their
+    default value, since we can't expand them at parse time.
     """
     raw = raw.strip()
 
@@ -235,7 +237,12 @@ def _extract_value(raw: str) -> str:
         # Find the closing quote
         end = raw.find('"', 1)
         if end != -1:
-            return raw[1:end]
+            inner = raw[1:end]
+            # Resolve ${VAR:-default} → default (treat unresolved as empty)
+            inner = re.sub(r'\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}', r'\1', inner)
+            # Strip any remaining unresolved ${...} references → empty
+            inner = re.sub(r'\$\{[^}]+\}', '', inner)
+            return inner
         # No closing quote — take everything after opening quote
         return raw[1:]
 
@@ -1049,6 +1056,7 @@ def prompt_for_missing(
     missing_vars: dict[str, str | None],
     env_answers: dict[str, str] | None = None,
     config_vars: dict[str, str] | None = None,
+    target: str | None = None,
 ) -> dict[str, str]:
     """Prompt for all missing variables, using env answers where available.
 
@@ -1083,7 +1091,19 @@ def prompt_for_missing(
 
         # Use MCP-aware prompt for INSTANCE_TYPE
         if var_name == "INSTANCE_TYPE" and config_vars is not None:
-            answers[var_name] = prompt_instance_type(config_vars, default)
+            if target == "hyperpod-eks":
+                # HyperPod: instance type is the EKS node type.
+                # Prompt manually — don't call the SageMaker endpoint instance-sizer.
+                # The node type is determined by the cluster's node group,
+                # so we surface a text prompt with guidance.
+                import questionary
+                answers[var_name] = questionary.text(
+                    "HyperPod node instance type (e.g. ml.g5.12xlarge, ml.p4d.24xlarge):",
+                    default=default or "",
+                    validate=lambda v: bool(v.strip()) or "Instance type is required",
+                ).ask() or (default or "")
+            else:
+                answers[var_name] = prompt_instance_type(config_vars, default)
             continue
 
         # Use GPU auto-detection for IC_GPU_COUNT when default is "auto"
@@ -1257,7 +1277,7 @@ def run_prompt_flow(
         del missing["INSTANCE_TYPE"]
 
     # 5. Collect missing values
-    collected = prompt_for_missing(missing, env_answers, config_vars)
+    collected = prompt_for_missing(missing, env_answers, config_vars, target=target)
 
     # Merge pre-set values into collected
     if pre_instance_type:

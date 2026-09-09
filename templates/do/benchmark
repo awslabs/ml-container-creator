@@ -23,6 +23,7 @@ _BENCHMARK_JSON_MODE=false
 for _arg in "$@"; do [ "$_arg" = "--json" ] || [ "$_arg" = "--compare-baseline" ] && _BENCHMARK_JSON_MODE=true && break; done
 
 source "${SCRIPT_DIR}/lib/script-contract.sh"
+_require_python_env
 if [ "${_BENCHMARK_JSON_MODE}" = true ]; then
     # Source config with stdout redirected to stderr — config vars load correctly,
     # but the "Configuration loaded" header goes to stderr (visible in terminal,

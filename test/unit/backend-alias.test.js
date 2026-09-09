@@ -14,6 +14,7 @@
 import { describe, it, after } from 'mocha';
 import assert from 'node:assert';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -57,7 +58,10 @@ describe('BL084: --backend alias for --deployment-config', () => {
             .replace(/^export PROJECT_NAME=.*$/m, 'export PROJECT_NAME="<NAME>"');
     }
 
-    describe('5.1/5.2 equivalence — generated do/config matches', () => {
+    describe('5.1/5.2 equivalence — generated do/config matches', function () {
+        // Each test spawns two generator subprocesses (~1.5s each); raise the
+        // Mocha per-test timeout above the 2s default to avoid flaky timeouts.
+        this.timeout(60000);
         it('5.1 --backend transformers-vllm equals --deployment-config transformers-vllm', () => {
             const viaBackend = runGenerator(
                 { backend: 'transformers-vllm', 'model-name': 'test-model', 'region': 'us-east-1' },
@@ -111,9 +115,12 @@ describe('BL084: --backend alias for --deployment-config', () => {
         });
 
         it('5.4 --backend X + --deployment-config X (same value) is accepted (no conflict error)', () => {
+            // Generate into a temp dir so we do not leave a project in the repo root.
+            const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mlcc-backend-alias-'));
+            results.push({ cleanup: () => fs.rmSync(outDir, { recursive: true, force: true }) });
             const { stderr } = runCliSafe([
                 'myproj', '--backend', 'transformers-vllm', '--deployment-config', 'transformers-vllm',
-                '--skip-prompts', '--model-name', 'test-model'
+                '--skip-prompts', '--model-name', 'test-model', '--project-dir', outDir
             ], { timeout: 60000 });
             assert.ok(
                 !/cannot both be specified with different values/.test(stderr),
