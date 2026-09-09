@@ -59,6 +59,13 @@ function parseConfig(configPath) {
         // Strip inline comments
         const commentIdx = value.indexOf(' #');
         if (commentIdx > 0) value = value.slice(0, commentIdx).trim();
+        // Collapse bash default-value expressions ${VAR:-} or ${VAR:-default}
+        // to empty string (the default) since we can't expand them at parse time.
+        // A value that IS purely a bash substitution with no default → treat as "".
+        if (/^\$\{[A-Za-z_][A-Za-z0-9_]*:-[^}]*\}$/.test(value)) {
+            const defaultMatch = value.match(/^\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}$/);
+            value = defaultMatch ? defaultMatch[1] : '';
+        }
         vars[match[1]] = value;
     }
     return vars;
@@ -239,7 +246,12 @@ async function getEndpoints(region) {
 async function getClusters(region) {
     const result = await callMcpTool('hyperpod-cluster-picker', 'get_hyperpod_clusters', {
         parameters: ['hyperPodCluster'],
-        context: { awsRegion: region }
+        context: {
+            awsRegion: region,
+            // Pass the active profile so the cluster picker skips the default
+            // credential chain and goes directly to the right profile
+            awsProfile: process.env.AWS_PROFILE || undefined
+        }
     }, { timeout: 60000 });
 
     if (result?.choices?.hyperPodCluster?.length > 0) {
@@ -591,7 +603,9 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
             const clusterSpinner = ora('Loading cluster info...').start();
             const clusters = await getClusters(region);
             clusterSpinner.stop();
-            selectedCluster = clusters.find(c => c.name === config.HP_CLUSTER_NAME) || null;
+            selectedCluster = clusters.find(
+                c => c.name.toLowerCase() === (config.HP_CLUSTER_NAME || '').toLowerCase()
+            ) || null;
             if (selectedCluster) {
                 console.log(`   Cluster: ${config.HP_CLUSTER_NAME} (from config)`);
             }

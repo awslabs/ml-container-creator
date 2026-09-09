@@ -192,7 +192,7 @@ describe('Instance Multi-Select (Task 5.5)', () => {
 
         it('returns null for instances not in catalog', () => {
             assert.strictEqual(getInstanceCudaGeneration('ml.g4dn.xlarge'), null);
-            assert.strictEqual(getInstanceCudaGeneration('ml.p5.48xlarge'), null);
+            assert.strictEqual(getInstanceCudaGeneration('ml.p4de.24xlarge'), null);
             assert.strictEqual(getInstanceCudaGeneration('ml.m5.xlarge'), null);
         });
 

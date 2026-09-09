@@ -1,3 +1,53 @@
+<%#
+  Speculative decoding (BL085) — engine-neutral HP_SPECULATIVE_* surface.
+  Verified flag names (source: servers/lib/catalogs/model-servers.json features.speculative):
+    - vLLM (v0.24.0/v0.25.0/v0.25.1): consolidated `--speculative-config '<json>'` flag.
+        method values (lowercase): draft-model|eagle|eagle2|eagle3|ngram|medusa|mtp
+        JSON fields: method, model, num_speculative_tokens,
+                     draft_tensor_parallel_size, disable_by_batch_size
+        No native VLLM_SPECULATIVE_CONFIG env var — the serve wrapper builds the
+        `--speculative-config` JSON from the injected SPECULATIVE_CONFIG env var.
+    - SGLang (v0.5.13/v0.5.14/v0.5.15): discrete flags.
+        --speculative-algorithm (UPPERCASE: EAGLE|EAGLE2|EAGLE3|NEXTN)
+        --speculative-draft-model-path, --speculative-num-draft-tokens,
+        --speculative-eagle-topk
+  Translation layer owns the lowercase→UPPERCASE conversion for SGLang.
+-%>
+<%
+  // buildVllmSpecConfig() — template-side helper (design.md § Components).
+  // Emits the compact vLLM `--speculative-config` JSON string from the HP_SPECULATIVE_* vars.
+  // Optional keys are included only when the corresponding var is non-empty.
+  function buildVllmSpecConfig() {
+    const algo = (typeof HP_SPECULATIVE_ALGORITHM !== 'undefined' && HP_SPECULATIVE_ALGORITHM)
+      ? String(HP_SPECULATIVE_ALGORITHM) : 'draft-model';
+    // Algorithm enum → vLLM `method` (lowercase). `draft-model` maps to `draft_model`.
+    const methodMap = {
+      'draft-model': 'draft_model',
+      'eagle': 'eagle',
+      'eagle2': 'eagle2',
+      'eagle3': 'eagle3',
+      'ngram': 'ngram',
+      'mtp': 'mtp',
+      'medusa': 'medusa'
+    };
+    const cfg = { method: methodMap[algo] || algo };
+    if (typeof HP_SPECULATIVE_MODEL !== 'undefined' && HP_SPECULATIVE_MODEL) {
+      cfg.model = String(HP_SPECULATIVE_MODEL);
+    }
+    const numTokens = (typeof HP_SPECULATIVE_NUM_TOKENS !== 'undefined' && HP_SPECULATIVE_NUM_TOKENS)
+      ? HP_SPECULATIVE_NUM_TOKENS : '5';
+    cfg.num_speculative_tokens = parseInt(numTokens, 10);
+    if (typeof HP_SPECULATIVE_DRAFT_TP !== 'undefined' && HP_SPECULATIVE_DRAFT_TP) {
+      cfg.draft_tensor_parallel_size = parseInt(HP_SPECULATIVE_DRAFT_TP, 10);
+    }
+    if (typeof HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE !== 'undefined' && HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE) {
+      cfg.disable_by_batch_size = parseInt(HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE, 10);
+    }
+    return JSON.stringify(cfg);
+  }
+  const _specEnabled = (typeof HP_SPECULATIVE_ENABLED !== 'undefined' && HP_SPECULATIVE_ENABLED === 'true');
+  const _specEngine = (typeof modelServer !== 'undefined' && modelServer) ? modelServer : 'vllm';
+-%>
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -42,6 +92,22 @@ spec:
 <% } else { %>
             - name: VLLM_ENABLE_LORA
               value: "${VLLM_ENABLE_LORA:-}"
+<% } %>
+<% if (_specEnabled && _specEngine === 'vllm') { %>
+            - name: SPECULATIVE_CONFIG
+              value: '<%- buildVllmSpecConfig() %>'
+<% } %>
+<% if (_specEnabled && _specEngine === 'sglang') { %>
+            - name: SPECULATIVE_ALGORITHM
+              value: "<%= HP_SPECULATIVE_ALGORITHM %>"
+            - name: SPECULATIVE_DRAFT_MODEL_PATH
+              value: "<%= HP_SPECULATIVE_MODEL %>"
+            - name: SPECULATIVE_NUM_DRAFT_TOKENS
+              value: "<%= (typeof HP_SPECULATIVE_NUM_TOKENS !== 'undefined' && HP_SPECULATIVE_NUM_TOKENS) ? HP_SPECULATIVE_NUM_TOKENS : '5' %>"
+<% if (typeof HP_SPECULATIVE_EAGLE_TOPK !== 'undefined' && HP_SPECULATIVE_EAGLE_TOPK) { %>
+            - name: SPECULATIVE_EAGLE_TOPK
+              value: "<%= HP_SPECULATIVE_EAGLE_TOPK %>"
+<% } %>
 <% } %>
 <% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
             - name: NCCL_SOCKET_IFNAME

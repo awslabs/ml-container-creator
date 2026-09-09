@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import BootstrapConfig from './bootstrap-config.js';
 import AwsProfileParser from './aws-profile-parser.js';
 import McpCommandHandler from './mcp-command-handler.js';
-import RegistryCommandHandler from './registry-command-handler.js';
+import ArchitectureCommandHandler from './architecture-command-handler.js';
 import { runPrompts } from '../prompt-adapter.js';
 import BootstrapProfileManager from './bootstrap-profile-manager.js';
 import BootstrapProvisioners from './bootstrap-provisioners.js';
@@ -759,7 +759,7 @@ export default class BootstrapCommandHandler {
         // 2. Registry sync-architectures — populate supportedModelTypes
         console.log('\n📋 Syncing model architecture registry...');
         try {
-            const registryHandler = new RegistryCommandHandler();
+            const registryHandler = new ArchitectureCommandHandler();
             await registryHandler.handle(['sync-architectures'], {});
         } catch (error) {
             failures.push({ step: 'registry sync-architectures', error: error.message });

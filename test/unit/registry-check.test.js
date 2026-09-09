@@ -19,7 +19,7 @@ import assert from 'assert';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import RegistryCommandHandler from '../../src/lib/registry-command-handler.js';
+import ArchitectureCommandHandler from '../../src/lib/architecture-command-handler.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ describe('Registry Check Subcommand', () => {
     let tempDir;
 
     beforeEach(() => {
-        handler = new RegistryCommandHandler();
+        handler = new ArchitectureCommandHandler();
         tempDir = createTempDir();
     });
 

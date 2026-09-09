@@ -251,6 +251,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to do/config file",
     )
     prompt_parser.add_argument(
+        "--project-dir",
+        default="",
+        help="Absolute path to the project directory (for .mlcc/ local catalog overrides)",
+    )
+    prompt_parser.add_argument(
         "--target",
         default="",
         help="Pre-select deployment target (skips target prompt)",

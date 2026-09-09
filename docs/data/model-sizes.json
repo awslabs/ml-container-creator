@@ -1,5 +1,5 @@
 {
-    "catalogVersion": "1.0.0",
+    "catalogVersion": "1.1.0",
     "models": {
         "meta-llama/Llama-3.2-1B*": {
             "parameterCount": 1235814400,
@@ -16,6 +16,7 @@
                 "ml.g6.xlarge"
             ]
         },
+
         "meta-llama/Llama-3.2-3B*": {
             "parameterCount": 3212749824,
             "defaultDtype": "bfloat16",
@@ -31,6 +32,7 @@
                 "ml.g6.xlarge"
             ]
         },
+
         "meta-llama/Llama-3.1-8B*": {
             "parameterCount": 8030261248,
             "defaultDtype": "bfloat16",
@@ -47,6 +49,7 @@
                 "ml.g6e.xlarge"
             ]
         },
+
         "meta-llama/Llama-3.3-70B*": {
             "parameterCount": 70553706496,
             "defaultDtype": "bfloat16",
@@ -64,6 +67,67 @@
                 "ml.g5.48xlarge"
             ]
         },
+
+        "zai-org/GLM-5.3*": {
+            "parameterCount": 753000000000,
+            "activatedParameterCount": 39000000000,
+            "defaultDtype": "bfloat16",
+            "architecture": "ChatGLMForConditionalGeneration",
+            "maxPositionEmbeddings": 1048576,
+            "isMoE": true,
+            "recommendedQuantizations": ["fp8", "awq", "gptq"],
+            "minVramGb": 640,
+            "recommendedInstances": [
+                "ml.p5.48xlarge",
+                "ml.p5e.48xlarge",
+                "ml.p4d.24xlarge"
+            ]
+        },
+
+        "zai-org/GLM-5.3-Flash*": {
+            "parameterCount": 320000000000,
+            "activatedParameterCount": 18000000000,
+            "defaultDtype": "bfloat16",
+            "architecture": "ChatGLMForConditionalGeneration",
+            "maxPositionEmbeddings": 1048576,
+            "isMoE": true,
+            "recommendedQuantizations": ["fp8", "awq"],
+            "minVramGb": 256,
+            "recommendedInstances": [
+                "ml.p4d.24xlarge",
+                "ml.p5.48xlarge",
+                "ml.g6e.48xlarge"
+            ]
+        },
+
+        "THUDM/glm-4*": {
+            "parameterCount": 9400000000,
+            "defaultDtype": "bfloat16",
+            "architecture": "ChatGLMForConditionalGeneration",
+            "maxPositionEmbeddings": 131072,
+            "recommendedQuantizations": ["awq", "gptq"],
+            "minVramGb": 24,
+            "recommendedInstances": [
+                "ml.g5.2xlarge",
+                "ml.g6.2xlarge",
+                "ml.g6e.xlarge"
+            ]
+        },
+
+        "zai-org/GLM-4*": {
+            "parameterCount": 9400000000,
+            "defaultDtype": "bfloat16",
+            "architecture": "ChatGLMForConditionalGeneration",
+            "maxPositionEmbeddings": 131072,
+            "recommendedQuantizations": ["awq", "gptq"],
+            "minVramGb": 24,
+            "recommendedInstances": [
+                "ml.g5.2xlarge",
+                "ml.g6.2xlarge",
+                "ml.g6e.xlarge"
+            ]
+        },
+
         "Qwen/Qwen3-0.6B*": {
             "parameterCount": 600000000,
             "defaultDtype": "bfloat16",

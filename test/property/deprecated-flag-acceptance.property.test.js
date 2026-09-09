@@ -62,12 +62,33 @@ describe('Feature: lora-benchmark-simplification, Property 5: Deprecated flags a
                 // Should never throw regardless of what deprecated flags pass
                 await _ensureTemplateVariables(answers, null);
 
-                // Verify correct behavior: resolver overrides deprecated flag values
+                // Verify correct behavior. The deprecated flags do not cause errors and
+                // execution continues normally (the no-throw above). Beyond that:
                 const isLoraCapable = LORA_COMPATIBLE_BACKENDS.includes(backend);
-                assert.strictEqual(answers.enableLora, isLoraCapable,
-                    `enableLora must be ${isLoraCapable} for backend "${backend}" regardless of deprecated flag value ${enableLoraFlag}`);
-                assert.strictEqual(answers.includeBenchmark, true,
-                    `includeBenchmark must always be true regardless of deprecated flag value ${includeBenchmarkFlag}`);
+
+                // enableLora: incompatible backends are always forced to false. Compatible
+                // backends default to true when unset, but an explicit opt-out (false) is
+                // respected (AC-2.7). An explicit true on a compatible backend stays true.
+                let expectedEnableLora;
+                if (!isLoraCapable) {
+                    expectedEnableLora = false;
+                } else if (enableLoraFlag === false) {
+                    expectedEnableLora = false; // explicit opt-out respected
+                } else {
+                    expectedEnableLora = true; // unset -> default true, or explicit true
+                }
+                assert.strictEqual(answers.enableLora, expectedEnableLora,
+                    `enableLora must be ${expectedEnableLora} for backend "${backend}" with deprecated flag value ${enableLoraFlag}`);
+
+                // includeBenchmark: defaults to true when the deprecated flag is not passed;
+                // an explicit false opt-out is respected (AC-2.7).
+                if (includeBenchmarkFlag === null) {
+                    assert.strictEqual(answers.includeBenchmark, true,
+                        'includeBenchmark must default to true when the deprecated flag is not passed');
+                } else {
+                    assert.strictEqual(answers.includeBenchmark, includeBenchmarkFlag,
+                        `explicit includeBenchmark=${includeBenchmarkFlag} must be respected (AC-2.7)`);
+                }
             }
         ), { numRuns: PROPERTY_CONFIG.numRuns });
     });

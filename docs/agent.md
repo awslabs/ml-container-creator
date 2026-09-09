@@ -4,7 +4,13 @@ The `ml-container-creator hey` command starts a conversational AI agent that hel
 
 ## Prerequisites
 
-- **Python 3.10+** with agent dependencies installed:
+- **Python 3.10+** with agent dependencies installed. The simplest path is:
+  ```bash
+  mcc hey init
+  ```
+  This provisions a dedicated virtual environment at `.mlcc/hey-venv/`, installs the packages from `src/agent/requirements-agent.txt` (using `uv` when available, otherwise `python3 -m venv` + `pip`), and records `venv_path` in `.mlcc/agent-config.json`. Subsequent `mcc hey` invocations automatically use that environment. Re-run `mcc hey init` any time to upgrade the packages.
+
+  To install manually instead:
   ```bash
   pip install -r src/agent/requirements-agent.txt
   ```
@@ -96,12 +102,20 @@ Override in your project:
 ```json
 // .mlcc/agent-config.json
 {
+  "permitted_scripts": ["do/stage", "do/build", "do/push", "do/submit", "do/validate"],
+  "venv_path": ".mlcc/hey-venv",
   "confirmation": {
-    "mode": "all"
+    "mode": "default",
+    "script_classes": {
+      "do/deploy": "confirm"
+    }
   }
 }
 ```
 `mode: "all"` — always confirm (safe default for unfamiliar projects). `mode: "none"` — never confirm (CI/scripted use).
+
+!!! note
+    The project-level `.mlcc/agent-config.json` schema is all-snake-case (`permitted_scripts`, `venv_path`, `script_classes`). Older config files using the legacy camelCase `scriptClasses` key still load correctly — the loader reads `script_classes` first and falls back to `scriptClasses`.
 
 ### --dry-run as a test harness
 
@@ -114,6 +128,17 @@ cat plan.json | jq '.steps[].script'
 ```
 
 Useful for golden-file tests: assert on the plan structure without spending on actual jobs.
+
+### Executing a saved plan (`--from-plan`)
+
+`--from-plan` skips the GoalPlanner entirely and executes a previously reviewed `plan.json`. This saves the planning LLM call and guarantees the executed plan is exactly what you reviewed:
+
+```bash
+mcc hey --goal "stage and deploy Qwen3-4B" --dry-run   # review plan.json
+mcc hey --from-plan                                     # execute ./plan.json
+```
+
+Each step's `script` is validated against `permitted_scripts`; steps referencing a non-permitted script are skipped with a warning and the rest continue. `--from-plan` is mutually exclusive with `--goal`, defaults to `./plan.json` when no path is given, and honors `--dry-run` (re-display the plan without executing) and `--auto` (skip confirmation prompts).
 
 ## What It Can Help With
 
@@ -137,6 +162,7 @@ Useful for golden-file tests: assert on the plan structure without spending on a
 | `--goal '<objective>'` | Plan a sequence of `do/` steps to achieve a natural-language objective. Produces an ordered plan; pairs with `--auto` for autonomous execution. |
 | `--auto` | Self-answer clarifying questions from project context and instance-sizer defaults, then chain-execute the plan. Pauses only at `confirm`-class scripts (costly or mutating). |
 | `--dry-run` | Run the planner and resolver, write `plan.json`, but execute zero `do/` scripts. Deterministic output for CI/testing. |
+| `--from-plan [file]` | Execute a saved `plan.json` without re-planning (skips the GoalPlanner LLM call). Defaults to `./plan.json` in the project directory when no path is given. Mutually exclusive with `--goal`; honors `--dry-run` and `--auto`. |
 
 ## Commands During Conversation
 

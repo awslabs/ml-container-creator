@@ -154,12 +154,20 @@ class EnvironmentHealthCheck:
 
         if not missing:
             return HealthItem("pass", "Pip packages", ", ".join(installed))
+
+        # When packages are missing, guide the user to `mcc hey init`, which
+        # provisions a dedicated advisory-agent venv automatically (BL079).
+        hint = "Run 'mcc hey init' to set up a dedicated environment automatically."
         if len(missing) == len(_REQUIRED_PACKAGES):
-            return HealthItem("fail", "Pip packages", f"Missing: {', '.join(missing)}")
+            return HealthItem(
+                "fail",
+                "Pip packages",
+                f"Missing: {', '.join(missing)}. {hint}",
+            )
         return HealthItem(
             "warn",
             "Pip packages",
-            f"Missing: {', '.join(missing)} (have: {', '.join(installed)})",
+            f"Missing: {', '.join(missing)} (have: {', '.join(installed)}). {hint}",
         )
 
     def _check_bootstrap_profile(self) -> HealthItem:
@@ -286,6 +294,14 @@ class EnvironmentHealthCheck:
         # Check HF_TOKEN env var
         if os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN"):
             return HealthItem("pass", "Secrets", "HF_TOKEN is set")
+
+        # Check profile secrets resolved via the active bootstrap profile (BL076).
+        # When a HF token is registered via `mcc bootstrap add-secret hfToken`, it is
+        # exported as _PROFILE_secrets_hfToken even if HF_TOKEN itself is unset.
+        if os.environ.get("_PROFILE_secrets_hfToken"):
+            return HealthItem(
+                "pass", "Secrets", "HF token configured via bootstrap profile"
+            )
 
         # Check for secrets file in project
         secrets_file = project_path / "do" / "secrets.conf"

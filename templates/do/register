@@ -17,6 +17,7 @@ set -o pipefail
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
+_require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
@@ -1110,72 +1111,6 @@ DJEOF
 fi
 
 # ============================================================
-# Call ml-container-creator registry log
-# ============================================================
-
-# Build the registry log command
-CMD_ARGS=(
-    "registry" "log"
-    "--deployment-config" "${DEPLOYMENT_CONFIG}"
-    "--architecture" "${ARCHITECTURE}"
-    "--backend" "${BACKEND}"
-    "--region" "${AWS_REGION}"
-    "--status" "${STATUS}"
-    "--deployment-target" "${DEPLOYMENT_TARGET}"
-    "--build-target" "${BUILD_TARGET}"
-)
-
-<% if (framework === 'transformers' || framework === 'diffusors') { %>
-if [ -n "${MODEL_NAME:-}" ]; then
-    CMD_ARGS+=("--model-name" "${MODEL_NAME}")
-fi
-<% } %>
-
-<% if (deploymentTarget === 'realtime-inference' || deploymentTarget === 'async-inference' || deploymentTarget === 'batch-transform') { %>
-CMD_ARGS+=("--instance-type" "${INSTANCE_TYPE}")
-<% } %>
-
-<% if (modelFormat) { %>
-if [ -n "${MODEL_FORMAT:-}" ]; then
-    CMD_ARGS+=("--model-format" "${MODEL_FORMAT}")
-fi
-<% } %>
-
-if [ -n "${BASE_IMAGE:-}" ]; then
-    CMD_ARGS+=("--base-image" "${BASE_IMAGE}")
-fi
-
-if [ -n "${NOTES}" ]; then
-    CMD_ARGS+=("--notes" "${NOTES}")
-fi
-
-if [ -n "${PROJECT_FLAG}" ]; then
-    CMD_ARGS+=("${PROJECT_FLAG}")
-fi
-
-# Pass parameters as JSON string
-CMD_ARGS+=("--parameters" "${PARAMETERS}")
-
-# Pass IC list as JSON string
-<% if (deploymentTarget === 'realtime-inference') { %>
-if [ "${IC_LIST_JSON}" != "[]" ]; then
-    CMD_ARGS+=("--ic-list" "${IC_LIST_JSON}")
-fi
-<% } %>
-
-# Pass generator version from package.json if available
-GENERATOR_VERSION=""
-if command -v node &> /dev/null; then
-    GENERATOR_VERSION=$(node -e "try{console.log(require('$(npm root -g)/@aws/ml-container-creator/package.json').version)}catch(e){console.log('')}" 2>/dev/null || echo "")
-fi
-if [ -n "${GENERATOR_VERSION}" ]; then
-    CMD_ARGS+=("--generator-version" "${GENERATOR_VERSION}")
-fi
-
-echo "📝 Writing to registry..."
-ml-container-creator "${CMD_ARGS[@]}"
-
-# ============================================================
 # Register to SageMaker Model Package Group (non-fatal, AC-1.6)
 # ============================================================
 
@@ -1249,31 +1184,6 @@ if helper_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${REG_ARGS[@]}" 
             echo "✅ Model registered: version ${MPG_VERSION}"
             echo "   MPG ARN: ${MPG_ARN}"
             echo "   Package ARN: ${MODEL_PKG_ARN}"
-
-            # Update local deployment registry entry with MPG ARN and version (AC-1.5)
-            # Patch the most recent entry in the registry JSON file
-            REGISTRY_FILE="${HOME}/.ml-container-creator/registry.json"
-            if [ -f "${REGISTRY_FILE}" ]; then
-                python3 -c "
-import json, sys
-try:
-    with open('${REGISTRY_FILE}', 'r') as f:
-        data = json.load(f)
-    entries = data.get('entries', data) if isinstance(data, dict) else data
-    if isinstance(entries, list) and len(entries) > 0:
-        entries[-1]['modelPackageArn'] = '${MODEL_PKG_ARN}'
-        entries[-1]['modelPackageVersion'] = ${MPG_VERSION}
-        if isinstance(data, dict):
-            data['entries'] = entries
-            with open('${REGISTRY_FILE}', 'w') as f:
-                json.dump(data, f, indent=2)
-        else:
-            with open('${REGISTRY_FILE}', 'w') as f:
-                json.dump(entries, f, indent=2)
-except Exception as e:
-    print(f'Warning: Could not update registry with MPG info: {e}', file=sys.stderr)
-" 2>/dev/null || true
-            fi
         else
             echo "⚠️  MPG registration returned incomplete data (non-fatal)"
         fi
@@ -1281,7 +1191,7 @@ except Exception as e:
         echo "⚠️  MPG registration returned no JSON output (non-fatal)"
     fi
 else
-    echo "⚠️  MPG registration failed (non-fatal) — local registry is the primary record"
+    echo "⚠️  MPG registration failed (non-fatal) — SageMaker Model Package Groups are the deployment record"
 fi
 
 # ============================================================

@@ -332,6 +332,33 @@ class TestCheckSecretsConfigured:
         assert result.status == "warn"
         assert "gated models" in result.message
 
+    def test_profile_secret_hf_token_set(self, tmp_path, monkeypatch):
+        """BL079 Req 3.2 / 5.3: passes when _PROFILE_secrets_hfToken is set
+        even if HF_TOKEN env var is absent."""
+        do_dir = tmp_path / "do"
+        do_dir.mkdir()
+        (do_dir / "config").write_text("export HF_MODEL_ID=meta-llama/Llama-3-8B\n")
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.setenv("_PROFILE_secrets_hfToken", "hf_from_profile")
+        hc = EnvironmentHealthCheck()
+        result = hc._check_secrets_configured(str(tmp_path))
+        assert result.status == "pass"
+        assert "bootstrap profile" in result.message
+
+    def test_still_warns_without_env_or_profile_secret(self, tmp_path, monkeypatch):
+        """BL079 Req 5.3: still warns when neither HF_TOKEN nor the profile
+        secret is present."""
+        do_dir = tmp_path / "do"
+        do_dir.mkdir()
+        (do_dir / "config").write_text("export HF_MODEL_ID=meta-llama/Llama-3-8B\n")
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+        monkeypatch.delenv("_PROFILE_secrets_hfToken", raising=False)
+        hc = EnvironmentHealthCheck()
+        result = hc._check_secrets_configured(str(tmp_path))
+        assert result.status == "warn"
+
 
 class TestCheckLocalOverrides:
     """Tests for _check_local_overrides."""

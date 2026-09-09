@@ -91,7 +91,23 @@ CREATE EXTERNAL TABLE IF NOT EXISTS mlcc_ci.benchmark_results (
     mcc_version                 STRING,
     run_timestamp               STRING      COMMENT 'ISO 8601 UTC timestamp of the benchmark run',
     region                      STRING,
-    adapter_name                STRING      COMMENT 'LoRA adapter name; empty string if base model'
+    adapter_name                STRING      COMMENT 'LoRA adapter name; empty string if base model',
+
+    -- GPU efficiency signals (BL086; all nullable — NULL = signal unavailable)
+    -- Phase 1: CloudWatch (all engines, all targets)
+    gpu_utilization_avg         DOUBLE      COMMENT 'Avg GPU utilization %% during run (CloudWatch/OTel)',
+    gpu_utilization_max         DOUBLE      COMMENT 'Peak GPU utilization %% during run',
+    gpu_memory_used_avg_gb      DOUBLE      COMMENT 'Avg GPU memory used GB during run',
+    gpu_memory_util_avg         DOUBLE      COMMENT 'Avg GPU memory utilization %% during run',
+    -- Phase 2: engine /metrics (HyperPod EKS only)
+    kv_cache_util_avg           DOUBLE      COMMENT 'Avg KV cache utilization 0-1 (engine /metrics)',
+    kv_cache_util_max           DOUBLE      COMMENT 'Peak KV cache utilization 0-1',
+    prefix_cache_hit_rate       DOUBLE      COMMENT 'Prefix/radix cache hit rate 0-1 over run window',
+    queue_depth_running_avg     DOUBLE      COMMENT 'Avg requests running (engine scheduler)',
+    queue_depth_waiting_avg     DOUBLE      COMMENT 'Avg requests waiting/queued',
+    queue_depth_waiting_max     DOUBLE      COMMENT 'Peak requests waiting during run',
+    -- Provenance
+    metrics_source              STRING      COMMENT 'Provenance: cloudwatch | engine_metrics | both | none'
 )
 PARTITIONED BY (
     model   STRING  COMMENT 'Model name with / replaced by _ (e.g., Qwen_Qwen3-4B)',

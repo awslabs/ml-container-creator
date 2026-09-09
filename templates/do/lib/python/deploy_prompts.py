@@ -36,7 +36,11 @@ _MCP_FALLBACK_WARNING: str = "MCP servers unavailable \u2014 recommendations dis
 # ---------------------------------------------------------------------------
 
 
-def get_instance_recommendation(model_name: str, precision: str = "float16") -> str | None:
+def get_instance_recommendation(
+    model_name: str,
+    precision: str = "float16",
+    project_dir: str | None = None,
+) -> str | None:
     """Get instance type recommendation, trying MCP first then built-in heuristic.
 
     Attempts to use MCP instance-sizer for the recommendation. If MCP is
@@ -49,6 +53,8 @@ def get_instance_recommendation(model_name: str, precision: str = "float16") -> 
     Args:
         model_name: HF Hub model identifier (e.g. "meta-llama/Llama-2-7b-hf").
         precision: Data type string (e.g. "float16", "int8").
+        project_dir: Absolute path to the project dir. Passed to the instance-sizer
+            so it can check .mlcc/model-sizes.json for locally-registered models.
 
     Returns:
         SageMaker instance type string (e.g. "ml.g6.xlarge"), or None if
@@ -59,7 +65,7 @@ def get_instance_recommendation(model_name: str, precision: str = "float16") -> 
     client = discover_mcp()
 
     if client is not None:
-        result = mcp_recommend_instance(client, model_name, precision)
+        result = mcp_recommend_instance(client, model_name, precision, project_dir=project_dir)
         if result is not None:
             return result.get("instance_type")
 
@@ -221,6 +227,8 @@ def _extract_value(raw: str) -> str:
 
     Handles double-quoted, single-quoted, and unquoted values.
     Strips trailing inline comments for unquoted values.
+    Also resolves bash default-value expressions ${VAR:-default} to their
+    default value, since we can't expand them at parse time.
     """
     raw = raw.strip()
 
@@ -229,7 +237,12 @@ def _extract_value(raw: str) -> str:
         # Find the closing quote
         end = raw.find('"', 1)
         if end != -1:
-            return raw[1:end]
+            inner = raw[1:end]
+            # Resolve ${VAR:-default} → default (treat unresolved as empty)
+            inner = re.sub(r'\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}', r'\1', inner)
+            # Strip any remaining unresolved ${...} references → empty
+            inner = re.sub(r'\$\{[^}]+\}', '', inner)
+            return inner
         # No closing quote — take everything after opening quote
         return raw[1:]
 
@@ -428,7 +441,8 @@ def prompt_instance_type(
     # Get MCP recommendation if we have a model name
     recommendation: str | None = None
     if model_name:
-        recommendation = get_instance_recommendation(model_name, "float16")
+        project_dir = os.environ.get("MLCC_PROJECT_DIR") or None
+        recommendation = get_instance_recommendation(model_name, "float16", project_dir=project_dir)
 
     # Use recommendation as default, falling back to provided default
     effective_default = recommendation or default or ""
@@ -854,7 +868,8 @@ def prompt_instance_types(config_vars: dict[str, str]) -> str:
     model_name = config_vars.get("MODEL_NAME") or config_vars.get("HF_MODEL_ID") or ""
     recommendation: str | None = None
     if model_name:
-        recommendation = get_instance_recommendation(model_name, "float16")
+        project_dir = os.environ.get("MLCC_PROJECT_DIR") or None
+        recommendation = get_instance_recommendation(model_name, "float16", project_dir=project_dir)
 
     # Pre-add recommended instance as first entry
     if recommendation:
@@ -1041,6 +1056,7 @@ def prompt_for_missing(
     missing_vars: dict[str, str | None],
     env_answers: dict[str, str] | None = None,
     config_vars: dict[str, str] | None = None,
+    target: str | None = None,
 ) -> dict[str, str]:
     """Prompt for all missing variables, using env answers where available.
 
@@ -1075,7 +1091,19 @@ def prompt_for_missing(
 
         # Use MCP-aware prompt for INSTANCE_TYPE
         if var_name == "INSTANCE_TYPE" and config_vars is not None:
-            answers[var_name] = prompt_instance_type(config_vars, default)
+            if target == "hyperpod-eks":
+                # HyperPod: instance type is the EKS node type.
+                # Prompt manually — don't call the SageMaker endpoint instance-sizer.
+                # The node type is determined by the cluster's node group,
+                # so we surface a text prompt with guidance.
+                import questionary
+                answers[var_name] = questionary.text(
+                    "HyperPod node instance type (e.g. ml.g5.12xlarge, ml.p4d.24xlarge):",
+                    default=default or "",
+                    validate=lambda v: bool(v.strip()) or "Instance type is required",
+                ).ask() or (default or "")
+            else:
+                answers[var_name] = prompt_instance_type(config_vars, default)
             continue
 
         # Use GPU auto-detection for IC_GPU_COUNT when default is "auto"
@@ -1249,7 +1277,7 @@ def run_prompt_flow(
         del missing["INSTANCE_TYPE"]
 
     # 5. Collect missing values
-    collected = prompt_for_missing(missing, env_answers, config_vars)
+    collected = prompt_for_missing(missing, env_answers, config_vars, target=target)
 
     # Merge pre-set values into collected
     if pre_instance_type:

@@ -267,7 +267,8 @@ export async function _ensureTemplateVariables(answers, registryConfigManager = 
     }
 
     // Enforce enableLora scoping: only LoRA-capable servers get enableLora=true
-    // (AC-2.1, NFR-2). All incompatible backends are forced to false.
+    // (AC-2.1, NFR-2). All incompatible backends are forced to false. Capable backends
+    // keep their value (defaulted to true above, or an explicit opt-out respected — AC-2.7).
     const loraCapableServers = ['vllm', 'sglang', 'djl-lmi', 'lmi', 'djl'];
     const resolvedBackend = answers.backend || answers.modelServer;
     if (!loraCapableServers.includes(resolvedBackend)) {

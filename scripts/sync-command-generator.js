@@ -14,11 +14,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const require = createRequire(import.meta.url);
 
 const CHECK_MODE = process.argv.includes('--check');
 const DOCS_DATA = path.join(ROOT, 'docs', 'data');
@@ -89,7 +87,7 @@ function extractAdapterFlags() {
     const src = fs.readFileSync(path.join(ROOT, 'templates', 'do', 'adapter'), 'utf8');
     const subcommands = [];
     // Extract subcommands from usage section
-    const subRe = /echo\s+"  (add|remove|list|update|search)\b([^"]*)/g;
+    const subRe = /echo\s+" {2}(add|remove|list|update|search)\b([^"]*)/g;
     let m;
     while ((m = subRe.exec(src)) !== null) {
         const sub = m[1];
@@ -98,7 +96,7 @@ function extractAdapterFlags() {
         }
     }
     // Extract flags per subcommand from usage lines
-    const flagRe = /echo\s+"  (?:add|update|search)[^"]*?(--[\w-]+)(?:\s+<([^>]+)>)?/g;
+    const flagRe = /echo\s+" {2}(?:add|update|search)[^"]*?(--[\w-]+)(?:\s+<([^>]+)>)?/g;
     while ((m = flagRe.exec(src)) !== null) {
         const flag = m[1];
         const argName = m[2] || null;
@@ -117,14 +115,7 @@ function extractAdapterFlags() {
 function extractServeExcludeVars() {
     const src = fs.readFileSync(path.join(ROOT, 'templates', 'code', 'serve'), 'utf8');
     const result = {};
-    // Match: EXCLUDE_VARS=("VAR1" "VAR2")
-    const re = /EXCLUDE_VARS=\(([^)]*)\)/g;
-    let m;
-    // We need to associate each with the server context
-    const sections = src.split(/<%.*?%>/);
-    const serverRe = /modelServer === '(\w+)'/;
-
-    // Simpler approach: find all EXCLUDE_VARS arrays and their preceding server condition
+    // Find all EXCLUDE_VARS arrays and their preceding server condition
     const lines = src.split('\n');
     let currentServer = null;
     for (const line of lines) {
@@ -203,7 +194,7 @@ function buildManifest() {
         deploymentConfigs: extractDeploymentConfigs(),
         gpuInstances: extractGpuInstances(),
         deploymentTargets: [
-            { id: 'managed-inference', label: 'Managed Inference (Real-Time)' },
+            { id: 'realtime-inference', label: 'Real-Time Inference' },
             { id: 'async-inference', label: 'Async Inference' },
             { id: 'batch-transform', label: 'Batch Transform' },
             { id: 'hyperpod-eks', label: 'HyperPod EKS' }
@@ -357,7 +348,7 @@ function syncCatalogs() {
 }
 
 function writeManifest(manifest) {
-    fs.writeFileSync(path.join(DOCS_DATA, 'cli-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+    fs.writeFileSync(path.join(DOCS_DATA, 'cli-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 /** Generate initial widget-coverage.json if it doesn't exist */
@@ -390,7 +381,7 @@ function generateCoverageFile(manifest) {
             _excludedReason: 'Initial generation — move to covered as widget implements each command'
         }
     };
-    fs.writeFileSync(coveragePath, JSON.stringify(coverage, null, 2) + '\n');
+    fs.writeFileSync(coveragePath, `${JSON.stringify(coverage, null, 2)}\n`);
 }
 
 // ============================================================
@@ -406,7 +397,7 @@ if (CHECK_MODE) {
     syncCatalogs();
     writeManifest(manifest);
     generateCoverageFile(manifest);
-    console.log(`✅ Synced to docs/data/:`);
+    console.log('✅ Synced to docs/data/:');
     console.log(`   Catalogs: ${CATALOGS_TO_SYNC.length} files`);
     console.log(`   CLI options: ${manifest.cliOptions.length}`);
     console.log(`   Deployment configs: ${manifest.deploymentConfigs.length}`);

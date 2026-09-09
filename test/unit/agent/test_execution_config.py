@@ -139,3 +139,66 @@ class TestIsPermitted:
         assert config.get_cost_warning('do/stage') is not None
         assert config.get_cost_warning('do/submit') is not None
         assert config.get_cost_warning('do/test') is None
+
+
+class TestSchemaNormalizationBL079:
+    """BL079: snake_case-first read with camelCase fallback + venv_path."""
+
+    def _write_config(self, tmp_path, data):
+        config_dir = tmp_path / '.mlcc'
+        config_dir.mkdir(exist_ok=True)
+        (config_dir / 'agent-config.json').write_text(json.dumps(data))
+
+    def test_script_classes_snake_case_read(self, tmp_path):
+        """`script_classes` (snake_case) is read and applied (Req 4.1, 5.4)."""
+        self._write_config(tmp_path, {
+            'confirmation': {
+                'mode': 'default',
+                'script_classes': {'do/deploy': 'auto'},
+            },
+        })
+        config = load_execution_config(tmp_path)
+        # do/deploy is normally 'confirm'; snake_case override flips it to 'auto'.
+        assert config.decide('do/deploy') == 'auto'
+
+    def test_camel_case_fallback(self, tmp_path):
+        """Falls back to `scriptClasses` (camelCase) when snake_case absent (Req 4.1, 5.5)."""
+        self._write_config(tmp_path, {
+            'confirmation': {
+                'mode': 'default',
+                'scriptClasses': {'do/deploy': 'auto'},
+            },
+        })
+        config = load_execution_config(tmp_path)
+        assert config.decide('do/deploy') == 'auto'
+
+    def test_snake_case_wins_over_camel_case(self, tmp_path):
+        """When both keys are present, `script_classes` takes precedence (Req 4.2, 5.6)."""
+        self._write_config(tmp_path, {
+            'confirmation': {
+                'mode': 'default',
+                'script_classes': {'do/deploy': 'auto'},
+                'scriptClasses': {'do/deploy': 'confirm'},
+            },
+        })
+        config = load_execution_config(tmp_path)
+        assert config.decide('do/deploy') == 'auto'
+
+    def test_venv_path_read(self, tmp_path):
+        """`venv_path` is read into ExecutionConfig (Req 4.4, 4.6)."""
+        self._write_config(tmp_path, {
+            'venv_path': '.mlcc/hey-venv',
+        })
+        config = load_execution_config(tmp_path)
+        assert config.venv_path == '.mlcc/hey-venv'
+
+    def test_venv_path_defaults_to_none(self, tmp_path):
+        """venv_path is None when absent from the config."""
+        self._write_config(tmp_path, {'permitted_scripts': ['do/test']})
+        config = load_execution_config(tmp_path)
+        assert config.venv_path is None
+
+    def test_venv_path_default_when_no_file(self, tmp_path):
+        """venv_path defaults to None when there is no config file at all."""
+        config = load_execution_config(tmp_path)
+        assert config.venv_path is None

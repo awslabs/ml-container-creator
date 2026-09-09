@@ -23,6 +23,7 @@ _BENCHMARK_JSON_MODE=false
 for _arg in "$@"; do [ "$_arg" = "--json" ] || [ "$_arg" = "--compare-baseline" ] && _BENCHMARK_JSON_MODE=true && break; done
 
 source "${SCRIPT_DIR}/lib/script-contract.sh"
+_require_python_env
 if [ "${_BENCHMARK_JSON_MODE}" = true ]; then
     # Source config with stdout redirected to stderr — config vars load correctly,
     # but the "Configuration loaded" header goes to stderr (visible in terminal,
@@ -34,7 +35,71 @@ fi
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
+# ── Phase 2 engine /metrics scrape (BL086, HyperPod EKS opt-in) ───────────────
+# When HP_BENCHMARK_METRICS_ENABLED=true and DEPLOYMENT_TARGET=hyperpod-eks,
+# port-forward to the serving pod (same pattern as the do/test HyperPod path),
+# scrape engine /metrics via gpu_metrics.py, and write the JSON to a temp file.
+# Echoes the temp-file path on success, or nothing. Always non-fatal.
+_collect_engine_metrics_file() {
+    if [ "${HP_BENCHMARK_METRICS_ENABLED:-false}" != "true" ]; then
+        return 0
+    fi
+    if [ "${DEPLOYMENT_TARGET:-}" != "hyperpod-eks" ]; then
+        return 0
+    fi
+
+    local _sd
+    _sd="$(dirname "${BASH_SOURCE[0]}")"
+
+    # Resolve kubeconfig for the HyperPod cluster (same pattern as do/test).
+    local _kubeconfig="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME:-}"
+    local _eks_arn _eks_name
+    _eks_arn=$(aws sagemaker describe-cluster \
+        --cluster-name "${HP_CLUSTER_NAME:-}" \
+        --region "${AWS_REGION}" \
+        --query "Orchestrator.Eks.ClusterArn" \
+        --output text 2>/dev/null) || return 0
+    [ -z "${_eks_arn}" ] || [ "${_eks_arn}" = "None" ] && return 0
+    _eks_name=$(echo "${_eks_arn}" | awk -F'/' '{print $NF}')
+
+    aws eks update-kubeconfig \
+        --name "${_eks_name}" \
+        --region "${AWS_REGION}" \
+        --kubeconfig "${_kubeconfig}" >/dev/null 2>&1 || return 0
+    export KUBECONFIG="${_kubeconfig}"
+
+    kubectl cluster-info >/dev/null 2>&1 || return 0
+
+    # Port-forward svc/<project> to a local port (same pattern as do/test).
+    local _local_port=18080
+    kubectl port-forward "svc/${PROJECT_NAME}" "${_local_port}:8080" \
+        -n "${HP_NAMESPACE:-default}" >/dev/null 2>&1 &
+    local _pf_pid=$!
+    sleep 3
+    if ! kill -0 "${_pf_pid}" 2>/dev/null; then
+        return 0  # port-forward failed → non-fatal, no engine metrics
+    fi
+
+    # Scrape engine /metrics via the gpu_metrics.py CLI and capture JSON.
+    local _out_file
+    _out_file=$(mktemp)
+    if python3 "${_sd}/lib/python/gpu_metrics.py" engine-metrics \
+        "http://localhost:${_local_port}" "${MODEL_SERVER}" > "${_out_file}" 2>/dev/null; then
+        kill "${_pf_pid}" 2>/dev/null || true
+        echo "${_out_file}"
+        return 0
+    fi
+
+    kill "${_pf_pid}" 2>/dev/null || true
+    rm -f "${_out_file}"
+    return 0
+}
+
 # ── Target guard: benchmark uses InvokeEndpoint (real-time only) ──────────────
+# BL086: run-window timestamps for post-run CloudWatch enrichment (set at
+# job creation / completion). Default empty so ${VAR:+...} expansions are safe.
+BENCHMARK_RUN_START="${BENCHMARK_RUN_START:-}"
+BENCHMARK_RUN_END="${BENCHMARK_RUN_END:-}"
 if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ]; then
     echo "❌ do/benchmark is not supported on async-inference."
     echo "   AIPerf benchmarking uses synchronous InvokeEndpoint calls."
@@ -208,6 +273,7 @@ if [ "${ARG_STATUS}" = true ]; then
                 if [ -n "${_WRITER_INPUT}" ]; then
                     echo ""
                     echo "   📊 Writing to Athena..."
+                    _GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
                     if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
                         --results-file "${_WRITER_INPUT}" \
                         --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
@@ -217,11 +283,14 @@ if [ "${ARG_STATUS}" = true ]; then
                         --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
                         --region "${AWS_REGION:-${REGION:-us-east-1}}" \
                         ${_STATUS_INSTANCE_TYPE:+--instance-type "${_STATUS_INSTANCE_TYPE}"} \
-                        ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
+                        ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
+                        ${ENDPOINT_NAME:+--endpoint-name "${ENDPOINT_NAME}"} \
+                        ${_GPU_METRICS_FILE:+--gpu-metrics-file "${_GPU_METRICS_FILE}"}; then
                         echo "   ✅ Results persisted to Athena"
                     else
                         echo "   ⚠️  Athena write failed (non-fatal)"
                     fi
+                    [ -n "${_GPU_METRICS_FILE:-}" ] && rm -f "${_GPU_METRICS_FILE}" 2>/dev/null || true
                 fi
             fi
             ;;
@@ -313,6 +382,10 @@ _run_athena_recommendations() {
     local instance_type="${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
     local quantization="${IC_ENV_VLLM_QUANTIZATION:-${IC_ENV_QUANTIZATION:-bf16}}"
     local tp="${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}"
+    # BL046: This 4096 is a runtime shell fallback only, retained intentionally.
+    # The authoritative default now lives in the exported IC_ENV_VLLM_MAX_MODEL_LEN
+    # from the rendered do/config (sizer-computed when available); this fires only
+    # when the variable is genuinely unset in the environment.
     local max_len="${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}"
     local kv_dtype="${IC_ENV_VLLM_KV_CACHE_DTYPE:-auto}"
 
@@ -1446,6 +1519,9 @@ echo ""
 # Target the deployed endpoint and inference component with the workload config.
 echo "🚀 Step 2: Creating AI Benchmark Job: ${BENCHMARK_JOB_NAME}"
 
+# BL086: capture the run window (UTC ISO 8601) for post-run CloudWatch enrichment.
+BENCHMARK_RUN_START=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
 BENCHMARK_TARGET="{\"Endpoint\":{\"Identifier\":\"${ENDPOINT_NAME}\",\"InferenceComponents\":[{\"Identifier\":\"${IC_NAME}\"}]}}"
 OUTPUT_CONFIG="{\"S3OutputLocation\":\"${BENCHMARK_S3_OUTPUT_PATH}\"}"
 
@@ -1514,6 +1590,7 @@ while [ ${POLL_COUNT} -lt ${MAX_POLL_ATTEMPTS} ]; do
     case "${JOB_STATUS}" in
         Completed)
             echo "✅ Benchmark completed successfully!"
+            BENCHMARK_RUN_END=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
             break
             ;;
         Failed)
@@ -1849,6 +1926,9 @@ except Exception as e:
             _WRITER_INPUT="${RESULTS_FILE}"
         fi
 
+        # Phase 2 (BL086): opt-in engine /metrics scrape on HyperPod EKS.
+        _GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
+
         # Best-effort: errors are logged but do not fail the benchmark script
         if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
             --results-file "${_WRITER_INPUT}" \
@@ -1859,12 +1939,18 @@ except Exception as e:
             --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
             --region "${AWS_REGION:-${REGION}}" \
             ${RESOLVED_INSTANCE_TYPE:+--instance-type "${RESOLVED_INSTANCE_TYPE}"} \
-            ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
+            ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
+            ${ENDPOINT_NAME:+--endpoint-name "${ENDPOINT_NAME}"} \
+            ${IC_NAME:+--ic-name "${IC_NAME}"} \
+            ${BENCHMARK_RUN_START:+--run-start "${BENCHMARK_RUN_START}"} \
+            ${BENCHMARK_RUN_END:+--run-end "${BENCHMARK_RUN_END}"} \
+            ${_GPU_METRICS_FILE:+--gpu-metrics-file "${_GPU_METRICS_FILE}"}; then
             echo "✅ Benchmark results persisted to S3"
         else
             echo "⚠️  Failed to persist benchmark results to Athena (non-fatal)"
             echo "   Results remain available locally in: benchmarks/${BENCHMARK_JOB_NAME}/"
         fi
+        [ -n "${_GPU_METRICS_FILE:-}" ] && rm -f "${_GPU_METRICS_FILE}" 2>/dev/null || true
     fi
 elif [ "${JOB_STATUS}" = "Failed" ]; then
     # Display failure reason

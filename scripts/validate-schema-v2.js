@@ -20,10 +20,16 @@ const re = /\.addOption\(new Option\('(--[\w-]+)/g;
 let m;
 while ((m = re.exec(cliSrc)) !== null) cliFlags.push(m[1]);
 
+// Alias flags are hand-registered in bin/cli.js and intentionally have NO
+// standalone schema parameter — they resolve to another parameter's value in
+// the CLI action handler. They must NOT be added to parameter-schema-v2.json
+// (doing so would generate a colliding validator/option, since e.g. 'backend'
+// is already a reserved internal config property = the decomposed model server).
+const ALIAS_FLAGS = ['--backend'];
+
 const REQUIRED_FIELDS = ['type', 'description', 'cliFlag', 'configKey', 'phase', 'group', 'appliesTo', 'deprecated', 'since'];
 const VALID_TYPES = ['string', 'integer', 'number', 'boolean', 'enum'];
 const VALID_PHASES = ['project', 'model', 'infrastructure', 'features', 'build', 'auth'];
-const VALID_GROUPS = ['project', 'model', 'infrastructure', 'inference-component', 'lora', 'benchmark', 'auth', 'build', 'async', 'batch', 'hyperpod', 'endpoint', 'testing'];
 
 const errors = [];
 const params = schema.parameters;
@@ -59,14 +65,15 @@ for (const [key, param] of Object.entries(params)) {
 
 // Coverage report
 const schemaFlags = Object.values(params).map(p => p.cliFlag).filter(Boolean);
-const covered = cliFlags.filter(f => schemaFlags.includes(f));
-const missing = cliFlags.filter(f => !schemaFlags.includes(f));
+const checkedFlags = cliFlags.filter(f => !ALIAS_FLAGS.includes(f));
+const covered = checkedFlags.filter(f => schemaFlags.includes(f));
+const missing = checkedFlags.filter(f => !schemaFlags.includes(f));
 
-console.log(`\n📋 Parameter Schema v2 Validation`);
+console.log('\n📋 Parameter Schema v2 Validation');
 console.log(`${'─'.repeat(50)}`);
 console.log(`   Parameters defined: ${Object.keys(params).length}`);
-console.log(`   CLI flags in bin/cli.js: ${cliFlags.length}`);
-console.log(`   Covered by schema: ${covered.length}/${cliFlags.length} (${Math.round(covered.length/cliFlags.length*100)}%)`);
+console.log(`   CLI flags in bin/cli.js: ${cliFlags.length} (${ALIAS_FLAGS.length} alias excluded)`);
+console.log(`   Covered by schema: ${covered.length}/${checkedFlags.length} (${checkedFlags.length ? Math.round(covered.length/checkedFlags.length*100) : 100}%)`);
 console.log(`   Remaining to add: ${missing.length}`);
 
 if (errors.length) {
@@ -74,32 +81,32 @@ if (errors.length) {
     errors.forEach(e => console.log(`   • ${e}`));
     process.exit(1);
 } else {
-    console.log(`\n✅ Schema is well-formed`);
+    console.log('\n✅ Schema is well-formed');
 }
 
 if (missing.length) {
     console.log(`\n❌ CLI flags not in schema (${missing.length}):`);
     missing.forEach(f => console.log(`   ${f}`));
-    console.log(`\n   Action required: Add entries for these flags to config/parameter-schema-v2.json`);
-    console.log(`   Template:`);
+    console.log('\n   Action required: Add entries for these flags to config/parameter-schema-v2.json');
+    console.log('   Template:');
     console.log(`   "${camelCase(missing[0])}": {`);
-    console.log(`       "type": "string|integer|number|boolean|enum",`);
-    console.log(`       "description": "...",`);
+    console.log('       "type": "string|integer|number|boolean|enum",');
+    console.log('       "description": "...",');
     console.log(`       "cliFlag": "${missing[0]}",`);
-    console.log(`       "cliArgName": "value",`);
-    console.log(`       "envVar": null,`);
-    console.log(`       "templateVar": null,`);
+    console.log('       "cliArgName": "value",');
+    console.log('       "envVar": null,');
+    console.log('       "templateVar": null,');
     console.log(`       "configKey": "${camelCase(missing[0])}",`);
-    console.log(`       "default": null,`);
-    console.log(`       "validation": {},`);
-    console.log(`       "phase": "project|model|infrastructure|features|build|auth",`);
-    console.log(`       "group": "...",`);
-    console.log(`       "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },`);
-    console.log(`       "widget": null,`);
-    console.log(`       "prompt": null,`);
-    console.log(`       "deprecated": false,`);
-    console.log(`       "since": "0.x.0"`);
-    console.log(`   }`);
+    console.log('       "default": null,');
+    console.log('       "validation": {},');
+    console.log('       "phase": "project|model|infrastructure|features|build|auth",');
+    console.log('       "group": "...",');
+    console.log('       "appliesTo": { "deploymentTargets": ["*"], "architectures": ["*"] },');
+    console.log('       "widget": null,');
+    console.log('       "prompt": null,');
+    console.log('       "deprecated": false,');
+    console.log('       "since": "0.x.0"');
+    console.log('   }');
     process.exit(1);
 }
 

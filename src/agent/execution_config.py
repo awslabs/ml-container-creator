@@ -63,6 +63,7 @@ class ExecutionConfig:
     max_script_timeout: int = _DEFAULT_MAX_SCRIPT_TIMEOUT
     script_classes: dict[str, str] = field(default_factory=lambda: dict(_DEFAULT_SCRIPT_CLASSES))
     mode: str = 'default'
+    venv_path: str | None = None
 
     def is_permitted(self, script: str) -> bool:
         """Check if a script is in the permitted execution list.
@@ -143,7 +144,12 @@ def load_execution_config(project_dir: Path) -> ExecutionConfig:
     if mode not in ('default', 'all', 'none'):
         mode = 'default'
 
-    script_classes_raw = confirmation.get('scriptClasses')
+    script_classes_raw = confirmation.get('script_classes')
+    if script_classes_raw is None:
+        # Legacy camelCase fallback (pre-BL079 config files). New schema uses
+        # snake_case `script_classes`; `scriptClasses` is kept for backward compat.
+        script_classes_raw = confirmation.get('scriptClasses')
+
     if isinstance(script_classes_raw, dict) and all(
         isinstance(k, str) and v in ('auto', 'confirm')
         for k, v in script_classes_raw.items()
@@ -154,10 +160,16 @@ def load_execution_config(project_dir: Path) -> ExecutionConfig:
     else:
         script_classes = dict(_DEFAULT_SCRIPT_CLASSES)
 
+    # venv_path (BL079): location of the dedicated advisory-agent virtual env.
+    venv_path = data.get('venv_path')
+    if not isinstance(venv_path, str) or not venv_path:
+        venv_path = None
+
     return ExecutionConfig(
         permitted_scripts=permitted,
         cost_warnings=cost_warnings,
         max_script_timeout=timeout,
         script_classes=script_classes,
         mode=mode,
+        venv_path=venv_path,
     )

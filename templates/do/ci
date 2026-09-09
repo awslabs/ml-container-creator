@@ -17,6 +17,7 @@ set -o pipefail
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
+_require_python_env
 source "${SCRIPT_DIR}/config"
 
 # ── HyperPod guard: CI harness is SageMaker managed inference specific ────────

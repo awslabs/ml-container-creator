@@ -38,7 +38,7 @@ const GROUP_TO_SECTION = {
 const options = [];
 const helpGroups = {};
 
-for (const [key, param] of Object.entries(schema.parameters)) {
+for (const param of Object.values(schema.parameters)) {
     if (!param.cliFlag) continue;
 
     const flag = param.cliArgName

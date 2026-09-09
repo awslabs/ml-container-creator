@@ -15,6 +15,7 @@ set -e
 # Source configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
+_require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
@@ -591,7 +592,20 @@ fi
 _HELPER_INVOKED=0
 if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
     # Invoke the deploy helper prompt to collect deployment parameters
-    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" 2>/dev/null || true
+    _PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+    _HELPER_ERR=$(mktemp "${TMPDIR:-/tmp}/mlcc-deploy-helper-err.XXXXXX")
+    MLCC_PROJECT_DIR="${_PROJECT_ROOT}" \
+    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" --project-dir "${_PROJECT_ROOT}" 2>"${_HELPER_ERR}" || {
+        _ERR=$(cat "${_HELPER_ERR}" 2>/dev/null)
+        rm -f "${_HELPER_ERR}"
+        if echo "${_ERR}" | grep -q "No module named 'questionary'"; then
+            echo "❌ Python dependency missing: questionary"
+            echo "   Run: pip install questionary"
+            echo "   Or activate your mlcc environment first"
+            exit 1
+        fi
+    }
+    rm -f "${_HELPER_ERR}"
 
     _DEPLOY_JSON_TMP=$(mktemp "${TMPDIR:-/tmp}/mlcc-deploy-config.XXXXXX")
     trap 'rm -f "$_DEPLOY_JSON_TMP"' EXIT
@@ -621,8 +635,7 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
         (cd "${_BUILDER_DIR}" && node "${_REAL_BUILDER}" \
           --config-file "${_ABS_CONFIG}" \
           --output-file "$_DEPLOY_JSON_TMP" \
-          ${FLAG_TARGET:+--target "$FLAG_TARGET"} \
-          ${DEPLOYMENT_TARGET:+--target "$DEPLOYMENT_TARGET"} \
+          --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" \
           ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"}) || true
     else
         echo "❌ Deploy interactive mode requires Node.js and @aws/ml-container-creator."
@@ -665,7 +678,11 @@ KEY_MAP = {
 data = json.load(sys.stdin)
 if 'error' in data:
     err = data['error']
-    print(f'echo \"❌ {err}\" >&2; exit 1')
+    # Write the error to a temp file so the parent shell can detect and exit cleanly
+    import tempfile, os
+    tf = tempfile.mktemp(prefix='mlcc_deploy_err_')
+    open(tf, 'w').write(err)
+    print(f'MLCC_DEPLOY_ERR_FILE=\"{tf}\"')
 else:
     for key, var in KEY_MAP.items():
         if key in data and data[key]:
@@ -673,6 +690,13 @@ else:
             print(f'export {var}=\"{val}\"')
 ")"
     _HELPER_INVOKED=1
+fi
+
+# Check for builder error (e.g. no HyperPod cluster found)
+if [ -n "${MLCC_DEPLOY_ERR_FILE:-}" ] && [ -f "${MLCC_DEPLOY_ERR_FILE}" ]; then
+    _err=$(cat "${MLCC_DEPLOY_ERR_FILE}"); rm -f "${MLCC_DEPLOY_ERR_FILE}"
+    echo "" >&2; echo "❌ ${_err}" >&2; echo "" >&2
+    exit 1
 fi
 
 # ── Persist answers before dispatch (FR-2.5, CP-7) ────────

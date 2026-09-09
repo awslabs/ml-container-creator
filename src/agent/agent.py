@@ -26,14 +26,27 @@ from strands.tools.mcp import MCPClient
 from strands.models.anthropic import AnthropicModel
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from config_loader import load_agent_config
-from context import ProjectContext
-from execution_config import load_execution_config
-from health_check import EnvironmentHealthCheck, print_health_report
-from tools.execute_script import create_execute_script_tool, get_execution_log
-from goal_planner import GoalPlanner, GoalPlanningError
-from chain_runner import ChainRunner
-from dry_run_reporter import DryRunReporter
+try:
+    from config_loader import load_agent_config
+    from context import ProjectContext
+    from execution_config import load_execution_config
+    from health_check import EnvironmentHealthCheck, print_health_report
+    from tools.execute_script import create_execute_script_tool, get_execution_log
+    from goal_planner import GoalPlanner, GoalPlanningError, PlanStep
+    from chain_runner import ChainRunner
+    from dry_run_reporter import DryRunReporter
+except ModuleNotFoundError:
+    # Importable as `src.agent.agent` (tests) when only the project root is on
+    # sys.path. Production runs `python3 src/agent/agent.py`, where src/agent/ is
+    # sys.path[0] and the bare imports above succeed.
+    from src.agent.config_loader import load_agent_config
+    from src.agent.context import ProjectContext
+    from src.agent.execution_config import load_execution_config
+    from src.agent.health_check import EnvironmentHealthCheck, print_health_report
+    from src.agent.tools.execute_script import create_execute_script_tool, get_execution_log
+    from src.agent.goal_planner import GoalPlanner, GoalPlanningError, PlanStep
+    from src.agent.chain_runner import ChainRunner
+    from src.agent.dry_run_reporter import DryRunReporter
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -364,7 +377,7 @@ class CostTracker:
 
 # ─── CLI Argument Parsing ─────────────────────────────────────────────────────
 
-ParsedArgs = collections.namedtuple('ParsedArgs', ['project_dir', 'offline', 'goal', 'auto_mode', 'dry_run'])
+ParsedArgs = collections.namedtuple('ParsedArgs', ['project_dir', 'offline', 'goal', 'auto_mode', 'dry_run', 'from_plan'])
 
 
 def _parse_args() -> ParsedArgs:
@@ -379,6 +392,7 @@ def _parse_args() -> ParsedArgs:
     goal = None
     auto_mode = False
     dry_run = False
+    from_plan = None
 
     i = 0
     while i < len(args):
@@ -392,6 +406,9 @@ def _parse_args() -> ParsedArgs:
         elif arg == "--goal" and i + 1 < len(args):
             goal = args[i + 1]
             i += 2
+        elif arg == "--from-plan" and i + 1 < len(args):
+            from_plan = args[i + 1]
+            i += 2
         elif arg == "--auto":
             auto_mode = True
             i += 1
@@ -401,13 +418,158 @@ def _parse_args() -> ParsedArgs:
         else:
             i += 1
 
+    # BL080: --from-plan and --goal are mutually exclusive.
+    if from_plan is not None and goal is not None:
+        print(
+            '\033[31mError:\033[0m --from-plan and --goal are mutually exclusive',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     return ParsedArgs(
         project_dir=project_dir,
         offline=offline,
         goal=goal,
         auto_mode=auto_mode,
         dry_run=dry_run,
+        from_plan=from_plan,
     )
+
+
+# ─── From-Plan Loading (BL080) ─────────────────────────────────────────────────
+
+
+def _load_plan_steps(steps_raw: Any, exec_config: Any) -> list[PlanStep]:
+    """Reconstruct PlanStep instances from raw plan.json step dicts.
+
+    Validates each step, skips any script not in exec_config.permitted_scripts
+    (printing a warning that matches goal-mode's "not in permitted scripts"
+    message), and returns the list of valid PlanStep instances.
+
+    The confirmation class is recomputed from exec_config so that the plan honors
+    the project's current confirmation policy rather than a stale value baked into
+    the saved plan.json.
+
+    Args:
+        steps_raw: The `steps` array loaded from plan.json.
+        exec_config: ExecutionConfig with permitted_scripts and policy.
+
+    Returns:
+        Ordered list of valid PlanStep instances.
+
+    Raises:
+        ValueError: If steps_raw is not a list, or any step is missing required
+            fields (`script`, `flags`).
+    """
+    if not isinstance(steps_raw, list):
+        raise ValueError('plan.json "steps" must be an array')
+
+    permitted_set = set(exec_config.permitted_scripts)
+    steps: list[PlanStep] = []
+
+    for i, entry in enumerate(steps_raw):
+        if not isinstance(entry, dict):
+            raise ValueError(f'plan.json step {i} is not an object')
+
+        if 'script' not in entry:
+            raise ValueError(f'plan.json step {i} is missing required field "script"')
+        if 'flags' not in entry:
+            raise ValueError(f'plan.json step {i} is missing required field "flags"')
+
+        script = entry['script']
+        flags = entry['flags']
+        if not isinstance(flags, list):
+            raise ValueError(f'plan.json step {i} "flags" must be an array')
+        flags = [str(f) for f in flags]
+
+        if script not in permitted_set:
+            print(
+                f'\033[33m⚠️  Plan step {i}: skipping "{script}" '
+                f'— not in permitted scripts\033[0m',
+                file=sys.stderr,
+            )
+            continue
+
+        rationale = str(entry.get('rationale', ''))
+        klass = exec_config.decide(script)
+
+        steps.append(PlanStep(
+            script=script,
+            flags=flags,
+            klass=klass,
+            rationale=rationale,
+        ))
+
+    return steps
+
+
+def _run_from_plan(
+    from_plan: str,
+    exec_config: Any,
+    execute_script_tool: Any,
+    project_path: Path,
+    dry_run: bool,
+) -> int:
+    """Load a saved plan.json and execute it (or report it under dry-run).
+
+    Bypasses the GoalPlanner entirely — the plan is already finalized. Validates
+    the file, reconstructs PlanStep instances (skipping unpermitted scripts), and
+    dispatches to DryRunReporter or ChainRunner.
+
+    Args:
+        from_plan: Path to the plan.json file.
+        exec_config: ExecutionConfig with permitted scripts and policy.
+        execute_script_tool: The execute_script callable for ChainRunner.
+        project_path: Resolved project root.
+        dry_run: When True, print the plan table and do not execute.
+
+    Returns:
+        Process exit code (0 on success/partial, 1 on load/validation error).
+        Callers should propagate this via sys.exit().
+    """
+    plan_path = Path(from_plan)
+    if not plan_path.exists():
+        print(
+            f'\033[31mError:\033[0m Plan file not found: {plan_path}',
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        plan_data = json.loads(plan_path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as e:
+        print(f'\033[31mError:\033[0m Invalid plan.json: {e}', file=sys.stderr)
+        return 1
+
+    if not isinstance(plan_data, dict) or 'steps' not in plan_data:
+        print(
+            '\033[31mError:\033[0m plan.json must be an object with a "steps" array',
+            file=sys.stderr,
+        )
+        return 1
+
+    goal_text = plan_data.get('goal', '(from plan.json)')
+
+    try:
+        plan = _load_plan_steps(plan_data.get('steps', []), exec_config)
+    except ValueError as e:
+        print(f'\033[31mError:\033[0m Invalid plan.json: {e}', file=sys.stderr)
+        return 1
+
+    if dry_run:
+        reporter = DryRunReporter(project_path)
+        reporter.report(plan, [])
+        return 0
+
+    runner = ChainRunner(execute_script_tool, exec_config, project_path, dry_run=False)
+    result = runner.run(plan)
+
+    # Use the plan's goal field as the display goal, mirroring goal-mode.
+    if result.steps_failed == 0:
+        print(f'\033[32m🚀 Goal completed: "{goal_text}"\033[0m')
+    else:
+        print(f'\033[33m⚠️  Goal partially completed: "{goal_text}"\033[0m')
+    return 0
 
 
 # ─── REPL ─────────────────────────────────────────────────────────────────────
@@ -659,6 +821,21 @@ def main() -> None:
             _stop_mcp_servers(mcp_clients)
             cost.print_summary()
         return
+
+    # ─── From-Plan Mode (BL080) ───────────────────────────────────────────────
+    elif args.from_plan:
+        try:
+            exit_code = _run_from_plan(
+                args.from_plan,
+                exec_config,
+                execute_script_tool,
+                project_path,
+                args.dry_run,
+            )
+        finally:
+            _stop_mcp_servers(mcp_clients)
+            cost.print_summary()
+        sys.exit(exit_code)
 
     # ─── Interactive REPL (default) ───────────────────────────────────────────
     try:

@@ -28,6 +28,26 @@ from mcp_client import (
     mcp_recommend_instance,
 )
 
+import mcp_client as _mcp_module
+
+
+# ---------------------------------------------------------------------------
+# Autouse fixture: isolate _load_mcp_config from the real project config/mcp.json.
+#
+# _load_mcp_config() walks up from mcp_client.__file__ looking for config/mcp.json.
+# When tests run inside the project tree, that walk-up finds the real (gitignored)
+# config/mcp.json before the monkeypatched MCP_CONFIG_PATH is checked.
+# This fixture re-roots __file__ to an isolated tmp dir so the walk-up finds nothing,
+# making every test's explicit path/env patches the only signal the function sees.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _isolate_mcp_config(monkeypatch, tmp_path):
+    """Re-root mcp_client.__file__ so the walk-up finds no real config/mcp.json."""
+    isolated_file = str(tmp_path / "lib" / "python" / "mcp_client.py")
+    monkeypatch.setattr(_mcp_module, "__file__", isolated_file)
+    monkeypatch.delenv("MCP_CONFIG", raising=False)
+
 
 # ---------------------------------------------------------------------------
 # MCPClient construction tests

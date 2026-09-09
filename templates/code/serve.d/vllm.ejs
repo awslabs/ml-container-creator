@@ -74,6 +74,21 @@ for var in "${env_vars[@]}"; do
     fi
 done
 
+# ---------------------------------------------------------------------------
+# Speculative decoding (BL085) — vLLM consolidated `--speculative-config` JSON API.
+# The deployment template injects SPECULATIVE_CONFIG (a JSON string built by
+# buildVllmSpecConfig()). This serve wrapper is a thin pass-through: it appends
+# `--speculative-config "$SPECULATIVE_CONFIG"` when set. Neither engine accepts
+# s3:// draft paths, so guard HP_SPECULATIVE_MODEL first (AD-3).
+# ---------------------------------------------------------------------------
+if [ -n "${HP_SPECULATIVE_MODEL:-}" ] && [[ "${HP_SPECULATIVE_MODEL}" == s3://* ]]; then
+    echo "❌ HP_SPECULATIVE_MODEL must be a HuggingFace model ID or local path, not an s3:// URI. Stage it first with do/stage." >&2
+    exit 1
+fi
+if [ -n "${SPECULATIVE_CONFIG:-}" ]; then
+    SERVER_ARGS+=(--speculative-config "${SPECULATIVE_CONFIG}")
+fi
+
 echo "-------------------------------------------------------------------"
 echo "vLLM engine args: [${SERVER_ARGS[@]}]"
 echo "-------------------------------------------------------------------"

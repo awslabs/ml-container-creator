@@ -44,6 +44,15 @@ const modulePrompts = [
         type: 'checkbox',
         name: 'testTypes',
         message: 'Test type?',
+        when: (answers) => {
+            const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
+            // Transformers and diffusors get auto-defaulted test types (no prompt);
+            // triton/http architectures show the prompt so the user can choose (Req 3.1).
+            if (architecture === 'transformers' || architecture === 'diffusors') {
+                return false;
+            }
+            return true;
+        },
         choices: (answers) => {
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
             const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-');

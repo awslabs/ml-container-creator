@@ -5,6 +5,10 @@
 # POSIX-compatible: works on bash 3.2+ (macOS default) and bash 4+/5+.
 # No associative arrays required.
 #
+# Set MLCC_SKIP_SECRET_DISCOVERY=1 to skip AWS Secrets Manager auto-discovery
+# (HF/NGC token lookup). Useful offline, in CI, and in unit tests where the
+# boto3 calls would otherwise block on credential/endpoint resolution.
+#
 # After sourcing, access values via:
 #   ${_PROFILE_roleArn:-}
 #   ${_PROFILE_ecrRepositoryName:-ml-container-creator}
@@ -90,7 +94,7 @@ fi
 # token stored under a known naming convention, it's found automatically.
 # Discovery is non-blocking — failures are silent and scripts fall back to
 # prompting or proceeding without a token.
-if [ -z "${_PROFILE_secrets_hfToken:-}" ] && command -v python3 &>/dev/null && [ -n "${_PROFILE_awsRegion:-}" ]; then
+if [ -z "${MLCC_SKIP_SECRET_DISCOVERY:-}" ] && [ -z "${_PROFILE_secrets_hfToken:-}" ] && command -v python3 &>/dev/null && [ -n "${_PROFILE_awsRegion:-}" ]; then
     _DISCOVERED_HF_ARN=$(python3 -c "
 import boto3, os, sys
 region = '${_PROFILE_awsRegion:-us-east-1}'
@@ -123,7 +127,7 @@ except:
 fi
 
 # NGC API key auto-discovery (same pattern as HF token)
-if [ -z "${_PROFILE_secrets_ngcApiKey:-}" ] && command -v python3 &>/dev/null && [ -n "${_PROFILE_awsRegion:-}" ]; then
+if [ -z "${MLCC_SKIP_SECRET_DISCOVERY:-}" ] && [ -z "${_PROFILE_secrets_ngcApiKey:-}" ] && command -v python3 &>/dev/null && [ -n "${_PROFILE_awsRegion:-}" ]; then
     _DISCOVERED_NGC_ARN=$(python3 -c "
 import boto3, sys
 region = '${_PROFILE_awsRegion:-us-east-1}'

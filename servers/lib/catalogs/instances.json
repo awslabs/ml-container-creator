@@ -739,6 +739,60 @@
             "gpuMemoryGb": 192,
             "gpuType": "NVIDIA B200",
             "costTier": "very-high"
+        },
+        "ml.p4d.24xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 96,
+            "memGb": 1152,
+            "accelerator": "A100 40GB SXM",
+            "cudaVersions": ["11.8", "12.0", "12.1", "12.2"],
+            "tags": ["gpu", "multi-gpu", "inference", "training", "a100", "ampere", "nvlink", "efa", "cuda-11", "cuda-12"],
+            "family": "p4d",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA A100",
+            "gpuArchitecture": "Ampere",
+            "defaultCudaVersion": "12.1",
+            "notes": "8x NVIDIA A100 SXM GPUs (320GB total NVLink). Fits 120B+ models at fp16",
+            "gpuMemoryGb": 40,
+            "gpuType": "NVIDIA A100",
+            "costTier": "high"
+        },
+        "ml.p5.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 2048,
+            "accelerator": "H100 80GB SXM",
+            "cudaVersions": ["12.2", "12.4", "12.6"],
+            "tags": ["gpu", "multi-gpu", "inference", "training", "h100", "hopper", "fp8", "nvlink", "efa", "cuda-12"],
+            "family": "p5",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA H100",
+            "gpuArchitecture": "Hopper",
+            "defaultCudaVersion": "12.6",
+            "notes": "8x NVIDIA H100 SXM GPUs (640GB total NVLink). Fits 300B+ models",
+            "gpuMemoryGb": 80,
+            "gpuType": "NVIDIA H100",
+            "costTier": "very-high"
+        },
+        "ml.p5e.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 2048,
+            "accelerator": "H200 NVL 141GB",
+            "cudaVersions": ["12.4", "12.6"],
+            "tags": ["gpu", "multi-gpu", "inference", "training", "h200", "hopper", "fp8", "nvlink", "cuda-12"],
+            "family": "p5e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA H200",
+            "gpuArchitecture": "Hopper",
+            "defaultCudaVersion": "12.6",
+            "notes": "8x NVIDIA H200 NVL GPUs (1128GB total NVLink). Fits 400B+ models",
+            "gpuMemoryGb": 141,
+            "gpuType": "NVIDIA H200",
+            "costTier": "very-high"
         }
     },
     "recommendations": {
@@ -768,6 +822,10 @@
             "ml.g6e.16xlarge",
             "ml.g6e.24xlarge",
             "ml.g6e.48xlarge"
+            ,
+            "ml.p4d.24xlarge",
+            "ml.p5.48xlarge",
+            "ml.p5e.48xlarge"
         ]
     }
 }

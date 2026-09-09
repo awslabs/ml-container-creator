@@ -14,7 +14,7 @@
         deploymentConfig: 'transformers-vllm',
         serverVersion: '',
         instanceType: '',
-        deploymentTarget: 'managed-inference',
+        deploymentTarget: 'realtime-inference',
         features: { lora: true, benchmark: true, secrets: false },
         lora: { maxLoras: 30, maxLoraRank: 64 },
         benchmark: { concurrency: 10, inputTokens: 550, outputTokens: 150, streaming: true },
@@ -35,7 +35,7 @@
     ];
 
     const DEPLOYMENT_TARGETS = [
-        { value: 'managed-inference', label: 'Managed Inference (Real-Time)' },
+        { value: 'realtime-inference', label: 'Real-Time Inference' },
         { value: 'async-inference', label: 'Async Inference' },
         { value: 'batch-transform', label: 'Batch Transform' },
         { value: 'hyperpod-eks', label: 'HyperPod EKS' }
@@ -160,6 +160,19 @@
         if (envLines.length) {
             lines.push('# Environment variables (add to Dockerfile or do/ic/default.conf):');
             envLines.forEach(l => lines.push(`# export ${l}`));
+            lines.push('');
+        }
+
+        // BL074: advisor provider selection (example; set in your shell, not the generated command)
+        lines.push('# Optional: choose the advisor LLM provider for `mcc hey` (BL074)');
+        lines.push('# export MCC_PROVIDER=claude-direct');
+        lines.push('');
+
+        // BL067: secrets are stored in AWS Secrets Manager and referenced by ARN via the
+        // active bootstrap profile — never inlined in the generated command.
+        if (state.features.secrets) {
+            lines.push('# Secrets (BL067): register the ARN once on your bootstrap profile:');
+            lines.push('# mcc bootstrap add-secret hfToken <arn>');
             lines.push('');
         }
 
@@ -482,6 +495,9 @@
                 const instanceFamily = instMatch ? instMatch[1] : 'g5';
 
                 let target = state.deploymentTarget;
+                // BL073/BL083: canonical value is 'realtime-inference'. This remap is
+                // retained only as a backward-compatibility safety net for any legacy
+                // 'managed-inference' input (e.g. old saved state); defaults are now canonical.
                 if (target === 'managed-inference') target = 'realtime-inference';
 
                 const config = {

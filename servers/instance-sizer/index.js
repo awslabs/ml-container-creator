@@ -324,9 +324,25 @@ async function handleGetInstanceRecommendation(params) {
         };
     }
 
+    // ── Merge project-local model-sizes override (.mlcc/model-sizes.json) ───
+    // do/stage writes model metadata here for models not in the shipped catalog.
+    // The file uses the same schema as lib/catalogs/model-sizes.json.
+    let localModelSizesCatalogPath;
+    try {
+        const mlccDir = join(projectDir, '.mlcc');
+        const localPath = join(mlccDir, 'model-sizes.json');
+        if (existsSync(localPath)) {
+            localModelSizesCatalogPath = localPath;
+            log(`Using local model-sizes override: ${localPath}`);
+        }
+    } catch {
+        // non-fatal — fall through to shipped catalog
+    }
+
     // Step 1: Resolve model metadata
     const modelMetadata = await resolveModelMetadata(modelName, {
-        discover: DISCOVER_MODE
+        discover: DISCOVER_MODE,
+        ...(localModelSizesCatalogPath ? { localCatalogPath: localModelSizesCatalogPath } : {})
     });
 
     // If model metadata cannot be resolved, return all GPU instances unfiltered
@@ -668,6 +684,7 @@ server.tool(
             architecture: z.string().optional(),
             backend: z.string().optional(),
             deploymentTarget: z.string().optional(),
+            projectDir: z.string().optional().describe('Absolute path to the project directory (for .mlcc/ local catalog overrides)'),
             profileEnvVars: z.record(z.string()).optional().describe('Serving profile ENV overrides (e.g., VLLM_MAX_MODEL_LEN)')
         }).optional().describe('Additional deployment context')
     },
@@ -677,6 +694,29 @@ server.tool(
 );
 
 // Register alias tool name for backward compatibility
+// 'recommend' is the tool called by mcp_client.py as "instance-sizer/recommend"
+server.tool(
+    'recommend',
+    'Alias for get_instance_recommendation — legacy client compatibility',
+    {
+        modelName: z.string().optional(),
+        model: z.string().optional().describe('Alias for modelName (legacy)'),
+        quantization: z.string().optional(),
+        maxSequenceLength: z.number().optional(),
+        batchSize: z.number().optional(),
+        cudaVersion: z.string().optional(),
+        limit: z.number().optional().default(10),
+        context: z.object({
+            architecture: z.string().optional(),
+            backend: z.string().optional(),
+            deploymentTarget: z.string().optional(),
+            projectDir: z.string().optional(),
+            profileEnvVars: z.record(z.string()).optional()
+        }).optional()
+    },
+    async (params) => handleGetInstanceRecommendation({ ...params, modelName: params.model || params.modelName })
+);
+
 server.tool(
     'get_instance_types',
     'Alias for get_instance_recommendation — recommends SageMaker instances via VRAM sizing and/or tag-based search',
@@ -692,6 +732,7 @@ server.tool(
             architecture: z.string().optional(),
             backend: z.string().optional(),
             deploymentTarget: z.string().optional(),
+            projectDir: z.string().optional().describe('Absolute path to the project directory (for .mlcc/ local catalog overrides)'),
             profileEnvVars: z.record(z.string()).optional().describe('Serving profile ENV overrides (e.g., VLLM_MAX_MODEL_LEN)')
         }).optional().describe('Additional deployment context')
     },

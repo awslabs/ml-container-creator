@@ -172,15 +172,15 @@ create_endpoint_config 2>/dev/null
     // ================================================================
     describe('E2E: Pool generation filter excludes cross-AMI instances', () => {
         it('filterByCudaGeneration keeps all instances when first instance is in catalog and others are unknown or same gen', () => {
-            // g6e and g6 are in catalog (Ada Lovelace); g4dn and p5 are NOT in catalog (unknown).
+            // g6e and g6 are in catalog (Ada Lovelace); g4dn and p3 are NOT in catalog (unknown).
             // First instance (g6e) sets generation to Ada Lovelace.
             // Unknown instances are kept (not filtered out).
-            const mcpChoices = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.g4dn.xlarge', 'ml.p5.48xlarge'];
+            const mcpChoices = ['ml.g6e.48xlarge', 'ml.g6.12xlarge', 'ml.g4dn.xlarge', 'ml.p3.2xlarge'];
 
             const result = filterByCudaGeneration(mcpChoices);
 
             // First instance (g6e) is in catalog → generation is 'Ada Lovelace'
-            // g6 = same generation → kept; g4dn, p5 = unknown → kept
+            // g6 = same generation → kept; g4dn, p3 = unknown → kept
             assert.strictEqual(result.generation, 'Ada Lovelace');
             assert.deepStrictEqual(result.filtered, mcpChoices);
             assert.deepStrictEqual(result.removed, []);

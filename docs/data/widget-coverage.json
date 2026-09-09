@@ -5,6 +5,7 @@
       "--skip-prompts",
       "--project-name",
       "--deployment-config",
+      "--backend",
       "--model-name",
       "--deployment-target",
       "--instance-type",

@@ -104,7 +104,27 @@ const enrichedImageCatalogSchema = {
                 supportedModelTypes: { type: 'array', items: { type: 'string' } },
                 min_driver_version: { type: 'string' },
                 cuda_toolkit: { type: 'string' },
-                transformers_version: { type: 'string' }
+                transformers_version: { type: 'string' },
+                features: {
+                    type: 'object',
+                    properties: {
+                        speculative: {
+                            type: 'object',
+                            required: ['supported', 'api'],
+                            properties: {
+                                supported: { type: 'boolean' },
+                                api: { type: 'string', enum: ['consolidated', 'discrete-flags'] },
+                                flag: { type: 'string' },
+                                schema: { type: 'object', additionalProperties: { type: 'string' } },
+                                flags: { type: 'object', additionalProperties: { type: 'string' } },
+                                envVarStrategy: { type: 'string' },
+                                notes: { type: 'string' }
+                            },
+                            additionalProperties: false
+                        }
+                    },
+                    additionalProperties: false
+                }
             },
             additionalProperties: false
         }

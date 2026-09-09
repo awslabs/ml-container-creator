@@ -86,6 +86,7 @@ nav:
       - Registries and Catalogs: dev/registries-and-catalogs.md
       - Validation System: dev/validation-system.md
       - Testing: dev/testing.md
+      - v1.5.0 Release Notes: dev/v1.5.0-release-notes.md
   - Command Generator: command-generator.md
 
 markdown_extensions:

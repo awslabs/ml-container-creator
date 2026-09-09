@@ -106,6 +106,54 @@ _MLCC_SCRIPT_PATH="${BASH_SOURCE[1]:-}"
 _MLCC_GUARD=$(grep -m1 '^# guard:' "$_MLCC_SCRIPT_PATH" 2>/dev/null | sed 's/# guard: *//')
 _MLCC_TYPE=$(grep -m1 '^# type:' "$_MLCC_SCRIPT_PATH" 2>/dev/null | sed 's/# type: *//')
 
+# ---------------------------------------------------------------------------
+# _require_python_env — ensure Python runs inside a virtual environment.
+#
+# Resolution order:
+#   1. Already in a venv ($VIRTUAL_ENV is set and python3 is inside it)
+#   2. Project-local .mlcc/hey-venv (created by `mcc hey init`)
+#   3. Exit 1 with a clear setup message
+#
+# Usage: call once near the top of any do/ script that invokes python3.
+#   source "${SCRIPT_DIR}/lib/script-contract.sh"
+#   _require_python_env
+# ---------------------------------------------------------------------------
+_require_python_env() {
+    local _script_dir
+    _script_dir="$(cd "$(dirname "${BASH_SOURCE[1]:-$0}")" && pwd)"
+    local _project_root="${_script_dir%/do}"
+    local _venv_path="${_project_root}/.mlcc/hey-venv"
+
+    # 1. Already inside a venv
+    if [ -n "${VIRTUAL_ENV:-}" ] && python3 -c "import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)" 2>/dev/null; then
+        return 0
+    fi
+
+    # 2. Project-local venv exists — activate it
+    if [ -f "${_venv_path}/bin/activate" ]; then
+        # shellcheck disable=SC1091
+        source "${_venv_path}/bin/activate"
+        echo "   🐍 Using project venv: ${_venv_path}" >&2
+        return 0
+    fi
+
+    # 3. No venv — exit with guidance
+    echo "" >&2
+    echo "❌ Python virtual environment required" >&2
+    echo "" >&2
+    echo "   This command uses Python packages (questionary, boto3, etc.)" >&2
+    echo "   that must be installed in a virtual environment." >&2
+    echo "" >&2
+    echo "   Quick setup:" >&2
+    echo "     mcc hey init           # creates .mlcc/hey-venv with all deps" >&2
+    echo "" >&2
+    echo "   Or activate your own venv first:" >&2
+    echo "     source /path/to/venv/bin/activate" >&2
+    echo "     ./do/$(basename "${BASH_SOURCE[1]:-$0}")" >&2
+    echo "" >&2
+    exit 1
+}
+
 # Source config and profile to load guard-relevant variables (DEPLOYMENT_TARGET,
 # status vars, _PROFILE_provisionedModules, etc.) before enforcement.
 # Temporarily disable nounset (-u) since older generated configs may reference

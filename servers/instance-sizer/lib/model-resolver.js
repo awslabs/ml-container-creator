@@ -175,16 +175,39 @@ export function extractFromHuggingFaceConfig(config) {
  * @param {string} [options.catalogPath] - Path to model-sizes catalog
  * @param {boolean} [options.discover=true] - Whether to fetch from HuggingFace Hub on cache miss
  * @param {number} [options.timeout=5000] - HTTP timeout for HuggingFace API (ms)
+ * @param {string} [options.localCatalogPath] - Path to a project-local catalog override (checked first)
  * @returns {Promise<Object|null>} Resolved metadata, or null if unresolvable
  */
 export async function resolveModelMetadata(modelName, options = {}) {
     const {
         catalogPath = DEFAULT_CATALOG_PATH,
         discover = true,
+        localCatalogPath = null,
         timeout = 5000
     } = options;
 
-    // Step 1: Try catalog lookup
+    // Step 1a: Try project-local catalog first (written by do/stage for unknown models)
+    if (localCatalogPath) {
+        const localCatalog = await loadCatalog(localCatalogPath);
+        if (localCatalog) {
+            const localEntry = catalogLookup(modelName, localCatalog);
+            if (localEntry) {
+                return {
+                    parameterCount: localEntry.parameterCount ?? null,
+                    dtype: localEntry.defaultDtype || 'float16',
+                    architecture: localEntry.architecture || 'unknown',
+                    maxPositionEmbeddings: localEntry.maxPositionEmbeddings || 4096,
+                    source: 'local-catalog',
+                    ...(localEntry.numLayers ? { numLayers: localEntry.numLayers } : {}),
+                    ...(localEntry.numKvHeads ? { numKvHeads: localEntry.numKvHeads } : {}),
+                    ...(localEntry.headDim ? { headDim: localEntry.headDim } : {}),
+                    ...(localEntry.recommendedInstances ? { recommendedInstances: localEntry.recommendedInstances } : {})
+                };
+            }
+        }
+    }
+
+    // Step 1b: Try shipped catalog lookup
     const catalog = await loadCatalog(catalogPath);
     const catalogEntry = catalogLookup(modelName, catalog);
 

@@ -171,6 +171,53 @@
                 "transformers_version": {
                     "type": "string",
                     "description": "Bundled transformers library version (e.g., '4.52.0')"
+                },
+                "features": {
+                    "type": "object",
+                    "properties": {
+                        "speculative": {
+                            "type": "object",
+                            "required": [
+                                "supported",
+                                "api"
+                            ],
+                            "properties": {
+                                "supported": {
+                                    "type": "boolean"
+                                },
+                                "api": {
+                                    "type": "string",
+                                    "enum": [
+                                        "consolidated",
+                                        "discrete-flags"
+                                    ]
+                                },
+                                "flag": {
+                                    "type": "string"
+                                },
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                },
+                                "flags": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                },
+                                "envVarStrategy": {
+                                    "type": "string"
+                                },
+                                "notes": {
+                                    "type": "string"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "additionalProperties": false

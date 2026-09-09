@@ -283,22 +283,9 @@ describe('Functional Parity Checklist', function () {
         });
     });
 
-    // 6.6 Registry commands — ml-container-creator registry replay
-    describe('6.6 Registry commands — handler availability', () => {
-        it('RegistryCommandHandler can be imported and instantiated', async () => {
-            const { default: RegistryCommandHandler } = await import('../../src/lib/registry-command-handler.js');
-            assert.ok(RegistryCommandHandler, 'RegistryCommandHandler should be importable');
-
-            const handler = new RegistryCommandHandler();
-            assert.ok(handler, 'RegistryCommandHandler should be instantiable');
-            assert.ok(typeof handler.handle === 'function', 'handler should have handle() method');
-        });
-
-        it('bin/cli.js registry list does not crash', () => {
-            const { stdout, exitCode } = runCliSafe(['registry', 'list']);
-            assert.ok(exitCode === 0 || stdout.includes('registry command'), 'registry list should not crash');
-        });
-    });
+    // 6.6 Registry commands removed in BL078 (deployment-history registry deleted).
+    // Architecture-sync functionality moved to ArchitectureCommandHandler and is
+    // exercised by test/unit/registry-check.test.js.
 
     // 6.7 npx execution — --help works
     describe('6.7 npx execution — CLI help output', () => {
