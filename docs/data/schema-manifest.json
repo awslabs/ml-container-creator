@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T15:10:43.532Z",
+  "generatedAt": "2026-09-09T15:52:19.513Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
   "version": "1.6.0",
@@ -480,6 +480,16 @@
       "phase": "model",
       "deprecated": false,
       "hasWidget": true
+    },
+    {
+      "key": "backend",
+      "cliFlag": "--backend",
+      "description": "Alias for --deployment-config: architecture+engine pair (e.g. transformers-vllm, diffusors-vllm-omni, http-flask).",
+      "type": "enum",
+      "group": "model",
+      "phase": "model",
+      "deprecated": false,
+      "hasWidget": false
     },
     {
       "key": "modelName",
