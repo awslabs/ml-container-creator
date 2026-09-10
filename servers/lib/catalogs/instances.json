@@ -746,8 +746,24 @@
             "vcpus": 96,
             "memGb": 1152,
             "accelerator": "A100 40GB SXM",
-            "cudaVersions": ["11.8", "12.0", "12.1", "12.2"],
-            "tags": ["gpu", "multi-gpu", "inference", "training", "a100", "ampere", "nvlink", "efa", "cuda-11", "cuda-12"],
+            "cudaVersions": [
+                "11.8",
+                "12.0",
+                "12.1",
+                "12.2"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "training",
+                "a100",
+                "ampere",
+                "nvlink",
+                "efa",
+                "cuda-11",
+                "cuda-12"
+            ],
             "family": "p4d",
             "acceleratorType": "cuda",
             "hardware": "NVIDIA A100",
@@ -764,8 +780,23 @@
             "vcpus": 192,
             "memGb": 2048,
             "accelerator": "H100 80GB SXM",
-            "cudaVersions": ["12.2", "12.4", "12.6"],
-            "tags": ["gpu", "multi-gpu", "inference", "training", "h100", "hopper", "fp8", "nvlink", "efa", "cuda-12"],
+            "cudaVersions": [
+                "12.2",
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "training",
+                "h100",
+                "hopper",
+                "fp8",
+                "nvlink",
+                "efa",
+                "cuda-12"
+            ],
             "family": "p5",
             "acceleratorType": "cuda",
             "hardware": "NVIDIA H100",
@@ -782,8 +813,21 @@
             "vcpus": 192,
             "memGb": 2048,
             "accelerator": "H200 NVL 141GB",
-            "cudaVersions": ["12.4", "12.6"],
-            "tags": ["gpu", "multi-gpu", "inference", "training", "h200", "hopper", "fp8", "nvlink", "cuda-12"],
+            "cudaVersions": [
+                "12.4",
+                "12.6"
+            ],
+            "tags": [
+                "gpu",
+                "multi-gpu",
+                "inference",
+                "training",
+                "h200",
+                "hopper",
+                "fp8",
+                "nvlink",
+                "cuda-12"
+            ],
             "family": "p5e",
             "acceleratorType": "cuda",
             "hardware": "NVIDIA H200",
@@ -792,6 +836,330 @@
             "notes": "8x NVIDIA H200 NVL GPUs (1128GB total NVLink). Fits 400B+ models",
             "gpuMemoryGb": 141,
             "gpuType": "NVIDIA H200",
+            "costTier": "very-high"
+        },
+        "ml.g7.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 32,
+            "accelerator": "RTX PRO 4500 32GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7",
+                "cuda-12"
+            ],
+            "family": "g7",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 4500",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7 Blackwell — 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 32,
+            "gpuType": "NVIDIA RTX PRO 4500",
+            "costTier": "medium"
+        },
+        "ml.g7.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 64,
+            "accelerator": "RTX PRO 4500 32GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7",
+                "cuda-12"
+            ],
+            "family": "g7",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 4500",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7 Blackwell — 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 32,
+            "gpuType": "NVIDIA RTX PRO 4500",
+            "costTier": "medium"
+        },
+        "ml.g7.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 32,
+            "memGb": 128,
+            "accelerator": "RTX PRO 4500 32GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7",
+                "cuda-12"
+            ],
+            "family": "g7",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 4500",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7 Blackwell — 1x 32GB GPU = 32GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 32,
+            "gpuType": "NVIDIA RTX PRO 4500",
+            "costTier": "medium"
+        },
+        "ml.g7.12xlarge": {
+            "category": "gpu",
+            "gpus": 2,
+            "vcpus": 48,
+            "memGb": 192,
+            "accelerator": "RTX PRO 4500 32GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7",
+                "cuda-12",
+                "multi-gpu"
+            ],
+            "family": "g7",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 4500",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7 Blackwell — 2x 32GB GPU = 64GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 32,
+            "gpuType": "NVIDIA RTX PRO 4500",
+            "costTier": "high"
+        },
+        "ml.g7.24xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 96,
+            "memGb": 384,
+            "accelerator": "RTX PRO 4500 32GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7",
+                "cuda-12",
+                "multi-gpu"
+            ],
+            "family": "g7",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 4500",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7 Blackwell — 4x 32GB GPU = 128GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 32,
+            "gpuType": "NVIDIA RTX PRO 4500",
+            "costTier": "high"
+        },
+        "ml.g7.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 192,
+            "memGb": 768,
+            "accelerator": "RTX PRO 4500 32GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7",
+                "cuda-12",
+                "multi-gpu"
+            ],
+            "family": "g7",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO 4500",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7 Blackwell — 8x 32GB GPU = 256GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 32,
+            "gpuType": "NVIDIA RTX PRO 4500",
+            "costTier": "high"
+        },
+        "ml.g7e.2xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 4,
+            "memGb": 64,
+            "accelerator": "RTX PRO Server 6000 96GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7e",
+                "cuda-12",
+                "high-memory"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO Server 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7e Blackwell high-memory — 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO Server 6000",
+            "costTier": "high"
+        },
+        "ml.g7e.4xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 8,
+            "memGb": 128,
+            "accelerator": "RTX PRO Server 6000 96GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7e",
+                "cuda-12",
+                "high-memory"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO Server 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7e Blackwell high-memory — 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO Server 6000",
+            "costTier": "high"
+        },
+        "ml.g7e.8xlarge": {
+            "category": "gpu",
+            "gpus": 1,
+            "vcpus": 16,
+            "memGb": 256,
+            "accelerator": "RTX PRO Server 6000 96GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7e",
+                "cuda-12",
+                "high-memory"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO Server 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7e Blackwell high-memory — 1x 96GB GPU = 96GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO Server 6000",
+            "costTier": "high"
+        },
+        "ml.g7e.12xlarge": {
+            "category": "gpu",
+            "gpus": 2,
+            "vcpus": 24,
+            "memGb": 512,
+            "accelerator": "RTX PRO Server 6000 96GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7e",
+                "cuda-12",
+                "high-memory",
+                "multi-gpu"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO Server 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7e Blackwell high-memory — 2x 96GB GPU = 192GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO Server 6000",
+            "costTier": "very-high"
+        },
+        "ml.g7e.24xlarge": {
+            "category": "gpu",
+            "gpus": 4,
+            "vcpus": 48,
+            "memGb": 1024,
+            "accelerator": "RTX PRO Server 6000 96GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7e",
+                "cuda-12",
+                "high-memory",
+                "multi-gpu"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO Server 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7e Blackwell high-memory — 4x 96GB GPU = 384GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO Server 6000",
+            "costTier": "very-high"
+        },
+        "ml.g7e.48xlarge": {
+            "category": "gpu",
+            "gpus": 8,
+            "vcpus": 96,
+            "memGb": 2048,
+            "accelerator": "RTX PRO Server 6000 96GB",
+            "cudaVersions": [
+                "12.8"
+            ],
+            "tags": [
+                "gpu",
+                "inference",
+                "blackwell",
+                "g7e",
+                "cuda-12",
+                "high-memory",
+                "multi-gpu"
+            ],
+            "family": "g7e",
+            "acceleratorType": "cuda",
+            "hardware": "NVIDIA RTX PRO Server 6000",
+            "gpuArchitecture": "Blackwell",
+            "defaultCudaVersion": "12.8",
+            "notes": "G7e Blackwell high-memory — 8x 96GB GPU = 768GB total. Use al2023-ami-sagemaker-inference-gpu-4-1.",
+            "gpuMemoryGb": 96,
+            "gpuType": "NVIDIA RTX PRO Server 6000",
             "costTier": "very-high"
         }
     },
@@ -821,11 +1189,22 @@
             "ml.g6e.12xlarge",
             "ml.g6e.16xlarge",
             "ml.g6e.24xlarge",
-            "ml.g6e.48xlarge"
-            ,
+            "ml.g6e.48xlarge",
             "ml.p4d.24xlarge",
             "ml.p5.48xlarge",
-            "ml.p5e.48xlarge"
+            "ml.p5e.48xlarge",
+            "ml.g7.2xlarge",
+            "ml.g7.4xlarge",
+            "ml.g7.8xlarge",
+            "ml.g7.12xlarge",
+            "ml.g7.24xlarge",
+            "ml.g7.48xlarge",
+            "ml.g7e.2xlarge",
+            "ml.g7e.4xlarge",
+            "ml.g7e.8xlarge",
+            "ml.g7e.12xlarge",
+            "ml.g7e.24xlarge",
+            "ml.g7e.48xlarge"
         ]
     }
 }

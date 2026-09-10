@@ -4,6 +4,12 @@
 #
 # do/export — Export current configuration as CLI command, JSON, or notebook.
 #
+# Runtime dispatch: target-specific fields are emitted based on DEPLOYMENT_TARGET
+# from do/config (default set at generation time to <%= deploymentTarget %>).
+# A --target flag overrides DEPLOYMENT_TARGET for a single run, mirroring
+# do/deploy --target, so one project can export any target's config without
+# regeneration clobbering another target's fields.
+#
 # @mlcc-script
 # type: model-centric
 # guard: none
@@ -11,13 +17,59 @@
 # targets: all
 
 # Export current configuration as a CLI command, JSON object, or Jupyter notebook
-# Usage: ./do/export [--json | --notebook]
+# Usage: ./do/export [--json | --notebook] [--target <target>]
 
 # Source configuration (suppress the summary output)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 _require_python_env
 source "${SCRIPT_DIR}/config" > /dev/null 2>&1
+
+# ── Parse optional --target flag (overrides DEPLOYMENT_TARGET for this run) ────
+# Consume --target here and reconstruct the positional args so the --notebook /
+# --json mode detection below continues to read "$1"/"$2" unchanged.
+FLAG_TARGET=""
+EXPORT_ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --target)
+            shift
+            if [ $# -eq 0 ]; then
+                echo "Error: --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks)" >&2
+                exit 1
+            fi
+            FLAG_TARGET="$1"
+            shift
+            ;;
+        *)
+            EXPORT_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Normalize target aliases (matches do/deploy --target behavior).
+if [ -n "${FLAG_TARGET}" ]; then
+    case "${FLAG_TARGET}" in
+        managed|managed-inference)
+            echo "⚠️  '${FLAG_TARGET}' is deprecated — use 'realtime-inference'" >&2
+            FLAG_TARGET="realtime-inference"
+            ;;
+        realtime)   FLAG_TARGET="realtime-inference" ;;
+        hyperpod)   FLAG_TARGET="hyperpod-eks" ;;
+        batch)      FLAG_TARGET="batch-transform" ;;
+        async)      FLAG_TARGET="async-inference" ;;
+    esac
+fi
+
+# Effective target: --target flag wins, else DEPLOYMENT_TARGET from do/config,
+# else fall back to realtime-inference (the traditional default). The exported
+# DEPLOYMENT_TARGET field/flag reflects this effective value.
+EFFECTIVE_TARGET="${FLAG_TARGET:-${DEPLOYMENT_TARGET:-realtime-inference}}"
+DEPLOYMENT_TARGET="${EFFECTIVE_TARGET}"
+
+# Restore positional parameters (post-flag) for mode detection below.
+set -- ${EXPORT_ARGS[@]+"${EXPORT_ARGS[@]}"}
 
 # ── Notebook output mode ──────────────────────────────────────────────────────
 
@@ -69,54 +121,60 @@ if [ "${1:-}" = "--json" ]; then
     # Deployment target
     JSON="${JSON},\"deploymentTarget\":\"${DEPLOYMENT_TARGET}\""
 
-<% if (deploymentTarget === 'realtime-inference') { %>
-    # SageMaker Real-Time Inference
-    JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
-<% } else if (deploymentTarget === 'async-inference') { %>
-    # SageMaker Async Inference
-    JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
-    if [ -n "${ASYNC_S3_OUTPUT_PATH:-}" ]; then
-        JSON="${JSON},\"asyncS3OutputPath\":\"${ASYNC_S3_OUTPUT_PATH}\""
-    fi
-    if [ -n "${ASYNC_SNS_SUCCESS_TOPIC:-}" ]; then
-        JSON="${JSON},\"asyncSnsSuccessTopic\":\"${ASYNC_SNS_SUCCESS_TOPIC}\""
-    fi
-    if [ -n "${ASYNC_SNS_ERROR_TOPIC:-}" ]; then
-        JSON="${JSON},\"asyncSnsErrorTopic\":\"${ASYNC_SNS_ERROR_TOPIC}\""
-    fi
-    if [ "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-1}" != "1" ]; then
-        JSON="${JSON},\"asyncMaxConcurrentInvocations\":${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
-    fi
-<% } else if (deploymentTarget === 'batch-transform') { %>
-    # SageMaker Batch Transform
-    JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
-    JSON="${JSON},\"batchInputPath\":\"${BATCH_INPUT_PATH}\""
-    JSON="${JSON},\"batchOutputPath\":\"${BATCH_OUTPUT_PATH}\""
-    JSON="${JSON},\"batchInstanceCount\":${BATCH_INSTANCE_COUNT}"
-    JSON="${JSON},\"batchSplitType\":\"${BATCH_SPLIT_TYPE}\""
-    JSON="${JSON},\"batchStrategy\":\"${BATCH_STRATEGY}\""
-    if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
-        JSON="${JSON},\"batchJoinSource\":\"${BATCH_JOIN_SOURCE}\""
-    fi
-    if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
-        JSON="${JSON},\"batchMaxConcurrentTransforms\":${BATCH_MAX_CONCURRENT_TRANSFORMS}"
-    fi
-    if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
-        JSON="${JSON},\"batchMaxPayloadInMB\":${BATCH_MAX_PAYLOAD_IN_MB}"
-    fi
-<% } else if (deploymentTarget === 'hyperpod-eks') { %>
-    # HyperPod EKS
-    JSON="${JSON},\"hyperPodCluster\":\"${HP_CLUSTER_NAME}\""
-    if [ "${HP_NAMESPACE}" != "default" ]; then
-        JSON="${JSON},\"hyperPodNamespace\":\"${HP_NAMESPACE}\""
-    fi
-    if [ "${HP_REPLICAS}" != "1" ]; then
-        JSON="${JSON},\"hyperPodReplicas\":${HP_REPLICAS}"
-    fi
-<% if (fsxVolumeHandle) { %>
-    JSON="${JSON},\"fsxVolumeHandle\":\"${FSX_VOLUME_HANDLE}\""
-<% } %>
-<% } %>
+    # Target-specific fields (runtime dispatch on the effective target)
+    case "${EFFECTIVE_TARGET}" in
+        realtime-inference)
+            # SageMaker Real-Time Inference
+            JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
+            ;;
+        async-inference)
+            # SageMaker Async Inference
+            JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
+            if [ -n "${ASYNC_S3_OUTPUT_PATH:-}" ]; then
+                JSON="${JSON},\"asyncS3OutputPath\":\"${ASYNC_S3_OUTPUT_PATH}\""
+            fi
+            if [ -n "${ASYNC_SNS_SUCCESS_TOPIC:-}" ]; then
+                JSON="${JSON},\"asyncSnsSuccessTopic\":\"${ASYNC_SNS_SUCCESS_TOPIC}\""
+            fi
+            if [ -n "${ASYNC_SNS_ERROR_TOPIC:-}" ]; then
+                JSON="${JSON},\"asyncSnsErrorTopic\":\"${ASYNC_SNS_ERROR_TOPIC}\""
+            fi
+            if [ "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-1}" != "1" ]; then
+                JSON="${JSON},\"asyncMaxConcurrentInvocations\":${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
+            fi
+            ;;
+        batch-transform)
+            # SageMaker Batch Transform
+            JSON="${JSON},\"instanceType\":\"${INSTANCE_TYPE}\""
+            JSON="${JSON},\"batchInputPath\":\"${BATCH_INPUT_PATH}\""
+            JSON="${JSON},\"batchOutputPath\":\"${BATCH_OUTPUT_PATH}\""
+            JSON="${JSON},\"batchInstanceCount\":${BATCH_INSTANCE_COUNT}"
+            JSON="${JSON},\"batchSplitType\":\"${BATCH_SPLIT_TYPE}\""
+            JSON="${JSON},\"batchStrategy\":\"${BATCH_STRATEGY}\""
+            if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
+                JSON="${JSON},\"batchJoinSource\":\"${BATCH_JOIN_SOURCE}\""
+            fi
+            if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
+                JSON="${JSON},\"batchMaxConcurrentTransforms\":${BATCH_MAX_CONCURRENT_TRANSFORMS}"
+            fi
+            if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
+                JSON="${JSON},\"batchMaxPayloadInMB\":${BATCH_MAX_PAYLOAD_IN_MB}"
+            fi
+            ;;
+        hyperpod-eks)
+            # HyperPod EKS
+            JSON="${JSON},\"hyperPodCluster\":\"${HP_CLUSTER_NAME}\""
+            if [ "${HP_NAMESPACE}" != "default" ]; then
+                JSON="${JSON},\"hyperPodNamespace\":\"${HP_NAMESPACE}\""
+            fi
+            if [ "${HP_REPLICAS}" != "1" ]; then
+                JSON="${JSON},\"hyperPodReplicas\":${HP_REPLICAS}"
+            fi
+            if [ -n "${FSX_VOLUME_HANDLE:-}" ]; then
+                JSON="${JSON},\"fsxVolumeHandle\":\"${FSX_VOLUME_HANDLE}\""
+            fi
+            ;;
+    esac
 
     # AWS region
     JSON="${JSON},\"awsRegion\":\"${AWS_REGION}\""
@@ -233,39 +291,60 @@ fi
 # Deployment target
 CMD="${CMD} --deployment-target=${DEPLOYMENT_TARGET}"
 
-<% if (deploymentTarget === 'realtime-inference') { %>
-# SageMaker Real-Time Inference
-CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
-<% } else if (deploymentTarget === 'batch-transform') { %>
-# SageMaker Batch Transform
-CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
-CMD="${CMD} --batch-input-path=${BATCH_INPUT_PATH}"
-CMD="${CMD} --batch-output-path=${BATCH_OUTPUT_PATH}"
-CMD="${CMD} --batch-instance-count=${BATCH_INSTANCE_COUNT}"
-CMD="${CMD} --batch-split-type=${BATCH_SPLIT_TYPE}"
-CMD="${CMD} --batch-strategy=${BATCH_STRATEGY}"
-if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
-    CMD="${CMD} --batch-join-source=${BATCH_JOIN_SOURCE}"
-fi
-if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
-    CMD="${CMD} --batch-max-concurrent=${BATCH_MAX_CONCURRENT_TRANSFORMS}"
-fi
-if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
-    CMD="${CMD} --batch-max-payload=${BATCH_MAX_PAYLOAD_IN_MB}"
-fi
-<% } else if (deploymentTarget === 'hyperpod-eks') { %>
-# HyperPod EKS
-CMD="${CMD} --hyperpod-cluster=${HP_CLUSTER_NAME}"
-if [ "${HP_NAMESPACE}" != "default" ]; then
-    CMD="${CMD} --hyperpod-namespace=${HP_NAMESPACE}"
-fi
-if [ "${HP_REPLICAS}" != "1" ]; then
-    CMD="${CMD} --hyperpod-replicas=${HP_REPLICAS}"
-fi
-<% if (fsxVolumeHandle) { %>
-CMD="${CMD} --fsx-volume-handle=${FSX_VOLUME_HANDLE}"
-<% } %>
-<% } %>
+# Target-specific flags (runtime dispatch on the effective target)
+case "${EFFECTIVE_TARGET}" in
+    realtime-inference)
+        # SageMaker Real-Time Inference
+        CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
+        ;;
+    async-inference)
+        # SageMaker Async Inference
+        CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
+        if [ -n "${ASYNC_S3_OUTPUT_PATH:-}" ]; then
+            CMD="${CMD} --async-s3-output-path=${ASYNC_S3_OUTPUT_PATH}"
+        fi
+        if [ -n "${ASYNC_SNS_SUCCESS_TOPIC:-}" ]; then
+            CMD="${CMD} --async-sns-success-topic=${ASYNC_SNS_SUCCESS_TOPIC}"
+        fi
+        if [ -n "${ASYNC_SNS_ERROR_TOPIC:-}" ]; then
+            CMD="${CMD} --async-sns-error-topic=${ASYNC_SNS_ERROR_TOPIC}"
+        fi
+        if [ "${ASYNC_MAX_CONCURRENT_INVOCATIONS:-1}" != "1" ]; then
+            CMD="${CMD} --async-max-concurrent=${ASYNC_MAX_CONCURRENT_INVOCATIONS}"
+        fi
+        ;;
+    batch-transform)
+        # SageMaker Batch Transform
+        CMD="${CMD} --instance-type=${INSTANCE_TYPE}"
+        CMD="${CMD} --batch-input-path=${BATCH_INPUT_PATH}"
+        CMD="${CMD} --batch-output-path=${BATCH_OUTPUT_PATH}"
+        CMD="${CMD} --batch-instance-count=${BATCH_INSTANCE_COUNT}"
+        CMD="${CMD} --batch-split-type=${BATCH_SPLIT_TYPE}"
+        CMD="${CMD} --batch-strategy=${BATCH_STRATEGY}"
+        if [ "${BATCH_JOIN_SOURCE:-None}" != "None" ]; then
+            CMD="${CMD} --batch-join-source=${BATCH_JOIN_SOURCE}"
+        fi
+        if [ "${BATCH_MAX_CONCURRENT_TRANSFORMS:-1}" != "1" ]; then
+            CMD="${CMD} --batch-max-concurrent=${BATCH_MAX_CONCURRENT_TRANSFORMS}"
+        fi
+        if [ "${BATCH_MAX_PAYLOAD_IN_MB:-6}" != "6" ]; then
+            CMD="${CMD} --batch-max-payload=${BATCH_MAX_PAYLOAD_IN_MB}"
+        fi
+        ;;
+    hyperpod-eks)
+        # HyperPod EKS
+        CMD="${CMD} --hyperpod-cluster=${HP_CLUSTER_NAME}"
+        if [ "${HP_NAMESPACE}" != "default" ]; then
+            CMD="${CMD} --hyperpod-namespace=${HP_NAMESPACE}"
+        fi
+        if [ "${HP_REPLICAS}" != "1" ]; then
+            CMD="${CMD} --hyperpod-replicas=${HP_REPLICAS}"
+        fi
+        if [ -n "${FSX_VOLUME_HANDLE:-}" ]; then
+            CMD="${CMD} --fsx-volume-handle=${FSX_VOLUME_HANDLE}"
+        fi
+        ;;
+esac
 
 # AWS region
 CMD="${CMD} --region=${AWS_REGION}"

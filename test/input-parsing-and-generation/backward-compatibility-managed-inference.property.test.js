@@ -308,14 +308,15 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
                     'realtime-inference do/logs must use --follow for tailing'
                 );
 
-                // Must NOT contain kubectl logs
+                // Runtime dispatch: do/logs now contains ALL targets' logic and
+                // routes at runtime. Verify the realtime path is reachable.
                 assert.ok(
-                    !output.includes('kubectl logs'),
-                    'realtime-inference do/logs must NOT contain kubectl logs'
+                    output.includes('_logs_realtime_inference'),
+                    'do/logs must define the realtime-inference implementation'
                 );
                 assert.ok(
-                    !output.includes('describe-cluster'),
-                    'realtime-inference do/logs must NOT contain describe-cluster'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/logs must dispatch on the effective deployment target'
                 );
             }
         ), { numRuns: 30 });
@@ -373,14 +374,16 @@ describe('Property 14: Backward Compatibility for Managed Inference', () => {
                     'realtime-inference do/test must contain /invocations inference test'
                 );
 
-                // Must NOT contain kubectl port-forward
+                // Runtime dispatch: do/test now contains ALL targets' logic and
+                // routes at runtime on DEPLOYMENT_TARGET / --target. Verify the
+                // realtime-inference path is present and reachable via dispatch.
                 assert.ok(
-                    !output.includes('kubectl port-forward'),
-                    'realtime-inference do/test must NOT contain kubectl port-forward'
+                    output.includes('_test_realtime_inference'),
+                    'do/test must define the realtime-inference implementation'
                 );
                 assert.ok(
-                    !output.includes('describe-cluster'),
-                    'realtime-inference do/test must NOT contain describe-cluster'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/test must dispatch on the effective deployment target'
                 );
             }
         ), { numRuns: 30 });

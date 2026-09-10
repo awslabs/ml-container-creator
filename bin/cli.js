@@ -477,23 +477,303 @@ function _initHeyEnvironment(projectDir, deps = {}) {
     console.log(`✅ mcc hey environment ${verb}`);
     console.log(`   Venv: ${HEY_VENV_REL}/`);
     console.log(`   Packages: ${highlighted.join(', ')} (and ${others} others)`);
-    console.log('   Run: mcc hey --goal "..."');
+}
+
+// ─── `mcc hey config permissions` — interactive permission editor ─────────────
+
+/**
+ * Ordered list of do/ scripts shown by `mcc hey config permissions`.
+ * Kept in sync with `_KNOWN_SCRIPTS` in src/agent/execution_config.py.
+ * @type {string[]}
+ */
+const HEY_KNOWN_SCRIPTS = [
+    'do/stage',
+    'do/submit',
+    'do/deploy',
+    'do/test',
+    'do/status',
+    'do/logs',
+    'do/benchmark',
+    'do/register',
+    'do/optimize',
+    'do/clean',
+    'do/build',
+    'do/push',
+    'do/validate',
+    'do/tune',
+    'do/train',
+    'do/adapter',
+    'do/ci',
+    'do/export',
+    'do/evaluate',
+    'do/add-ic'
+];
+
+/** The three permission classes, in cycle order. @type {string[]} */
+const PERMISSION_CLASSES = ['confirm', 'auto', 'denied'];
+
+/**
+ * Default permission class for a script when the config file does not specify
+ * one. Mirrors _DEFAULT_SCRIPT_CLASSES in execution_config.py: a curated set of
+ * safe scripts default to 'auto'; everything else defaults to 'confirm'.
+ */
+const HEY_DEFAULT_SCRIPT_CLASSES = {
+    'do/test': 'auto',
+    'do/status': 'auto',
+    'do/logs': 'auto',
+    'do/validate': 'auto',
+    'do/export': 'auto',
+    'do/ci': 'auto'
+};
+
+/**
+ * Read the current permission classes for every known script from
+ * .mlcc/agent-config.json, falling back to per-script defaults.
+ * Reads both snake_case `script_classes` and legacy camelCase `scriptClasses`.
+ * @param {string} projectDir Absolute project directory.
+ * @returns {Record<string, string>} Map of script → 'auto'|'confirm'|'denied'.
+ */
+function _readScriptClasses(projectDir) {
+    const configPath = path.join(projectDir, '.mlcc', 'agent-config.json');
+    let stored = {};
+    if (fs.existsSync(configPath)) {
+        try {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            const confirmation = (config && typeof config.confirmation === 'object' && config.confirmation) || {};
+            const raw = confirmation.script_classes || confirmation.scriptClasses;
+            if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+                stored = raw;
+            }
+        } catch {
+            // Malformed config — treat as no stored classes.
+            stored = {};
+        }
+    }
+
+    const result = {};
+    for (const script of HEY_KNOWN_SCRIPTS) {
+        const value = stored[script];
+        if (value === 'auto' || value === 'confirm' || value === 'denied') {
+            result[script] = value;
+        } else {
+            result[script] = HEY_DEFAULT_SCRIPT_CLASSES[script] || 'confirm';
+        }
+    }
+    return result;
+}
+
+/**
+ * Merge the edited script classes into .mlcc/agent-config.json under
+ * confirmation.script_classes, preserving all other keys. Creates the file and
+ * .mlcc directory when absent.
+ * @param {string} projectDir Absolute project directory.
+ * @param {Record<string, string>} scriptClasses Edited script → class map.
+ */
+function _writeScriptClasses(projectDir, scriptClasses) {
+    const mlccDir = path.join(projectDir, '.mlcc');
+    const configPath = path.join(mlccDir, 'agent-config.json');
+    fs.mkdirSync(mlccDir, { recursive: true });
+
+    let config = {};
+    if (fs.existsSync(configPath)) {
+        try {
+            config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            if (config === null || typeof config !== 'object' || Array.isArray(config)) {
+                config = {};
+            }
+        } catch {
+            config = {};
+        }
+    }
+
+    const confirmation = (typeof config.confirmation === 'object' && config.confirmation && !Array.isArray(config.confirmation))
+        ? config.confirmation
+        : {};
+    confirmation.script_classes = { ...(confirmation.script_classes || {}), ...scriptClasses };
+    // Drop legacy camelCase key to avoid ambiguity now that snake_case is written.
+    delete confirmation.scriptClasses;
+    config.confirmation = confirmation;
+
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * ANSI-styled label for a permission class (fixed width, padded).
+ * @param {string} klass One of 'auto'|'confirm'|'denied'.
+ * @returns {string}
+ */
+function _permissionBadge(klass) {
+    const RESET = '\x1b[0m';
+    const labels = {
+        auto: { text: '  AUTO   ', color: '\x1b[32m' },   // green
+        confirm: { text: ' CONFIRM ', color: '\x1b[33m' }, // yellow
+        denied: { text: ' DENIED  ', color: '\x1b[31m' }   // red
+    };
+    const entry = labels[klass] || labels.confirm;
+    return `${entry.color}[${entry.text}]${RESET}`;
+}
+
+/**
+ * Render the permission table to a string for the given cursor/state.
+ * Exposed (indirectly) so the redraw logic stays testable and pure.
+ * @param {string[]} scripts Ordered script names.
+ * @param {Record<string, string>} classes Current class per script.
+ * @param {number} cursor Highlighted row index.
+ * @param {string} configLabel Path label shown in the header.
+ * @returns {string}
+ */
+function _renderPermissionTable(scripts, classes, cursor, configLabel) {
+    const RESET = '\x1b[0m';
+    const DIM = '\x1b[2m';
+    const BOLD = '\x1b[1m';
+    const rule = '─'.repeat(50);
+    const lines = [];
+    lines.push('');
+    lines.push(`  ${BOLD}mcc hey config permissions${RESET}   ${DIM}(${configLabel})${RESET}`);
+    lines.push('');
+    lines.push(`  ${'Script'.padEnd(24)} Permission`);
+    lines.push(`  ${rule}`);
+    scripts.forEach((script, i) => {
+        const pointer = i === cursor ? '\x1b[36m❯\x1b[0m' : ' ';
+        const name = i === cursor ? `${BOLD}${script.padEnd(24)}${RESET}` : script.padEnd(24);
+        lines.push(`${pointer} ${name} ${_permissionBadge(classes[script])}`);
+    });
+    lines.push(`  ${rule}`);
+    lines.push(`  ${DIM}↑↓ navigate   SPACE cycle: CONFIRM→AUTO→DENIED   ENTER save   ESC cancel${RESET}`);
+    return lines.join('\n');
+}
+
+/**
+ * Launch the interactive permission editor TUI. Uses Node's built-in readline
+ * for raw keypress handling (no extra dependencies).
+ * @param {string} projectDir Absolute project directory.
+ * @returns {Promise<void>}
+ */
+function _runPermissionsTui(projectDir) {
+    return new Promise((resolve) => {
+        const scripts = HEY_KNOWN_SCRIPTS;
+        const classes = _readScriptClasses(projectDir);
+        const configLabel = path.join('.mlcc', 'agent-config.json');
+        let cursor = 0;
+
+        const input = process.stdin;
+        const output = process.stdout;
+
+        // Non-TTY (e.g. piped/CI): cannot run interactively.
+        if (!input.isTTY) {
+            console.error('❌ mcc hey config permissions requires an interactive terminal.');
+            resolve();
+            return;
+        }
+
+        // Node's built-in readline for raw keypress handling (no extra deps).
+        const readline = require('readline');
+        readline.emitKeypressEvents(input);
+        input.setRawMode(true);
+        input.resume();
+
+        let lastLineCount = 0;
+
+        function redraw() {
+            const frame = _renderPermissionTable(scripts, classes, cursor, configLabel);
+            // Move cursor up over the previous frame and clear downward.
+            if (lastLineCount > 0) {
+                output.write(`\x1b[${lastLineCount}A`);
+            }
+            output.write('\x1b[0J'); // clear from cursor to end of screen
+            output.write(`${frame}\n`);
+            lastLineCount = frame.split('\n').length + 1;
+        }
+
+        function cleanup() {
+            input.setRawMode(false);
+            input.pause();
+            input.removeListener('keypress', onKeypress);
+        }
+
+        function cycle(script) {
+            const idx = PERMISSION_CLASSES.indexOf(classes[script]);
+            const next = PERMISSION_CLASSES[(idx + 1) % PERMISSION_CLASSES.length];
+            classes[script] = next;
+        }
+
+        function onKeypress(str, key) {
+            if (!key) return;
+
+            if (key.name === 'up') {
+                cursor = (cursor - 1 + scripts.length) % scripts.length;
+                redraw();
+            } else if (key.name === 'down') {
+                cursor = (cursor + 1) % scripts.length;
+                redraw();
+            } else if (key.name === 'space') {
+                cycle(scripts[cursor]);
+                redraw();
+            } else if (key.name === 'return' || key.name === 'enter') {
+                cleanup();
+                _writeScriptClasses(projectDir, classes);
+                output.write(`\n✅ Saved permissions to ${configLabel}\n`);
+                resolve();
+            } else if (key.name === 'escape' || key.name === 'q' || (key.ctrl && key.name === 'c')) {
+                cleanup();
+                output.write('\n✖ Cancelled — no changes saved.\n');
+                resolve();
+            }
+        }
+
+        input.on('keypress', onKeypress);
+        redraw();
+    });
+}
+
+/**
+ * Dispatch a `mcc hey config <...>` invocation.
+ * Currently supports only `config permissions`.
+ * @param {string[]} args Positional args after `config`.
+ * @param {string} projectDir Absolute project directory.
+ * @returns {Promise<void>}
+ */
+async function _runHeyConfig(args, projectDir) {
+    const sub = args[0];
+    if (sub === 'permissions') {
+        await _runPermissionsTui(projectDir);
+        return;
+    }
+    console.error('Usage: mcc hey config permissions');
+    if (sub) {
+        console.error(`Unknown config subcommand: "${sub}"`);
+    }
+    process.exitCode = 1;
 }
 
 program
     .command('hey')
-    .description('Chat with the ml-container-creator advisor')
-    .argument('[subcommand]', 'Optional subcommand: "init" to provision the advisory agent venv')
+    .description('Chat with the ml-container-creator advisor (subcommands: init, config permissions)')
+    .argument('[subcommand]', 'Optional subcommand: "init" (provision venv) or "config" (edit permissions)')
+    .argument('[args...]', 'Additional arguments for the subcommand (e.g. "permissions")')
     .option('--project-dir <dir>', 'Project directory to analyze', process.cwd())
     .option('-o, --offline', 'Static reference mode (no Bedrock calls)')
     .option('--goal <goal>', 'Plan and execute toward a specific goal')
     .option('--from-plan [file]', 'Execute a saved plan.json without re-planning (defaults to ./plan.json)')
     .option('--auto', 'Fully autonomous goal execution (no confirmation prompts)')
     .option('--dry-run', 'Preview the plan without executing anything')
-    .action(async (subcommand, options) => {
+    .addHelpText('after', `
+Subcommands:
+  (none)               Launch the advisory agent
+  init                 Provision the dedicated Python venv (.mlcc/hey-venv/)
+                       and install agent dependencies
+  config permissions   Interactive TUI to set AUTO/CONFIRM/DENIED per script
+`)
+    .action(async (subcommand, args, options) => {
         // BL079: `mcc hey init` provisions the dedicated advisory-agent venv.
         if (subcommand === 'init') {
             _initHeyEnvironment(options.projectDir);
+            return;
+        }
+
+        // `mcc hey config permissions` — interactive permission editor.
+        if (subcommand === 'config') {
+            await _runHeyConfig(args, path.resolve(options.projectDir));
             return;
         }
 
@@ -532,18 +812,18 @@ program
         const agentScript = path.join(__dirname, '..', 'src', 'agent', 'agent.py');
 
         // 5. Build args and spawn
-        const args = [agentScript, '--project-dir', options.projectDir];
+        const agentArgs = [agentScript, '--project-dir', options.projectDir];
         if (options.offline) {
-            args.push('--offline');
+            agentArgs.push('--offline');
         }
         if (options.goal) {
-            args.push('--goal', options.goal);
+            agentArgs.push('--goal', options.goal);
         }
         if (options.auto) {
-            args.push('--auto');
+            agentArgs.push('--auto');
         }
         if (options.dryRun) {
-            args.push('--dry-run');
+            agentArgs.push('--dry-run');
         }
 
         // BL080: resolve and pass through --from-plan.
@@ -556,10 +836,10 @@ program
                 // Absolute path stays as-is; relative resolves against cwd.
                 planPath = path.resolve(process.cwd(), options.fromPlan);
             }
-            args.push('--from-plan', planPath);
+            agentArgs.push('--from-plan', planPath);
         }
 
-        const child = spawn(pythonBin, args, {
+        const child = spawn(pythonBin, agentArgs, {
             stdio: 'inherit',
             env: { ...process.env, PYTHONUNBUFFERED: '1' }
         });
@@ -658,5 +938,12 @@ export {
     _writeVenvPathToConfig,
     _venvPython,
     _parseRequirementNames,
-    HEY_VENV_REL
+    HEY_VENV_REL,
+    HEY_KNOWN_SCRIPTS,
+    PERMISSION_CLASSES,
+    _readScriptClasses,
+    _writeScriptClasses,
+    _renderPermissionTable,
+    _permissionBadge,
+    _runHeyConfig
 };

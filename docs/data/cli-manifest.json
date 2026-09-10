@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-08T14:42:44.747Z",
-  "version": "1.5.2",
+  "generatedAt": "2026-09-10T19:17:14.430Z",
+  "version": "1.6.1",
   "cliOptions": [
     {
       "flag": "--backend",
@@ -1064,7 +1064,7 @@
       "vcpus": 192,
       "memGb": 2048,
       "family": "p5",
-      "costTier": "ultra"
+      "costTier": "very-high"
     },
     "ml.p5e.48xlarge": {
       "gpus": 8,
@@ -1073,6 +1073,114 @@
       "vcpus": 192,
       "memGb": 2048,
       "family": "p5e",
+      "costTier": "very-high"
+    },
+    "ml.g7.2xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA RTX PRO 4500",
+      "gpuMemoryGb": 32,
+      "vcpus": 8,
+      "memGb": 32,
+      "family": "g7",
+      "costTier": "medium"
+    },
+    "ml.g7.4xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA RTX PRO 4500",
+      "gpuMemoryGb": 32,
+      "vcpus": 16,
+      "memGb": 64,
+      "family": "g7",
+      "costTier": "medium"
+    },
+    "ml.g7.8xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA RTX PRO 4500",
+      "gpuMemoryGb": 32,
+      "vcpus": 32,
+      "memGb": 128,
+      "family": "g7",
+      "costTier": "medium"
+    },
+    "ml.g7.12xlarge": {
+      "gpus": 2,
+      "gpuType": "NVIDIA RTX PRO 4500",
+      "gpuMemoryGb": 32,
+      "vcpus": 48,
+      "memGb": 192,
+      "family": "g7",
+      "costTier": "high"
+    },
+    "ml.g7.24xlarge": {
+      "gpus": 4,
+      "gpuType": "NVIDIA RTX PRO 4500",
+      "gpuMemoryGb": 32,
+      "vcpus": 96,
+      "memGb": 384,
+      "family": "g7",
+      "costTier": "high"
+    },
+    "ml.g7.48xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA RTX PRO 4500",
+      "gpuMemoryGb": 32,
+      "vcpus": 192,
+      "memGb": 768,
+      "family": "g7",
+      "costTier": "high"
+    },
+    "ml.g7e.2xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA RTX PRO Server 6000",
+      "gpuMemoryGb": 96,
+      "vcpus": 4,
+      "memGb": 64,
+      "family": "g7e",
+      "costTier": "high"
+    },
+    "ml.g7e.4xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA RTX PRO Server 6000",
+      "gpuMemoryGb": 96,
+      "vcpus": 8,
+      "memGb": 128,
+      "family": "g7e",
+      "costTier": "high"
+    },
+    "ml.g7e.8xlarge": {
+      "gpus": 1,
+      "gpuType": "NVIDIA RTX PRO Server 6000",
+      "gpuMemoryGb": 96,
+      "vcpus": 16,
+      "memGb": 256,
+      "family": "g7e",
+      "costTier": "high"
+    },
+    "ml.g7e.12xlarge": {
+      "gpus": 2,
+      "gpuType": "NVIDIA RTX PRO Server 6000",
+      "gpuMemoryGb": 96,
+      "vcpus": 24,
+      "memGb": 512,
+      "family": "g7e",
+      "costTier": "ultra"
+    },
+    "ml.g7e.24xlarge": {
+      "gpus": 4,
+      "gpuType": "NVIDIA RTX PRO Server 6000",
+      "gpuMemoryGb": 96,
+      "vcpus": 48,
+      "memGb": 1024,
+      "family": "g7e",
+      "costTier": "ultra"
+    },
+    "ml.g7e.48xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA RTX PRO Server 6000",
+      "gpuMemoryGb": 96,
+      "vcpus": 96,
+      "memGb": 2048,
+      "family": "g7e",
       "costTier": "ultra"
     }
   },

@@ -208,13 +208,16 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
         /**
          * **Validates: Requirements 10.1, 10.4**
          *
-         * When deploymentTarget === 'realtime-inference', do/test must contain
-         * sagemaker-runtime invoke-endpoint but NOT invoke-endpoint-async
-         * or S3 polling logic.
+         * do/test is now a runtime-dispatch script (routes on DEPLOYMENT_TARGET /
+         * --target). Its content is identical regardless of the generation-time
+         * deploymentTarget, so it always contains every target's logic — including
+         * synchronous invoke-endpoint and the async path. Backward compatibility is
+         * verified by confirming the realtime-inference logic is present and that
+         * dispatch routes realtime-inference to the synchronous invoke-endpoint path.
          */
         this.timeout(30000);
 
-        console.log('  🧪 do/test: invoke-endpoint present, no async test logic');
+        console.log('  🧪 do/test: runtime dispatch includes realtime invoke-endpoint path');
 
         fc.assert(fc.property(
             managedInferenceConfigArb,
@@ -233,25 +236,29 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
 
                 const output = renderTemplate(testTemplate, vars);
 
-                // Must contain synchronous invoke-endpoint
+                // Must contain synchronous invoke-endpoint (realtime path preserved)
                 assert.ok(
                     output.includes('sagemaker-runtime invoke-endpoint'),
-                    'realtime-inference do/test must contain sagemaker-runtime invoke-endpoint'
+                    'do/test must contain sagemaker-runtime invoke-endpoint (realtime path)'
                 );
 
-                // Must NOT contain async invocation or S3 polling
+                // Runtime dispatch: realtime-inference routes to the sync test impl.
                 assert.ok(
-                    !output.includes('invoke-endpoint-async'),
-                    'realtime-inference do/test must NOT contain invoke-endpoint-async'
+                    output.includes('_test_realtime_inference'),
+                    'do/test must define/dispatch the realtime-inference implementation'
                 );
                 assert.ok(
-                    !output.includes('Polling for async result'),
-                    'realtime-inference do/test must NOT contain S3 polling logic'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/test must dispatch on the effective deployment target'
+                );
+                assert.ok(
+                    output.includes('EFFECTIVE_TARGET="${FLAG_TARGET:-${DEPLOYMENT_TARGET:-realtime-inference}}"'),
+                    'do/test must default to realtime-inference when no target is set'
                 );
             }
         ), { numRuns: 30 });
 
-        console.log('    ✅ do/test backward compatible — no async test logic leak');
+        console.log('    ✅ do/test runtime dispatch — realtime-inference path present');
     });
 
     it('do/clean for realtime-inference must contain clean_endpoint with SageMaker delete commands but NOT async-specific cleanup', function () {
@@ -350,18 +357,20 @@ describe('Feature: async-inference-endpoint, Property 5: Backward compatibility 
                     'realtime-inference do/logs must use --follow for tailing'
                 );
 
-                // Must NOT contain async-specific log patterns
+                // Runtime dispatch: do/logs is target-agnostic and contains every
+                // target's logic (including the async path). Verify the realtime
+                // path is present and dispatch defaults to realtime-inference.
                 assert.ok(
-                    !output.includes('Tailing logs for async inference endpoint'),
-                    'realtime-inference do/logs must NOT contain async inference endpoint header'
+                    output.includes('_logs_realtime_inference'),
+                    'do/logs must define the realtime-inference implementation'
                 );
                 assert.ok(
-                    !output.includes('SageMaker Async Inference Logs'),
-                    'realtime-inference do/logs must NOT contain SageMaker Async Inference Logs section header'
+                    output.includes('EFFECTIVE_TARGET="${FLAG_TARGET:-${DEPLOYMENT_TARGET:-realtime-inference}}"'),
+                    'do/logs must default to realtime-inference when no target is set'
                 );
             }
         ), { numRuns: 30 });
 
-        console.log('    ✅ do/logs backward compatible — no async log patterns leak');
+        console.log('    ✅ do/logs runtime dispatch — realtime-inference path present');
     });
 });

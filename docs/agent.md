@@ -91,31 +91,78 @@ python3 src/agent/agent.py --goal "validate my configuration" --auto
 
 ### Confirmation policy
 
-Scripts are classified as `auto` or `confirm` in `config/agent.json` and project-local `.mlcc/agent-config.json`:
+Every `do/` script has a **permission class** that governs whether the agent may run it and whether it pauses for approval first. The model is three-state:
+
+| Class | Behavior |
+|-------|----------|
+| `auto` | Runs without prompting (safe, read-only, or idempotent). |
+| `confirm` | Pauses for a `y/N` approval before running (mutating, costly, or destructive). |
+| `denied` | Blocked entirely — never runs, even if a plan step references it. |
+
+A script's class is resolved from `script_classes` in `config/agent.json` and your project-local `.mlcc/agent-config.json`. Any script **not** listed in `script_classes` falls back to `default_class` (default: `"confirm"`). The system is opt-out, not opt-in: unlisted scripts are permitted but require confirmation, unless you set `default_class` to `"denied"` to lock the agent down to an explicit allow-list.
+
+**Default classes** (from `src/agent/execution_config.py` — the source of truth):
 
 | Class | Default scripts |
 |-------|----------------|
 | `auto` | `do/test`, `do/status`, `do/logs`, `do/validate`, `do/export`, `do/ci` |
 | `confirm` | `do/stage`, `do/build`, `do/push`, `do/submit`, `do/deploy`, `do/tune`, `do/train`, `do/adapter`, `do/clean`, `do/register`, `do/optimize`, `do/benchmark` |
 
-Override in your project:
+`is_permitted(script)` returns true unless the resolved class is `denied`. The `mode` field provides a global override: `mode: "all"` forces every script to `confirm` (safe default for unfamiliar projects); `mode: "none"` runs everything as `auto` (CI/scripted use); `mode: "default"` (the default) consults each script's class.
+
+### Editing permissions — `mcc hey config permissions`
+
+The fastest way to review and change per-script permissions is the interactive TUI:
+
+```bash
+mcc hey config permissions
+```
+
+It renders a scrollable table of all known `do/` scripts with their current permission state:
+
+```
+  mcc hey config permissions   (.mlcc/agent-config.json)
+
+  Script                   Permission
+  ─────────────────────────────────────────────────
+❯ do/stage                 [ CONFIRM ]
+  do/submit                [ CONFIRM ]
+  do/deploy                [ CONFIRM ]
+  do/test                  [  AUTO   ]
+  ...
+  ─────────────────────────────────────────────────
+  ↑↓ navigate   SPACE cycle: CONFIRM→AUTO→DENIED   ENTER save   ESC cancel
+```
+
+- **↑ / ↓** — move the cursor between scripts
+- **SPACE** — cycle the highlighted script's state: `CONFIRM → AUTO → DENIED → CONFIRM` (color-coded green/yellow/red)
+- **ENTER** — save changes and exit
+- **ESC** / **q** — cancel without saving
+
+On save, your selections are **merged** into `.mlcc/agent-config.json` under `confirmation.script_classes` (the project directory comes from `--project-dir`, or the current working directory). Existing keys — `venv_path`, `mode`, unrelated settings — are preserved. The TUI writes the snake_case `script_classes` key and drops any legacy camelCase `scriptClasses`.
+
+Override manually instead by editing `.mlcc/agent-config.json` directly:
 ```json
 // .mlcc/agent-config.json
 {
-  "permitted_scripts": ["do/stage", "do/build", "do/push", "do/submit", "do/validate"],
   "venv_path": ".mlcc/hey-venv",
   "confirmation": {
     "mode": "default",
+    "default_class": "confirm",
     "script_classes": {
-      "do/deploy": "confirm"
+      "do/test": "auto",
+      "do/status": "auto",
+      "do/deploy": "confirm",
+      "do/clean": "denied"
     }
   }
 }
 ```
-`mode: "all"` — always confirm (safe default for unfamiliar projects). `mode: "none"` — never confirm (CI/scripted use).
+
+In this example, `do/test` and `do/status` run without prompting, `do/deploy` pauses for approval, `do/clean` is blocked entirely, and every other script inherits `default_class` (`confirm`).
 
 !!! note
-    The project-level `.mlcc/agent-config.json` schema is all-snake-case (`permitted_scripts`, `venv_path`, `script_classes`). Older config files using the legacy camelCase `scriptClasses` key still load correctly — the loader reads `script_classes` first and falls back to `scriptClasses`.
+    The project-level `.mlcc/agent-config.json` schema is all-snake-case (`venv_path`, `script_classes`, `default_class`). Older config files using the legacy camelCase `scriptClasses` key still load correctly — the loader reads `script_classes` first and falls back to `scriptClasses`. A legacy `permitted_scripts` allow-list is also still honored: known scripts absent from the list are synthesized as `denied` to preserve the old opt-in behavior.
 
 ### --dry-run as a test harness
 
@@ -214,7 +261,7 @@ A typical 10-turn session costs **~$0.05–$0.10**. Use `--offline` for zero-cos
 
 ## Limitations
 
-- **Executes `do/` scripts listed in `permitted_scripts`** (see `config/agent.json`). Scripts not in the permitted list are refused. To add a script, edit `.mlcc/agent-config.json` in your project.
+- **Runs `do/` scripts subject to their permission class.** Scripts classed `denied` (or resolved to `denied` via `default_class`) are refused; `confirm`-class scripts pause for approval; `auto`-class scripts run without prompting. Adjust per-script permissions with `mcc hey config permissions` or by editing `.mlcc/agent-config.json`.
 - **Session state is not persisted** — each `hey` invocation starts fresh. Use `TODO.md` output to capture plans.
 - **Knowledge is version-bound** — the agent knows about features in the installed version. Custom forks or unreleased changes aren't reflected unless you add them via `.mlcc-agent-context.md`.
 - **Requires internet** — Bedrock access needed for interactive mode. Use `--offline` for air-gapped environments.
