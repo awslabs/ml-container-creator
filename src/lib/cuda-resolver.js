@@ -14,6 +14,8 @@ export const CUDA_AMI_MAP = {
     '12.2': 'al2-ami-sagemaker-inference-gpu-3-1',
     '12.4': 'al2-ami-sagemaker-inference-gpu-3-1',
     '12.6': 'al2-ami-sagemaker-inference-gpu-3-1',
+    '12.8': 'al2023-ami-sagemaker-inference-gpu-4-1',
+    '12.9': 'al2023-ami-sagemaker-inference-gpu-4-1',
     '13.0': 'al2023-ami-sagemaker-inference-gpu-4-1'
 };
 

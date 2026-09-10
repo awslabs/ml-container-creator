@@ -89,14 +89,16 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
                     'realtime-inference must tail logs with --follow flag'
                 );
 
-                // Must NOT contain kubectl commands
+                // Runtime dispatch: do/logs now contains ALL targets' logic and
+                // routes at runtime on DEPLOYMENT_TARGET / --target. Verify the
+                // realtime-inference path is present and reachable via dispatch.
                 assert.ok(
-                    !output.includes('kubectl'),
-                    'realtime-inference must NOT contain kubectl commands'
+                    output.includes('_logs_realtime_inference'),
+                    'do/logs must define the realtime-inference implementation'
                 );
                 assert.ok(
-                    !output.includes('describe-cluster'),
-                    'realtime-inference must NOT contain describe-cluster'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/logs must dispatch on the effective deployment target'
                 );
             }
         ), { numRuns: 20 });
@@ -141,14 +143,14 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
                     'hyperpod-eks must reference the configured namespace'
                 );
 
-                // Must NOT contain CloudWatch commands
+                // Runtime dispatch: hyperpod-eks path present and reachable.
                 assert.ok(
-                    !output.includes('aws logs tail'),
-                    'hyperpod-eks must NOT contain aws logs tail command'
+                    output.includes('_logs_hyperpod_eks'),
+                    'do/logs must define the hyperpod-eks implementation'
                 );
                 assert.ok(
-                    !output.includes('/aws/sagemaker/Endpoints/'),
-                    'hyperpod-eks must NOT reference SageMaker Endpoints log group'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/logs must dispatch on the effective deployment target'
                 );
             }
         ), { numRuns: 20 });
@@ -202,14 +204,14 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
         console.log('    ✅ kubeconfig retrieval before tailing verified');
     });
 
-    it('should produce mutually exclusive content for each deployment target', function () {
+    it('should include all targets\' logic and dispatch at runtime (runtime dispatch, not compile-time exclusivity)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Mutual exclusivity: each target produces only its own content');
+        console.log('  🧪 Runtime dispatch: every rendered do/logs contains all targets\' logic');
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks', 'async-inference', 'batch-transform'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -223,16 +225,43 @@ describe('Property 15: Logs Script Content by Deployment Target', () => {
 
                 const output = renderLogs(vars);
 
-                if (deploymentTarget === 'realtime-inference') {
-                    assert.ok(output.includes('aws logs tail'), 'realtime-inference must have aws logs tail');
-                    assert.ok(!output.includes('kubectl logs'), 'realtime-inference must NOT have kubectl logs');
-                } else {
-                    assert.ok(output.includes('kubectl logs'), 'hyperpod-eks must have kubectl logs');
-                    assert.ok(!output.includes('aws logs tail'), 'hyperpod-eks must NOT have aws logs tail');
+                // Regardless of the generation-time target, do/logs now contains
+                // every target's implementation and routes on the effective target.
+                assert.ok(
+                    output.includes('aws logs tail'),
+                    'do/logs must always contain the CloudWatch tailing path'
+                );
+                assert.ok(
+                    output.includes('kubectl logs'),
+                    'do/logs must always contain the kubectl logs path'
+                );
+                assert.ok(
+                    output.includes('/aws/sagemaker/TransformJobs'),
+                    'do/logs must always contain the batch transform log group'
+                );
+
+                // Dispatch mechanism and all four target functions are present.
+                assert.ok(
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/logs must dispatch on the effective deployment target'
+                );
+                for (const fn of [
+                    '_logs_realtime_inference',
+                    '_logs_async_inference',
+                    '_logs_hyperpod_eks',
+                    '_logs_batch_transform'
+                ]) {
+                    assert.ok(output.includes(fn), `do/logs must define ${fn}`);
                 }
+
+                // --target override flag is available for all renders.
+                assert.ok(
+                    output.includes('--target'),
+                    'do/logs must support the --target override flag'
+                );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ Mutual exclusivity verified');
+        console.log('    ✅ Runtime dispatch verified — all targets present, dispatch on effective target');
     });
 });

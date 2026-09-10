@@ -117,21 +117,31 @@ class TestLoadFromConfigFile:
 
 
 class TestIsPermitted:
-    """Existing is_permitted tests should still pass."""
+    """is_permitted reflects the unified three-state (opt-out) model."""
 
     def test_is_permitted_default_scripts(self):
-        """Default permitted scripts are recognized."""
+        """Default confirm/auto-class scripts are permitted."""
         config = ExecutionConfig()
         assert config.is_permitted('do/stage') is True
         assert config.is_permitted('do/build') is True
         assert config.is_permitted('do/push') is True
         assert config.is_permitted('do/submit') is True
 
-    def test_is_not_permitted(self):
-        """Non-permitted scripts are rejected."""
+    def test_is_permitted_unknown_script_opt_out(self):
+        """Unknown scripts are permitted by default (opt-out, default_class=confirm)."""
         config = ExecutionConfig()
-        assert config.is_permitted('do/hack') is False
-        assert config.is_permitted('rm -rf /') is False
+        assert config.is_permitted('do/hack') is True
+        assert config.is_permitted('rm -rf /') is True
+
+    def test_is_not_permitted_when_denied(self):
+        """A script explicitly classed 'denied' is not permitted."""
+        config = ExecutionConfig(script_classes={'do/deploy': 'denied'})
+        assert config.is_permitted('do/deploy') is False
+
+    def test_is_not_permitted_default_class_denied(self):
+        """When default_class is 'denied', unknown scripts are rejected (opt-in)."""
+        config = ExecutionConfig(default_class='denied')
+        assert config.is_permitted('do/unknown') is False
 
     def test_cost_warning(self):
         """Cost warnings return for known scripts."""
@@ -202,3 +212,110 @@ class TestSchemaNormalizationBL079:
         """venv_path defaults to None when there is no config file at all."""
         config = load_execution_config(tmp_path)
         assert config.venv_path is None
+
+
+class TestUnifiedThreeStateModel:
+    """Tests for the unified auto/confirm/denied script_classes model."""
+
+    def _write_config(self, tmp_path, data):
+        config_dir = tmp_path / '.mlcc'
+        config_dir.mkdir(exist_ok=True)
+        (config_dir / 'agent-config.json').write_text(json.dumps(data))
+
+    def test_denied_class_loaded(self, tmp_path):
+        """A 'denied' class value is accepted and applied."""
+        self._write_config(tmp_path, {
+            'confirmation': {
+                'mode': 'default',
+                'script_classes': {'do/deploy': 'denied'},
+            },
+        })
+        config = load_execution_config(tmp_path)
+        assert config.decide('do/deploy') == 'denied'
+        assert config.is_permitted('do/deploy') is False
+
+    def test_default_class_loaded(self, tmp_path):
+        """`default_class` is read from the confirmation block."""
+        self._write_config(tmp_path, {
+            'confirmation': {
+                'mode': 'default',
+                'default_class': 'denied',
+            },
+        })
+        config = load_execution_config(tmp_path)
+        assert config.default_class == 'denied'
+        assert config.decide('do/unknown') == 'denied'
+        assert config.is_permitted('do/unknown') is False
+
+    def test_default_class_defaults_to_confirm(self, tmp_path):
+        """default_class defaults to 'confirm' when absent."""
+        self._write_config(tmp_path, {'confirmation': {'mode': 'default'}})
+        config = load_execution_config(tmp_path)
+        assert config.default_class == 'confirm'
+
+    def test_invalid_default_class_falls_back(self, tmp_path):
+        """An invalid default_class value falls back to 'confirm'."""
+        self._write_config(tmp_path, {
+            'confirmation': {'mode': 'default', 'default_class': 'bogus'},
+        })
+        config = load_execution_config(tmp_path)
+        assert config.default_class == 'confirm'
+
+    def test_invalid_class_value_ignored(self, tmp_path):
+        """Invalid per-script class values are ignored, defaults retained."""
+        self._write_config(tmp_path, {
+            'confirmation': {
+                'mode': 'default',
+                'script_classes': {'do/deploy': 'bogus', 'do/test': 'denied'},
+            },
+        })
+        config = load_execution_config(tmp_path)
+        # Invalid value ignored → falls back to default class mapping.
+        assert config.decide('do/deploy') == 'confirm'
+        # Valid value applied.
+        assert config.decide('do/test') == 'denied'
+
+
+class TestPermittedScriptsBackwardCompat:
+    """Legacy `permitted_scripts` allow-list synthesizes 'denied' entries."""
+
+    def _write_config(self, tmp_path, data):
+        config_dir = tmp_path / '.mlcc'
+        config_dir.mkdir(exist_ok=True)
+        (config_dir / 'agent-config.json').write_text(json.dumps(data))
+
+    def test_permitted_list_denies_unlisted_known_scripts(self, tmp_path):
+        """Known scripts absent from permitted_scripts become 'denied'."""
+        self._write_config(tmp_path, {
+            'permitted_scripts': ['do/test', 'do/build'],
+            'confirmation': {'mode': 'default'},
+        })
+        config = load_execution_config(tmp_path)
+        # Listed scripts keep their normal class.
+        assert config.is_permitted('do/test') is True
+        assert config.is_permitted('do/build') is True
+        # Unlisted known scripts are denied.
+        assert config.is_permitted('do/deploy') is False
+        assert config.decide('do/deploy') == 'denied'
+        assert config.is_permitted('do/tune') is False
+
+    def test_explicit_script_classes_override_denied_synthesis(self, tmp_path):
+        """Explicit script_classes win over synthesized denied entries."""
+        self._write_config(tmp_path, {
+            'permitted_scripts': ['do/test'],
+            'confirmation': {
+                'mode': 'default',
+                'script_classes': {'do/deploy': 'auto'},
+            },
+        })
+        config = load_execution_config(tmp_path)
+        # do/deploy is not in permitted_scripts but is explicitly classed 'auto'.
+        assert config.decide('do/deploy') == 'auto'
+        assert config.is_permitted('do/deploy') is True
+
+    def test_no_permitted_list_keeps_opt_out(self, tmp_path):
+        """Without permitted_scripts, unknown scripts remain permitted (opt-out)."""
+        self._write_config(tmp_path, {'confirmation': {'mode': 'default'}})
+        config = load_execution_config(tmp_path)
+        assert config.is_permitted('do/deploy') is True
+        assert config.is_permitted('do/anything') is True

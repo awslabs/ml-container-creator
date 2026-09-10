@@ -99,14 +99,15 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
                     'realtime-inference must check endpoint status via describe-endpoint'
                 );
 
-                // Must NOT contain kubectl commands
+                // Runtime dispatch: all target logic is always present; the
+                // realtime-inference path is reached via the effective-target case.
                 assert.ok(
-                    !output.includes('kubectl port-forward'),
-                    'realtime-inference must NOT contain kubectl port-forward'
+                    output.includes('_test_realtime_inference'),
+                    'do/test must define the realtime-inference implementation'
                 );
                 assert.ok(
-                    !output.includes('describe-cluster'),
-                    'realtime-inference must NOT contain describe-cluster'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/test must dispatch on the effective deployment target'
                 );
             }
         ), { numRuns: 20 });
@@ -164,14 +165,15 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
                     'hyperpod-eks must have HyperPod test message'
                 );
 
-                // Must NOT contain SageMaker endpoint commands
+                // Runtime dispatch: all target logic is always present; the
+                // hyperpod-eks path is reached via the effective-target case.
                 assert.ok(
-                    !output.includes('sagemaker-runtime invoke-endpoint'),
-                    'hyperpod-eks must NOT contain sagemaker-runtime invoke-endpoint'
+                    output.includes('_test_hyperpod_eks'),
+                    'do/test must define the hyperpod-eks implementation'
                 );
                 assert.ok(
-                    !output.includes('describe-endpoint'),
-                    'hyperpod-eks must NOT contain describe-endpoint'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/test must dispatch on the effective deployment target'
                 );
             }
         ), { numRuns: 20 });
@@ -356,14 +358,14 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
         console.log('    ✅ Deployment-target-specific usage info correct');
     });
 
-    it('should produce mutually exclusive content for each deployment target', function () {
+    it('should include all targets\' logic and dispatch at runtime (runtime dispatch, not compile-time exclusivity)', function () {
         this.timeout(30000);
 
-        console.log('  🧪 Mutual exclusivity: each target produces only its own content');
+        console.log('  🧪 Runtime dispatch: every rendered do/test contains all targets\' logic');
 
         fc.assert(fc.property(
             baseConfigArb,
-            fc.constantFrom('realtime-inference', 'hyperpod-eks'),
+            fc.constantFrom('realtime-inference', 'hyperpod-eks', 'async-inference', 'batch-transform'),
             (base, deploymentTarget) => {
                 const vars = {
                     ...base,
@@ -376,28 +378,47 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
 
                 const output = renderTest(vars);
 
-                if (deploymentTarget === 'realtime-inference') {
-                    assert.ok(
-                        output.includes('sagemaker-runtime invoke-endpoint'),
-                        'realtime-inference must have invoke-endpoint'
-                    );
-                    assert.ok(
-                        !output.includes('kubectl port-forward'),
-                        'realtime-inference must NOT have kubectl port-forward'
-                    );
-                } else {
-                    assert.ok(
-                        output.includes('kubectl port-forward'),
-                        'hyperpod-eks must have kubectl port-forward'
-                    );
-                    assert.ok(
-                        !output.includes('sagemaker-runtime invoke-endpoint'),
-                        'hyperpod-eks must NOT have invoke-endpoint'
-                    );
+                // Regardless of the generation-time target, do/test now contains
+                // every target's implementation and routes on the effective target.
+                assert.ok(
+                    output.includes('sagemaker-runtime invoke-endpoint'),
+                    'do/test must always contain the realtime invoke-endpoint path'
+                );
+                assert.ok(
+                    output.includes('kubectl port-forward'),
+                    'do/test must always contain the hyperpod port-forward path'
+                );
+                assert.ok(
+                    output.includes('invoke-endpoint-async'),
+                    'do/test must always contain the async invocation path'
+                );
+                assert.ok(
+                    output.includes('create-transform-job') || output.includes('describe-transform-job'),
+                    'do/test must always contain the batch transform path'
+                );
+
+                // Dispatch mechanism and all four target functions are present.
+                assert.ok(
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/test must dispatch on the effective deployment target'
+                );
+                for (const fn of [
+                    '_test_realtime_inference',
+                    '_test_async_inference',
+                    '_test_hyperpod_eks',
+                    '_test_batch_transform'
+                ]) {
+                    assert.ok(output.includes(fn), `do/test must define ${fn}`);
                 }
+
+                // --target override flag is available for all renders.
+                assert.ok(
+                    output.includes('--target'),
+                    'do/test must support the --target override flag'
+                );
             }
         ), { numRuns: 20 });
 
-        console.log('    ✅ Mutual exclusivity verified');
+        console.log('    ✅ Runtime dispatch verified — all targets present, dispatch on effective target');
     });
 });

@@ -204,13 +204,15 @@ describe('Feature: async-inference-endpoint, Property 6: Backward compatibility 
         /**
          * **Validates: Requirements 10.2, 10.4**
          *
-         * When deploymentTarget === 'hyperpod-eks', do/test must contain
-         * kubectl port-forward but NOT contain invoke-endpoint-async
-         * or S3 polling logic.
+         * do/test is now a runtime-dispatch script whose content is the same
+         * regardless of the generation-time deploymentTarget. It always contains
+         * the HyperPod kubectl port-forward path AND every other target's logic;
+         * routing happens at runtime on DEPLOYMENT_TARGET / --target. Verify the
+         * hyperpod-eks path is present and reachable via dispatch.
          */
         this.timeout(30000);
 
-        console.log('  🧪 do/test: kubectl port-forward present, no async test logic');
+        console.log('  🧪 do/test: runtime dispatch includes hyperpod-eks port-forward path');
 
         fc.assert(fc.property(
             hyperpodEksConfigArb,
@@ -229,25 +231,25 @@ describe('Feature: async-inference-endpoint, Property 6: Backward compatibility 
 
                 const output = renderTemplate(testTemplate, vars);
 
-                // Must contain kubectl port-forward
+                // Must contain kubectl port-forward (hyperpod path preserved)
                 assert.ok(
                     output.includes('kubectl port-forward'),
-                    'hyperpod-eks do/test must contain kubectl port-forward'
+                    'do/test must contain kubectl port-forward (hyperpod path)'
                 );
 
-                // Must NOT contain async invocation or S3 polling
+                // Runtime dispatch: hyperpod-eks routes to its test impl.
                 assert.ok(
-                    !output.includes('invoke-endpoint-async'),
-                    'hyperpod-eks do/test must NOT contain invoke-endpoint-async'
+                    output.includes('_test_hyperpod_eks'),
+                    'do/test must define/dispatch the hyperpod-eks implementation'
                 );
                 assert.ok(
-                    !output.includes('Polling for async result'),
-                    'hyperpod-eks do/test must NOT contain S3 polling logic'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/test must dispatch on the effective deployment target'
                 );
             }
         ), { numRuns: 30 });
 
-        console.log('    ✅ do/test backward compatible — no async test logic leak');
+        console.log('    ✅ do/test runtime dispatch — hyperpod-eks path present');
     });
 
     it('do/clean for hyperpod-eks must contain clean_hyperpod with kubectl delete but NOT async-specific cleanup', function () {
@@ -334,24 +336,24 @@ describe('Feature: async-inference-endpoint, Property 6: Backward compatibility 
 
                 const output = renderTemplate(logsTemplate, vars);
 
-                // Must contain kubectl logs
+                // Must contain kubectl logs (hyperpod path preserved)
                 assert.ok(
                     output.includes('kubectl logs'),
-                    'hyperpod-eks do/logs must contain kubectl logs'
+                    'do/logs must contain kubectl logs (hyperpod path)'
                 );
 
-                // Must NOT contain async-specific log patterns
+                // Runtime dispatch: hyperpod-eks path present and reachable.
                 assert.ok(
-                    !output.includes('Tailing logs for async inference endpoint'),
-                    'hyperpod-eks do/logs must NOT contain async inference endpoint header'
+                    output.includes('_logs_hyperpod_eks'),
+                    'do/logs must define the hyperpod-eks implementation'
                 );
                 assert.ok(
-                    !output.includes('SageMaker Async Inference Logs'),
-                    'hyperpod-eks do/logs must NOT contain SageMaker Async Inference Logs section header'
+                    output.includes('case "${EFFECTIVE_TARGET}" in'),
+                    'do/logs must dispatch on the effective deployment target'
                 );
             }
         ), { numRuns: 30 });
 
-        console.log('    ✅ do/logs backward compatible — no async log patterns leak');
+        console.log('    ✅ do/logs runtime dispatch — hyperpod-eks path present');
     });
 });
