@@ -11,7 +11,7 @@
     "test": "mocha --require ts-node/register test/**/*.test.ts --exit --reporter spec"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.175.1",
+    "aws-cdk-lib": "^2.260.0",
     "constructs": "^10.4.2",
     "yaml": "^2.7.0"
   },
@@ -22,7 +22,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.15.0",
     "esbuild": "^0.28.1",
-    "mocha": "^11.7.5",
+    "mocha": "^12.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
   },
