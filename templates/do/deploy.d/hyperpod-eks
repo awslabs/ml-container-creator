@@ -12,7 +12,9 @@ _mark_hp_failed() {
         _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
     fi
 }
-trap '_mark_hp_failed' ERR
+# Only trap on rollout failure — not on secondary resource errors (configmap, PVC, etc.)
+# The status is written explicitly as Running/Failed after the rollout status check.
+# trap '_mark_hp_failed' ERR  — disabled: was writing Failed on partial manifest errors
 
 # Parse flags
 FORCE_NEW=false
@@ -361,6 +363,7 @@ ROLLOUT_OUTPUT=$(kubectl rollout status deployment/${PROJECT_NAME} -n "${HP_NAME
     echo "     kubectl describe pvc -n ${HP_NAMESPACE}"
     echo "     kubectl get csidriver -o name | grep fsx"
 <% } %>
+    _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
     exit ${ROLLOUT_EXIT_CODE}
 }
 

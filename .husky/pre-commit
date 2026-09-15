@@ -36,6 +36,17 @@ if git diff --cached --name-only | grep -qE "$CODEGEN_TRIGGERS"; then
     fi
 fi
 
+# 3b. Catalog data validation
+#     Validates model-servers.json, instances.json, and models.json against
+#     their schema/field contracts. Catches enum/field/casing defects (e.g.
+#     invalid costTier, stray fields, missing snake_case fields) at commit time
+#     instead of in CI. Only runs when catalog files are staged.
+if git diff --cached --name-only | grep -q "^servers/lib/catalogs/"; then
+    if ! node scripts/validate-catalogs.js; then
+        echo "❌ Catalog validation failed — fix the catalog data above before committing."
+        exit 1
+    fi
+fi
 # 4. Command generator sync check
 node scripts/sync-command-generator.js --check
 
