@@ -350,6 +350,26 @@
         "ml.p4d.24xlarge",
         "ml.p5.48xlarge"
       ]
+    },
+    "moonshotai/Kimi-K3*": {
+      "parameterCount": 2800000000000,
+      "activatedParameterCount": 104000000000,
+      "defaultDtype": "float8",
+      "architecture": "KimiForCausalLM",
+      "maxPositionEmbeddings": 1048576,
+      "isMoE": true,
+      "numExperts": 896,
+      "numActiveExperts": 16,
+      "recommendedQuantizations": [
+        "fp8",
+        "mxfp4"
+      ],
+      "minVramGb": 1400,
+      "notes": "2.8T MoE (104B active). Full BF16 needs ~5.6TB; MXFP4 (moonshotai/Kimi-K3-MXFP4) ~1.4TB. Requires 16x H100/H200 minimum.",
+      "recommendedInstances": [
+        "ml.p5e.48xlarge",
+        "ml.p5.48xlarge"
+      ]
     }
   }
 }

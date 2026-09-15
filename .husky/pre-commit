@@ -39,7 +39,19 @@ fi
 # 4. Command generator sync check
 node scripts/sync-command-generator.js --check
 
-# 5. Remove __pycache__ directories from staging area
+# 5. Bootstrap TypeScript build check
+#    Only run when infra/bootstrap-modules/**/*.ts files are staged.
+#    Catches CDK compile errors before they silently diverge from the .js runtime.
+if git diff --cached --name-only | grep -q "^infra/bootstrap-modules/.*\.ts$"; then
+    if ! npm run build --prefix infra/bootstrap-modules --silent 2>&1; then
+        echo "❌ Bootstrap TypeScript build failed — fix errors before committing."
+        echo "   Run: cd infra/bootstrap-modules && npm run build"
+        exit 1
+    fi
+    echo "✅ Bootstrap TypeScript compiled successfully"
+fi
+
+# 6. Remove __pycache__ directories from staging area
 git diff --cached --name-only | grep -E '__pycache__' | while read f; do
     git rm -r --cached "$f" 2>/dev/null || true
 done

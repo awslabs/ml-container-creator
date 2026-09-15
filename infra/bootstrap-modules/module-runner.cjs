@@ -686,6 +686,7 @@ class CdkMultiStackModuleRunner {
                 const status = result.trim();
                 if (status === 'ACTIVE') {
                     console.log('  ✅ Inference operator addon is ACTIVE');
+                    this._postInstallInferenceOperator(profile, hyperpodClusterArn);
                     return;
                 }
                 if (status === 'CREATE_FAILED') {
@@ -702,6 +703,57 @@ class CdkMultiStackModuleRunner {
         console.log('      It may still be initializing. This is non-blocking for basic deploys.');
     }
 
+    /**
+     * Apply post-install patches to the HyperPod inference operator after the
+     * EKS addon reaches ACTIVE state. Centralises all kubectl fixups in one place
+     * so new patches are easy to add and the bootstrap log is readable.
+     *
+     * Current patches:
+     *   1. HYPERPOD_CLUSTER_ARN env var — operator can't auto-detect on Fargate
+     *   2. inference-gateway-controller nodeSelector — uses hostPath volumes
+     *      unsupported by Fargate; must run on HyperPod EC2 worker nodes
+     *
+     * All patches are idempotent (kubectl set env / patch are safe to re-run).
+     *
+     * @param {object} profile
+     * @param {string} hyperpodClusterArn
+     */
+    _postInstallInferenceOperator(profile, hyperpodClusterArn) {
+        const kubeconfig = `${process.env.HOME}/.kube/hyperpod-${profile.profileName}`;
+        const ns = 'hyperpod-inference-system';
+
+        const patches = [
+            {
+                description: 'HYPERPOD_CLUSTER_ARN on controller manager',
+                cmd: `kubectl set env deployment/hyperpod-inference-controller-manager -n ${ns} HYPERPOD_CLUSTER_ARN=${hyperpodClusterArn} --kubeconfig ${kubeconfig}`,
+                manual: `kubectl set env deployment/hyperpod-inference-controller-manager -n ${ns} HYPERPOD_CLUSTER_ARN=${hyperpodClusterArn}`,
+            },
+            {
+                description: 'inference-gateway-controller nodeSelector (EC2 only — hostPath volumes)',
+                cmd: `kubectl patch deployment inference-gateway-controller -n ${ns} --patch '{"spec":{"template":{"spec":{"nodeSelector":{"sagemaker.amazonaws.com/compute-type":"hyperpod"}}}}}' --kubeconfig ${kubeconfig}`,
+                manual: `kubectl patch deployment inference-gateway-controller -n ${ns} --patch '{"spec":{"template":{"spec":{"nodeSelector":{"sagemaker.amazonaws.com/compute-type":"hyperpod"}}}}}'`,
+            },
+        ];
+
+        console.log('  🔧 Applying inference operator post-install patches...');
+        let allOk = true;
+        for (const patch of patches) {
+            try {
+                execSync(patch.cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+                console.log(`     ✅ ${patch.description}`);
+            } catch (e) {
+                allOk = false;
+                console.log(`     ⚠️  ${patch.description}: ${e.message.split('\n')[0]}`);
+                console.log(`        Run manually: ${patch.manual}`);
+            }
+        }
+        if (allOk) {
+            console.log('  ✅ Inference operator post-install patches applied');
+        } else {
+            console.log('  ⚠️  Some patches failed — operator may not work correctly until applied manually');
+        }
+    }
+
     _ensureHyperPodServiceLinkedRole(profile) {
         try {
             execSync(
@@ -710,6 +762,20 @@ class CdkMultiStackModuleRunner {
                 { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
             );
             console.log('  ✅ Created SageMaker HyperPod service-linked role');
+        } catch {
+            // Already exists — expected on subsequent deploys.
+        }
+
+        // Also ensure the base SageMaker SLR (AWSServiceRoleForAmazonSageMakerHyperPod).
+        // Required for HyperPod to provision EC2 instances — without it, UpdateCluster
+        // accepts the API call but InstanceGroupStatus stays null indefinitely.
+        try {
+            execSync(
+                `aws iam create-service-linked-role --aws-service-name sagemaker.amazonaws.com` +
+                (profile.awsProfile ? ` --profile ${profile.awsProfile}` : ''),
+                { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            console.log('  ✅ Created SageMaker base service-linked role');
         } catch {
             // Already exists — expected on subsequent deploys.
         }
@@ -1003,6 +1069,15 @@ class CdkMultiStackModuleRunner {
         }
 
         console.log(`    ${opts.forceDeploy ? '🔄 Updating' : '🚀 Deploying'} ${stackSuffix} (${stackName})...`);
+
+        // Compile TypeScript before deploying so source changes are always picked up.
+        // This is a fast no-op when nothing changed (tsc incremental).
+        try {
+            execSync('npm run build', { cwd: MODULES_ROOT, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+        } catch (e) {
+            console.error('  ❌ TypeScript build failed — fix errors before deploying:\n' + e.stderr);
+            throw new Error('Bootstrap TypeScript build failed');
+        }
 
         // Build adopt flags for this specific stack
         const adoptFlags = runner._computeAdoptFlags(profile, { verbose: true });

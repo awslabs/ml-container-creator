@@ -12,9 +12,10 @@ data:
   MODEL_SERVER: "<%= modelServer %>"
 <% if (framework === 'transformers') { %>
   MODEL_NAME: "<%= modelName %>"
-<% if (hfToken) { %>
-  HF_TOKEN: "<%= hfToken %>"
-<% } %>
+<%# HF_TOKEN is intentionally NOT written here. %>>
+<%# Instead, do/deploy creates a K8s Secret 'hf-token' and the deployment references it. %>
+<%# This keeps secrets out of ConfigMaps (which are not encrypted at rest by default). %>
+<%# Staged models (STAGED_MODEL_PATH in do/config) skip token resolution entirely. %>
 <% if (ngcApiKey) { %>
   NGC_API_KEY: "<%= ngcApiKey %>"
 <% } %>

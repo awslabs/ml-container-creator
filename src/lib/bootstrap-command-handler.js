@@ -1347,6 +1347,8 @@ export default class BootstrapCommandHandler {
             profileConfig.provisionedModules = [...provisioned, moduleName];
             profileConfig.moduleOutputs = profileConfig.moduleOutputs || {};
             profileConfig.moduleOutputs[moduleName] = outputs;
+            // Promote module outputs to flat profile keys (codebuildSourceS3Bucket, etc.)
+            this._denormalizeModuleOutputs(profileConfig);
             this.config.setProfile(name, profileConfig);
 
             console.log(`\n✅ Module "${moduleName}" provisioned successfully.`);
