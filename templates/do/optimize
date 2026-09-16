@@ -467,8 +467,8 @@ for i, rec in enumerate(results, 1):
     if model_package_arn and model_package_arn != 'N/A':
         print(f'║  Package:   {model_package_arn}')
     if optimizations:
-        opt_names = [o.get('OptimizationName', o.get('Type', str(o))) for o in optimizations]
-        print(f'║  Opts:      {", ".join(opt_names)}')
+        opt_names = ', '.join([o.get('OptimizationName', o.get('Type', str(o))) for o in optimizations])
+        print('║  Opts:      ' + opt_names)
 
 print('║')
 print('╚══════════════════════════════════════════════════════════════════════════╝')
@@ -495,11 +495,10 @@ with open('${RESULTS_FILE}', 'w') as f:
     if [ -f "${RESULTS_FILE}" ]; then
         echo "What would you like to do with these results?"
         echo ""
-        echo "  1) Deploy top recommendation — update do/config with optimized model"
-        echo "  2) Set up instance pools — build INSTANCE_POOLS with all results"
-        echo "  3) Save for later — store ModelPackageArn in do/config"
+        echo "  1) Deploy now — apply top recommendation and run do/deploy"
+        echo "  2) Save for later — store ModelPackageArn in do/config"
         echo ""
-        printf "Choose [1/2/3]: "
+        printf "Choose [1/2]: "
         read -r CHOICE
 
         case "${CHOICE}" in
@@ -547,43 +546,12 @@ if results:
                 fi
                 echo ""
                 echo "✅ Top recommendation applied to do/config"
-                echo "   Run ./do/deploy to deploy with the optimized configuration."
+                echo ""
+                echo "🚀 Deploying with optimized configuration..."
+                "${SCRIPT_DIR}/deploy" --target "${DEPLOYMENT_TARGET:-realtime-inference}"
                 ;;
             2)
-                echo ""
-                echo "📦 Setting up instance pools from all results..."
-                POOLS_JSON=$(python3 -c "
-import json
-with open('${RESULTS_FILE}') as f:
-    results = json.load(f)
-pools = []
-for i, r in enumerate(results, 1):
-    md = r.get('ModelDetails', {})
-    inst = md.get('InstanceDetails', [{}])
-    instance_type = inst[0].get('InstanceType', '') if inst else ''
-    if not instance_type:
-        continue
-    entry = {'InstanceType': instance_type, 'Priority': i}
-    model_pkg = md.get('ModelPackageArn', '')
-    if model_pkg:
-        entry['ModelName'] = model_pkg
-    pools.append(entry)
-print(json.dumps(pools))
-" 2>/dev/null) || POOLS_JSON=""
 
-                if [ -n "${POOLS_JSON}" ] && [ "${POOLS_JSON}" != "[]" ]; then
-                    _update_optimize_var "INSTANCE_POOLS" "${POOLS_JSON}"
-                    echo "   ✅ INSTANCE_POOLS set in do/config"
-                    echo "   Pools: ${POOLS_JSON}"
-                    echo ""
-                    echo "✅ Instance pools configured from recommendation results."
-                    echo "   Each pool entry includes ModelName for ModelNameOverride support."
-                    echo "   Run ./do/deploy to deploy with heterogeneous instance pools."
-                else
-                    echo "   ⚠️  Could not build instance pools from results"
-                fi
-                ;;
-            3)
                 echo ""
                 echo "📦 Saving results for later..."
                 SAVE_MODEL_PACKAGE_ARN=$(python3 -c "
@@ -597,13 +565,19 @@ if results:
 
                 if [ -n "${SAVE_MODEL_PACKAGE_ARN}" ]; then
                     _update_optimize_var "OPTIMIZE_MODEL_PACKAGE_ARN" "${SAVE_MODEL_PACKAGE_ARN}"
-                    echo "   ✅ OPTIMIZE_MODEL_PACKAGE_ARN saved to do/config"
                 fi
                 echo ""
-                echo "✅ Results saved. You can apply them later by editing do/config."
+                echo "✅ Results saved to do/config:"
+                echo ""
+                echo "   OPTIMIZE_MODEL_PACKAGE_ARN=${SAVE_MODEL_PACKAGE_ARN}"
+                echo "   OPTIMIZE_JOB_NAME=${OPTIMIZE_JOB_NAME}"
+                echo ""
+                echo "To apply this recommendation later, run either:"
+                echo "   ./do/optimize --apply top      # apply top result from this job"
+                echo "   ./do/optimize --apply ${SAVE_MODEL_PACKAGE_ARN}"
                 ;;
             *)
-                echo "   No action taken. Results are available in the job output."
+                echo "   No action taken. Run: ./do/optimize --apply top  to apply the top result later."
                 ;;
         esac
 
