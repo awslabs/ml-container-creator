@@ -1093,8 +1093,12 @@ fi
 
 # ── Resolve inference component name ──────────────────────────────────────────
 # Resolution precedence: --adapter <name>, --ic <name>, first in do/ic/, or legacy config
+# HyperPod EKS endpoints deploy the model directly on the endpoint (no inference
+# component), so IC resolution is skipped entirely for that target.
 IC_NAME=""
-if [ -n "${ADAPTER_ARG}" ]; then
+if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
+    IC_NAME=""
+elif [ -n "${ADAPTER_ARG}" ]; then
     # Adapter name provided via --adapter flag — look up adapter IC
     ADAPTER_CONF="${SCRIPT_DIR}/adapters/${ADAPTER_ARG}.conf"
     if [ ! -f "${ADAPTER_CONF}" ]; then
@@ -1522,7 +1526,13 @@ echo "🚀 Step 2: Creating AI Benchmark Job: ${BENCHMARK_JOB_NAME}"
 # BL086: capture the run window (UTC ISO 8601) for post-run CloudWatch enrichment.
 BENCHMARK_RUN_START=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-BENCHMARK_TARGET="{\"Endpoint\":{\"Identifier\":\"${ENDPOINT_NAME}\",\"InferenceComponents\":[{\"Identifier\":\"${IC_NAME}\"}]}}"
+# HyperPod EKS endpoints host the model directly (no inference component), so the
+# benchmark target references only the endpoint. All other targets include the IC.
+if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ] || [ -z "${IC_NAME}" ]; then
+    BENCHMARK_TARGET="{\"Endpoint\":{\"Identifier\":\"${ENDPOINT_NAME}\"}}"
+else
+    BENCHMARK_TARGET="{\"Endpoint\":{\"Identifier\":\"${ENDPOINT_NAME}\",\"InferenceComponents\":[{\"Identifier\":\"${IC_NAME}\"}]}}"
+fi
 OUTPUT_CONFIG="{\"S3OutputLocation\":\"${BENCHMARK_S3_OUTPUT_PATH}\"}"
 
 if ! aws sagemaker create-ai-benchmark-job \

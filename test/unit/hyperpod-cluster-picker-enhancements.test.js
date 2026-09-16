@@ -426,7 +426,7 @@ describe('H3: Extended buildResponse format', () => {
 });
 
 describe('H3: do/config HP_QUEUE emission', () => {
-    it('HP_QUEUE flows to deployment.yaml queue label', async () => {
+    it('HP_QUEUE flows to InferenceEndpointConfig queue label', async () => {
         // This validates the template integration
         const ejsMod = await import('ejs');
         const fsMod = await import('fs');
@@ -435,17 +435,17 @@ describe('H3: do/config HP_QUEUE emission', () => {
 
         const __fn = urlMod.fileURLToPath(import.meta.url);
         const __dn = pathMod.resolve(__fn, '..');
-        const templatePath = pathMod.resolve(__dn, '..', '..', 'templates', 'hyperpod', 'deployment.yaml');
+        const templatePath = pathMod.resolve(__dn, '..', '..', 'templates', 'hyperpod', 'InferenceEndpointConfig.yaml.ejs');
         const template = fsMod.readFileSync(templatePath, 'utf8');
 
         const output = ejsMod.default.render(template, {
             projectName: 'test',
             hyperPodNamespace: 'default',
             framework: 'transformers',
+            modelName: 'meta-llama/Llama-3.1-8B',
             hyperPodReplicas: 1,
             awsRegion: 'us-east-1',
             instanceType: 'ml.g5.xlarge',
-            fsxVolumeHandle: '',
             HP_GPU_COUNT: '4',
             HP_NODE_SELECTOR: 'ml.g5.12xlarge',
             HP_EFA_ENABLED: 'false',

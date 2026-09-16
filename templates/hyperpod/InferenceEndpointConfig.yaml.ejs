@@ -1,0 +1,106 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# HyperPod EKS inference deployment — InferenceEndpointConfig custom resource.
+#
+# This single CRD replaces the previous raw Deployment/Service/ConfigMap
+# manifests. The amazon-sagemaker-hyperpod-inference operator reconciles this
+# resource: it creates the serving Deployment, a Service, the serving pods, and
+# a SageMakerEndpointRegistration that registers a SageMaker AI endpoint named
+# after metadata.name (== PROJECT_NAME).
+#
+# Field names verified against `kubectl explain inferenceendpointconfig
+# --recursive` and the AWS docs (Deploy models from S3/FSx/Hugging Face using
+# kubectl), 2026-09-16. Key confirmed shapes:
+#   • spec.worker.environmentVariables[]  (NOT spec.worker.env)
+#   • spec.modelSourceConfig.s3Storage.{bucketName,region} (NOT a full s3:// URI)
+#   • spec.modelName is required and separate from modelSourceConfig
+#
+# Values marked with a shell ${...} placeholder are substituted at deploy time by
+# do/deploy.d/hyperpod-eks via envsubst; EJS expressions are baked in at
+# project-generation time.
+#
+# NOTE (BL085): spec.worker.args and spec.worker.environmentVariables both exist.
+# BL085 injects speculative-decoding flags into worker.args and the
+# SPECULATIVE_* environment variables here. BL088 intentionally leaves worker.args
+# empty because the MLCC BYOC image has a baked-in ENTRYPOINT (code/serve) that
+# starts the model server on port 8080 and reads its configuration from env vars.
+apiVersion: inference.sagemaker.aws.amazon.com/v1
+kind: InferenceEndpointConfig
+metadata:
+  name: <%= projectName %>
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    framework: <%= framework %>
+    managed-by: ml-container-creator
+<% if (typeof HP_QUEUE !== 'undefined' && HP_QUEUE) { %>
+    kueue.x-k8s.io/queue-name: "<%= HP_QUEUE %>"
+<% } %>
+spec:
+  # SageMaker AI endpoint name == metadata.name == PROJECT_NAME.
+  modelName: <%= projectName %>
+  instanceType: "${HP_INSTANCE_TYPE:-<%= typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR ? HP_NODE_SELECTOR : instanceType %>}"
+  invocationEndpoint: v1/chat/completions
+  replicas: <%= hyperPodReplicas %>
+  # ── Model source ────────────────────────────────────────────────────────────
+  # do/deploy renders exactly one modelSourceConfig block below, depending on
+  # whether the model has been staged to S3 (STAGED_MODEL_PATH set in do/config).
+  # The MODEL_SOURCE_BLOCK marker is replaced by do/deploy.d/hyperpod-eks before
+  # apply; the operator downloads the model into worker.modelVolumeMount.mountPath.
+  modelSourceConfig:
+    __MODEL_SOURCE_CONFIG__
+  worker:
+    image: ${ECR_IMAGE}
+    modelInvocationPort:
+      # MLCC BYOC images serve on 8080 (SageMaker BYOC contract). The baked-in
+      # ENTRYPOINT (code/serve) starts the model server on this port.
+      containerPort: 8080
+      name: http
+    modelVolumeMount:
+      name: model-weights
+      mountPath: /opt/ml/model
+    resources:
+      requests:
+        cpu: "${HP_CPU_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>}"
+        memory: "${HP_MEM_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi}"
+        nvidia.com/gpu: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+        vpc.amazonaws.com/efa: "1"
+<% } %>
+      limits:
+        nvidia.com/gpu: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+        vpc.amazonaws.com/efa: "1"
+<% } %>
+    # ── Serve flags ───────────────────────────────────────────────────────────
+    # Left empty for BL088: the MLCC image ENTRYPOINT owns the serve command.
+    # BL085 injects vLLM/SGLang speculative-decoding flags here.
+    args: []
+    environmentVariables:
+      # MODEL_SOURCE steers the BYOC entrypoint (code/serve resolve_model):
+      # "s3" makes it use the pre-mounted model at /opt/ml/model that the
+      # operator downloaded via modelSourceConfig; "huggingface" makes the
+      # server pull MODEL_NAME directly.
+      - name: MODEL_SOURCE
+        value: "${HP_MODEL_SOURCE:-huggingface}"
+      - name: VLLM_TENSOR_PARALLEL_SIZE
+        value: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+<% if (framework === 'transformers' || framework === 'diffusors') { %>
+      - name: VLLM_MODEL
+        value: "${VLLM_MODEL:-<%= modelName %>}"
+      - name: SGLANG_MODEL_PATH
+        value: "${SGLANG_MODEL_PATH:-<%= modelName %>}"
+<% } %>
+<% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
+      - name: VLLM_ENABLE_LORA
+        value: "true"
+<% } %>
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+      - name: NCCL_SOCKET_IFNAME
+        value: "eth"
+      - name: FI_PROVIDER
+        value: "efa"
+      - name: NCCL_PROTOCOL
+        value: "simple"
+<% } %>

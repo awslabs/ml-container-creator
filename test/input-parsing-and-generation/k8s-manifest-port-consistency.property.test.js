@@ -2,15 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Property 10: Kubernetes Manifest Port Consistency
+ * Property 10: InferenceEndpointConfig CRD Contract
  *
- * For any valid hyperpod-eks configuration, the generated deployment.yaml must
- * specify containerPort: 8080 and the generated service.yaml must specify
- * targetPort: 8080, maintaining SageMaker BYOC compatibility.
+ * BL088 migrated the HyperPod EKS deployment target from raw Deployment/Service/
+ * ConfigMap manifests to a single InferenceEndpointConfig custom resource. For
+ * any valid hyperpod-eks configuration, the rendered CRD must:
+ *   - use apiVersion inference.sagemaker.aws.amazon.com/v1 and kind
+ *     InferenceEndpointConfig
+ *   - name the resource (== SageMaker endpoint == PROJECT_NAME) and set
+ *     spec.modelName
+ *   - expose the BYOC serving contract on containerPort 8080
+ *   - request/limit nvidia.com/gpu
+ *   - carry the configured replicas, namespace, and invocationEndpoint
  *
- * Validates: Requirements 8.1, 8.2, 13.1, 13.2
+ * The rendered template contains a `__MODEL_SOURCE_CONFIG__` marker (spliced at
+ * deploy time by do/deploy.d/hyperpod-eks) and shell `${...}` placeholders, so
+ * this test replaces those before YAML parsing.
  *
- * Feature: sagemaker-hyperpod-deployment
+ * Validates: Requirements 1.1, 9.1
+ *
+ * Feature: v17-w1-02-bl088 (HyperPod EKS CRD migration)
  */
 
 import fc from 'fast-check';
@@ -25,17 +36,42 @@ import yaml from 'js-yaml';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load Kubernetes manifest templates
 const templatesDir = path.join(__dirname, '../../templates/hyperpod');
-
-const deploymentTemplate = readFileSync(path.join(templatesDir, 'deployment.yaml'), 'utf8');
-const serviceTemplate = readFileSync(path.join(templatesDir, 'service.yaml'), 'utf8');
+const crdTemplate = readFileSync(path.join(templatesDir, 'InferenceEndpointConfig.yaml.ejs'), 'utf8');
 
 /**
- * Render a template with the given variables.
+ * Render the CRD template and normalize deploy-time placeholders so the result
+ * is parseable YAML:
+ *   - splice a concrete modelSourceConfig block in place of the marker
+ *   - collapse shell `${VAR:-default}` to the default (or a stub)
  */
-function renderTemplate(template, vars) {
-    return ejs.render(template, vars);
+function renderCrd(vars) {
+    let output = ejs.render(crdTemplate, vars);
+
+    // Splice a concrete S3 modelSourceConfig at the marker's indentation.
+    const s3Block = [
+        'modelSourceType: s3',
+        's3Storage:',
+        '  bucketName: test-bucket',
+        '  region: us-east-1',
+        'modelLocation: models/test',
+        'prefetchEnabled: true'
+    ];
+    output = output.split('\n').flatMap((line) => {
+        const pos = line.indexOf('__MODEL_SOURCE_CONFIG__');
+        if (pos >= 0) {
+            const indent = line.slice(0, pos);
+            return s3Block.map((l) => indent + l);
+        }
+        return [line];
+    }).join('\n');
+
+    // Resolve `${VAR:-default}` → default, and bare `${VAR}` → stub value.
+    output = output
+        .replace(/\$\{[A-Za-z0-9_]+:-([^}]*)\}/g, '$1')
+        .replace(/\$\{[A-Za-z0-9_]+\}/g, 'stub-value');
+
+    return output;
 }
 
 /** Arbitrary for a base config for HyperPod EKS */
@@ -48,404 +84,82 @@ const baseConfigArb = fc.record({
     buildTarget: fc.constant('codebuild'),
     deploymentTarget: fc.constant('hyperpod-eks'),
     instanceType: fc.constantFrom('ml.g5.xlarge', 'ml.g5.2xlarge', 'ml.p4d.24xlarge'),
-    modelName: fc.constantFrom('meta-llama/Llama-2-7b-hf', 'mistralai/Mistral-7B-v0.1'),
-    hfToken: fc.option(fc.stringMatching(/^hf_[a-zA-Z0-9]{20,40}$/), { nil: undefined }),
-    ngcApiKey: fc.option(fc.stringMatching(/^[a-zA-Z0-9]{20,40}$/), { nil: undefined }),
-    modelFormat: fc.option(fc.constantFrom('safetensors', 'pytorch'), { nil: undefined })
+    modelName: fc.constantFrom('meta-llama/Llama-2-7b-hf', 'mistralai/Mistral-7B-v0.1')
 });
 
 /** Arbitrary for HyperPod-specific config */
 const hyperPodConfigArb = fc.record({
-    hyperPodCluster: fc.stringMatching(/^[a-z][a-z0-9-]{2,20}$/),
     hyperPodNamespace: fc.constantFrom('default', 'ml-inference', 'production'),
-    hyperPodReplicas: fc.integer({ min: 1, max: 10 }),
-    fsxVolumeHandle: fc.option(fc.stringMatching(/^fs-[a-f0-9]{17}$/), { nil: undefined })
+    hyperPodReplicas: fc.integer({ min: 1, max: 10 })
 });
 
-describe('Property 10: Kubernetes Manifest Port Consistency', () => {
+describe('Property 10: InferenceEndpointConfig CRD Contract', () => {
     before(() => {
-        console.log('\n📜 Starting Kubernetes Manifest Port Consistency Property Tests');
-        console.log('📋 Testing: Requirements 8.1, 8.2, 13.1, 13.2');
-        console.log('🔧 Configuration: EJS template rendering with fast-check\n');
+        console.log('\n📜 Starting InferenceEndpointConfig CRD Contract Property Tests');
+        console.log('📋 Testing: Requirements 1.1, 9.1');
+        console.log('🔧 Configuration: EJS CRD template rendering with fast-check\n');
     });
 
-    it('should generate deployment.yaml with containerPort 8080 (Req 8.1, 13.1)', function () {
+    it('renders a valid InferenceEndpointConfig CRD (Req 1.1)', function () {
         this.timeout(30000);
+        fc.assert(fc.property(baseConfigArb, hyperPodConfigArb, (base, hpVars) => {
+            const crd = yaml.load(renderCrd({ ...base, ...hpVars, HP_GPU_COUNT: '4' }));
 
-        console.log('  🧪 Req 8.1, 13.1: deployment.yaml containerPort: 8080');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            hyperPodConfigArb,
-            (base, hpVars) => {
-                const vars = {
-                    ...base,
-                    ...hpVars
-                };
-
-                // Render deployment template
-                const output = renderTemplate(deploymentTemplate, vars);
-
-                // Parse as YAML to validate structure
-                const deployment = yaml.load(output);
-
-                // Verify it's a Deployment
-                assert.strictEqual(
-                    deployment.kind,
-                    'Deployment',
-                    'Must be a Kubernetes Deployment'
-                );
-
-                // Verify apiVersion
-                assert.strictEqual(
-                    deployment.apiVersion,
-                    'apps/v1',
-                    'Must use apps/v1 apiVersion'
-                );
-
-                // Get container spec
-                const containers = deployment.spec.template.spec.containers;
-                assert.ok(
-                    containers && containers.length > 0,
-                    'Deployment must have at least one container'
-                );
-
-                const container = containers[0];
-
-                // Verify containerPort is 8080
-                assert.ok(
-                    container.ports && container.ports.length > 0,
-                    'Container must have ports defined'
-                );
-
-                const port = container.ports.find(p => p.containerPort === 8080);
-                assert.ok(
-                    port !== undefined,
-                    'Container must have containerPort: 8080 for SageMaker BYOC compatibility'
-                );
-
-                assert.strictEqual(
-                    port.containerPort,
-                    8080,
-                    'containerPort must be exactly 8080'
-                );
-            }
-        ), { numRuns: 50 });
-
-        console.log('    ✅ deployment.yaml always has containerPort: 8080');
+            assert.strictEqual(crd.apiVersion, 'inference.sagemaker.aws.amazon.com/v1',
+                'apiVersion must be inference.sagemaker.aws.amazon.com/v1');
+            assert.strictEqual(crd.kind, 'InferenceEndpointConfig', 'kind must be InferenceEndpointConfig');
+            assert.strictEqual(crd.metadata.name, base.projectName,
+                'metadata.name must equal projectName (== SageMaker endpoint name)');
+            assert.strictEqual(crd.spec.modelName, base.projectName,
+                'spec.modelName is required');
+        }), { numRuns: 50 });
+        console.log('    ✅ Valid InferenceEndpointConfig CRD rendered');
     });
 
-    it('should generate service.yaml with targetPort 8080 (Req 8.2, 13.2)', function () {
+    it('exposes the BYOC serving contract on containerPort 8080 (Req 1.1)', function () {
         this.timeout(30000);
-
-        console.log('  🧪 Req 8.2, 13.2: service.yaml targetPort: 8080');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            hyperPodConfigArb,
-            (base, hpVars) => {
-                const vars = {
-                    ...base,
-                    ...hpVars
-                };
-
-                // Render service template
-                const output = renderTemplate(serviceTemplate, vars);
-
-                // Parse as YAML to validate structure
-                const service = yaml.load(output);
-
-                // Verify it's a Service
-                assert.strictEqual(
-                    service.kind,
-                    'Service',
-                    'Must be a Kubernetes Service'
-                );
-
-                // Verify apiVersion
-                assert.strictEqual(
-                    service.apiVersion,
-                    'v1',
-                    'Must use v1 apiVersion'
-                );
-
-                // Verify ports
-                assert.ok(
-                    service.spec.ports && service.spec.ports.length > 0,
-                    'Service must have ports defined'
-                );
-
-                const port = service.spec.ports.find(p => p.targetPort === 8080);
-                assert.ok(
-                    port !== undefined,
-                    'Service must have targetPort: 8080 for SageMaker BYOC compatibility'
-                );
-
-                assert.strictEqual(
-                    port.targetPort,
-                    8080,
-                    'targetPort must be exactly 8080'
-                );
-
-                // Also verify the service port is 8080
-                assert.strictEqual(
-                    port.port,
-                    8080,
-                    'Service port must be 8080'
-                );
-            }
-        ), { numRuns: 50 });
-
-        console.log('    ✅ service.yaml always has targetPort: 8080');
+        fc.assert(fc.property(baseConfigArb, hyperPodConfigArb, (base, hpVars) => {
+            const crd = yaml.load(renderCrd({ ...base, ...hpVars, HP_GPU_COUNT: '2' }));
+            assert.strictEqual(crd.spec.worker.modelInvocationPort.containerPort, 8080,
+                'worker.modelInvocationPort.containerPort must be 8080 for BYOC compatibility');
+        }), { numRuns: 50 });
+        console.log('    ✅ containerPort is always 8080');
     });
 
-    it('should have matching selectors between deployment and service', function () {
+    it('requests and limits nvidia.com/gpu (Req 1.1)', function () {
         this.timeout(30000);
-
-        console.log('  🧪 Deployment and Service selectors must match');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            hyperPodConfigArb,
-            (base, hpVars) => {
-                const vars = {
-                    ...base,
-                    ...hpVars
-                };
-
-                // Render both templates
-                const deploymentOutput = renderTemplate(deploymentTemplate, vars);
-                const serviceOutput = renderTemplate(serviceTemplate, vars);
-
-                // Parse as YAML
-                const deployment = yaml.load(deploymentOutput);
-                const service = yaml.load(serviceOutput);
-
-                // Get deployment pod labels
-                const podLabels = deployment.spec.template.metadata.labels;
-
-                // Get service selector
-                const serviceSelector = service.spec.selector;
-
-                // Service selector must match deployment pod labels
-                assert.ok(
-                    podLabels.app === serviceSelector.app,
-                    `Service selector (${serviceSelector.app}) must match deployment pod label (${podLabels.app})`
-                );
-            }
-        ), { numRuns: 50 });
-
-        console.log('    ✅ Deployment and Service selectors match');
+        fc.assert(fc.property(baseConfigArb, hyperPodConfigArb, (base, hpVars) => {
+            const crd = yaml.load(renderCrd({ ...base, ...hpVars, HP_GPU_COUNT: '4' }));
+            const resources = crd.spec.worker.resources;
+            assert.ok(resources.requests['nvidia.com/gpu'], 'worker must request nvidia.com/gpu');
+            assert.ok(resources.limits['nvidia.com/gpu'], 'worker must limit nvidia.com/gpu');
+        }), { numRuns: 50 });
+        console.log('    ✅ GPU resources present');
     });
 
-    it('should use the configured namespace in both manifests', function () {
+    it('carries configured replicas, namespace, and invocationEndpoint (Req 1.1)', function () {
         this.timeout(30000);
-
-        console.log('  🧪 Both manifests use configured hyperPodNamespace');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            hyperPodConfigArb,
-            (base, hpVars) => {
-                const vars = {
-                    ...base,
-                    ...hpVars
-                };
-
-                // Render both templates
-                const deploymentOutput = renderTemplate(deploymentTemplate, vars);
-                const serviceOutput = renderTemplate(serviceTemplate, vars);
-
-                // Parse as YAML
-                const deployment = yaml.load(deploymentOutput);
-                const service = yaml.load(serviceOutput);
-
-                // Verify namespace matches configured value
-                assert.strictEqual(
-                    deployment.metadata.namespace,
-                    hpVars.hyperPodNamespace,
-                    'Deployment namespace must match hyperPodNamespace'
-                );
-
-                assert.strictEqual(
-                    service.metadata.namespace,
-                    hpVars.hyperPodNamespace,
-                    'Service namespace must match hyperPodNamespace'
-                );
-            }
-        ), { numRuns: 50 });
-
-        console.log('    ✅ Both manifests use configured namespace');
+        fc.assert(fc.property(baseConfigArb, hyperPodConfigArb, (base, hpVars) => {
+            const crd = yaml.load(renderCrd({ ...base, ...hpVars, HP_GPU_COUNT: '1' }));
+            assert.strictEqual(crd.spec.replicas, hpVars.hyperPodReplicas,
+                'spec.replicas must match configured replicas');
+            assert.strictEqual(crd.metadata.namespace, hpVars.hyperPodNamespace,
+                'metadata.namespace must match configured namespace');
+            assert.strictEqual(crd.spec.invocationEndpoint, 'v1/chat/completions',
+                'spec.invocationEndpoint must be v1/chat/completions');
+        }), { numRuns: 50 });
+        console.log('    ✅ replicas, namespace, and invocationEndpoint honored');
     });
 
-    it('should include GPU resource requests in deployment', function () {
+    it('uses environmentVariables (not env) for worker config (Req 1.1)', function () {
         this.timeout(30000);
-
-        console.log('  🧪 Deployment includes GPU resource requests');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            hyperPodConfigArb,
-            (base, hpVars) => {
-                const vars = {
-                    ...base,
-                    ...hpVars
-                };
-
-                // Render deployment template
-                const output = renderTemplate(deploymentTemplate, vars);
-
-                // Parse as YAML
-                const deployment = yaml.load(output);
-
-                // Get container resources
-                const container = deployment.spec.template.spec.containers[0];
-                const resources = container.resources;
-
-                assert.ok(
-                    resources && resources.requests,
-                    'Container must have resource requests'
-                );
-
-                assert.ok(
-                    resources.requests['nvidia.com/gpu'],
-                    'Container must request nvidia.com/gpu'
-                );
-
-                assert.ok(
-                    resources.limits && resources.limits['nvidia.com/gpu'],
-                    'Container must have nvidia.com/gpu limits'
-                );
-            }
-        ), { numRuns: 50 });
-
-        console.log('    ✅ Deployment includes GPU resource requests');
-    });
-
-    it('should include GPU tolerations in deployment', function () {
-        this.timeout(30000);
-
-        console.log('  🧪 Deployment includes GPU tolerations');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            hyperPodConfigArb,
-            (base, hpVars) => {
-                const vars = {
-                    ...base,
-                    ...hpVars
-                };
-
-                // Render deployment template
-                const output = renderTemplate(deploymentTemplate, vars);
-
-                // Parse as YAML
-                const deployment = yaml.load(output);
-
-                // Get tolerations
-                const tolerations = deployment.spec.template.spec.tolerations;
-
-                assert.ok(
-                    tolerations && tolerations.length > 0,
-                    'Deployment must have tolerations for GPU nodes'
-                );
-
-                // Check for nvidia.com/gpu toleration
-                const gpuToleration = tolerations.find(t => t.key === 'nvidia.com/gpu');
-                assert.ok(
-                    gpuToleration,
-                    'Deployment must have nvidia.com/gpu toleration'
-                );
-            }
-        ), { numRuns: 50 });
-
-        console.log('    ✅ Deployment includes GPU tolerations');
-    });
-
-    it('should use configured replicas in deployment', function () {
-        this.timeout(30000);
-
-        console.log('  🧪 Deployment uses configured hyperPodReplicas');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            hyperPodConfigArb,
-            (base, hpVars) => {
-                const vars = {
-                    ...base,
-                    ...hpVars
-                };
-
-                // Render deployment template
-                const output = renderTemplate(deploymentTemplate, vars);
-
-                // Parse as YAML
-                const deployment = yaml.load(output);
-
-                // Verify replicas matches configured value
-                assert.strictEqual(
-                    deployment.spec.replicas,
-                    hpVars.hyperPodReplicas,
-                    'Deployment replicas must match hyperPodReplicas'
-                );
-            }
-        ), { numRuns: 50 });
-
-        console.log('    ✅ Deployment uses configured replicas');
-    });
-
-    it('should include health check probes targeting port 8080', function () {
-        this.timeout(30000);
-
-        console.log('  🧪 Health check probes target port 8080');
-
-        fc.assert(fc.property(
-            baseConfigArb,
-            hyperPodConfigArb,
-            (base, hpVars) => {
-                const vars = {
-                    ...base,
-                    ...hpVars
-                };
-
-                // Render deployment template
-                const output = renderTemplate(deploymentTemplate, vars);
-
-                // Parse as YAML
-                const deployment = yaml.load(output);
-
-                // Get container
-                const container = deployment.spec.template.spec.containers[0];
-
-                // Check readiness probe
-                assert.ok(
-                    container.readinessProbe,
-                    'Container must have readinessProbe'
-                );
-                assert.strictEqual(
-                    container.readinessProbe.httpGet.port,
-                    8080,
-                    'readinessProbe must target port 8080'
-                );
-                assert.strictEqual(
-                    container.readinessProbe.httpGet.path,
-                    '/ping',
-                    'readinessProbe must target /ping endpoint'
-                );
-
-                // Check liveness probe
-                assert.ok(
-                    container.livenessProbe,
-                    'Container must have livenessProbe'
-                );
-                assert.strictEqual(
-                    container.livenessProbe.httpGet.port,
-                    8080,
-                    'livenessProbe must target port 8080'
-                );
-            }
-        ), { numRuns: 50 });
-
-        console.log('    ✅ Health check probes target port 8080');
+        fc.assert(fc.property(baseConfigArb, hyperPodConfigArb, (base, hpVars) => {
+            const crd = yaml.load(renderCrd({ ...base, ...hpVars, HP_GPU_COUNT: '1' }));
+            assert.ok(Array.isArray(crd.spec.worker.environmentVariables),
+                'worker.environmentVariables must be an array');
+            assert.strictEqual(crd.spec.worker.env, undefined,
+                'worker.env must NOT be used (verified CRD uses environmentVariables)');
+        }), { numRuns: 50 });
+        console.log('    ✅ worker.environmentVariables used, not worker.env');
     });
 });

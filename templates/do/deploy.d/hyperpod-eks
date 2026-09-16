@@ -216,17 +216,19 @@ echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
 # Note: token is needed even when STAGED_MODEL_PATH is set — advanced operations
 # like do/benchmark fetch the tokenizer from HuggingFace for gated models.
 #
-# The deployment.yaml mounts hf-token as optional=true so pods start cleanly
-# even when the secret doesn't exist (e.g. public models, staged models).
+# The InferenceEndpointConfig references this Secret via
+# spec.modelSourceConfig.huggingFaceModel.tokenSecretRef (name: hf-token-secret,
+# key: token) for the Hugging Face model source. The token is only consumed
+# during the operator's model download and is not exposed to the container.
 # ─────────────────────────────────────────────────────────────────────────────
 
 if [ -n "${RESOLVED_HF_TOKEN:-}" ]; then
-    echo "🔑 Creating K8s Secret 'hf-token' in namespace '${HP_NAMESPACE}'..."
-    kubectl create secret generic hf-token \
-        --from-literal=HF_TOKEN="${RESOLVED_HF_TOKEN}" \
+    echo "🔑 Creating K8s Secret 'hf-token-secret' in namespace '${HP_NAMESPACE}'..."
+    kubectl create secret generic hf-token-secret \
+        --from-literal=token="${RESOLVED_HF_TOKEN}" \
         --namespace "${HP_NAMESPACE}" \
         --dry-run=client -o yaml | kubectl apply -f - 2>&1 || {
-        echo "⚠️  Warning: Could not create hf-token secret (will continue)"
+        echo "⚠️  Warning: Could not create hf-token-secret (will continue)"
         echo "   The pod may fail to pull gated models — set HF_TOKEN_ARN in do/config"
     }
     echo "✅ HuggingFace token secret ready"
@@ -241,8 +243,8 @@ if ! kubectl create namespace "${HP_NAMESPACE}" --dry-run=client -o yaml | kubec
     echo "⚠️  Warning: Could not create/verify namespace"
 fi
 
-# Apply Kubernetes manifests
-echo "📄 Applying Kubernetes manifests from hyperpod/..."
+# Apply the InferenceEndpointConfig custom resource
+echo "📄 Rendering InferenceEndpointConfig from hyperpod/..."
 
 # Substitute shell variables (e.g. ${AWS_ACCOUNT_ID}) in manifests before applying
 export AWS_ACCOUNT_ID
@@ -256,17 +258,92 @@ else
     export VLLM_ENABLE_LORA=""
 fi
 
+# Instance type for the CRD: prefer explicit HP override, else the configured
+# node selector, else INSTANCE_TYPE from do/config.
+export HP_INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${HP_NODE_SELECTOR:-${INSTANCE_TYPE:-}}}"
+
 # Portable envsubst shim — works on macOS without gettext installed
 # Falls back to perl (always available on macOS/Linux) if envsubst is not found
 if ! command -v envsubst &>/dev/null; then
     envsubst() { perl -pe 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge'; }
 fi
 
+# ── Build spec.modelSourceConfig ──────────────────────────────────────────────
+# When the model has been staged to S3 (STAGED_MODEL_PATH in do/config), use the
+# S3 source. The CRD requires bucketName + region SEPARATELY (not a full s3://
+# URI), so parse STAGED_MODEL_PATH (s3://<bucket>/<prefix>/) into its parts.
+# modelLocation carries the key prefix within the bucket. Otherwise fall back to
+# the Hugging Face source using MODEL_NAME and the hf-token-secret Secret.
+build_model_source_config() {
+    if [ -n "${STAGED_MODEL_PATH:-}" ]; then
+        # Strip the s3:// scheme, then split into bucket (first path segment) and
+        # prefix (the remainder, trailing slash removed).
+        local no_scheme="${STAGED_MODEL_PATH#s3://}"
+        local bucket="${no_scheme%%/*}"
+        local prefix=""
+        if [[ "${no_scheme}" == */* ]]; then
+            prefix="${no_scheme#*/}"
+            prefix="${prefix%/}"
+        fi
+        export HP_MODEL_SOURCE="s3"
+        cat <<EOF
+modelSourceType: s3
+s3Storage:
+  bucketName: ${bucket}
+  region: ${AWS_REGION}
+modelLocation: ${prefix}
+prefetchEnabled: true
+EOF
+    else
+        export HP_MODEL_SOURCE="huggingface"
+        export HP_HF_MODEL_ID="${MODEL_NAME}"
+        if [ -n "${RESOLVED_HF_TOKEN:-}" ]; then
+            cat <<EOF
+modelSourceType: huggingface
+prefetchEnabled: true
+huggingFaceModel:
+  modelId: "${MODEL_NAME}"
+  tokenSecretRef:
+    name: hf-token-secret
+    key: token
+EOF
+        else
+            cat <<EOF
+modelSourceType: huggingface
+prefetchEnabled: true
+huggingFaceModel:
+  modelId: "${MODEL_NAME}"
+EOF
+        fi
+    fi
+}
+
+MODEL_SOURCE_CONFIG="$(build_model_source_config)"
+
 APPLY_OUTPUT=""
 APPLY_EXIT_CODE=0
 for manifest in hyperpod/*.yaml; do
-    # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
+    # envsubst first (expands ${ECR_IMAGE}, ${HP_INSTANCE_TYPE}, ${HP_*} defaults),
+    # then splice the multi-line modelSourceConfig block in place of the marker,
+    # preserving the marker line's indentation for every replacement line so the
+    # rendered YAML stays well-formed.
     RENDERED=$(envsubst < "${manifest}")
+    RENDERED=$(MODEL_SOURCE_CONFIG="${MODEL_SOURCE_CONFIG}" printf '%s' "${RENDERED}" | \
+        MODEL_SOURCE_CONFIG="${MODEL_SOURCE_CONFIG}" python3 -c '
+import os, sys
+repl = os.environ.get("MODEL_SOURCE_CONFIG", "")
+marker = "__MODEL_SOURCE_CONFIG__"
+out = []
+for line in sys.stdin.read().splitlines():
+    pos = line.find(marker)
+    if pos >= 0:
+        indent = line[:pos]
+        for rl in repl.splitlines():
+            out.append(indent + rl)
+    else:
+        out.append(line)
+sys.stdout.write("\n".join(out) + "\n")
+')
     if echo "${RENDERED}" | grep -q '^kind:'; then
         FILE_OUTPUT=$(echo "${RENDERED}" | kubectl apply -n "${HP_NAMESPACE}" -f - 2>&1) || {
             APPLY_EXIT_CODE=$?
@@ -277,7 +354,7 @@ done
 
 if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then
     echo ""
-    echo "❌ Failed to apply Kubernetes manifests"
+    echo "❌ Failed to apply InferenceEndpointConfig"
     echo ""
     echo "   Error details:"
     echo "   ${APPLY_OUTPUT}"
@@ -286,99 +363,152 @@ if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then
     echo "   • Insufficient node capacity - check available GPU nodes"
     echo "   • Resource requests exceed node capacity"
     echo "   • RBAC permissions - ensure you have permission to create resources in namespace '${HP_NAMESPACE}'"
+    echo "   • The amazon-sagemaker-hyperpod-inference operator is not installed"
+    echo "     (run: mcc bootstrap add-module hyperpod-cluster)"
     echo "   • Invalid manifest syntax"
-<% if (typeof fsxVolumeHandle !== 'undefined' && fsxVolumeHandle) { %>
-    echo "   • PVC creation failure - verify the FSx CSI driver is installed on the cluster"
-    echo "     kubectl get csidriver -o name | grep fsx"
-<% } %>
     echo ""
     echo "   Debug commands:"
     echo "   kubectl get nodes -o wide"
     echo "   kubectl describe nodes"
     echo "   kubectl get events -n ${HP_NAMESPACE}"
+    _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
     exit ${APPLY_EXIT_CODE}
 fi
 
-echo "✅ Kubernetes manifests applied"
+echo "✅ InferenceEndpointConfig applied"
 
-# Record k8s deployment and service in manifest (non-blocking)
+# Record the InferenceEndpointConfig in the manifest (non-blocking)
 ./do/manifest add \
-    --type k8s-deployment \
+    --type k8s-inferenceendpointconfig \
     --id "${HP_NAMESPACE}/${PROJECT_NAME}" \
     --project "${PROJECT_NAME}" \
-    --meta "{\"namespace\":\"${HP_NAMESPACE}\",\"deploymentName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HP_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
+    --meta "{\"namespace\":\"${HP_NAMESPACE}\",\"resourceName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HP_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
     2>/dev/null || true
 
-./do/manifest add \
-    --type k8s-service \
-    --id "${HP_NAMESPACE}/${PROJECT_NAME}" \
-    --project "${PROJECT_NAME}" \
-    --meta "{\"namespace\":\"${HP_NAMESPACE}\",\"serviceName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HP_CLUSTER_NAME}\",\"region\":\"${AWS_REGION}\"}" \
-    2>/dev/null || true
-
-# Wait for deployment to be ready
-DEPLOY_TIMEOUT=${DEPLOY_TIMEOUT:-1200}
-echo "⏳ Waiting for deployment to be ready (timeout: ${DEPLOY_TIMEOUT}s)..."
+# ── Wait for operator reconciliation (AC-2, AC-3) ─────────────────────────────
+# The amazon-sagemaker-hyperpod-inference operator reconciles the applied
+# InferenceEndpointConfig: it creates the serving Deployment, Service, pods, and
+# a SageMakerEndpointRegistration, then drives the CRD status.state through
+# DeploymentPending → DeploymentInProgress → DeploymentComplete. We poll
+# status.state (not the raw Deployment rollout) until DeploymentComplete, then
+# confirm the SageMaker endpoint is InService.
+#
+# Max wait: 15 minutes (900s), overridable via DEPLOY_TIMEOUT.
+DEPLOY_TIMEOUT=${DEPLOY_TIMEOUT:-900}
+POLL_INTERVAL=15
+ELAPSED=0
+echo "⏳ Waiting for InferenceEndpointConfig to reconcile (timeout: ${DEPLOY_TIMEOUT}s)..."
 echo "   This may take several minutes for GPU workloads..."
 echo ""
 
-# Poll pod status every 30s while rollout is in progress
-(
-    while true; do
-        sleep 30
-        POD_STATUS=$(kubectl get pods -n "${HP_NAMESPACE}" -l app=${PROJECT_NAME} \
-            --no-headers 2>/dev/null | head -5)
-        if [ -n "${POD_STATUS}" ]; then
-            echo "   📊 $(date +%H:%M:%S) Pod status:"
-            echo "${POD_STATUS}" | while read -r line; do echo "      ${line}"; done
-        fi
-    done
-) &
-STATUS_PID=$!
-trap "kill ${STATUS_PID} 2>/dev/null; wait ${STATUS_PID} 2>/dev/null" EXIT
+CRD_STATE=""
+while [ "${ELAPSED}" -lt "${DEPLOY_TIMEOUT}" ]; do
+    CRD_STATE=$(kubectl get inferenceendpointconfig "${PROJECT_NAME}" \
+        -n "${HP_NAMESPACE}" \
+        -o jsonpath='{.status.state}' 2>/dev/null || echo "")
 
-ROLLOUT_OUTPUT=$(kubectl rollout status deployment/${PROJECT_NAME} -n "${HP_NAMESPACE}" --timeout=${DEPLOY_TIMEOUT}s 2>&1) || {
-    ROLLOUT_EXIT_CODE=$?
-    kill ${STATUS_PID} 2>/dev/null
+    case "${CRD_STATE}" in
+        DeploymentComplete)
+            echo "   ✅ $(date +%H:%M:%S) InferenceEndpointConfig state: DeploymentComplete"
+            break
+            ;;
+        DeploymentFailed)
+            echo ""
+            echo "❌ InferenceEndpointConfig reported DeploymentFailed"
+            echo ""
+            echo "   Current pod state:"
+            kubectl get pods -n "${HP_NAMESPACE}" -l app=${PROJECT_NAME} -o wide 2>/dev/null
+            echo ""
+            echo "   Debug commands:"
+            echo "   kubectl describe inferenceendpointconfig ${PROJECT_NAME} -n ${HP_NAMESPACE}"
+            echo "   kubectl describe pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
+            echo "   kubectl logs -n ${HP_NAMESPACE} -l app=${PROJECT_NAME} --tail=100"
+            _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
+            exit 1
+            ;;
+        *)
+            echo "   📊 $(date +%H:%M:%S) InferenceEndpointConfig state: ${CRD_STATE:-<pending>}"
+            POD_STATUS=$(kubectl get pods -n "${HP_NAMESPACE}" -l app=${PROJECT_NAME} \
+                --no-headers 2>/dev/null | head -5)
+            if [ -n "${POD_STATUS}" ]; then
+                echo "${POD_STATUS}" | while read -r line; do echo "      ${line}"; done
+            fi
+            ;;
+    esac
+
+    sleep "${POLL_INTERVAL}"
+    ELAPSED=$((ELAPSED + POLL_INTERVAL))
+done
+
+if [ "${CRD_STATE}" != "DeploymentComplete" ]; then
     echo ""
-    echo "❌ Deployment failed to become ready within timeout"
-    echo ""
-    echo "   Error details:"
-    echo "   ${ROLLOUT_OUTPUT}"
-    echo ""
-    echo "   Current pod state:"
-    kubectl get pods -n "${HP_NAMESPACE}" -l app=${PROJECT_NAME} -o wide 2>/dev/null
+    echo "❌ InferenceEndpointConfig did not reach DeploymentComplete within ${DEPLOY_TIMEOUT}s"
+    echo "   Last observed state: ${CRD_STATE:-<none>}"
     echo ""
     echo "   Debug commands:"
-    echo "   kubectl describe pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
-    echo "   kubectl logs -n ${HP_NAMESPACE} -l app=${PROJECT_NAME} --tail=100"
-    echo ""
-    echo "   Common issues:"
-    echo "   • Image pull errors - check ECR permissions"
-    echo "   • Resource scheduling - insufficient GPU nodes"
-    echo "   • Container crash - check application logs"
-<% if (typeof fsxVolumeHandle !== 'undefined' && fsxVolumeHandle) { %>
-    echo "   • PVC binding errors - verify FSx CSI driver is installed on the cluster"
-    echo "     kubectl get pvc -n ${HP_NAMESPACE}"
-    echo "     kubectl describe pvc -n ${HP_NAMESPACE}"
-    echo "     kubectl get csidriver -o name | grep fsx"
-<% } %>
+    echo "   kubectl describe inferenceendpointconfig ${PROJECT_NAME} -n ${HP_NAMESPACE}"
+    echo "   kubectl get pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME} -o wide"
     _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
-    exit ${ROLLOUT_EXIT_CODE}
-}
+    exit 1
+fi
 
-kill ${STATUS_PID} 2>/dev/null
-wait ${STATUS_PID} 2>/dev/null
+# Endpoint ARN is surfaced on the CRD status once registered (informational).
+ENDPOINT_ARN=$(kubectl get inferenceendpointconfig "${PROJECT_NAME}" \
+    -n "${HP_NAMESPACE}" \
+    -o jsonpath='{.status.endpoints.sagemaker.endpointArn}' 2>/dev/null || echo "")
+
+# ── Poll the SageMaker endpoint until InService (AC-3) ────────────────────────
+# ENDPOINT_NAME == metadata.name == PROJECT_NAME.
+echo ""
+echo "⏳ Waiting for SageMaker endpoint '${PROJECT_NAME}' to reach InService..."
+ENDPOINT_STATUS=""
+while [ "${ELAPSED}" -lt "${DEPLOY_TIMEOUT}" ]; do
+    ENDPOINT_STATUS=$(aws sagemaker describe-endpoint \
+        --endpoint-name "${PROJECT_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'EndpointStatus' \
+        --output text 2>/dev/null || echo "")
+
+    if [ "${ENDPOINT_STATUS}" = "InService" ]; then
+        echo "   ✅ $(date +%H:%M:%S) Endpoint status: InService"
+        break
+    elif [ "${ENDPOINT_STATUS}" = "Failed" ]; then
+        echo ""
+        echo "❌ SageMaker endpoint '${PROJECT_NAME}' entered Failed state"
+        echo "   aws sagemaker describe-endpoint --endpoint-name ${PROJECT_NAME} --region ${AWS_REGION}"
+        _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
+        exit 1
+    fi
+
+    echo "   📊 $(date +%H:%M:%S) Endpoint status: ${ENDPOINT_STATUS:-<registering>}"
+    sleep "${POLL_INTERVAL}"
+    ELAPSED=$((ELAPSED + POLL_INTERVAL))
+done
+
+if [ "${ENDPOINT_STATUS}" != "InService" ]; then
+    echo ""
+    echo "❌ SageMaker endpoint '${PROJECT_NAME}' did not reach InService within ${DEPLOY_TIMEOUT}s"
+    echo "   Last observed status: ${ENDPOINT_STATUS:-<none>}"
+    _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
+    exit 1
+fi
 
 echo "✅ HyperPod EKS deployment complete!"
 
-# ── Write per-target status (FR-4.2) ─────────────────────────────
+# ── Persist endpoint name for downstream workflows (AC-4) ─────────────────────
+# do/benchmark, do/test, and do/register consume ENDPOINT_NAME from do/config.
+_update_config "ENDPOINT_NAME" "${PROJECT_NAME}"
+
+# ── Write per-target status (FR-4.2) — only after InService (AC-3) ────────────
 _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Running"
 echo ""
 echo "📋 Deployment Details:"
 echo "   Cluster: ${HP_CLUSTER_NAME}"
 echo "   Namespace: ${HP_NAMESPACE}"
-echo "   Deployment: ${PROJECT_NAME}"
+echo "   Endpoint: ${PROJECT_NAME}"
+<% if (true) { %>
+echo "   Endpoint ARN: ${ENDPOINT_ARN:-<pending>}"
+<% } %>
 echo "   Replicas: ${HP_REPLICAS}"
 echo "   Image: ${ECR_REPOSITORY}:${IMAGE_TAG}"
 echo ""

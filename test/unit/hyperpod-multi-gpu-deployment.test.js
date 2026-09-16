@@ -2,15 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * H2 Multi-GPU Serving — deployment.yaml rendering tests
+ * H2 Multi-GPU Serving — InferenceEndpointConfig CRD rendering tests
  *
- * Tests that the HyperPod deployment.yaml template correctly renders:
- * - GPU count from HP_GPU_COUNT
- * - VLLM_TENSOR_PARALLEL_SIZE env var
- * - Memory/CPU auto-scaling
- * - EFA conditional block
- * - Node selector from HP_NODE_SELECTOR
- * - Queue label from HP_QUEUE
+ * After the BL088 migration, HyperPod EKS deployments render a single
+ * InferenceEndpointConfig CRD. This suite verifies the CRD template correctly
+ * renders:
+ * - GPU count from HP_GPU_COUNT (worker.resources requests/limits)
+ * - VLLM_TENSOR_PARALLEL_SIZE environmentVariable
+ * - EFA conditional block (env vars + vpc.amazonaws.com/efa resource)
+ * - Kueue queue label from HP_QUEUE
+ *
+ * CPU/memory now flow through shell `${HP_CPU_REQUEST:-N}` / `${HP_MEM_REQUEST:-NGi}`
+ * placeholders that are resolved at deploy time, so the raw defaults are asserted
+ * as substrings of the rendered (pre-envsubst) template.
  */
 
 import { describe, it } from 'mocha';
@@ -22,7 +26,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = resolve(__filename, '..');
-const TEMPLATE_PATH = resolve(__dirname, '..', '..', 'templates', 'hyperpod', 'deployment.yaml');
+const TEMPLATE_PATH = resolve(__dirname, '..', '..', 'templates', 'hyperpod', 'InferenceEndpointConfig.yaml.ejs');
 const templateContent = readFileSync(TEMPLATE_PATH, 'utf8');
 
 function renderTemplate(vars) {
@@ -30,10 +34,10 @@ function renderTemplate(vars) {
         projectName: 'test-model',
         hyperPodNamespace: 'default',
         framework: 'transformers',
+        modelName: 'meta-llama/Llama-3.1-8B',
         hyperPodReplicas: 1,
         awsRegion: 'us-east-1',
         instanceType: 'ml.g5.xlarge',
-        fsxVolumeHandle: '',
         HP_GPU_COUNT: '1',
         HP_NODE_SELECTOR: '',
         HP_EFA_ENABLED: 'false',
@@ -44,67 +48,39 @@ function renderTemplate(vars) {
     return ejs.render(templateContent, { ...defaults, ...vars });
 }
 
-describe('H2: Multi-GPU Serving — deployment.yaml rendering', () => {
+describe('H2: Multi-GPU Serving — InferenceEndpointConfig CRD rendering', () => {
 
     describe('GPU count rendering', () => {
-        it('HP_GPU_COUNT=1: manifest has nvidia.com/gpu "1", TP=1, memory 16Gi, CPU 4', () => {
+        it('HP_GPU_COUNT=1: nvidia.com/gpu "1", TP=1, default memory 16Gi, CPU 4', () => {
             const output = renderTemplate({ HP_GPU_COUNT: '1' });
-            assert.ok(output.includes('nvidia.com/gpu: "1"'), 'GPU requests should be 1');
+            assert.ok(output.includes('nvidia.com/gpu: "1"'), 'GPU should be 1');
             assert.ok(output.includes('VLLM_TENSOR_PARALLEL_SIZE'), 'TP env var should be present');
-            assert.ok(output.includes('value: "1"'), 'TP should be 1');
-            assert.ok(output.includes('memory: "16Gi"'), 'memory request should be 16Gi');
-            assert.ok(output.includes('cpu: "4"'), 'CPU request should be 4');
+            assert.ok(output.includes('${HP_MEM_REQUEST:-16Gi}'), 'default memory should be 16Gi');
+            assert.ok(output.includes('${HP_CPU_REQUEST:-4}'), 'default CPU should be 4');
         });
 
-        it('HP_GPU_COUNT=4: manifest has nvidia.com/gpu "4", TP=4, memory 64Gi, CPU 16', () => {
+        it('HP_GPU_COUNT=4: nvidia.com/gpu "4", TP=4, default memory 64Gi, CPU 16', () => {
             const output = renderTemplate({ HP_GPU_COUNT: '4' });
-            assert.ok(output.includes('nvidia.com/gpu: "4"'), 'GPU requests should be 4');
-            assert.ok(output.includes('value: "4"'), 'TP should be 4');
-            assert.ok(output.includes('memory: "64Gi"'), 'memory request should be 64Gi');
-            assert.ok(output.includes('cpu: "16"'), 'CPU request should be 16');
+            assert.ok(output.includes('nvidia.com/gpu: "4"'), 'GPU should be 4');
+            assert.ok(output.includes('${HP_MEM_REQUEST:-64Gi}'), 'default memory should be 64Gi');
+            assert.ok(output.includes('${HP_CPU_REQUEST:-16}'), 'default CPU should be 16');
         });
 
-        it('HP_GPU_COUNT=8: TP=8, memory 128Gi, CPU 32', () => {
+        it('HP_GPU_COUNT=8: default memory 128Gi, CPU 32', () => {
             const output = renderTemplate({ HP_GPU_COUNT: '8' });
-            assert.ok(output.includes('nvidia.com/gpu: "8"'), 'GPU requests should be 8');
-            assert.ok(output.includes('value: "8"'), 'TP should be 8');
-            assert.ok(output.includes('memory: "128Gi"'), 'memory request should be 128Gi');
-            assert.ok(output.includes('cpu: "32"'), 'CPU request should be 32');
-        });
-
-        it('HP_GPU_COUNT=2: TP=2, memory 32Gi, CPU 8', () => {
-            const output = renderTemplate({ HP_GPU_COUNT: '2' });
-            assert.ok(output.includes('nvidia.com/gpu: "2"'), 'GPU requests should be 2');
-            assert.ok(output.includes('value: "2"'), 'TP should be 2');
-            assert.ok(output.includes('memory: "32Gi"'), 'memory request should be 32Gi');
-            assert.ok(output.includes('cpu: "8"'), 'CPU request should be 8');
+            assert.ok(output.includes('nvidia.com/gpu: "8"'), 'GPU should be 8');
+            assert.ok(output.includes('${HP_MEM_REQUEST:-128Gi}'), 'default memory should be 128Gi');
+            assert.ok(output.includes('${HP_CPU_REQUEST:-32}'), 'default CPU should be 32');
         });
     });
 
-    describe('Memory/CPU override via HP_MEM_REQUEST and HP_CPU_REQUEST', () => {
-        it('HP_MEM_REQUEST overrides auto-calculated memory', () => {
-            const output = renderTemplate({ HP_GPU_COUNT: '4', HP_MEM_REQUEST: '128' });
-            // requests.memory should be the override value
-            assert.ok(output.includes('memory: "128"'), 'memory request should be overridden to 128');
-        });
-
-        it('HP_CPU_REQUEST overrides auto-calculated CPU', () => {
-            const output = renderTemplate({ HP_GPU_COUNT: '4', HP_CPU_REQUEST: '32' });
-            assert.ok(output.includes('cpu: "32"'), 'CPU request should be overridden to 32');
-        });
-    });
-
-    describe('Node selector', () => {
-        it('HP_NODE_SELECTOR="": uses instanceType variable for nodeSelector', () => {
-            const output = renderTemplate({ HP_NODE_SELECTOR: '', instanceType: 'ml.g5.xlarge' });
-            assert.ok(output.includes('node.kubernetes.io/instance-type: ml.g5.xlarge'),
-                'should use instanceType when HP_NODE_SELECTOR is empty');
-        });
-
-        it('HP_NODE_SELECTOR="ml.g5.12xlarge": nodeSelector uses that value', () => {
-            const output = renderTemplate({ HP_NODE_SELECTOR: 'ml.g5.12xlarge' });
-            assert.ok(output.includes('node.kubernetes.io/instance-type: "ml.g5.12xlarge"'),
-                'should use HP_NODE_SELECTOR value');
+    describe('Tensor parallel size wiring', () => {
+        it('VLLM_TENSOR_PARALLEL_SIZE matches HP_GPU_COUNT', () => {
+            const output = renderTemplate({ HP_GPU_COUNT: '4' });
+            // Env var value block renders the GPU count as the TP size.
+            const tpIdx = output.indexOf('VLLM_TENSOR_PARALLEL_SIZE');
+            const after = output.slice(tpIdx, tpIdx + 80);
+            assert.ok(after.includes('value: "4"'), 'TP size should equal GPU count');
         });
     });
 
@@ -132,39 +108,21 @@ describe('H2: Multi-GPU Serving — deployment.yaml rendering', () => {
             assert.ok(!output.includes('kueue.x-k8s.io/queue-name'), 'no queue label when HP_QUEUE empty');
         });
 
-        it('HP_QUEUE set: queue label present on pod and deployment', () => {
+        it('HP_QUEUE set: queue label present', () => {
             const output = renderTemplate({ HP_QUEUE: 'gpu-queue' });
             assert.ok(output.includes('kueue.x-k8s.io/queue-name: "gpu-queue"'), 'queue label should be present');
         });
     });
 
-    describe('FSx volume mount', () => {
-        it('fsxVolumeHandle set: volumeMount and PVC present', () => {
-            const output = renderTemplate({ fsxVolumeHandle: 'fs-1234567890' });
-            assert.ok(output.includes('fsx-storage'), 'FSx volume name present');
-            assert.ok(output.includes('/opt/ml/model'), 'mount path present');
-            assert.ok(output.includes('test-model-fsx-pvc'), 'PVC name present');
+    describe('Instance type', () => {
+        it('HP_NODE_SELECTOR set: instanceType placeholder uses that value', () => {
+            const output = renderTemplate({ HP_NODE_SELECTOR: 'ml.g5.12xlarge' });
+            assert.ok(output.includes('ml.g5.12xlarge'), 'should use HP_NODE_SELECTOR value in instanceType');
         });
 
-        it('fsxVolumeHandle empty: no volume mount', () => {
-            const output = renderTemplate({ fsxVolumeHandle: '' });
-            assert.ok(!output.includes('fsx-storage'), 'No FSx volume when handle empty');
-        });
-    });
-
-    describe('Combined multi-GPU + EFA scenario', () => {
-        it('8 GPUs with EFA produces correct manifest', () => {
-            const output = renderTemplate({
-                HP_GPU_COUNT: '8',
-                HP_EFA_ENABLED: 'true',
-                HP_NODE_SELECTOR: 'ml.g5.48xlarge'
-            });
-            assert.ok(output.includes('nvidia.com/gpu: "8"'), '8 GPUs');
-            assert.ok(output.includes('vpc.amazonaws.com/efa: "1"'), 'EFA present');
-            assert.ok(output.includes('value: "8"'), 'TP=8');
-            assert.ok(output.includes('memory: "128Gi"'), '128Gi memory');
-            assert.ok(output.includes('cpu: "32"'), '32 CPUs');
-            assert.ok(output.includes('node.kubernetes.io/instance-type: "ml.g5.48xlarge"'), 'node selector');
+        it('HP_NODE_SELECTOR empty: falls back to instanceType', () => {
+            const output = renderTemplate({ HP_NODE_SELECTOR: '', instanceType: 'ml.g5.xlarge' });
+            assert.ok(output.includes('ml.g5.xlarge'), 'should use instanceType when HP_NODE_SELECTOR empty');
         });
     });
 });
@@ -172,14 +130,12 @@ describe('H2: Multi-GPU Serving — deployment.yaml rendering', () => {
 describe('H2: Instance-sizer → HP_GPU_COUNT wiring', () => {
     // These test the logic added to prompt-runner.js
     it('gpuCount=4 + instanceType=ml.g5.12xlarge flows to HP_GPU_COUNT and HP_NODE_SELECTOR', () => {
-        // Simulating what prompt-runner does
         const combinedAnswers = {
             deploymentTarget: 'hyperpod-eks',
             gpuCount: 4,
             instanceType: 'ml.g5.12xlarge'
         };
 
-        // Simulate the wiring logic
         if (combinedAnswers.deploymentTarget === 'hyperpod-eks') {
             if (combinedAnswers.gpuCount) {
                 combinedAnswers.HP_GPU_COUNT = String(combinedAnswers.gpuCount);

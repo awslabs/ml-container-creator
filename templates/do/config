@@ -139,7 +139,7 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 # FSx for Lustre volume for shared model storage (uncomment to enable)
 # export FSX_VOLUME_HANDLE=""
 <% } %>
-# LoRA hot-loading via vLLM REST API (requires --enable-lora in deployment.yaml)
+# LoRA hot-loading via vLLM REST API (requires --enable-lora in the InferenceEndpointConfig worker.args)
 # export HP_LORA_ENABLED=false
 # Speculative decoding (optional — requires HP_SPECULATIVE_MODEL to be set)
 # export HP_SPECULATIVE_ENABLED=false
@@ -164,7 +164,7 @@ export HP_MEM_REQUEST="${HP_MEM_REQUEST:-}"
 export HP_CPU_REQUEST="${HP_CPU_REQUEST:-}"
 # HP_QUEUE=""
 # FSX_VOLUME_HANDLE=""
-# LoRA hot-loading via vLLM REST API (requires --enable-lora in deployment.yaml)
+# LoRA hot-loading via vLLM REST API (requires --enable-lora in the InferenceEndpointConfig worker.args)
 # export HP_LORA_ENABLED=false
 # Speculative decoding (optional — requires HP_SPECULATIVE_MODEL to be set)
 # export HP_SPECULATIVE_ENABLED=false

@@ -153,8 +153,10 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
                     'hyperpod-eks must use kubectl port-forward'
                 );
                 assert.ok(
-                    output.includes('svc/${PROJECT_NAME}'),
-                    'hyperpod-eks must port-forward to svc/${PROJECT_NAME}'
+                    // BL088: the operator creates the Service; do/test resolves it
+                    // into PF_SVC (defaulting to PROJECT_NAME) and port-forwards to it.
+                    output.includes('svc/${PF_SVC}') && output.includes('PF_SVC="${PROJECT_NAME}"'),
+                    'hyperpod-eks must port-forward to the resolved project service (PF_SVC ← PROJECT_NAME)'
                 );
                 assert.ok(
                     output.includes('${LOCAL_PORT}:8080') || output.includes('8080:8080'),

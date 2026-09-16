@@ -817,11 +817,27 @@ _test_hyperpod_eks() {
             fi
             echo "✅ Connected to HyperPod cluster"
 
+            # Resolve the Service created by the inference operator. The operator
+            # names the Service after the InferenceEndpointConfig (== PROJECT_NAME);
+            # if that exact name is absent (operator naming variation), discover a
+            # Service selecting the serving pods by label.
+            PF_SVC="${PROJECT_NAME}"
+            if ! kubectl get "svc/${PF_SVC}" -n "${HP_NAMESPACE}" &>/dev/null; then
+                for _lbl in "app=${PROJECT_NAME}" "app.kubernetes.io/name=${PROJECT_NAME}" "inference.sagemaker.aws.amazon.com/inference-endpoint-config=${PROJECT_NAME}"; do
+                    _found=$(kubectl get svc -n "${HP_NAMESPACE}" -l "${_lbl}" \
+                        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+                    if [ -n "${_found}" ]; then
+                        PF_SVC="${_found}"
+                        break
+                    fi
+                done
+            fi
+
             # Port-forward the service to a local port
             LOCAL_PORT=8080
             echo ""
-            echo "🔌 Port-forwarding svc/${PROJECT_NAME} to localhost:${LOCAL_PORT}..."
-            kubectl port-forward "svc/${PROJECT_NAME}" "${LOCAL_PORT}:8080" \
+            echo "🔌 Port-forwarding svc/${PF_SVC} to localhost:${LOCAL_PORT}..."
+            kubectl port-forward "svc/${PF_SVC}" "${LOCAL_PORT}:8080" \
                 -n "${HP_NAMESPACE}" &
             PF_PID=$!
 
@@ -836,7 +852,7 @@ _test_hyperpod_eks() {
                 echo "❌ Port-forward failed to start"
                 echo ""
                 echo "   Check that:"
-                echo "   • The service exists: kubectl get svc ${PROJECT_NAME} -n ${HP_NAMESPACE}"
+                echo "   • The service exists: kubectl get svc ${PF_SVC} -n ${HP_NAMESPACE}"
                 echo "   • The deployment is running: kubectl get pods -n ${HP_NAMESPACE}"
                 exit 1
             fi
