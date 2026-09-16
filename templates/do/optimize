@@ -24,9 +24,12 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/wait.sh"
 
 # ── Target guard: AI Recommendations requires a real-time IC endpoint ─────────
-if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ] || [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
+# Note: hyperpod-eks IS supported — CreateAIRecommendationJob uses --model-source
+# (S3 URI from STAGED_MODEL_PATH), not a live endpoint. No SageMakerEndpointRegistration
+# required. Blocked targets are async-inference and batch-transform only.
+if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
     echo "❌ do/optimize (AI Recommendations) is not supported on ${DEPLOYMENT_TARGET}."
-    echo "   AI Recommendations requires a real-time managed-inference endpoint."
+    echo "   AI Recommendations requires a real-time or HyperPod EKS deployment."
     echo ""
     echo "   For config recommendations without a live endpoint, use:"
     echo "   ./do/benchmark --recommend"
@@ -37,21 +40,30 @@ fi
 GOAL=""
 INSTANCES_ARG=""
 FORCE=false
+APPLY_ARN=""
+LIST_ONLY=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --goal) shift; GOAL="${1:-}"; shift ;;
         --instances) shift; INSTANCES_ARG="${1:-}"; shift ;;
         --force) FORCE=true; shift ;;
+        --apply) shift; APPLY_ARN="${1:-}"; shift ;;
+        --list) LIST_ONLY=true; shift ;;
         --help|-h)
             echo "Usage: ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]"
+            echo "       ./do/optimize --list"
+            echo "       ./do/optimize --apply <package-arn|top>"
             echo ""
             echo "Run SageMaker AI Inference Recommendations to find optimal instance types"
             echo "and model configurations for your workload."
             echo ""
             echo "Options:"
-            echo "  --goal <goal>       (Required) Optimization goal: cost, latency, or throughput"
+            echo "  --goal <goal>       (Required for new jobs) Optimization goal: cost, latency, or throughput"
             echo "  --instances <list>  Comma-separated instance types to evaluate (max 3)"
             echo "  --force             Create a new recommendation job even if one exists"
+            echo "  --list              Display results from the last completed recommendation job"
+            echo "  --apply <arn|top>   Apply a recommendation to do/config"
+            echo "                      Use 'top' to apply the #1 result from the last job"
             echo ""
             echo "Examples:"
             echo "  ./do/optimize --goal throughput"
@@ -276,16 +288,32 @@ if [ "${RESUME_EXISTING}" = false ]; then
         cost) PERF_METRIC="cost" ;;
     esac
 
-    # Step 4: Determine model source
-    # The recommendation API requires model artifacts as s3:// or https:// URI.
-    MODEL_SOURCE_ARG=""
-    if [[ "${MODEL_NAME}" == s3://* ]]; then
-        MODEL_SOURCE_ARG="S3={S3Uri=${MODEL_NAME}}"
-    else
-        # HuggingFace model — use the HTTPS URL for the model on HuggingFace Hub
-        MODEL_SOURCE_ARG="S3={S3Uri=https://huggingface.co/${MODEL_NAME}}"
+    # The cost metric does not allow ComputeSpec.InstanceTypes — SageMaker selects instances.
+    if [ "${PERF_METRIC}" = "cost" ]; then
+        COMPUTE_SPEC_JSON=""
     fi
 
+    # Step 4: Determine model source
+    # Resolution order:
+    #   1. STAGED_MODEL_PATH (s3://) — set by do/stage; points to flat model files on S3
+    #   2. MODEL_NAME if s3:// URI — explicit SageMaker model artifact path
+    #   3. Otherwise — fail with guidance to use do/benchmark --recommend
+    # Note: S3Uri must point to a directory with model files (config.json + weights).
+    # Raw HF cache trees (.cache/huggingface/) are rejected; flat uploads are valid.
+    MODEL_SOURCE_ARG=""
+    _MODEL_S3_URI="${STAGED_MODEL_PATH:-${MODEL_NAME:-}}"
+    if [[ "${_MODEL_S3_URI}" == s3://* ]]; then
+        MODEL_SOURCE_ARG="S3={S3Uri=${_MODEL_S3_URI}}"
+    else
+        echo "❌ do/optimize requires an S3 model artifact."
+        echo "   MODEL_NAME='${MODEL_NAME:-}' is a HuggingFace model ID, not an S3 path."
+        echo "   STAGED_MODEL_PATH is also not set."
+        echo ""
+        echo "   Options:"
+        echo "   1. Run './do/stage' first to upload model weights to S3, then retry"
+        echo "   2. Use './do/benchmark --recommend' for config recommendations (no S3 artifact needed)"
+        exit 1
+    fi
     # Step 5: Create the recommendation job
     S3_OUTPUT="s3://${TUNE_S3_BUCKET:-mlcc-tune-$(aws sts get-caller-identity --query Account --output text 2>/dev/null)-${AWS_REGION}}/${PROJECT_NAME}/optimize/"
 
@@ -297,11 +325,19 @@ if [ "${RESUME_EXISTING}" = false ]; then
         --ai-workload-config-identifier "${WORKLOAD_CONFIG_NAME}"
         --performance-target "Constraints=[{Metric=${PERF_METRIC}}]"
         --role-arn "${ROLE_ARN:-}"
-        --compute-spec "${COMPUTE_SPEC_JSON}"
         --inference-specification "Framework=VLLM"
         --region "${AWS_REGION}"
     )
+    # throughput goal requires DatasetConfig for speculator training when OptimizeModel=True.
+    # Since MLCC does not manage a workload dataset, disable model optimization for throughput.
+    # Latency/ttft-ms goals do not require a dataset and can use OptimizeModel=True.
+    if [ "${PERF_METRIC}" = "throughput" ]; then
+        RECOMMEND_CMD+=(--no-optimize-model)
+    fi
 
+    if [ -n "${COMPUTE_SPEC_JSON}" ]; then
+        RECOMMEND_CMD+=(--compute-spec "${COMPUTE_SPEC_JSON}")
+    fi
     if ! "${RECOMMEND_CMD[@]}" 2>&1; then
         echo ""
         echo "❌ Failed to create AI Recommendation Job"
@@ -400,15 +436,11 @@ if [ "${JOB_STATUS}" = "COMPLETED" ]; then
 import json, sys
 
 data = json.load(sys.stdin)
-results = data.get('Results', data.get('InferenceRecommendations', []))
+results = data.get('Recommendations', [])
 
 if not results:
     print('   No recommendations returned.')
     sys.exit(0)
-
-# If results is a dict with a list inside, extract it
-if isinstance(results, dict):
-    results = results.get('Recommendations', results.get('InferenceRecommendations', []))
 
 print('╔══════════════════════════════════════════════════════════════════════════╗')
 print('║              SageMaker AI Inference Recommendations                     ║')
@@ -419,38 +451,27 @@ print(f'║  Model: ${MODEL_NAME}')
 print('╠══════════════════════════════════════════════════════════════════════════╣')
 
 for i, rec in enumerate(results, 1):
-    instance_type = rec.get('InstanceType', rec.get('EndpointConfiguration', {}).get('InstanceType', 'N/A'))
-    model_config = rec.get('ModelConfiguration', {})
-    model_package_arn = model_config.get('ModelPackageArn', rec.get('ModelPackageArn', 'N/A'))
-    inference_spec = model_config.get('InferenceSpecificationName', rec.get('InferenceSpecificationName', 'N/A'))
-
-    metrics = rec.get('Metrics', rec.get('RecommendationMetrics', {}))
-    ttft = metrics.get('TimeToFirstToken', metrics.get('TTFT', 'N/A'))
-    itl = metrics.get('InterTokenLatency', metrics.get('ITL', 'N/A'))
-    throughput = metrics.get('Throughput', metrics.get('MaxInvocations', 'N/A'))
-    cost = metrics.get('CostPerHour', metrics.get('CostPerInference', 'N/A'))
+    model_details = rec.get('ModelDetails', {})
+    instance_details = model_details.get('InstanceDetails', [{}])
+    instance_type = instance_details[0].get('InstanceType', 'N/A') if instance_details else 'N/A'
+    instance_count = instance_details[0].get('InstanceCount', 1) if instance_details else 1
+    spec_name = model_details.get('InferenceSpecificationName', 'N/A')
+    model_package_arn = model_details.get('ModelPackageArn', 'N/A')
+    optimizations = rec.get('OptimizationDetails', [])
 
     rank_marker = ' ← TOP' if i == 1 else ''
     print(f'║')
     print(f'║  #{i}{rank_marker}')
-    print(f'║  Instance Type:    {instance_type}')
-    print(f'║  ModelPackageArn:  {model_package_arn}')
-    print(f'║  InferenceSpec:    {inference_spec}')
-    print(f'║  ────────────────────────────────────────')
-    print(f'║  TTFT (ms):        {ttft}')
-    print(f'║  ITL (ms):         {itl}')
-    print(f'║  Throughput:       {throughput}')
-    print(f'║  Cost:             {cost}')
+    print(f'║  Instance:  {instance_type} × {instance_count}')
+    print(f'║  Spec:      {spec_name}')
+    if model_package_arn and model_package_arn != 'N/A':
+        print(f'║  Package:   {model_package_arn}')
+    if optimizations:
+        opt_names = [o.get('OptimizationName', o.get('Type', str(o))) for o in optimizations]
+        print(f'║  Opts:      {", ".join(opt_names)}')
 
 print('║')
 print('╚══════════════════════════════════════════════════════════════════════════╝')
-
-# Output structured data for the interactive choices below
-# Write results to a temp file for bash to read
-import tempfile, os
-results_file = os.path.join('${SCRIPT_DIR}', '.optimize-results.json')
-with open(results_file, 'w') as f:
-    json.dump(results, f)
 "
     else
         echo "   (python3 not available — showing raw JSON)"
@@ -461,6 +482,15 @@ with open(results_file, 'w') as f:
 
     # ── Interactive choices ───────────────────────────────────────────────────
     RESULTS_FILE="${SCRIPT_DIR}/.optimize-results.json"
+
+    # Save Recommendations array to RESULTS_FILE for the interactive menu
+    echo "${JOB_DESCRIPTION}" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+results = data.get('Recommendations', [])
+with open('${RESULTS_FILE}', 'w') as f:
+    json.dump(results, f)
+" 2>/dev/null || true
 
     if [ -f "${RESULTS_FILE}" ]; then
         echo "What would you like to do with these results?"
@@ -481,9 +511,8 @@ import json
 with open('${RESULTS_FILE}') as f:
     results = json.load(f)
 if results:
-    r = results[0]
-    mc = r.get('ModelConfiguration', {})
-    print(mc.get('ModelPackageArn', r.get('ModelPackageArn', '')))
+    md = results[0].get('ModelDetails', {})
+    print(md.get('ModelPackageArn', ''))
 " 2>/dev/null) || TOP_MODEL_PACKAGE_ARN=""
 
                 TOP_INFERENCE_SPEC=$(python3 -c "
@@ -491,9 +520,8 @@ import json
 with open('${RESULTS_FILE}') as f:
     results = json.load(f)
 if results:
-    r = results[0]
-    mc = r.get('ModelConfiguration', {})
-    print(mc.get('InferenceSpecificationName', r.get('InferenceSpecificationName', '')))
+    md = results[0].get('ModelDetails', {})
+    print(md.get('InferenceSpecificationName', ''))
 " 2>/dev/null) || TOP_INFERENCE_SPEC=""
 
                 TOP_INSTANCE_TYPE=$(python3 -c "
@@ -501,8 +529,8 @@ import json
 with open('${RESULTS_FILE}') as f:
     results = json.load(f)
 if results:
-    r = results[0]
-    print(r.get('InstanceType', r.get('EndpointConfiguration', {}).get('InstanceType', '')))
+    inst = results[0].get('ModelDetails', {}).get('InstanceDetails', [{}])
+    print(inst[0].get('InstanceType', '') if inst else '')
 " 2>/dev/null) || TOP_INSTANCE_TYPE=""
 
                 if [ -n "${TOP_MODEL_PACKAGE_ARN}" ]; then
@@ -530,14 +558,15 @@ with open('${RESULTS_FILE}') as f:
     results = json.load(f)
 pools = []
 for i, r in enumerate(results, 1):
-    instance_type = r.get('InstanceType', r.get('EndpointConfiguration', {}).get('InstanceType', ''))
+    md = r.get('ModelDetails', {})
+    inst = md.get('InstanceDetails', [{}])
+    instance_type = inst[0].get('InstanceType', '') if inst else ''
     if not instance_type:
         continue
     entry = {'InstanceType': instance_type, 'Priority': i}
-    mc = r.get('ModelConfiguration', {})
-    model_name = mc.get('ModelPackageArn', r.get('ModelPackageArn', ''))
-    if model_name:
-        entry['ModelName'] = model_name
+    model_pkg = md.get('ModelPackageArn', '')
+    if model_pkg:
+        entry['ModelName'] = model_pkg
     pools.append(entry)
 print(json.dumps(pools))
 " 2>/dev/null) || POOLS_JSON=""
@@ -562,9 +591,8 @@ import json
 with open('${RESULTS_FILE}') as f:
     results = json.load(f)
 if results:
-    r = results[0]
-    mc = r.get('ModelConfiguration', {})
-    print(mc.get('ModelPackageArn', r.get('ModelPackageArn', '')))
+    md = results[0].get('ModelDetails', {})
+    print(md.get('ModelPackageArn', ''))
 " 2>/dev/null) || SAVE_MODEL_PACKAGE_ARN=""
 
                 if [ -n "${SAVE_MODEL_PACKAGE_ARN}" ]; then
