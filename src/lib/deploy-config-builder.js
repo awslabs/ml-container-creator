@@ -624,8 +624,9 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                     const gpus = group?.gpuCapacity?.total || 0;
                     const count = group?.count || 0;
                     const flex = group?.isFlexible ? ' (flexible)' : '';
+                    const groupName = group?.name ? ` [${group.name}]` : '';
                     return {
-                        name: `${t} (${gpus} GPUs, ${count} nodes${flex})`,
+                        name: `${t}${groupName} (${gpus} GPUs, ${count} nodes${flex})`,
                         value: t
                     };
                 });

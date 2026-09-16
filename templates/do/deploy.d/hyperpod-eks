@@ -12,7 +12,9 @@ _mark_hp_failed() {
         _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
     fi
 }
-trap '_mark_hp_failed' ERR
+# Only trap on rollout failure — not on secondary resource errors (configmap, PVC, etc.)
+# The status is written explicitly as Running/Failed after the rollout status check.
+# trap '_mark_hp_failed' ERR  — disabled: was writing Failed on partial manifest errors
 
 # Parse flags
 FORCE_NEW=false
@@ -201,6 +203,40 @@ echo "✅ Connected to HyperPod cluster"
 
 # Create namespace if it doesn't exist
 echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
+
+# ── K8s Secret: HuggingFace token ──────────────────────────────────────────
+# Create/update the 'hf-token' K8s Secret in the target namespace so the
+# cluster can authenticate against HuggingFace for any operation that needs it
+# (model pull at startup, tokenizer fetch for do/benchmark, etc.).
+#
+# Resolution order:
+#   1. RESOLVED_HF_TOKEN resolved above (from Secrets Manager or HF_TOKEN env)
+#   2. Neither → skip with warning
+#
+# Note: token is needed even when STAGED_MODEL_PATH is set — advanced operations
+# like do/benchmark fetch the tokenizer from HuggingFace for gated models.
+#
+# The deployment.yaml mounts hf-token as optional=true so pods start cleanly
+# even when the secret doesn't exist (e.g. public models, staged models).
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ -n "${RESOLVED_HF_TOKEN:-}" ]; then
+    echo "🔑 Creating K8s Secret 'hf-token' in namespace '${HP_NAMESPACE}'..."
+    kubectl create secret generic hf-token \
+        --from-literal=HF_TOKEN="${RESOLVED_HF_TOKEN}" \
+        --namespace "${HP_NAMESPACE}" \
+        --dry-run=client -o yaml | kubectl apply -f - 2>&1 || {
+        echo "⚠️  Warning: Could not create hf-token secret (will continue)"
+        echo "   The pod may fail to pull gated models — set HF_TOKEN_ARN in do/config"
+    }
+    echo "✅ HuggingFace token secret ready"
+else
+    echo "   ⚠️  No HuggingFace token configured"
+    echo "   Set HF_TOKEN_ARN in do/config or run: mcc bootstrap add-secret hfToken <arn>"
+    echo "   (Continuing — token only required for gated HuggingFace models)"
+fi
+
+echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
 if ! kubectl create namespace "${HP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
     echo "⚠️  Warning: Could not create/verify namespace"
 fi
@@ -327,6 +363,7 @@ ROLLOUT_OUTPUT=$(kubectl rollout status deployment/${PROJECT_NAME} -n "${HP_NAME
     echo "     kubectl describe pvc -n ${HP_NAMESPACE}"
     echo "     kubectl get csidriver -o name | grep fsx"
 <% } %>
+    _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
     exit ${ROLLOUT_EXIT_CODE}
 }
 

@@ -795,5 +795,73 @@
             "sglang": ">=0.2.0"
         },
         "chat_template": ""
+    },
+    "moonshotai/Kimi-K3": {
+        "family": "kimi-k3",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "multimodal",
+            "vision",
+            "reasoning",
+            "coding",
+            "moonshot"
+        ],
+        "architecture": "KimiForCausalLM",
+        "notes": "2.8T MoE (104B active). Day-0 vLLM support. Use moonshotai/Kimi-K3-MXFP4 for quantized weights.",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.25.0",
+            "sglang": ">=0.5.0"
+        },
+        "validationLevel": "community-validated",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation",
+            "image-text-to-text"
+        ],
+        "chat_template": "",
+        "framework_compatibility": {
+            "vllm": ">=0.25.0",
+            "sglang": ">=0.5.0"
+        },
+        "validation_level": "community-validated",
+        "parameterCount": 2800000000000,
+        "defaultDtype": "float8",
+        "maxPositionEmbeddings": 1048576
+    },
+    "moonshotai/Kimi-K3*": {
+        "family": "kimi-k3",
+        "gated": false,
+        "tags": [
+            "text-generation",
+            "multimodal",
+            "vision",
+            "reasoning",
+            "coding",
+            "moonshot"
+        ],
+        "architecture": "KimiForCausalLM",
+        "notes": "Kimi K3 variants (MXFP4, NVFP4, etc.). 2.8T MoE (104B active).",
+        "chatTemplate": "",
+        "frameworkCompatibility": {
+            "vllm": ">=0.25.0",
+            "sglang": ">=0.5.0"
+        },
+        "validationLevel": "community-validated",
+        "modelType": "transformer",
+        "tasks": [
+            "text-generation",
+            "image-text-to-text"
+        ],
+        "chat_template": "",
+        "framework_compatibility": {
+            "vllm": ">=0.25.0",
+            "sglang": ">=0.5.0"
+        },
+        "validation_level": "community-validated",
+        "parameterCount": 2800000000000,
+        "defaultDtype": "float8",
+        "maxPositionEmbeddings": 1048576
     }
 }

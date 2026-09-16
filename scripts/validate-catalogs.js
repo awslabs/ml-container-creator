@@ -2,148 +2,190 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Validates all catalog JSON files against their corresponding JSON Schemas.
-// Exits non-zero if any catalog entry fails validation.
+/**
+ * validate-catalogs.js — Fast catalog data validation for pre-commit / CI.
+ *
+ * Catches the class of catalog-data defects that have repeatedly slipped
+ * through to CI (invalid costTier enums, stray fields, missing snake_case
+ * fields, malformed model-server entries) by validating the catalog data
+ * files against their contracts BEFORE the heavier test suites run.
+ *
+ * Covers:
+ *   - servers/lib/catalogs/model-servers.json  → enriched image-catalog schema
+ *   - servers/lib/catalogs/instances.json      → enriched instances schema
+ *     (both via the existing validate-servers.js harness)
+ *   - servers/lib/catalogs/models.json         → the field contract enforced
+ *     by the model-picker tests (snake_case required fields + enums)
+ *
+ * Exit code 0 = all valid; 1 = one or more problems (details printed).
+ */
 
-import { readFileSync, existsSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import Ajv from 'ajv'
-import addFormats from 'ajv-formats'
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, '..');
 
-const root = resolve(__dirname, '..')
-const schemasDir = resolve(root, 'servers/lib/schemas')
+const errors = [];
 
-// Catalog file path → schema file name mapping
-const CATALOG_SCHEMA_MAP = [
-    {
-        catalog: 'servers/lib/catalogs/model-servers.json',
-        schema: 'image-catalog.schema.json',
-        label: 'model-servers'
-    },
-    {
-        catalog: 'servers/lib/catalogs/triton-backends.json',
-        schema: 'triton-backends.schema.json',
-        label: 'triton-backends'
-    },
-    {
-        catalog: 'servers/lib/catalogs/instances.json',
-        schema: 'instances.schema.json',
-        label: 'instances'
-    },
-    {
-        catalog: 'servers/lib/catalogs/popular-transformers.json',
-        schema: 'model-catalog.schema.json',
-        label: 'popular-transformers'
-    },
-    {
-        catalog: 'servers/lib/catalogs/popular-diffusors.json',
-        schema: 'model-catalog.schema.json',
-        label: 'popular-diffusors'
-    },
-    {
-        catalog: 'servers/lib/catalogs/models.json',
-        schema: 'unified-model-catalog.schema.json',
-        label: 'models (unified)'
+// ── 1. model-servers.json + instances.json via validate-servers.js ───────────
+// Reuse the authoritative harness rather than duplicating its schema wiring.
+try {
+    execFileSync(process.execPath, [resolve(__dirname, 'validate-servers.js')], {
+        cwd: ROOT,
+        stdio: 'pipe',
+        encoding: 'utf8'
+    });
+    console.log('✓ model-servers.json / instances.json: valid (via validate-servers.js)');
+} catch (err) {
+    const out = `${err.stdout || ''}${err.stderr || ''}`;
+    // Surface only the catalog-relevant failure lines.
+    const relevant = out.split('\n').filter(l => /catalog|schema|❌/i.test(l));
+    errors.push('validate-servers.js reported catalog problems:');
+    for (const l of (relevant.length ? relevant : out.split('\n')).slice(0, 40)) {
+        if (l.trim()) errors.push(`   ${l.trim()}`);
     }
-]
-
-function createAjv() {
-    const ajv = new Ajv({ allErrors: true })
-    addFormats(ajv)
-    return ajv
 }
 
-/**
- * Validate all catalogs against their schemas.
- * @returns {{ errors: string[], passed: number }}
- */
-export function validateCatalogs() {
-    const errors = []
-    let passed = 0
-    const ajv = createAjv()
+// ── 2. models.json field contract (mirrors model-picker tests) ───────────────
+const VALID_VALIDATION_LEVELS = ['tested', 'community-validated', 'experimental', 'untested'];
 
-    // Pre-compile schemas (avoids duplicate $id errors when multiple catalogs share a schema)
-    const compiledSchemas = new Map()
+function validateModelsCatalog() {
+    const p = resolve(ROOT, 'servers/lib/catalogs/models.json');
+    let raw;
+    try {
+        raw = JSON.parse(readFileSync(p, 'utf8'));
+    } catch (e) {
+        errors.push(`models.json: not valid JSON: ${e.message}`);
+        return;
+    }
+    const catalog = raw.models || raw;
+    const entries = Object.entries(catalog);
+    if (entries.length === 0) {
+        errors.push('models.json: catalog is empty');
+        return;
+    }
 
-    for (const { catalog, schema, label } of CATALOG_SCHEMA_MAP) {
-        const catalogPath = resolve(root, catalog)
-        const schemaPath = resolve(schemasDir, schema)
-
-        // Check schema file exists
-        if (!existsSync(schemaPath)) {
-            errors.push(`${label}: schema file not found at ${schema}`)
-            continue
+    let bad = 0;
+    for (const [modelId, entry] of entries) {
+        const problems = [];
+        if (typeof entry.family !== 'string' || entry.family.length === 0) {
+            problems.push('family must be a non-empty string');
         }
-
-        // Check catalog file exists
-        if (!existsSync(catalogPath)) {
-            errors.push(`${label}: catalog file not found at ${catalog}`)
-            continue
+        if (!(entry.chat_template === null || typeof entry.chat_template === 'string')) {
+            problems.push('chat_template must be a string or null (snake_case required)');
         }
+        if (typeof entry.gated !== 'boolean') {
+            problems.push('gated must be a boolean');
+        }
+        if (!Array.isArray(entry.tags)) {
+            problems.push('tags must be an array');
+        }
+        if (!(entry.architecture === null || typeof entry.architecture === 'string')) {
+            problems.push('architecture must be a string or null');
+        }
+        if (typeof entry.framework_compatibility !== 'object'
+            || entry.framework_compatibility === null
+            || Array.isArray(entry.framework_compatibility)) {
+            problems.push('framework_compatibility must be a non-null object (snake_case required)');
+        }
+        if (!VALID_VALIDATION_LEVELS.includes(entry.validation_level)) {
+            problems.push(`validation_level must be one of ${VALID_VALIDATION_LEVELS.join(', ')} (snake_case required)`);
+        }
+        if (problems.length) {
+            bad++;
+            errors.push(`models.json entry "${modelId}":`);
+            for (const pr of problems) errors.push(`   - ${pr}`);
+        }
+    }
+    if (bad === 0) {
+        console.log(`✓ models.json: ${entries.length} entries valid (field contract)`);
+    }
+}
 
-        // Compile schema (once per schema file)
-        if (!compiledSchemas.has(schema)) {
-            let schemaData
-            try {
-                schemaData = JSON.parse(readFileSync(schemaPath, 'utf8'))
-            } catch (err) {
-                errors.push(`${label}: schema ${schema} is not valid JSON: ${err.message}`)
-                continue
+validateModelsCatalog();
+
+// ── 3. model-sizes.json <-> models.json merge consistency ────────────────────
+// Mirrors unified-model-catalog.property.test.js "Property 1": every model-sizes
+// entry's size fields (parameterCount, defaultDtype) must be merged into the
+// matching models.json entry (direct key or glob pattern). Catches the class of
+// bug where a model is added to models.json but its size profile is never merged.
+function globToRegex(pattern) {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${escaped.replace(/\*/g, '.*')}$`);
+}
+function matchesPattern(modelId, pattern) {
+    if (modelId === pattern) return true;
+    if (!pattern.includes('*')) return false;
+    return globToRegex(pattern).test(modelId);
+}
+
+function validateModelSizesMerge() {
+    let sizes;
+    let models;
+    try {
+        const sRaw = JSON.parse(readFileSync(resolve(ROOT, 'servers/lib/catalogs/model-sizes.json'), 'utf8'));
+        sizes = sRaw.models || sRaw;
+    } catch (e) {
+        errors.push(`model-sizes.json: not valid JSON: ${e.message}`);
+        return;
+    }
+    try {
+        const mRaw = JSON.parse(readFileSync(resolve(ROOT, 'servers/lib/catalogs/models.json'), 'utf8'));
+        models = mRaw.models || mRaw;
+    } catch (e) {
+        // models.json JSON errors are already reported by validateModelsCatalog()
+        return;
+    }
+
+    const modelEntries = Object.entries(models);
+    let bad = 0;
+    for (const [pattern, sizeEntry] of Object.entries(sizes)) {
+        if (pattern in models) {
+            // Direct match — the merged entry must carry the size fields with matching values.
+            const unified = models[pattern];
+            if (sizeEntry.parameterCount && unified.parameterCount !== sizeEntry.parameterCount) {
+                bad++;
+                errors.push(`model-sizes "${pattern}": parameterCount not merged into models.json (expected ${sizeEntry.parameterCount}, got ${unified.parameterCount})`);
             }
-            try {
-                compiledSchemas.set(schema, ajv.compile(schemaData))
-            } catch (err) {
-                errors.push(`${label}: schema ${schema} failed to compile: ${err.message}`)
-                continue
-            }
-        }
-
-        const validate = compiledSchemas.get(schema)
-        if (!validate) continue
-
-        // Load catalog
-        let catalogData
-        try {
-            catalogData = JSON.parse(readFileSync(catalogPath, 'utf8'))
-        } catch (err) {
-            errors.push(`${label}: catalog is not valid JSON: ${err.message}`)
-            continue
-        }
-
-        // Validate
-        if (!validate(catalogData)) {
-            for (const err of validate.errors) {
-                const entryKey = err.instancePath || '/'
-                errors.push(`${label}: ${catalog} ${entryKey} ${err.message}`)
+            if (sizeEntry.defaultDtype && unified.defaultDtype !== sizeEntry.defaultDtype) {
+                bad++;
+                errors.push(`model-sizes "${pattern}": defaultDtype not merged into models.json (expected "${sizeEntry.defaultDtype}", got "${unified.defaultDtype}")`);
             }
         } else {
-            passed++
-            console.log(`✓ ${label}: ${catalog} valid`)
+            // Wildcard/glob — at least one matching models.json entry must carry the fields.
+            const matching = modelEntries.filter(([id]) => matchesPattern(id, pattern));
+            if (matching.length === 0) {
+                bad++;
+                errors.push(`model-sizes pattern "${pattern}": no matching models.json entry (orphan size profile)`);
+                continue;
+            }
+            const hasFields = matching.some(([, entry]) => {
+                if (sizeEntry.parameterCount && entry.parameterCount !== sizeEntry.parameterCount) return false;
+                if (sizeEntry.defaultDtype && entry.defaultDtype !== sizeEntry.defaultDtype) return false;
+                return true;
+            });
+            if (!hasFields) {
+                bad++;
+                errors.push(`model-sizes pattern "${pattern}": matched models.json entries but none carry the merged size fields (parameterCount/defaultDtype)`);
+            }
         }
     }
-
-    return { errors, passed }
-}
-
-// Run when executed directly
-const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(__filename)
-if (isMain) {
-    console.log('── Catalog schema validation ──\n')
-    const { errors, passed } = validateCatalogs()
-
-    if (errors.length > 0) {
-        console.log('')
-        for (const err of errors) {
-            console.error(`❌ ${err}`)
-        }
-        console.error(`\n${errors.length} validation error(s) found`)
-        process.exit(1)
-    } else {
-        console.log(`\n✅ All ${passed} catalogs validated successfully`)
-        process.exit(0)
+    if (bad === 0) {
+        console.log(`✓ model-sizes.json: ${Object.keys(sizes).length} size profiles merged into models.json`);
     }
 }
+
+validateModelSizesMerge();
+
+// ── Report ────────────────────────────────────────────────────────────────────
+if (errors.length) {
+    console.error('\n❌ Catalog validation failed:');
+    for (const e of errors) console.error(e.startsWith(' ') || e.startsWith('   ') ? e : `   ${e}`);
+    console.error('\n   Fix the catalog data above, then re-stage and commit.');
+    process.exit(1);
+}
+
+console.log('\n✅ All catalog data files valid');

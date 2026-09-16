@@ -132,8 +132,6 @@ _submit_processing_job() {
             --secret-id "${hf_token_secret_arn}" \
             --region "${AWS_REGION}" \
             --query SecretString --output text 2>/dev/null) || hf_token_value=""
-    elif [ -n "${HF_TOKEN:-}" ]; then
-        hf_token_value="${HF_TOKEN}"
     fi
 
     # Build helper arguments
@@ -368,15 +366,26 @@ if ! aws sts get-caller-identity &>/dev/null; then
 fi
 
 # ── Resolve HuggingFace token (for gated models) ─────────────────────────────
-# BL076: fall back to profile secrets when ARN is not explicitly set in do/config
+# Single source of truth: Secrets Manager ARN via project do/config or bootstrap profile.
+# Local $HF_TOKEN env var is NOT used — register the secret once with:
+#   mcc bootstrap add-secret hfToken <arn>
 HF_TOKEN_ARN="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
-if [ -n "${HF_TOKEN_ARN:-}" ] && [ -z "${HF_TOKEN:-}" ]; then
+if [ -n "${HF_TOKEN_ARN:-}" ]; then
     echo "🔐 Resolving HuggingFace token from Secrets Manager..."
     HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --region "${AWS_REGION}" --query SecretString --output text) || {
-        echo "⚠️  Failed to resolve HF token from Secrets Manager (continuing without token)"
-        HF_TOKEN=""
+        echo "❌ Failed to resolve HuggingFace token from Secrets Manager."
+        echo "   Secret ARN: ${HF_TOKEN_ARN}"
+        echo "   Check the ARN is correct and the execution role can access it."
+        exit 3
     }
     export HF_TOKEN
+else
+    echo "⚠️  No HuggingFace token configured."
+    echo "   Public models will work without a token."
+    echo "   For gated models (Llama, Mistral, Gemma, etc.) register your token:"
+    echo "     mcc bootstrap add-secret hfToken <secretsmanager-arn>"
+    echo "   Or set HF_TOKEN_ARN in do/config directly."
+    echo ""
 fi
 
 # ── Download model from HuggingFace ──────────────────────────────────────────
@@ -406,7 +415,12 @@ if ! huggingface-cli download "${DOWNLOAD_ARGS[@]}"; then
     echo ""
     echo "Possible causes:"
     echo "  • Model name is incorrect"
-    echo "  • Model is gated and requires HF_TOKEN"
+    if [ -z "${HF_TOKEN:-}" ]; then
+        echo "  • Model is gated — no HuggingFace token configured"
+        echo "    Fix: mcc bootstrap add-secret hfToken <secretsmanager-arn>"
+    else
+        echo "  • Model is gated and the configured token may be invalid or lack access"
+    fi
     echo "  • Network connectivity issues"
     exit 3
 fi

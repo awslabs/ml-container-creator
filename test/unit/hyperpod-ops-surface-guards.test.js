@@ -366,10 +366,17 @@ describe('deployment-state.sh shared library (BL063)', () => {
     });
 
     describe('variable usage', () => {
-        it('uses HP_NAMESPACE with fallback to PROJECT_NAME', () => {
+        it('uses HP_NAMESPACE with fallback to the default k8s namespace', () => {
             assert.ok(
-                scriptMatches(DEPLOYMENT_STATE_SCRIPT, /HP_NAMESPACE:-\$\{PROJECT_NAME/),
-                'should fall back HP_NAMESPACE to PROJECT_NAME'
+                scriptContains(DEPLOYMENT_STATE_SCRIPT, 'HP_NAMESPACE:-default'),
+                'HP_NAMESPACE should default to the "default" Kubernetes namespace'
+            );
+        });
+
+        it('uses HP_DEPLOYMENT_NAME with fallback to PROJECT_NAME', () => {
+            assert.ok(
+                scriptMatches(DEPLOYMENT_STATE_SCRIPT, /HP_DEPLOYMENT_NAME:-\$\{PROJECT_NAME/),
+                'should fall back HP_DEPLOYMENT_NAME to PROJECT_NAME'
             );
         });
 

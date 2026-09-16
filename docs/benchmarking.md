@@ -8,7 +8,7 @@ Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf)
 |---|---|
 | Endpoint status | Must be `InService` (run `./do/deploy` first) |
 | Architecture | Transformers or Diffusors only (HTTP and Triton not supported) |
-| Deployment target | `realtime-inference` only (HyperPod EKS is not supported) |
+| Deployment target | `realtime-inference` only (HyperPod EKS: requires InferenceEndpointConfig CRD deployment (see BL088, planned v1.7)) |
 | Python dependencies | Installed automatically via `npm install` (see `requirements.txt`) |
 | AWS credentials | Must be configured for the deployment region |
 | Bootstrap | Recommended — provides the IAM role with benchmarking permissions and S3 bucket for results |

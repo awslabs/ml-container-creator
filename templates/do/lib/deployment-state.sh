@@ -21,8 +21,16 @@ _check_active_deployment() {
 
     case "$target" in
         hyperpod-eks)
-            local namespace="${HP_NAMESPACE:-${PROJECT_NAME:-default}}"
+            local namespace="${HP_NAMESPACE:-default}"
             local deploy_name="${HP_DEPLOYMENT_NAME:-${PROJECT_NAME:-app}}"
+            # Set kubeconfig to the HyperPod cluster's saved config.
+            # do/test sets KUBECONFIG later in its flow — the guard runs before that,
+            # so we must resolve it here independently.
+            local _cluster_name="${HP_CLUSTER_NAME:-}"
+            if [ -n "${_cluster_name}" ] && [ -z "${KUBECONFIG:-}" ]; then
+                local _kube="${HOME}/.kube/hyperpod-${_cluster_name}"
+                [ -f "${_kube}" ] && export KUBECONFIG="${_kube}"
+            fi
 
             if ! command -v kubectl &>/dev/null; then
                 echo "⚠️  kubectl not found. Cannot verify HyperPod deployment state."

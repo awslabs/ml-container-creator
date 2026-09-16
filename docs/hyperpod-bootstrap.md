@@ -22,6 +22,10 @@ When you run `bootstrap add-module hyperpod`, the module deploys:
 - `helm` available (used by ALB controller chart)
 - Bootstrap `core` module already provisioned
 
+!!! note "TypeScript build is automatic"
+    `npm run build` is now automatically run before every CDK deploy — there is no
+    need to manually compile TypeScript before deploying the module.
+
 ## Quick Start
 
 ```bash
@@ -70,6 +74,22 @@ do/build && do/push && do/deploy
   - FsxCsiRole (IRSA)
   - Fargate pod execution role
 
+#### HyperPod Instance Role
+
+The HyperPod instance role attached to worker nodes carries **five policies**:
+
+| Policy | Type | Purpose |
+|--------|------|---------|
+| `AmazonSageMakerClusterInstanceRolePolicy` | Managed | HyperPod cluster instance operations |
+| `AmazonEC2ContainerRegistryReadOnly` | Managed | Pull container images from ECR |
+| `AmazonEKS_CNI_Policy` | Managed | VPC CNI networking |
+| `AmazonEKSWorkerNodePolicy` | Managed | EKS worker node registration |
+| `HyperPodEksInstancePolicy` | Inline | ENI management (attach/detach/describe network interfaces) |
+
+The role's **trust policy requires BOTH** `sagemaker.amazonaws.com` **AND** `ec2.amazonaws.com`
+as trusted principals — SageMaker assumes it to manage the HyperPod cluster, and EC2 assumes it
+for the underlying worker instances.
+
 #### Fargate Profile: Why System Pods Need It
 
 The cluster starts with zero GPU nodes to avoid idle compute costs. But
@@ -77,15 +97,20 @@ Kubernetes requires certain system pods to be running before the cluster can
 function — creating a chicken-and-egg problem. Fargate solves this by providing
 serverless compute for lightweight control-plane workloads.
 
-The Fargate profile covers five namespaces:
+The Fargate profile covers four namespaces:
 
 | Namespace | Pods | Purpose |
 |-----------|------|---------|
 | `kube-system` | CoreDNS, metrics-server, VPC-CNI, ALB controller, FSx/MPI operators | Core cluster infrastructure: DNS resolution, pod networking, metrics, storage |
 | `cert-manager` | cert-manager, CA injector, webhook | TLS certificate issuance for admission webhooks. Without it, the inference operator's webhooks can't serve. |
 | `aws-hyperpod` | HyperPod system agents | HyperPod-managed components for node lifecycle |
-| `hyperpod-inference-system` | Inference controller, ALB ingress, KEDA | The HyperPod inference operator stack: workload routing, event-driven autoscaling, load balancer management |
 | `kubeflow` | Training operators (PyTorchJob, etc.) | Distributed training job orchestration |
+
+!!! note "`hyperpod-inference-system` runs on EC2, not Fargate"
+    The `hyperpod-inference-system` namespace is intentionally **not** covered by the Fargate
+    profile. The inference gateway controller uses `hostPath` volumes, which Fargate does not
+    support — so it must run on HyperPod EC2 nodes instead. See the post-install patches below,
+    which pin the gateway controller to HyperPod EC2 nodes via `nodeSelector`.
 
 **Without Fargate**, these pods sit `Pending` indefinitely. And without CoreDNS +
 VPC-CNI + cert-manager running, GPU nodes cannot properly register with the cluster
@@ -107,6 +132,25 @@ far cheaper than keeping a GPU instance running to host control-plane pods.
 
 - **TLS S3 Bucket**: `hyperpod-tls-<profile>-<region>` (RETAIN)
 - **Inference Operator EKS Add-on**: `amazon-sagemaker-hyperpod-inference`
+
+#### Post-Install Patches
+
+After the inference operator add-on reaches `ACTIVE`, the bootstrap automatically applies
+two patches to make the operator functional on this cluster topology:
+
+1. **`HYPERPOD_CLUSTER_ARN` env var** — patched onto the
+   `hyperpod-inference-controller-manager` deployment so the controller knows which HyperPod
+   cluster it manages.
+2. **`inference-gateway-controller` nodeSelector** — patched so the gateway controller lands
+   on HyperPod EC2 nodes (not Fargate). This is required because the gateway controller uses
+   `hostPath` volumes that Fargate cannot mount.
+
+!!! important "Inference operator needs an active worker node"
+    The inference operator requires **at least 1 active HyperPod worker node** so the CSI driver
+    can register before the controller manager can start. A `g5.2xlarge` (or similar GPU
+    instance) is recommended — CPU-only nodes like `m5` do **not** satisfy the NVIDIA device
+    plugin check, so the operator will not come up on them. Scale up at least one GPU node
+    before expecting the operator to reach a healthy state.
 
 ## Removal Behavior
 
@@ -137,11 +181,19 @@ aws sagemaker update-cluster \
     "InstanceCount": 1,
     "ExecutionRole": "<HyperPodInstanceRoleArn>",
     "LifeCycleConfig": {
-      "SourceS3Uri": "s3://sagemaker-lifecycle-<region>/hyperpod/",
+      "SourceS3Uri": "s3://mlcc-core-<account>-<region>/hyperpod-lifecycle/",
       "OnCreate": "on_create.sh"
     }
   }]'
 ```
+
+`ExecutionRole` must be the HyperPod instance role ARN (the five-policy role described above),
+`LifeCycleConfig` is required, and the lifecycle S3 URI is
+`s3://mlcc-core-<account>-<region>/hyperpod-lifecycle/`.
+
+!!! tip "Use a GPU instance"
+    Choose a GPU instance type such as `ml.g5.2xlarge` — the inference operator's NVIDIA device
+    plugin check requires GPU nodes, and CPU-only types like `m5` will not satisfy it.
 
 ## `do/config` Variables
 
@@ -171,6 +223,10 @@ a prior deployment.
 
 ## Limitations (Current)
 
-- `do/benchmark`, `do/adapter`, `do/register` not yet supported on the HyperPod path
+- `do/benchmark` is blocked by BL088 (InferenceEndpointConfig CRD migration), planned for v1.7
+- `do/optimize` **is** supported for HyperPod EKS targets (see the optimize docs); note that
+  applying a recommendation only writes `OPTIMIZE_MODEL_PACKAGE_ARN` to `do/config` — actual
+  deployment also depends on BL088
+- `do/adapter`, `do/register` not yet supported on the HyperPod path
 - Multi-GPU TP/PP configuration is handled by a separate spec (e8-h2)
 - Cluster capacity reporting is handled by e8-h3

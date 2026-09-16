@@ -119,30 +119,85 @@ export class MlccEksClusterStack extends cdk.Stack {
         const hyperpodInstanceRole = this._createOrAdoptRole(
             'HyperPodInstanceRole',
             `mlcc-${profileName}-hyperpod-instance-role`,
-            new iam.ServicePrincipal('sagemaker.amazonaws.com'),
-            ['arn:aws:iam::aws:policy/AmazonSageMakerClusterInstanceRolePolicy'],
+            new iam.CompositePrincipal(
+                // SageMaker assumes this role during CreateCluster/UpdateCluster validation
+                new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+                // EC2 assumes this role on the actual HyperPod node at runtime —
+                // required for EKS-orchestrated clusters; without it HyperPod reports
+                // "execution role permissions are invalid" and silently refuses to provision.
+                new iam.ServicePrincipal('ec2.amazonaws.com'),
+            ),
+            [
+                'arn:aws:iam::aws:policy/AmazonSageMakerClusterInstanceRolePolicy',
+                // BL087: ECR read — aws-node + device plugin image pulls from EKS-managed ECR
+                'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly',
+                // BL087: VPC CNI — ipamd gRPC requires full ENI management
+                'arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy',
+                // Required for EKS-orchestrated HyperPod: EC2 node registration with EKS
+                'arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy',
+            ],
             props.adoptRoles,
         );
 
         // SageMaker assumes this role during CreateCluster to validate VpcConfig
         // subnets. AmazonSageMakerClusterInstanceRolePolicy does NOT include
-        // EC2/VPC permissions, so we add them explicitly.
+        // the EC2 ENI permissions required for EKS-orchestrated clusters, so we
+        // add them explicitly per the HyperPod EKS IAM prerequisites docs.
         if (!props.adoptRoles) {
             (hyperpodInstanceRole as iam.Role).addToPolicy(new iam.PolicyStatement({
-                sid: 'VpcSubnetAccess',
+                sid: 'HyperPodEksInstancePolicy',
                 effect: iam.Effect.ALLOW,
                 actions: [
-                    'ec2:DescribeSubnets',
-                    'ec2:DescribeVpcs',
-                    'ec2:DescribeSecurityGroups',
-                    'ec2:DescribeNetworkInterfaces',
+                    // ENI management — required for HyperPod to attach customer ENIs
+                    'ec2:AssignPrivateIpAddresses',
+                    'ec2:AttachNetworkInterface',
                     'ec2:CreateNetworkInterface',
                     'ec2:CreateNetworkInterfacePermission',
                     'ec2:DeleteNetworkInterface',
                     'ec2:DeleteNetworkInterfacePermission',
+                    'ec2:DetachNetworkInterface',
+                    'ec2:ModifyNetworkInterfaceAttribute',
+                    'ec2:UnassignPrivateIpAddresses',
+                    // Describe permissions
+                    'ec2:DescribeInstances',
+                    'ec2:DescribeInstanceTypes',
+                    'ec2:DescribeNetworkInterfaces',
+                    'ec2:DescribeTags',
+                    'ec2:DescribeVpcs',
                     'ec2:DescribeDhcpOptions',
+                    'ec2:DescribeSubnets',
+                    'ec2:DescribeSecurityGroups',
+                    // ECR — pull container images (also covered by managed policy but explicit here)
+                    'ecr:BatchCheckLayerAvailability',
+                    'ecr:BatchGetImage',
+                    'ecr:GetAuthorizationToken',
+                    'ecr:GetDownloadUrlForLayer',
+                    // EKS Pod Identity (optional but included for completeness)
+                    'eks-auth:AssumeRoleForPodIdentity',
                 ],
                 resources: ['*'],
+            }));
+            // CreateTags scoped to network interfaces only
+            (hyperpodInstanceRole as iam.Role).addToPolicy(new iam.PolicyStatement({
+                sid: 'HyperPodEksNetworkInterfaceTags',
+                effect: iam.Effect.ALLOW,
+                actions: ['ec2:CreateTags'],
+                resources: ['arn:aws:ec2:*:*:network-interface/*'],
+            }));
+        }
+
+        // BL087: S3 read access to mlcc-core lifecycle bucket.
+        // HyperPod nodes fetch on_create.sh from s3://mlcc-core-<acct>-<region>/hyperpod-lifecycle/
+        // at bootstrap time. Without this, nodes fail silently during provisioning.
+        if (!props.adoptRoles) {
+            (hyperpodInstanceRole as iam.Role).addToPolicy(new iam.PolicyStatement({
+                sid: 'HyperPodLifecycleS3Access',
+                effect: iam.Effect.ALLOW,
+                actions: ['s3:GetObject', 's3:ListBucket'],
+                resources: [
+                    `arn:aws:s3:::mlcc-core-${this.account}-${this.region}`,
+                    `arn:aws:s3:::mlcc-core-${this.account}-${this.region}/*`,
+                ],
             }));
         }
 
@@ -195,6 +250,11 @@ export class MlccEksClusterStack extends cdk.Stack {
                         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonEKSFargatePodExecutionRolePolicy'),
                     ],
                 });
+            // RETAIN so Fargate profile (which references this ARN) stays valid
+            // even if the stack is torn down and rebuilt.
+            if (!props.adoptRoles) {
+                (fargateRole as iam.Role).applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
+            }
 
             // Fargate profiles are cluster-scoped (not account-scoped like IAM
             // roles). When a cluster is recreated, the profile must also be
@@ -208,7 +268,8 @@ export class MlccEksClusterStack extends cdk.Stack {
                     { namespace: 'kube-system' },
                     { namespace: 'cert-manager' },
                     { namespace: 'aws-hyperpod' },
-                    { namespace: 'hyperpod-inference-system' },
+                    // hyperpod-inference-system excluded: gateway-controller uses hostPath
+                    // volumes unsupported by Fargate — must run on HyperPod EC2 worker nodes.
                     { namespace: 'kubeflow' },
                 ],
                 podExecutionRole: fargateRole,

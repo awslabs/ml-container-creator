@@ -83,6 +83,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: <%= projectName %>-config
+<%# HF_TOKEN: mount from K8s Secret when present (created by do/deploy). %>
+<%# When the model is staged to S3, do/deploy skips secret creation entirely. %>
+<%# The secretRef is optional=true so pods start even without the secret. %>
+            - secretRef:
+                name: hf-token
+                optional: true
           env:
             - name: VLLM_TENSOR_PARALLEL_SIZE
               value: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
