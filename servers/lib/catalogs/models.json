@@ -825,7 +825,10 @@
             "vllm": ">=0.25.0",
             "sglang": ">=0.5.0"
         },
-        "validation_level": "community-validated"
+        "validation_level": "community-validated",
+        "parameterCount": 2800000000000,
+        "defaultDtype": "float8",
+        "maxPositionEmbeddings": 1048576
     },
     "moonshotai/Kimi-K3*": {
         "family": "kimi-k3",
@@ -856,6 +859,9 @@
             "vllm": ">=0.25.0",
             "sglang": ">=0.5.0"
         },
-        "validation_level": "community-validated"
+        "validation_level": "community-validated",
+        "parameterCount": 2800000000000,
+        "defaultDtype": "float8",
+        "maxPositionEmbeddings": 1048576
     }
 }

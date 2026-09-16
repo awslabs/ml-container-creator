@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-15T20:54:53.364Z",
+  "generatedAt": "2026-09-16T02:50:32.871Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [

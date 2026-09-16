@@ -107,6 +107,79 @@ function validateModelsCatalog() {
 
 validateModelsCatalog();
 
+// ── 3. model-sizes.json <-> models.json merge consistency ────────────────────
+// Mirrors unified-model-catalog.property.test.js "Property 1": every model-sizes
+// entry's size fields (parameterCount, defaultDtype) must be merged into the
+// matching models.json entry (direct key or glob pattern). Catches the class of
+// bug where a model is added to models.json but its size profile is never merged.
+function globToRegex(pattern) {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${escaped.replace(/\*/g, '.*')}$`);
+}
+function matchesPattern(modelId, pattern) {
+    if (modelId === pattern) return true;
+    if (!pattern.includes('*')) return false;
+    return globToRegex(pattern).test(modelId);
+}
+
+function validateModelSizesMerge() {
+    let sizes;
+    let models;
+    try {
+        const sRaw = JSON.parse(readFileSync(resolve(ROOT, 'servers/lib/catalogs/model-sizes.json'), 'utf8'));
+        sizes = sRaw.models || sRaw;
+    } catch (e) {
+        errors.push(`model-sizes.json: not valid JSON: ${e.message}`);
+        return;
+    }
+    try {
+        const mRaw = JSON.parse(readFileSync(resolve(ROOT, 'servers/lib/catalogs/models.json'), 'utf8'));
+        models = mRaw.models || mRaw;
+    } catch (e) {
+        // models.json JSON errors are already reported by validateModelsCatalog()
+        return;
+    }
+
+    const modelEntries = Object.entries(models);
+    let bad = 0;
+    for (const [pattern, sizeEntry] of Object.entries(sizes)) {
+        if (pattern in models) {
+            // Direct match — the merged entry must carry the size fields with matching values.
+            const unified = models[pattern];
+            if (sizeEntry.parameterCount && unified.parameterCount !== sizeEntry.parameterCount) {
+                bad++;
+                errors.push(`model-sizes "${pattern}": parameterCount not merged into models.json (expected ${sizeEntry.parameterCount}, got ${unified.parameterCount})`);
+            }
+            if (sizeEntry.defaultDtype && unified.defaultDtype !== sizeEntry.defaultDtype) {
+                bad++;
+                errors.push(`model-sizes "${pattern}": defaultDtype not merged into models.json (expected "${sizeEntry.defaultDtype}", got "${unified.defaultDtype}")`);
+            }
+        } else {
+            // Wildcard/glob — at least one matching models.json entry must carry the fields.
+            const matching = modelEntries.filter(([id]) => matchesPattern(id, pattern));
+            if (matching.length === 0) {
+                bad++;
+                errors.push(`model-sizes pattern "${pattern}": no matching models.json entry (orphan size profile)`);
+                continue;
+            }
+            const hasFields = matching.some(([, entry]) => {
+                if (sizeEntry.parameterCount && entry.parameterCount !== sizeEntry.parameterCount) return false;
+                if (sizeEntry.defaultDtype && entry.defaultDtype !== sizeEntry.defaultDtype) return false;
+                return true;
+            });
+            if (!hasFields) {
+                bad++;
+                errors.push(`model-sizes pattern "${pattern}": matched models.json entries but none carry the merged size fields (parameterCount/defaultDtype)`);
+            }
+        }
+    }
+    if (bad === 0) {
+        console.log(`✓ model-sizes.json: ${Object.keys(sizes).length} size profiles merged into models.json`);
+    }
+}
+
+validateModelSizesMerge();
+
 // ── Report ────────────────────────────────────────────────────────────────────
 if (errors.length) {
     console.error('\n❌ Catalog validation failed:');
