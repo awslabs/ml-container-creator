@@ -51,7 +51,9 @@ _show_usage() {
     echo ""
     echo "Dataset options:"
     echo "  <name>              Dataset name (required, positional)"
-    echo "  --s3-uri <uri>      S3 URI of the dataset file (required)"
+    echo "  --s3-uri <uri>      Dataset URI — S3 (s3://bucket/data.jsonl) or HuggingFace (hf://org/name)"
+    echo "                      Note: do/optimize --dataset requires an s3:// URI at job submission time."
+    echo "                      Stage HuggingFace datasets to S3 first if using with do/optimize."
     echo "  --format <fmt>      Format: jsonl, parquet, csv (default: jsonl)"
     echo "  --technique <tech>  Technique: sft, dpo, rlaif, rlvr (default: sft)"
     echo "  --row-count <n>     Number of records"
@@ -73,7 +75,8 @@ _show_usage() {
     echo ""
     echo "Examples:"
     echo "  ./do/register                              # Register model (default)"
-    echo "  ./do/register dataset alpaca-sft-1k --s3-uri s3://bucket/data.jsonl --technique sft --row-count 1000"
+    echo "  ./do/register dataset alpaca-sft-1k --s3-uri s3://bucket/data.jsonl --technique sft --row-count 1000
+  ./do/register dataset my-hf-dataset --s3-uri hf://allenai/dolma --technique sft"
     echo "  ./do/register evaluator my-reward --type lambda --arn arn:aws:lambda:... --technique rlvr"
 }
 

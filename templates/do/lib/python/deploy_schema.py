@@ -37,6 +37,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "HP_NAMESPACE": "default",
             "HP_REPLICAS": "1",
             "HP_QUEUE": "",
+            "HP_INSTANCE_GROUP_NAME": "",
         },
     },
     "async-inference": {

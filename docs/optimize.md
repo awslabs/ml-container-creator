@@ -18,7 +18,8 @@ For Athena-backed config recommendations based on your own benchmark history (no
 ## Usage
 
 ```bash
-./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--dataset-uri s3://...] [--force]
+./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--dataset <source>] [--force]
+./do/optimize --list-datasets [--source local|remote|all]
 ./do/optimize --list
 ./do/optimize --apply <arn|top>
 ```
@@ -29,7 +30,8 @@ For Athena-backed config recommendations based on your own benchmark history (no
 |---|---|---|
 | `--goal` | Yes (for a new job) | Optimization goal: `cost`, `latency`, or `throughput` |
 | `--instances` | No | Comma-separated instance types to evaluate (max 3). Not valid with `--goal cost` (see note below) |
-| `--dataset-uri <s3-uri>` | No | S3 URI of a JSONL calibration dataset for `--goal throughput`. Supplying it enables speculator training. |
+| `--dataset <source>` | No | Calibration dataset for `--goal throughput` (enables speculator training). Accepts a raw S3 URI (`s3://bucket/path.jsonl`), a registered dataset name with optional version pinning (`name`, `name@v2`, or `name@v1.0.0`), or a HuggingFace reference (`hf://org/name`). Names are resolved via the dataset registry. |
+| `--list-datasets` | No | List registered datasets (from the shared registry used by `do/tune`) and exit. Accepts an optional `--source local\|remote\|all` filter (default: `all`). |
 | `--force` | No | Create a new job even if one already exists |
 | `--list` | No | List completed recommendation results (ranked) without creating a new job |
 | `--apply <arn\|top>` | No | Apply a recommendation to `do/config`: pass `top` for the #1 ranked result, or a specific model package ARN |
@@ -41,9 +43,17 @@ For Athena-backed config recommendations based on your own benchmark history (no
 
 !!! note "`--goal throughput` and calibration datasets"
     Without a dataset, `--goal throughput` preserves the existing behavior and passes
-    `--no-optimize-model`. Supply `--dataset-uri s3://bucket/path/data.jsonl` to enable
-    model optimization and speculator training. The JSONL dataset may use ShareGPT records,
-    OpenAI Chat Completions records, or OpenAI Completions records.
+    `--no-optimize-model`. Supply `--dataset <source>` to enable model optimization and
+    speculator training. The `--dataset` flag accepts three forms (the same UX as `do/tune`):
+
+    - a raw S3 URI — `--dataset s3://bucket/path/data.jsonl`
+    - a registered dataset name, optionally version-pinned — `--dataset calibration-sample`,
+      `--dataset calibration-sample@v2`, or `--dataset calibration-sample@v1.0.0`
+    - a HuggingFace reference — `--dataset hf://my-org/calibration-data`
+
+    Registered names are resolved to their underlying S3 URI via the dataset registry.
+    Run `./do/optimize --list-datasets` to discover available names. The JSONL dataset may
+    use ShareGPT records, OpenAI Chat Completions records, or OpenAI Completions records.
 
 ## Instance Resolution
 
@@ -82,8 +92,17 @@ For the HyperPod EKS target specifically, `STAGED_MODEL_PATH` is the model sourc
 # Optimize for throughput without a dataset (recommendation-only behavior)
 ./do/optimize --goal throughput
 
-# Optimize throughput with a JSONL calibration dataset and train a speculator
-./do/optimize --goal throughput --dataset-uri s3://my-bucket/calibration.jsonl
+# List datasets registered in the shared registry (discover valid --dataset names)
+./do/optimize --list-datasets
+
+# Optimize throughput with a raw S3 calibration dataset and train a speculator
+./do/optimize --goal throughput --dataset s3://my-bucket/calibration.jsonl
+
+# Optimize throughput with a registered dataset name (version-pinned)
+./do/optimize --goal throughput --dataset calibration-sample@v2
+
+# Optimize throughput with a HuggingFace dataset reference
+./do/optimize --goal throughput --dataset hf://my-org/calibration-data
 
 # Compare specific instance types for latency
 ./do/optimize --goal latency --instances ml.g6e.48xlarge,ml.p5.48xlarge
@@ -266,12 +285,12 @@ from the realtime path:
 : Recommendations typically complete in 10–30 minutes. Jobs hitting the 60-minute timeout may indicate an issue with instance availability.
 
 **"Spec decoding failed on all N instances (create failed)"**
-: The `--goal throughput --dataset-uri` path enables speculator training, which requires a
+: The `--goal throughput --dataset` path enables speculator training, which requires a
   compatible draft model in the SageMaker marketplace for your target model. Most small models
   (≤3B) don't have a marketplace draft model, so the `speculative_decoding` step will fail and
   downstream benchmark nodes will be skipped. The failure is at the SMAI API level — it is not
   an MLCC bug. You'll still see a summary with status `FAILED`; use `--goal latency` or
-  `--goal throughput` (without `--dataset-uri`) to get recommendations for smaller models.
+  `--goal throughput` (without `--dataset`) to get recommendations for smaller models.
 
 **`STAGED_MODEL_PATH` missing after `mcc generate`**
 : `STAGED_MODEL_PATH` is written to `do/config` by `do/stage` at staging time, not at project

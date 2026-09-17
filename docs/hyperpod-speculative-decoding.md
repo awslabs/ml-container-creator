@@ -122,7 +122,7 @@ SageMaker AI Inference Recommendations API returns a `SpeculativeDecodingConfig`
 its results:
 
 ```bash
-# Run a recommendation job (latency or throughput with --dataset-uri)
+# Run a recommendation job (latency or throughput with --dataset)
 ./do/optimize --goal latency
 
 # Apply the top result — writes HP_SPECULATIVE_* if the API recommended it
@@ -140,8 +140,8 @@ When applied, these vars are written to `do/config`:
 !!! note "Speculative recommendations require larger models"
     The SMAI API only returns `SpeculativeDecodingConfig` for models where a compatible
     marketplace draft model exists. Models ≤3B parameters typically don't qualify. For
-    `--goal throughput`, pass `--dataset-uri s3://...` to enable speculator training
-    (see [Optimization](optimize.md)).
+    `--goal throughput`, pass `--dataset s3://...` (or a registered name / `hf://` reference)
+    to enable speculator training (see [Optimization](optimize.md)).
 
 ---
 

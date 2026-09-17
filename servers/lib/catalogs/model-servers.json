@@ -886,12 +886,12 @@
     ],
     "sglang": [
         {
-            "image": "lmsysorg/sglang:v0.5.15",
-            "tag": "v0.5.15",
+            "image": "lmsysorg/sglang:v0.5.19",
+            "tag": "v0.5.19",
             "architecture": "amd64",
-            "created": "2026-07-10T10:34:03.130758Z",
+            "created": "2026-09-04T22:50:16.627362Z",
             "labels": {
-                "framework_version": "0.5.15"
+                "framework_version": "0.5.19"
             },
             "registry": "dockerhub",
             "repository": "lmsysorg/sglang",
@@ -954,12 +954,12 @@
             "transformers_version": "4.52.0"
         },
         {
-            "image": "lmsysorg/sglang:v0.5.14",
-            "tag": "v0.5.14",
+            "image": "lmsysorg/sglang:v0.5.18",
+            "tag": "v0.5.18",
             "architecture": "amd64",
-            "created": "2026-06-26T04:19:52.602207Z",
+            "created": "2026-08-21T22:07:30.944913Z",
             "labels": {
-                "framework_version": "0.5.14"
+                "framework_version": "0.5.18"
             },
             "registry": "dockerhub",
             "repository": "lmsysorg/sglang",
@@ -1019,15 +1019,15 @@
             },
             "min_driver_version": "570.86",
             "cuda_toolkit": "12.8",
-            "transformers_version": "4.51.0"
+            "transformers_version": "4.52.0"
         },
         {
-            "image": "lmsysorg/sglang:v0.5.13",
-            "tag": "v0.5.13",
+            "image": "lmsysorg/sglang:v0.5.17",
+            "tag": "v0.5.17",
             "architecture": "amd64",
-            "created": "2026-06-11T10:15:46.142149Z",
+            "created": "2026-08-08T00:09:39.248124Z",
             "labels": {
-                "framework_version": "0.5.13"
+                "framework_version": "0.5.17"
             },
             "registry": "dockerhub",
             "repository": "lmsysorg/sglang",
@@ -1087,7 +1087,7 @@
             },
             "min_driver_version": "570.86",
             "cuda_toolkit": "12.8",
-            "transformers_version": "4.51.0"
+            "transformers_version": "4.52.0"
         }
     ],
     "tensorrt-llm": [

@@ -322,6 +322,7 @@ _ANSWER_KEY_TO_VAR: dict[str, str] = {
     "namespace": "HP_NAMESPACE",
     "replicas": "HP_REPLICAS",
     "queue": "HP_QUEUE",
+    "hp_instance_group_name": "HP_INSTANCE_GROUP_NAME",
     "async_output_path": "ASYNC_S3_OUTPUT_PATH",
     "async_sns_topic": "ASYNC_SNS_TOPIC",
     "async_max_concurrent": "ASYNC_MAX_CONCURRENT",
@@ -644,14 +645,18 @@ def prompt_cluster_name(config_vars: dict[str, str]) -> str:
         print(json.dumps({"error": "Prompt cancelled by user"}))
         sys.exit(1)
 
-    # Store the selected cluster's queues for prompt_hp_queue()
+    # Store the selected cluster's queues and instance groups for
+    # prompt_hp_queue() and prompt_hp_instance_group().
     if client is not None and clusters:
         selected = next(
             (c for c in clusters if c["name"] == result), None
         )
-        global _LAST_CLUSTER_QUEUES
+        global _LAST_CLUSTER_QUEUES, _LAST_CLUSTER_INSTANCE_GROUPS
         _LAST_CLUSTER_QUEUES = (
             selected.get("queues", []) if selected else []
+        )
+        _LAST_CLUSTER_INSTANCE_GROUPS = (
+            selected.get("instanceGroups", []) if selected else []
         )
 
     return result
@@ -660,6 +665,91 @@ def prompt_cluster_name(config_vars: dict[str, str]) -> str:
 # Module-level storage for queue data from the last cluster selection.
 # Used by prompt_hp_queue() to show Kueue queue choices.
 _LAST_CLUSTER_QUEUES: list[str] = []
+
+# Module-level storage for instance-group data from the last cluster
+# selection. Used by prompt_hp_instance_group() to show the exhaustive
+# list of instance groups (name + instance type + count) for the cluster.
+_LAST_CLUSTER_INSTANCE_GROUPS: list[dict] = []
+
+
+def prompt_hp_instance_group(config_vars: dict[str, str]) -> str:
+    """Prompt for the HyperPod EKS instance group / node instance type.
+
+    Uses the instance-group list stored by prompt_cluster_name() (from the
+    MCP cluster-picker response). If instance groups are available, shows a
+    select prompt listing *all* groups (no cap) with name, instance type and
+    node count. The selected group's instanceType is returned as the value
+    (this becomes HP_INSTANCE_TYPE / HP_NODE_SELECTOR). The selected group's
+    name is stored in _LAST_HP_INSTANCE_GROUP_NAME for HP_INSTANCE_GROUP_NAME.
+
+    Falls back to a free-text prompt when no instance groups are available
+    (MCP unavailable or cluster has none).
+
+    Args:
+        config_vars: Parsed config variables.
+
+    Returns:
+        The selected group's instanceType, or the free-text value entered.
+
+    Validates: Requirements FR-6.1
+    """
+    import questionary
+
+    global _LAST_CLUSTER_INSTANCE_GROUPS, _LAST_HP_INSTANCE_GROUP_NAME
+    groups = _LAST_CLUSTER_INSTANCE_GROUPS
+
+    if groups:
+        choices = []
+        for grp in groups:
+            name = grp.get("name", "")
+            count = grp.get("count", 0)
+            node_word = "node" if count == 1 else "nodes"
+            if grp.get("isFlexible") and not grp.get("instanceType"):
+                # Flexible group: instanceType may be null — show the list.
+                instance_types = grp.get("instanceTypes") or []
+                type_display = ", ".join(instance_types) if instance_types else "flexible"
+                # Value is the first available type (best-effort) so the
+                # deploy driver has a concrete node type to work with.
+                value = instance_types[0] if instance_types else ""
+                title = f"{name}  {type_display}  ({count} {node_word})"
+            else:
+                instance_type = grp.get("instanceType") or ""
+                value = instance_type
+                title = f"{name}  {instance_type}  ({count} {node_word})"
+            choices.append(
+                questionary.Choice(title=title, value={"name": name, "instanceType": value})
+            )
+
+        result = questionary.select(
+            "Select instance group:",
+            choices=choices,
+        ).ask()
+
+        if result is None:
+            print(json.dumps({"error": "Prompt cancelled by user"}))
+            sys.exit(1)
+
+        _LAST_HP_INSTANCE_GROUP_NAME = result.get("name", "")
+        return result.get("instanceType", "")
+
+    # Fall back to free-text prompt when no instance groups are available.
+    result = questionary.text(
+        "HyperPod node instance type (e.g. ml.g5.12xlarge, ml.p4d.24xlarge):",
+        default=config_vars.get("INSTANCE_TYPE", "") if config_vars else "",
+        validate=lambda v: bool(v.strip()) or "Instance type is required",
+    ).ask()
+
+    if result is None:
+        print(json.dumps({"error": "Prompt cancelled by user"}))
+        sys.exit(1)
+
+    _LAST_HP_INSTANCE_GROUP_NAME = ""
+    return result
+
+
+# Module-level storage for the instance-group name chosen by
+# prompt_hp_instance_group(). Surfaced as HP_INSTANCE_GROUP_NAME.
+_LAST_HP_INSTANCE_GROUP_NAME: str = ""
 
 
 def prompt_hp_gpu_count(
@@ -1078,6 +1168,11 @@ def prompt_for_missing(
     answers: dict[str, str] = {}
 
     for var_name, default in missing_vars.items():
+        # Skip vars already collected as a side effect of another prompt
+        # (e.g. HP_INSTANCE_GROUP_NAME is set by prompt_hp_instance_group()).
+        if var_name in answers:
+            continue
+
         # Check env answers first
         if env_answers and var_name in env_answers:
             # Validate INSTANCE_TYPES from env answers
@@ -1092,16 +1187,13 @@ def prompt_for_missing(
         # Use MCP-aware prompt for INSTANCE_TYPE
         if var_name == "INSTANCE_TYPE" and config_vars is not None:
             if target == "hyperpod-eks":
-                # HyperPod: instance type is the EKS node type.
-                # Prompt manually — don't call the SageMaker endpoint instance-sizer.
-                # The node type is determined by the cluster's node group,
-                # so we surface a text prompt with guidance.
-                import questionary
-                answers[var_name] = questionary.text(
-                    "HyperPod node instance type (e.g. ml.g5.12xlarge, ml.p4d.24xlarge):",
-                    default=default or "",
-                    validate=lambda v: bool(v.strip()) or "Instance type is required",
-                ).ask() or (default or "")
+                # HyperPod: instance type is the EKS node type, sourced from
+                # the selected cluster's instance groups (exhaustive list).
+                # Falls back to free-text when MCP/groups are unavailable.
+                answers[var_name] = prompt_hp_instance_group(config_vars)
+                # Surface the selected group name for node affinity if set.
+                if _LAST_HP_INSTANCE_GROUP_NAME:
+                    answers["HP_INSTANCE_GROUP_NAME"] = _LAST_HP_INSTANCE_GROUP_NAME
             else:
                 answers[var_name] = prompt_instance_type(config_vars, default)
             continue

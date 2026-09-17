@@ -69,7 +69,8 @@ def _run_apply(tmp_path: Path, recommendation: dict) -> tuple[subprocess.Complet
 def test_dataset_uri_uses_dataset_config_and_enables_throughput_optimization():
     script = OPTIMIZE_TEMPLATE.read_text()
 
-    assert "--dataset-uri)" in script
+    assert "--dataset)" in script
+    assert "--dataset-uri" not in script
     assert 'WORKLOAD_CONFIG_CMD+=(--dataset-config "${DATASET_CONFIG}")' in script
     assert '"S3Uri": sys.argv[1]' in script
     assert '[ "${PERF_METRIC}" = "throughput" ] && [ -z "${DATASET_URI}" ]' in script

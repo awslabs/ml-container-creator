@@ -700,8 +700,8 @@ class TestMCPListClusters:
 
         result = mcp_list_clusters(client, "us-east-1")
         assert len(result) == 2
-        assert result[0] == {"name": "cluster-1", "gpu_capacity": 8, "queues": ["default-queue"]}
-        assert result[1] == {"name": "cluster-2", "gpu_capacity": 16, "queues": ["train", "infer"]}
+        assert result[0] == {"name": "cluster-1", "gpu_capacity": 8, "queues": ["default-queue"], "instanceGroups": []}
+        assert result[1] == {"name": "cluster-2", "gpu_capacity": 16, "queues": ["train", "infer"], "instanceGroups": []}
 
     def test_returns_empty_list_on_timeout(self) -> None:
         """FR-10.4: On timeout/failure (call_tool returns None), returns empty list."""
@@ -735,7 +735,57 @@ class TestMCPListClusters:
 
         result = mcp_list_clusters(client, "us-east-1")
         assert len(result) == 1
-        assert result[0] == {"name": "cluster-no-queues", "gpu_capacity": 4, "queues": []}
+        assert result[0] == {"name": "cluster-no-queues", "gpu_capacity": 4, "queues": [], "instanceGroups": []}
+    def test_parses_instance_groups(self) -> None:
+        """instanceGroups parsed with name, instanceType(s), count, isFlexible."""
+        mock_data = {
+            "cluster-picker/list": {
+                "clusters": [
+                    {
+                        "name": "cluster-ig",
+                        "gpu_capacity": 8,
+                        "queues": ["default"],
+                        "instanceGroups": [
+                            {
+                                "name": "worker",
+                                "instanceType": "ml.g5.2xlarge",
+                                "instanceTypes": [],
+                                "count": 2,
+                                "isFlexible": False,
+                            },
+                            {
+                                "name": "flex",
+                                "instanceType": None,
+                                "instanceTypes": ["ml.g5.xlarge", "ml.g5.2xlarge"],
+                                "count": 3,
+                                "isFlexible": True,
+                            },
+                        ],
+                    },
+                ],
+            }
+        }
+        client = MCPClient(transport="mock", mock_responses=mock_data)
+
+        result = mcp_list_clusters(client, "us-east-1")
+        assert len(result) == 1
+        groups = result[0]["instanceGroups"]
+        assert len(groups) == 2
+        assert groups[0] == {
+            "name": "worker",
+            "instanceType": "ml.g5.2xlarge",
+            "instanceTypes": [],
+            "count": 2,
+            "isFlexible": False,
+        }
+        assert groups[1] == {
+            "name": "flex",
+            "instanceType": None,
+            "instanceTypes": ["ml.g5.xlarge", "ml.g5.2xlarge"],
+            "count": 3,
+            "isFlexible": True,
+        }
+
 
     def test_handles_response_missing_clusters_key(self) -> None:
         """Response without 'clusters' key returns empty list."""

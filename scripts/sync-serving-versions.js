@@ -118,17 +118,30 @@ export function semverDistance(a, b) {
 export async function fetchDockerHubTags(namespace, repository, fetchImpl) {
     const fetchFn = fetchImpl || fetch;
     const tags = [];
-    let url = `https://hub.docker.com/v2/repositories/${namespace}/${repository}/tags?page_size=100`;
+    // Order by most-recently-updated and stop early once we have enough valid
+    // semver tags. Fetching ALL tags (some repos have 1500+) exhausts DockerHub's
+    // anonymous rate limit mid-pagination and returns HTTP 403 — the newest few
+    // releases are all we need. MAX_PAGES is a hard safeguard against runaway
+    // pagination; SEMVER_TARGET is comfortably above the top-3 we ultimately keep.
+    const MAX_PAGES = 8;
+    const SEMVER_TARGET = 10;
+    let url = `https://hub.docker.com/v2/repositories/${namespace}/${repository}/tags?page_size=100&ordering=last_updated`;
+    let pages = 0;
+    let semverCount = 0;
 
-    while (url) {
+    while (url && pages < MAX_PAGES) {
         const response = await fetchFn(url);
         if (!response.ok) {
             throw new Error(`DockerHub API returned HTTP ${response.status}`);
         }
         const data = await response.json();
+        pages++;
         for (const result of data.results || []) {
             tags.push({ name: result.name, lastUpdated: result.last_updated });
+            if (isValidSemver(result.name)) semverCount++;
         }
+        // Stop once we have enough release-semver tags to select the top set.
+        if (semverCount >= SEMVER_TARGET) break;
         url = data.next || null;
     }
 

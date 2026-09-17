@@ -39,21 +39,29 @@ fi
 # ── Parse flags ───────────────────────────────────────────────────────────────
 GOAL=""
 INSTANCES_ARG=""
+DATASET_ARG=""
 DATASET_URI=""
+DATASET_NAME=""
+DATASET_VERSION=""
 FORCE=false
 APPLY_ARN=""
 LIST_ONLY=false
+LIST_DATASETS=false
+DATASET_SOURCE=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --goal) shift; GOAL="${1:-}"; shift ;;
         --instances) shift; INSTANCES_ARG="${1:-}"; shift ;;
-        --dataset-uri) shift; DATASET_URI="${1:-}"; shift ;;
+        --dataset) shift; DATASET_ARG="${1:-}"; shift ;;
+        --list-datasets) LIST_DATASETS=true; shift ;;
+        --source) shift; DATASET_SOURCE="${1:-}"; shift ;;
         --force) FORCE=true; shift ;;
         --apply) shift; APPLY_ARN="${1:-}"; shift ;;
         --list) LIST_ONLY=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--dataset-uri s3://...] [--force]"
+            echo "Usage: ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--dataset <source>] [--force]"
             echo "       ./do/optimize --list"
+            echo "       ./do/optimize --list-datasets [--source local|remote|all]"
             echo "       ./do/optimize --apply <package-arn|top>"
             echo ""
             echo "Run SageMaker AI Inference Recommendations to find optimal instance types"
@@ -62,8 +70,15 @@ while [ $# -gt 0 ]; do
             echo "Options:"
             echo "  --goal <goal>       (Required for new jobs) Optimization goal: cost, latency, or throughput"
             echo "  --instances <list>  Comma-separated instance types to evaluate (max 3)"
-            echo "  --dataset-uri <s3>  JSONL dataset for throughput speculator training"
+            echo "  --dataset <source>  JSONL dataset for throughput speculator training (only with --goal throughput)"
+            echo "                      Accepts one of three forms:"
+            echo "                        • s3://bucket/path.jsonl        — raw S3 URI (used as-is)"
+            echo "                        • <name>[@v<version>]           — registered dataset name, optionally"
+            echo "                          version-pinned (@v2 or @v1.0.0), resolved via the dataset registry"
+            echo "                        • hf://org/name                 — HuggingFace reference (passed through)"
             echo "                      Supports ShareGPT, OpenAI Chat Completions, and OpenAI Completions records"
+            echo "  --list-datasets     List registered datasets and exit"
+            echo "  --source <src>      With --list-datasets: filter by local, remote, or all (default: all)"
             echo "  --force             Create a new recommendation job even if one exists"
             echo "  --list              Display results from the last completed recommendation job"
             echo "  --apply <arn|top>   Apply a recommendation to do/config"
@@ -73,7 +88,10 @@ while [ $# -gt 0 ]; do
             echo ""
             echo "Examples:"
             echo "  ./do/optimize --goal throughput"
-            echo "  ./do/optimize --goal throughput --dataset-uri s3://my-bucket/calibration.jsonl"
+            echo "  ./do/optimize --goal throughput --dataset s3://my-bucket/calibration.jsonl"
+            echo "  ./do/optimize --goal throughput --dataset calibration-sample@v2"
+            echo "  ./do/optimize --goal throughput --dataset hf://my-org/calibration-data"
+            echo "  ./do/optimize --list-datasets"
             echo "  ./do/optimize --goal cost --instances ml.g6e.48xlarge,ml.p5.48xlarge"
             echo "  ./do/optimize --goal latency --force"
             echo ""
@@ -95,6 +113,78 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# ── Handle --list-datasets (before requiring --goal) ──────────────────────────
+# Delegates to .register_helper.py list-datasets. If --goal is also supplied,
+# listing wins (no mutual-exclusion error). Missing/failing helper is non-fatal.
+if [ "${LIST_DATASETS}" = true ]; then
+    echo ""
+    echo "📦 Registered datasets:"
+    echo ""
+
+    _source_flag=""
+    [ -n "${DATASET_SOURCE}" ] && _source_flag="--source ${DATASET_SOURCE}"
+
+    # shellcheck disable=SC2086
+    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets ${_source_flag} 2>/dev/null) || _ds_output=""
+    _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1) || _ds_json=""
+
+    if [ -n "${_ds_json}" ]; then
+        _remote_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('remote',[])))" 2>/dev/null) || _remote_count=0
+        _local_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('local',[])))" 2>/dev/null) || _local_count=0
+
+        if [ "${_source_flag}" != "--source local" ]; then
+            echo "Remote DataSets (AWS AI Registry):"
+            printf "  %-20s %-10s %-12s %s\n" "NAME" "TECHNIQUE" "VERSION" "CREATED"
+            printf "  %-20s %-10s %-12s %s\n" "----" "---------" "-------" "-------"
+            if [ "${_remote_count}" -gt 0 ]; then
+                echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for ds in data.get('remote', []):
+    name = ds.get('name','')[:20]
+    tech = ds.get('technique','')[:10]
+    version = ds.get('version','')[:12]
+    created = ds.get('created_at','')[:10]
+    print(f'  {name:<20} {tech:<10} {version:<12} {created}')
+" 2>/dev/null
+            else
+                echo "  (none)"
+            fi
+            echo ""
+        fi
+
+        if [ "${_source_flag}" != "--source remote" ]; then
+            echo "Local Datasets:"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
+            if [ "${_local_count}" -gt 0 ]; then
+                echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for ds in data.get('local', []):
+    name = ds.get('name','')[:20]
+    tech = ds.get('technique','')[:10]
+    latest = ds.get('latest_version','')[:10]
+    ver_count = ds.get('version_count', 1)
+    if ver_count > 1:
+        latest = f'{latest} ({ver_count}v)'
+    rows = str(ds.get('row_count','') or '')[:8]
+    uri = ds.get('s3_uri','')
+    print(f'  {name:<20} {tech:<10} {latest:<10} {rows:<8} {uri}')
+" 2>/dev/null
+            else
+                echo "  (none)"
+            fi
+        fi
+    else
+        echo "  (none)"
+    fi
+    echo ""
+    echo "  Use: ./do/optimize --goal throughput --dataset <name>"
+    echo ""
+    exit 0
+fi
+
 # ── Validate goal (required for new jobs) ─────────────────────────────────────
 if [ -z "${GOAL}" ] && [ -z "${APPLY_ARN}" ]; then
     echo "❌ --goal is required"
@@ -115,12 +205,67 @@ case "${GOAL}" in
         ;;
 esac
 
-if [ -n "${DATASET_URI}" ] && [ "${GOAL}" != "throughput" ]; then
-    echo "❌ --dataset-uri is supported only with --goal throughput"
+if [ -n "${DATASET_ARG}" ] && [ "${GOAL}" != "throughput" ]; then
+    echo "❌ --dataset is supported only with --goal throughput"
     exit 1
 fi
-if [ -n "${DATASET_URI}" ] && [[ "${DATASET_URI}" != s3://* ]]; then
-    echo "❌ --dataset-uri must be an s3:// URI"
+
+# ── Resolve --dataset (classification + registry resolution) ──────────────────
+# Runs BEFORE the s3:// validation so a bare registry name is not rejected
+# prematurely (AC 2.5). Three input forms:
+#   • s3://bucket/path  → Raw_S3_URI, validated below
+#   • hf://org/name     → passed through unchanged, no resolver, no s3-check
+#   • <name>[@v<ver>]   → resolved via .register_helper.py resolve-dataset
+if [ -n "${DATASET_ARG}" ]; then
+    if [[ "${DATASET_ARG}" == s3://* ]]; then
+        # Raw S3 URI — validated by the s3:// check below.
+        DATASET_URI="${DATASET_ARG}"
+    elif [[ "${DATASET_ARG}" == hf://* ]]; then
+        # HuggingFace reference — passthrough, no resolution, no s3-check.
+        DATASET_URI="${DATASET_ARG}"
+    else
+        # Registry name, optionally version-pinned. Same @v syntax as do/tune:
+        #   name@v2      → name="name", version="2" (ordinal)
+        #   name@v1.0.0  → name="name", version="1.0.0" (semver)
+        DATASET_NAME="${DATASET_ARG}"
+        DATASET_VERSION=""
+        if [[ "${DATASET_ARG}" =~ ^(.+)@v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            DATASET_NAME="${BASH_REMATCH[1]}"
+            DATASET_VERSION="${BASH_REMATCH[2]}"
+        elif [[ "${DATASET_ARG}" =~ ^(.+)@v([0-9]+)$ ]]; then
+            DATASET_NAME="${BASH_REMATCH[1]}"
+            DATASET_VERSION="${BASH_REMATCH[2]}"
+        fi
+
+        echo "🔍 Resolving dataset '${DATASET_NAME}' from registry..."
+        _resolve_args=("--name" "${DATASET_NAME}")
+        if [ -n "${DATASET_VERSION}" ]; then
+            _resolve_args+=("--version" "${DATASET_VERSION}")
+            echo "   Version: v${DATASET_VERSION}"
+        fi
+
+        _resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
+            "${_resolve_args[@]}" 2>/dev/null) || _resolve_result=""
+        _resolved_uri=""
+        if [ -n "${_resolve_result}" ]; then
+            _resolved_uri=$(echo "${_resolve_result}" | grep -E '^\{' | tail -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || _resolved_uri=""
+        fi
+
+        if [ -z "${_resolved_uri}" ]; then
+            echo "❌ Could not resolve dataset '${DATASET_NAME}' from the registry."
+            echo "   The dataset may not exist, or the registry helper is unavailable."
+            echo "   List available datasets: ./do/optimize --list-datasets"
+            exit 1
+        fi
+        echo "   Resolved to: ${_resolved_uri}"
+        DATASET_URI="${_resolved_uri}"
+    fi
+fi
+
+# The s3:// validation applies only to the raw-s3:// branch. Named and hf://
+# inputs have already been resolved/passed through above.
+if [ -n "${DATASET_ARG}" ] && [[ "${DATASET_ARG}" == s3://* ]] && [[ "${DATASET_URI}" != s3://* ]]; then
+    echo "❌ --dataset must be an s3:// URI, a registered name, or an hf:// reference"
     exit 1
 fi
 

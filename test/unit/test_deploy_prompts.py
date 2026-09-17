@@ -31,6 +31,7 @@ from deploy_prompts import (
     prompt_for_missing,
     prompt_gpu_count,
     prompt_hp_gpu_count,
+    prompt_hp_instance_group,
     prompt_instance_type,
     prompt_instance_types,
     prompt_target_selection,
@@ -2992,3 +2993,282 @@ class TestPromptForMissingWithBatchFlow:
         assert result["BATCH_SPLIT_TYPE"] == "Line"
         assert result["BATCH_STRATEGY"] == "MultiRecord"
         assert result["BATCH_MAX_CONCURRENT"] == "1"
+
+
+# ---------------------------------------------------------------------------
+# HyperPod instance-group prompt tests
+# ---------------------------------------------------------------------------
+
+
+class TestPromptHpInstanceGroup:
+    """Test prompt_hp_instance_group shows exhaustive instance-group list.
+
+    Validates: Requirements FR-6.1
+    """
+
+    def _make_groups(self, n: int) -> list[dict]:
+        """Build *n* homogeneous instance groups."""
+        return [
+            {
+                "name": f"group-{i}",
+                "instanceType": f"ml.g5.{i}xlarge",
+                "instanceTypes": [],
+                "count": i + 1,
+                "isFlexible": False,
+            }
+            for i in range(n)
+        ]
+
+    def test_shows_all_groups_no_truncation(self, monkeypatch) -> None:
+        """When >10 instance groups exist, ALL are shown (no cap/slice)."""
+        import deploy_prompts
+
+        groups = self._make_groups(15)
+        deploy_prompts._LAST_CLUSTER_INSTANCE_GROUPS = groups
+        deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME = ""
+
+        captured_kwargs: dict = {}
+
+        class FakeQuestion:
+            def ask(self):
+                # Select the group whose value matches "group-0"
+                return {"name": "group-0", "instanceType": "ml.g5.0xlarge"}
+
+        def fake_select(message, **kwargs):
+            captured_kwargs.update(kwargs)
+            captured_kwargs["message"] = message
+            return FakeQuestion()
+
+        monkeypatch.setattr("questionary.select", fake_select)
+
+        result = prompt_hp_instance_group({})
+
+        assert result == "ml.g5.0xlarge"
+        assert captured_kwargs["message"] == "Select instance group:"
+        choices = captured_kwargs["choices"]
+        # Exhaustive: exactly 15 choices, no truncation
+        assert len(choices) == 15
+
+    def test_choice_title_includes_name_type_count(self, monkeypatch) -> None:
+        """Choice titles display name + instance type + node count."""
+        import deploy_prompts
+
+        deploy_prompts._LAST_CLUSTER_INSTANCE_GROUPS = [
+            {
+                "name": "default-worker",
+                "instanceType": "ml.g5.2xlarge",
+                "instanceTypes": [],
+                "count": 2,
+                "isFlexible": False,
+            },
+        ]
+        deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME = ""
+
+        captured_kwargs: dict = {}
+
+        class FakeQuestion:
+            def ask(self):
+                return {"name": "default-worker", "instanceType": "ml.g5.2xlarge"}
+
+        def fake_select(message, **kwargs):
+            captured_kwargs.update(kwargs)
+            return FakeQuestion()
+
+        monkeypatch.setattr("questionary.select", fake_select)
+
+        result = prompt_hp_instance_group({})
+
+        assert result == "ml.g5.2xlarge"
+        choices = captured_kwargs["choices"]
+        assert choices[0].title == "default-worker  ml.g5.2xlarge  (2 nodes)"
+
+    def test_single_node_uses_singular(self, monkeypatch) -> None:
+        """A group with a single node uses the singular 'node' wording."""
+        import deploy_prompts
+
+        deploy_prompts._LAST_CLUSTER_INSTANCE_GROUPS = [
+            {
+                "name": "solo",
+                "instanceType": "ml.p4d.24xlarge",
+                "instanceTypes": [],
+                "count": 1,
+                "isFlexible": False,
+            },
+        ]
+        deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME = ""
+
+        captured_kwargs: dict = {}
+
+        class FakeQuestion:
+            def ask(self):
+                return {"name": "solo", "instanceType": "ml.p4d.24xlarge"}
+
+        def fake_select(message, **kwargs):
+            captured_kwargs.update(kwargs)
+            return FakeQuestion()
+
+        monkeypatch.setattr("questionary.select", fake_select)
+
+        prompt_hp_instance_group({})
+
+        choices = captured_kwargs["choices"]
+        assert choices[0].title == "solo  ml.p4d.24xlarge  (1 node)"
+
+    def test_flexible_group_shows_instance_types_list(self, monkeypatch) -> None:
+        """Flexible group (instanceType null) shows its instanceTypes list."""
+        import deploy_prompts
+
+        deploy_prompts._LAST_CLUSTER_INSTANCE_GROUPS = [
+            {
+                "name": "flex",
+                "instanceType": None,
+                "instanceTypes": ["ml.g5.xlarge", "ml.g5.2xlarge"],
+                "count": 3,
+                "isFlexible": True,
+            },
+        ]
+        deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME = ""
+
+        captured_kwargs: dict = {}
+
+        class FakeQuestion:
+            def ask(self):
+                return {"name": "flex", "instanceType": "ml.g5.xlarge"}
+
+        def fake_select(message, **kwargs):
+            captured_kwargs.update(kwargs)
+            return FakeQuestion()
+
+        monkeypatch.setattr("questionary.select", fake_select)
+
+        result = prompt_hp_instance_group({})
+
+        # First available type used as the value
+        assert result == "ml.g5.xlarge"
+        choices = captured_kwargs["choices"]
+        assert choices[0].title == "flex  ml.g5.xlarge, ml.g5.2xlarge  (3 nodes)"
+
+    def test_stores_group_name(self, monkeypatch) -> None:
+        """The selected group name is stored in _LAST_HP_INSTANCE_GROUP_NAME."""
+        import deploy_prompts
+
+        deploy_prompts._LAST_CLUSTER_INSTANCE_GROUPS = [
+            {
+                "name": "gpu-pool",
+                "instanceType": "ml.g5.12xlarge",
+                "instanceTypes": [],
+                "count": 4,
+                "isFlexible": False,
+            },
+        ]
+        deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME = ""
+
+        class FakeQuestion:
+            def ask(self):
+                return {"name": "gpu-pool", "instanceType": "ml.g5.12xlarge"}
+
+        def fake_select(message, **kwargs):
+            return FakeQuestion()
+
+        monkeypatch.setattr("questionary.select", fake_select)
+
+        result = prompt_hp_instance_group({})
+
+        assert result == "ml.g5.12xlarge"
+        assert deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME == "gpu-pool"
+
+    def test_falls_back_to_text_when_no_groups(self, monkeypatch) -> None:
+        """When no instance groups are stored, falls back to free-text prompt."""
+        import deploy_prompts
+
+        deploy_prompts._LAST_CLUSTER_INSTANCE_GROUPS = []
+        deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME = "stale"
+
+        captured_kwargs: dict = {}
+
+        class FakeQuestion:
+            def ask(self):
+                return "ml.g6.12xlarge"
+
+        def fake_text(message, **kwargs):
+            captured_kwargs.update(kwargs)
+            captured_kwargs["message"] = message
+            return FakeQuestion()
+
+        def fake_select(message, **kwargs):  # must NOT be called
+            raise AssertionError("select should not be used when no groups")
+
+        monkeypatch.setattr("questionary.text", fake_text)
+        monkeypatch.setattr("questionary.select", fake_select)
+
+        result = prompt_hp_instance_group({"INSTANCE_TYPE": "ml.g5.xlarge"})
+
+        assert result == "ml.g6.12xlarge"
+        assert "HyperPod node instance type" in captured_kwargs["message"]
+        assert captured_kwargs["default"] == "ml.g5.xlarge"
+        # Group name cleared on the free-text path
+        assert deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME == ""
+
+    def test_cancel_exits(self, monkeypatch) -> None:
+        """Cancelling the select prompt exits with error."""
+        import deploy_prompts
+
+        deploy_prompts._LAST_CLUSTER_INSTANCE_GROUPS = self._make_groups(3)
+        deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME = ""
+
+        class FakeQuestion:
+            def ask(self):
+                return None
+
+        def fake_select(message, **kwargs):
+            return FakeQuestion()
+
+        monkeypatch.setattr("questionary.select", fake_select)
+
+        with pytest.raises(SystemExit):
+            prompt_hp_instance_group({})
+
+
+class TestPromptForMissingWithHpInstanceGroup:
+    """Test prompt_for_missing routes hyperpod-eks INSTANCE_TYPE through
+    prompt_hp_instance_group and captures HP_INSTANCE_GROUP_NAME.
+
+    Validates: Requirements FR-6.1
+    """
+
+    def test_instance_type_from_group_and_name_captured(self, monkeypatch) -> None:
+        """Selecting a group sets INSTANCE_TYPE and HP_INSTANCE_GROUP_NAME."""
+        import deploy_prompts
+
+        deploy_prompts._LAST_CLUSTER_INSTANCE_GROUPS = [
+            {
+                "name": "default-worker",
+                "instanceType": "ml.g5.2xlarge",
+                "instanceTypes": [],
+                "count": 2,
+                "isFlexible": False,
+            },
+        ]
+        deploy_prompts._LAST_HP_INSTANCE_GROUP_NAME = ""
+
+        class FakeQuestion:
+            def ask(self):
+                return {"name": "default-worker", "instanceType": "ml.g5.2xlarge"}
+
+        def fake_select(message, **kwargs):
+            return FakeQuestion()
+
+        monkeypatch.setattr("questionary.select", fake_select)
+
+        from collections import OrderedDict
+        missing = OrderedDict([
+            ("INSTANCE_TYPE", None),
+            ("HP_INSTANCE_GROUP_NAME", ""),
+        ])
+
+        result = prompt_for_missing(
+            missing, env_answers=None, config_vars={}, target="hyperpod-eks"
+        )
+
+        assert result["INSTANCE_TYPE"] == "ml.g5.2xlarge"
+        assert result["HP_INSTANCE_GROUP_NAME"] == "default-worker"

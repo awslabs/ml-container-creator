@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T20:28:40.620Z",
+  "generatedAt": "2026-09-17T20:46:05.119Z",
   "version": "1.6.5",
   "cliOptions": [
     {
@@ -669,19 +669,19 @@
       "serverKey": "sglang",
       "versions": [
         {
-          "tag": "v0.5.15",
+          "tag": "v0.5.19",
           "cuda": null,
           "validationLevel": "experimental",
           "supportedModelTypes": []
         },
         {
-          "tag": "v0.5.14",
+          "tag": "v0.5.18",
           "cuda": null,
           "validationLevel": "experimental",
           "supportedModelTypes": []
         },
         {
-          "tag": "v0.5.13",
+          "tag": "v0.5.17",
           "cuda": null,
           "validationLevel": "experimental",
           "supportedModelTypes": []
