@@ -59,6 +59,33 @@ export async function discoverSecrets(nameFilter, awsProfile, region) {
 }
 
 /**
+ * Patterns that indicate a placeholder / test token value that must never be
+ * written to Secrets Manager (BL091). These are values used by tests and docs
+ * examples, not real credentials — creating a secret from one produces a broken
+ * secret that later causes "Access denied" when pulling gated models.
+ */
+const PLACEHOLDER_SECRET_PATTERNS = [
+    /^hf_new_token/i,
+    /^hf_test/i,
+    /^hf_fallback/i,
+    /^placeholder/i,
+    /^test[-_]?token/i,
+    /^changeme/i,
+    /^xxx+$/i
+];
+
+/**
+ * Return true if the given secret value looks like a placeholder / test value
+ * rather than a real credential.
+ * @param {string} value
+ * @returns {boolean}
+ */
+export function isPlaceholderSecretValue(value) {
+    if (typeof value !== 'string' || value.trim() === '') return true;
+    return PLACEHOLDER_SECRET_PATTERNS.some(re => re.test(value.trim()));
+}
+
+/**
  * Create a new secret in Secrets Manager.
  * Returns { arn } on success; throws on failure.
  *
@@ -70,6 +97,14 @@ export async function discoverSecrets(nameFilter, awsProfile, region) {
  * @throws {Error} If the CreateSecretCommand fails
  */
 export async function createSecret(name, value, awsProfile, region) {
+    // BL091: refuse to write placeholder/test values as real secrets. This is a
+    // safety guard against test fixtures or docs examples reaching a live AWS call.
+    if (isPlaceholderSecretValue(value)) {
+        throw new Error(
+            `Refusing to create secret "${name}": the provided value looks like a ` +
+            'placeholder or test token, not a real credential. Enter your actual token.'
+        );
+    }
     const client = buildClient(awsProfile, region);
     const command = new CreateSecretCommand({
         Name: name,

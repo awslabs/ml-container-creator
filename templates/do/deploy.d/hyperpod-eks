@@ -319,6 +319,14 @@ EOF
 }
 
 MODEL_SOURCE_CONFIG="$(build_model_source_config)"
+# Re-export HP_MODEL_SOURCE in parent shell — the subshell export inside
+# build_model_source_config() does not propagate to this scope, but envsubst
+# needs it to expand $HP_MODEL_SOURCE in the CRD manifest.
+if [ -n "${STAGED_MODEL_PATH:-}" ]; then
+    export HP_MODEL_SOURCE="s3"
+else
+    export HP_MODEL_SOURCE="huggingface"
+fi
 
 APPLY_OUTPUT=""
 APPLY_EXIT_CODE=0
@@ -498,6 +506,10 @@ echo "✅ HyperPod EKS deployment complete!"
 # ── Persist endpoint name for downstream workflows (AC-4) ─────────────────────
 # do/benchmark, do/test, and do/register consume ENDPOINT_NAME from do/config.
 _update_config "ENDPOINT_NAME" "${PROJECT_NAME}"
+# Persist cluster name and namespace so do/clean and subsequent deploys don't
+# require --reconfigure to re-run the interactive cluster picker prompts.
+_update_config "HP_CLUSTER_NAME" "${HP_CLUSTER_NAME}"
+_update_config "HP_NAMESPACE" "${HP_NAMESPACE}"
 
 # ── Write per-target status (FR-4.2) — only after InService (AC-3) ────────────
 _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Running"

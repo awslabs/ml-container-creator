@@ -531,9 +531,15 @@ const ngcApiKeyPrompts = [
  * Requirements: 1.1, 1.2, 1.3, 1.4, 6.1
  *
  * @param {object} answers - Current answers object (must include awsProfile, awsRegion)
+ * @param {object} [deps] - Optional dependency injection seam (tests only).
+ * @param {Function} [deps.discoverSecrets] - Override for Secrets Manager discovery.
+ *   Defaults to the real SDK-backed discoverSecrets. Injecting a stub lets tests
+ *   exercise this factory (including the error-fallback path) without making any
+ *   AWS calls (BL091 / Option B).
  * @returns {Promise<Array>} Array of prompt definitions
  */
-async function buildHfTokenPrompts(answers) {
+async function buildHfTokenPrompts(answers, deps = {}) {
+    const discover = deps.discoverSecrets || discoverSecrets;
     try {
         const awsProfile = answers.awsProfile || '';
         const awsRegion = answers.awsRegion || '';
@@ -544,9 +550,9 @@ async function buildHfTokenPrompts(answers) {
 
         // Query multiple naming patterns (Requirement 1.1)
         const [hfSecrets, hfTokenSecrets, hfUnderscoreSecrets] = await Promise.all([
-            discoverSecrets('huggingface', awsProfile, awsRegion),
-            discoverSecrets('hf-token', awsProfile, awsRegion),
-            discoverSecrets('hf_token', awsProfile, awsRegion)
+            discover('huggingface', awsProfile, awsRegion),
+            discover('hf-token', awsProfile, awsRegion),
+            discover('hf_token', awsProfile, awsRegion)
         ]);
 
         // Deduplicate by ARN

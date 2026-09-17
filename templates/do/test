@@ -821,23 +821,27 @@ _test_hyperpod_eks() {
             # names the Service after the InferenceEndpointConfig (== PROJECT_NAME);
             # if that exact name is absent (operator naming variation), discover a
             # Service selecting the serving pods by label.
-            PF_SVC="${PROJECT_NAME}"
-            if ! kubectl get "svc/${PF_SVC}" -n "${HP_NAMESPACE}" &>/dev/null; then
-                for _lbl in "app=${PROJECT_NAME}" "app.kubernetes.io/name=${PROJECT_NAME}" "inference.sagemaker.aws.amazon.com/inference-endpoint-config=${PROJECT_NAME}"; do
-                    _found=$(kubectl get svc -n "${HP_NAMESPACE}" -l "${_lbl}" \
-                        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-                    if [ -n "${_found}" ]; then
-                        PF_SVC="${_found}"
-                        break
-                    fi
-                done
+            # BL088: InferenceEndpointConfig operator creates serving pods directly.
+            # Port-forward to the pod on port 8080 (plain http — routing-service
+            # exposes TLS/443 for production traffic, not for dev testing).
+            _POD=$(kubectl get pod -n "${HP_NAMESPACE}" -l "app=${PROJECT_NAME}" \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            if [ -n "${_POD}" ]; then
+                PF_TARGET="pod/${_POD}"
+                PF_SVC="${_POD}"  # used in error messages only
+            else
+                echo "❌ No pod found for app=${PROJECT_NAME} in namespace ${HP_NAMESPACE}"
+                exit 1
             fi
 
             # Port-forward the service to a local port
-            LOCAL_PORT=8080
+            # LOCAL_PORT and HP_TEST_PORT may be set by routing-service detection above
+            LOCAL_PORT="${HP_TEST_PORT:-8080}"
+            SVC_PORT="${HP_TEST_SVC_PORT:-8080}"
+            HP_TEST_SCHEME="${HP_TEST_SCHEME:-http}"
             echo ""
-            echo "🔌 Port-forwarding svc/${PF_SVC} to localhost:${LOCAL_PORT}..."
-            kubectl port-forward "svc/${PF_SVC}" "${LOCAL_PORT}:8080" \
+            echo "🔌 Port-forwarding svc/${PF_SVC}:${SVC_PORT} to localhost:${LOCAL_PORT}..."
+            kubectl port-forward "${PF_TARGET:-svc/${PF_SVC}}" "${LOCAL_PORT}:${SVC_PORT}" \
                 -n "${HP_NAMESPACE}" &
             PF_PID=$!
 
@@ -858,7 +862,7 @@ _test_hyperpod_eks() {
             fi
             echo "✅ Port-forward established"
 
-            TARGET_URL="http://localhost:${LOCAL_PORT}"
+            TARGET_URL="${HP_TEST_SCHEME:-http}://localhost:${LOCAL_PORT}"
             ;;
         *)
             echo "Usage: ./do/test [local|hyperpod]"

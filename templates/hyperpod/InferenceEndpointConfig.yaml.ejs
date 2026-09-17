@@ -34,13 +34,25 @@ metadata:
     app: <%= projectName %>
     framework: <%= framework %>
     managed-by: ml-container-creator
+  annotations:
+    mlcc.aws/project-name: "<%= projectName %>"
+    mlcc.aws/model-id: "<%= modelName %>"
 <% if (typeof HP_QUEUE !== 'undefined' && HP_QUEUE) { %>
     kueue.x-k8s.io/queue-name: "<%= HP_QUEUE %>"
 <% } %>
 spec:
   # SageMaker AI endpoint name == metadata.name == PROJECT_NAME.
-  modelName: <%= projectName %>
-  instanceType: "${HP_INSTANCE_TYPE:-<%= typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR ? HP_NODE_SELECTOR : instanceType %>}"
+  # spec.modelName identifies the model being served (HF model ID or S3 path prefix).
+  # The SageMaker endpoint name comes from metadata.name (= PROJECT_NAME).
+  modelName: "<%= modelName %>"
+  endpointName: "<%= projectName %>"
+  # instanceType baked in at generation time — CRD validator requires a real ml.* value, not a shell var.
+  # Changing the instance type requires mcc regenerate or mcc update --field instanceType=...
+  <%
+    const _rawInstanceType = (typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR) ? HP_NODE_SELECTOR : (instanceType || 'ml.g6.2xlarge');
+    const _instanceType = String(_rawInstanceType).replace(/\$\{[^}]+\}/g, '').replace(/[^a-z0-9.\-]/gi, '') || 'ml.g6.2xlarge';
+  %>
+  instanceType: "<%= _instanceType %>"
   invocationEndpoint: v1/chat/completions
   replicas: <%= hyperPodReplicas %>
   # ── Model source ────────────────────────────────────────────────────────────
@@ -62,8 +74,8 @@ spec:
       mountPath: /opt/ml/model
     resources:
       requests:
-        cpu: "${HP_CPU_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>}"
-        memory: "${HP_MEM_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi}"
+        cpu: "<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>"
+        memory: "<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi"
         nvidia.com/gpu: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
 <% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
         vpc.amazonaws.com/efa: "1"
@@ -83,14 +95,23 @@ spec:
       # operator downloaded via modelSourceConfig; "huggingface" makes the
       # server pull MODEL_NAME directly.
       - name: MODEL_SOURCE
-        value: "${HP_MODEL_SOURCE:-huggingface}"
+        value: "$HP_MODEL_SOURCE"
+      # HF_TOKEN injected from the hf-token-secret K8s Secret (optional=true so
+      # the pod still starts for public models or when STAGED_MODEL_PATH is set).
+      # Also needed by do/benchmark for tokenizer access on gated models.
+      - name: HF_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: hf-token-secret
+            key: token
+            optional: true
       - name: VLLM_TENSOR_PARALLEL_SIZE
         value: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
 <% if (framework === 'transformers' || framework === 'diffusors') { %>
       - name: VLLM_MODEL
-        value: "${VLLM_MODEL:-<%= modelName %>}"
+        value: "<%= modelName %>"
       - name: SGLANG_MODEL_PATH
-        value: "${SGLANG_MODEL_PATH:-<%= modelName %>}"
+        value: "<%= modelName %>"
 <% } %>
 <% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
       - name: VLLM_ENABLE_LORA

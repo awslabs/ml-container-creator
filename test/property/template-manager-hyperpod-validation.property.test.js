@@ -269,7 +269,8 @@ describe('Template Manager HyperPod Validation Property-Based Tests', () => {
 
             fc.assert(fc.property(
                 fc.string({ minLength: 1, maxLength: 30 })
-                    .filter(s => !['codebuild'].includes(s)),
+                    .filter(s => !['codebuild'].includes(s) && !s.includes('${')),
+                // Exclude '${': _validateChoice skips validation for unresolved shell var refs (BL077)
                 (buildTarget) => {
                     const answers = {
                         ...baseValidAnswers,

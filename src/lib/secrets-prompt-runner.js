@@ -160,6 +160,53 @@ export default class SecretsPromptRunner {
      * @param {string} region - AWS region
      * @returns {Promise<Array<{name: string, arn: string}>>}
      */
+    /**
+     * Create a secret, allowing a test override on the parent runner (BL091).
+     * Defaults to the SDK-backed createSecret from secrets-discovery.js.
+     * @returns {Promise<{arn: string}>}
+     */
+    async _createSecret(name, value, awsProfile, region) {
+        if (this.runner._createSecret && this.runner._createSecret !== this._createSecret) {
+            return this.runner._createSecret(name, value, awsProfile, region);
+        }
+        return createSecret(name, value, awsProfile, region);
+    }
+
+    /**
+     * Persist a created secret's ARN to the active bootstrap profile (BL076).
+     * Injectable/guarded seam (BL091 hardening): tests never mutate the real config.
+     * Mirrors the `_createSecret` / `_listManagedSecrets` override pattern.
+     * @param {object|null} activeProfile - The active profile object (from BootstrapConfig.getActiveProfile()).
+     * @param {string} profileSecretKey - The profile secret field to write, e.g. 'hfToken'.
+     * @param {string} arn - The created secret's ARN.
+     * @param {BootstrapConfig} [bootstrapConfig] - Optional BootstrapConfig instance to reuse.
+     * @returns {Promise<void>}
+     */
+    async _persistProfileSecret(activeProfile, profileSecretKey, arn, bootstrapConfig) {
+        // Test override delegation (matches _createSecret / _listManagedSecrets)
+        if (this.runner._persistProfileSecret && this.runner._persistProfileSecret !== this._persistProfileSecret) {
+            return this.runner._persistProfileSecret(activeProfile, profileSecretKey, arn, bootstrapConfig);
+        }
+        // Defense-in-depth: never touch the real config under test conditions
+        if (process.env.MLCC_SKIP_SECRET_DISCOVERY || process.env.NODE_ENV === 'test') {
+            return;
+        }
+        if (!activeProfile) return;
+        try {
+            const cfg = bootstrapConfig || new BootstrapConfig();
+            const config = cfg.read();
+            if (config && config.profiles && config.profiles[activeProfile.name]) {
+                if (!config.profiles[activeProfile.name].secrets) {
+                    config.profiles[activeProfile.name].secrets = {};
+                }
+                config.profiles[activeProfile.name].secrets[profileSecretKey] = arn;
+                cfg.write(config);
+            }
+        } catch {
+            // Non-fatal: profile write failure doesn't block generation
+        }
+    }
+
     async _listManagedSecretsByTag(secretType, profile, region) {
         try {
             const command = `aws secretsmanager list-secrets --filters Key=tag-key,Values=mlcc:managed-by Key=tag-value,Values=ml-container-creator --region ${region} --profile ${profile} --output json`;
@@ -275,24 +322,11 @@ export default class SecretsPromptRunner {
             const awsProfile = activeProfile?.config?.awsProfile || previousAnswers.awsProfile || '';
             const region = activeProfile?.config?.awsRegion || previousAnswers.awsRegion || '';
 
-            const result = await createSecret(secretName, newTokenValue.trim(), awsProfile, region);
+            const result = await this._createSecret(secretName, newTokenValue.trim(), awsProfile, region);
             console.log(`   ✅ Secret created: ${result.arn}`);
 
-            // BL076 integration: write ARN to profile if available
-            if (activeProfile) {
-                try {
-                    const config = bootstrapConfig.read();
-                    if (config && config.profiles && config.profiles[activeProfile.name]) {
-                        if (!config.profiles[activeProfile.name].secrets) {
-                            config.profiles[activeProfile.name].secrets = {};
-                        }
-                        config.profiles[activeProfile.name].secrets.hfToken = result.arn;
-                        bootstrapConfig.write(config);
-                    }
-                } catch {
-                    // Non-fatal: profile write failure doesn't block generation
-                }
-            }
+            // BL076 integration: write ARN to profile if available (BL091: guarded seam)
+            await this._persistProfileSecret(activeProfile, 'hfToken', result.arn, bootstrapConfig);
 
             return { [arnConfigKey]: result.arn };
         } catch (err) {

@@ -36,7 +36,9 @@ let lastCreateParams = null;
 // For direct discoverSecrets/createSecret, we test via the runner's delegation.
 
 import PromptRunner from '../../src/lib/prompt-runner.js';
+import BootstrapConfig from '../../src/lib/bootstrap-config.js';
 import { hfTokenPrompts, buildHfTokenPrompts } from '../../src/lib/prompts/model-prompts.js';
+import { isPlaceholderSecretValue } from '../../src/lib/prompts/secrets-discovery.js';
 
 /**
  * Creates a PromptRunner instance with mocked dependencies.
@@ -159,61 +161,267 @@ describe('BL067 — HF Token Secrets Manager Discovery', () => {
             const { runner, promptCalls } = createTestRunner({
                 promptResponses: {
                     secretSelection: '__create_new__',
-                    newTokenValue: 'hf_new_token_12345',
+                    // BL091: use a realistic (non-placeholder) token so the guard does not reject it
+                    newTokenValue: 'hf_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345',
                     newSecretName: 'mlcc-hf-token-myproject'
                 }
             });
 
             runner._listManagedSecrets = async () => mockSecrets;
 
-            // Mock the createSecret call by overriding the imported function behavior
-            // Since we can't easily mock ESM imports, we'll test the full flow
-            // by verifying the prompt flow reaches the create-new path.
-            // The actual AWS call would fail without credentials, so we test the prompt path.
-            
-            // Verify the prompt choices include "Create a new secret"
+            // BL091: inject a mock _createSecret so no real AWS call fires even when
+            // live credentials are present in the environment. Never hit Secrets Manager in tests.
+            runner._createSecret = async () => ({ arn: mockArn });
+            // BL091 hardening: also inject the persist seam so this test can never
+            // write the mock ARN to the real bootstrap config (defense-in-depth,
+            // independent of the NODE_ENV/MLCC_SKIP_SECRET_DISCOVERY env guard).
+            runner._persistProfileSecret = async () => {};
+
             const result = await runner.secretsPromptRunner._promptSecretSelection(
                 { identifier: 'hf-token', displayName: 'HuggingFace Token', purpose: 'Auth for gated models', promptLabel: 'HuggingFace token' },
                 mockSecrets,
                 { projectName: 'myproject', awsProfile: 'default', awsRegion: 'us-east-1' }
             );
 
-            // The __create_new__ selection triggers _promptCreateNewSecret which calls createSecret.
-            // In a real test environment without AWS credentials, this will fail and fall back.
-            // We verify the prompt flow reached the creation path by checking prompt calls.
-            const createNewChoice = promptCalls.find(c => 
-                c.name === 'secretSelection' && 
+            const createNewChoice = promptCalls.find(c =>
+                c.name === 'secretSelection' &&
                 c.choices?.some(ch => ch.value === '__create_new__')
             );
             assert.ok(createNewChoice, 'Should have a "Create a new secret" choice');
         });
 
+        // BL091 (subtask 3): createSecret must be called with the ACTUAL user-entered
+        // token value — never a placeholder — and the test must not reach real AWS.
+        it('calls createSecret with the actual user-entered token value (no real AWS)', async () => {
+            const realToken = 'hf_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345';
+            const captured = { calls: [] };
+            const { runner } = createTestRunner({
+                promptResponses: {
+                    newTokenValue: realToken,
+                    newSecretName: 'mlcc-hf-token-myproject'
+                }
+            });
+
+            // Inject the seam: capture args, return a fake ARN, never touch AWS.
+            runner._createSecret = async (name, value, profile, region) => {
+                captured.calls.push({ name, value, profile, region });
+                return { arn: 'arn:aws:secretsmanager:us-east-1:111111111111:secret:mlcc-hf-token-myproject-XyZaB' };
+            };
+            // BL091 hardening: inject the persist seam so no real config write occurs.
+            runner._persistProfileSecret = async () => {};
+
+            const classification = { identifier: 'hf-token', displayName: 'HuggingFace Token', purpose: 'Auth', promptLabel: 'HuggingFace token', envVar: 'HF_TOKEN' };
+            await runner.secretsPromptRunner._promptCreateNewSecret(
+                classification,
+                { projectName: 'myproject', awsProfile: 'default', awsRegion: 'us-east-1' }
+            );
+
+            assert.strictEqual(captured.calls.length, 1, 'createSecret should be called exactly once');
+            assert.strictEqual(captured.calls[0].value, realToken,
+                'createSecret must receive the actual user-entered token, not a placeholder');
+        });
+
+        // BL091 (subtask 2.1): persistence must delegate to the injected seam,
+        // which replaces the real BootstrapConfig write entirely in tests.
+        it('delegates profile secret persistence without a real config write (Property 1)', async () => {
+            const mockArn = 'arn:aws:secretsmanager:us-east-1:111111111111:secret:mlcc-hf-token-myproject-XyZaB';
+            const captured = { calls: [] };
+            const { runner } = createTestRunner({
+                promptResponses: {
+                    newTokenValue: 'hf_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345',
+                    newSecretName: 'mlcc-hf-token-myproject'
+                }
+            });
+
+            // Inject both side-effect seams: no real AWS call or config write can occur.
+            runner._createSecret = async () => ({ arn: mockArn });
+            runner._persistProfileSecret = async (activeProfile, profileSecretKey, arn, bootstrapConfig) => {
+                captured.calls.push({ activeProfile, profileSecretKey, arn, bootstrapConfig });
+            };
+
+            const classification = { identifier: 'hf-token', displayName: 'HuggingFace Token', purpose: 'Auth', promptLabel: 'HuggingFace token', envVar: 'HF_TOKEN' };
+            await runner.secretsPromptRunner._promptCreateNewSecret(
+                classification,
+                { projectName: 'myproject', awsProfile: 'default', awsRegion: 'us-east-1' }
+            );
+
+            assert.strictEqual(captured.calls.length, 1, 'persistProfileSecret should be called exactly once');
+            assert.strictEqual(captured.calls[0].profileSecretKey, 'hfToken');
+            assert.strictEqual(captured.calls[0].arn, mockArn);
+        });
+
+        // BL091 (subtask 2.2): the test env guard must prevent real config writes
+        // even when no persistence seam is injected.
+        it('skips BootstrapConfig writes when the secret-discovery guard is set (Properties 1, 3)', async () => {
+            const mockArn = 'arn:aws:secretsmanager:us-east-1:111111111111:secret:mlcc-hf-token-myproject-XyZaB';
+            const priorSkipSecretDiscovery = process.env.MLCC_SKIP_SECRET_DISCOVERY;
+            const originalWrite = BootstrapConfig.prototype.write;
+            let writeCallCount = 0;
+            const { runner } = createTestRunner({
+                promptResponses: {
+                    newTokenValue: 'hf_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345',
+                    newSecretName: 'mlcc-hf-token-myproject'
+                }
+            });
+            const classification = { identifier: 'hf-token', displayName: 'HuggingFace Token', purpose: 'Auth', promptLabel: 'HuggingFace token', envVar: 'HF_TOKEN' };
+
+            try {
+                process.env.MLCC_SKIP_SECRET_DISCOVERY = '1';
+                BootstrapConfig.prototype.write = () => { writeCallCount += 1; };
+                runner._createSecret = async () => ({ arn: mockArn });
+
+                const arnConfigKey = runner.secretsPromptRunner._getArnConfigKey(classification);
+                const result = await runner.secretsPromptRunner._promptCreateNewSecret(
+                    classification,
+                    { projectName: 'myproject', awsProfile: 'default', awsRegion: 'us-east-1' }
+                );
+
+                assert.deepStrictEqual(result, { [arnConfigKey]: mockArn });
+                assert.strictEqual(writeCallCount, 0, 'the env guard must prevent BootstrapConfig.write');
+            } finally {
+                BootstrapConfig.prototype.write = originalWrite;
+                if (priorSkipSecretDiscovery === undefined) {
+                    delete process.env.MLCC_SKIP_SECRET_DISCOVERY;
+                } else {
+                    process.env.MLCC_SKIP_SECRET_DISCOVERY = priorSkipSecretDiscovery;
+                }
+            }
+        });
+
+        // BL091 (subtask 2.3): the real seam body retains BL076 production
+        // persistence when no test-environment guard or override is present.
+        // Validates: Requirements 2.1
+        it('persists a created secret ARN to the active profile outside test guards (Property 2)', async () => {
+            const mockArn = 'arn:aws:secretsmanager:us-east-1:111111111111:secret:mlcc-hf-token-myproject-XyZaB';
+            const priorSkipSecretDiscovery = process.env.MLCC_SKIP_SECRET_DISCOVERY;
+            const priorNodeEnv = process.env.NODE_ENV;
+            const activeProfile = { name: 'myprofile' };
+            let writeCallCount = 0;
+            let writtenConfig;
+            const bootstrapConfig = {
+                read: () => ({ profiles: { myprofile: {} } }),
+                write: (config) => {
+                    writeCallCount += 1;
+                    writtenConfig = config;
+                }
+            };
+            const { runner } = createTestRunner();
+
+            try {
+                delete process.env.MLCC_SKIP_SECRET_DISCOVERY;
+                delete process.env.NODE_ENV;
+
+                await runner.secretsPromptRunner._persistProfileSecret(
+                    activeProfile,
+                    'hfToken',
+                    mockArn,
+                    bootstrapConfig
+                );
+
+                assert.strictEqual(writeCallCount, 1, 'should write the updated bootstrap config once');
+                assert.ok(writtenConfig.profiles.myprofile.secrets, 'should create the secrets object');
+                assert.strictEqual(writtenConfig.profiles.myprofile.secrets.hfToken, mockArn);
+            } finally {
+                if (priorSkipSecretDiscovery === undefined) {
+                    delete process.env.MLCC_SKIP_SECRET_DISCOVERY;
+                } else {
+                    process.env.MLCC_SKIP_SECRET_DISCOVERY = priorSkipSecretDiscovery;
+                }
+                if (priorNodeEnv === undefined) {
+                    delete process.env.NODE_ENV;
+                } else {
+                    process.env.NODE_ENV = priorNodeEnv;
+                }
+            }
+        });
+
+        // BL091 (subtask 2.4): real persistence failures are swallowed so a
+        // successful secret creation remains usable. Validates: Requirements 2.3
+        it('swallows bootstrap config persistence failures (Property 4)', async () => {
+            const mockArn = 'arn:aws:secretsmanager:us-east-1:111111111111:secret:mlcc-hf-token-myproject-XyZaB';
+            const priorSkipSecretDiscovery = process.env.MLCC_SKIP_SECRET_DISCOVERY;
+            const priorNodeEnv = process.env.NODE_ENV;
+            const { runner } = createTestRunner();
+            const failingBootstrapConfig = {
+                read: () => ({ profiles: { myprofile: {} } }),
+                write: () => { throw new Error('disk full'); }
+            };
+
+            try {
+                delete process.env.MLCC_SKIP_SECRET_DISCOVERY;
+                delete process.env.NODE_ENV;
+
+                await runner.secretsPromptRunner._persistProfileSecret(
+                    { name: 'myprofile' },
+                    'hfToken',
+                    mockArn,
+                    failingBootstrapConfig
+                );
+            } finally {
+                if (priorSkipSecretDiscovery === undefined) {
+                    delete process.env.MLCC_SKIP_SECRET_DISCOVERY;
+                } else {
+                    process.env.MLCC_SKIP_SECRET_DISCOVERY = priorSkipSecretDiscovery;
+                }
+                if (priorNodeEnv === undefined) {
+                    delete process.env.NODE_ENV;
+                } else {
+                    process.env.NODE_ENV = priorNodeEnv;
+                }
+            }
+        });
+
         it('should fall back to plaintext on creation failure', async () => {
             const { runner, promptCalls } = createTestRunner({
                 promptResponses: {
-                    newTokenValue: 'hf_new_token_12345',
+                    newTokenValue: 'hf_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345',
                     newSecretName: 'mlcc-hf-token-test',
                     tokenValue: 'hf_fallback_token'
                 }
             });
 
-            // Call _promptCreateNewSecret directly — it will fail (no AWS) and fall back
+            // BL091: inject a failing _createSecret so we exercise the fallback path
+            // deterministically, without depending on the absence of AWS credentials.
+            runner._createSecret = async () => { throw new Error('AccessDenied'); };
+
             const classification = { identifier: 'hf-token', displayName: 'HuggingFace Token', purpose: 'Auth', promptLabel: 'HuggingFace token', envVar: 'HF_TOKEN' };
             const result = await runner.secretsPromptRunner._promptCreateNewSecret(
                 classification,
                 { projectName: 'test', awsProfile: 'fake', awsRegion: 'us-east-1' }
             );
 
-            // Should have prompted for newTokenValue and newSecretName, then fallen back
             const tokenPrompt = promptCalls.find(c => c.name === 'newTokenValue');
             assert.ok(tokenPrompt, 'Should prompt for token value');
-            
+
             const namePrompt = promptCalls.find(c => c.name === 'newSecretName');
             assert.ok(namePrompt, 'Should prompt for secret name');
-            
-            // After failure, falls back to plaintext entry
+
             const fallbackPrompt = promptCalls.find(c => c.name === 'tokenValue');
             assert.ok(fallbackPrompt, 'Should fall back to plaintext entry on creation failure');
+        });
+    });
+
+    // BL091 (subtask 2): placeholder-value guard in createSecret / isPlaceholderSecretValue.
+    describe('secrets-discovery.js — placeholder-value guard (BL091)', () => {
+        it('flags known placeholder/test token values', () => {
+            for (const bad of ['hf_new_token_12345', 'hf_test_12345', 'placeholder', 'test-token', 'changeme', '', '   ']) {
+                assert.strictEqual(isPlaceholderSecretValue(bad), true, `should flag "${bad}" as placeholder`);
+            }
+        });
+
+        it('accepts realistic token values', () => {
+            for (const ok of ['hf_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345', 'ghp_realtokenvalue', 'sk-abc123']) {
+                assert.strictEqual(isPlaceholderSecretValue(ok), false, `should accept "${ok}" as a real value`);
+            }
+        });
+
+        it('createSecret rejects placeholder values before any AWS call', async () => {
+            const { createSecret } = await import('../../src/lib/prompts/secrets-discovery.js');
+            await assert.rejects(
+                () => createSecret('mlcc-hf-token-test', 'hf_new_token_12345', '', 'us-east-1'),
+                /placeholder or test token/,
+                'createSecret must reject placeholder values'
+            );
         });
     });
 
@@ -224,11 +432,17 @@ describe('BL067 — HF Token Secrets Manager Discovery', () => {
         });
 
         it('should return static hfTokenPrompts as fallback on discovery error', async () => {
-            // Pass invalid region to trigger error in SDK call
-            const result = await buildHfTokenPrompts({ awsProfile: 'nonexistent-profile-xyz', awsRegion: 'invalid-region-xyz' });
+            // BL091 / Option B: inject a throwing discoverSecrets seam so the error
+            // path is exercised deterministically WITHOUT any real AWS SDK call.
+            const failingDiscover = async () => { throw new Error('AccessDenied'); };
+            const result = await buildHfTokenPrompts(
+                { awsProfile: 'default', awsRegion: 'us-east-1' },
+                { discoverSecrets: failingDiscover }
+            );
             // Should never throw, always returns a valid prompt array
             assert.ok(Array.isArray(result));
             assert.ok(result.length > 0);
+            assert.deepStrictEqual(result, hfTokenPrompts);
         });
 
         it('hfTokenPrompts static array has input type with correct name', () => {

@@ -153,8 +153,13 @@ export function calculateTotalGpus(instanceCount, instanceType) {
  * @returns {{ allocated: number|null, error: string|null }}
  */
 export function getAllocatedGpus(options = {}) {
-    const { timeout = 5000, execFn = null } = options;
+    const { timeout = 5000, execFn = null, skipIfNoKubeconfig = true } = options;
     try {
+        // Skip real kubectl calls when no kubeconfig is available (e.g. in unit/property tests).
+        // This prevents spawning kubectl processes that hit the network and burn CPU.
+        if (!execFn && skipIfNoKubeconfig && !process.env.KUBECONFIG) {
+            return { allocated: null, error: 'no kubeconfig' };
+        }
         const exec = execFn || ((cmd) => execSync(cmd, { timeout, encoding: 'utf-8' }));
         const output = exec('kubectl get pods --all-namespaces -o json');
         const data = JSON.parse(output);
@@ -275,8 +280,11 @@ export function lookupModelParams(modelName) {
  * @returns {{ queues: Array<{ name: string, availableGpuQuota: number|null }>, error: string|null }}
  */
 export function detectKueueQueues(options = {}) {
-    const { timeout = 5000, execFn = null } = options;
+    const { timeout = 5000, execFn = null, skipIfNoKubeconfig = true } = options;
     try {
+        if (!execFn && skipIfNoKubeconfig && !process.env.KUBECONFIG) {
+            return { queues: [], error: 'no kubeconfig' };
+        }
         const exec = execFn || ((cmd) => execSync(cmd, { timeout, encoding: 'utf-8' }));
         const output = exec('kubectl get clusterqueues -o json');
         const data = JSON.parse(output);
@@ -306,8 +314,11 @@ export function detectKueueQueues(options = {}) {
  * @returns {{ priorityClasses: Array<{ name: string, value: number, description: string }>, error: string|null }}
  */
 export function detectPriorityClasses(options = {}) {
-    const { timeout = 5000, execFn = null } = options;
+    const { timeout = 5000, execFn = null, skipIfNoKubeconfig = true } = options;
     try {
+        if (!execFn && skipIfNoKubeconfig && !process.env.KUBECONFIG) {
+            return { priorityClasses: [], error: 'no kubeconfig' };
+        }
         const exec = execFn || ((cmd) => execSync(cmd, { timeout, encoding: 'utf-8' }));
         const output = exec('kubectl get priorityclasses -o json');
         const data = JSON.parse(output);
