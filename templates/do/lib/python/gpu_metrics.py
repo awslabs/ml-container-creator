@@ -4,15 +4,29 @@
 
 Single engine-neutral place to gather GPU efficiency signals from two sources:
 
-  * CloudWatch (SageMaker detailed observability via the OTel collector) — GPU
-    utilization and memory. Available for all engines and all targets, queried
-    post-run. See collect_cloudwatch().
-  * Engine ``/metrics`` (Prometheus text) — KV cache utilization, prefix cache
-    hit rate, and queue depth. HyperPod EKS only, opt-in, scraped via a
-    port-forward after the run. See collect_engine_metrics().
+  * Phase 1 — CloudWatch via SageMaker AI detailed observability (GA), built on
+    an AWS-managed OTel collector. Available for all engines and all targets,
+    queried post-run. Per the BL081 spike, the OTel collector re-publishes both
+    DCGM GPU-health metrics and native vLLM/SGLang engine metrics (KV cache,
+    queue depth, batch size, TTFT/ITL/TPS) under OTel metric names
+    (``KVCacheUtilization``, ``QueueDepth``, ``BatchSize``, ``TotalTPS``,
+    ``TTFT``, ``ITL``) — NOT the raw ``vllm:``/``sglang:`` Prometheus names —
+    queryable via PromQL at ``https://monitoring.<region>.amazonaws.com`` with
+    SigV4. This is NOT the classic ``GetMetricData`` API on the
+    ``/aws/sagemaker/Endpoints`` namespace. See collect_cloudwatch().
+  * Phase 2 — Engine ``/metrics`` (Prometheus text) — KV cache utilization,
+    prefix cache hit rate, and queue depth. HyperPod EKS only, opt-in, scraped
+    via a port-forward after the run. Uses the raw ``vllm:``/``sglang:`` names
+    from METRIC_REGISTRY. See collect_engine_metrics().
+
+Prefix cache hit rate is available ONLY via the Phase 2 engine ``/metrics``
+scrape; SageMaker detailed observability does not forward it to CloudWatch, so
+Phase 1 never populates it.
 
 METRIC_REGISTRY is the single source of truth mapping abstract signal names to
-engine-specific Prometheus metric names; a new engine is added by extending it.
+engine-specific Prometheus metric names for the Phase 2 ``/metrics`` scrape; a
+new engine is added by extending it. The Phase 1 CloudWatch path uses the
+distinct OTel metric names (see OTEL_METRIC_NAMES), not METRIC_REGISTRY.
 
 Non-fatal contract (design.md § Error Handling): metrics collection NEVER fails
 the benchmark. Any error/timeout → an empty dict, so the benchmark result is
@@ -29,17 +43,24 @@ import json
 import sys
 
 
-# ── METRIC_REGISTRY — single source of truth ──────────────────────────────────
+# ── METRIC_REGISTRY — single source of truth (Phase 2 engine /metrics scrape) ─
 #
-# Metric names verified from official docs (see design.md § "Preflight
-# Verification Gate"): vLLM v0.11.2 metrics reference and SGLang production
-# metrics. A new engine is added by extending this dict — no schema/query change.
+# Raw Prometheus metric names exposed on the engine ``/metrics`` endpoint, used
+# by the Phase 2 port-forward scrape (collect_engine_metrics). Verified by the
+# BL081 spike against the pinned catalog versions: vLLM 0.25.x
+# (0.24.0/0.25.0/0.25.1) and SGLang 0.5.x (0.5.13/0.5.14/0.5.15). No renames
+# occurred in those windows. A new engine is added by extending this dict.
+#
+# NOTE: These are NOT the names used by the Phase 1 CloudWatch path. SageMaker
+# detailed observability re-publishes these under OTel names (see
+# OTEL_METRIC_NAMES). Prefix cache hit rate has no CloudWatch equivalent and is
+# collected ONLY here in Phase 2.
 METRIC_REGISTRY = {
     'vllm': {
         # V1 engine canonical KV cache utilization gauge (0-1). NOT the Grafana
         # alias vllm:gpu_cache_usage_perc.
         'kv_cache_util': 'vllm:kv_cache_usage_perc',
-        # Prefix cache is a COUNTER PAIR on v0.25 — hit_rate = hits / queries,
+        # Prefix cache is a COUNTER PAIR on 0.25.x — hit_rate = hits / queries,
         # computed in collect_engine_metrics (there is no single hit-rate gauge).
         'prefix_cache_queries': 'vllm:prefix_cache_queries',
         'prefix_cache_hits': 'vllm:prefix_cache_hits',
@@ -47,28 +68,136 @@ METRIC_REGISTRY = {
         'queue_depth_waiting': 'vllm:num_requests_waiting',
     },
     'sglang': {
-        'kv_cache_util': 'sglang:token_usage',            # Gauge 0-1 (requires --enable-metrics)
+        'kv_cache_util': 'sglang:token_usage',             # Gauge 0-1 (requires --enable-metrics)
         'prefix_cache_hit_rate': 'sglang:cache_hit_rate',  # Gauge 0-1 — already a computed ratio, not a counter pair
-        'queue_depth_running': 'sglang:num_running_reqs',  # TODO: verify on v0.5.15
-        'queue_depth_waiting': 'sglang:num_queue_reqs',    # TODO: verify on v0.5.15
+        'queue_depth_running': 'sglang:num_running_reqs',  # verified on 0.5.x (BL081)
+        'queue_depth_waiting': 'sglang:num_queue_reqs',    # verified on 0.5.x (BL081)
     },
-    # TRT-LLM, DJL/LMI: add as they are verified.
+    # TRT-LLM, DJL/LMI: add as they are verified. These frameworks do NOT emit
+    # engine metrics to CloudWatch detailed observability (Phase 1 yields DCGM
+    # GPU metrics only for them).
+}
+
+
+# ── OTEL_METRIC_NAMES — Phase 1 CloudWatch (SageMaker detailed observability) ──
+#
+# SageMaker AI detailed observability re-publishes engine + DCGM metrics under
+# these OTel metric names, queried via PromQL at monitoring.<region>.amazonaws.com
+# (SigV4). Confirmed by the BL081 spike. Engine metrics (KVCacheUtilization,
+# QueueDepth, BatchSize, TotalTPS, TTFT, ITL) are forwarded for vLLM/SGLang only;
+# DCGM GPU metrics are available on all GPU endpoints regardless of framework.
+# Prefix cache hit rate is intentionally absent — it is /metrics-only (Phase 2).
+OTEL_METRIC_NAMES = {
+    # DCGM GPU health (all GPU endpoints).
+    'gpu_utilization': 'DCGM_FI_DEV_GPU_UTIL',          # percent
+    'gpu_memory_util': 'DCGM_FI_DEV_MEM_COPY_UTIL',     # percent
+    'gpu_memory_used_bytes': 'DCGM_FI_DEV_FB_USED',     # framebuffer bytes → GB
+    # Engine metrics (vLLM/SGLang only).
+    'kv_cache_util': 'KVCacheUtilization',
+    'queue_depth_waiting': 'QueueDepth',
+    'queue_depth_running': 'BatchSize',
 }
 
 
 # ── CloudWatch collection (Phase 1, all engines/targets) ───────────────────────
 
 
-def collect_cloudwatch(endpoint_name, variant_name, ic_name, start_time, end_time, region):
-    """Query CloudWatch (SageMaker detailed observability / OTel) for GPU signals.
+def _sigv4_headers(method, url, region, service, payload, host):
+    """Build SigV4 auth headers for a request using botocore credentials.
 
-    Uses SageMaker detailed observability, which scrapes the container metrics
-    via the OTel collector and publishes them to CloudWatch, queryable via the
-    ``GetMetricData`` API against the OTel/DCGM-sourced GPU metrics for the
-    endpoint (per inference component when ``ic_name`` is provided).
+    Returns a dict of headers (including Authorization) or raises on failure.
+    Kept separate so the query function stays readable and testable.
+    """
+    import botocore.session
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+
+    session = botocore.session.get_session()
+    credentials = session.get_credentials()
+    if credentials is None:
+        raise RuntimeError('no AWS credentials available for SigV4 signing')
+
+    request = AWSRequest(
+        method=method,
+        url=url,
+        data=payload,
+        headers={'Host': host, 'Content-Type': 'application/x-www-form-urlencoded'},
+    )
+    SigV4Auth(credentials, service, region).add_auth(request)
+    return dict(request.headers)
+
+
+def _promql_instant_query(region, query, at_time):
+    """Run a single PromQL instant query against SageMaker detailed observability.
+
+    Queries the AWS-managed OTel metrics store at
+    ``https://monitoring.<region>.amazonaws.com/prometheus/api/v1/query`` with
+    SigV4. Returns the scalar float value of the first result series, or None if
+    the query yields no data. Raises on transport/HTTP errors (caller handles).
+    """
+    import urllib.parse
+    import urllib.request
+
+    host = f'monitoring.{region}.amazonaws.com'
+    path = '/prometheus/api/v1/query'
+    url = f'https://{host}{path}'
+
+    params = {'query': query}
+    if at_time is not None:
+        # PromQL instant query accepts a unix timestamp for the evaluation time.
+        params['time'] = str(int(at_time.timestamp()))
+    payload = urllib.parse.urlencode(params)
+
+    # SigV4 service for the SageMaker detailed observability PromQL endpoint is
+    # 'monitoring' (per AWS docs), NOT 'aps'/Amazon Managed Prometheus — the
+    # metrics are stored natively in CloudWatch, not AMP.
+    headers = _sigv4_headers('POST', url, region, 'monitoring', payload, host)
+    req = urllib.request.Request(url, data=payload.encode('utf-8'), headers=headers, method='POST')
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        body = json.loads(resp.read().decode('utf-8', errors='replace'))
+
+    if body.get('status') != 'success':
+        return None
+    result = body.get('data', {}).get('result', [])
+    if not result:
+        return None
+    # Instant vector: each entry has 'value' = [timestamp, "float-as-string"].
+    values = []
+    for series in result:
+        val = series.get('value')
+        if val and len(val) == 2:
+            try:
+                values.append(float(val[1]))
+            except (ValueError, TypeError):
+                continue
+    if not values:
+        return None
+    # Aggregate across series (e.g. per-GPU) by mean; callers that need max use
+    # a max_over_time PromQL query instead.
+    return sum(values) / len(values)
+
+
+def collect_cloudwatch(endpoint_name, variant_name, ic_name, start_time, end_time, region):
+    """Query SageMaker AI detailed observability (OTel) for GPU + engine signals.
+
+    Uses PromQL over the AWS-managed OTel metrics store at
+    ``https://monitoring.<region>.amazonaws.com`` (SigV4), NOT the classic
+    ``GetMetricData`` API. Per the BL081 spike, the OTel collector re-publishes:
+
+      * DCGM GPU health (all GPU endpoints): ``DCGM_FI_DEV_GPU_UTIL`` (%),
+        ``DCGM_FI_DEV_MEM_COPY_UTIL`` (%), ``DCGM_FI_DEV_FB_USED`` (bytes → GB).
+      * Native engine metrics (vLLM/SGLang only): ``KVCacheUtilization``,
+        ``QueueDepth`` (waiting), ``BatchSize`` (running).
+
+    Prefix cache hit rate is NOT forwarded to CloudWatch (Phase 2 /metrics only).
+
+    Prerequisites (user-provisioned, not enforced here): the endpoint config has
+    ``EnableDetailedObservability`` + BYOC ``ContainerMetricsConfig`` set, and the
+    account has OTel enrichment enabled (``aws cloudwatch start-otel-enrichment``).
+    When these are absent, queries return no data → keys are simply omitted.
 
     Args:
-        endpoint_name: SageMaker endpoint name.
+        endpoint_name: SageMaker endpoint name (PromQL label filter).
         variant_name:  Production variant name (e.g. 'AllTraffic').
         ic_name:       Inference component name, or '' / None if not IC-based.
         start_time:    datetime — start of the benchmark run window.
@@ -76,81 +205,81 @@ def collect_cloudwatch(endpoint_name, variant_name, ic_name, start_time, end_tim
         region:        AWS region.
 
     Returns:
-        dict with keys ``gpu_utilization_avg``, ``gpu_utilization_max``,
-        ``gpu_memory_used_avg_gb``, and ``gpu_memory_util_avg`` when data is
-        available; an empty dict ``{}`` on ANY error (non-fatal contract).
+        dict with any of ``gpu_utilization_avg``, ``gpu_utilization_max``,
+        ``gpu_memory_used_avg_gb``, ``gpu_memory_util_avg``, ``kv_cache_util_avg``,
+        ``kv_cache_util_max``, ``queue_depth_running_avg``,
+        ``queue_depth_waiting_avg``, ``queue_depth_waiting_max`` when available;
+        an empty dict ``{}`` on ANY error (non-fatal contract).
     """
     try:
-        import boto3
-
-        cw = boto3.client('cloudwatch', region_name=region)
-
-        # Dimensions: per-IC when an inference component is supplied, else per-variant.
-        dimensions = [{'Name': 'EndpointName', 'Value': endpoint_name}]
+        # Build a PromQL label matcher scoping to this endpoint / variant / IC.
+        # SageMaker detailed observability uses dotted OTel resource labels that
+        # must be single-quoted in PromQL (per AWS docs), NOT CloudWatch
+        # dimension names like EndpointName.
+        labels = [f"'aws.sagemaker.endpoint.name'=\"{endpoint_name}\""]
         if variant_name:
-            dimensions.append({'Name': 'VariantName', 'Value': variant_name})
+            labels.append(f"'aws.sagemaker.variant.name'=\"{variant_name}\"")
         if ic_name:
-            dimensions.append({'Name': 'InferenceComponentName', 'Value': ic_name})
+            labels.append(f"'aws.sagemaker.inference_component.name'=\"{ic_name}\"")
+        selector = '{' + ','.join(labels) + '}'
 
-        # SageMaker detailed observability publishes DCGM-sourced GPU metrics via
-        # the OTel collector under the endpoint namespace.
-        namespace = '/aws/sagemaker/Endpoints'
-        period = 60
+        # Range over the benchmark window for avg/max aggregation.
+        window_secs = max(int((end_time - start_time).total_seconds()), 60)
+        rng = f'{window_secs}s'
+        otel = OTEL_METRIC_NAMES
 
-        def _metric_query(qid, metric_name, stat):
-            return {
-                'Id': qid,
-                'MetricStat': {
-                    'Metric': {
-                        'Namespace': namespace,
-                        'MetricName': metric_name,
-                        'Dimensions': dimensions,
-                    },
-                    'Period': period,
-                    'Stat': stat,
-                },
-                'ReturnData': True,
-            }
+        def _avg_over(metric):
+            return _promql_instant_query(
+                region, f'avg_over_time({metric}{selector}[{rng}])', end_time
+            )
 
-        queries = [
-            _metric_query('gpu_util_avg', 'GPUUtilization', 'Average'),
-            _metric_query('gpu_util_max', 'GPUUtilization', 'Maximum'),
-            _metric_query('gpu_mem_util_avg', 'GPUMemoryUtilization', 'Average'),
-        ]
-
-        resp = cw.get_metric_data(
-            MetricDataQueries=queries,
-            StartTime=start_time,
-            EndTime=end_time,
-            ScanBy='TimestampAscending',
-        )
-
-        results = {r['Id']: r.get('Values', []) for r in resp.get('MetricDataResults', [])}
-
-        def _avg(values):
-            return (sum(values) / len(values)) if values else None
-
-        def _max(values):
-            return max(values) if values else None
+        def _max_over(metric):
+            return _promql_instant_query(
+                region, f'max_over_time({metric}{selector}[{rng}])', end_time
+            )
 
         out = {}
-        gpu_util_avg = _avg(results.get('gpu_util_avg', []))
-        gpu_util_max = _max(results.get('gpu_util_max', []))
-        gpu_mem_util_avg = _avg(results.get('gpu_mem_util_avg', []))
 
+        # ── DCGM GPU health (all GPU endpoints) ──
+        gpu_util_avg = _avg_over(otel['gpu_utilization'])
         if gpu_util_avg is not None:
             out['gpu_utilization_avg'] = gpu_util_avg
+        gpu_util_max = _max_over(otel['gpu_utilization'])
         if gpu_util_max is not None:
             out['gpu_utilization_max'] = gpu_util_max
+
+        gpu_mem_util_avg = _avg_over(otel['gpu_memory_util'])
         if gpu_mem_util_avg is not None:
             out['gpu_memory_util_avg'] = gpu_mem_util_avg
-            # GPU memory used (GB) is not directly exposed as a distinct metric in
-            # all configurations; when only the utilization % is available we leave
-            # gpu_memory_used_avg_gb absent (→ NULL) rather than fabricate a value.
+
+        gpu_mem_used_avg = _avg_over(otel['gpu_memory_used_bytes'])
+        if gpu_mem_used_avg is not None:
+            # DCGM framebuffer bytes → GB.
+            out['gpu_memory_used_avg_gb'] = gpu_mem_used_avg / (1024 ** 3)
+
+        # ── Engine metrics (vLLM/SGLang only; absent for other frameworks) ──
+        kv_avg = _avg_over(otel['kv_cache_util'])
+        if kv_avg is not None:
+            out['kv_cache_util_avg'] = kv_avg
+        kv_max = _max_over(otel['kv_cache_util'])
+        if kv_max is not None:
+            out['kv_cache_util_max'] = kv_max
+
+        running_avg = _avg_over(otel['queue_depth_running'])
+        if running_avg is not None:
+            out['queue_depth_running_avg'] = running_avg
+
+        waiting_avg = _avg_over(otel['queue_depth_waiting'])
+        if waiting_avg is not None:
+            out['queue_depth_waiting_avg'] = waiting_avg
+        waiting_max = _max_over(otel['queue_depth_waiting'])
+        if waiting_max is not None:
+            out['queue_depth_waiting_max'] = waiting_max
 
         return out
     except Exception:
-        # Non-fatal: any AWS/boto3 error → empty dict so the benchmark still writes.
+        # Non-fatal: any signing/transport/parse error → empty dict so the
+        # benchmark still writes and the Athena columns become NULL.
         return {}
 
 

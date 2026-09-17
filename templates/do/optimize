@@ -699,6 +699,7 @@ with open('${RESULTS_FILE}', 'w') as f:
         echo ""
         printf "Choose [1/2]: "
         read -r CHOICE
+        CHOICE="${CHOICE%%$'\r'}"  # strip CR (Windows/terminal safety)
 
         case "${CHOICE}" in
             1)
@@ -747,6 +748,12 @@ if results:
                 echo "✅ Top recommendation applied to do/config"
                 echo ""
                 echo "🚀 Deploying with optimized configuration..."
+                # Re-source do/config so the just-written OPTIMIZE_MODEL_PACKAGE_ARN
+                # (and OPTIMIZE_INFERENCE_SPEC / INSTANCE_TYPE) are visible in this
+                # shell before calling do/deploy. _update_optimize_var only writes
+                # to the file; without re-sourcing, the values set above would not
+                # propagate to the deploy invocation's environment.
+                source "${SCRIPT_DIR}/config"
                 "${SCRIPT_DIR}/deploy" --target "${DEPLOYMENT_TARGET:-realtime-inference}"
                 ;;
             2)

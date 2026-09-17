@@ -55,8 +55,18 @@ spec:
   replicas: <%= hyperPodReplicas %>
   # ── Model source ────────────────────────────────────────────────────────────
   # do/deploy renders exactly one modelSourceConfig block below, depending on
-  # whether the model has been staged to S3 (STAGED_MODEL_PATH set in do/config).
-  # The MODEL_SOURCE_BLOCK marker is replaced by do/deploy.d/hyperpod-eks before
+  # the resolved model source (checked in this precedence order):
+  #   1. model-package — OPTIMIZE_MODEL_PACKAGE_ARN set (SageMaker Inference
+  #      Optimizer result). Emits:
+  #        modelSourceConfig:
+  #          modelSourceType: model-package
+  #          modelPackageArn: "<arn>"
+  #      When this branch is active and OPTIMIZE_INFERENCE_SPEC is set, do/deploy
+  #      also overrides spec.modelName (above) with the inference spec name for
+  #      traceability.
+  #   2. s3          — STAGED_MODEL_PATH set (model staged to S3).
+  #   3. huggingFace — default; pulls MODEL_NAME via the hf-token-secret Secret.
+  # The MODEL_SOURCE_CONFIG marker is replaced by do/deploy.d/hyperpod-eks before
   # apply; the operator downloads the model into worker.modelVolumeMount.mountPath.
   modelSourceConfig:
     __MODEL_SOURCE_CONFIG__

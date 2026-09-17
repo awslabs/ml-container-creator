@@ -160,4 +160,46 @@ describe('BL088: modelSourceConfig rendering (S3 vs Hugging Face)', () => {
         assert.ok(deploy.includes('name: hf-token-secret') && deploy.includes('key: token'),
             'driver must reference the hf-token-secret / token key');
     });
+
+    it('emits a model-package source when OPTIMIZE_MODEL_PACKAGE_ARN is set', () => {
+        // SageMaker Inference Optimizer override: the driver must gate on
+        // OPTIMIZE_MODEL_PACKAGE_ARN and emit modelSourceType: model-package
+        // with the modelPackageArn, taking precedence over the S3/HF sources.
+        assert.ok(deploy.includes('OPTIMIZE_MODEL_PACKAGE_ARN'),
+            'driver must check OPTIMIZE_MODEL_PACKAGE_ARN');
+        assert.ok(deploy.includes('modelSourceType: model-package'),
+            'driver must set modelSourceType: model-package for optimized packages');
+        assert.ok(deploy.includes('modelPackageArn: "${OPTIMIZE_MODEL_PACKAGE_ARN}"'),
+            'driver must emit modelSourceConfig.modelPackageArn from the ARN');
+        // The optimize branch must be evaluated before the STAGED_MODEL_PATH branch.
+        const optIdx = deploy.indexOf('if [ -n "${OPTIMIZE_MODEL_PACKAGE_ARN:-}" ]; then');
+        const s3Idx = deploy.indexOf('elif [ -n "${STAGED_MODEL_PATH:-}" ]; then');
+        assert.ok(optIdx > 0 && s3Idx > optIdx,
+            'the model-package branch must take precedence over the S3 branch');
+    });
+
+    it('overrides spec.modelName with OPTIMIZE_INFERENCE_SPEC for traceability', () => {
+        assert.ok(deploy.includes('HP_MODEL_NAME_OVERRIDE'),
+            'driver must compute a modelName override');
+        assert.ok(deploy.includes('OPTIMIZE_INFERENCE_SPEC'),
+            'driver must read OPTIMIZE_INFERENCE_SPEC for the modelName override');
+        // The splice must rewrite the top-level spec.modelName line.
+        assert.ok(/name_re = re\.compile\(r"\^\( {2}modelName:/.test(deploy),
+            'driver splice must rewrite the top-level spec.modelName');
+    });
+});
+
+describe('BL088: modelSourceConfig CRD template documents the model-package branch', () => {
+    let crd;
+
+    before(() => {
+        crd = render('hyperpod/InferenceEndpointConfig.yaml.ejs');
+    });
+
+    it('documents modelSourceType: model-package with modelPackageArn', () => {
+        assert.ok(crd.includes('modelSourceType: model-package'),
+            'CRD template must document the model-package source type');
+        assert.ok(crd.includes('modelPackageArn'),
+            'CRD template must document the modelPackageArn field');
+    });
 });

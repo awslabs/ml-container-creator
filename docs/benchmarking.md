@@ -1,6 +1,4 @@
-
-!!! note \"Known limitation: `gpu_utilization_avg` column\"\n    `--compare-baseline` queries Athena for extended GPU metrics (utilization, KV cache,\n    prefix cache hit rate). These columns are added to the Athena schema as part of the\n    enhanced benchmark metrics work (v1.7). On existing tables provisioned before v1.7,\n    the query will emit a `⚠️ Athena query FAILED: COLUMN_NOT_FOUND: gpu_utilization_avg`\n    caution but will continue — the comparison falls back to the four core metrics only.\n    This is cosmetic and does not block the regression check.
-
+# Benchmarking
 
 Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf). The `do/benchmark` script creates a workload configuration, launches a benchmark job, polls for completion, and displays results — all in one command.
 
@@ -157,6 +155,15 @@ Default when no `--threshold` is specified: all four metrics at 10%.
 | 0 | No regression detected (or no baseline found) |
 | 1 | At least one metric exceeded the regression threshold |
 
+!!! note "Known limitation: `gpu_utilization_avg` column"
+    `--compare-baseline` queries Athena for extended GPU metrics (utilization, KV cache,
+    prefix cache hit rate). These columns are added to the Athena schema as part of the
+    enhanced benchmark metrics work (v1.7). On existing tables provisioned before v1.7,
+    the query will emit a `⚠️ Athena query FAILED: COLUMN_NOT_FOUND: gpu_utilization_avg`
+    caution but will continue — the comparison falls back to the four core metrics only.
+    This is cosmetic and does not block the regression check. Run `mcc bootstrap update`
+    to migrate the Athena schema.
+
 ### CI integration
 
 ```yaml
@@ -166,6 +173,142 @@ Default when no `--threshold` is specified: all four metrics at 10%.
     ./do/benchmark --workload multi_turn_chat
     ./do/benchmark --compare-baseline --threshold throughput:5 --json
 ```
+
+---
+
+## Enhanced GPU & Engine Metrics (v1.7)
+
+Beyond the core AIPerf benchmark metrics (throughput, latency, TTFT, ITL), MLCC can
+collect GPU utilization, KV cache usage, queue depth, and prefix cache hit rate from
+your running endpoint and record them alongside benchmark results in Athena.
+
+Collection works in two phases. Both are non-fatal — missing metrics produce `null`
+Athena values; they never block the benchmark from completing.
+
+### Phase 1 — CloudWatch OTel (realtime-inference, all engines)
+
+SageMaker AI detailed observability forwards native vLLM and SGLang engine metrics to
+CloudWatch via an AWS-managed OTel collector. After a benchmark run completes,
+`do/benchmark` queries these metrics via SigV4-authenticated PromQL at
+`monitoring.<region>.amazonaws.com` and writes them to Athena.
+
+**What gets collected:**
+
+| Athena column | OTel metric | Notes |
+|---|---|---|
+| `gpu_utilization_avg` / `_max` | `DCGM_FI_DEV_GPU_UTIL` | Available on all GPU endpoints |
+| `gpu_memory_util_avg` | `DCGM_FI_DEV_MEM_COPY_UTIL` | GPU memory copy utilization |
+| `kv_cache_util_avg` | `KVCacheUtilization` | vLLM + SGLang only |
+| `queue_depth_waiting_avg` | `QueueDepth` | Requests waiting in queue |
+| `metrics_source` | — | Provenance: `cloudwatch` / `engine_metrics` / `both` / `none` |
+
+`prefix_cache_hit_rate` is **not** available via CloudWatch — Phase 2 only (see below).
+
+#### Prerequisites
+
+**1. Enable account-level OTel enrichment** (one-time per account/region):
+
+```bash
+aws cloudwatch start-otel-enrichment --region <your-region>
+```
+
+**2. Redeploy to add `ContainerMetricsConfig`** — MLCC now automatically includes
+`ContainerMetricsConfig` (path `/metrics`, port 8080) in realtime-inference endpoint
+configs. If your endpoint was deployed before v1.7, redeploy it to pick this up:
+
+```bash
+./do/deploy
+```
+
+**3. Run a benchmark** — metrics are collected after the job completes:
+
+```bash
+./do/benchmark --workload multi_turn_chat
+```
+
+#### Verifying Phase 1 is working
+
+Check the `metrics_source` field in the result:
+
+```bash
+cat benchmarks/*/output/profile_export.jsonl | python3 -c "
+import sys, json
+for line in sys.stdin:
+    r = json.loads(line)
+    keys = ['gpu_utilization_avg', 'kv_cache_util_avg', 'queue_depth_waiting_avg', 'metrics_source']
+    print({k: r.get(k) for k in keys})
+"
+```
+
+- `metrics_source: "cloudwatch"` + non-null values → Phase 1 working ✅
+- `metrics_source: "none"` → OTel enrichment not enabled, endpoint not redeployed, or
+  detailed observability not yet collecting (can take a few minutes after first deploy)
+
+!!! note "BYOC requirement"
+    SageMaker cannot auto-detect the metrics endpoint for custom containers. MLCC adds
+    `ContainerMetricsConfig` automatically; if you provision endpoints outside of MLCC,
+    add `ContainerMetricsConfig: {MetricsEndpoints: [{MetricsEndpointPath: "/metrics", Port: 8080}]}`
+    to your `CreateEndpointConfig` call manually.
+
+---
+
+### Phase 2 — Engine `/metrics` scrape (HyperPod EKS, opt-in)
+
+For HyperPod EKS deployments, you can additionally scrape the engine's Prometheus
+`/metrics` endpoint directly (port-forwarded from the serving pod) to collect raw
+vLLM/SGLang gauges — including `prefix_cache_hit_rate`, which is not available via
+CloudWatch.
+
+**Enable in `do/config`:**
+
+```bash
+export HP_BENCHMARK_METRICS_ENABLED=true
+```
+
+**What gets collected (additive to Phase 1):**
+
+| Athena column | vLLM metric | SGLang metric |
+|---|---|---|
+| `kv_cache_util_avg` | `vllm:kv_cache_usage_perc` | `sglang:token_usage` |
+| `prefix_cache_hit_rate` | computed from `prefix_cache_queries` + `prefix_cache_hits` | `sglang:cache_hit_rate` |
+| `queue_depth_waiting_avg` | `vllm:num_requests_waiting` | `sglang:num_queue_reqs` |
+
+When both phases run, `metrics_source` is `"both"`. Phase 2 values override Phase 1
+for overlapping columns when non-null.
+
+---
+
+### HyperPod EKS — Phase 1 gap
+
+Phase 1 (CloudWatch OTel) currently only applies to `realtime-inference` endpoints. HyperPod
+EKS deployments go through the `InferenceEndpointConfig` CRD operator, which provisions the
+underlying compute outside of the standard `CreateEndpointConfig` path — so the BYOC
+`ContainerMetricsConfig` added for realtime-inference doesn't apply here.
+
+**What this means in practice:**
+- HyperPod EKS benchmarks rely on **Phase 2 only** for engine metrics: set `HP_BENCHMARK_METRICS_ENABLED=true` in `do/config`.
+- `gpu_utilization_avg`, `kv_cache_util_avg`, and `queue_depth_waiting_avg` will be `null` on HyperPod EKS unless Phase 2 is enabled.
+- `prefix_cache_hit_rate` requires Phase 2 on both targets.
+
+---
+
+### Athena columns added in v1.7
+
+| Column | Type | Description |
+|---|---|---|
+| `gpu_utilization_avg` | DOUBLE | Average GPU compute utilization (%) over benchmark window |
+| `gpu_utilization_max` | DOUBLE | Peak GPU compute utilization (%) |
+| `gpu_memory_util_avg` | DOUBLE | Average GPU memory copy utilization (%) |
+| `kv_cache_util_avg` | DOUBLE | Average KV cache utilization (0–1) |
+| `kv_cache_util_max` | DOUBLE | Peak KV cache utilization (0–1) |
+| `prefix_cache_hit_rate` | DOUBLE | Prefix/prompt cache hit ratio (0–1); Phase 2 / `/metrics` only |
+| `queue_depth_waiting_avg` | DOUBLE | Average number of waiting requests |
+| `queue_depth_running_avg` | DOUBLE | Average number of actively running requests |
+| `metrics_source` | STRING | `cloudwatch` / `engine_metrics` / `both` / `none` |
+
+These columns are `NULL` for benchmark runs on pre-v1.7 tables and for endpoints where
+neither phase collected data. Run `mcc bootstrap update` to migrate an existing Athena
+table — the CDK stack update adds the columns via Glue `UpdateTable` (idempotent).
 
 ---
 

@@ -49,7 +49,7 @@ class TestMetricRegistry:
         assert sglang['prefix_cache_hit_rate'] == 'sglang:cache_hit_rate'
 
 
-# ── collect_cloudwatch ─────────────────────────────────────────────────────────
+# ── collect_cloudwatch (PromQL / SageMaker detailed observability OTel) ────────
 
 
 class TestCollectCloudwatch:
@@ -58,23 +58,32 @@ class TestCollectCloudwatch:
         end = datetime(2026, 1, 1, 0, 10, 0, tzinfo=timezone.utc)
         return start, end
 
-    def test_returns_dict_structure_with_mocked_boto3(self):
-        """Req 6.1: mocked CloudWatch → correct dict structure."""
+    def test_returns_dict_structure_with_mocked_promql(self):
+        """Req 6.1: mocked PromQL OTel queries → correct dict structure.
+
+        collect_cloudwatch issues one PromQL instant query per metric/aggregation
+        via _promql_instant_query; we patch that to return per-query scalars keyed
+        on the OTel metric name embedded in the query string.
+        """
         start, end = self._window()
 
-        fake_client = mock.MagicMock()
-        fake_client.get_metric_data.return_value = {
-            'MetricDataResults': [
-                {'Id': 'gpu_util_avg', 'Values': [50.0, 70.0]},
-                {'Id': 'gpu_util_max', 'Values': [90.0]},
-                {'Id': 'gpu_mem_util_avg', 'Values': [40.0, 60.0]},
-            ]
-        }
+        def _fake_query(region, query, at_time):
+            # Route by the OTel metric name present in the PromQL expression.
+            if 'DCGM_FI_DEV_GPU_UTIL' in query:
+                return 90.0 if 'max_over_time' in query else 60.0
+            if 'DCGM_FI_DEV_MEM_COPY_UTIL' in query:
+                return 50.0
+            if 'DCGM_FI_DEV_FB_USED' in query:
+                return 8.0 * (1024 ** 3)  # 8 GiB in bytes
+            if 'KVCacheUtilization' in query:
+                return 0.8 if 'max_over_time' in query else 0.5
+            if 'BatchSize' in query:
+                return 8.0
+            if 'QueueDepth' in query:
+                return 3.0
+            return None
 
-        fake_boto3 = mock.MagicMock()
-        fake_boto3.client.return_value = fake_client
-        # boto3 is imported inside the function; patch the import target.
-        with mock.patch.dict(sys.modules, {'boto3': fake_boto3}):
+        with mock.patch.object(gpu_metrics, '_promql_instant_query', side_effect=_fake_query):
             out = gpu_metrics.collect_cloudwatch(
                 'ep', 'AllTraffic', 'ic-1', start, end, 'us-east-1'
             )
@@ -82,26 +91,34 @@ class TestCollectCloudwatch:
         assert out['gpu_utilization_avg'] == pytest.approx(60.0)
         assert out['gpu_utilization_max'] == pytest.approx(90.0)
         assert out['gpu_memory_util_avg'] == pytest.approx(50.0)
+        assert out['gpu_memory_used_avg_gb'] == pytest.approx(8.0)
+        # Engine metrics (vLLM/SGLang) are also forwarded via OTel in Phase 1.
+        assert out['kv_cache_util_avg'] == pytest.approx(0.5)
+        assert out['kv_cache_util_max'] == pytest.approx(0.8)
+        assert out['queue_depth_running_avg'] == pytest.approx(8.0)
+        assert out['queue_depth_waiting_avg'] == pytest.approx(3.0)
+        assert out['queue_depth_waiting_max'] == pytest.approx(3.0)
+        # Prefix cache hit rate is /metrics-only — never populated by Phase 1.
+        assert 'prefix_cache_hit_rate' not in out
 
-    def test_returns_empty_dict_on_aws_error(self):
-        """Req 6.2: any AWS error → {} (non-fatal)."""
+    def test_returns_empty_dict_on_query_error(self):
+        """Req 6.2: any signing/transport error → {} (non-fatal)."""
         start, end = self._window()
-
-        fake_client = mock.MagicMock()
-        fake_client.get_metric_data.side_effect = RuntimeError("AccessDenied")
-
-        fake_boto3 = mock.MagicMock()
-        fake_boto3.client.return_value = fake_client
-        with mock.patch.dict(sys.modules, {'boto3': fake_boto3}):
+        with mock.patch.object(
+            gpu_metrics, '_promql_instant_query',
+            side_effect=RuntimeError('AccessDenied'),
+        ):
             out = gpu_metrics.collect_cloudwatch(
                 'ep', 'AllTraffic', '', start, end, 'us-east-1'
             )
         assert out == {}
 
-    def test_returns_empty_dict_when_boto3_unavailable(self):
+    def test_returns_empty_dict_when_no_data(self):
+        """No OTel data (prereqs not enabled) → empty dict, all keys omitted."""
         start, end = self._window()
-        # Simulate boto3 import failure.
-        with mock.patch.dict(sys.modules, {'boto3': None}):
+        with mock.patch.object(
+            gpu_metrics, '_promql_instant_query', return_value=None,
+        ):
             out = gpu_metrics.collect_cloudwatch(
                 'ep', 'AllTraffic', '', start, end, 'us-east-1'
             )

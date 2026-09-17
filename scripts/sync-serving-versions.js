@@ -20,6 +20,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'; // eslint-disable-line no-unused-vars
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deriveMinDriverVersion } from '../servers/lib/image-filter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -237,6 +238,24 @@ export function buildNewEntry(serverSource, tag, nearestEntry) {
         if (nearestEntry.notes) entry.notes = nearestEntry.notes;
         if (nearestEntry.validationLevel) entry.validationLevel = nearestEntry.validationLevel;
         if (nearestEntry.features) entry.features = structuredClone(nearestEntry.features);
+        // Carry forward curated compatibility metadata. These fields gate the
+        // base-image picker's GPU driver / CUDA filtering; dropping them makes an
+        // image pass all driver filters (never excluded), which is unsafe.
+        // Consecutive engine releases share the same baseline until explicitly
+        // bumped, so cloning the nearest entry's values is the safe default.
+        if (nearestEntry.supportedModelTypes) {
+            entry.supportedModelTypes = structuredClone(nearestEntry.supportedModelTypes);
+        }
+        if (nearestEntry.min_driver_version) entry.min_driver_version = nearestEntry.min_driver_version;
+        if (nearestEntry.cuda_toolkit) entry.cuda_toolkit = nearestEntry.cuda_toolkit;
+        if (nearestEntry.transformers_version) entry.transformers_version = nearestEntry.transformers_version;
+    }
+
+    // Fallback: if min_driver_version is still unset, try deriving it from the
+    // tag / labels using the same helper the picker uses for dynamic entries.
+    if (!entry.min_driver_version) {
+        const derived = deriveMinDriverVersion(entry);
+        if (derived) entry.min_driver_version = derived;
     }
 
     return entry;
