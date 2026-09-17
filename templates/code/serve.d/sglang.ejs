@@ -45,6 +45,14 @@ for var in "${env_vars[@]}"; do
     # Remove prefix, convert to lowercase, replace underscores with dashes
     arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
 
+    # Speculative decoding flags are assembled explicitly below so optional
+    # values and the S3 draft-model validation follow one code path.
+    case "${key}" in
+        SGLANG_SPECULATIVE_ALGORITHM|SGLANG_SPECULATIVE_DRAFT_MODEL_PATH|SGLANG_SPECULATIVE_NUM_STEPS|SGLANG_SPECULATIVE_EAGLE_TOPK)
+            continue
+            ;;
+    esac
+
     # Primary path: only forward args sglang actually accepts (from --help).
     if [ "$_have_whitelist" = true ]; then
         if ! grep -qx -- "${ARG_PREFIX}${arg_name}" "${VALID_ARGS_CACHE}"; then
@@ -69,36 +77,24 @@ done
 
 # ---------------------------------------------------------------------------
 # Speculative decoding (BL085) — SGLang discrete flags.
-# The deployment template injects SPECULATIVE_* env vars (engine-neutral). This
-# wrapper maps them to SGLang's discrete `--speculative-*` flags. The algorithm
-# enum is UPPERCASE for SGLang (EAGLE|EAGLE2|EAGLE3|NEXTN) vs vLLM's lowercase;
-# this wrapper owns the casing/name conversion. Neither engine accepts s3://
-# draft paths, so guard HP_SPECULATIVE_MODEL first (AD-3).
+# The HyperPod CRD supplies engine-specific SGLANG_SPECULATIVE_* values. The
+# algorithm is already in SGLang's required uppercase enum form.
 # ---------------------------------------------------------------------------
-if [ -n "${HP_SPECULATIVE_MODEL:-}" ] && [[ "${HP_SPECULATIVE_MODEL}" == s3://* ]]; then
+_speculative_draft_model="${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH:-${HP_SPECULATIVE_MODEL:-}}"
+if [ -n "${_speculative_draft_model}" ] && [[ "${_speculative_draft_model}" == s3://* ]]; then
     echo "❌ HP_SPECULATIVE_MODEL must be a HuggingFace model ID or local path, not an s3:// URI. Stage it first with do/stage." >&2
     exit 1
 fi
-if [ -n "${SPECULATIVE_ALGORITHM:-}" ]; then
-    # Engine-neutral (lowercase) → SGLang (UPPERCASE) algorithm mapping.
-    _spec_algo=$(echo "${SPECULATIVE_ALGORITHM}" | tr '[:lower:]' '[:upper:]')
-    case "${_spec_algo}" in
-        NGRAM|MEDUSA)
-            echo "❌ HP_SPECULATIVE_ALGORITHM='${SPECULATIVE_ALGORITHM}' is vLLM-only and not supported by SGLang. Use eagle, eagle2, eagle3, draft-model, or mtp." >&2
-            exit 1
-            ;;
-        DRAFT-MODEL|DRAFT_MODEL) _spec_algo="STANDALONE" ;;
-        MTP)                     _spec_algo="NEXTN" ;;
-    esac
-    SERVER_ARGS+=(--speculative-algorithm "${_spec_algo}")
-    if [ -n "${SPECULATIVE_DRAFT_MODEL_PATH:-}" ]; then
-        SERVER_ARGS+=(--speculative-draft-model-path "${SPECULATIVE_DRAFT_MODEL_PATH}")
+if [ -n "${SGLANG_SPECULATIVE_ALGORITHM:-}" ]; then
+    SERVER_ARGS+=(--speculative-algorithm "${SGLANG_SPECULATIVE_ALGORITHM}")
+    if [ -n "${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH:-}" ]; then
+        SERVER_ARGS+=(--speculative-draft-model-path "${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH}")
     fi
-    if [ -n "${SPECULATIVE_NUM_DRAFT_TOKENS:-}" ]; then
-        SERVER_ARGS+=(--speculative-num-draft-tokens "${SPECULATIVE_NUM_DRAFT_TOKENS}")
+    if [ -n "${SGLANG_SPECULATIVE_NUM_STEPS:-}" ]; then
+        SERVER_ARGS+=(--speculative-num-steps "${SGLANG_SPECULATIVE_NUM_STEPS}")
     fi
-    if [ -n "${SPECULATIVE_EAGLE_TOPK:-}" ]; then
-        SERVER_ARGS+=(--speculative-eagle-topk "${SPECULATIVE_EAGLE_TOPK}")
+    if [ -n "${SGLANG_SPECULATIVE_EAGLE_TOPK:-}" ]; then
+        SERVER_ARGS+=(--speculative-eagle-topk "${SGLANG_SPECULATIVE_EAGLE_TOPK}")
     fi
 fi
 

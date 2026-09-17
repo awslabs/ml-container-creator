@@ -49,6 +49,10 @@ For existing [SageMaker AI HyperPod](https://aws.amazon.com/sagemaker/hyperpod/)
 
 The generated `do/config` file stores HyperPod-specific variables: `HP_CLUSTER_NAME`, `HP_NAMESPACE`, `HP_REPLICAS`, and — after a successful deployment — `ENDPOINT_NAME`.
 
+#### Speculative decoding
+
+Speculative decoding is supported for vLLM and SGLang images on HyperPod EKS. See the dedicated guide: [Speculative Decoding on HyperPod EKS](hyperpod-speculative-decoding.md).
+
 Prerequisites:
 
 - An existing SageMaker AI HyperPod cluster with EKS orchestrator

@@ -20,11 +20,9 @@
 # do/deploy.d/hyperpod-eks via envsubst; EJS expressions are baked in at
 # project-generation time.
 #
-# NOTE (BL085): spec.worker.args and spec.worker.environmentVariables both exist.
-# BL085 injects speculative-decoding flags into worker.args and the
-# SPECULATIVE_* environment variables here. BL088 intentionally leaves worker.args
-# empty because the MLCC BYOC image has a baked-in ENTRYPOINT (code/serve) that
-# starts the model server on port 8080 and reads its configuration from env vars.
+# NOTE (BL085): speculative decoding is passed only through
+# spec.worker.environmentVariables. The BYOC image owns the serve command and
+# translates the values for its selected engine; spec.worker.args remains empty.
 apiVersion: inference.sagemaker.aws.amazon.com/v1
 kind: InferenceEndpointConfig
 metadata:
@@ -113,6 +111,23 @@ spec:
       - name: SGLANG_MODEL_PATH
         value: "<%= modelName %>"
 <% } %>
+      # Both engine-specific speculative variable sets are emitted. The image
+      # selects one set based on its model server; no speculative flags are
+      # injected into worker.args.
+      - name: VLLM_SPECULATIVE_ALGORITHM
+        value: "${VLLM_SPECULATIVE_ALGORITHM}"
+      - name: VLLM_SPECULATIVE_MODEL
+        value: "${VLLM_SPECULATIVE_MODEL}"
+      - name: VLLM_SPECULATIVE_NUM_TOKENS
+        value: "${VLLM_SPECULATIVE_NUM_TOKENS}"
+      - name: SGLANG_SPECULATIVE_ALGORITHM
+        value: "${SGLANG_SPECULATIVE_ALGORITHM}"
+      - name: SGLANG_SPECULATIVE_DRAFT_MODEL_PATH
+        value: "${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH}"
+      - name: SGLANG_SPECULATIVE_NUM_STEPS
+        value: "${SGLANG_SPECULATIVE_NUM_STEPS}"
+      - name: SGLANG_SPECULATIVE_EAGLE_TOPK
+        value: "${SGLANG_SPECULATIVE_EAGLE_TOPK}"
 <% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
       - name: VLLM_ENABLE_LORA
         value: "true"

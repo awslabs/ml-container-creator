@@ -243,8 +243,13 @@ class AthenaQueryEngine:
             f"SELECT output_token_throughput_tps, request_throughput_rps, "
             f"ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, "
             f"benchmark_job_name, run_timestamp, adapter_name, "
-            f"gpu_utilization_avg, kv_cache_util_avg, prefix_cache_hit_rate, "
-            f"queue_depth_waiting_avg, metrics_source "
+            # BL086 columns are nullable — wrap in TRY() so queries succeed on
+            # tables that pre-date the BL086 schema migration (column not yet added).
+            f"TRY(gpu_utilization_avg) AS gpu_utilization_avg, "
+            f"TRY(kv_cache_util_avg) AS kv_cache_util_avg, "
+            f"TRY(prefix_cache_hit_rate) AS prefix_cache_hit_rate, "
+            f"TRY(queue_depth_waiting_avg) AS queue_depth_waiting_avg, "
+            f"TRY(metrics_source) AS metrics_source "
             f"FROM {self.database}.{self.table} "
             f"WHERE LOWER(model) = '{model_partition}' "
             f"AND instance = '{instance_type}' "

@@ -1,4 +1,6 @@
-# Benchmarking
+
+!!! note \"Known limitation: `gpu_utilization_avg` column\"\n    `--compare-baseline` queries Athena for extended GPU metrics (utilization, KV cache,\n    prefix cache hit rate). These columns are added to the Athena schema as part of the\n    enhanced benchmark metrics work (v1.7). On existing tables provisioned before v1.7,\n    the query will emit a `⚠️ Athena query FAILED: COLUMN_NOT_FOUND: gpu_utilization_avg`\n    caution but will continue — the comparison falls back to the four core metrics only.\n    This is cosmetic and does not block the regression check.
+
 
 Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf). The `do/benchmark` script creates a workload configuration, launches a benchmark job, polls for completion, and displays results — all in one command.
 
@@ -8,7 +10,7 @@ Measure LLM endpoint performance using SageMaker AI Benchmarking (NVIDIA AIPerf)
 |---|---|
 | Endpoint status | Must be `InService` (run `./do/deploy` first) |
 | Architecture | Transformers or Diffusors only (HTTP and Triton not supported) |
-| Deployment target | `realtime-inference` only (HyperPod EKS: requires InferenceEndpointConfig CRD deployment (see BL088, planned v1.7)) |
+| Deployment target | `realtime-inference` and `hyperpod-eks` (HyperPod EKS requires `ENDPOINT_NAME` written by `do/deploy` — set automatically after successful deployment) |
 | Python dependencies | Installed automatically via `npm install` (see `requirements.txt`) |
 | AWS credentials | Must be configured for the deployment region |
 | Bootstrap | Recommended — provides the IAM role with benchmarking permissions and S3 bucket for results |

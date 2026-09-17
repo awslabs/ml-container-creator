@@ -201,9 +201,12 @@ After provisioning, the module writes these to your project's `do/config`:
 
 | Variable | Source |
 |----------|--------|
-| `HYPERPOD_CLUSTER_NAME` | HyperPod cluster name |
-| `HYPERPOD_EKS_CLUSTER_NAME` | EKS cluster name |
-| `HYPERPOD_SUBNET_ID` | First private subnet ID |
+| `HYPERPOD_CLUSTER_NAME` | HyperPod cluster name (profile-level) |
+| `HYPERPOD_EKS_CLUSTER_NAME` | EKS cluster name (profile-level) |
+| `HYPERPOD_SUBNET_ID` | First private subnet ID (profile-level) |
+| `HP_CLUSTER_NAME` | Written to project `do/config` by `do/deploy` on first deploy |
+| `HP_NAMESPACE` | Written to project `do/config` by `do/deploy` on first deploy |
+| `ENDPOINT_NAME` | Written to project `do/config` after SageMaker endpoint reaches `InService` |
 
 ## Adopt-Existing (Idempotency)
 

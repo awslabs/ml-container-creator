@@ -258,6 +258,57 @@ else
     export VLLM_ENABLE_LORA=""
 fi
 
+# Export speculative-decoding values for the CRD's two engine-specific env sets.
+# The CRD always carries both sets; the container's selected serve wrapper reads
+# only its own values. Keep worker.args empty because code/serve owns all flags.
+export VLLM_SPECULATIVE_ALGORITHM=""
+export VLLM_SPECULATIVE_MODEL=""
+export VLLM_SPECULATIVE_NUM_TOKENS=""
+export SGLANG_SPECULATIVE_ALGORITHM=""
+export SGLANG_SPECULATIVE_DRAFT_MODEL_PATH=""
+export SGLANG_SPECULATIVE_NUM_STEPS=""
+export SGLANG_SPECULATIVE_EAGLE_TOPK=""
+
+if [ -n "${HP_SPECULATIVE_ALGORITHM:-}" ]; then
+    case "${HP_SPECULATIVE_ALGORITHM:-}" in
+        draft-model)
+            export VLLM_SPECULATIVE_ALGORITHM="draft_model"
+            export SGLANG_SPECULATIVE_ALGORITHM="STANDALONE"
+            ;;
+        eagle)
+            export VLLM_SPECULATIVE_ALGORITHM="eagle"
+            export SGLANG_SPECULATIVE_ALGORITHM="EAGLE"
+            export SGLANG_SPECULATIVE_EAGLE_TOPK="${HP_SPECULATIVE_EAGLE_TOPK:-}"
+            ;;
+        eagle2)
+            export VLLM_SPECULATIVE_ALGORITHM="eagle2"
+            export SGLANG_SPECULATIVE_ALGORITHM="EAGLE"
+            ;;
+        eagle3)
+            export VLLM_SPECULATIVE_ALGORITHM="eagle3"
+            export SGLANG_SPECULATIVE_ALGORITHM="EAGLE3"
+            export SGLANG_SPECULATIVE_EAGLE_TOPK="${HP_SPECULATIVE_EAGLE_TOPK:-}"
+            ;;
+        ngram)
+            export VLLM_SPECULATIVE_ALGORITHM="ngram"
+            export SGLANG_SPECULATIVE_ALGORITHM="NGRAM"
+            ;;
+        mtp)
+            export VLLM_SPECULATIVE_ALGORITHM="mtp"
+            export SGLANG_SPECULATIVE_ALGORITHM="MTP"
+            ;;
+        *)
+            echo "❌ HP_SPECULATIVE_ALGORITHM must be one of: draft-model, eagle, eagle2, eagle3, ngram, mtp." >&2
+            exit 1
+            ;;
+    esac
+
+    export VLLM_SPECULATIVE_MODEL="${HP_SPECULATIVE_MODEL:-}"
+    export VLLM_SPECULATIVE_NUM_TOKENS="${HP_SPECULATIVE_NUM_TOKENS:-5}"
+    export SGLANG_SPECULATIVE_DRAFT_MODEL_PATH="${HP_SPECULATIVE_MODEL:-}"
+    export SGLANG_SPECULATIVE_NUM_STEPS="${HP_SPECULATIVE_NUM_STEPS:-${HP_SPECULATIVE_NUM_TOKENS:-5}}"
+fi
+
 # Instance type for the CRD: prefer explicit HP override, else the configured
 # node selector, else INSTANCE_TYPE from do/config.
 export HP_INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${HP_NODE_SELECTOR:-${INSTANCE_TYPE:-}}}"
