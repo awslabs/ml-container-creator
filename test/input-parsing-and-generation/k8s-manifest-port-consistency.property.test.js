@@ -110,8 +110,13 @@ describe('Property 10: InferenceEndpointConfig CRD Contract', () => {
             assert.strictEqual(crd.kind, 'InferenceEndpointConfig', 'kind must be InferenceEndpointConfig');
             assert.strictEqual(crd.metadata.name, base.projectName,
                 'metadata.name must equal projectName (== SageMaker endpoint name)');
-            assert.strictEqual(crd.spec.modelName, base.projectName,
-                'spec.modelName is required');
+            // BL088 contract: spec.modelName identifies the model being served
+            // (HF model id / S3 path prefix), NOT the projectName. The endpoint
+            // name comes from metadata.name / spec.endpointName (== projectName).
+            assert.strictEqual(crd.spec.modelName, base.modelName,
+                'spec.modelName must equal the model id');
+            assert.strictEqual(crd.spec.endpointName, base.projectName,
+                'spec.endpointName must equal projectName (== SageMaker endpoint name)');
         }), { numRuns: 50 });
         console.log('    ✅ Valid InferenceEndpointConfig CRD rendered');
     });

@@ -153,14 +153,22 @@ describe('Property 16: Test Script Content by Deployment Target', () => {
                     'hyperpod-eks must use kubectl port-forward'
                 );
                 assert.ok(
-                    // BL088: the operator creates the Service; do/test resolves it
-                    // into PF_SVC (defaulting to PROJECT_NAME) and port-forwards to it.
-                    output.includes('svc/${PF_SVC}') && output.includes('PF_SVC="${PROJECT_NAME}"'),
-                    'hyperpod-eks must port-forward to the resolved project service (PF_SVC ← PROJECT_NAME)'
+                    // BL088 (updated): the operator creates serving pods directly;
+                    // do/test discovers the pod by `app=${PROJECT_NAME}` label and
+                    // port-forwards to it (PF_TARGET="pod/${_POD}"), falling back to
+                    // svc/${PF_SVC} only if a pod is not found.
+                    output.includes('-l "app=${PROJECT_NAME}"') &&
+                    output.includes('PF_TARGET="pod/${_POD}"') &&
+                    output.includes('kubectl port-forward "${PF_TARGET:-svc/${PF_SVC}}"'),
+                    'hyperpod-eks must resolve the serving pod by app=PROJECT_NAME label and port-forward to it'
                 );
                 assert.ok(
-                    output.includes('${LOCAL_PORT}:8080') || output.includes('8080:8080'),
-                    'hyperpod-eks must forward port 8080:8080'
+                    // BL088 (updated): mapping is ${LOCAL_PORT}:${SVC_PORT}, with both
+                    // defaulting to 8080 (HP_TEST_PORT:-8080 / HP_TEST_SVC_PORT:-8080).
+                    output.includes('${LOCAL_PORT}:${SVC_PORT}') &&
+                    output.includes('LOCAL_PORT="${HP_TEST_PORT:-8080}"') &&
+                    output.includes('SVC_PORT="${HP_TEST_SVC_PORT:-8080}"'),
+                    'hyperpod-eks must forward ${LOCAL_PORT}:${SVC_PORT} (default 8080:8080)'
                 );
                 assert.ok(
                     output.includes('Testing HyperPod EKS deployment'),
