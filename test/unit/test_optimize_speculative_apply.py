@@ -22,6 +22,13 @@ def _run_apply(tmp_path: Path, recommendation: dict) -> tuple[subprocess.Complet
     lib_dir.mkdir(parents=True)
     bin_dir.mkdir()
 
+    # Satisfy script-contract.sh's venv guard via path 2 (project-local hey-venv):
+    # create a sourceable .mlcc/hey-venv/bin/activate marker so the guard passes
+    # regardless of whether pytest itself runs inside a venv.
+    _venv_bin = tmp_path / ".mlcc" / "hey-venv" / "bin"
+    _venv_bin.mkdir(parents=True, exist_ok=True)
+    (_venv_bin / "activate").write_text("# test venv marker\n")
+
     optimize = do_dir / "optimize"
     shutil.copy2(OPTIMIZE_TEMPLATE, optimize)
     shutil.copy2(SCRIPT_CONTRACT, lib_dir / "script-contract.sh")
