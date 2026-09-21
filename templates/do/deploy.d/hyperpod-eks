@@ -323,11 +323,72 @@ fi
 # node selector, else INSTANCE_TYPE from do/config.
 export HP_INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${HP_NODE_SELECTOR:-${INSTANCE_TYPE:-}}}"
 
-# Portable envsubst shim — works on macOS without gettext installed
-# Falls back to perl (always available on macOS/Linux) if envsubst is not found
-if ! command -v envsubst &>/dev/null; then
-    envsubst() { perl -pe 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge'; }
+# ── BL096: auto-resolve GPU count / CPU / memory from the instance type ────────
+# instanceType and the GPU-derived resource requests are resolved at DEPLOY time
+# (not baked into the CRD at generation time). This keeps the CRD in sync when
+# the user changes instance groups via --reconfigure / --force: a stale baked
+# GPU count would otherwise cause wrong node affinity (scheduling failures) and
+# a wrong tensor-parallel degree (OOM).
+#
+# The lookup table mirrors GPU_MAP in src/lib/deploy-config-builder.js. Unknown
+# instance types fall back to 1 GPU. CPU/memory scale with the GPU count
+# (cpu = gpu*4 cores, memory = gpu*16 Gi), matching the CRD template defaults.
+_hp_detect_gpu_count() {
+    # Strip the ml. prefix; the family.size suffix is the lookup key.
+    local suffix="${1#ml.}"
+    case "${suffix}" in
+        g5.xlarge|g5.2xlarge|g5.4xlarge|g5.8xlarge|g5.16xlarge) echo 1 ;;
+        g5.12xlarge|g5.24xlarge) echo 4 ;;
+        g5.48xlarge) echo 8 ;;
+        g6.xlarge|g6.2xlarge|g6.4xlarge|g6.8xlarge|g6.16xlarge) echo 1 ;;
+        g6.12xlarge|g6.24xlarge) echo 4 ;;
+        g6.48xlarge) echo 8 ;;
+        p4d.24xlarge|p4de.24xlarge|p5.48xlarge) echo 8 ;;
+        *) echo 1 ;;
+    esac
+}
+
+# Prefer an explicit HP_GPU_COUNT from do/config only when it is a positive
+# integer; otherwise auto-detect from HP_INSTANCE_TYPE. Re-detection here means a
+# changed instance group is always reflected, even if do/config still carries an
+# old HP_GPU_COUNT (deploy-config-builder rewrites it, but re-detect defensively).
+_HP_DETECTED_GPU_COUNT="$(_hp_detect_gpu_count "${HP_INSTANCE_TYPE}")"
+if [ -n "${HP_INSTANCE_TYPE}" ]; then
+    export HP_GPU_COUNT="${_HP_DETECTED_GPU_COUNT}"
+else
+    export HP_GPU_COUNT="${HP_GPU_COUNT:-1}"
 fi
+
+# Derive CPU cores and memory (Gi) from the resolved GPU count. envsubst expands
+# ${HP_CPU_REQUEST} / ${HP_MEM_REQUEST} in the CRD; the template's :- defaults
+# cover raw-template renders that skip the deploy driver.
+export HP_CPU_REQUEST="$(( HP_GPU_COUNT * 4 ))"
+export HP_MEM_REQUEST="$(( HP_GPU_COUNT * 16 ))Gi"
+
+echo "   Instance type: ${HP_INSTANCE_TYPE:-<unset>}"
+echo "   GPU count (auto-detected): ${HP_GPU_COUNT}"
+echo "   CPU request: ${HP_CPU_REQUEST}  Memory request: ${HP_MEM_REQUEST}"
+
+# Portable variable-substitution shim.
+#
+# GNU envsubst only expands bare ${VAR}/$VAR references and does NOT understand
+# the ${VAR:-default} form — it would leave those placeholders verbatim, which
+# produces invalid YAML for kubectl. The CRD template (BL096) uses ${VAR:-N}
+# defaults for HP_INSTANCE_TYPE / HP_GPU_COUNT / HP_CPU_REQUEST / HP_MEM_REQUEST,
+# so we always route substitution through a perl pass that resolves BOTH the
+# ${VAR:-default} and the bare ${VAR} forms from the process environment. This is
+# deterministic across macOS/Linux and independent of whether gettext is present.
+envsubst() {
+    perl -pe '
+        # ${VAR:-default} → env value if set & non-empty, else the default.
+        s/\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}/
+            (defined $ENV{$1} && length $ENV{$1}) ? $ENV{$1} : $2/ge;
+        # bare ${VAR} → env value if defined, else leave the placeholder intact
+        # (so unrelated shell references are not silently dropped).
+        s/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/
+            defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge;
+    '
+}
 
 # ── Build spec.modelSourceConfig ──────────────────────────────────────────────
 # When the model has been staged to S3 (STAGED_MODEL_PATH in do/config), use the

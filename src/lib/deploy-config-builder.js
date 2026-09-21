@@ -297,6 +297,38 @@ function detectGpuCount(instanceType) {
     return String(GPU_MAP[suffix] || 1);
 }
 
+/**
+ * BL096: decide the HyperPod GPU count for do/config.
+ *
+ * - When the user actively selected an instance group this run
+ *   (selectedInstanceType), always re-detect from that type and rewrite
+ *   hp_gpu_count — never trust a stale HP_GPU_COUNT, since the instance group
+ *   may have changed via --reconfigure/--force.
+ * - Otherwise, only auto-detect (from the existing config instance type) when no
+ *   HP_GPU_COUNT is present yet.
+ * - When neither applies (HP_GPU_COUNT already set and no new selection), leave
+ *   the existing value untouched (gpuCount === null → caller writes nothing).
+ *
+ * @returns {{gpuCount: (string|null), reDetected: boolean, changedFrom: (string|null)}}
+ */
+function resolveHpGpuCount({ selectedInstanceType, configInstanceType, existingGpuCount } = {}) {
+    if (selectedInstanceType) {
+        const detected = detectGpuCount(selectedInstanceType);
+        const changedFrom = (existingGpuCount && existingGpuCount !== detected)
+            ? existingGpuCount : null;
+        return { gpuCount: detected, reDetected: true, changedFrom };
+    }
+    if (!existingGpuCount) {
+        return { gpuCount: detectGpuCount(configInstanceType), reDetected: false, changedFrom: null };
+    }
+    return { gpuCount: null, reDetected: false, changedFrom: null };
+}
+
+// Exported for unit testing (BL096). The bash lookup table in
+// templates/do/deploy.d/hyperpod-eks (_hp_detect_gpu_count) must stay in sync
+// with GPU_MAP.
+export { detectGpuCount, GPU_MAP, resolveHpGpuCount };
+
 // ── AMI version resolution ────────────────────────────────────────────────────
 
 function resolveInferenceAmiVersion(deploymentConfig) {
@@ -613,21 +645,18 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
 
         // Instance type — use cluster's available instance types, not generic sizer
         if (!config.INSTANCE_TYPE && !preInstanceType) {
-            const clusterInstanceTypes = selectedCluster?.instanceTypes || [];
-            if (clusterInstanceTypes.length > 0) {
-                // Show instance types from the cluster's node groups
-                const choices = clusterInstanceTypes.map(t => {
-                    // Match against both fixed instanceType and flexible instanceTypes array
-                    const group = selectedCluster.instanceGroups.find(g =>
-                        g.instanceType === t || (g.instanceTypes && g.instanceTypes.includes(t))
-                    );
-                    const gpus = group?.gpuCapacity?.total || 0;
+            const clusterGroups = selectedCluster?.instanceGroups || [];
+            if (clusterGroups.length > 0) {
+                // Show all instance groups sorted by name — instance type alone is not
+                // unique (multiple groups may share the same type).
+                const sorted = [...clusterGroups].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                const choices = sorted.map(group => {
+                    const instanceType = group.instanceType || (group.instanceTypes && group.instanceTypes[0]) || '';
                     const count = group?.count || 0;
                     const flex = group?.isFlexible ? ' (flexible)' : '';
-                    const groupName = group?.name ? ` [${group.name}]` : '';
                     return {
-                        name: `${t}${groupName} (${gpus} GPUs, ${count} nodes${flex})`,
-                        value: t
+                        name: `${group.name}  ${instanceType}  (${count} node${count === 1 ? '' : 's'}${flex})`,
+                        value: { instanceType, groupName: group.name }
                     };
                 });
                 choices.push({ name: 'Custom (enter manually)', value: '__custom__' });
@@ -642,7 +671,8 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                         validate: v => v.startsWith('ml.') ? true : 'Must start with ml.'
                     });
                 } else {
-                    answers.instance_type = selected;
+                    answers.instance_type = selected.instanceType;
+                    answers.hp_instance_group_name = selected.groupName;
                 }
             } else {
                 // No cluster info available — fall back to sizer
@@ -650,11 +680,27 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
             }
         }
 
-        // GPU count
-        if (!config.HP_GPU_COUNT) {
-            const detected = detectGpuCount(answers.instance_type);
-            answers.hp_gpu_count = detected;
-            console.log(`   GPU count: ${detected} (auto-detected)`);
+        // GPU count (BL096)
+        // When the user selects an instance group this run (answers.instance_type
+        // is populated above), always re-detect and rewrite hp_gpu_count — the
+        // instance group may have changed via --reconfigure/--force, and a stale
+        // HP_GPU_COUNT in do/config would produce wrong node affinity (scheduling
+        // failures) and a wrong tensor-parallel degree (OOM). Only fall back to
+        // the "detect from config value" path when no new selection was made.
+        const gpuResolution = resolveHpGpuCount({
+            selectedInstanceType: answers.instance_type,
+            configInstanceType: config.INSTANCE_TYPE || preInstanceType,
+            existingGpuCount: config.HP_GPU_COUNT
+        });
+        if (gpuResolution.gpuCount !== null) {
+            answers.hp_gpu_count = gpuResolution.gpuCount;
+            if (gpuResolution.reDetected) {
+                const changed = gpuResolution.changedFrom
+                    ? `, was ${gpuResolution.changedFrom}` : '';
+                console.log(`   GPU count: ${gpuResolution.gpuCount} (auto-detected from ${answers.instance_type}${changed})`);
+            } else {
+                console.log(`   GPU count: ${gpuResolution.gpuCount} (auto-detected)`);
+            }
         }
 
         // Namespace

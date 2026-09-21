@@ -31,7 +31,7 @@ For Athena-backed config recommendations based on your own benchmark history (no
 | `--goal` | Yes (for a new job) | Optimization goal: `cost`, `latency`, or `throughput` |
 | `--instances` | No | Comma-separated instance types to evaluate (max 3). Not valid with `--goal cost` (see note below) |
 | `--dataset <source>` | No | Calibration dataset for `--goal throughput` (enables speculator training). Accepts a raw S3 URI (`s3://bucket/path.jsonl`), a registered dataset name with optional version pinning (`name`, `name@v2`, or `name@v1.0.0`), or a HuggingFace reference (`hf://org/name`). Names are resolved via the dataset registry. |
-| `--list-datasets` | No | List registered datasets (from the shared registry used by `do/tune`) and exit. Accepts an optional `--source local\|remote\|all` filter (default: `all`). |
+| `--list-datasets` | No | List registered datasets (from the shared S3 sidecar registry managed by `do/register dataset`) and exit. Accepts an optional `--source local\|remote\|all` filter (default: `all`). |
 | `--force` | No | Create a new job even if one already exists |
 | `--list` | No | List completed recommendation results (ranked) without creating a new job |
 | `--apply <arn\|top>` | No | Apply a recommendation to `do/config`: pass `top` for the #1 ranked result, or a specific model package ARN |

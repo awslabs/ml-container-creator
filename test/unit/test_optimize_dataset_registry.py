@@ -140,14 +140,16 @@ def test_version_pinned_ordinal_and_semver(tmp_path: Path):
     # Ordinal @v2
     optimize, log_file = _build_project(tmp_path, resolve_s3_uri="s3://reg/v2.jsonl")
     result = _run(optimize, tmp_path, ["--goal", "throughput", "--dataset", "calibration-sample@v2"])
-    assert log_file.read_text().strip().splitlines()[0] == "resolve-dataset --name calibration-sample --version 2", (
+    first_call = log_file.read_text().strip().splitlines()[0]
+    assert first_call.startswith("resolve-dataset --name calibration-sample --version 2"), (
         result.stdout + result.stderr
     )
 
     # Semver @v1.0.0 (fresh project so the log starts empty)
     optimize2, log_file2 = _build_project(tmp_path / "semver", resolve_s3_uri="s3://reg/v1.jsonl")
     result2 = _run(optimize2, tmp_path / "semver", ["--goal", "throughput", "--dataset", "calibration-sample@v1.0.0"])
-    assert log_file2.read_text().strip().splitlines()[0] == "resolve-dataset --name calibration-sample --version 1.0.0", (
+    first_call2 = log_file2.read_text().strip().splitlines()[0]
+    assert first_call2.startswith("resolve-dataset --name calibration-sample --version 1.0.0"), (
         result2.stdout + result2.stderr
     )
 

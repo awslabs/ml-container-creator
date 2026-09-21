@@ -182,9 +182,43 @@ This enables adapter portability across deployments, instance types, and even vL
 
 ### Dataset Registration
 
-Register a training dataset to the SageMaker AI Registry (with local JSON fallback):
+`do/register dataset` **moves a dataset into the canonical MLCC datasets location**
+on the `mlcc-core` bucket and registers it so it can be reused across tuning and
+optimization jobs. The canonical destination is:
+
+```
+s3://<CORE_BUCKET>/datasets/<name>/
+```
+
+Dataset metadata is recorded in an **S3 sidecar** beside the data at
+`s3://<CORE_BUCKET>/datasets/<name>/_dataset.json`. The sidecar is the source of
+truth for versions, content hashes, and custom metadata — it replaces the legacy
+local `~/.ml-container-creator/datasets.json` index (removed; a pre-existing file
+is ignored). Because it lives in S3, the registry is durable and shared across
+machines.
+
+`CORE_BUCKET` is the `mlcc-core` bucket recorded in your active profile as
+`codebuildSourceS3Bucket` (e.g. `mlcc-core-<account>-<region>`), provisioned by
+`ml-container-creator bootstrap`.
+
+Provide **exactly one** input source:
 
 ```bash
+# 1. Existing S3 dataset — copied to the canonical location, then registered.
+#    A single object is copied with `aws s3 cp`; a directory/prefix (trailing
+#    slash) is copied with `aws s3 sync`.
+./do/register dataset alpaca-sft-1k \
+  --s3-uri s3://my-bucket/datasets/train.jsonl \
+  --technique sft \
+  --row-count 1000
+
+# 2. HuggingFace dataset — staged to the canonical location via the stage-hf
+#    Processing Job, then registered. (do/tune no longer stages hf:// itself.)
+./do/register dataset guanaco \
+  --hf-id timdettmers/openassistant-guanaco \
+  --technique sft \
+  --row-count 500          # forwarded to staging as --take
+
 # Register from the last tune job (auto-derives name, URI, technique, row count)
 ./do/register dataset --from-tune sft
 ./do/register dataset --from-tune dpo
@@ -192,26 +226,38 @@ Register a training dataset to the SageMaker AI Registry (with local JSON fallba
 # Register from the last custom training job (do/train output)
 ./do/register dataset --from-train sft
 
-# With a custom name override
-./do/register dataset my-custom-name --from-tune sft
-
-# Fully explicit registration
-./do/register dataset alpaca-sft-1k \
-  --s3-uri s3://my-bucket/datasets/train.jsonl \
-  --technique sft \
-  --format jsonl \
-  --row-count 1000
+# List registered datasets (from the S3 sidecars)
+./do/register dataset --list
 ```
 
 | Flag | Description |
 |---|---|
-| `<name>` | Dataset name (positional, or use `--name`) |
-| `--s3-uri <uri>` | S3 URI of the dataset file (required unless `--from-tune`) |
-| `--format <fmt>` | Format: `jsonl`, `parquet`, `csv` (default: `jsonl`) |
+| `<name>` | Dataset name (positional, or use `--name`). Also the canonical S3 key: `datasets/<name>/` |
+| `--s3-uri <s3://...>` | Existing S3 dataset. Copied to the canonical location (`cp` for an object, `sync` for a prefix). Mutually exclusive with `--hf-id` |
+| `--hf-id <org/name>` | HuggingFace dataset ID. Staged to the canonical location via the stage-hf Processing Job. Mutually exclusive with `--s3-uri` |
 | `--technique <tech>` | Technique: `sft`, `dpo`, `rlaif`, `rlvr` (default: `sft`) |
-| `--row-count <n>` | Number of records |
+| `--row-count <n>` | Number of records. With `--hf-id`, passed to staging as `--take` |
+| `--format <fmt>` | Format: `jsonl`, `parquet`, `csv` (default: `jsonl`) |
 | `--column-schema <json>` | Column schema as JSON string |
-| `--from-tune [technique]` | Auto-populate from the last tune job's persisted state |
+| `--hf-split <split>` | (`--hf-id` only) Dataset split to stage (default: `train`) |
+| `--column-map <map>` | (`--hf-id` only) Rename columns, e.g. `prompt=question,completion=answer` |
+| `--attribution <text>` | Custom metadata: attribution (recorded under `customMetadata`) |
+| `--lineage <text>` | Custom metadata: lineage |
+| `--origination <text>` | Custom metadata: origination (e.g. `hf://org/name@rev`) |
+| `--application <text>` | Custom metadata: application |
+| `--force` | Register a new version even if the content hash is unchanged |
+| `--list` | List registered datasets (from the S3 sidecars) and exit |
+| `--from-tune [technique]` | Auto-populate `--s3-uri` from the last tune job's persisted state |
+
+!!! note "One source only"
+    `--s3-uri` and `--hf-id` are mutually exclusive. Exactly one must be
+    provided (or `--from-tune`, which resolves an `s3://` URI). Both paths end
+    with the canonical `s3://<CORE_BUCKET>/datasets/<name>/` URI being registered
+    and an S3 sidecar written beside it.
+
+!!! note "Idempotent versioning"
+    Registering unchanged content (same content hash) without `--force` is a
+    no-op — no new sidecar version is created.
 
 ### Evaluator Registration
 

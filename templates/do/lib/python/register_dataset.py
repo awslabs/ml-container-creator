@@ -261,28 +261,29 @@ def _count_rows(s3_uri, region):
 # ── Version helpers ───────────────────────────────────────────────────────────
 
 
-def _get_latest_version(name):
-    """Get the latest version info for a dataset from the local registry."""
-    entries = _load_registry(register_common._DATASETS_REGISTRY)
+def _get_latest_version(sidecar):
+    """Get the latest version info for a dataset from its sidecar document.
 
-    for entry in entries:
-        if entry.get("name") == name:
-            versions = entry.get("versions")
-            if versions and len(versions) > 0:
-                latest = versions[-1]
-                return {
-                    "version": latest.get("version", "1.0.0"),
-                    "hash": latest.get("hash"),
-                    "ordinal": len(versions),
-                }
-            else:
-                return {
-                    "version": "1.0.0",
-                    "hash": None,
-                    "ordinal": 1,
-                }
+    Args:
+        sidecar: The parsed sidecar dict (or None if no sidecar exists yet).
 
-    return None
+    Returns:
+        {"version": str, "hash": str|None, "ordinal": int} for the latest
+        version, or None if there is no sidecar / no versions.
+    """
+    if not sidecar:
+        return None
+
+    versions = sidecar.get("versions") or []
+    if not versions:
+        return None
+
+    latest = versions[-1]
+    return {
+        "version": latest.get("version", "1.0.0"),
+        "hash": latest.get("hash"),
+        "ordinal": len(versions),
+    }
 
 
 def _increment_version(version_str):
@@ -294,74 +295,81 @@ def _increment_version(version_str):
     return f"{major}.{minor + 1}.{patch}"
 
 
-def _write_dataset_version_to_local_registry(*, name, s3_uri, data_format, technique,
-                                              row_count, column_schema, project_name,
-                                              arn, version, content_hash):
-    """Write a versioned dataset entry to the local JSON registry."""
-    entries = _load_registry(register_common._DATASETS_REGISTRY)
+def _build_custom_metadata(args):
+    """Assemble the customMetadata block from optional flags (unset omitted)."""
+    custom = {}
+    for field in ("attribution", "lineage", "origination", "application"):
+        value = getattr(args, field, None)
+        if value:
+            custom[field] = value
+    return custom
 
+
+def _build_sidecar_doc(*, existing, name, s3_uri, data_format, technique,
+                       row_count, column_schema, project_name, arn,
+                       version, ordinal, content_hash, custom_metadata):
+    """Build (or extend) the sidecar document for a dataset registration."""
     now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
     version_entry = {
         "version": version,
+        "ordinal": ordinal,
         "s3_uri": s3_uri,
         "hash": content_hash,
+        "format": data_format,
         "technique": technique,
-        "rows": row_count,
-        "registered_at": now,
+        "rowCount": row_count,
+        "createdAt": now,
     }
+    if arn:
+        version_entry["arn"] = arn
 
-    found = False
-    for i, existing in enumerate(entries):
-        if existing.get("name") == name:
-            found = True
-            if "versions" not in existing:
-                legacy_version = {
-                    "version": "1.0.0",
-                    "s3_uri": existing.get("s3_uri", ""),
-                    "hash": None,
-                    "technique": existing.get("technique", ""),
-                    "rows": existing.get("row_count"),
-                    "registered_at": existing.get("registered_at", now),
-                }
-                existing["versions"] = [legacy_version]
-
-            existing["versions"].append(version_entry)
-            existing["s3_uri"] = s3_uri
-            existing["format"] = data_format
-            existing["technique"] = technique
-            existing["row_count"] = row_count
-            existing["column_schema"] = column_schema
-            existing["project_name"] = project_name
-            existing["arn"] = arn
-            existing["registered_at"] = now
-            existing["latest_version"] = version
-            existing["content_hash"] = content_hash
-            entries[i] = existing
-            break
-
-    if not found:
-        entry = {
+    if existing and existing.get("versions"):
+        doc = dict(existing)
+        versions = list(doc.get("versions", []))
+        versions.append(version_entry)
+        doc["versions"] = versions
+    else:
+        doc = {
             "name": name,
-            "s3_uri": s3_uri,
-            "format": data_format,
-            "technique": technique,
-            "row_count": row_count,
-            "column_schema": column_schema,
-            "project_name": project_name,
-            "arn": arn,
-            "registered_at": now,
-            "latest_version": version,
-            "content_hash": content_hash,
             "versions": [version_entry],
         }
-        entries.append(entry)
 
-    _save_registry(register_common._DATASETS_REGISTRY, entries)
+    # Top-level fields reflect the latest version.
+    doc["name"] = name
+    doc["contentHash"] = content_hash
+    doc["technique"] = technique
+    doc["format"] = data_format
+    doc["s3_uri"] = s3_uri
+    doc["latestVersion"] = version
+    if project_name:
+        doc["projectName"] = project_name
+    if column_schema:
+        doc["columnSchema"] = column_schema
+
+    # Merge custom metadata: keep any previously-recorded values, override with
+    # newly-provided fields.
+    merged_custom = dict(existing.get("customMetadata", {})) if existing else {}
+    merged_custom.update(custom_metadata)
+    if merged_custom:
+        doc["customMetadata"] = merged_custom
+
+    return doc
+
+
+def _resolve_core_bucket(args):
+    """Resolve the MLCC Core bucket from --core-bucket or environment."""
+    return (
+        getattr(args, "core_bucket", None)
+        or os.environ.get("CORE_BUCKET")
+        or os.environ.get("MLCC_CORE_BUCKET")
+    )
 
 
 def cmd_register_dataset(args):
-    """Register a dataset with content-aware versioning."""
+    """Register a dataset with content-aware versioning, writing an S3 sidecar."""
+    import dataset_store
+
     name = args.name
     s3_uri = args.s3_uri
     data_format = getattr(args, "format", "jsonl")
@@ -381,11 +389,24 @@ def cmd_register_dataset(args):
     if not s3_uri:
         _error_exit("--s3-uri is required", code="MISSING_ARGUMENT")
 
+    core_bucket = _resolve_core_bucket(args)
+    if not core_bucket:
+        _error_exit(
+            "Could not resolve the MLCC Core bucket for the dataset sidecar.\n"
+            "    Pass --core-bucket <bucket> or set CORE_BUCKET.\n"
+            "    Run `ml-container-creator bootstrap` to provision it.",
+            code="MISSING_CORE_BUCKET",
+        )
+
     if column_schema:
         try:
             json.loads(column_schema)
         except json.JSONDecodeError:
             _error_exit("--column-schema must be valid JSON", code="INVALID_ARGUMENT")
+
+    custom_metadata = _build_custom_metadata(args)
+
+    s3_client = dataset_store._get_s3_client(region)
 
     # Step 1: Compute content hash
     content_hash = None
@@ -406,10 +427,15 @@ def cmd_register_dataset(args):
         else:
             print('Row count: skipped (unsupported format or error)', file=sys.stderr)
 
-    # Step 2: Get latest version
-    latest = _get_latest_version(name)
+    # Step 2: Read the existing sidecar (source of truth for versioning)
+    try:
+        existing = dataset_store.read_sidecar(s3_client, core_bucket, name)
+    except dataset_store.TransportError as e:
+        _error_exit(f"Could not read dataset sidecar: {e}", code="SIDECAR_READ_FAILED")
 
-    # Step 3: Version decision
+    latest = _get_latest_version(existing)
+
+    # Step 3: Version decision (idempotent on unchanged content hash)
     if latest is None:
         new_version = "1.0.0"
         ordinal = 1
@@ -440,7 +466,7 @@ def cmd_register_dataset(args):
         else:
             print(f"Dataset changed \u2014 new version v{ordinal} ({new_version})", file=sys.stderr)
 
-    # Step 4: Register via AI Registry (preferred)
+    # Step 4: Register via AI Registry Hub (preserved, non-authoritative)
     description = f"[hash:{content_hash}]" if content_hash else ""
     dataset_arn = None
 
@@ -451,24 +477,23 @@ def cmd_register_dataset(args):
         hub_arn = _register_to_hub(hub_name, name, s3_uri, technique, description, region)
         if hub_arn is not None:
             dataset_arn = hub_arn
-        else:
-            print("Continuing with local JSON registry only.", file=sys.stderr)
-    else:
-        _warn(
-            "No AI Registry hub configured in profile. "
-            "Using local JSON registry only.\n"
-            "    To enable hub registration, run `ml-container-creator bootstrap`."
-        )
 
-    # Step 5: Write to local registry with versioning
-    _write_dataset_version_to_local_registry(
-        name=name, s3_uri=s3_uri, data_format=data_format,
-        technique=technique, row_count=row_count,
-        column_schema=column_schema, project_name=project_name,
-        arn=dataset_arn, version=new_version, content_hash=content_hash,
+    # Step 5: Write the S3 sidecar (metadata source of truth)
+    doc = _build_sidecar_doc(
+        existing=existing, name=name, s3_uri=s3_uri, data_format=data_format,
+        technique=technique, row_count=row_count, column_schema=column_schema,
+        project_name=project_name, arn=dataset_arn, version=new_version,
+        ordinal=ordinal, content_hash=content_hash, custom_metadata=custom_metadata,
     )
 
+    try:
+        dataset_store.write_sidecar(s3_client, core_bucket, name, doc)
+    except dataset_store.TransportError as e:
+        _error_exit(f"Failed to write dataset sidecar: {e}", code="SIDECAR_WRITE_FAILED")
+
+    sidecar_uri = register_common._sidecar_uri(core_bucket, name)
     print(f"Registered dataset '{name}' v{ordinal} ({new_version}) \u2192 {s3_uri}", file=sys.stderr)
+    print(f"Sidecar: {sidecar_uri}", file=sys.stderr)
     _output({
         "name": name,
         "s3_uri": s3_uri,
@@ -477,6 +502,7 @@ def cmd_register_dataset(args):
         "version": new_version,
         "hash": content_hash,
         "arn": dataset_arn,
+        "sidecar_uri": sidecar_uri,
         "registered": True,
         "skipped": False,
     })
@@ -526,4 +552,199 @@ def cmd_register_evaluator(args):
         "arn_or_uri": arn_or_uri,
         "technique": technique,
         "registered": True,
+    })
+
+
+# ── discover-dataset (Req B) ──────────────────────────────────────────────────
+
+
+def cmd_discover_dataset(args):
+    """Browse a HuggingFace dataset before registering it.
+
+    Surfaces the shared HF discovery logic from ``dataset_qol.py`` (splits,
+    per-split files, row counts, detected schema) and prints a recommended
+    ``do/register dataset`` invocation. Discovery failures are non-fatal to the
+    CLI: a clear message is emitted and the process exits non-zero.
+    """
+    import dataset_qol
+    from tune_stage_hf import _resolve_hf_token
+
+    dataset_id = getattr(args, "hf_id", None) or getattr(args, "name", None)
+    if not dataset_id:
+        _error_exit("--hf-id <org/name> is required", code="MISSING_ARGUMENT")
+    if "/" not in dataset_id:
+        _error_exit(
+            f"Invalid dataset id: {dataset_id}. Expected org/name (e.g., timdettmers/openassistant-guanaco).",
+            code="INVALID_ARGUMENT",
+        )
+
+    region = getattr(args, "region", None) or os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+    split = getattr(args, "hf_split", None)
+    secret_name = getattr(args, "hf_secret_name", None)
+    hf_token = _resolve_hf_token(region, secret_name)
+
+    try:
+        discovery = dataset_qol.discover_hf_dataset(dataset_id, hf_token=hf_token, split=split)
+    except dataset_qol.DiscoveryError as e:
+        _error_exit(str(e), code="DISCOVERY_FAILED")
+
+    recommendation = dataset_qol.recommended_register_invocation(
+        dataset_id, discovery=discovery,
+        name=getattr(args, "name", None), split=split,
+    )
+
+    _output({
+        "dataset_id": dataset_id,
+        "splits": discovery.get("splits", []),
+        "files_by_split": discovery.get("files_by_split", {}),
+        "row_counts": discovery.get("row_counts", {}),
+        "schema": discovery.get("schema"),
+        "schema_source": discovery.get("schema_source"),
+        "recommended_register": recommendation,
+    })
+
+
+# ── delete-dataset (Req C) ────────────────────────────────────────────────────
+
+
+def _parse_version_ref(version_ref):
+    """Parse an optional ``@v<N>`` / ``v<N>`` / ``<N>`` version reference.
+
+    Returns the ordinal (int) or None. Non-numeric refs return None so the
+    caller can report an invalid-version error.
+    """
+    if version_ref is None or version_ref == "":
+        return None
+    ref = str(version_ref).strip()
+    if ref.startswith("@"):
+        ref = ref[1:]
+    if ref.lower().startswith("v"):
+        ref = ref[1:]
+    if ref.isdigit():
+        return int(ref)
+    return None
+
+
+def cmd_delete_dataset(args):
+    """Remove a dataset entry from the S3 sidecar registry.
+
+    Removes the whole sidecar (no version) or a single version entry (``@v<N>``).
+    NEVER deletes the dataset data bytes under ``datasets/<name>/`` — only the
+    ``_dataset.json`` metadata index is affected. When removing a single version
+    that is not the last remaining one, the sidecar is rewritten without that
+    version; removing the final version removes the whole sidecar.
+
+    Confirmation is the CLI's responsibility (``do/register`` handles the prompt
+    / ``--force``); this handler performs the mutation and reports not-found
+    with a non-zero exit.
+    """
+    import dataset_store
+
+    name = getattr(args, "name", None)
+    if not name:
+        _error_exit("--name is required", code="MISSING_ARGUMENT")
+
+    version_ref = getattr(args, "version", None)
+    ordinal = None
+    if version_ref:
+        ordinal = _parse_version_ref(version_ref)
+        if ordinal is None:
+            _error_exit(
+                f"Invalid version reference: {version_ref}. Expected @v<N> (e.g., @v2).",
+                code="INVALID_ARGUMENT",
+            )
+
+    region = getattr(args, "region", None) or os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+    core_bucket = _resolve_core_bucket(args)
+    if not core_bucket:
+        _error_exit(
+            "Could not resolve the MLCC Core bucket.\n"
+            "    Pass --core-bucket <bucket> or set CORE_BUCKET.",
+            code="MISSING_CORE_BUCKET",
+        )
+
+    s3_client = dataset_store._get_s3_client(region)
+
+    try:
+        sidecar = dataset_store.read_sidecar(s3_client, core_bucket, name)
+    except dataset_store.TransportError as e:
+        _error_exit(f"Could not read dataset sidecar: {e}", code="SIDECAR_READ_FAILED")
+
+    if sidecar is None:
+        _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+
+    sidecar_uri = register_common._sidecar_uri(core_bucket, name)
+
+    # ── Whole-sidecar delete ──────────────────────────────────────────────────
+    if ordinal is None:
+        try:
+            dataset_store.delete_sidecar(s3_client, core_bucket, name)
+        except dataset_store.TransportError as e:
+            _error_exit(f"Failed to delete dataset sidecar: {e}", code="SIDECAR_DELETE_FAILED")
+        print(f"Deregistered dataset '{name}' (sidecar removed; data bytes untouched)", file=sys.stderr)
+        _output({
+            "name": name,
+            "deleted": True,
+            "scope": "dataset",
+            "sidecar_uri": sidecar_uri,
+            "data_deleted": False,
+        })
+
+    # ── Single-version delete ─────────────────────────────────────────────────
+    versions = sidecar.get("versions") or []
+    match = next((v for v in versions if v.get("ordinal") == ordinal), None)
+    if match is None:
+        _error_exit(
+            f"Version v{ordinal} not found for dataset '{name}'.",
+            code="VERSION_NOT_FOUND",
+        )
+
+    remaining = [v for v in versions if v.get("ordinal") != ordinal]
+
+    if not remaining:
+        # Removing the final version removes the whole sidecar.
+        try:
+            dataset_store.delete_sidecar(s3_client, core_bucket, name)
+        except dataset_store.TransportError as e:
+            _error_exit(f"Failed to delete dataset sidecar: {e}", code="SIDECAR_DELETE_FAILED")
+        print(f"Removed last version v{ordinal} of '{name}' → sidecar removed (data untouched)", file=sys.stderr)
+        _output({
+            "name": name,
+            "deleted": True,
+            "scope": "version",
+            "version_ordinal": ordinal,
+            "removed_last_version": True,
+            "sidecar_uri": sidecar_uri,
+            "data_deleted": False,
+        })
+
+    # Rewrite the sidecar without the removed version; refresh latest-* fields.
+    doc = dict(sidecar)
+    doc["versions"] = remaining
+    latest = remaining[-1]
+    doc["latestVersion"] = latest.get("version", doc.get("latestVersion", ""))
+    if latest.get("hash") is not None:
+        doc["contentHash"] = latest.get("hash")
+    if latest.get("technique"):
+        doc["technique"] = latest.get("technique")
+    if latest.get("format"):
+        doc["format"] = latest.get("format")
+    if latest.get("s3_uri"):
+        doc["s3_uri"] = latest.get("s3_uri")
+
+    try:
+        dataset_store.write_sidecar(s3_client, core_bucket, name, doc)
+    except dataset_store.TransportError as e:
+        _error_exit(f"Failed to update dataset sidecar: {e}", code="SIDECAR_WRITE_FAILED")
+
+    print(f"Removed version v{ordinal} of '{name}' ({len(remaining)} version(s) remain; data untouched)", file=sys.stderr)
+    _output({
+        "name": name,
+        "deleted": True,
+        "scope": "version",
+        "version_ordinal": ordinal,
+        "removed_last_version": False,
+        "remaining_versions": len(remaining),
+        "sidecar_uri": sidecar_uri,
+        "data_deleted": False,
     })

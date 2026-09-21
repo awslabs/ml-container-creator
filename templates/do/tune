@@ -956,105 +956,24 @@ _validate_dataset() {
         fi
 
     elif [[ "${dataset}" == hf://* ]]; then
-        # Hugging Face dataset — parse reference and stage to S3
-        local hf_path="${dataset#hf://}"
-        local hf_file=""
-
-        # Extract ?file= parameter before parsing path components
-        if [[ "${hf_path}" == *"?file="* ]]; then
-            hf_file="${hf_path#*?file=}"
-            hf_path="${hf_path%%\?file=*}"
-        fi
-
-        local hf_org hf_name hf_split
-
-        # Parse org/name/split from the cleaned path
-        hf_org=$(echo "${hf_path}" | cut -d'/' -f1)
-        hf_name=$(echo "${hf_path}" | cut -d'/' -f2)
-        hf_split=$(echo "${hf_path}" | cut -d'/' -f3-)
-
-        if [ -z "${hf_org}" ] || [ -z "${hf_name}" ]; then
-            echo "❌ Invalid HF dataset reference: ${dataset}"
-            echo "   Expected format: hf://org/name or hf://org/name/split"
-            exit 1
-        fi
-
-        local output_bucket
-        output_bucket=$(_resolve_output_bucket)
-
-        echo "📦 Staging Hugging Face dataset: ${hf_org}/${hf_name}"
-        if [ -n "${hf_split}" ]; then
-            echo "   Split: ${hf_split}"
-        else
-            echo "   Split: train (default)"
-        fi
-
-        # Build stage-hf arguments
-        local stage_args=(
-            --hf-org "${hf_org}"
-            --hf-name "${hf_name}"
-            --output-bucket "${output_bucket}"
-            --project-name "${PROJECT_NAME}"
-            --region "${AWS_REGION}"
-        )
-        if [ -n "${hf_split}" ]; then
-            stage_args+=(--hf-split "${hf_split}")
-        fi
-        if [ -n "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}" ]; then
-            stage_args+=(--hf-secret-name "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}")
-        fi
-        if [ -n "${ARG_COLUMN_MAP}" ]; then
-            stage_args+=(--column-map "${ARG_COLUMN_MAP}")
-        fi
-        stage_args+=(--technique "${ARG_TECHNIQUE}")
-        if [ -n "${ARG_TAKE}" ]; then
-            stage_args+=(--take "${ARG_TAKE}")
-        fi
-        if [ -n "${hf_file}" ]; then
-            stage_args+=(--hf-file "${hf_file}")
-        fi
-
-        local stage_result
-        local stage_stderr
-        stage_stderr="$(mktemp)"
-        # Capture stdout (JSON) and stderr (tracebacks) separately so a helper
-        # crash surfaces the REAL cause instead of a generic message.
-        stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}" 2>"${stage_stderr}") || {
-            local error_msg
-            error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Failed to stage dataset'))" 2>/dev/null) || error_msg="Failed to stage HF dataset"
-            echo "❌ ${error_msg}"
-            if [ -s "${stage_stderr}" ]; then
-                echo "   ── helper error output ──────────────────────────────"
-                sed 's/^/   /' "${stage_stderr}"
-                echo "   ─────────────────────────────────────────────────────"
-            fi
-            rm -f "${stage_stderr}"
-            exit 1
-        }
-        rm -f "${stage_stderr}"
-
-        # Check for error in response
-        local has_error
-        has_error=$(echo "${stage_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'error' in d else 'no')" 2>/dev/null) || has_error="yes"
-
-        if [ "${has_error}" = "yes" ]; then
-            local error_msg
-            error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null) || error_msg="Unknown error"
-            echo "❌ ${error_msg}"
-            exit 1
-        fi
-
-        RESOLVED_DATASET_S3_URI=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['s3_uri'])" 2>/dev/null)
-        RESOLVED_DATASET_ROW_COUNT=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('num_records',0))" 2>/dev/null) || RESOLVED_DATASET_ROW_COUNT="0"
-
-        echo "   ✅ Staged to: ${RESOLVED_DATASET_S3_URI}"
-        echo "   Records: ${RESOLVED_DATASET_ROW_COUNT}"
+        # BL092 hard cutover: do/tune no longer stages HuggingFace datasets.
+        # Dataset staging + registration is centralized under `do/register dataset`.
+        local hf_ref="${dataset#hf://}"
+        echo "❌ \`./do/tune --dataset hf://...\` is no longer supported."
         echo ""
+        echo "   Dataset staging has moved to \`./do/register dataset\` (BL092)."
+        echo "   Stage + register the HuggingFace dataset once, then tune by name:"
+        echo ""
+        echo "   💡 Manage datasets with: ./do/register dataset"
+        echo "      1) ./do/register dataset <name> --hf-id ${hf_ref} --technique ${ARG_TECHNIQUE}"
+        echo "      2) ./do/tune --technique ${ARG_TECHNIQUE} --dataset <name>"
+        echo ""
+        exit 1
 
     else
         echo "❌ Invalid dataset format: ${dataset}"
-        echo "   Expected: s3://bucket/path.jsonl or hf://org/name[/split][?file=pattern]"
-        echo "   Hint: Quote the value if it contains ? or * (e.g., \"hf://org/name?file=pattern\")"
+        echo "   Expected: s3://bucket/path.jsonl or a registered dataset name"
+        echo "   Stage HuggingFace datasets with: ./do/register dataset <name> --hf-id <org/name>"
         exit 1
     fi
 }
@@ -1738,75 +1657,17 @@ if [ "${ARG_DISCOVER}" = true ]; then
     exit 0
 fi
 
-# Handle --list-datasets (before requiring --technique and --dataset)
+# Handle --list-datasets (deprecated — dataset management moved to do/register)
+# BL092: dataset management is centralized under `do/register dataset`. This is
+# a soft deprecation — print guidance and exit 0 (do not list here).
 if [ "${ARG_LIST_DATASETS}" = true ]; then
     echo ""
-    echo "📦 Registered datasets:"
+    echo "⚠️  \`./do/tune --list-datasets\` is deprecated."
+    echo "   Dataset management now lives under \`./do/register dataset\`."
     echo ""
-
-    _source_flag=""
-    [ -n "${ARG_DATASET_SOURCE:-}" ] && _source_flag="--source ${ARG_DATASET_SOURCE}"
-
-    # shellcheck disable=SC2086
-    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets ${_source_flag} 2>/dev/null) || _ds_output=""
-    _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1)
-
-    if [ -n "${_ds_json}" ]; then
-        # Show Remote DataSets section (if source is remote or all)
-        _remote_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('remote',[])))" 2>/dev/null) || _remote_count=0
-        _local_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('local',[])))" 2>/dev/null) || _local_count=0
-
-        if [ "${_source_flag}" != "--source local" ]; then
-            echo "Remote DataSets (AWS AI Registry):"
-            printf "  %-20s %-10s %-12s %s\n" "NAME" "TECHNIQUE" "VERSION" "CREATED"
-            printf "  %-20s %-10s %-12s %s\n" "----" "---------" "-------" "-------"
-            if [ "${_remote_count}" -gt 0 ]; then
-                echo "${_ds_json}" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for ds in data.get('remote', []):
-    name = ds.get('name','')[:20]
-    tech = ds.get('technique','')[:10]
-    version = ds.get('version','')[:12]
-    created = ds.get('created_at','')[:10]
-    print(f'  {name:<20} {tech:<10} {version:<12} {created}')
-" 2>/dev/null
-            else
-                echo "  (none)"
-            fi
-            echo ""
-        fi
-
-        if [ "${_source_flag}" != "--source remote" ]; then
-            echo "Local Datasets:"
-            printf "  %-20s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
-            printf "  %-20s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
-            if [ "${_local_count}" -gt 0 ]; then
-                echo "${_ds_json}" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for ds in data.get('local', []):
-    name = ds.get('name','')[:20]
-    tech = ds.get('technique','')[:10]
-    latest = ds.get('latest_version','')[:10]
-    ver_count = ds.get('version_count', 1)
-    if ver_count > 1:
-        latest = f'{latest} ({ver_count}v)'
-    rows = str(ds.get('row_count','') or '')[:8]
-    uri = ds.get('s3_uri','')
-    print(f'  {name:<20} {tech:<10} {latest:<10} {rows:<8} {uri}')
-" 2>/dev/null
-            else
-                echo "  (none)"
-            fi
-        fi
-    else
-        echo "  (none)"
-    fi
-    echo ""
-    echo "  Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
-    echo "  Use:      ./do/tune --technique sft --dataset <name>"
-    echo "  Versions: python3 .register_helper.py list-dataset-versions --name <name>"
+    echo "   💡 Manage datasets with: ./do/register dataset"
+    echo "      Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
+    echo "      Use:      ./do/tune --technique sft --dataset <name>"
     echo ""
     exit 0
 fi

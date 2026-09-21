@@ -53,7 +53,9 @@ describe('H2: Multi-GPU Serving — InferenceEndpointConfig CRD rendering', () =
     describe('GPU count rendering', () => {
         it('HP_GPU_COUNT=1: nvidia.com/gpu "1", TP=1, default memory 16Gi, CPU 4', () => {
             const output = renderTemplate({ HP_GPU_COUNT: '1' });
-            assert.ok(output.includes('nvidia.com/gpu: "1"'), 'GPU should be 1');
+            // BL096: GPU count resolves at deploy time via ${HP_GPU_COUNT}; the
+            // :- default is computed at generation time from HP_GPU_COUNT.
+            assert.ok(output.includes('nvidia.com/gpu: "${HP_GPU_COUNT:-1}"'), 'GPU default should be 1');
             assert.ok(output.includes('VLLM_TENSOR_PARALLEL_SIZE'), 'TP env var should be present');
             assert.ok(output.includes('${HP_MEM_REQUEST:-16Gi}'), 'default memory should be 16Gi');
             assert.ok(output.includes('${HP_CPU_REQUEST:-4}'), 'default CPU should be 4');
@@ -61,14 +63,14 @@ describe('H2: Multi-GPU Serving — InferenceEndpointConfig CRD rendering', () =
 
         it('HP_GPU_COUNT=4: nvidia.com/gpu "4", TP=4, default memory 64Gi, CPU 16', () => {
             const output = renderTemplate({ HP_GPU_COUNT: '4' });
-            assert.ok(output.includes('nvidia.com/gpu: "4"'), 'GPU should be 4');
+            assert.ok(output.includes('nvidia.com/gpu: "${HP_GPU_COUNT:-4}"'), 'GPU default should be 4');
             assert.ok(output.includes('${HP_MEM_REQUEST:-64Gi}'), 'default memory should be 64Gi');
             assert.ok(output.includes('${HP_CPU_REQUEST:-16}'), 'default CPU should be 16');
         });
 
         it('HP_GPU_COUNT=8: default memory 128Gi, CPU 32', () => {
             const output = renderTemplate({ HP_GPU_COUNT: '8' });
-            assert.ok(output.includes('nvidia.com/gpu: "8"'), 'GPU should be 8');
+            assert.ok(output.includes('nvidia.com/gpu: "${HP_GPU_COUNT:-8}"'), 'GPU default should be 8');
             assert.ok(output.includes('${HP_MEM_REQUEST:-128Gi}'), 'default memory should be 128Gi');
             assert.ok(output.includes('${HP_CPU_REQUEST:-32}'), 'default CPU should be 32');
         });
@@ -77,10 +79,11 @@ describe('H2: Multi-GPU Serving — InferenceEndpointConfig CRD rendering', () =
     describe('Tensor parallel size wiring', () => {
         it('VLLM_TENSOR_PARALLEL_SIZE matches HP_GPU_COUNT', () => {
             const output = renderTemplate({ HP_GPU_COUNT: '4' });
-            // Env var value block renders the GPU count as the TP size.
+            // BL096: TP size resolves at deploy time via ${HP_GPU_COUNT}; the
+            // generation-time default mirrors HP_GPU_COUNT.
             const tpIdx = output.indexOf('VLLM_TENSOR_PARALLEL_SIZE');
             const after = output.slice(tpIdx, tpIdx + 80);
-            assert.ok(after.includes('value: "4"'), 'TP size should equal GPU count');
+            assert.ok(after.includes('value: "${HP_GPU_COUNT:-4}"'), 'TP size should track GPU count');
         });
     });
 

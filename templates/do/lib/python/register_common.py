@@ -15,8 +15,35 @@ MAX_METADATA_VALUE_LEN = 256
 
 _REGISTRY_DIR = os.path.join(os.path.expanduser("~"), ".ml-container-creator")
 _CONFIG_PATH = os.path.join(_REGISTRY_DIR, "config.json")
+# NOTE (BL092): The local datasets index is removed. `_DATASETS_REGISTRY` is
+# intentionally no longer referenced by any dataset code path — the S3 sidecar
+# (datasets/<name>/_dataset.json in the Core bucket) is the source of truth.
+# The constant is retained only so a stray legacy file can be recognized/ignored;
+# it is NOT read or written for dataset operations.
 _DATASETS_REGISTRY = os.path.join(_REGISTRY_DIR, "datasets.json")
 _EVALUATORS_REGISTRY = os.path.join(_REGISTRY_DIR, "evaluators.json")
+
+# ── S3 sidecar layout ──────────────────────────────────────────────────────────
+# Dataset bytes land at s3://<Core_Bucket>/datasets/<name>/ (existing behavior).
+# The metadata index lives beside them as datasets/<name>/_dataset.json.
+
+DATASETS_PREFIX = "datasets/"
+SIDECAR_FILENAME = "_dataset.json"
+
+
+def _sidecar_key(name):
+    """S3 key for a dataset's sidecar: datasets/<name>/_dataset.json."""
+    return f"{DATASETS_PREFIX}{name}/{SIDECAR_FILENAME}"
+
+
+def _sidecar_uri(core_bucket, name):
+    """Full s3:// URI for a dataset's sidecar."""
+    return f"s3://{core_bucket}/{_sidecar_key(name)}"
+
+
+def _canonical_dataset_uri(core_bucket, name):
+    """Canonical dataset prefix: s3://<core_bucket>/datasets/<name>/."""
+    return f"s3://{core_bucket}/{DATASETS_PREFIX}{name}/"
 
 
 # ── Registry I/O ──────────────────────────────────────────────────────────────

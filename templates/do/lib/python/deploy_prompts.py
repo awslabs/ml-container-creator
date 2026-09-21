@@ -700,7 +700,8 @@ def prompt_hp_instance_group(config_vars: dict[str, str]) -> str:
 
     if groups:
         choices = []
-        for grp in groups:
+        # Sort by group name — instance type is not unique across groups.
+        for grp in sorted(groups, key=lambda g: g.get("name", "")):
             name = grp.get("name", "")
             count = grp.get("count", 0)
             node_word = "node" if count == 1 else "nodes"
@@ -716,6 +717,8 @@ def prompt_hp_instance_group(config_vars: dict[str, str]) -> str:
                 instance_type = grp.get("instanceType") or ""
                 value = instance_type
                 title = f"{name}  {instance_type}  ({count} {node_word})"
+            # Value carries both group name and instance type — instance type
+            # alone is not unique (multiple groups may share the same type).
             choices.append(
                 questionary.Choice(title=title, value={"name": name, "instanceType": value})
             )

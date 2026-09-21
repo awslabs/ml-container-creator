@@ -33,10 +33,12 @@ from register_model import (  # noqa: E402
 )
 from register_dataset import (  # noqa: E402
     cmd_register_dataset, cmd_register_evaluator,
+    cmd_discover_dataset, cmd_delete_dataset,
     _get_hub_name_from_profile, _register_to_hub,
     _compute_content_hash, _get_latest_version, _increment_version,
     _parse_technique_from_description, _list_hub_datasets,
     _count_newlines_streaming, _count_rows_parquet, _count_rows,
+    _resolve_core_bucket, _build_custom_metadata, _build_sidecar_doc,
 )
 from register_list import (  # noqa: E402
     cmd_list_datasets, cmd_list_dataset_versions,
@@ -44,7 +46,7 @@ from register_list import (  # noqa: E402
 )
 from register_resolve import (  # noqa: E402
     cmd_resolve_dataset, cmd_resolve_evaluator, cmd_get_version,
-    _resolve_dataset_version, _resolve_dataset_version_by_semver,
+    _select_version,
 )
 
 
@@ -107,6 +109,11 @@ def main():
     dataset_parser.add_argument("--column-schema", default=None, help="Column schema as JSON string")
     dataset_parser.add_argument("--project-name", default=None, help="Project name for context")
     dataset_parser.add_argument("--region", default=None, help="AWS region (for S3 hash computation)")
+    dataset_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket for the S3 sidecar (defaults to $CORE_BUCKET)")
+    dataset_parser.add_argument("--attribution", default=None, help="Custom metadata: attribution")
+    dataset_parser.add_argument("--lineage", default=None, help="Custom metadata: lineage")
+    dataset_parser.add_argument("--origination", default=None, help="Custom metadata: origination (e.g. hf://org/name@rev)")
+    dataset_parser.add_argument("--application", default=None, help="Custom metadata: application")
     dataset_parser.add_argument("--force", action="store_true", default=False, help="Force new version even if content hash matches")
 
     # ── list-datasets ─────────────────────────────────────────────────────
@@ -114,10 +121,28 @@ def main():
     list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlaif", "rlvr"], help="Filter by tuning technique")
     list_datasets_parser.add_argument("--source", choices=["remote", "local", "all"], default="all", help="Dataset source to list")
     list_datasets_parser.add_argument("--region", default=None, help="AWS region")
+    list_datasets_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket (defaults to $CORE_BUCKET)")
 
     # ── list-dataset-versions ─────────────────────────────────────────────
     list_dv_parser = subparsers.add_parser("list-dataset-versions", help="List all versions for a specific dataset by name")
     list_dv_parser.add_argument("--name", required=True, help="Dataset name to list versions for")
+    list_dv_parser.add_argument("--region", default=None, help="AWS region")
+    list_dv_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket (defaults to $CORE_BUCKET)")
+
+    # ── discover-dataset ──────────────────────────────────────────────────
+    discover_parser = subparsers.add_parser("discover-dataset", help="Browse a HuggingFace dataset (splits, files, rows, schema) before registering")
+    discover_parser.add_argument("--hf-id", required=True, help="HuggingFace dataset id (org/name)")
+    discover_parser.add_argument("--hf-split", default=None, help="Restrict discovery to a single split")
+    discover_parser.add_argument("--name", default=None, help="Suggested dataset name for the recommended invocation")
+    discover_parser.add_argument("--hf-secret-name", default=None, help="Secrets Manager secret holding the HF token")
+    discover_parser.add_argument("--region", default=None, help="AWS region (for HF token secret resolution)")
+
+    # ── delete-dataset ────────────────────────────────────────────────────
+    delete_parser = subparsers.add_parser("delete-dataset", help="Remove a dataset sidecar entry (whole or single version); never deletes data bytes")
+    delete_parser.add_argument("--name", required=True, help="Dataset name to remove from the registry")
+    delete_parser.add_argument("--version", default=None, help="Optional version ordinal to remove (e.g., @v2, v2, or 2)")
+    delete_parser.add_argument("--region", default=None, help="AWS region")
+    delete_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket (defaults to $CORE_BUCKET)")
 
     # ── register-evaluator ────────────────────────────────────────────────
     evaluator_parser = subparsers.add_parser("register-evaluator", help="Register an evaluator into the local registry")
@@ -147,6 +172,8 @@ def main():
     resolve_dataset_parser = subparsers.add_parser("resolve-dataset", help="Resolve a registered dataset by name")
     resolve_dataset_parser.add_argument("--name", required=True, help="Dataset name to resolve")
     resolve_dataset_parser.add_argument("--version", type=str, default=None, help="Version to resolve: ordinal or semver")
+    resolve_dataset_parser.add_argument("--region", default=None, help="AWS region")
+    resolve_dataset_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket (defaults to $CORE_BUCKET)")
 
     # ── resolve-evaluator ─────────────────────────────────────────────────
     resolve_evaluator_parser = subparsers.add_parser("resolve-evaluator", help="Resolve a registered evaluator by name")
@@ -172,6 +199,8 @@ def main():
         "register-dataset": cmd_register_dataset,
         "list-datasets": cmd_list_datasets,
         "list-dataset-versions": cmd_list_dataset_versions,
+        "discover-dataset": cmd_discover_dataset,
+        "delete-dataset": cmd_delete_dataset,
         "register-evaluator": cmd_register_evaluator,
         "list-adapters": cmd_list_adapters,
         "list-models": cmd_list_models,

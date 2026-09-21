@@ -26,6 +26,17 @@ source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 ROLE_ARN="${ROLE_ARN:-${_PROFILE_roleArn:-}}"
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
 
+# Helper script that owns the HuggingFace staging Processing Job (stage-hf).
+# Mirror do/tune's resolution so `./do/register dataset --hf-id` uses the exact
+# same staging mechanism as `./do/tune --dataset hf://...`.
+HELPER_SCRIPT="${SCRIPT_DIR}/.tune_helper.py"
+
+# CORE_BUCKET is the mlcc-core bucket (e.g. mlcc-core-<account>-<region>). It is
+# recorded in the active profile as codebuildSourceS3Bucket. Datasets registered
+# via do/register are moved to the canonical location:
+#   s3://<CORE_BUCKET>/datasets/<name>/
+CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}}"
+
 # Resolve INSTANCE_TYPE for heterogeneous pool endpoints (may be empty from config,
 # filled by do/deploy after InService resolution)
 INSTANCE_TYPE="${INSTANCE_TYPE:-${DEPLOYED_INSTANCE_TYPE:-${BENCHMARK_INSTANCE_TYPE:-}}}"
@@ -46,19 +57,45 @@ _show_usage() {
     echo ""
     echo "Subcommands:"
     echo "  model       (default) Register the current deployment as a Model Package version"
-    echo "  dataset     Register a training dataset for reuse across tuning jobs"
+    echo "  dataset     Move a dataset to the canonical MLCC datasets location and register it"
     echo "  evaluator   Register a reward function or preference model for RL tuning"
     echo ""
-    echo "Dataset options:"
+    echo "Dataset:"
+    echo "  Moves a dataset into the canonical MLCC datasets location on the mlcc-core"
+    echo "  bucket and registers the resulting URI so it can be reused across tuning jobs:"
+    echo "      s3://<CORE_BUCKET>/datasets/<name>/"
+    echo "  (CORE_BUCKET is the mlcc-core bucket recorded in your profile, e.g."
+    echo "   mlcc-core-<account>-<region>.)"
+    echo ""
+    echo "  Provide exactly one input source:"
+    echo "  --s3-uri <s3://...> Existing S3 dataset. Copied to the canonical location with"
+    echo "                      'aws s3 cp' (or 'aws s3 sync' for a directory/prefix), then"
+    echo "                      registered."
+    echo "  --hf-id <org/name>  HuggingFace dataset ID. Staged to the canonical location via"
+    echo "                      the same stage-hf Processing Job used by do/tune, then"
+    echo "                      registered."
+    echo ""
+    echo "  Shared options:"
     echo "  <name>              Dataset name (required, positional)"
-    echo "  --s3-uri <uri>      Dataset URI — S3 (s3://bucket/data.jsonl) or HuggingFace (hf://org/name)"
-    echo "                      Note: do/optimize --dataset requires an s3:// URI at job submission time."
-    echo "                      Stage HuggingFace datasets to S3 first if using with do/optimize."
-    echo "  --format <fmt>      Format: jsonl, parquet, csv (default: jsonl)"
     echo "  --technique <tech>  Technique: sft, dpo, rlaif, rlvr (default: sft)"
-    echo "  --row-count <n>     Number of records"
+    echo "  --row-count <n>     Number of records (with --hf-id, passed to staging as --take)"
+    echo "  --format <fmt>      Format: jsonl, parquet, csv (default: jsonl)"
     echo "  --column-schema <j> Column schema as JSON string"
-    echo "  --force             Force new version even if content is unchanged"
+    echo "  --hf-split <split>  (--hf-id only) Dataset split to stage (default: train)"
+    echo "  --column-map <map>  (--hf-id only) Rename columns (e.g., prompt=question,completion=answer)"
+    echo "  --force             Overwrite / register a new version even if already registered"
+    echo ""
+    echo "  Dataset management (no source required):"
+    echo "  --list-versions <name>   List all registered versions of a dataset from the S3"
+    echo "                           sidecar (human-readable; add --json for scripting)."
+    echo "  --discover <org/name>    Browse a HuggingFace dataset (splits, files, row counts,"
+    echo "                           schema preview) and print a recommended register command."
+    echo "                           Add --hf-split to focus a split; --json for raw output."
+    echo "  --delete <name> [@v<N>]  Remove a dataset's registry entry (whole sidecar, or a"
+    echo "                           single version with @v<N>). Prompts unless --force."
+    echo "                           NEVER deletes the dataset data bytes in S3 — only the"
+    echo "                           metadata sidecar (datasets/<name>/_dataset.json)."
+    echo "  --json                   Emit JSON for --list-versions / --discover / --delete."
     echo ""
     echo "Evaluator options:"
     echo "  <name>              Evaluator name (required, positional)"
@@ -75,8 +112,17 @@ _show_usage() {
     echo ""
     echo "Examples:"
     echo "  ./do/register                              # Register model (default)"
-    echo "  ./do/register dataset alpaca-sft-1k --s3-uri s3://bucket/data.jsonl --technique sft --row-count 1000
-  ./do/register dataset my-hf-dataset --s3-uri hf://allenai/dolma --technique sft"
+    echo "  # Move an existing S3 dataset into the canonical location and register it:"
+    echo "  ./do/register dataset alpaca-sft-1k --s3-uri s3://my-bucket/data.jsonl --technique sft --row-count 1000"
+    echo "  # Stage a HuggingFace dataset to the canonical location and register it:"
+    echo "  ./do/register dataset guanaco --hf-id timdettmers/openassistant-guanaco --technique sft --row-count 500"
+    echo "  # List all versions of a registered dataset:"
+    echo "  ./do/register dataset --list-versions guanaco"
+    echo "  # Browse a HuggingFace dataset before registering:"
+    echo "  ./do/register dataset --discover timdettmers/openassistant-guanaco"
+    echo "  # Deregister a dataset (metadata only; data bytes preserved):"
+    echo "  ./do/register dataset --delete guanaco            # whole registry entry"
+    echo "  ./do/register dataset --delete guanaco @v2 --force # a single version, no prompt"
     echo "  ./do/register evaluator my-reward --type lambda --arn arn:aws:lambda:... --technique rlvr"
 }
 
@@ -104,11 +150,24 @@ BENCHMARK_STATUS=""
 BENCHMARK_RUN_ID=""
 DATASET_NAME=""
 DATASET_S3_URI=""
+DATASET_HF_ID=""
+DATASET_HF_SPLIT=""
+DATASET_COLUMN_MAP=""
 DATASET_FORMAT="jsonl"
 DATASET_TECHNIQUE="sft"
 DATASET_ROW_COUNT=""
 DATASET_COLUMN_SCHEMA=""
 DATASET_FORCE=false
+DATASET_ATTRIBUTION=""
+DATASET_LINEAGE=""
+DATASET_ORIGINATION=""
+DATASET_APPLICATION=""
+DATASET_LIST=false
+DATASET_LIST_VERSIONS=""
+DATASET_DISCOVER=""
+DATASET_DELETE=""
+DATASET_DELETE_VERSION=""
+DATASET_JSON=false
 EVALUATOR_NAME=""
 EVALUATOR_TYPE=""
 EVALUATOR_ARN_OR_URI=""
@@ -140,6 +199,12 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
                 ;;
             --s3-uri)       DATASET_S3_URI="$2"; shift 2 ;;
             --s3-uri=*)     DATASET_S3_URI="${1#*=}"; shift ;;
+            --hf-id)        DATASET_HF_ID="$2"; shift 2 ;;
+            --hf-id=*)      DATASET_HF_ID="${1#*=}"; shift ;;
+            --hf-split)     DATASET_HF_SPLIT="$2"; shift 2 ;;
+            --hf-split=*)   DATASET_HF_SPLIT="${1#*=}"; shift ;;
+            --column-map)   DATASET_COLUMN_MAP="$2"; shift 2 ;;
+            --column-map=*) DATASET_COLUMN_MAP="${1#*=}"; shift ;;
             --format)       DATASET_FORMAT="$2"; shift 2 ;;
             --format=*)     DATASET_FORMAT="${1#*=}"; shift ;;
             --technique)    DATASET_TECHNIQUE="$2"; shift 2 ;;
@@ -158,10 +223,232 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
             --dataset-row-count) DATASET_ROW_COUNT="$2"; shift 2 ;;
             --dataset-column-schema) DATASET_COLUMN_SCHEMA="$2"; shift 2 ;;
             --force)        DATASET_FORCE=true; shift ;;
+            --list|--list-datasets) DATASET_LIST=true; shift ;;
+            --json)         DATASET_JSON=true; shift ;;
+            --list-versions)
+                DATASET_LIST_VERSIONS="$2"; shift 2 ;;
+            --list-versions=*)
+                DATASET_LIST_VERSIONS="${1#*=}"; shift ;;
+            --discover)
+                DATASET_DISCOVER="$2"; shift 2 ;;
+            --discover=*)
+                DATASET_DISCOVER="${1#*=}"; shift ;;
+            --delete)
+                DATASET_DELETE="$2"; shift 2
+                # Optional trailing @v<N> version reference.
+                if [ -n "${1:-}" ] && [[ "${1}" == @v* ]]; then
+                    DATASET_DELETE_VERSION="$1"; shift
+                fi
+                ;;
+            --delete=*)
+                DATASET_DELETE="${1#*=}"; shift
+                if [ -n "${1:-}" ] && [[ "${1}" == @v* ]]; then
+                    DATASET_DELETE_VERSION="$1"; shift
+                fi
+                ;;
+            --attribution)  DATASET_ATTRIBUTION="$2"; shift 2 ;;
+            --attribution=*) DATASET_ATTRIBUTION="${1#*=}"; shift ;;
+            --lineage)      DATASET_LINEAGE="$2"; shift 2 ;;
+            --lineage=*)    DATASET_LINEAGE="${1#*=}"; shift ;;
+            --origination)  DATASET_ORIGINATION="$2"; shift 2 ;;
+            --origination=*) DATASET_ORIGINATION="${1#*=}"; shift ;;
+            --application)  DATASET_APPLICATION="$2"; shift 2 ;;
+            --application=*) DATASET_APPLICATION="${1#*=}"; shift ;;
             --help|-h) _show_usage; exit 0 ;;
             *) echo "⚠️  Unknown dataset option: $1"; _show_usage; exit 1 ;;
         esac
     done
+
+    # ── Handle --list-versions: list all versions from the S3 sidecar ──────────
+    if [ -n "${DATASET_LIST_VERSIONS}" ]; then
+        lv_args=(list-dataset-versions --name "${DATASET_LIST_VERSIONS}" \
+                 --core-bucket "${CORE_BUCKET}" --region "${AWS_REGION}")
+        lv_stderr="$(mktemp)"
+        if ! lv_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${lv_args[@]}" 2>"${lv_stderr}"); then
+            lv_json=$(echo "${lv_output}" | grep -E '^\{' | tail -1)
+            err_msg=$(echo "${lv_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Dataset not found'))" 2>/dev/null) || err_msg="Dataset not found: ${DATASET_LIST_VERSIONS}"
+            echo "❌ ${err_msg}"
+            rm -f "${lv_stderr}"
+            exit 1
+        fi
+        rm -f "${lv_stderr}"
+        lv_json=$(echo "${lv_output}" | grep -E '^\{' | tail -1)
+
+        if [ "${DATASET_JSON}" = true ]; then
+            echo "${lv_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${lv_json}"
+            exit 0
+        fi
+
+        echo ""
+        echo "📦 Versions for dataset: ${DATASET_LIST_VERSIONS}"
+        echo ""
+        echo "${lv_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+versions = data.get('versions', [])
+if not versions:
+    print('  (no versions recorded)')
+else:
+    print(f\"  {'VERSION':<10} {'ROWS':<10} {'HASH':<18} {'DATE':<22} S3 URI\")
+    print(f\"  {'-------':<10} {'----':<10} {'----':<18} {'----':<22} ------\")
+    for i, v in enumerate(versions, start=1):
+        ver = str(v.get('version','') or '')[:10]
+        rows = str(v.get('rows','') if v.get('rows') is not None else '')[:10]
+        h = str(v.get('hash','') or '')[:18]
+        d = str(v.get('date','') or '')[:22]
+        uri = v.get('s3_uri','')
+        print(f'  {ver:<10} {rows:<10} {h:<18} {d:<22} {uri}')
+" 2>/dev/null || echo "  (could not render versions)"
+        echo ""
+        echo "  Pin a version: ./do/tune --dataset ${DATASET_LIST_VERSIONS}@v<N>"
+        echo ""
+        exit 0
+    fi
+
+    # ── Handle --discover: browse a HuggingFace dataset before registering ─────
+    if [ -n "${DATASET_DISCOVER}" ]; then
+        disc_args=(discover-dataset --hf-id "${DATASET_DISCOVER}" --region "${AWS_REGION}")
+        [ -n "${DATASET_HF_SPLIT}" ] && disc_args+=(--hf-split "${DATASET_HF_SPLIT}")
+        [ -n "${DATASET_NAME}" ] && disc_args+=(--name "${DATASET_NAME}")
+        if [ -n "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}" ]; then
+            disc_args+=(--hf-secret-name "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}")
+        fi
+
+        disc_stderr="$(mktemp)"
+        if ! disc_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${disc_args[@]}" 2>"${disc_stderr}"); then
+            disc_json=$(echo "${disc_output}" | grep -E '^\{' | tail -1)
+            err_msg=$(echo "${disc_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Discovery failed'))" 2>/dev/null) || err_msg="Discovery failed for ${DATASET_DISCOVER}"
+            echo "❌ ${err_msg}"
+            rm -f "${disc_stderr}"
+            exit 1
+        fi
+        rm -f "${disc_stderr}"
+        disc_json=$(echo "${disc_output}" | grep -E '^\{' | tail -1)
+
+        if [ "${DATASET_JSON}" = true ]; then
+            echo "${disc_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${disc_json}"
+            exit 0
+        fi
+
+        echo ""
+        echo "🔎 Discovering HuggingFace dataset: ${DATASET_DISCOVER}"
+        echo ""
+        echo "${disc_json}" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+splits = d.get('splits', [])
+files_by_split = d.get('files_by_split', {})
+row_counts = d.get('row_counts', {})
+if not splits:
+    print('  (no data files detected)')
+else:
+    for s in splits:
+        rc = row_counts.get(s)
+        rc_str = f'{rc} rows' if rc is not None else 'rows unknown'
+        print(f'  Split: {s}  ({rc_str})')
+        for f in files_by_split.get(s, []):
+            print(f'    • {f}')
+schema = d.get('schema')
+if schema:
+    src = d.get('schema_source') or ''
+    print()
+    print(f\"  Detected columns ({src}):\")
+    print(f\"    {', '.join(schema)}\")
+print()
+rec = d.get('recommended_register')
+if rec:
+    print('  💡 Recommended:')
+    print(f'      {rec}')
+" 2>/dev/null || echo "  (could not render discovery)"
+        echo ""
+        exit 0
+    fi
+
+    # ── Handle --delete: remove a sidecar entry (never data bytes) ─────────────
+    if [ -n "${DATASET_DELETE}" ]; then
+        _del_target="${DATASET_DELETE}"
+        _del_scope="dataset '${_del_target}' (all versions)"
+        if [ -n "${DATASET_DELETE_VERSION}" ]; then
+            _del_scope="version ${DATASET_DELETE_VERSION} of dataset '${_del_target}'"
+        fi
+
+        if [ "${DATASET_FORCE}" != true ]; then
+            echo ""
+            echo "⚠️  About to deregister ${_del_scope}."
+            echo "   This removes ONLY the registry entry (S3 sidecar metadata)."
+            echo "   The dataset data bytes under s3://${CORE_BUCKET}/datasets/${_del_target}/ are NOT deleted."
+            echo ""
+            printf "   Proceed? [y/N] "
+            read -r _confirm
+            case "${_confirm}" in
+                y|Y|yes|YES) ;;
+                *) echo "Aborted."; exit 0 ;;
+            esac
+        fi
+
+        del_args=(delete-dataset --name "${_del_target}" \
+                  --core-bucket "${CORE_BUCKET}" --region "${AWS_REGION}")
+        [ -n "${DATASET_DELETE_VERSION}" ] && del_args+=(--version "${DATASET_DELETE_VERSION}")
+
+        del_stderr="$(mktemp)"
+        if ! del_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" "${del_args[@]}" 2>"${del_stderr}"); then
+            del_json=$(echo "${del_output}" | grep -E '^\{' | tail -1)
+            err_msg=$(echo "${del_json}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Delete failed'))" 2>/dev/null) || err_msg="Delete failed for ${_del_target}"
+            echo "❌ ${err_msg}"
+            rm -f "${del_stderr}"
+            exit 1
+        fi
+        rm -f "${del_stderr}"
+        del_json=$(echo "${del_output}" | grep -E '^\{' | tail -1)
+
+        if [ "${DATASET_JSON}" = true ]; then
+            echo "${del_json}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "${del_json}"
+        else
+            echo "✅ Deregistered ${_del_scope} (data bytes untouched)"
+        fi
+        exit 0
+    fi
+
+    # ── Handle --list: enumerate datasets from the S3 sidecars ─────────────────
+    if [ "${DATASET_LIST}" = true ]; then
+        echo ""
+        echo "📦 Registered datasets:"
+        echo ""
+        _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets \
+            --core-bucket "${CORE_BUCKET}" --region "${AWS_REGION}" 2>/dev/null) || _ds_output=""
+        _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1)
+        if [ -n "${_ds_json}" ]; then
+            printf "  %-24s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
+            printf "  %-24s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
+            _count=$(echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+rows = data.get('local', [])
+for ds in rows:
+    name = ds.get('name','')[:24]
+    tech = ds.get('technique','')[:10]
+    latest = str(ds.get('latest_version','') or '')[:10]
+    ver_count = ds.get('version_count', 1)
+    if ver_count and ver_count > 1:
+        latest = f'{latest} ({ver_count}v)'
+    r = str(ds.get('row_count','') or '')[:8]
+    uri = ds.get('s3_uri','')
+    print(f'  {name:<24} {tech:<10} {latest:<10} {r:<8} {uri}')
+print(len(rows), file=sys.stderr)
+" 2>/dev/null) || _count=0
+            _local_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('local',[])))" 2>/dev/null) || _local_count=0
+            if [ "${_local_count}" = "0" ]; then
+                echo "  (none)"
+            fi
+        else
+            echo "  (none)"
+        fi
+        echo ""
+        echo "  Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
+        echo "  Versions: python3 .register_helper.py list-dataset-versions --name <name> --core-bucket ${CORE_BUCKET}"
+        echo ""
+        exit 0
+    fi
 
     # ── Resolve --from-tune: populate vars from do/config ──────────────────────
     if [ "${FROM_TUNE_FLAG}" = "true" ]; then
@@ -430,23 +717,180 @@ if [ -n "${BENCHMARK_STATUS}" ]; then
 fi
 
 # ============================================================
-# Handle --dataset mode (register dataset, AC-2b.1)
+# Handle dataset mode — move a dataset to the canonical MLCC
+# datasets location and register the resulting URI.
+#
+#   Canonical destination: s3://<CORE_BUCKET>/datasets/<name>/
+#
+# Input source is exactly one of:
+#   --s3-uri <s3://...>  Copy an existing S3 dataset (cp for a single object,
+#                        sync for a directory/prefix).
+#   --hf-id <org/name>   Stage a HuggingFace dataset via the stage-hf Processing
+#                        Job (same mechanism as do/tune --dataset hf://org/name).
 # ============================================================
 
 if [ "${SUBCOMMAND}" = "dataset" ]; then
     if [ -z "${DATASET_NAME}" ]; then
         echo "❌ Dataset name is required"
-        echo "   Usage: ./do/register dataset <name> --s3-uri <uri>"
-        exit 1
-    fi
-    if [ -z "${DATASET_S3_URI}" ]; then
-        echo "❌ --s3-uri is required"
-        echo "   Usage: ./do/register dataset <name> --s3-uri <uri>"
+        echo "   Usage: ./do/register dataset <name> (--s3-uri <s3://...> | --hf-id <org/name>)"
         exit 1
     fi
 
+    # Exactly one of --s3-uri / --hf-id must be provided.
+    if [ -n "${DATASET_S3_URI}" ] && [ -n "${DATASET_HF_ID}" ]; then
+        echo "❌ --s3-uri and --hf-id are mutually exclusive — provide only one"
+        exit 1
+    fi
+    if [ -z "${DATASET_S3_URI}" ] && [ -z "${DATASET_HF_ID}" ]; then
+        echo "❌ Provide a dataset source: --s3-uri <s3://...> or --hf-id <org/name>"
+        echo "   Usage: ./do/register dataset <name> (--s3-uri <s3://...> | --hf-id <org/name>)"
+        exit 1
+    fi
+
+    # Validate technique
+    case "${DATASET_TECHNIQUE}" in
+        sft|dpo|rlaif|rlvr) ;;
+        *)
+            echo "❌ Invalid technique: ${DATASET_TECHNIQUE}"
+            echo "   Valid values: sft, dpo, rlaif, rlvr"
+            exit 1
+            ;;
+    esac
+
+    # Resolve CORE_BUCKET (mlcc-core) — required for the canonical location.
+    if [ -z "${CORE_BUCKET}" ]; then
+        echo "❌ No mlcc-core bucket recorded in profile (codebuildSourceS3Bucket is empty)."
+        echo "   Run 'ml-container-creator bootstrap' to provision the mlcc-core bucket,"
+        echo "   or set CORE_BUCKET explicitly."
+        exit 1
+    fi
+
+    # Canonical destination for this dataset.
+    CANONICAL_S3_URI="s3://${CORE_BUCKET}/datasets/${DATASET_NAME}/"
+
     echo "📋 Registering dataset: ${DATASET_NAME}"
-    echo "   S3 URI:    ${DATASET_S3_URI}"
+    echo "   Destination: ${CANONICAL_S3_URI}"
+    echo "   Technique:   ${DATASET_TECHNIQUE}"
+    echo ""
+
+    # ── Resolve the canonical URI depending on the input source ───────────────
+    REGISTERED_S3_URI=""
+    RESOLVED_ROW_COUNT="${DATASET_ROW_COUNT}"
+
+    if [ -n "${DATASET_S3_URI}" ]; then
+        # ── S3 source: copy to the canonical location ────────────────────────
+        if [[ "${DATASET_S3_URI}" != s3://* ]]; then
+            echo "❌ --s3-uri must be an s3:// URI (got: ${DATASET_S3_URI})"
+            exit 1
+        fi
+
+        echo "📦 Copying S3 dataset to canonical location"
+        echo "   Source: ${DATASET_S3_URI}"
+        echo "   Target: ${CANONICAL_S3_URI}"
+
+        # Decide cp vs sync: a trailing slash (or no object suffix) denotes a
+        # directory/prefix, which requires 'aws s3 sync'; a single object uses 'cp'.
+        if [[ "${DATASET_S3_URI}" == */ ]]; then
+            _s3_cmd=(aws s3 sync "${DATASET_S3_URI}" "${CANONICAL_S3_URI}")
+        else
+            _s3_cmd=(aws s3 cp "${DATASET_S3_URI}" "${CANONICAL_S3_URI}")
+        fi
+        [ -n "${AWS_REGION:-}" ] && _s3_cmd+=(--region "${AWS_REGION}")
+
+        if ! "${_s3_cmd[@]}"; then
+            echo "❌ Failed to copy dataset to ${CANONICAL_S3_URI}"
+            exit 1
+        fi
+        echo "   ✅ Copied to ${CANONICAL_S3_URI}"
+        echo ""
+
+        REGISTERED_S3_URI="${CANONICAL_S3_URI}"
+
+    else
+        # ── HuggingFace source: stage via the stage-hf Processing Job ────────
+        # Mirror do/tune's stage-hf invocation. org/name (and optional split) are
+        # parsed from --hf-id (org/name) plus --hf-split.
+        _hf_id="${DATASET_HF_ID}"
+        _hf_org="${_hf_id%%/*}"
+        _hf_name="${_hf_id#*/}"
+
+        if [ -z "${_hf_org}" ] || [ -z "${_hf_name}" ] || [ "${_hf_org}" = "${_hf_id}" ]; then
+            echo "❌ Invalid --hf-id: ${DATASET_HF_ID}"
+            echo "   Expected format: org/name (e.g., timdettmers/openassistant-guanaco)"
+            exit 1
+        fi
+
+        echo "📦 Staging HuggingFace dataset: ${_hf_org}/${_hf_name}"
+        if [ -n "${DATASET_HF_SPLIT}" ]; then
+            echo "   Split: ${DATASET_HF_SPLIT}"
+        else
+            echo "   Split: train (default)"
+        fi
+
+        # Build stage-hf arguments (same helper + flags as do/tune).
+        stage_args=(
+            --hf-org "${_hf_org}"
+            --hf-name "${_hf_name}"
+            --output-bucket "${CORE_BUCKET}"
+            --project-name "${PROJECT_NAME}"
+            --region "${AWS_REGION}"
+            --technique "${DATASET_TECHNIQUE}"
+        )
+        if [ -n "${DATASET_HF_SPLIT}" ]; then
+            stage_args+=(--hf-split "${DATASET_HF_SPLIT}")
+        fi
+        if [ -n "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}" ]; then
+            stage_args+=(--hf-secret-name "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}")
+        fi
+        if [ -n "${DATASET_COLUMN_MAP}" ]; then
+            stage_args+=(--column-map "${DATASET_COLUMN_MAP}")
+        fi
+        # --row-count is passed to staging as --take (number of records to keep).
+        if [ -n "${DATASET_ROW_COUNT}" ]; then
+            stage_args+=(--take "${DATASET_ROW_COUNT}")
+        fi
+
+        stage_stderr="$(mktemp)"
+        # Capture stdout (JSON) and stderr (tracebacks) separately so a helper
+        # crash surfaces the real cause instead of a generic message.
+        if ! stage_result=$(python3 "${HELPER_SCRIPT}" stage-hf "${stage_args[@]}" 2>"${stage_stderr}"); then
+            error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Failed to stage dataset'))" 2>/dev/null) || error_msg="Failed to stage HF dataset"
+            echo "❌ ${error_msg}"
+            if [ -s "${stage_stderr}" ]; then
+                echo "   ── helper error output ──────────────────────────────"
+                sed 's/^/   /' "${stage_stderr}"
+                echo "   ─────────────────────────────────────────────────────"
+            fi
+            rm -f "${stage_stderr}"
+            exit 1
+        fi
+        rm -f "${stage_stderr}"
+
+        # Check for error in response
+        has_error=$(echo "${stage_result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'error' in d else 'no')" 2>/dev/null) || has_error="yes"
+        if [ "${has_error}" = "yes" ]; then
+            error_msg=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null) || error_msg="Unknown error"
+            echo "❌ ${error_msg}"
+            exit 1
+        fi
+
+        REGISTERED_S3_URI=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['s3_uri'])" 2>/dev/null)
+        _staged_rows=$(echo "${stage_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('num_records',0))" 2>/dev/null) || _staged_rows=""
+        [ -z "${RESOLVED_ROW_COUNT}" ] && RESOLVED_ROW_COUNT="${_staged_rows}"
+
+        if [ -z "${REGISTERED_S3_URI}" ]; then
+            echo "❌ Staging returned no S3 URI"
+            exit 1
+        fi
+
+        echo "   ✅ Staged to: ${REGISTERED_S3_URI}"
+        [ -n "${_staged_rows}" ] && echo "   Records: ${_staged_rows}"
+        echo ""
+    fi
+
+    # ── Register the canonical URI in the dataset registry ────────────────────
+    echo "📝 Registering canonical dataset URI"
+    echo "   URI:       ${REGISTERED_S3_URI}"
     echo "   Format:    ${DATASET_FORMAT}"
     echo "   Technique: ${DATASET_TECHNIQUE}"
     echo ""
@@ -455,13 +899,13 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
     DS_ARGS=(
         "register-dataset"
         "--name" "${DATASET_NAME}"
-        "--s3-uri" "${DATASET_S3_URI}"
+        "--s3-uri" "${REGISTERED_S3_URI}"
         "--format" "${DATASET_FORMAT}"
         "--technique" "${DATASET_TECHNIQUE}"
     )
 
-    if [ -n "${DATASET_ROW_COUNT}" ]; then
-        DS_ARGS+=("--row-count" "${DATASET_ROW_COUNT}")
+    if [ -n "${RESOLVED_ROW_COUNT}" ]; then
+        DS_ARGS+=("--row-count" "${RESOLVED_ROW_COUNT}")
     fi
 
     if [ -n "${DATASET_COLUMN_SCHEMA}" ]; then
@@ -470,6 +914,20 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
 
     DS_ARGS+=("--project-name" "${PROJECT_NAME}")
     DS_ARGS+=("--region" "${AWS_REGION}")
+    DS_ARGS+=("--core-bucket" "${CORE_BUCKET}")
+
+    if [ -n "${DATASET_ATTRIBUTION}" ]; then
+        DS_ARGS+=("--attribution" "${DATASET_ATTRIBUTION}")
+    fi
+    if [ -n "${DATASET_LINEAGE}" ]; then
+        DS_ARGS+=("--lineage" "${DATASET_LINEAGE}")
+    fi
+    if [ -n "${DATASET_ORIGINATION}" ]; then
+        DS_ARGS+=("--origination" "${DATASET_ORIGINATION}")
+    fi
+    if [ -n "${DATASET_APPLICATION}" ]; then
+        DS_ARGS+=("--application" "${DATASET_APPLICATION}")
+    fi
 
     if [ "${DATASET_FORCE}" = true ]; then
         DS_ARGS+=("--force")

@@ -23,6 +23,10 @@ _require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/wait.sh"
 
+# CORE_BUCKET (mlcc-core) backs the dataset sidecar registry; resolve it for
+# dataset name/version resolution and listing.
+CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}}"
+
 # ── Target guard: AI Recommendations requires a real-time IC endpoint ─────────
 # Note: hyperpod-eks IS supported — CreateAIRecommendationJob uses --model-source
 # (S3 URI from STAGED_MODEL_PATH), not a live endpoint. No SageMakerEndpointRegistration
@@ -124,8 +128,11 @@ if [ "${LIST_DATASETS}" = true ]; then
     _source_flag=""
     [ -n "${DATASET_SOURCE}" ] && _source_flag="--source ${DATASET_SOURCE}"
 
+    _cb_flag=""
+    [ -n "${CORE_BUCKET}" ] && _cb_flag="--core-bucket ${CORE_BUCKET}"
+
     # shellcheck disable=SC2086
-    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets ${_source_flag} 2>/dev/null) || _ds_output=""
+    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets ${_source_flag} ${_cb_flag} --region "${AWS_REGION}" 2>/dev/null) || _ds_output=""
     _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1) || _ds_json=""
 
     if [ -n "${_ds_json}" ]; then
@@ -243,6 +250,8 @@ if [ -n "${DATASET_ARG}" ]; then
             _resolve_args+=("--version" "${DATASET_VERSION}")
             echo "   Version: v${DATASET_VERSION}"
         fi
+        [ -n "${CORE_BUCKET}" ] && _resolve_args+=("--core-bucket" "${CORE_BUCKET}")
+        [ -n "${AWS_REGION}" ] && _resolve_args+=("--region" "${AWS_REGION}")
 
         _resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
             "${_resolve_args[@]}" 2>/dev/null) || _resolve_result=""

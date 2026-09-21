@@ -44,13 +44,14 @@ spec:
   # The SageMaker endpoint name comes from metadata.name (= PROJECT_NAME).
   modelName: "<%= modelName %>"
   endpointName: "<%= projectName %>"
-  # instanceType baked in at generation time — CRD validator requires a real ml.* value, not a shell var.
-  # Changing the instance type requires mcc regenerate or mcc update --field instanceType=...
-  <%
-    const _rawInstanceType = (typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR) ? HP_NODE_SELECTOR : (instanceType || 'ml.g6.2xlarge');
-    const _instanceType = String(_rawInstanceType).replace(/\$\{[^}]+\}/g, '').replace(/[^a-z0-9.\-]/gi, '') || 'ml.g6.2xlarge';
-  %>
-  instanceType: "<%= _instanceType %>"
+  # BL096: instanceType is resolved at DEPLOY time (not baked in at generation
+  # time) so that changing the instance group via --reconfigure/--force keeps
+  # the CRD's instanceType, GPU count, and CPU/memory requests in sync.
+  # do/deploy.d/hyperpod-eks exports HP_INSTANCE_TYPE (from do/config) and the
+  # auto-detected HP_GPU_COUNT / HP_CPU_REQUEST / HP_MEM_REQUEST before envsubst.
+  # The :- default is a generation-time fallback for tools that render the raw
+  # template without running envsubst (e.g. YAML lint / property tests).
+  instanceType: "${HP_INSTANCE_TYPE:-<%= (typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR ? String(HP_NODE_SELECTOR) : String(instanceType || 'ml.g6.2xlarge')).replace(/\$\{[^}]+\}/g, '').replace(/[^a-z0-9.\-]/gi, '') || 'ml.g6.2xlarge' %>}"
   invocationEndpoint: v1/chat/completions
   replicas: <%= hyperPodReplicas %>
   # ── Model source ────────────────────────────────────────────────────────────
@@ -82,14 +83,19 @@ spec:
       mountPath: /opt/ml/model
     resources:
       requests:
-        cpu: "<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>"
-        memory: "<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi"
-        nvidia.com/gpu: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+        # BL096: cpu/memory scale with GPU count. The deploy driver recomputes
+        # these from the (possibly changed) instance group and exports
+        # HP_CPU_REQUEST / HP_MEM_REQUEST before envsubst. The :- defaults below
+        # are computed once at generation time (cpu = gpu*4, mem = gpu*16 Gi) as
+        # a fallback for raw-template renders.
+        cpu: "${HP_CPU_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>}"
+        memory: "${HP_MEM_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi}"
+        nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
 <% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
         vpc.amazonaws.com/efa: "1"
 <% } %>
       limits:
-        nvidia.com/gpu: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+        nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
 <% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
         vpc.amazonaws.com/efa: "1"
 <% } %>
@@ -103,7 +109,7 @@ spec:
       # operator downloaded via modelSourceConfig; "huggingface" makes the
       # server pull MODEL_NAME directly.
       - name: MODEL_SOURCE
-        value: "$HP_MODEL_SOURCE"
+        value: "${HP_MODEL_SOURCE}"
       # HF_TOKEN injected from the hf-token-secret K8s Secret (optional=true so
       # the pod still starts for public models or when STAGED_MODEL_PATH is set).
       # Also needed by do/benchmark for tokenizer access on gated models.
@@ -114,7 +120,7 @@ spec:
             key: token
             optional: true
       - name: VLLM_TENSOR_PARALLEL_SIZE
-        value: "<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>"
+        value: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
 <% if (framework === 'transformers' || framework === 'diffusors') { %>
       - name: VLLM_MODEL
         value: "<%= modelName %>"
