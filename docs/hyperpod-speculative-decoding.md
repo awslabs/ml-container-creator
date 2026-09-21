@@ -177,4 +177,3 @@ Speculative algorithm: EAGLE3
 
 - [HyperPod EKS Deployment](deployments.md#sagemaker-ai-hyperpod-eks-hyperpod-eks)
 - [Optimization (do/optimize)](optimize.md)
-- [BL082 Spike: vLLM + SGLang Speculative Decoding](../.kiro/bl082-speculative-decoding-spike.md)
