@@ -116,7 +116,12 @@ describe('Feature: async-inference-endpoint, Property 1: Deployment target valid
          */
         fc.assert(fc.property(
             fc.string({ minLength: 1, maxLength: 40 })
-                .filter(s => !SUPPORTED_DEPLOYMENT_TARGETS.includes(s)),
+                .filter(s => !SUPPORTED_DEPLOYMENT_TARGETS.includes(s))
+                // Exclude unresolved shell-variable references: _validateChoice
+                // intentionally skips values containing "${" (e.g. "${DEPLOY_TARGET:-...}")
+                // so generated configs don't fail validation. Such inputs are out of
+                // scope for the "invalid targets always fail" invariant.
+                .filter(s => !s.includes('${')),
             (deploymentTarget) => {
                 const answers = { ...baseManagedAnswers, deploymentTarget };
 
