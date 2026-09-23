@@ -26,6 +26,35 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 # CodeBuild source bucket — SOLE source of truth is the profile (bootstrap writes
 # codebuildSourceS3Bucket from the ci CDK stack SourceBucket output). do/ scripts
 # NEVER create buckets. Empty ⇒ bootstrap hasn't provisioned it (fail fast below).
+# ── Help ─────────────────────────────────────────────────────────────────────
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            echo "Usage: ./do/submit [--no-wait]"
+            echo ""
+            echo "Submit a CodeBuild job that builds and pushes the container image to ECR"
+            echo "in AWS — no local Docker installation needed."
+            echo ""
+            echo "Preferred over ./do/build + ./do/push for production builds:"
+            echo "  • Avoids architecture mismatches (always builds for linux/amd64)"
+            echo "  • Faster image pulls from base image registries"
+            echo "  • No local disk usage for large base images"
+            echo ""
+            echo "Options:"
+            echo "  --no-wait    Submit the job and return immediately."
+            echo "               The build continues in the background."
+            echo "               Poll status with: aws codebuild batch-get-builds --ids <id>"
+            echo ""
+            echo "Prerequisites:"
+            echo "  • Bootstrap provisioned: ml-container-creator bootstrap"
+            echo "  • AWS credentials configured"
+            echo ""
+            echo "After the build completes, run ./do/deploy to deploy."
+            exit 0
+            ;;
+    esac
+done
+
 S3_BUCKET="${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}"
 
 if [ -z "${S3_BUCKET}" ]; then

@@ -85,7 +85,10 @@
     "NOTICE",
     "requirements.txt",
     "pyproject.toml",
-    "docs/**/*.md"
+    "docs/**/*.md",
+    "!docs/dev/*-pr-summary.md",
+    "!docs/dev/*-pr-description.md",
+    "!docs/dev/v*-release-notes.md"
   ],
   "type": "module",
   "license": "Apache-2.0",

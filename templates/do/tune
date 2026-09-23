@@ -352,6 +352,21 @@ _show_help() {
     echo "  --model <id> or run --discover to find the correct Hub content name."
     echo ""
     echo "  For custom training without JumpStart, see: ./do/train --help"
+    echo ""
+    echo "Prerequisites:"
+    echo "  • Bootstrap provisioned with training module: mcc bootstrap add-module training"
+    echo "  • AWS credentials configured"
+    echo "  • Dataset registered in the MLCC registry or available at an S3 URI"
+    echo "    Register a HF dataset first: ./do/register dataset <name> --hf-id org/name"
+    echo ""
+    echo "Dataset note:"
+    echo "  --dataset accepts a registered name, s3:// URI, or hf:// reference."
+    echo "  hf:// URIs are staged automatically via Processing Job on first use."
+    echo "  Use ./do/register dataset --discover <org/name> to browse datasets first."
+    echo ""
+    echo "After fine-tuning:"
+    echo "  ./do/adapter add tuned-sft --from-tune    # Deploy adapter to the endpoint"
+    echo "  ./do/benchmark --workload multi_turn_chat --adapter tuned-sft  # Benchmark"
     exit 0
 }
 

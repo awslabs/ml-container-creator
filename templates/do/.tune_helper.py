@@ -140,6 +140,13 @@ def main():
                                  help="S3 bucket for staged dataset")
     stage_hf_parser.add_argument("--project-name", required=True,
                                  help="Project name for S3 path prefix")
+    stage_hf_parser.add_argument("--output-prefix", default=None,
+                                 help="Explicit S3 key prefix inside --output-bucket "
+                                      "(overrides the default "
+                                      "'<project>/datasets/<org>/<name>/<split>'). "
+                                      "Used by do/register to stage datasets to the "
+                                      "canonical, project-independent location "
+                                      "'datasets/<name>'.")
     stage_hf_parser.add_argument("--region", required=True,
                                  help="AWS region")
     stage_hf_parser.add_argument("--hf-secret-name", default=None,

@@ -21,6 +21,9 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# Suppress Python 3.12+ SyntaxWarnings from inline -c strings (invalid escape sequences)
+export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore::SyntaxWarning}"
+
 # ── Guard predicate functions ──────────────────────────────────────────────
 
 _guard_none() { return 0; }

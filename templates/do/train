@@ -201,6 +201,15 @@ _show_help() {
     echo "  ./do/train --status             # Check status of current job"
     echo "  ./do/train --dry-run            # Validate and preview request"
     echo "  ./do/train --force              # Force a new job after failure"
+    echo ""
+    echo "Prerequisites:"
+    echo "  • Training infrastructure provisioned: mcc bootstrap add-module training"
+    echo "  • Training config exists: do/training/config.yaml"
+    echo "  • Training script exists: do/training/<technique>/train.py"
+    echo "  • AWS credentials configured"
+    echo ""
+    echo "After training completes:"
+    echo "  ./do/adapter add tuned --from-train   # Deploy the trained adapter"
     exit 0
 }
 

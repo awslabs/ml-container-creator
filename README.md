@@ -2,8 +2,6 @@
 
 A CLI tool that creates SageMaker-compatible Docker containers for deploying ML models using the Bring Your Own Container (BYOC) paradigm.
 
-> **Note:** This is a pre-release (`0.x`). APIs may change between minor versions. Weekly releases are planned until v1.
-
 ## Supported Configurations
 
 | Architecture | Model Servers | Use Case |

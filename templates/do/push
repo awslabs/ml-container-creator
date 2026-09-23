@@ -24,6 +24,27 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
+# ── Help ─────────────────────────────────────────────────────────────────────
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            echo "Usage: ./do/push"
+            echo ""
+            echo "Push the locally built container image to Amazon ECR."
+            echo "Run ./do/build (or ./do/submit) first."
+            echo ""
+            echo "Prerequisites:"
+            echo "  • Docker installed and running"
+            echo "  • AWS credentials configured (must have ECR push permissions)"
+            echo "  • Image built — run ./do/build first"
+            echo ""
+            echo "After pushing:"
+            echo "  ./do/deploy    Deploy the pushed image to your target"
+            exit 0
+            ;;
+    esac
+done
+
 echo "🚀 Pushing Docker image to Amazon ECR"
 echo "   Project: ${PROJECT_NAME}"
 echo "   Region: ${AWS_REGION}"

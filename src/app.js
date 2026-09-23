@@ -786,6 +786,10 @@ function _writeGenerationParams(destDir, answers) {
 
     const paramsPath = path.join(destDir, '.mlcc-generation-params.json');
     fs.writeFileSync(paramsPath, `${JSON.stringify(params, null, 2)  }\n`);
+
+    // Write .mlcc-version so `mcc regenerate` shows the correct project version
+    const versionPath = path.join(destDir, '.mlcc-version');
+    fs.writeFileSync(versionPath, `${generatorVersion}\n`);
 }
 
 /**
