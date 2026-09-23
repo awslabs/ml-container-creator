@@ -136,14 +136,13 @@ describe('HyperPod Multi-Stack Bootstrap Integration', () => {
             assert.ok(appSource.includes('MlccInferenceOperatorStack'), 'Should import MlccInferenceOperatorStack');
         });
 
-        it('bin/app.ts passes adopt flags from context', () => {
+        it('bin/app.ts passes supported adoption flags from context', () => {
             const appSource = readFileSync(
                 resolve(__dirname, '../../infra/bootstrap-modules/bin/app.ts'), 'utf8'
             );
             assert.ok(appSource.includes('adoptEks'));
             assert.ok(appSource.includes('adoptVpc'));
             assert.ok(appSource.includes('adoptRoles'));
-            assert.ok(appSource.includes('adoptCluster'));
             assert.ok(appSource.includes('adoptTlsBucket'));
             assert.ok(appSource.includes('adoptInferenceAddon'));
         });

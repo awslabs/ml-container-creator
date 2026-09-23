@@ -28,6 +28,10 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
+# CORE_BUCKET (mlcc-core) backs the dataset sidecar registry used for
+# name/version resolution and listing.
+CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}}"
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 CONFIG_FILE="${SCRIPT_DIR}/training/config.yaml"
 POLL_INTERVAL=60
@@ -330,8 +334,11 @@ _list_datasets_cmd() {
     echo "📋 Registered Datasets"
     echo ""
     if [ -f "${SCRIPT_DIR}/.register_helper.py" ]; then
+        _cb_flag=""
+        [ -n "${CORE_BUCKET}" ] && _cb_flag="--core-bucket ${CORE_BUCKET}"
+        # shellcheck disable=SC2086
         python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets \
-            --region "${AWS_REGION:-us-east-1}" 2>/dev/null || {
+            ${_cb_flag} --region "${AWS_REGION:-us-east-1}" 2>/dev/null || {
             echo "   No datasets registered yet."
             echo "   Register: ./do/register dataset <name> --s3-uri <uri> --technique <sft|dpo>"
         }
@@ -412,6 +419,8 @@ _resolve_dataset_from_registry() {
         resolve_args+=("--version" "${version}")
         echo "   Version: v${version}"
     fi
+    [ -n "${CORE_BUCKET}" ] && resolve_args+=("--core-bucket" "${CORE_BUCKET}")
+    [ -n "${AWS_REGION:-}" ] && resolve_args+=("--region" "${AWS_REGION}")
 
     local resolve_result
     resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \

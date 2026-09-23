@@ -215,31 +215,54 @@ clean_hyperpod() {
         return 1
     fi
     
-    # Delete Kubernetes resources
-    echo "🗑️  Deleting Kubernetes resources..."
+    # Delete Kubernetes resources — deleting the InferenceEndpointConfig cascades
+    # to the operator-managed Deployment, Service, pods, and the
+    # SageMakerEndpointRegistration (which deregisters the SageMaker endpoint).
+    echo "🗑️  Deleting InferenceEndpointConfig '${PROJECT_NAME}'..."
     AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
     export AWS_ACCOUNT_ID
 
-    # Portable envsubst shim — works on macOS without gettext installed
-    if ! command -v envsubst &>/dev/null; then
-        envsubst() { perl -pe 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge'; }
+    DELETE_FAILED=false
+    if ! kubectl delete inferenceendpointconfig "${PROJECT_NAME}" \
+        -n "${HP_NAMESPACE}" --ignore-not-found 2>&1; then
+        DELETE_FAILED=true
     fi
 
-    DELETE_FAILED=false
-    for manifest in hyperpod/*.yaml; do
-        # Skip files that contain no Kubernetes objects (e.g. comment-only PVC stubs)
-        RENDERED=$(envsubst < "${manifest}")
-        if echo "${RENDERED}" | grep -q '^kind:'; then
-            if ! echo "${RENDERED}" | kubectl delete -n "${HP_NAMESPACE}" --ignore-not-found -f - 2>&1; then
-                DELETE_FAILED=true
-            fi
-        fi
-    done
+    # Also remove the Hugging Face token secret if we created one.
+    kubectl delete secret hf-token-secret -n "${HP_NAMESPACE}" --ignore-not-found 2>/dev/null || true
+
     if [ "${DELETE_FAILED}" = true ]; then
-        echo "❌ Failed to delete some Kubernetes resources"
+        echo "❌ Failed to delete the InferenceEndpointConfig"
         echo "   You may need to manually clean up:"
-        echo "   kubectl get all -n ${HP_NAMESPACE}"
+        echo "   kubectl get pods,svc,deployment,InferenceEndpointConfig,sagemakerendpointregistration -n ${HP_NAMESPACE}"
         return 1
+    fi
+
+    # Wait for the SageMakerEndpointRegistration to be reconciled away so the
+    # SageMaker endpoint is fully deregistered before we return.
+    echo "⏳ Waiting for SageMakerEndpointRegistration '${PROJECT_NAME}' to be removed..."
+    CLEAN_TIMEOUT=${CLEAN_TIMEOUT:-300}
+    CLEAN_ELAPSED=0
+    while [ "${CLEAN_ELAPSED}" -lt "${CLEAN_TIMEOUT}" ]; do
+        if ! kubectl get sagemakerendpointregistration "${PROJECT_NAME}" \
+            -n "${HP_NAMESPACE}" &>/dev/null; then
+            echo "   ✅ SageMakerEndpointRegistration removed"
+            break
+        fi
+        echo "   📊 $(date +%H:%M:%S) waiting for deregistration..."
+        sleep 10
+        CLEAN_ELAPSED=$((CLEAN_ELAPSED + 10))
+    done
+    if [ "${CLEAN_ELAPSED}" -ge "${CLEAN_TIMEOUT}" ]; then
+        echo "   ⚠️  Timed out waiting for SageMakerEndpointRegistration to disappear."
+        echo "   Verify manually: kubectl get sagemakerendpointregistration -n ${HP_NAMESPACE}"
+    fi
+
+    # Clear ENDPOINT_NAME from do/config so downstream workflows don't target a
+    # deleted endpoint.
+    if grep -q "^export ENDPOINT_NAME=" "${SCRIPT_DIR}/config" 2>/dev/null; then
+        sed -i.bak "s|^export ENDPOINT_NAME=.*|export ENDPOINT_NAME=\"\"|" "${SCRIPT_DIR}/config"
+        rm -f "${SCRIPT_DIR}/config.bak"
     fi
 
     # Mark k8s resources as deleted in manifest (non-blocking)

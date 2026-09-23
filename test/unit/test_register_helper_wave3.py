@@ -193,61 +193,52 @@ class TestCountRows(unittest.TestCase):
 
 
 class TestCheckTechniqueMismatch(unittest.TestCase):
-    def _make_registry(self, tmpdir, dataset_name, technique):
-        """Create a local registry file with one dataset entry."""
-        registry_dir = os.path.join(tmpdir, '.ml-container-creator')
-        os.makedirs(registry_dir, exist_ok=True)
-        registry_path = os.path.join(registry_dir, 'datasets.json')
-        entries = [{
-            'name': dataset_name,
-            'technique': technique,
-            'versions': [{'version': '1.0.0', 'technique': technique}],
-        }]
-        with open(registry_path, 'w') as f:
-            json.dump(entries, f)
-        return registry_path
+    """Technique-mismatch warning/decline behavior.
+
+    BL092 hard cutover: the registered technique now comes from the S3 sidecar
+    (via `_lookup_registered_technique`), not a local `datasets.json`. These
+    tests stub the lookup so they validate `_check_technique_mismatch` behavior
+    independent of the storage backend.
+    """
 
     def test_check_technique_mismatch_warning(self):
-        """Local registry has sft, current=dpo → warning printed, no exit."""
+        """Registered sft, current=dpo → warning printed, no exit."""
         mod = _get_tune()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            self._make_registry(tmpdir, 'my-dataset', 'sft')
-            with patch.object(os.path, 'expanduser', return_value=tmpdir):
-                import io
-                stderr_capture = io.StringIO()
-                with patch('sys.stderr', stderr_capture):
-                    with patch.dict(os.environ, {}, clear=False):
-                        # Should NOT exit
-                        mod._check_technique_mismatch('my-dataset', 'dpo', 'us-west-2')
-                output = stderr_capture.getvalue()
-                self.assertIn('registered for technique', output)
-                self.assertIn('sft', output)
-                self.assertIn('dpo', output)
+        import io
+        import tune_stage_hf
+        stderr_capture = io.StringIO()
+        with patch.object(tune_stage_hf, '_lookup_registered_technique', return_value='sft'):
+            with patch('sys.stderr', stderr_capture):
+                with patch.dict(os.environ, {}, clear=False):
+                    # Should NOT exit
+                    mod._check_technique_mismatch('my-dataset', 'dpo', 'us-west-2')
+        output = stderr_capture.getvalue()
+        self.assertIn('registered for technique', output)
+        self.assertIn('sft', output)
+        self.assertIn('dpo', output)
 
     def test_check_technique_mismatch_auto_mode(self):
         """MLCC_AUTO_MODE=1, mismatch → sys.exit(4)."""
         mod = _get_tune()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            self._make_registry(tmpdir, 'my-dataset', 'sft')
-            with patch.object(os.path, 'expanduser', return_value=tmpdir):
-                with patch.dict(os.environ, {'MLCC_AUTO_MODE': '1'}, clear=False):
-                    with self.assertRaises(SystemExit) as ctx:
-                        mod._check_technique_mismatch('my-dataset', 'dpo', 'us-west-2')
-                    self.assertEqual(ctx.exception.code, 4)
+        import tune_stage_hf
+        with patch.object(tune_stage_hf, '_lookup_registered_technique', return_value='sft'):
+            with patch.dict(os.environ, {'MLCC_AUTO_MODE': '1'}, clear=False):
+                with self.assertRaises(SystemExit) as ctx:
+                    mod._check_technique_mismatch('my-dataset', 'dpo', 'us-west-2')
+                self.assertEqual(ctx.exception.code, 4)
 
     def test_check_technique_match(self):
         """Same technique → no warning, no exit."""
         mod = _get_tune()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            self._make_registry(tmpdir, 'my-dataset', 'sft')
-            with patch.object(os.path, 'expanduser', return_value=tmpdir):
-                import io
-                stderr_capture = io.StringIO()
-                with patch('sys.stderr', stderr_capture):
-                    # Should NOT exit and NOT warn
-                    mod._check_technique_mismatch('my-dataset', 'sft', 'us-west-2')
-                output = stderr_capture.getvalue()
-                self.assertNotIn('registered for technique', output)
+        import io
+        import tune_stage_hf
+        stderr_capture = io.StringIO()
+        with patch.object(tune_stage_hf, '_lookup_registered_technique', return_value='sft'):
+            with patch('sys.stderr', stderr_capture):
+                # Should NOT exit and NOT warn
+                mod._check_technique_mismatch('my-dataset', 'sft', 'us-west-2')
+        output = stderr_capture.getvalue()
+        self.assertNotIn('registered for technique', output)
 
 
 if __name__ == '__main__':

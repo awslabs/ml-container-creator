@@ -18,7 +18,8 @@ For Athena-backed config recommendations based on your own benchmark history (no
 ## Usage
 
 ```bash
-./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]
+./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--dataset <source>] [--force]
+./do/optimize --list-datasets [--source local|remote|all]
 ./do/optimize --list
 ./do/optimize --apply <arn|top>
 ```
@@ -29,6 +30,8 @@ For Athena-backed config recommendations based on your own benchmark history (no
 |---|---|---|
 | `--goal` | Yes (for a new job) | Optimization goal: `cost`, `latency`, or `throughput` |
 | `--instances` | No | Comma-separated instance types to evaluate (max 3). Not valid with `--goal cost` (see note below) |
+| `--dataset <source>` | No | Calibration dataset for `--goal throughput` (enables speculator training). Accepts a raw S3 URI (`s3://bucket/path.jsonl`), a registered dataset name with optional version pinning (`name`, `name@v2`, or `name@v1.0.0`), or a HuggingFace reference (`hf://org/name`). Names are resolved via the dataset registry. |
+| `--list-datasets` | No | List registered datasets (from the shared S3 sidecar registry managed by `do/register dataset`) and exit. Accepts an optional `--source local\|remote\|all` filter (default: `all`). |
 | `--force` | No | Create a new job even if one already exists |
 | `--list` | No | List completed recommendation results (ranked) without creating a new job |
 | `--apply <arn\|top>` | No | Apply a recommendation to `do/config`: pass `top` for the #1 ranked result, or a specific model package ARN |
@@ -38,10 +41,19 @@ For Athena-backed config recommendations based on your own benchmark history (no
     you cannot supply `--instances`. Passing both is rejected. Use `--goal latency` or
     `--goal throughput` if you want to constrain the candidate instance list.
 
-!!! note "`--goal throughput` runs without speculative decoding"
-    `--goal throughput` currently runs with `--no-optimize-model` because speculative decoding
-    requires a calibration dataset that is not yet wired in. Dataset-driven throughput
-    optimization via `--dataset-uri` is planned for a future release.
+!!! note "`--goal throughput` and calibration datasets"
+    Without a dataset, `--goal throughput` preserves the existing behavior and passes
+    `--no-optimize-model`. Supply `--dataset <source>` to enable model optimization and
+    speculator training. The `--dataset` flag accepts three forms (the same UX as `do/tune`):
+
+    - a raw S3 URI — `--dataset s3://bucket/path/data.jsonl`
+    - a registered dataset name, optionally version-pinned — `--dataset calibration-sample`,
+      `--dataset calibration-sample@v2`, or `--dataset calibration-sample@v1.0.0`
+    - a HuggingFace reference — `--dataset hf://my-org/calibration-data`
+
+    Registered names are resolved to their underlying S3 URI via the dataset registry.
+    Run `./do/optimize --list-datasets` to discover available names. The JSONL dataset may
+    use ShareGPT records, OpenAI Chat Completions records, or OpenAI Completions records.
 
 ## Instance Resolution
 
@@ -77,8 +89,20 @@ For the HyperPod EKS target specifically, `STAGED_MODEL_PATH` is the model sourc
 ## Examples
 
 ```bash
-# Optimize for throughput using the instance type already in do/config
+# Optimize for throughput without a dataset (recommendation-only behavior)
 ./do/optimize --goal throughput
+
+# List datasets registered in the shared registry (discover valid --dataset names)
+./do/optimize --list-datasets
+
+# Optimize throughput with a raw S3 calibration dataset and train a speculator
+./do/optimize --goal throughput --dataset s3://my-bucket/calibration.jsonl
+
+# Optimize throughput with a registered dataset name (version-pinned)
+./do/optimize --goal throughput --dataset calibration-sample@v2
+
+# Optimize throughput with a HuggingFace dataset reference
+./do/optimize --goal throughput --dataset hf://my-org/calibration-data
 
 # Compare specific instance types for latency
 ./do/optimize --goal latency --instances ml.g6e.48xlarge,ml.p5.48xlarge
@@ -118,8 +142,11 @@ before deciding what to apply.
 
 ### `--apply top`
 
-Applies the **#1 ranked** recommendation. This writes `OPTIMIZE_MODEL_PACKAGE_ARN` (and, for
-realtime targets, updates `INSTANCE_TYPE`) to `do/config`.
+Applies the **#1 ranked** recommendation. This writes `OPTIMIZE_MODEL_PACKAGE_ARN`,
+`OPTIMIZE_INFERENCE_SPEC`, and `INSTANCE_TYPE` to `do/config`. When the recommendation contains
+Speculative Decoding Configuration, it also writes `HP_SPECULATIVE_MODEL`,
+`HP_SPECULATIVE_NUM_TOKENS`, and `HP_SPECULATIVE_ALGORITHM` so the next `do/deploy` applies the
+optimized package and speculative settings together.
 
 ```bash
 ./do/optimize --apply top
@@ -200,8 +227,11 @@ After completion, `do/optimize` may write these variables to `do/config`:
 |---|---|---|
 | `OPTIMIZE_JOB_NAME` | Always (on job creation) | Idempotency — tracks the active job |
 | `OPTIMIZE_MODEL_PACKAGE_ARN` | On "deploy", "save", or `--apply` | Model package from recommendations |
-| `OPTIMIZE_INFERENCE_SPEC` | On "deploy" | Inference specification name |
-| `INSTANCE_TYPE` | On "deploy" | Updated to the recommended instance |
+| `OPTIMIZE_INFERENCE_SPEC` | On "deploy" or `--apply` | Inference specification name |
+| `INSTANCE_TYPE` | On "deploy" or `--apply` | Updated to the recommended instance |
+| `HP_SPECULATIVE_MODEL` | On `--apply` when recommended | Recommended draft model (HF ID when available, otherwise ARN) |
+| `HP_SPECULATIVE_NUM_TOKENS` | On `--apply` when recommended | Number of speculative tokens |
+| `HP_SPECULATIVE_ALGORITHM` | On `--apply` when recommended | Inferred speculative decoding algorithm |
 | `INSTANCE_POOLS` | On "set up pools" | JSON array of prioritized instance types |
 
 ---
@@ -213,10 +243,9 @@ from the realtime path:
 
 - **Model source** — the model source is `STAGED_MODEL_PATH` (the `s3://` staged weights),
   **not** `MODEL_NAME`. Run `do/stage` first if weights aren't staged yet.
-- **Applying results** — `--apply` writes `OPTIMIZE_MODEL_PACKAGE_ARN` to `do/config`, but
-  **deployment on HyperPod requires BL088** (the `InferenceEndpointConfig` migration), which is
-  **planned for v1.7**. Until then you can obtain and store the recommendation, but the HyperPod
-  deploy path cannot consume it yet.
+- **Applying results** — `--apply` writes `OPTIMIZE_MODEL_PACKAGE_ARN` and, when recommended,
+  `HP_SPECULATIVE_MODEL`, `HP_SPECULATIVE_NUM_TOKENS`, and `HP_SPECULATIVE_ALGORITHM` to
+  `do/config`. The HyperPod `InferenceEndpointConfig` deploy path consumes these values together.
 
 ---
 
@@ -254,3 +283,16 @@ from the realtime path:
 
 **Job takes too long**
 : Recommendations typically complete in 10–30 minutes. Jobs hitting the 60-minute timeout may indicate an issue with instance availability.
+
+**"Spec decoding failed on all N instances (create failed)"**
+: The `--goal throughput --dataset` path enables speculator training, which requires a
+  compatible draft model in the SageMaker marketplace for your target model. Most small models
+  (≤3B) don't have a marketplace draft model, so the `speculative_decoding` step will fail and
+  downstream benchmark nodes will be skipped. The failure is at the SMAI API level — it is not
+  an MLCC bug. You'll still see a summary with status `FAILED`; use `--goal latency` or
+  `--goal throughput` (without `--dataset`) to get recommendations for smaller models.
+
+**`STAGED_MODEL_PATH` missing after `mcc generate`**
+: `STAGED_MODEL_PATH` is written to `do/config` by `do/stage` at staging time, not at project
+  generation time. After regenerating a project, re-run `./do/stage` to restore it, or
+  manually re-add `export STAGED_MODEL_PATH="s3://..."` to `do/config`.

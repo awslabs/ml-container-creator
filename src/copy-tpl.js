@@ -51,7 +51,12 @@ export function copyTpl(templateDir, destDir, vars, ignorePatterns = []) {
 
     for (const file of files) {
         const src = path.join(templateDir, file);
-        const dest = path.join(destDir, file);
+        // Files ending in `.ejs` are EJS templates whose rendered output should
+        // drop the `.ejs` suffix (e.g. `foo.yaml.ejs` → `foo.yaml`). This lets
+        // template authors mark intent explicitly while keeping the generated
+        // filename clean.
+        const destFile = file.endsWith('.ejs') ? file.slice(0, -'.ejs'.length) : file;
+        const dest = path.join(destDir, destFile);
 
         fs.mkdirSync(path.dirname(dest), { recursive: true });
 

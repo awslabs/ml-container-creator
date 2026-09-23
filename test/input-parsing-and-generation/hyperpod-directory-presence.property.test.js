@@ -81,12 +81,9 @@ const hyperPodConfigArb = fc.record({
     fsxVolumeHandle: fc.option(fc.stringMatching(/^fs-[a-f0-9]{17}$/), { nil: undefined })
 });
 
-/** Known hyperpod template file paths */
+/** Known hyperpod template file paths (CRD-based deployment set) */
 const hyperpodFiles = [
-    'hyperpod/deployment.yaml',
-    'hyperpod/service.yaml',
-    'hyperpod/configmap.yaml',
-    'hyperpod/pvc.yaml'
+    'hyperpod/InferenceEndpointConfig.yaml.ejs'
 ];
 
 describe('Property 9: Conditional HyperPod Directory Presence', () => {

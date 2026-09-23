@@ -461,8 +461,23 @@ _logs_hyperpod_eks() {
         exit 4
     fi
 
-    # Check if any pods match the selector
+    # Check if any pods match the selector. The amazon-sagemaker-hyperpod-inference
+    # operator names the serving Deployment/pods after the InferenceEndpointConfig
+    # (== PROJECT_NAME) and labels them `app=<name>`. If a custom selector was not
+    # passed and the default `app=` selector finds nothing, fall back to the
+    # operator's alternate label conventions before giving up.
     POD_COUNT=$(kubectl get pods -n "${HP_NAMESPACE}" -l "${POD_SELECTOR}" --no-headers 2>/dev/null | wc -l || echo "0")
+    if [ "${POD_COUNT}" -eq 0 ] && [ -z "${1:-}" ]; then
+        for _alt in "app.kubernetes.io/name=${PROJECT_NAME}" "inference.sagemaker.aws.amazon.com/inference-endpoint-config=${PROJECT_NAME}"; do
+            _alt_count=$(kubectl get pods -n "${HP_NAMESPACE}" -l "${_alt}" --no-headers 2>/dev/null | wc -l || echo "0")
+            if [ "${_alt_count}" -gt 0 ]; then
+                POD_SELECTOR="${_alt}"
+                POD_COUNT="${_alt_count}"
+                echo "   ℹ️  Using operator label selector: ${POD_SELECTOR}"
+                break
+            fi
+        done
+    fi
     if [ "${POD_COUNT}" -eq 0 ]; then
         echo "⚠️  No pods found matching selector: ${POD_SELECTOR}"
         echo "   Namespace: ${HP_NAMESPACE}"

@@ -15,195 +15,112 @@ import sys
 from common import _output, _error_exit, _check_sagemaker_core
 from register_common import _load_registry
 import register_common
-from register_dataset import _get_hub_name_from_profile
+import dataset_store
+from register_dataset import _get_hub_name_from_profile, _resolve_core_bucket
 from register_model import _extract_version_from_arn, _check_ai_registry
 
 
+def _select_version(versions, version_spec):
+    """Select a version entry by ordinal or semver from a sidecar versions list.
+
+    Returns (entry, ordinal) or (None, None) if not found. version_spec=None
+    selects the latest version.
+    """
+    if not versions:
+        return None, None
+
+    if version_spec is None:
+        return versions[-1], len(versions)
+
+    # Ordinal (e.g. "2")
+    try:
+        ordinal = int(version_spec)
+        if 1 <= ordinal <= len(versions):
+            return versions[ordinal - 1], ordinal
+        return None, None
+    except ValueError:
+        pass
+
+    # Semver (e.g. "1.0.0")
+    for i, v in enumerate(versions, 1):
+        if v.get("version") == version_spec:
+            return v, i
+    return None, None
+
+
+def _version_not_found(name, version_spec, versions):
+    """Emit a VERSION_NOT_FOUND error (distinct from transport error)."""
+    available = []
+    for i, v in enumerate(versions, 1):
+        ver_str = v.get("version", f"{i}.0.0")
+        available.append({"ordinal": i, "version": ver_str})
+        print(f"  v{i} ({ver_str})", file=sys.stderr)
+    print(f"Error: Version {version_spec} not found for dataset '{name}'", file=sys.stderr)
+    print(json.dumps({
+        "error": f"Version {version_spec} not found for dataset '{name}'",
+        "code": "VERSION_NOT_FOUND",
+        "available_versions": available,
+    }))
+    sys.exit(1)
+
+
 def cmd_resolve_dataset(args):
-    """Resolve a registered dataset by name (with optional version pinning)."""
+    """Resolve a registered dataset by name from the S3 sidecar.
+
+    Version pinning: --version accepts an ordinal ("2") or semver ("1.0.0").
+    Not-found (no sidecar / no matching version) exits non-zero with a
+    DATASET_NOT_FOUND / VERSION_NOT_FOUND code, distinct from a transport error.
+    """
     name = args.name
     version_spec = getattr(args, "version", None)
 
     if not name:
         _error_exit("--name is required", code="MISSING_ARGUMENT")
 
-    if version_spec is not None:
-        try:
-            version_ordinal = int(version_spec)
-            return _resolve_dataset_version(name, version_ordinal)
-        except ValueError:
-            return _resolve_dataset_version_by_semver(name, version_spec)
+    region = (
+        getattr(args, "region", None)
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("AWS_REGION")
+    )
+    core_bucket = _resolve_core_bucket(args)
+    if not core_bucket:
+        _error_exit(
+            "Could not resolve the MLCC Core bucket for dataset resolution.\n"
+            "    Pass --core-bucket <bucket> or set CORE_BUCKET.",
+            code="MISSING_CORE_BUCKET",
+        )
 
-    # No version — resolve latest
-    if _check_ai_registry():
-        try:
-            from sagemaker.ai_registry.dataset import DataSet
+    s3_client = dataset_store._get_s3_client(region)
 
-            dataset = DataSet.get(name=name)
-            _output({
-                "name": dataset.name if hasattr(dataset, 'name') else name,
-                "s3_uri": dataset.source if hasattr(dataset, 'source') else "",
-                "arn": dataset.arn if hasattr(dataset, 'arn') else None,
-                "format": "jsonl",
-                "technique": getattr(dataset, 'customization_technique', '').lower() if hasattr(dataset, 'customization_technique') else "",
-                "version": None,
-                "ordinal": None,
-            })
-        except Exception as e:
-            print(f"AI Registry lookup failed for '{name}': {e}. Trying local registry.", file=sys.stderr)
-
-    # Fallback: local registry
-    entries = _load_registry(register_common._DATASETS_REGISTRY)
-    for entry in entries:
-        if entry.get("name") == name:
-            output = dict(entry)
-            if "arn" not in output:
-                output["arn"] = None
-            versions = entry.get("versions")
-            if versions and len(versions) > 0:
-                latest = versions[-1]
-                output["s3_uri"] = latest.get("s3_uri", output.get("s3_uri", ""))
-                output["version"] = latest.get("version")
-                output["ordinal"] = len(versions)
-            else:
-                output["version"] = None
-                output["ordinal"] = None
-            _output(output)
-            return
-
-    # Hub fallback
     try:
-        region = os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
-        hub_name = _get_hub_name_from_profile(region)
-        if hub_name:
-            import boto3
-            sm = boto3.client('sagemaker', region_name=region)
-            resp = sm.describe_hub_content(
-                HubName=hub_name, HubContentType='Dataset', HubContentName=name,
-            )
-            doc = json.loads(resp.get('HubContentDocument') or '{}')
-            hub_s3_uri = doc.get('s3_uri') or doc.get('source')
-            if hub_s3_uri:
-                _output({'name': name, 's3_uri': hub_s3_uri, 'arn': None,
-                         'format': doc.get('format', 'jsonl'), 'technique': doc.get('technique', 'unknown'),
-                         'version': resp.get('HubContentVersion', ''), 'ordinal': None,
-                         'origin': 'remote'})
-                return
-    except Exception as hub_err:
-        print(f'\u26a0\ufe0f  Hub fallback failed: {hub_err}', file=sys.stderr)
+        sidecar = dataset_store.read_sidecar(s3_client, core_bucket, name)
+    except dataset_store.TransportError as e:
+        # Transport / permission error — distinct exit code from not-found.
+        print(json.dumps({"error": str(e), "code": "SIDECAR_READ_FAILED"}))
+        print(f"\u26a0\ufe0f  {e}", file=sys.stderr)
+        sys.exit(3)
 
-    _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+    if sidecar is None:
+        _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
 
+    versions = sidecar.get("versions") or []
+    entry, ordinal = _select_version(versions, version_spec)
 
-def _resolve_dataset_version(name, version_ordinal):
-    """Resolve a specific version (by ordinal) of a named dataset."""
-    entries = _load_registry(register_common._DATASETS_REGISTRY)
+    if entry is None:
+        if version_spec is not None:
+            _version_not_found(name, version_spec, versions)
+        _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
 
-    for entry in entries:
-        if entry.get("name") == name:
-            versions = entry.get("versions", [])
-
-            if not versions:
-                if version_ordinal == 1:
-                    output = dict(entry)
-                    output["version"] = "1.0.0"
-                    output["ordinal"] = 1
-                    if "arn" not in output:
-                        output["arn"] = None
-                    _output(output)
-                else:
-                    print(f"Error: Version v{version_ordinal} not found for dataset '{name}'", file=sys.stderr)
-                    print(f"Available versions: v1 (1.0.0)", file=sys.stderr)
-                    print(json.dumps({
-                        "error": f"Version v{version_ordinal} not found for dataset '{name}'",
-                        "code": "VERSION_NOT_FOUND",
-                        "available_versions": [{"ordinal": 1, "version": "1.0.0"}],
-                    }))
-                    sys.exit(1)
-
-            if version_ordinal < 1 or version_ordinal > len(versions):
-                print(f"Error: Version v{version_ordinal} not found for dataset '{name}'", file=sys.stderr)
-                available = []
-                for i, v in enumerate(versions, 1):
-                    ver_str = v.get("version", f"{i}.0.0")
-                    available.append({"ordinal": i, "version": ver_str})
-                    print(f"  v{i} ({ver_str})", file=sys.stderr)
-                print(json.dumps({
-                    "error": f"Version v{version_ordinal} not found for dataset '{name}'",
-                    "code": "VERSION_NOT_FOUND",
-                    "available_versions": available,
-                }))
-                sys.exit(1)
-
-            target_version = versions[version_ordinal - 1]
-            _output({
-                "name": name,
-                "s3_uri": target_version.get("s3_uri", entry.get("s3_uri", "")),
-                "arn": entry.get("arn"),
-                "format": target_version.get("format", entry.get("format", "jsonl")),
-                "technique": target_version.get("technique", entry.get("technique", "")),
-                "version": target_version.get("version", "1.0.0"),
-                "ordinal": version_ordinal,
-                "hash": target_version.get("hash"),
-            })
-
-    _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
-
-
-def _resolve_dataset_version_by_semver(name, version_str):
-    """Resolve a specific version of a named dataset by semver string match."""
-    entries = _load_registry(register_common._DATASETS_REGISTRY)
-
-    for entry in entries:
-        if entry.get("name") == name:
-            versions = entry.get("versions", [])
-
-            if not versions:
-                if version_str == "1.0.0":
-                    output = dict(entry)
-                    output["version"] = "1.0.0"
-                    output["ordinal"] = 1
-                    if "arn" not in output:
-                        output["arn"] = None
-                    _output(output)
-                else:
-                    print(f"Error: Version {version_str} not found for dataset '{name}'", file=sys.stderr)
-                    print(f"Available versions: 1.0.0", file=sys.stderr)
-                    print(json.dumps({
-                        "error": f"Version {version_str} not found for dataset '{name}'",
-                        "code": "VERSION_NOT_FOUND",
-                        "available_versions": [{"ordinal": 1, "version": "1.0.0"}],
-                    }))
-                    sys.exit(1)
-
-            for i, v in enumerate(versions, 1):
-                ver = v.get("version", "")
-                if ver == version_str:
-                    _output({
-                        "name": name,
-                        "s3_uri": v.get("s3_uri", entry.get("s3_uri", "")),
-                        "arn": entry.get("arn"),
-                        "format": v.get("format", entry.get("format", "jsonl")),
-                        "technique": v.get("technique", entry.get("technique", "")),
-                        "version": ver,
-                        "ordinal": i,
-                        "hash": v.get("hash"),
-                    })
-
-            print(f"Error: Version {version_str} not found for dataset '{name}'", file=sys.stderr)
-            available = []
-            for i, v in enumerate(versions, 1):
-                ver = v.get("version", f"{i}.0.0")
-                available.append({"ordinal": i, "version": ver})
-                print(f"  v{i} ({ver})", file=sys.stderr)
-            print(json.dumps({
-                "error": f"Version {version_str} not found for dataset '{name}'",
-                "code": "VERSION_NOT_FOUND",
-                "available_versions": available,
-            }))
-            sys.exit(1)
-
-    _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+    _output({
+        "name": name,
+        "s3_uri": entry.get("s3_uri", sidecar.get("s3_uri", "")),
+        "arn": entry.get("arn", sidecar.get("arn")),
+        "format": entry.get("format", sidecar.get("format", "jsonl")),
+        "technique": entry.get("technique", sidecar.get("technique", "")),
+        "version": entry.get("version", "1.0.0"),
+        "ordinal": ordinal,
+        "hash": entry.get("hash"),
+    })
 
 
 def cmd_resolve_evaluator(args):

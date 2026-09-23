@@ -117,6 +117,64 @@ describe('HyperPod CDK Stack Files', () => {
             assert.ok(source.includes('hyperpod-instance-role'));
         });
 
+        describe('HyperPod instance role IAM requirements (BL087)', () => {
+            const hyperpodRoleStart = source.indexOf('// HyperPod instance role');
+            const hyperpodRoleEnd = source.indexOf('new ssm.StringParameter(this, \'HyperPodInstanceRoleArnParam\'');
+            const hyperpodRoleSource = source.slice(hyperpodRoleStart, hyperpodRoleEnd);
+
+            it('trusts both SageMaker and EC2', () => {
+                assert.match(
+                    hyperpodRoleSource,
+                    /new iam\.CompositePrincipal\([\s\S]*?new iam\.ServicePrincipal\('sagemaker\.amazonaws\.com'\),[\s\S]*?new iam\.ServicePrincipal\('ec2\.amazonaws\.com'\)/
+                );
+            });
+
+            it('attaches all required AWS-managed policies', () => {
+                for (const policyName of [
+                    'AmazonSageMakerClusterInstanceRolePolicy',
+                    'AmazonEC2ContainerRegistryReadOnly',
+                    'AmazonEKS_CNI_Policy',
+                    'AmazonEKSWorkerNodePolicy'
+                ]) {
+                    assert.ok(
+                        hyperpodRoleSource.includes(policyName),
+                        `HyperPod instance role must attach ${policyName}`
+                    );
+                }
+            });
+
+            it('grants the HyperPod lifecycle bucket read access', () => {
+                const policyStart = hyperpodRoleSource.indexOf('sid: \'HyperPodLifecycleS3Access\'');
+                const policyEnd = hyperpodRoleSource.indexOf('}));', policyStart);
+                const lifecyclePolicy = hyperpodRoleSource.slice(policyStart, policyEnd);
+
+                assert.ok(lifecyclePolicy.includes('\'s3:GetObject\''));
+                assert.ok(lifecyclePolicy.includes('\'s3:ListBucket\''));
+                assert.ok(lifecyclePolicy.includes('arn:aws:s3:::mlcc-core-${this.account}-${this.region}'));
+                assert.ok(lifecyclePolicy.includes('arn:aws:s3:::mlcc-core-${this.account}-${this.region}/*'));
+            });
+
+            it('grants HyperPod ENI management permissions', () => {
+                const policyStart = hyperpodRoleSource.indexOf('sid: \'HyperPodEksInstancePolicy\'');
+                const policyEnd = hyperpodRoleSource.indexOf('}));', policyStart);
+                const eniPolicy = hyperpodRoleSource.slice(policyStart, policyEnd);
+
+                assert.ok(eniPolicy.includes('\'ec2:CreateNetworkInterface\''));
+                assert.ok(eniPolicy.includes('\'ec2:AttachNetworkInterface\''));
+            });
+
+            it('retains the Fargate pod execution role', () => {
+                const fargateRoleStart = source.indexOf('const fargateRoleName');
+                const fargateRoleEnd = source.indexOf('new eks.FargateProfile(this, \'SystemFargateProfile\'');
+                const fargateRoleSource = source.slice(fargateRoleStart, fargateRoleEnd);
+
+                assert.ok(
+                    fargateRoleSource.includes('(fargateRole as iam.Role).applyRemovalPolicy(cdk.RemovalPolicy.RETAIN)'),
+                    'Fargate pod execution role must be retained on stack deletion'
+                );
+            });
+        });
+
         it('creates all 5 IRSA roles', () => {
             assert.ok(source.includes('HyperpodInferenceRole'));
             assert.ok(source.includes('AlbControllerRole'));
@@ -205,8 +263,8 @@ describe('HyperPod CDK Stack Files', () => {
             assert.ok(source.includes('nodeRecovery: \'Automatic\''));
         });
 
-        it('applies RemovalPolicy.RETAIN on CfnCluster', () => {
-            assert.ok(source.includes('RemovalPolicy.RETAIN'));
+        it('applies RemovalPolicy.DESTROY on CfnCluster', () => {
+            assert.ok(source.includes('cluster.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY)'));
         });
 
         it('exports HyperPodClusterArn and HyperPodClusterName as SSM params', () => {
@@ -214,12 +272,14 @@ describe('HyperPod CDK Stack Files', () => {
             assert.ok(source.includes('/HyperPodClusterName'));
         });
 
-        it('supports adopt-existing path', () => {
-            assert.ok(source.includes('adoptCluster'));
+        it('accepts required cluster inputs from props or context', () => {
+            assert.ok(source.includes('props.eksClusterArn'));
+            assert.ok(source.includes('this.node.tryGetContext(\'EksClusterArn\')'));
+            assert.ok(source.includes('props.hyperPodInstanceRoleArn'));
         });
 
-        it('validates EksClusterArn is present', () => {
-            assert.ok(source.includes('HyperPod cluster requires EksClusterArn'));
+        it('returns an empty stack when EksClusterArn is unavailable during destroy', () => {
+            assert.match(source, /if \(!eksClusterArn\) \{\s*return;\s*\}/);
         });
 
         it('does NOT use AwsCustomResource', () => {
@@ -243,21 +303,21 @@ describe('HyperPod CDK Stack Files', () => {
             assert.ok(source.includes('autoDeleteObjects: false'));
         });
 
-        it('creates inference operator EKS add-on', () => {
-            assert.ok(source.includes('amazon-sagemaker-hyperpod-inference'));
-            assert.ok(source.includes('CfnAddon'));
+        it('defers inference operator installation to the module runner', () => {
+            assert.ok(source.includes('_installInferenceAddon()'));
+            assert.doesNotMatch(source, /^\s*new eks\.CfnAddon\(/m);
         });
 
-        it('configures add-on with executionRoleArn', () => {
-            assert.ok(source.includes('executionRoleArn'));
+        it('reads inference operator inputs from props or context', () => {
+            assert.ok(source.includes('props.hyperPodClusterArn'));
+            assert.ok(source.includes('this.node.tryGetContext(\'HyperPodClusterArn\')'));
+            assert.ok(source.includes('props.hyperpodInferenceRoleArn'));
+            assert.ok(source.includes('props.albControllerRoleArn'));
+            assert.ok(source.includes('props.kedaOperatorRoleArn'));
         });
 
-        it('configures add-on with tlsCertificateS3Bucket', () => {
-            assert.ok(source.includes('tlsCertificateS3Bucket'));
-        });
-
-        it('configures add-on with hyperpodClusterArn', () => {
-            assert.ok(source.includes('hyperpodClusterArn'));
+        it('allows an empty HyperPodClusterArn during stack destruction', () => {
+            assert.match(source, /if \(!hyperPodClusterArn\) \{\s*return;\s*\}/);
         });
 
         it('configures add-on with ALB role', () => {
@@ -268,8 +328,8 @@ describe('HyperPod CDK Stack Files', () => {
             assert.ok(source.includes('kedaOperatorRoleArn'));
         });
 
-        it('applies RemovalPolicy.DESTROY on inference add-on', () => {
-            assert.ok(source.includes('RemovalPolicy.DESTROY'));
+        it('does not declare the inference add-on as a CloudFormation resource', () => {
+            assert.doesNotMatch(source, /^\s*new eks\.CfnAddon\(/m);
         });
 
         it('exports InferenceOperatorStatus as SSM param', () => {
@@ -285,8 +345,8 @@ describe('HyperPod CDK Stack Files', () => {
             assert.ok(source.includes('adoptInferenceAddon'));
         });
 
-        it('validates HyperPodClusterArn is present', () => {
-            assert.ok(source.includes('Inference Operator requires HyperPodClusterArn'));
+        it('returns an empty stack when HyperPodClusterArn is unavailable during destroy', () => {
+            assert.match(source, /if \(!hyperPodClusterArn\) \{\s*return;\s*\}/);
         });
     });
 });

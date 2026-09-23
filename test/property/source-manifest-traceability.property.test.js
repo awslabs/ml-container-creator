@@ -211,26 +211,18 @@ describe('Source Manifest Traceability Property-Based Tests', () => {
 
                     const { manifest } = configManager.getFullConfiguration();
 
-                    // Parameters with defaults should have 'default' source
-                    const buildTargetEntry = manifest.find(
-                        e => e.param === 'buildTarget'
+                    // Parameters with defaults in the parameter matrix should have 'default' source.
+                    // buildTarget and awsRegion are NOT in the parameterMatrix, so they have no default entry.
+                    // deploymentTarget IS in the matrix with default 'realtime-inference'.
+                    const deploymentTargetEntry = manifest.find(
+                        e => e.param === 'deploymentTarget'
                     );
-                    assert.ok(buildTargetEntry,
-                        'manifest should contain entry for buildTarget (has default)');
-                    assert.strictEqual(buildTargetEntry.source, 'default',
+                    assert.ok(deploymentTargetEntry,
+                        'manifest should contain entry for deploymentTarget (has default)');
+                    assert.strictEqual(deploymentTargetEntry.source, 'default',
                         'source should be "default" for parameter with only default value');
-                    assert.strictEqual(buildTargetEntry.value, 'codebuild',
-                        'value should be the default value');
-
-                    const regionEntry = manifest.find(
-                        e => e.param === 'awsRegion'
-                    );
-                    assert.ok(regionEntry,
-                        'manifest should contain entry for awsRegion (has default)');
-                    assert.strictEqual(regionEntry.source, 'default',
-                        'source should be "default" for parameter with only default value');
-                    assert.strictEqual(regionEntry.value, 'us-east-1',
-                        'value should be the default value');
+                    assert.strictEqual(deploymentTargetEntry.value, 'realtime-inference',
+                        'value should be the default value "realtime-inference"');
 
                     return true;
                 }

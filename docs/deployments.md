@@ -38,20 +38,27 @@ For real-time inference, async inference, and batch transform deployment pattern
 
 ### SageMaker AI HyperPod EKS (`hyperpod-eks`)
 
-For existing [SageMaker AI HyperPod](https://aws.amazon.com/sagemaker/hyperpod/) clusters running on Amazon EKS, MCC can deploy containers directly to Kubernetes:
+For existing [SageMaker AI HyperPod](https://aws.amazon.com/sagemaker/hyperpod/) clusters running on Amazon EKS, MCC deploys through the SageMaker HyperPod inference operator using an `InferenceEndpointConfig` custom resource (rather than raw Kubernetes manifests):
 
-- `./do/deploy` retrieves the underlying EKS cluster from the HyperPod cluster, configures `kubectl`, and applies Kubernetes manifests (Deployment, Service, ConfigMap, and optionally PVC for FSx storage) to the specified namespace.
-- `./do/test hyperpod` port-forwards the Kubernetes service and runs the same `/ping` and `/invocations` health checks used for managed inference.
-- `./do/logs` tails pod logs via `kubectl`.
-- `./do/clean hyperpod` deletes the Kubernetes resources from the namespace.
+- `./do/deploy` retrieves the underlying EKS cluster from the HyperPod cluster, configures `kubectl`, and applies a single `InferenceEndpointConfig` custom resource to the specified namespace. The `amazon-sagemaker-hyperpod-inference` operator reconciles it — creating the serving Deployment, Service, pods, and a `SageMakerEndpointRegistration` that registers a SageMaker AI endpoint named after the project. The deploy driver polls the resource's `status.state` until `DeploymentComplete`, then waits for the SageMaker endpoint to reach `InService` (up to 15 minutes) before recording `ENDPOINT_NAME` in `do/config`.
+- The model source is derived automatically: a model staged to S3 (`STAGED_MODEL_PATH` in `do/config`) renders `modelSourceConfig.s3Storage` (bucket + region parsed from the staged URI); otherwise the model is pulled from Hugging Face via `MODEL_NAME`, using a `hf-token-secret` Kubernetes Secret when a token is configured.
+- `./do/test hyperpod` port-forwards the operator-created Kubernetes service (resolved from the project name) and runs the same `/ping` and `/invocations` health checks used for managed inference.
+- `./do/logs` tails serving-pod logs via `kubectl`.
+- `./do/benchmark` targets the registered SageMaker endpoint directly (no inference component) once `ENDPOINT_NAME` is set.
+- `./do/clean hyperpod` deletes the `InferenceEndpointConfig`, waits for the `SageMakerEndpointRegistration` to be removed, and clears `ENDPOINT_NAME`.
 
-The generated `do/config` file stores HyperPod-specific variables: `HP_CLUSTER_NAME`, `HP_NAMESPACE`, `HP_REPLICAS`, and optionally `FSX_VOLUME_HANDLE`.
+The generated `do/config` file stores HyperPod-specific variables: `HP_CLUSTER_NAME`, `HP_NAMESPACE`, `HP_REPLICAS`, and — after a successful deployment — `ENDPOINT_NAME`.
+
+#### Speculative decoding
+
+Speculative decoding is supported for vLLM and SGLang images on HyperPod EKS. See the dedicated guide: [Speculative Decoding on HyperPod EKS](hyperpod-speculative-decoding.md).
 
 Prerequisites:
 
 - An existing SageMaker AI HyperPod cluster with EKS orchestrator
+- The `amazon-sagemaker-hyperpod-inference` EKS add-on installed (via `mcc bootstrap add-module hyperpod-cluster`), which provisions the `hyperpod-inference` service account in the target namespace
 - `kubectl` installed locally
-- IAM permissions for `sagemaker:DescribeCluster` and `eks:DescribeCluster`
+- IAM permissions for `sagemaker:DescribeCluster`, `eks:DescribeCluster`, and `sagemaker:DescribeEndpoint`
 - Sufficient node capacity (especially GPU nodes for LLM workloads)
 
 ### Async Inference (`async-inference`)

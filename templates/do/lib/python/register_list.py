@@ -14,12 +14,34 @@ import sys
 from common import _output, _error_exit, _check_sagemaker_core
 import register_common
 from register_common import _load_registry
-from register_dataset import _get_hub_name_from_profile, _list_hub_datasets
+import dataset_store
+from register_dataset import _get_hub_name_from_profile, _list_hub_datasets, _resolve_core_bucket
 from register_model import _extract_version_from_arn
 
 
+def _sidecar_to_list_entry(doc):
+    """Project a sidecar document into the list-datasets 'local' entry shape."""
+    versions = doc.get("versions") or []
+    latest = versions[-1] if versions else {}
+    return {
+        "name": doc.get("name", ""),
+        "technique": latest.get("technique", doc.get("technique", "")),
+        "format": latest.get("format", doc.get("format", "jsonl")),
+        "s3_uri": latest.get("s3_uri", doc.get("s3_uri", "")),
+        "row_count": latest.get("rowCount", latest.get("row_count")),
+        "latest_version": latest.get("version", doc.get("latestVersion", "1.0.0")),
+        "version_count": len(versions) if versions else 1,
+        "customMetadata": doc.get("customMetadata", {}),
+        "origin": "local",
+    }
+
+
 def cmd_list_datasets(args):
-    """List all registered datasets grouped by name with version summary."""
+    """List all registered datasets from the S3 sidecars (+ optional Hub remote).
+
+    The ``{local, remote}`` JSON shape is preserved for bash callers: sidecar
+    entries populate ``local``; ``remote`` reflects Hub contents when present.
+    """
     source = getattr(args, 'source', 'all')
     region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
     technique_filter = getattr(args, 'technique', None)
@@ -37,16 +59,21 @@ def cmd_list_datasets(args):
             print('\u26a0\ufe0f  No AI Registry Hub configured \u2014 skipping remote datasets.', file=sys.stderr)
 
     if source in ('local', 'all'):
-        entries = _load_registry(register_common._DATASETS_REGISTRY)
-        if technique_filter:
-            entries = [e for e in entries if e.get('technique') == technique_filter]
-        for entry in entries:
-            item = dict(entry)
-            item['origin'] = 'local'
-            versions = entry.get('versions', [])
-            item['version_count'] = len(versions) if versions else 1
-            item['latest_version'] = versions[-1].get('version', '1.0.0') if versions else item.get('latest_version', '1.0.0')
-            local_entries.append(item)
+        core_bucket = _resolve_core_bucket(args)
+        if not core_bucket:
+            print('\u26a0\ufe0f  No Core bucket resolved \u2014 skipping registered datasets.', file=sys.stderr)
+        else:
+            try:
+                s3_client = dataset_store._get_s3_client(region)
+                docs = dataset_store.list_sidecars(s3_client, core_bucket)
+            except dataset_store.TransportError as e:
+                print(f'\u26a0\ufe0f  Could not list datasets: {e}', file=sys.stderr)
+                docs = []
+            for doc in docs:
+                entry = _sidecar_to_list_entry(doc)
+                if technique_filter and entry.get('technique') != technique_filter:
+                    continue
+                local_entries.append(entry)
 
     all_datasets = remote_entries + local_entries
 
@@ -61,41 +88,44 @@ def cmd_list_datasets(args):
 
 
 def cmd_list_dataset_versions(args):
-    """List all versions for a specific dataset by name."""
+    """List all versions for a specific dataset by name (from the S3 sidecar)."""
     name = args.name
     if not name:
         _error_exit("--name is required", code="MISSING_ARGUMENT")
 
-    entries = _load_registry(register_common._DATASETS_REGISTRY)
+    region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
+    core_bucket = _resolve_core_bucket(args)
+    if not core_bucket:
+        _error_exit(
+            "Could not resolve the MLCC Core bucket.\n"
+            "    Pass --core-bucket <bucket> or set CORE_BUCKET.",
+            code="MISSING_CORE_BUCKET",
+        )
 
-    for entry in entries:
-        if entry.get("name") == name:
-            versions = entry.get("versions", [])
-            if not versions:
-                versions = [{
-                    "version": "1.0.0",
-                    "hash": None,
-                    "registered_at": entry.get("registered_at", ""),
-                    "rows": entry.get("row_count"),
-                    "s3_uri": entry.get("s3_uri", ""),
-                }]
+    s3_client = dataset_store._get_s3_client(region)
+    try:
+        sidecar = dataset_store.read_sidecar(s3_client, core_bucket, name)
+    except dataset_store.TransportError as e:
+        _error_exit(f"Could not read dataset sidecar: {e}", code="SIDECAR_READ_FAILED")
 
-            result_versions = []
-            for v in versions:
-                result_versions.append({
-                    "version": v.get("version", "1.0.0"),
-                    "hash": v.get("hash"),
-                    "date": v.get("registered_at", ""),
-                    "rows": v.get("rows"),
-                    "s3_uri": v.get("s3_uri", ""),
-                })
+    if sidecar is None:
+        _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
 
-            _output({
-                "name": name,
-                "versions": result_versions,
-            })
+    versions = sidecar.get("versions") or []
+    result_versions = []
+    for v in versions:
+        result_versions.append({
+            "version": v.get("version", "1.0.0"),
+            "hash": v.get("hash"),
+            "date": v.get("createdAt", v.get("registered_at", "")),
+            "rows": v.get("rowCount", v.get("rows")),
+            "s3_uri": v.get("s3_uri", ""),
+        })
 
-    _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+    _output({
+        "name": name,
+        "versions": result_versions,
+    })
 
 
 def cmd_list_adapters(args):

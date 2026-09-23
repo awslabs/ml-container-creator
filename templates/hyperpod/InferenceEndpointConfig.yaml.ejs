@@ -1,0 +1,158 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# HyperPod EKS inference deployment — InferenceEndpointConfig custom resource.
+#
+# This single CRD replaces the previous raw Deployment/Service/ConfigMap
+# manifests. The amazon-sagemaker-hyperpod-inference operator reconciles this
+# resource: it creates the serving Deployment, a Service, the serving pods, and
+# a SageMakerEndpointRegistration that registers a SageMaker AI endpoint named
+# after metadata.name (== PROJECT_NAME).
+#
+# Field names verified against `kubectl explain inferenceendpointconfig
+# --recursive` and the AWS docs (Deploy models from S3/FSx/Hugging Face using
+# kubectl), 2026-09-16. Key confirmed shapes:
+#   • spec.worker.environmentVariables[]  (NOT spec.worker.env)
+#   • spec.modelSourceConfig.s3Storage.{bucketName,region} (NOT a full s3:// URI)
+#   • spec.modelName is required and separate from modelSourceConfig
+#
+# Values marked with a shell ${...} placeholder are substituted at deploy time by
+# do/deploy.d/hyperpod-eks via envsubst; EJS expressions are baked in at
+# project-generation time.
+#
+# NOTE (BL085): speculative decoding is passed only through
+# spec.worker.environmentVariables. The BYOC image owns the serve command and
+# translates the values for its selected engine; spec.worker.args remains empty.
+apiVersion: inference.sagemaker.aws.amazon.com/v1
+kind: InferenceEndpointConfig
+metadata:
+  name: <%= projectName %>
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    framework: <%= framework %>
+    managed-by: ml-container-creator
+  annotations:
+    mlcc.aws/project-name: "<%= projectName %>"
+    mlcc.aws/model-id: "<%= modelName %>"
+<% if (typeof HP_QUEUE !== 'undefined' && HP_QUEUE) { %>
+    kueue.x-k8s.io/queue-name: "<%= HP_QUEUE %>"
+<% } %>
+spec:
+  # SageMaker AI endpoint name == metadata.name == PROJECT_NAME.
+  # spec.modelName identifies the model being served (HF model ID or S3 path prefix).
+  # The SageMaker endpoint name comes from metadata.name (= PROJECT_NAME).
+  modelName: "<%= modelName %>"
+  endpointName: "<%= projectName %>"
+  # BL096: instanceType is resolved at DEPLOY time (not baked in at generation
+  # time) so that changing the instance group via --reconfigure/--force keeps
+  # the CRD's instanceType, GPU count, and CPU/memory requests in sync.
+  # do/deploy.d/hyperpod-eks exports HP_INSTANCE_TYPE (from do/config) and the
+  # auto-detected HP_GPU_COUNT / HP_CPU_REQUEST / HP_MEM_REQUEST before envsubst.
+  # The :- default is a generation-time fallback for tools that render the raw
+  # template without running envsubst (e.g. YAML lint / property tests).
+  instanceType: "${HP_INSTANCE_TYPE:-<%= (typeof HP_NODE_SELECTOR !== 'undefined' && HP_NODE_SELECTOR ? String(HP_NODE_SELECTOR) : String(instanceType || 'ml.g6.2xlarge')).replace(/\$\{[^}]+\}/g, '').replace(/[^a-z0-9.\-]/gi, '') || 'ml.g6.2xlarge' %>}"
+  invocationEndpoint: v1/chat/completions
+  replicas: <%= hyperPodReplicas %>
+  # ── Model source ────────────────────────────────────────────────────────────
+  # do/deploy renders exactly one modelSourceConfig block below, depending on
+  # the resolved model source (checked in this precedence order):
+  #   1. model-package — OPTIMIZE_MODEL_PACKAGE_ARN set (SageMaker Inference
+  #      Optimizer result). Emits:
+  #        modelSourceConfig:
+  #          modelSourceType: model-package
+  #          modelPackageArn: "<arn>"
+  #      When this branch is active and OPTIMIZE_INFERENCE_SPEC is set, do/deploy
+  #      also overrides spec.modelName (above) with the inference spec name for
+  #      traceability.
+  #   2. s3          — STAGED_MODEL_PATH set (model staged to S3).
+  #   3. huggingFace — default; pulls MODEL_NAME via the hf-token-secret Secret.
+  # The MODEL_SOURCE_CONFIG marker is replaced by do/deploy.d/hyperpod-eks before
+  # apply; the operator downloads the model into worker.modelVolumeMount.mountPath.
+  modelSourceConfig:
+    __MODEL_SOURCE_CONFIG__
+  worker:
+    image: ${ECR_IMAGE}
+    modelInvocationPort:
+      # MLCC BYOC images serve on 8080 (SageMaker BYOC contract). The baked-in
+      # ENTRYPOINT (code/serve) starts the model server on this port.
+      containerPort: 8080
+      name: http
+    modelVolumeMount:
+      name: model-weights
+      mountPath: /opt/ml/model
+    resources:
+      requests:
+        # BL096: cpu/memory scale with GPU count. The deploy driver recomputes
+        # these from the (possibly changed) instance group and exports
+        # HP_CPU_REQUEST / HP_MEM_REQUEST before envsubst. The :- defaults below
+        # are computed once at generation time (cpu = gpu*4, mem = gpu*16 Gi) as
+        # a fallback for raw-template renders.
+        cpu: "${HP_CPU_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>}"
+        memory: "${HP_MEM_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi}"
+        nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+        vpc.amazonaws.com/efa: "1"
+<% } %>
+      limits:
+        nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+        vpc.amazonaws.com/efa: "1"
+<% } %>
+    # ── Serve flags ───────────────────────────────────────────────────────────
+    # Left empty for BL088: the MLCC image ENTRYPOINT owns the serve command.
+    # BL085 injects vLLM/SGLang speculative-decoding flags here.
+    args: []
+    environmentVariables:
+      # MODEL_SOURCE steers the BYOC entrypoint (code/serve resolve_model):
+      # "s3" makes it use the pre-mounted model at /opt/ml/model that the
+      # operator downloaded via modelSourceConfig; "huggingface" makes the
+      # server pull MODEL_NAME directly.
+      - name: MODEL_SOURCE
+        value: "${HP_MODEL_SOURCE}"
+      # HF_TOKEN injected from the hf-token-secret K8s Secret (optional=true so
+      # the pod still starts for public models or when STAGED_MODEL_PATH is set).
+      # Also needed by do/benchmark for tokenizer access on gated models.
+      - name: HF_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: hf-token-secret
+            key: token
+            optional: true
+      - name: VLLM_TENSOR_PARALLEL_SIZE
+        value: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
+<% if (framework === 'transformers' || framework === 'diffusors') { %>
+      - name: VLLM_MODEL
+        value: "<%= modelName %>"
+      - name: SGLANG_MODEL_PATH
+        value: "<%= modelName %>"
+<% } %>
+      # Both engine-specific speculative variable sets are emitted. The image
+      # selects one set based on its model server; no speculative flags are
+      # injected into worker.args.
+      - name: VLLM_SPECULATIVE_ALGORITHM
+        value: "${VLLM_SPECULATIVE_ALGORITHM}"
+      - name: VLLM_SPECULATIVE_MODEL
+        value: "${VLLM_SPECULATIVE_MODEL}"
+      - name: VLLM_SPECULATIVE_NUM_TOKENS
+        value: "${VLLM_SPECULATIVE_NUM_TOKENS}"
+      - name: SGLANG_SPECULATIVE_ALGORITHM
+        value: "${SGLANG_SPECULATIVE_ALGORITHM}"
+      - name: SGLANG_SPECULATIVE_DRAFT_MODEL_PATH
+        value: "${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH}"
+      - name: SGLANG_SPECULATIVE_NUM_STEPS
+        value: "${SGLANG_SPECULATIVE_NUM_STEPS}"
+      - name: SGLANG_SPECULATIVE_EAGLE_TOPK
+        value: "${SGLANG_SPECULATIVE_EAGLE_TOPK}"
+<% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
+      - name: VLLM_ENABLE_LORA
+        value: "true"
+<% } %>
+<% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
+      - name: NCCL_SOCKET_IFNAME
+        value: "eth"
+      - name: FI_PROVIDER
+        value: "efa"
+      - name: NCCL_PROTOCOL
+        value: "simple"
+<% } %>

@@ -23,6 +23,10 @@ _require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/wait.sh"
 
+# CORE_BUCKET (mlcc-core) backs the dataset sidecar registry; resolve it for
+# dataset name/version resolution and listing.
+CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}}"
+
 # ── Target guard: AI Recommendations requires a real-time IC endpoint ─────────
 # Note: hyperpod-eks IS supported — CreateAIRecommendationJob uses --model-source
 # (S3 URI from STAGED_MODEL_PATH), not a live endpoint. No SageMakerEndpointRegistration
@@ -39,19 +43,29 @@ fi
 # ── Parse flags ───────────────────────────────────────────────────────────────
 GOAL=""
 INSTANCES_ARG=""
+DATASET_ARG=""
+DATASET_URI=""
+DATASET_NAME=""
+DATASET_VERSION=""
 FORCE=false
 APPLY_ARN=""
 LIST_ONLY=false
+LIST_DATASETS=false
+DATASET_SOURCE=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --goal) shift; GOAL="${1:-}"; shift ;;
         --instances) shift; INSTANCES_ARG="${1:-}"; shift ;;
+        --dataset) shift; DATASET_ARG="${1:-}"; shift ;;
+        --list-datasets) LIST_DATASETS=true; shift ;;
+        --source) shift; DATASET_SOURCE="${1:-}"; shift ;;
         --force) FORCE=true; shift ;;
         --apply) shift; APPLY_ARN="${1:-}"; shift ;;
         --list) LIST_ONLY=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--force]"
+            echo "Usage: ./do/optimize --goal <cost|latency|throughput> [--instances type1,type2] [--dataset <source>] [--force]"
             echo "       ./do/optimize --list"
+            echo "       ./do/optimize --list-datasets [--source local|remote|all]"
             echo "       ./do/optimize --apply <package-arn|top>"
             echo ""
             echo "Run SageMaker AI Inference Recommendations to find optimal instance types"
@@ -60,13 +74,28 @@ while [ $# -gt 0 ]; do
             echo "Options:"
             echo "  --goal <goal>       (Required for new jobs) Optimization goal: cost, latency, or throughput"
             echo "  --instances <list>  Comma-separated instance types to evaluate (max 3)"
+            echo "  --dataset <source>  JSONL dataset for throughput speculator training (only with --goal throughput)"
+            echo "                      Accepts one of three forms:"
+            echo "                        • s3://bucket/path.jsonl        — raw S3 URI (used as-is)"
+            echo "                        • <name>[@v<version>]           — registered dataset name, optionally"
+            echo "                          version-pinned (@v2 or @v1.0.0), resolved via the dataset registry"
+            echo "                        • hf://org/name                 — HuggingFace reference (passed through)"
+            echo "                      Supports ShareGPT, OpenAI Chat Completions, and OpenAI Completions records"
+            echo "  --list-datasets     List registered datasets and exit"
+            echo "  --source <src>      With --list-datasets: filter by local, remote, or all (default: all)"
             echo "  --force             Create a new recommendation job even if one exists"
             echo "  --list              Display results from the last completed recommendation job"
             echo "  --apply <arn|top>   Apply a recommendation to do/config"
+            echo "                      Speculative details map to HP_SPECULATIVE_MODEL,"
+            echo "                      HP_SPECULATIVE_NUM_TOKENS, and HP_SPECULATIVE_ALGORITHM"
             echo "                      Use 'top' to apply the #1 result from the last job"
             echo ""
             echo "Examples:"
             echo "  ./do/optimize --goal throughput"
+            echo "  ./do/optimize --goal throughput --dataset s3://my-bucket/calibration.jsonl"
+            echo "  ./do/optimize --goal throughput --dataset calibration-sample@v2"
+            echo "  ./do/optimize --goal throughput --dataset hf://my-org/calibration-data"
+            echo "  ./do/optimize --list-datasets"
             echo "  ./do/optimize --goal cost --instances ml.g6e.48xlarge,ml.p5.48xlarge"
             echo "  ./do/optimize --goal latency --force"
             echo ""
@@ -88,8 +117,83 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# ── Validate goal (required) ─────────────────────────────────────────────────
-if [ -z "${GOAL}" ]; then
+# ── Handle --list-datasets (before requiring --goal) ──────────────────────────
+# Delegates to .register_helper.py list-datasets. If --goal is also supplied,
+# listing wins (no mutual-exclusion error). Missing/failing helper is non-fatal.
+if [ "${LIST_DATASETS}" = true ]; then
+    echo ""
+    echo "📦 Registered datasets:"
+    echo ""
+
+    _source_flag=""
+    [ -n "${DATASET_SOURCE}" ] && _source_flag="--source ${DATASET_SOURCE}"
+
+    _cb_flag=""
+    [ -n "${CORE_BUCKET}" ] && _cb_flag="--core-bucket ${CORE_BUCKET}"
+
+    # shellcheck disable=SC2086
+    _ds_output=$(python3 "${SCRIPT_DIR}/.register_helper.py" list-datasets ${_source_flag} ${_cb_flag} --region "${AWS_REGION}" 2>/dev/null) || _ds_output=""
+    _ds_json=$(echo "${_ds_output}" | grep -E '^\{' | tail -1) || _ds_json=""
+
+    if [ -n "${_ds_json}" ]; then
+        _remote_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('remote',[])))" 2>/dev/null) || _remote_count=0
+        _local_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('local',[])))" 2>/dev/null) || _local_count=0
+
+        if [ "${_source_flag}" != "--source local" ]; then
+            echo "Remote DataSets (AWS AI Registry):"
+            printf "  %-20s %-10s %-12s %s\n" "NAME" "TECHNIQUE" "VERSION" "CREATED"
+            printf "  %-20s %-10s %-12s %s\n" "----" "---------" "-------" "-------"
+            if [ "${_remote_count}" -gt 0 ]; then
+                echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for ds in data.get('remote', []):
+    name = ds.get('name','')[:20]
+    tech = ds.get('technique','')[:10]
+    version = ds.get('version','')[:12]
+    created = ds.get('created_at','')[:10]
+    print(f'  {name:<20} {tech:<10} {version:<12} {created}')
+" 2>/dev/null
+            else
+                echo "  (none)"
+            fi
+            echo ""
+        fi
+
+        if [ "${_source_flag}" != "--source remote" ]; then
+            echo "Local Datasets:"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
+            printf "  %-20s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
+            if [ "${_local_count}" -gt 0 ]; then
+                echo "${_ds_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for ds in data.get('local', []):
+    name = ds.get('name','')[:20]
+    tech = ds.get('technique','')[:10]
+    latest = ds.get('latest_version','')[:10]
+    ver_count = ds.get('version_count', 1)
+    if ver_count > 1:
+        latest = f'{latest} ({ver_count}v)'
+    rows = str(ds.get('row_count','') or '')[:8]
+    uri = ds.get('s3_uri','')
+    print(f'  {name:<20} {tech:<10} {latest:<10} {rows:<8} {uri}')
+" 2>/dev/null
+            else
+                echo "  (none)"
+            fi
+        fi
+    else
+        echo "  (none)"
+    fi
+    echo ""
+    echo "  Use: ./do/optimize --goal throughput --dataset <name>"
+    echo ""
+    exit 0
+fi
+
+# ── Validate goal (required for new jobs) ─────────────────────────────────────
+if [ -z "${GOAL}" ] && [ -z "${APPLY_ARN}" ]; then
     echo "❌ --goal is required"
     echo ""
     echo "   Usage: ./do/optimize --goal <cost|latency|throughput>"
@@ -100,13 +204,79 @@ if [ -z "${GOAL}" ]; then
 fi
 
 case "${GOAL}" in
-    cost|latency|throughput) ;;
+    ""|cost|latency|throughput) ;;
     *)
         echo "❌ Invalid goal: ${GOAL}"
         echo "   Valid goals: cost, latency, throughput"
         exit 1
         ;;
 esac
+
+if [ -n "${DATASET_ARG}" ] && [ "${GOAL}" != "throughput" ]; then
+    echo "❌ --dataset is supported only with --goal throughput"
+    exit 1
+fi
+
+# ── Resolve --dataset (classification + registry resolution) ──────────────────
+# Runs BEFORE the s3:// validation so a bare registry name is not rejected
+# prematurely (AC 2.5). Three input forms:
+#   • s3://bucket/path  → Raw_S3_URI, validated below
+#   • hf://org/name     → passed through unchanged, no resolver, no s3-check
+#   • <name>[@v<ver>]   → resolved via .register_helper.py resolve-dataset
+if [ -n "${DATASET_ARG}" ]; then
+    if [[ "${DATASET_ARG}" == s3://* ]]; then
+        # Raw S3 URI — validated by the s3:// check below.
+        DATASET_URI="${DATASET_ARG}"
+    elif [[ "${DATASET_ARG}" == hf://* ]]; then
+        # HuggingFace reference — passthrough, no resolution, no s3-check.
+        DATASET_URI="${DATASET_ARG}"
+    else
+        # Registry name, optionally version-pinned. Same @v syntax as do/tune:
+        #   name@v2      → name="name", version="2" (ordinal)
+        #   name@v1.0.0  → name="name", version="1.0.0" (semver)
+        DATASET_NAME="${DATASET_ARG}"
+        DATASET_VERSION=""
+        if [[ "${DATASET_ARG}" =~ ^(.+)@v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            DATASET_NAME="${BASH_REMATCH[1]}"
+            DATASET_VERSION="${BASH_REMATCH[2]}"
+        elif [[ "${DATASET_ARG}" =~ ^(.+)@v([0-9]+)$ ]]; then
+            DATASET_NAME="${BASH_REMATCH[1]}"
+            DATASET_VERSION="${BASH_REMATCH[2]}"
+        fi
+
+        echo "🔍 Resolving dataset '${DATASET_NAME}' from registry..."
+        _resolve_args=("--name" "${DATASET_NAME}")
+        if [ -n "${DATASET_VERSION}" ]; then
+            _resolve_args+=("--version" "${DATASET_VERSION}")
+            echo "   Version: v${DATASET_VERSION}"
+        fi
+        [ -n "${CORE_BUCKET}" ] && _resolve_args+=("--core-bucket" "${CORE_BUCKET}")
+        [ -n "${AWS_REGION}" ] && _resolve_args+=("--region" "${AWS_REGION}")
+
+        _resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
+            "${_resolve_args[@]}" 2>/dev/null) || _resolve_result=""
+        _resolved_uri=""
+        if [ -n "${_resolve_result}" ]; then
+            _resolved_uri=$(echo "${_resolve_result}" | grep -E '^\{' | tail -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || _resolved_uri=""
+        fi
+
+        if [ -z "${_resolved_uri}" ]; then
+            echo "❌ Could not resolve dataset '${DATASET_NAME}' from the registry."
+            echo "   The dataset may not exist, or the registry helper is unavailable."
+            echo "   List available datasets: ./do/optimize --list-datasets"
+            exit 1
+        fi
+        echo "   Resolved to: ${_resolved_uri}"
+        DATASET_URI="${_resolved_uri}"
+    fi
+fi
+
+# The s3:// validation applies only to the raw-s3:// branch. Named and hf://
+# inputs have already been resolved/passed through above.
+if [ -n "${DATASET_ARG}" ] && [[ "${DATASET_ARG}" == s3://* ]] && [[ "${DATASET_URI}" != s3://* ]]; then
+    echo "❌ --dataset must be an s3:// URI, a registered name, or an hf:// reference"
+    exit 1
+fi
 
 # ── Verify AWS CLI v2 ─────────────────────────────────────────────────────────
 if ! aws --version 2>&1 | grep -q "aws-cli/2"; then
@@ -118,7 +288,7 @@ if ! aws --version 2>&1 | grep -q "aws-cli/2"; then
 fi
 
 # ── Resolve model name ────────────────────────────────────────────────────────
-if [ -z "${MODEL_NAME:-}" ]; then
+if [ -z "${MODEL_NAME:-}" ] && [ -z "${APPLY_ARN}" ]; then
     echo "❌ MODEL_NAME is not set in do/config"
     echo "   Set MODEL_NAME to a HuggingFace model ID or S3 model path."
     exit 1
@@ -126,10 +296,12 @@ fi
 
 echo "🔍 Inference Recommendations"
 echo "   Project: ${PROJECT_NAME}"
-echo "   Model: ${MODEL_NAME}"
+echo "   Model: ${MODEL_NAME:-}"
 echo "   Goal: ${GOAL}"
 
 # ── Resolve instance types ────────────────────────────────────────────────────
+# Applying an existing recommendation does not need a new workload instance list.
+if [ -z "${APPLY_ARN}" ]; then
 # Priority: --instances flag > INSTANCE_POOLS > INSTANCE_TYPE
 INSTANCE_TYPES=""
 
@@ -173,6 +345,7 @@ else
     echo "   Provide --instances flag, or set INSTANCE_POOLS or INSTANCE_TYPE in do/config."
     exit 1
 fi
+fi  # end apply-only instance-resolution guard
 
 # ── Resolve workload parameters from benchmark config (if available) ──────────
 CONCURRENCY="${BENCHMARK_CONCURRENCY:-1}"
@@ -186,8 +359,179 @@ echo ""
 
 # ── Helper: update a variable in do/config ────────────────────────────────────
 _update_optimize_var() {
-    _update_config_var "$1" "$2"
+    local variable_name="$1"
+    local variable_value="$2"
+
+    python3 - "${SCRIPT_DIR}/config" "${variable_name}" "${variable_value}" <<'PY'
+import os
+import re
+import sys
+import tempfile
+
+path, name, value = sys.argv[1:]
+escaped_value = value.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+new_line = f'export {name}="{escaped_value}"'
+with open(path) as source:
+    content = source.read()
+pattern = re.compile(rf'^export {re.escape(name)}=.*$', re.MULTILINE)
+if pattern.search(content):
+    content = pattern.sub(new_line, content)
+else:
+    if not content.endswith('\n'):
+        content += '\n'
+    content += new_line + '\n'
+directory = os.path.dirname(path)
+with tempfile.NamedTemporaryFile('w', dir=directory, delete=False) as temporary:
+    temporary.write(content)
+    temporary_path = temporary.name
+os.replace(temporary_path, path)
+PY
 }
+
+# ── Apply a recommendation to do/config ──────────────────────────────────────
+_apply_recommendation() {
+    local recommendation_json="$1"
+    local apply_values
+
+    apply_values=$(printf '%s' "${recommendation_json}" | python3 -c '
+import json
+import re
+import sys
+
+rec = json.load(sys.stdin)
+model_details = rec.get("ModelDetails", {})
+
+
+def text(value):
+    return str(value or "").replace("\t", " ").replace("\n", " ")
+
+
+def draft_model_id(value):
+    """Prefer a HF model ID (org/name) embedded in a URL/ARN; otherwise keep the value."""
+    value = text(value)
+    match = re.search(r"huggingface\.co/([^/?#\s]+/[^/?#\s]+)", value)
+    if match:
+        return match.group(1)
+    return value
+
+speculative = None
+for detail in rec.get("OptimizationDetails") or []:
+    config = detail.get("SpeculativeDecodingConfig")
+    if isinstance(config, dict):
+        name = text(detail.get("OptimizationName", "")).lower()
+        if "eagle3" in name:
+            algorithm = "eagle3"
+        elif "eagle" in name:
+            algorithm = "eagle"
+        elif "draft-model" in name or "draft_model" in name:
+            algorithm = "draft-model"
+        else:
+            algorithm = "draft-model"
+        speculative = (
+            draft_model_id(config.get("DraftModelArn")),
+            text(config.get("NumSpeculativeTokens")),
+            algorithm,
+        )
+        break
+
+instances = model_details.get("InstanceDetails") or []
+instance_type = instances[0].get("InstanceType", "") if instances else ""
+values = [
+    text(model_details.get("ModelPackageArn", "")),
+    text(model_details.get("InferenceSpecificationName", "")),
+    text(instance_type),
+]
+if speculative:
+    values.extend([*speculative, "true"])
+else:
+    values.extend(["", "", "", "false"])
+print("\t".join(values))
+') || {
+        echo "❌ Failed to parse recommendation details"
+        return 1
+    }
+
+    local model_package_arn inference_spec instance_type
+    local speculative_model speculative_tokens speculative_algorithm has_speculative
+    IFS=$'\t' read -r model_package_arn inference_spec instance_type speculative_model speculative_tokens speculative_algorithm has_speculative <<< "${apply_values}"
+
+    if [ -n "${model_package_arn}" ]; then
+        _update_optimize_var "OPTIMIZE_MODEL_PACKAGE_ARN" "${model_package_arn}"
+        echo "   ✅ OPTIMIZE_MODEL_PACKAGE_ARN set in do/config"
+    fi
+    if [ -n "${inference_spec}" ]; then
+        _update_optimize_var "OPTIMIZE_INFERENCE_SPEC" "${inference_spec}"
+        echo "   ✅ OPTIMIZE_INFERENCE_SPEC set in do/config"
+    fi
+    if [ -n "${instance_type}" ]; then
+        _update_optimize_var "INSTANCE_TYPE" "${instance_type}"
+        echo "   ✅ INSTANCE_TYPE updated to: ${instance_type}"
+    fi
+    if [ "${has_speculative}" = "true" ]; then
+        if [ -n "${speculative_model}" ]; then
+            _update_optimize_var "HP_SPECULATIVE_MODEL" "${speculative_model}"
+        fi
+        if [ -n "${speculative_tokens}" ]; then
+            _update_optimize_var "HP_SPECULATIVE_NUM_TOKENS" "${speculative_tokens}"
+        fi
+        _update_optimize_var "HP_SPECULATIVE_ALGORITHM" "${speculative_algorithm}"
+        echo "   ✅ Speculative decoding applied: ${speculative_algorithm} (${speculative_tokens} tokens)"
+    fi
+}
+
+# --apply is intentionally independent of --goal: it uses the last completed job.
+if [ -n "${APPLY_ARN}" ]; then
+    if [ -z "${OPTIMIZE_JOB_NAME:-}" ]; then
+        echo "❌ OPTIMIZE_JOB_NAME is not set in do/config"
+        echo "   Run ./do/optimize --goal <goal> first."
+        exit 1
+    fi
+
+    JOB_DESCRIPTION=$(aws sagemaker describe-ai-recommendation-job \
+        --ai-recommendation-job-name "${OPTIMIZE_JOB_NAME}" \
+        --region "${AWS_REGION}" \
+        --output json 2>/dev/null) || {
+        echo "❌ Failed to fetch recommendation results for: ${OPTIMIZE_JOB_NAME}"
+        exit 1
+    }
+
+    SELECTED_RECOMMENDATION=$(printf '%s' "${JOB_DESCRIPTION}" | python3 -c '
+import json
+import sys
+
+requested = sys.argv[1]
+data = json.load(sys.stdin)
+results = data.get("Recommendations") or []
+if requested == "top":
+    if results:
+        print(json.dumps(results[0]))
+    sys.exit(0)
+
+for rec in results:
+    details = rec.get("ModelDetails", {})
+    identifiers = (
+        rec.get("RecommendationArn"),
+        rec.get("ModelPackageArn"),
+        details.get("ModelPackageArn"),
+    )
+    if requested in identifiers:
+        print(json.dumps(rec))
+        break
+' "${APPLY_ARN}") || {
+        echo "❌ Failed to resolve recommendation: ${APPLY_ARN}"
+        exit 1
+    }
+
+    if [ -z "${SELECTED_RECOMMENDATION}" ]; then
+        echo "❌ Recommendation not found: ${APPLY_ARN}"
+        exit 1
+    fi
+
+    echo "📦 Applying recommendation: ${APPLY_ARN}"
+    _apply_recommendation "${SELECTED_RECOMMENDATION}"
+    echo "✅ Recommendation applied to do/config"
+    exit 0
+fi
 
 # ── Idempotency: Check for existing recommendation job ────────────────────────
 RESUME_EXISTING=false
@@ -246,17 +590,27 @@ if [ "${RESUME_EXISTING}" = false ]; then
     WORKLOAD_SPEC_INNER="{\"benchmark\": {\"type\": \"aiperf\"}, \"parameters\": {\"prompt_input_tokens_mean\": ${INPUT_TOKENS}, \"prompt_input_tokens_stddev\": 150, \"output_tokens_mean\": ${OUTPUT_TOKENS}, \"output_tokens_stddev\": 50, \"concurrency\": ${CONCURRENCY}, \"streaming\": true}}"
     WORKLOAD_SPEC_OUTER="{\"WorkloadSpec\": {\"Inline\": $(python3 -c "import json; print(json.dumps('${WORKLOAD_SPEC_INNER}'))")}}"
 
-    if ! aws sagemaker create-ai-workload-config \
-        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
-        --ai-workload-configs "${WORKLOAD_SPEC_OUTER}" \
-        --region "${AWS_REGION}" 2>&1 | grep -q "AIWorkloadConfigArn"; then
+    WORKLOAD_CONFIG_CMD=(
+        aws sagemaker create-ai-workload-config
+        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}"
+        --ai-workload-configs "${WORKLOAD_SPEC_OUTER}"
+        --region "${AWS_REGION}"
+    )
+    if [ -n "${DATASET_URI}" ]; then
+        DATASET_CONFIG=$(python3 -c '
+import json
+import sys
+print(json.dumps({"InputDataConfig": [{"ChannelName": "dataset", "DataSource": {"S3DataSource": {"S3Uri": sys.argv[1]}}}]}))
+' "${DATASET_URI}")
+        WORKLOAD_CONFIG_CMD+=(--dataset-config "${DATASET_CONFIG}")
+        echo "   Dataset: ${DATASET_URI}"
+    fi
+
+    if ! "${WORKLOAD_CONFIG_CMD[@]}" 2>&1 | grep -q "AIWorkloadConfigArn"; then
         echo "❌ Failed to create workload config: ${WORKLOAD_CONFIG_NAME}"
         echo "   Check that the execution role has sagemaker:CreateAIWorkloadConfig permission."
         # Show actual error
-        aws sagemaker create-ai-workload-config \
-            --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
-            --ai-workload-configs "${WORKLOAD_SPEC_OUTER}" \
-            --region "${AWS_REGION}" 2>&1 || true
+        "${WORKLOAD_CONFIG_CMD[@]}" 2>&1 || true
         exit 1
     fi
     echo "   ✅ Workload config created"
@@ -328,10 +682,9 @@ if [ "${RESUME_EXISTING}" = false ]; then
         --inference-specification "Framework=VLLM"
         --region "${AWS_REGION}"
     )
-    # throughput goal requires DatasetConfig for speculator training when OptimizeModel=True.
-    # Since MLCC does not manage a workload dataset, disable model optimization for throughput.
-    # Latency/ttft-ms goals do not require a dataset and can use OptimizeModel=True.
-    if [ "${PERF_METRIC}" = "throughput" ]; then
+    # Throughput optimization needs a DatasetConfig to train a speculator. Without
+    # one, preserve the existing recommendation-only behavior.
+    if [ "${PERF_METRIC}" = "throughput" ] && [ -z "${DATASET_URI}" ]; then
         RECOMMEND_CMD+=(--no-optimize-model)
     fi
 
@@ -467,8 +820,8 @@ for i, rec in enumerate(results, 1):
     if model_package_arn and model_package_arn != 'N/A':
         print(f'║  Package:   {model_package_arn}')
     if optimizations:
-        opt_names = [o.get('OptimizationName', o.get('Type', str(o))) for o in optimizations]
-        print(f'║  Opts:      {", ".join(opt_names)}')
+        opt_names = ', '.join([o.get('OptimizationName', o.get('Type', str(o))) for o in optimizations])
+        print('║  Opts:      ' + opt_names)
 
 print('║')
 print('╚══════════════════════════════════════════════════════════════════════════╝')
@@ -495,12 +848,12 @@ with open('${RESULTS_FILE}', 'w') as f:
     if [ -f "${RESULTS_FILE}" ]; then
         echo "What would you like to do with these results?"
         echo ""
-        echo "  1) Deploy top recommendation — update do/config with optimized model"
-        echo "  2) Set up instance pools — build INSTANCE_POOLS with all results"
-        echo "  3) Save for later — store ModelPackageArn in do/config"
+        echo "  1) Deploy now — apply top recommendation and run do/deploy"
+        echo "  2) Save for later — store ModelPackageArn in do/config"
         echo ""
-        printf "Choose [1/2/3]: "
+        printf "Choose [1/2]: "
         read -r CHOICE
+        CHOICE="${CHOICE%%$'\r'}"  # strip CR (Windows/terminal safety)
 
         case "${CHOICE}" in
             1)
@@ -547,43 +900,18 @@ if results:
                 fi
                 echo ""
                 echo "✅ Top recommendation applied to do/config"
-                echo "   Run ./do/deploy to deploy with the optimized configuration."
+                echo ""
+                echo "🚀 Deploying with optimized configuration..."
+                # Re-source do/config so the just-written OPTIMIZE_MODEL_PACKAGE_ARN
+                # (and OPTIMIZE_INFERENCE_SPEC / INSTANCE_TYPE) are visible in this
+                # shell before calling do/deploy. _update_optimize_var only writes
+                # to the file; without re-sourcing, the values set above would not
+                # propagate to the deploy invocation's environment.
+                source "${SCRIPT_DIR}/config"
+                "${SCRIPT_DIR}/deploy" --target "${DEPLOYMENT_TARGET:-realtime-inference}"
                 ;;
             2)
-                echo ""
-                echo "📦 Setting up instance pools from all results..."
-                POOLS_JSON=$(python3 -c "
-import json
-with open('${RESULTS_FILE}') as f:
-    results = json.load(f)
-pools = []
-for i, r in enumerate(results, 1):
-    md = r.get('ModelDetails', {})
-    inst = md.get('InstanceDetails', [{}])
-    instance_type = inst[0].get('InstanceType', '') if inst else ''
-    if not instance_type:
-        continue
-    entry = {'InstanceType': instance_type, 'Priority': i}
-    model_pkg = md.get('ModelPackageArn', '')
-    if model_pkg:
-        entry['ModelName'] = model_pkg
-    pools.append(entry)
-print(json.dumps(pools))
-" 2>/dev/null) || POOLS_JSON=""
 
-                if [ -n "${POOLS_JSON}" ] && [ "${POOLS_JSON}" != "[]" ]; then
-                    _update_optimize_var "INSTANCE_POOLS" "${POOLS_JSON}"
-                    echo "   ✅ INSTANCE_POOLS set in do/config"
-                    echo "   Pools: ${POOLS_JSON}"
-                    echo ""
-                    echo "✅ Instance pools configured from recommendation results."
-                    echo "   Each pool entry includes ModelName for ModelNameOverride support."
-                    echo "   Run ./do/deploy to deploy with heterogeneous instance pools."
-                else
-                    echo "   ⚠️  Could not build instance pools from results"
-                fi
-                ;;
-            3)
                 echo ""
                 echo "📦 Saving results for later..."
                 SAVE_MODEL_PACKAGE_ARN=$(python3 -c "
@@ -597,13 +925,19 @@ if results:
 
                 if [ -n "${SAVE_MODEL_PACKAGE_ARN}" ]; then
                     _update_optimize_var "OPTIMIZE_MODEL_PACKAGE_ARN" "${SAVE_MODEL_PACKAGE_ARN}"
-                    echo "   ✅ OPTIMIZE_MODEL_PACKAGE_ARN saved to do/config"
                 fi
                 echo ""
-                echo "✅ Results saved. You can apply them later by editing do/config."
+                echo "✅ Results saved to do/config:"
+                echo ""
+                echo "   OPTIMIZE_MODEL_PACKAGE_ARN=${SAVE_MODEL_PACKAGE_ARN}"
+                echo "   OPTIMIZE_JOB_NAME=${OPTIMIZE_JOB_NAME}"
+                echo ""
+                echo "To apply this recommendation later, run either:"
+                echo "   ./do/optimize --apply top      # apply top result from this job"
+                echo "   ./do/optimize --apply ${SAVE_MODEL_PACKAGE_ARN}"
                 ;;
             *)
-                echo "   No action taken. Results are available in the job output."
+                echo "   No action taken. Run: ./do/optimize --apply top  to apply the top result later."
                 ;;
         esac
 

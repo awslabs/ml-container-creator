@@ -5,264 +5,68 @@ Purpose: cmd_stage_hf subcommand for do/tune
 Inputs: --hf-org, --hf-name, --hf-split, --output-bucket, --region, etc.
 Outputs: JSON with s3_uri, num_records
 Caller: .tune_helper.py dispatcher
-Related: tune_validate.py (dataset schema validation)
+Related: dataset_qol.py (relocated dataset QoL helpers), tune_validate.py
+
+NOTE (BL092): The dataset QoL helpers (column-map suggestion/apply, required-
+column validation, multi-file ?file= selection, schema-divergence detection,
+chat-format flattening, HF split resolution, row counting) now live in
+``dataset_qol.py`` and are shared with ``do/register dataset``. They are
+re-exported here so the staging path below is behavior-identical.
 """
 
-import fnmatch
-import json
 import os
-import re
 import sys
 
 from common import _output, _error_exit
 
-_GLOB_METACHAR_RE = re.compile(r'[*?\[]')
+# ── Dataset QoL (relocated to dataset_qol.py; re-exported as a thin shim) ──────
+from dataset_qol import (  # noqa: F401 — re-exported for staging + back-compat
+    _GLOB_METACHAR_RE,
+    _get_required_columns,
+    _get_schema_types,
+    _suggest_column_map,
+    _parse_column_map,
+    _apply_column_map,
+    _detect_chat_columns,
+    _flatten_value,
+    _flatten_record,
+    _log_flatten_info,
+    _validate_dataset_columns,
+    _check_empty_fields,
+    _find_data_files,
+    _is_glob_pattern,
+    _filter_data_files,
+    _inspect_file_schemas,
+    _check_schema_divergence,
+)
 
-
-def _get_required_columns(technique):
-    """Return the required column names for a given technique."""
-    schemas = {
-        "sft": ["prompt", "completion"],
-        "dpo": ["prompt", "chosen", "rejected"],
-        "rlaif": ["prompt"],  # prompt is an array of messages
-        "rlvr": ["prompt"],   # prompt is an array of messages
-    }
-    return schemas.get(technique, ["prompt", "completion"])
-
-
-def _suggest_column_map(detected_columns, required_columns):
-    """Suggest a --column-map based on common column name patterns."""
-    aliases = {
-        "prompt": ["question", "instruction", "input", "query", "text", "context", "user", "human"],
-        "completion": ["answer", "output", "response", "assistant", "target", "label", "reply"],
-        "chosen": ["chosen", "preferred", "good", "positive", "accepted"],
-        "rejected": ["rejected", "dispreferred", "bad", "negative", "refused"],
-    }
-
-    suggestions = {}
-    for req_col in required_columns:
-        if req_col in detected_columns:
-            continue
-        for alias in aliases.get(req_col, []):
-            if alias in detected_columns:
-                suggestions[req_col] = alias
-                break
-
-    if not suggestions:
-        return None
-
-    mapping_str = ",".join(f"{k}={v}" for k, v in suggestions.items())
-    return mapping_str
-
-
-def _parse_column_map(column_map_str):
-    """Parse a column map string like 'prompt=question,completion=answer' into a dict."""
-    if not column_map_str:
-        return {}
-    mapping = {}
-    for pair in column_map_str.split(","):
-        pair = pair.strip()
-        if "=" not in pair:
-            continue
-        target, source = pair.split("=", 1)
-        mapping[target.strip()] = source.strip()
-    return mapping
-
-
-def _apply_column_map(record, column_map):
-    """Apply column mapping to a record: rename source columns to target names."""
-    if not column_map:
-        return record
-    mapped = dict(record)
-    for target, source in column_map.items():
-        if source in mapped and target not in mapped:
-            mapped[target] = mapped.pop(source)
-    return mapped
-
-
-def _detect_chat_columns(record, required_columns, schema_types):
-    """Detect which required columns contain chat-format data.
-
-    Only inspects columns whose schema type is "string". Columns with
-    "array" type (RLAIF/RLVR) are excluded from detection entirely.
-
-    Args:
-        record: The first record (dict) after column mapping
-        required_columns: List of required column names for the technique
-        schema_types: Dict mapping column name -> expected type from schema
-
-    Returns:
-        dict: Maps column_name -> detection_result where detection_result is:
-              {"type": "single_dict"} or
-              {"type": "message_list", "strategy": "extract"|"same_role"|"multi_role", "count": int}
-              Only columns detected as chat-format are included.
-    """
-    results = {}
-    for column in required_columns:
-        if schema_types.get(column) != "string":
-            continue
-        if column not in record:
-            continue
-
-        value = record[column]
-
-        if isinstance(value, dict) and "role" in value and "content" in value:
-            results[column] = {"type": "single_dict"}
-            continue
-
-        if isinstance(value, list) and len(value) > 0:
-            first_element = value[0]
-            if isinstance(first_element, dict) and "role" in first_element and "content" in first_element:
-                count = len(value)
-                if count == 1:
-                    strategy = "extract"
-                elif all(
-                    isinstance(elem, dict) and elem.get("role") == first_element["role"]
-                    for elem in value
-                ):
-                    strategy = "same_role"
-                else:
-                    strategy = "multi_role"
-                results[column] = {"type": "message_list", "strategy": strategy, "count": count}
-                continue
-
-    return results
-
-
-def _flatten_value(value, detection_result):
-    """Flatten a chat-format column value to a plain string."""
-    import json as _json
-
-    if isinstance(value, str):
-        return value
-    if value is None:
-        return ""
-    if isinstance(value, list) and len(value) == 0:
-        return ""
-
-    det_type = detection_result.get("type")
-
-    if det_type == "single_dict":
-        if isinstance(value, dict):
-            role = value.get("role", "")
-            if "content" in value:
-                content = value["content"]
-                if isinstance(content, str):
-                    return content
-                return f"{role}: {_json.dumps(content)}"
-            else:
-                remaining = {k: v for k, v in value.items() if k != "role"}
-                return f"{role}: {_json.dumps(remaining)}"
-
-    elif det_type == "message_list":
-        strategy = detection_result.get("strategy")
-
-        if isinstance(value, list) and len(value) > 0:
-            if strategy == "extract":
-                elem = value[0]
-                if isinstance(elem, dict):
-                    content = elem.get("content")
-                    if content is None:
-                        return ""
-                    if isinstance(content, str):
-                        return content
-                    return f"{elem.get('role', '')}: {_json.dumps(content)}"
-                return ""
-
-            elif strategy == "same_role":
-                parts = []
-                for elem in value:
-                    if isinstance(elem, dict):
-                        content = elem.get("content")
-                        if content is None or content == "":
-                            parts.append("")
-                        elif isinstance(content, str):
-                            parts.append(content)
-                        else:
-                            parts.append(_json.dumps(content))
-                    else:
-                        parts.append("")
-                return "\n".join(parts)
-
-            elif strategy == "multi_role":
-                lines = []
-                for elem in value:
-                    if isinstance(elem, dict):
-                        role = elem.get("role", "")
-                        content = elem.get("content")
-                        if content is None:
-                            content = ""
-                        elif not isinstance(content, str):
-                            content = _json.dumps(content)
-                        lines.append(f"{role}: {content}")
-                    else:
-                        lines.append("")
-                return "\n".join(lines)
-
-    try:
-        return str(value)
-    except Exception as e:
-        raise ValueError(f"Cannot convert value to string: {e}")
-
-
-def _flatten_record(record, chat_columns):
-    """Apply flattening to all chat-format columns in a record."""
-    flattened = dict(record)
-    for column_name, detection_result in chat_columns.items():
-        if column_name in flattened:
-            flattened[column_name] = _flatten_value(flattened[column_name], detection_result)
-    return flattened
-
-
-def _log_flatten_info(chat_columns, no_transform):
-    """Log auto-flatten detection and strategy information."""
-    for column_name, detection_result in chat_columns.items():
-        print(f"\u2139\ufe0f  Auto-converted column '{column_name}' from chat-format to string", file=sys.stderr)
-        det_type = detection_result.get("type")
-        if det_type == "single_dict":
-            print("    Format: extracted content field", file=sys.stderr)
-        elif det_type == "message_list":
-            strategy = detection_result.get("strategy")
-            count = detection_result.get("count", 0)
-            if strategy == "multi_role":
-                print(f"    Format: role: content (multi-turn, {count} messages)", file=sys.stderr)
-            elif strategy == "same_role":
-                print(f"    Format: newline-joined content ({count} messages, same role)", file=sys.stderr)
-            elif strategy == "extract":
-                print("    Format: extracted content field", file=sys.stderr)
-
-
-def _get_schema_types(technique):
-    """Return a dict mapping column names to their expected types for a technique."""
-    schemas = {
-        "sft": {"prompt": "string", "completion": "string"},
-        "dpo": {"prompt": "string", "chosen": "string", "rejected": "string"},
-        "rlaif": {"prompt": "array"},
-        "rlvr": {"prompt": "array"},
-    }
-    return schemas.get(technique, {"prompt": "string", "completion": "string"})
 
 
 def _lookup_registered_technique(dataset_name, region):
-    """Look up the registered technique for a dataset. Local registry first, then hub."""
-    import json as _json
-    registry_path = os.path.join(
-        os.path.expanduser('~'), '.ml-container-creator', 'datasets.json'
-    )
-    if os.path.exists(registry_path):
+    """Look up the registered technique for a dataset from the S3 sidecar.
+
+    BL092 hard cutover: the local ``datasets.json`` is no longer read. The
+    dataset sidecar in the Core bucket is the source of truth; the Hub is a
+    best-effort fallback. Returns None if unresolved (soft warning path).
+    """
+    import re as _re
+
+    core_bucket = os.environ.get("CORE_BUCKET") or os.environ.get("MLCC_CORE_BUCKET")
+    if core_bucket:
         try:
-            with open(registry_path) as f:
-                entries = _json.load(f)
-            for entry in entries:
-                if entry.get('name') == dataset_name:
-                    versions = entry.get('versions', [])
-                    if versions:
-                        return versions[-1].get('technique') or entry.get('technique')
-                    return entry.get('technique')
+            import dataset_store
+            s3 = dataset_store._get_s3_client(region)
+            sidecar = dataset_store.read_sidecar(s3, core_bucket, dataset_name)
+            if sidecar:
+                versions = sidecar.get("versions", [])
+                if versions:
+                    return versions[-1].get("technique") or sidecar.get("technique")
+                return sidecar.get("technique")
         except Exception:
             pass
-    # Hub fallback
+    # Hub fallback (best-effort)
     try:
+        import json as _json
         import boto3
         config_path = os.path.join(os.path.expanduser('~'), '.ml-container-creator', 'config.json')
         if os.path.exists(config_path):
@@ -282,7 +86,7 @@ def _lookup_registered_technique(dataset_name, region):
                     HubName=hub_name, HubContentType='Dataset', HubContentName=dataset_name
                 )
                 desc = resp.get('HubContentDescription', '')
-                match = re.search(r'\[technique:([^\]]+)\]', desc)
+                match = _re.search(r'\[technique:([^\]]+)\]', desc)
                 if match:
                     return match.group(1)
     except Exception:
@@ -310,57 +114,6 @@ def _check_technique_mismatch(dataset_name, current_technique, region):
         sys.exit(4)
 
 
-def _validate_dataset_columns(first_record, technique, column_map_str, dataset_id, take=None):
-    """Validate that the first record has required columns after mapping."""
-    column_map = _parse_column_map(column_map_str)
-    mapped = _apply_column_map(first_record, column_map)
-    required = _get_required_columns(technique)
-    detected = list(first_record.keys())
-
-    missing = [col for col in required if col not in mapped]
-    if not missing:
-        return mapped, column_map
-
-    lines = [
-        f"Dataset columns don't match {technique.upper()} requirements.",
-        f"",
-        f"   Required columns: {', '.join(required)}",
-        f"   Detected columns: {', '.join(detected)}",
-        f"   Missing: {', '.join(missing)}",
-    ]
-
-    suggestion = _suggest_column_map(detected, required)
-    if suggestion:
-        lines.append(f"")
-        lines.append(f"   \U0001f4a1 Suggested fix:")
-        take_suffix = f" --take {take}" if take else ""
-        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {suggestion}{take_suffix}")
-    else:
-        lines.append(f"")
-        lines.append(f"   \U0001f4a1 Use --column-map to rename columns:")
-        example_map = ",".join(f"{r}=<your_column>" for r in missing)
-        take_suffix = f" --take {take}" if take else ""
-        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {example_map}{take_suffix}")
-
-    lines.append(f"")
-    lines.append(f"   First record sample:")
-    for k, v in list(first_record.items())[:5]:
-        val_str = str(v)[:80] + ("..." if len(str(v)) > 80 else "")
-        lines.append(f"      {k}: {val_str}")
-
-    _error_exit("\n".join(lines))
-
-
-def _check_empty_fields(record, required_columns):
-    """Return list of required column names that are empty/blank in this record."""
-    empty = []
-    for col in required_columns:
-        value = record.get(col, "")
-        if value is None or (isinstance(value, str) and not value.strip()):
-            empty.append(col)
-    return empty
-
-
 def _resolve_hf_token(region, secret_name=None):
     """Resolve HF token from Secrets Manager or environment variable."""
     if secret_name:
@@ -375,166 +128,6 @@ def _resolve_hf_token(region, secret_name=None):
             pass
 
     return os.environ.get("HF_TOKEN")
-
-
-def _find_data_files(repo_files, split):
-    """Find data files matching the requested split."""
-    patterns = [
-        f"data/{split}.jsonl",
-        f"{split}.jsonl",
-        f"data/{split}.json",
-        f"{split}.json",
-        f"data/{split}-00000-of-",
-        f"{split}-00000-of-",
-    ]
-
-    for pattern in patterns[:4]:
-        if pattern in repo_files:
-            return [pattern]
-
-    matches = set()
-    for f in repo_files:
-        for pattern in patterns[4:]:
-            if pattern in f:
-                matches.add(f)
-
-    if matches:
-        return sorted(matches)
-
-    jsonl_files = [f for f in repo_files if f.endswith(".jsonl") and split in f]
-    if jsonl_files:
-        return sorted(jsonl_files)
-
-    data_jsonl = [f for f in repo_files if f.startswith("data/") and f.endswith(".jsonl")]
-    if data_jsonl:
-        return sorted(data_jsonl)
-
-    root_data = [f for f in repo_files if "/" not in f and (f.endswith(".jsonl") or f.endswith(".json")) and not f.startswith(".")]
-    if root_data:
-        return sorted(root_data)
-
-    return []
-
-
-def _is_glob_pattern(pattern):
-    """Return True if pattern contains glob metacharacters (*, ?, [)."""
-    return bool(_GLOB_METACHAR_RE.search(pattern))
-
-
-def _filter_data_files(data_files, pattern):
-    """Filter data files by glob or substring pattern."""
-    if not pattern:
-        return data_files
-
-    if _is_glob_pattern(pattern):
-        matched = [f for f in data_files if fnmatch.fnmatch(f, pattern)]
-    else:
-        matched = [f for f in data_files if pattern in os.path.basename(f)]
-
-    if not matched:
-        file_list = "\n".join(f"  \u2022 {f}" for f in data_files)
-        _error_exit(
-            f"No files matched pattern '{pattern}'.\n\n"
-            f"Available files:\n{file_list}"
-        )
-
-    return matched
-
-
-def _inspect_file_schemas(data_files, dataset_id, hf_token, tmpdir,
-                          column_map, technique, no_transform):
-    """Inspect first record of each file to extract effective column sets."""
-    from huggingface_hub import hf_hub_download
-
-    required_columns = _get_required_columns(technique)
-    schema_types = _get_schema_types(technique)
-    results = []
-
-    for data_file in data_files:
-        local_path = hf_hub_download(
-            repo_id=dataset_id,
-            filename=data_file,
-            repo_type="dataset",
-            token=hf_token,
-            local_dir=tmpdir,
-        )
-
-        first_record = {}
-
-        if data_file.endswith(".parquet"):
-            try:
-                import pyarrow.parquet as pq
-                table = pq.read_table(local_path)
-                batches = table.to_batches(max_chunksize=1)
-                if batches:
-                    first_record = batches[0].to_pylist()[0]
-            except ImportError:
-                _error_exit(
-                    "Dataset is in Parquet format but pyarrow is not installed. "
-                    "Please install: pip install pyarrow"
-                )
-        else:
-            import json as json_mod
-            with open(local_path, "r", encoding="utf-8", errors="replace") as f:
-                first_line = f.readline().strip()
-                if first_line:
-                    first_record = json_mod.loads(first_line)
-
-        mapped_record = _apply_column_map(first_record, column_map)
-
-        if not no_transform:
-            chat_columns = _detect_chat_columns(mapped_record, required_columns, schema_types)
-            if chat_columns:
-                mapped_record = _flatten_record(mapped_record, chat_columns)
-
-        results.append((data_file, set(mapped_record.keys())))
-
-    return results
-
-
-def _check_schema_divergence(file_records, dataset_id, technique):
-    """Check that all files have identical effective columns."""
-    if not file_records:
-        return None
-
-    first_columns = file_records[0][1]
-    all_identical = all(cols == first_columns for _, cols in file_records)
-
-    if all_identical:
-        return None
-
-    file_sections = []
-    for filename, columns in file_records:
-        sorted_cols = ", ".join(sorted(columns))
-        file_sections.append(
-            f"  \U0001f4c4 {filename}\n"
-            f"     Columns: {sorted_cols}"
-        )
-
-    first_file = file_records[0][0]
-    basename = os.path.basename(first_file)
-    name_without_ext = os.path.splitext(basename)[0]
-    numeric_match = re.search(r'\d+', name_without_ext)
-    if numeric_match:
-        pattern_suggestion = f"*{numeric_match.group()}*"
-    else:
-        pattern_suggestion = f"*{name_without_ext}*"
-
-    available_files = "\n".join(
-        f"     \u2022 {filename}" for filename, _ in file_records
-    )
-
-    file_listing = "\n\n".join(file_sections)
-    message = (
-        f"Schema divergence detected in dataset {dataset_id}.\n"
-        f"Files have different columns after applying column-map and transforms:\n\n"
-        f"{file_listing}\n\n"
-        f"\U0001f4a1 Use ?file=<pattern> to select compatible files:\n"
-        f"   ./do/tune --technique {technique} --dataset hf://{dataset_id}?file={pattern_suggestion}\n\n"
-        f"   Available files:\n{available_files}"
-    )
-
-    _error_exit(message)
 
 
 def cmd_stage_hf(args):

@@ -173,25 +173,26 @@ The script validates your model at runtime against the catalog, so catalog updat
 
 ### Listing datasets
 
-`do/tune --list-datasets` shows datasets available for tuning, split into two sections:
+!!! warning "`do/tune --list-datasets` is deprecated"
+    Dataset management is now centralized under `do/register dataset` (BL092).
+    `do/tune --list-datasets` prints a pointer and exits — it no longer lists
+    datasets. Use `do/register dataset --list` instead.
 
 ```bash
-# Show all datasets (remote hub + local)
-./do/tune --list-datasets
-
-# Show only datasets registered in your AWS account
-./do/tune --list-datasets --source remote
-
-# Show only locally cached datasets
-./do/tune --list-datasets --source local
+# List registered datasets (from the S3 sidecar registry)
+./do/register dataset --list
 ```
 
-**Remote DataSets** are registered in your account's AI Registry Hub (the `registry` bootstrap module). They are authoritative and account-scoped — what you see is what exists in your AWS account.
+Datasets are indexed by an **S3 sidecar** — a JSON metadata object stored beside
+the data in the MLCC Core bucket at `s3://<CORE_BUCKET>/datasets/<name>/_dataset.json`.
+The sidecar is the source of truth for versioning, content hashes, and `@v<N>`
+pinning. Because it lives in S3 (not on your laptop), the registry is durable and
+shared across machines and teammates who use the same Core bucket.
 
-**Local Datasets** are cached in `~/.ml-container-creator/datasets.json`. These may include entries from prior accounts or regions — useful as a local reference but not authoritative.
-
-!!! tip "Register to the hub for team sharing"
-    Datasets registered with `do/register dataset` are written to both the local cache and the AI Registry Hub (if the `registry` bootstrap module is provisioned). Team members can see them via `--source remote` without needing your local cache.
+!!! note "Local registry removed"
+    Earlier versions cached dataset metadata in `~/.ml-container-creator/datasets.json`.
+    That local index has been removed (hard cutover) — a pre-existing file is
+    ignored. All dataset metadata now lives in the S3 sidecar.
 
 ### Row count
 
@@ -323,27 +324,44 @@ Datasets can be provided from two sources:
 # From S3
 ./do/tune --technique sft --dataset s3://my-bucket/path/to/train.jsonl
 
-# From Hugging Face Hub
-./do/tune --technique sft --dataset hf://my-org/my-dataset
-
-# From a specific HF split
-./do/tune --technique sft --dataset hf://my-org/my-dataset/train
+# By registered name (stage + register once via do/register dataset)
+./do/tune --technique sft --dataset my-dataset
 ```
 
-When using a Hugging Face dataset, the script downloads it to S3 automatically before submitting the job. If the dataset requires authentication, set `HF_TOKEN` in your environment or configure it via `do/secrets`.
+!!! warning "`do/tune --dataset hf://...` is no longer supported"
+    HuggingFace staging has moved to `do/register dataset` (BL092). `do/tune`
+    with an `hf://` reference hard-errors with migration guidance. Stage and
+    register the dataset once, then tune by name:
+
+    ```bash
+    # 1. Stage + register the HuggingFace dataset (once)
+    ./do/register dataset my-dataset --hf-id my-org/my-dataset --technique sft
+
+    # 2. Tune by name
+    ./do/tune --technique sft --dataset my-dataset
+    ```
+
+    Column-map, `?file=` selection, `--take`, and split resolution are all
+    supported by `do/register dataset` (the QoL helpers are shared). If the
+    dataset requires authentication, set `HF_TOKEN` or configure it via
+    `do/secrets`.
 
 ### Dataset registry
 
-MCC maintains a two-tier dataset registry for reproducible tuning workflows.
+MCC indexes datasets with an **S3 sidecar** for reproducible tuning workflows.
 
 #### Architecture
 
 | Tier | Location | Purpose |
 |------|----------|---------|
-| **Local registry** (primary) | `~/.ml-container-creator/datasets.json` | Version tracking, content hashes, name resolution |
-| **SageMaker AI Registry** (supplementary) | SageMaker Hub (`mlcc-registry-{accountId}`) | Cross-account discoverability, Studio visibility |
+| **S3 sidecar** (source of truth) | `s3://<CORE_BUCKET>/datasets/<name>/_dataset.json` | Version tracking, content hashes, custom metadata, name resolution |
+| **SageMaker AI Registry Hub** (supplementary, deferred) | SageMaker Hub (`mlcc-registry-{accountId}`) | Cross-account discoverability, Studio visibility |
 
-Both tiers are populated automatically by `do/register dataset`. The local registry is the source of truth for versioning and `@v<N>` pinning.
+The sidecar is populated automatically by `do/register dataset` and is the
+source of truth for versioning and `@v<N>` pinning. It sits beside the dataset
+bytes (which land at `s3://<CORE_BUCKET>/datasets/<name>/`), so the registry is
+durable and shared across machines. Hub integration is preserved but deferred to
+a later phase.
 
 !!! note "Console Import Not Supported"
     The SageMaker Studio console's dataset import UI has a known schema validation
@@ -354,7 +372,7 @@ Both tiers are populated automatically by `do/register dataset`. The local regis
 
 ```bash
 # List all registered datasets
-./do/tune --list-datasets
+./do/register dataset --list
 
 # Use a registered dataset by name
 ./do/tune --technique sft --dataset alpaca-sft
@@ -363,42 +381,64 @@ Both tiers are populated automatically by `do/register dataset`. The local regis
 ./do/tune --technique sft --dataset alpaca-sft@v1
 ```
 
-The `--list-datasets` flag shows a table of available datasets:
+The `--list` flag shows a table of available datasets:
 
 ```
 📦 Registered datasets:
 
-  NAME              TECHNIQUE  LATEST     ROWS     S3 URI
-  ----              ---------  ------     ----     ------
-  alpaca-sft        sft        1.0.0      1000     s3://mlcc-tune-.../train.jsonl
-  orca-dpo-pairs    dpo        1.1.0      2500     s3://mlcc-tune-.../orca_rlhf.jsonl
+  NAME                     TECHNIQUE  LATEST     ROWS     S3 URI
+  ----                     ---------  ------     ----     ------
+  alpaca-sft               sft        1.0.0      1000     s3://mlcc-core-.../datasets/alpaca-sft/
+  orca-dpo-pairs           dpo        1.1.0 (2v) 2500     s3://mlcc-core-.../datasets/orca-dpo-pairs/
 ```
 
 #### Registration workflow
 
-The typical workflow: stage a dataset via `do/tune`, then register it for future reuse:
+Register datasets explicitly with `do/register dataset`:
 
 ```bash
-# 1. Stage and use a dataset (ad-hoc — not registered)
-./do/tune --technique sft --dataset hf://tatsu-lab/alpaca --take 1000
-
-# 2. Register the dataset used in the last tune job
-./do/register dataset --from-tune sft
-
-# 3. Now use it by name in future jobs
-./do/tune --technique sft --dataset alpaca-sft
-```
-
-The `--from-tune` flag auto-derives the dataset name (salted slug from HF repo name), S3 URI, technique, and row count from the most recent tune job.
-
-Register datasets explicitly:
-
-```bash
+# From an existing S3 dataset — copied to s3://<CORE_BUCKET>/datasets/my-custom-data/
 ./do/register dataset my-custom-data \
   --s3-uri s3://my-bucket/datasets/custom.jsonl \
   --technique sft \
   --row-count 5000
+
+# From HuggingFace — staged to s3://<CORE_BUCKET>/datasets/guanaco/ then registered
+./do/register dataset guanaco \
+  --hf-id timdettmers/openassistant-guanaco \
+  --technique sft
 ```
+
+You can also register the dataset used in the most recent tune job:
+
+```bash
+./do/register dataset --from-tune sft
+```
+
+The `--from-tune` flag auto-derives the dataset name (salted slug), S3 URI,
+technique, and row count from the most recent tune job.
+
+##### Custom metadata
+
+Attach attribution, lineage, origination, and application metadata; these are
+recorded under `customMetadata` in the S3 sidecar (unset fields are omitted):
+
+```bash
+./do/register dataset my-dataset \
+  --s3-uri s3://my-bucket/data.jsonl --technique sft \
+  --attribution "Acme Research" \
+  --lineage "derived from open-orca v2, filtered" \
+  --origination "hf://Open-Orca/OpenOrca@main" \
+  --application "throughput-calibration"
+```
+
+!!! note "Canonical datasets location"
+    `do/register dataset` moves the dataset into the canonical MLCC location on
+    the `mlcc-core` bucket (`s3://<CORE_BUCKET>/datasets/<name>/`) before
+    registering it — `--s3-uri` datasets are copied there, and `--hf-id`
+    datasets are staged there. See
+    [Deployment Registry](deployment-registry.md#dataset-registration) for the
+    full flag reference.
 
 #### Versioning
 
@@ -418,18 +458,25 @@ Pin a specific version to ensure reproducibility across tune runs:
 ./do/tune --technique sft --dataset alpaca-sft@v1
 
 # List all versions of a dataset
-python3 do/.register_helper.py list-dataset-versions --name alpaca-sft
+python3 do/.register_helper.py list-dataset-versions --name alpaca-sft --core-bucket <CORE_BUCKET>
 ```
 
-!!! tip "Ad-hoc datasets are not registered"
-    `do/tune --dataset hf://...` or `--dataset s3://...` stages and uses the data
-    directly without creating a registry entry. Only explicit `do/register dataset`
-    creates versioned entries. This is intentional — ad-hoc exploration shouldn't
-    pollute the registry.
+!!! note "Versions live in the sidecar"
+    Each registration appends a version entry to the dataset's S3 sidecar
+    (`datasets/<name>/_dataset.json`). Registering unchanged content (same
+    content hash) without `--force` is idempotent — no new version is created.
 
 See [Deployment Registry](deployment-registry.md) for full `do/register dataset` documentation.
 
 ### File selection for multi-file datasets
+
+!!! note "These HuggingFace conveniences now run under `do/register dataset`"
+    File selection (`?file=`), column-map, `--take`, split resolution, and
+    schema-divergence detection moved from `do/tune` to `do/register dataset`
+    (BL092). The syntax below is identical — apply it when staging a HuggingFace
+    dataset with `do/register dataset <name> --hf-id <org/name> ...`, then tune
+    by the registered name. The examples that show `do/tune --dataset hf://...`
+    illustrate the shared syntax; run them via `do/register dataset` instead.
 
 Some HuggingFace datasets contain multiple files under the same split with different schemas. For example, `nvidia/When2Call` has files for tool-calling and general conversation — with different columns in each.
 
@@ -563,7 +610,7 @@ ML Container Creator offers two paths for model customization:
 | Flag | Values | Description |
 |---|---|---|
 | `--technique` | `sft`, `dpo`, `rlaif`, `rlvr` | Customization technique to apply |
-| `--dataset` | S3 URI or `hf://org/name[/split][?file=pattern]` | Training dataset location. **Quote if URI contains `?` or `*`** |
+| `--dataset` | S3 URI (`s3://bucket/path.jsonl`) or a registered dataset name (optionally `@v<N>`-pinned) | Training dataset location. `hf://` references are not accepted here — stage them with `do/register dataset --hf-id` first. |
 
 ### Training type
 

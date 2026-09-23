@@ -538,7 +538,8 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         for (const file of allFiles) {
             if (!onlySet.has(file)) continue;
             const src = path.join(templateDir, file);
-            const dest = path.join(destDir, file);
+            const destFile = file.endsWith('.ejs') ? file.slice(0, -'.ejs'.length) : file;
+            const dest = path.join(destDir, destFile);
             fs.mkdirSync(path.dirname(dest), { recursive: true });
             const content = fs.readFileSync(src, 'utf8');
             let rendered;

@@ -538,7 +538,7 @@ if [ -n "$FLAG_TARGET" ]; then
         *)                 _STATUS_VAR="" ;;
     esac
 
-    if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ]; then
+    if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ] && ! echo " ${DEPLOY_ARGS[*]:-} " | grep -qw -- "--force"; then
         # Existing deployment — switch focus only (FR-4.4, FR-4.5)
         _update_config DEPLOYMENT_TARGET "$FLAG_TARGET"
         # Resolve ENDPOINT_NAME and INSTANCE_TYPE from target-specific vars

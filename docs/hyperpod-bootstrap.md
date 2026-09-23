@@ -201,9 +201,12 @@ After provisioning, the module writes these to your project's `do/config`:
 
 | Variable | Source |
 |----------|--------|
-| `HYPERPOD_CLUSTER_NAME` | HyperPod cluster name |
-| `HYPERPOD_EKS_CLUSTER_NAME` | EKS cluster name |
-| `HYPERPOD_SUBNET_ID` | First private subnet ID |
+| `HYPERPOD_CLUSTER_NAME` | HyperPod cluster name (profile-level) |
+| `HYPERPOD_EKS_CLUSTER_NAME` | EKS cluster name (profile-level) |
+| `HYPERPOD_SUBNET_ID` | First private subnet ID (profile-level) |
+| `HP_CLUSTER_NAME` | Written to project `do/config` by `do/deploy` on first deploy |
+| `HP_NAMESPACE` | Written to project `do/config` by `do/deploy` on first deploy |
+| `ENDPOINT_NAME` | Written to project `do/config` after SageMaker endpoint reaches `InService` |
 
 ## Adopt-Existing (Idempotency)
 
@@ -221,12 +224,24 @@ auto-detects it via SSM parameters and adopts instead of recreating:
 The module runner sets these automatically when it finds SSM parameters from
 a prior deployment.
 
+## HyperPod EKS deployment model
+
+HyperPod EKS deployments use the SageMaker HyperPod inference operator's
+`InferenceEndpointConfig` custom resource. A single `InferenceEndpointConfig`
+replaces the previous raw Deployment, Service, and ConfigMap manifests. When
+`do/deploy --target hyperpod-eks` applies the resource, the operator creates the
+serving workload and a `SageMakerEndpointRegistration`, which registers a
+SageMaker AI endpoint named after the project. This registered endpoint is what
+unblocks `do/benchmark`.
+
 ## Limitations (Current)
 
-- `do/benchmark` is blocked by BL088 (InferenceEndpointConfig CRD migration), planned for v1.7
-- `do/optimize` **is** supported for HyperPod EKS targets (see the optimize docs); note that
-  applying a recommendation only writes `OPTIMIZE_MODEL_PACKAGE_ARN` to `do/config` — actual
-  deployment also depends on BL088
+- `do/benchmark` is supported for HyperPod EKS targets: after `do/deploy` records
+  `ENDPOINT_NAME`, benchmarks run against the registered SageMaker endpoint
+  directly (no inference component)
+- `do/optimize` **is** supported for HyperPod EKS targets (see the optimize docs);
+  applying a recommendation writes `OPTIMIZE_MODEL_PACKAGE_ARN` to `do/config` and
+  redeploys the `InferenceEndpointConfig`
 - `do/adapter`, `do/register` not yet supported on the HyperPod path
 - Multi-GPU TP/PP configuration is handled by a separate spec (e8-h2)
 - Cluster capacity reporting is handled by e8-h3

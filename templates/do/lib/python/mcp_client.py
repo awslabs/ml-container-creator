@@ -544,9 +544,9 @@ def mcp_list_clusters(
         region: AWS region string (e.g. "us-east-1").
 
     Returns:
-        List of cluster dicts (each with name, gpu_capacity, queues),
-        or empty list on failure/timeout. Callers fall back to manual
-        input when empty.
+        List of cluster dicts (each with name, gpu_capacity, queues,
+        instanceGroups), or empty list on failure/timeout. Callers fall
+        back to manual input when empty.
     """
     result = call_tool(client, "cluster-picker/list", {"region": region})
 
@@ -569,6 +569,7 @@ def mcp_list_clusters(
         name = entry.get("name")
         gpu_capacity = entry.get("gpu_capacity")
         queues = entry.get("queues")
+        instance_groups = entry.get("instanceGroups")
 
         # Required fields: name (str), gpu_capacity (int-like)
         if not isinstance(name, str) or not name:
@@ -585,10 +586,45 @@ def mcp_list_clusters(
             queues = []
         queues = [q for q in queues if isinstance(q, str)]
 
+        # instanceGroups should be a list of dicts with shape:
+        # { name, instanceType, instanceTypes, count, isFlexible }.
+        # Default to empty list; keep all groups (no cap).
+        validated_groups: list[dict[str, Any]] = []
+        if isinstance(instance_groups, list):
+            for grp in instance_groups:
+                if not isinstance(grp, dict):
+                    continue
+                grp_name = grp.get("name")
+                if not isinstance(grp_name, str) or not grp_name:
+                    continue
+                instance_type = grp.get("instanceType")
+                if not isinstance(instance_type, str):
+                    instance_type = None
+                instance_types = grp.get("instanceTypes")
+                if isinstance(instance_types, list):
+                    instance_types = [
+                        t for t in instance_types if isinstance(t, str)
+                    ]
+                else:
+                    instance_types = []
+                count = grp.get("count")
+                try:
+                    count_int = int(count)
+                except (TypeError, ValueError):
+                    count_int = 0
+                validated_groups.append({
+                    "name": grp_name,
+                    "instanceType": instance_type,
+                    "instanceTypes": instance_types,
+                    "count": count_int,
+                    "isFlexible": bool(grp.get("isFlexible", False)),
+                })
+
         validated.append({
             "name": name,
             "gpu_capacity": gpu_capacity_int,
             "queues": queues,
+            "instanceGroups": validated_groups,
         })
 
     return validated

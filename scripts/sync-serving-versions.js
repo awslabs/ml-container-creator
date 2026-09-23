@@ -20,6 +20,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'; // eslint-disable-line no-unused-vars
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deriveMinDriverVersion } from '../servers/lib/image-filter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -117,17 +118,30 @@ export function semverDistance(a, b) {
 export async function fetchDockerHubTags(namespace, repository, fetchImpl) {
     const fetchFn = fetchImpl || fetch;
     const tags = [];
-    let url = `https://hub.docker.com/v2/repositories/${namespace}/${repository}/tags?page_size=100`;
+    // Order by most-recently-updated and stop early once we have enough valid
+    // semver tags. Fetching ALL tags (some repos have 1500+) exhausts DockerHub's
+    // anonymous rate limit mid-pagination and returns HTTP 403 — the newest few
+    // releases are all we need. MAX_PAGES is a hard safeguard against runaway
+    // pagination; SEMVER_TARGET is comfortably above the top-3 we ultimately keep.
+    const MAX_PAGES = 8;
+    const SEMVER_TARGET = 10;
+    let url = `https://hub.docker.com/v2/repositories/${namespace}/${repository}/tags?page_size=100&ordering=last_updated`;
+    let pages = 0;
+    let semverCount = 0;
 
-    while (url) {
+    while (url && pages < MAX_PAGES) {
         const response = await fetchFn(url);
         if (!response.ok) {
             throw new Error(`DockerHub API returned HTTP ${response.status}`);
         }
         const data = await response.json();
+        pages++;
         for (const result of data.results || []) {
             tags.push({ name: result.name, lastUpdated: result.last_updated });
+            if (isValidSemver(result.name)) semverCount++;
         }
+        // Stop once we have enough release-semver tags to select the top set.
+        if (semverCount >= SEMVER_TARGET) break;
         url = data.next || null;
     }
 
@@ -237,6 +251,24 @@ export function buildNewEntry(serverSource, tag, nearestEntry) {
         if (nearestEntry.notes) entry.notes = nearestEntry.notes;
         if (nearestEntry.validationLevel) entry.validationLevel = nearestEntry.validationLevel;
         if (nearestEntry.features) entry.features = structuredClone(nearestEntry.features);
+        // Carry forward curated compatibility metadata. These fields gate the
+        // base-image picker's GPU driver / CUDA filtering; dropping them makes an
+        // image pass all driver filters (never excluded), which is unsafe.
+        // Consecutive engine releases share the same baseline until explicitly
+        // bumped, so cloning the nearest entry's values is the safe default.
+        if (nearestEntry.supportedModelTypes) {
+            entry.supportedModelTypes = structuredClone(nearestEntry.supportedModelTypes);
+        }
+        if (nearestEntry.min_driver_version) entry.min_driver_version = nearestEntry.min_driver_version;
+        if (nearestEntry.cuda_toolkit) entry.cuda_toolkit = nearestEntry.cuda_toolkit;
+        if (nearestEntry.transformers_version) entry.transformers_version = nearestEntry.transformers_version;
+    }
+
+    // Fallback: if min_driver_version is still unset, try deriving it from the
+    // tag / labels using the same helper the picker uses for dynamic entries.
+    if (!entry.min_driver_version) {
+        const derived = deriveMinDriverVersion(entry);
+        if (derived) entry.min_driver_version = derived;
     }
 
     return entry;

@@ -94,17 +94,21 @@ CREATE EXTERNAL TABLE IF NOT EXISTS mlcc_ci.benchmark_results (
     adapter_name                STRING      COMMENT 'LoRA adapter name; empty string if base model',
 
     -- GPU efficiency signals (BL086; all nullable — NULL = signal unavailable)
-    -- Phase 1: CloudWatch (all engines, all targets)
-    gpu_utilization_avg         DOUBLE      COMMENT 'Avg GPU utilization %% during run (CloudWatch/OTel)',
+    -- Phase 1: CloudWatch via SageMaker AI detailed observability (PromQL/OTel),
+    --          all engines/targets. Engine metrics (KV cache, queue depth) are
+    --          forwarded for vLLM/SGLang endpoints only; DCGM GPU metrics are
+    --          available on all GPU endpoints.
+    gpu_utilization_avg         DOUBLE      COMMENT 'Avg GPU utilization %% during run (DCGM via OTel)',
     gpu_utilization_max         DOUBLE      COMMENT 'Peak GPU utilization %% during run',
-    gpu_memory_used_avg_gb      DOUBLE      COMMENT 'Avg GPU memory used GB during run',
+    gpu_memory_used_avg_gb      DOUBLE      COMMENT 'Avg GPU memory used GB during run (DCGM FB_USED bytes → GB)',
     gpu_memory_util_avg         DOUBLE      COMMENT 'Avg GPU memory utilization %% during run',
-    -- Phase 2: engine /metrics (HyperPod EKS only)
-    kv_cache_util_avg           DOUBLE      COMMENT 'Avg KV cache utilization 0-1 (engine /metrics)',
+    -- Engine metrics: Phase 1 OTel (KVCacheUtilization/QueueDepth/BatchSize) for
+    -- vLLM/SGLang SageMaker endpoints, OR Phase 2 engine /metrics (HyperPod EKS).
+    kv_cache_util_avg           DOUBLE      COMMENT 'Avg KV cache utilization 0-1 (OTel or engine /metrics)',
     kv_cache_util_max           DOUBLE      COMMENT 'Peak KV cache utilization 0-1',
-    prefix_cache_hit_rate       DOUBLE      COMMENT 'Prefix/radix cache hit rate 0-1 over run window',
-    queue_depth_running_avg     DOUBLE      COMMENT 'Avg requests running (engine scheduler)',
-    queue_depth_waiting_avg     DOUBLE      COMMENT 'Avg requests waiting/queued',
+    prefix_cache_hit_rate       DOUBLE      COMMENT 'Prefix/radix cache hit rate 0-1 — Phase 2 engine /metrics ONLY (no CloudWatch equivalent)',
+    queue_depth_running_avg     DOUBLE      COMMENT 'Avg requests running (engine scheduler / BatchSize)',
+    queue_depth_waiting_avg     DOUBLE      COMMENT 'Avg requests waiting/queued (QueueDepth)',
     queue_depth_waiting_max     DOUBLE      COMMENT 'Peak requests waiting during run',
     -- Provenance
     metrics_source              STRING      COMMENT 'Provenance: cloudwatch | engine_metrics | both | none'

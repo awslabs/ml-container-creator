@@ -48,6 +48,14 @@ for var in "${env_vars[@]}"; do
     # Remove prefix, convert to lowercase, replace underscores with dashes
     arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
 
+    # Speculative decoding has a consolidated JSON API and is assembled below.
+    # Never forward its component environment variables as individual flags.
+    case "${key}" in
+        VLLM_SPECULATIVE_ALGORITHM|VLLM_SPECULATIVE_MODEL|VLLM_SPECULATIVE_NUM_TOKENS)
+            continue
+            ;;
+    esac
+
     # Primary path: only forward args vLLM actually accepts (from --help).
     if [ "$_have_whitelist" = true ]; then
         if ! grep -qx -- "${ARG_PREFIX}${arg_name}" "${VALID_ARGS_CACHE}"; then
@@ -76,16 +84,30 @@ done
 
 # ---------------------------------------------------------------------------
 # Speculative decoding (BL085) — vLLM consolidated `--speculative-config` JSON API.
-# The deployment template injects SPECULATIVE_CONFIG (a JSON string built by
-# buildVllmSpecConfig()). This serve wrapper is a thin pass-through: it appends
-# `--speculative-config "$SPECULATIVE_CONFIG"` when set. Neither engine accepts
-# s3:// draft paths, so guard HP_SPECULATIVE_MODEL first (AD-3).
+# The HyperPod CRD supplies engine-specific VLLM_SPECULATIVE_* values. Build the
+# JSON here so the CRD remains engine-neutral and never needs serve arguments.
 # ---------------------------------------------------------------------------
-if [ -n "${HP_SPECULATIVE_MODEL:-}" ] && [[ "${HP_SPECULATIVE_MODEL}" == s3://* ]]; then
+_speculative_draft_model="${VLLM_SPECULATIVE_MODEL:-${HP_SPECULATIVE_MODEL:-}}"
+if [ -n "${_speculative_draft_model}" ] && [[ "${_speculative_draft_model}" == s3://* ]]; then
     echo "❌ HP_SPECULATIVE_MODEL must be a HuggingFace model ID or local path, not an s3:// URI. Stage it first with do/stage." >&2
     exit 1
 fi
-if [ -n "${SPECULATIVE_CONFIG:-}" ]; then
+if [ -n "${VLLM_SPECULATIVE_ALGORITHM:-}" ]; then
+    SPECULATIVE_CONFIG=$(python3 -c '
+import json
+import sys
+
+config = {
+    "method": sys.argv[1],
+    "num_speculative_tokens": int(sys.argv[3]),
+}
+if sys.argv[2]:
+    config["model"] = sys.argv[2]
+print(json.dumps(config, separators=(",", ":")))
+' "${VLLM_SPECULATIVE_ALGORITHM}" "${VLLM_SPECULATIVE_MODEL:-}" "${VLLM_SPECULATIVE_NUM_TOKENS:-5}") || {
+        echo "❌ VLLM_SPECULATIVE_NUM_TOKENS must be an integer." >&2
+        exit 1
+    }
     SERVER_ARGS+=(--speculative-config "${SPECULATIVE_CONFIG}")
 fi
 
