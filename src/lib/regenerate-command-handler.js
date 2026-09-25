@@ -23,6 +23,52 @@ const GENERATOR_ROOT = resolve(__dirname, '../..');
 const TEMPLATE_DIR = join(GENERATOR_ROOT, 'templates');
 
 /**
+ * Vars written at runtime (by do/deploy, do/draft, do/benchmark, do/optimize --apply, etc.)
+ * that must survive mcc regenerate. Template-owned vars are NOT in this list — they get
+ * their values from the EJS render and should be overwritten by regenerate.
+ *
+ * Add new entries here whenever a do/ script writes a new persistent var to do/config.
+ * TODO BL105: when serve-layer plugin manifests land, derive this list from the manifests.
+ */
+const RUNTIME_OWNED_VARS = new Set([
+    // Written by do/deploy --target hyperpod-eks
+    'HP_CLUSTER_NAME',
+    'HP_NAMESPACE',
+    'ENDPOINT_NAME',
+    'HP_INSTANCE_TYPE',
+    'HP_GPU_COUNT',
+    'HP_CPU_REQUEST',
+    'HP_MEM_REQUEST',
+    'KUBECONFIG',
+    'DEPLOYMENT_TARGET_HP_STATUS',
+    'DEPLOYMENT_TARGET_SMAI_STATUS',
+    'DEPLOYMENT_TARGET_ASYNC_STATUS',
+    'DEPLOYMENT_TARGET_BATCH_STATUS',
+    // Written by do/benchmark --recommend --apply or do/deploy R2
+    'VLLM_TENSOR_PARALLEL_SIZE',
+    'VLLM_QUANTIZATION',
+    'VLLM_MAX_MODEL_LEN',
+    'VLLM_KV_CACHE_DTYPE',
+    // Written by do/draft set
+    'HP_SPECULATIVE_ALGORITHM',
+    'HP_SPECULATIVE_MODEL',
+    'HP_SPECULATIVE_NUM_TOKENS',
+    'HP_SPECULATIVE_DRAFT_TP',
+    'HP_SPECULATIVE_EAGLE_TOPK',
+    'HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE',
+    'HP_SPECULATIVE_NUM_STEPS',
+    // Written by do/benchmark --set-baseline
+    'BENCHMARK_PINNED_BASELINE',
+    // Written by do/optimize --apply
+    'OPTIMIZE_MODEL_PACKAGE_ARN',
+    'OPTIMIZE_INFERENCE_SPEC',
+    'OPTIMIZE_INSTANCE_TYPE',
+    // Written by do/benchmark (job tracking)
+    'BENCHMARK_JOB_NAME',
+    'BENCHMARK_WORKLOAD_CONFIG_NAME'
+]);
+
+/**
  * Parse a do/config file into a key-value map.
  * @param {string} configPath - Path to do/config
  * @returns {object} Parsed key-value pairs
@@ -96,6 +142,47 @@ function getInstalledVersion() {
     } catch {
         return '0.0.0';
     }
+}
+
+
+/**
+ * Capture the current values of runtime-owned vars from do/config.
+ * Returns a map of varName → value for vars that have a non-empty value.
+ */
+function _captureRuntimeVars(configPath) {
+    if (!existsSync(configPath)) return {};
+    const captured = {};
+    const content = readFileSync(configPath, 'utf8');
+    for (const line of content.split('\n')) {
+        const match = line.match(/^\s*export\s+([A-Z_][A-Z0-9_]*)=["']?([^"']*)["']?\s*$/);
+        if (match && RUNTIME_OWNED_VARS.has(match[1]) && match[2].trim()) {
+            captured[match[1]] = match[2].trim();
+        }
+    }
+    return captured;
+}
+
+/**
+ * Re-inject runtime vars into do/config after regeneration.
+ * Overwrites any template-default values with the captured runtime values.
+ */
+function _injectRuntimeVars(configPath, runtimeVars) {
+    if (!existsSync(configPath) || Object.keys(runtimeVars).length === 0) return;
+    let content = readFileSync(configPath, 'utf8');
+    for (const [key, value] of Object.entries(runtimeVars)) {
+        const exportLine = `export ${key}="${value}"`;
+        if (content.match(new RegExp(`^\\s*export\\s+${key}=`, 'm'))) {
+            // Replace existing line
+            content = content.replace(
+                new RegExp(`^(\\s*export\\s+${key}=).*$`, 'm'),
+                exportLine
+            );
+        } else {
+            // Append at end
+            content += `\n${exportLine}`;
+        }
+    }
+    writeFileSync(configPath, content);
 }
 
 /**
@@ -285,11 +372,20 @@ export default class RegenerateCommandHandler {
         console.log(`   Backup: .mlcc-backup/${timestamp}/`);
 
         // Full regeneration
+        // Capture runtime-owned vars before writeProject overwrites do/config
+        const runtimeVars = _captureRuntimeVars(configPath);
+
         await writeProject(TEMPLATE_DIR, cwd, answers, null, {}, null);
+
+        // Re-inject runtime vars that writeProject just cleared
+        _injectRuntimeVars(configPath, runtimeVars);
 
         // Write .mlcc-version
         writeFileSync(versionPath, `${installedVersion  }\n`);
         console.log(`\n✅ Regeneration complete (v${projectVersion} → v${installedVersion})`);
+        if (Object.keys(runtimeVars).length > 0) {
+            console.log(`   ♻️  Preserved ${Object.keys(runtimeVars).length} runtime vars in do/config`);
+        }
 
         // Run do/register unless --no-register
         if (!this.noRegister) {

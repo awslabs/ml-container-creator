@@ -488,6 +488,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/do/.eval_helper.py');
         ignorePatterns.push('**/do/add-ic');
         ignorePatterns.push('**/do/run');
+        ignorePatterns.push('**/do/draft');
         ignorePatterns.push('**/sample_model/**');
         ignorePatterns.push('**/requirements.txt');
         ignorePatterns.push('**/nginx-*.conf');
