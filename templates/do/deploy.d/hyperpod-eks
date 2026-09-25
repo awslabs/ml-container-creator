@@ -528,18 +528,28 @@ for manifest in hyperpod/*.yaml; do
         python3 -c '
 import os, re, sys
 repl = os.environ.get("MODEL_SOURCE_CONFIG", "")
+extra_envvars = os.environ.get("VLLM_EXTRA_ENVVARS", "")
 name_override = os.environ.get("HP_MODEL_NAME_OVERRIDE", "")
 marker = "__MODEL_SOURCE_CONFIG__"
+envvars_marker = "__VLLM_EXTRA_ENVVARS__"
 # Rewrite the top-level spec.modelName only (2-space indent), leaving deeper
 # keys such as huggingFaceModel.modelId untouched.
 name_re = re.compile(r"^(  modelName:\s*).*$")
 out = []
 for line in sys.stdin.read().splitlines():
     pos = line.find(marker)
+    epos = line.find(envvars_marker)
     if pos >= 0:
         indent = line[:pos]
         for rl in repl.splitlines():
             out.append(indent + rl)
+    elif epos >= 0:
+        # Splice extra VLLM_* env vars at the marker indentation. When there are
+        # none, drop the marker line entirely so the YAML list stays well-formed.
+        indent = line[:epos]
+        for rl in extra_envvars.splitlines():
+            if rl.strip():
+                out.append(indent + rl)
     elif name_override and name_re.match(line):
         out.append("  modelName: \"%s\"" % name_override)
     else:

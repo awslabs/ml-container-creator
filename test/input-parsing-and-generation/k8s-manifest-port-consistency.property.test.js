@@ -63,6 +63,12 @@ function renderCrd(vars) {
             const indent = line.slice(0, pos);
             return s3Block.map((l) => indent + l);
         }
+        // __VLLM_EXTRA_ENVVARS__ is spliced by do/deploy.d/hyperpod-eks (indent-aware);
+        // with no extra VLLM_* vars the marker line is dropped entirely (empty-safe),
+        // matching the deploy driver's behavior.
+        if (line.indexOf('__VLLM_EXTRA_ENVVARS__') >= 0) {
+            return [];
+        }
         return [line];
     }).join('\n');
 

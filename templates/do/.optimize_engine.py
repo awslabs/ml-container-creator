@@ -54,13 +54,41 @@ METRIC_DIRECTION = {
     'cost_per_1m_tokens': 'lower_is_better',
 }
 
-# Dimension → IC_ENV_ config key mapping
-DIMENSION_CONFIG_KEY = {
-    'quantization': 'IC_ENV_VLLM_QUANTIZATION',
-    'tensor_parallel_degree': 'IC_ENV_VLLM_TENSOR_PARALLEL_SIZE',
-    'max_model_len': 'IC_ENV_VLLM_MAX_MODEL_LEN',
-    'kv_cache_dtype': 'IC_ENV_VLLM_KV_CACHE_DTYPE',
+# Dimension → config key mapping, keyed by deployment target.
+# TODO BL105: when serve-layer plugin manifests land, this dict is derivable from
+# serve.d/<engine>/manifest.json (env_var_prefix + dimension → flag mapping).
+# Until then, add new targets here when introducing new deployment targets.
+_DIMENSION_CONFIG_KEY_BY_TARGET = {
+    'realtime-inference': {
+        'quantization':           'IC_ENV_VLLM_QUANTIZATION',
+        'tensor_parallel_degree': 'IC_ENV_VLLM_TENSOR_PARALLEL_SIZE',
+        'max_model_len':          'IC_ENV_VLLM_MAX_MODEL_LEN',
+        'kv_cache_dtype':         'IC_ENV_VLLM_KV_CACHE_DTYPE',
+    },
+    'hyperpod-eks': {
+        'quantization':           'VLLM_QUANTIZATION',
+        'tensor_parallel_degree': 'VLLM_TENSOR_PARALLEL_SIZE',
+        'max_model_len':          'VLLM_MAX_MODEL_LEN',
+        'kv_cache_dtype':         'VLLM_KV_CACHE_DTYPE',
+    },
+    'async-inference': {
+        'quantization':           'VLLM_QUANTIZATION',
+        'tensor_parallel_degree': 'VLLM_TENSOR_PARALLEL_SIZE',
+        'max_model_len':          'VLLM_MAX_MODEL_LEN',
+        'kv_cache_dtype':         'VLLM_KV_CACHE_DTYPE',
+    },
 }
+
+def _dimension_config_key(dimension: str, deployment_target: str | None = None) -> str:
+    """Return the do/config key for a benchmark dimension, resolved per deployment target."""
+    target = (deployment_target or 'realtime-inference').lower()
+    mapping = _DIMENSION_CONFIG_KEY_BY_TARGET.get(
+        target, _DIMENSION_CONFIG_KEY_BY_TARGET['realtime-inference']
+    )
+    return mapping.get(dimension, '')
+
+# Legacy alias — realtime-inference default; prefer _dimension_config_key() for new code
+DIMENSION_CONFIG_KEY = _DIMENSION_CONFIG_KEY_BY_TARGET['realtime-inference']
 
 # Metric aliases for --threshold parsing
 METRIC_ALIASES = {
@@ -546,10 +574,12 @@ class AthenaQueryEngine:
 class RecommendationEngine:
     """Computes serving config recommendations from benchmark data."""
 
-    def __init__(self, current_config: dict, benchmark_records: list, target_metric: str):
+    def __init__(self, current_config: dict, benchmark_records: list, target_metric: str,
+                 deployment_target: str | None = None):
         self.current = current_config
         self.records = benchmark_records
         self.metric = target_metric
+        self.deployment_target = deployment_target or 'realtime-inference'
 
     def compute_recommendations(self) -> list[dict]:
         """Compute ranked recommendations.
@@ -644,7 +674,7 @@ class RecommendationEngine:
 
             recommendations.append({
                 'dimension': dimension,
-                'config_key': DIMENSION_CONFIG_KEY.get(dimension, ''),
+                'config_key': _dimension_config_key(dimension, self.deployment_target),
                 'current_value': current_value,
                 'recommended_value': self._coerce_dimension_value(dimension, best_key),
                 'improvement_pct': round(improvement_pct, 1),
@@ -934,6 +964,7 @@ def cmd_recommend(args):
         current_config=current_config,
         benchmark_records=records,
         target_metric=args.metric,
+        deployment_target=os.environ.get('DEPLOYMENT_TARGET', 'realtime-inference'),
     )
 
     recommendations = rec_engine.compute_recommendations()

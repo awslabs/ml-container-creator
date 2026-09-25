@@ -686,17 +686,34 @@ fi
 # Moved from do/optimize in v1.4 — this is the Athena-backed recommendation path.
 if [ "${ARG_RECOMMEND}" = true ]; then
 
+# batch-transform has no persistent endpoint — recommend is N/A
+if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "ℹ️  --recommend is not supported for batch-transform deployments."
+    echo "   Batch jobs are parameterized per-submission — there is no persistent"
+    echo "   config to update. Use do/submit to change batch job parameters."
+    exit 0
+fi
+
 _run_athena_recommendations() {
     local model_name="${HF_MODEL_ID:-${MODEL_NAME:-}}"
     local instance_type="${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
-    local quantization="${IC_ENV_VLLM_QUANTIZATION:-${IC_ENV_QUANTIZATION:-bf16}}"
-    local tp="${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}"
-    # BL046: This 4096 is a runtime shell fallback only, retained intentionally.
-    # The authoritative default now lives in the exported IC_ENV_VLLM_MAX_MODEL_LEN
-    # from the rendered do/config (sizer-computed when available); this fires only
-    # when the variable is genuinely unset in the environment.
-    local max_len="${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}"
-    local kv_dtype="${IC_ENV_VLLM_KV_CACHE_DTYPE:-auto}"
+    # Resolve current serving config — target-aware.
+    # realtime-inference uses IC_ENV_* (Inference Component vars).
+    # hyperpod-eks and async-inference use bare VLLM_* vars.
+    local quantization kv_dtype tp max_len
+    if [ "${DEPLOYMENT_TARGET:-realtime-inference}" = "hyperpod-eks" ] || \
+       [ "${DEPLOYMENT_TARGET:-realtime-inference}" = "async-inference" ]; then
+        quantization="${VLLM_QUANTIZATION:-none}"
+        tp="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
+        max_len="${VLLM_MAX_MODEL_LEN:-4096}"
+        kv_dtype="${VLLM_KV_CACHE_DTYPE:-auto}"
+    else
+        quantization="${IC_ENV_VLLM_QUANTIZATION:-${IC_ENV_QUANTIZATION:-bf16}}"
+        tp="${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}"
+        # BL046: This 4096 is a runtime shell fallback only, retained intentionally.
+        max_len="${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}"
+        kv_dtype="${IC_ENV_VLLM_KV_CACHE_DTYPE:-auto}"
+    fi
 
     if [ -z "$model_name" ] || [ -z "$instance_type" ]; then
         echo "⚠️  Cannot query benchmark history — MODEL_NAME and INSTANCE_TYPE required" >&2
@@ -812,7 +829,7 @@ print()
 print('Next steps:')
 print('  Apply these changes:     ./do/benchmark --recommend --apply')
 print('  See raw recommendation:  ./do/benchmark --recommend --json')
-print('  Apply and deploy:        ./do/deploy --optimize')
+print('  Apply and deploy:        ./do/deploy')
 print()
 " 2>/dev/null
 }
@@ -851,11 +868,19 @@ for r in recs:
             echo "   ✅ ${key}=${value}"
         fi
     done
+    _APPLIED_COUNT=$?
 
-    echo ""
-    echo "✅ Recommendations applied to do/config"
-    echo "   Backups: do/config.bak, do/ic/default.conf.bak"
-    echo "   Run ./do/deploy to deploy with optimized configuration."
+    # Check if python found any recs (it exits 0 with output, or exits 0 with no-change message)
+    if echo "$json_data" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('recommendations') else 1)" 2>/dev/null; then
+        echo ""
+        echo "✅ Recommendations applied to do/config"
+        echo "   Backups: do/config.bak, do/ic/default.conf.bak"
+        echo "   Run ./do/deploy to deploy with optimized configuration."
+    else
+        echo ""
+        echo "ℹ️  No changes applied — current config is already optimal."
+        rm -f "${config_file}.bak" "${ic_conf}.bak" 2>/dev/null || true
+    fi
 }
 
 _recommend_apply_config_change() {
@@ -863,12 +888,24 @@ _recommend_apply_config_change() {
     local config_file="${SCRIPT_DIR}/config"
     local ic_conf="${SCRIPT_DIR}/ic/default.conf"
 
-    # Special case: tensor_parallel_degree also updates IC_GPU_COUNT
-    if [ "${key}" = "IC_ENV_VLLM_TENSOR_PARALLEL_SIZE" ] && [ -f "${ic_conf}" ]; then
-        _recommend_update_or_append "${ic_conf}" "IC_GPU_COUNT" "${value}"
-    fi
+    # Special case: tensor_parallel_degree — secondary writes per target
+    # (primary config_key is already target-resolved by Python _dimension_config_key)
+    case "${DEPLOYMENT_TARGET:-realtime-inference}" in
+        hyperpod-eks)
+            # Also write HP_GPU_COUNT so the CRD resource request stays in sync
+            if [ "${key}" = "VLLM_TENSOR_PARALLEL_SIZE" ]; then
+                _recommend_update_or_append "${config_file}" "HP_GPU_COUNT" "${value}"
+            fi
+            ;;
+        realtime-inference)
+            # Also update IC_GPU_COUNT in do/ic/default.conf
+            if [ "${key}" = "IC_ENV_VLLM_TENSOR_PARALLEL_SIZE" ] && [ -f "${ic_conf}" ]; then
+                _recommend_update_or_append "${ic_conf}" "IC_GPU_COUNT" "${value}"
+            fi
+            ;;
+    esac
 
-    # Update or append the IC_ENV_* var in do/config
+    # Write the primary config var
     _recommend_update_or_append "${config_file}" "${key}" "${value}"
 }
 
