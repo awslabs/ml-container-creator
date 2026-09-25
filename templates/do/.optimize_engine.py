@@ -854,10 +854,65 @@ class RecommendationEngine:
 # ── Bedrock Interpretation ────────────────────────────────────────────────────
 
 
-def bedrock_interpret(recommendations: list[dict], context: dict, region: str) -> str | None:
-    """Single headless Strands call to explain recommendations.
+def _load_catalog_facts(script_dir: str, model_name: str, instance_type: str) -> dict:
+    """Load model arch + instance specs from local .mlcc/ catalogs for Bedrock context enrichment."""
+    facts: dict = {}
+    base = os.path.join(script_dir, '..', '.mlcc')
 
-    Returns a 2-4 sentence plain-language analysis, or None on failure.
+    # Instance specs (GPU count, VRAM, vCPU)
+    inst_path = os.path.join(base, 'instances.json')
+    if os.path.exists(inst_path):
+        try:
+            with open(inst_path) as f:
+                instances = json.load(f)
+            inst = instances.get(instance_type, {})
+            if inst:
+                facts['instance'] = {
+                    'gpu_count': inst.get('gpu_count'),
+                    'gpu_type': inst.get('gpu_type'),
+                    'gpu_memory_gb': inst.get('gpu_memory_gb'),
+                    'vcpu': inst.get('vcpu'),
+                    'memory_gb': inst.get('memory_gb'),
+                }
+        except Exception:
+            pass
+
+    # Model architecture (parameter count, architecture class, MoE)
+    sizes_path = os.path.join(base, 'model-sizes.json')
+    if not os.path.exists(sizes_path):
+        # Fall back to source tree
+        sizes_path = os.path.join(script_dir, '..', '..', 'servers', 'lib', 'catalogs', 'model-sizes.json')
+    if os.path.exists(sizes_path):
+        try:
+            with open(sizes_path) as f:
+                sizes = json.load(f)
+            # Try exact match then prefix match
+            arch = sizes.get(model_name)
+            if not arch:
+                for key, val in sizes.items():
+                    if model_name.startswith(key) or key in model_name:
+                        arch = val
+                        break
+            if arch:
+                facts['model_arch'] = {
+                    'params_b': arch.get('params_b'),
+                    'active_params_b': arch.get('active_params_b'),
+                    'architecture': arch.get('architecture'),
+                    'is_moe': arch.get('is_moe', False),
+                    'context_length': arch.get('context_length'),
+                }
+        except Exception:
+            pass
+
+    return facts
+
+
+def bedrock_interpret(recommendations: list[dict], context: dict, region: str,
+                      records: list[dict] | None = None) -> dict | None:
+    """Bedrock-powered recommendation analysis with structured output.
+
+    Returns a dict with keys: headline, risks (list[str]), next_steps (list[str]).
+    Returns None on failure or opt-out.
     """
     if not recommendations:
         return None
@@ -883,31 +938,83 @@ def bedrock_interpret(recommendations: list[dict], context: dict, region: str) -
             except Exception:
                 pass
 
+        # Enrich context with catalog facts (model arch + instance specs)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        catalog_facts = _load_catalog_facts(
+            script_dir,
+            context.get('model_name', ''),
+            context.get('instance_type', ''),
+        )
+
+        # Summarise workloads and metric values that drove the recommendation
+        workload_summary: list[dict] = []
+        if records:
+            # Group by workload, show best metric value per workload
+            by_workload: dict = {}
+            metric = recommendations[0].get('metric', 'output_token_throughput_tps') if recommendations else 'output_token_throughput_tps'
+            for r in records[:40]:  # cap to avoid token explosion
+                wl = r.get('workload', 'unknown')
+                val = r.get(metric)
+                tp = r.get('tensor_parallel_degree', 1)
+                if val is not None:
+                    existing = by_workload.get(wl)
+                    if existing is None or float(val) > float(existing['best_metric']):
+                        by_workload[wl] = {'workload': wl, 'best_metric': round(float(val), 1),
+                                           'tp': tp, 'metric': metric}
+            workload_summary = list(by_workload.values())
+
         system_prompt = (
-            "You are an ML infrastructure advisor. Given these optimization recommendations "
-            "and project context, write a 2-4 sentence plain-language analysis. Mention "
-            "specific risks from the capability matrix if relevant. Be specific about "
-            "values and expected gains."
+            "You are an expert ML infrastructure advisor specialising in LLM serving optimisation. "
+            "Given benchmark data, configuration recommendations, model architecture, and instance specs, "
+            "produce a concise structured analysis.\n\n"
+            "Rules:\n"
+            "- Be specific: use the actual numbers from the data.\n"
+            "- Identify interaction risks between the recommended settings (e.g. high TP + speculative decoding, "
+            "  flash-attention limitations, NCCL overhead at small batch sizes).\n"
+            "- Consider whether the model architecture (dense vs MoE, parameter count) and available GPU VRAM "
+            "  make the recommendation practical.\n"
+            "- If speculative decoding is configured, comment on expected acceptance rate and workload fit.\n"
+            "- Note which workloads benefit most from the change.\n\n"
+            "Respond with ONLY valid JSON matching this schema (no markdown, no prose outside JSON):\n"
+            '{"headline": "<one sentence summary of the key recommendation and expected gain>", '
+            '"risks": ["<risk 1>", "<risk 2>"], '
+            '"next_steps": ["<actionable step 1>", "<actionable step 2>"]}'
         )
 
         user_content = json.dumps({
             'recommendations': recommendations,
-            'current_config': context,
+            'current_config': {**context, **catalog_facts},
+            'deployment_target': os.environ.get('DEPLOYMENT_TARGET', 'realtime-inference'),
+            'speculative_config': {
+                'algorithm': os.environ.get('HP_SPECULATIVE_ALGORITHM', ''),
+                'model': os.environ.get('HP_SPECULATIVE_MODEL', ''),
+                'num_tokens': os.environ.get('HP_SPECULATIVE_NUM_TOKENS', ''),
+            },
+            'workload_evidence': workload_summary,
         }, indent=2)
 
         response = bedrock_client.converse(
             modelId=model_id,
             messages=[{'role': 'user', 'content': [{'text': user_content}]}],
             system=[{'text': system_prompt}],
-            inferenceConfig={'maxTokens': 300, 'temperature': 0.3},
+            inferenceConfig={'maxTokens': 600, 'temperature': 0.2},
         )
 
         output_message = response.get('output', {}).get('message', {})
         content_blocks = output_message.get('content', [])
-        if content_blocks:
-            return content_blocks[0].get('text', '')
+        if not content_blocks:
+            return None
 
-        return None
+        raw = content_blocks[0].get('text', '').strip()
+        # Parse structured JSON response
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and 'headline' in parsed:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        # Fallback: return as plain headline if JSON parse fails
+        return {'headline': raw, 'risks': [], 'next_steps': []}
 
     except Exception as e:
         print(f"⚠️  Bedrock interpretation failed: {e}", file=sys.stderr)
@@ -984,9 +1091,14 @@ def cmd_recommend(args):
         'no_change_dimensions': no_change,
     }
 
-    # Optionally add Bedrock interpretation
+    # Optionally add Bedrock interpretation (structured: headline + risks + next_steps)
     if args.bedrock_interpret and (recommendations or efficiency_recommendations):
-        analysis = bedrock_interpret(recommendations + efficiency_recommendations, current_config, args.region)
+        analysis = bedrock_interpret(
+            recommendations + efficiency_recommendations,
+            current_config,
+            args.region,
+            records=records,
+        )
         if analysis:
             result['analysis'] = analysis
 

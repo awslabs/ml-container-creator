@@ -816,13 +816,26 @@ for r in recs:
 analysis = data.get('analysis', '')
 if analysis:
     print()
-    print('Analysis:')
-    for line in analysis.split('. '):
-        line = line.strip()
-        if line:
-            if not line.endswith('.'):
-                line += '.'
-            print(f'  {line}')
+    if isinstance(analysis, dict):
+        headline = analysis.get('headline', '')
+        risks = analysis.get('risks', [])
+        next_steps = analysis.get('next_steps', [])
+        if headline:
+            print('💡 Analysis:')
+            print(f'  {headline}')
+        if risks:
+            print()
+            print('  ⚠️  Risks:')
+            for r in risks:
+                print(f'     • {r}')
+        if next_steps:
+            print()
+            print('  ✅ Suggested next steps:')
+            for s in next_steps:
+                print(f'     • {s}')
+    else:
+        print('💡 Analysis:')
+        print(f'  {analysis}')
 
 # Footer
 print()
@@ -931,7 +944,7 @@ _recommend_update_or_append() {
         echo "ℹ️  No benchmark history available for recommendations."
         echo "   Run benchmarks first: ./do/benchmark --workload <name>"
         echo ""
-        echo "   Or use SageMaker AI Recommendations API:"
+        echo "   Or use SageMaker AI Inference Optimizer:"
         echo "   ./do/optimize --goal throughput"
         exit 0
     fi
