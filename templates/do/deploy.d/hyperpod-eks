@@ -274,6 +274,8 @@ fi
 export VLLM_SPECULATIVE_ALGORITHM=""
 export VLLM_SPECULATIVE_MODEL=""
 export VLLM_SPECULATIVE_NUM_TOKENS=""
+# Pass-through: user-set quantization (e.g. fp8) flows into the CRD env
+export VLLM_QUANTIZATION="${VLLM_QUANTIZATION:-}"
 export SGLANG_SPECULATIVE_ALGORITHM=""
 export SGLANG_SPECULATIVE_DRAFT_MODEL_PATH=""
 export SGLANG_SPECULATIVE_NUM_STEPS=""
@@ -483,6 +485,35 @@ fi
 
 APPLY_OUTPUT=""
 APPLY_EXIT_CODE=0
+
+# ── Auto-inject VLLM_* pass-through env vars ───────────────────────────────────
+# Collect any VLLM_* vars exported to the environment (e.g. set in do/config)
+# that are NOT already explicitly managed in the CRD template. These are injected
+# at the __VLLM_EXTRA_ENVVARS__ marker — same pattern as __MODEL_SOURCE_CONFIG__.
+# The serve wrapper (code/serve.d/vllm.ejs) translates them to CLI flags via
+# whitelist introspection, so any valid vLLM arg can be set this way.
+# Build YAML snippet for extra VLLM_* env vars (not already explicitly managed in the template).
+# Uses Python to produce correctly-indented multi-line YAML — avoids bash \n quoting issues.
+VLLM_EXTRA_ENVVARS=$(python3 - <<'_PYEOF'
+import os
+managed = {
+    "VLLM_MODEL", "VLLM_TENSOR_PARALLEL_SIZE", "VLLM_ENABLE_LORA",
+    "VLLM_MAX_LORAS", "VLLM_MAX_LORA_RANK", "VLLM_SPECULATIVE_MODEL",
+    "VLLM_SPECULATIVE_ALGORITHM", "VLLM_SPECULATIVE_NUM_TOKENS",
+    "SGLANG_SPECULATIVE_EAGLE_TOPK", "VLLM_ENABLE_CUDA_COMPATIBILITY",
+    "VLLM_USAGE_SOURCE", "VLLM_BUILD_COMMIT", "VLLM_BUILD_PIPELINE",
+    "VLLM_BUILD_URL", "VLLM_IMAGE_TAG", "VLLM_ALLOW_RUNTIME_LORA_UPDATING",
+}
+lines = []
+for k, v in sorted(os.environ.items()):
+    if k.startswith("VLLM_") and k not in managed and v:
+        lines.append(f"- name: {k}")
+        lines.append(f'  value: "{v}"')
+print("\n".join(lines))
+_PYEOF
+)
+export VLLM_EXTRA_ENVVARS
+
 for manifest in hyperpod/*.yaml; do
     # envsubst first (expands ${ECR_IMAGE}, ${HP_INSTANCE_TYPE}, ${HP_*} defaults),
     # then splice the multi-line modelSourceConfig block in place of the marker,
@@ -497,18 +528,28 @@ for manifest in hyperpod/*.yaml; do
         python3 -c '
 import os, re, sys
 repl = os.environ.get("MODEL_SOURCE_CONFIG", "")
+extra_envvars = os.environ.get("VLLM_EXTRA_ENVVARS", "")
 name_override = os.environ.get("HP_MODEL_NAME_OVERRIDE", "")
 marker = "__MODEL_SOURCE_CONFIG__"
+envvars_marker = "__VLLM_EXTRA_ENVVARS__"
 # Rewrite the top-level spec.modelName only (2-space indent), leaving deeper
 # keys such as huggingFaceModel.modelId untouched.
 name_re = re.compile(r"^(  modelName:\s*).*$")
 out = []
 for line in sys.stdin.read().splitlines():
     pos = line.find(marker)
+    epos = line.find(envvars_marker)
     if pos >= 0:
         indent = line[:pos]
         for rl in repl.splitlines():
             out.append(indent + rl)
+    elif epos >= 0:
+        # Splice extra VLLM_* env vars at the marker indentation. When there are
+        # none, drop the marker line entirely so the YAML list stays well-formed.
+        indent = line[:epos]
+        for rl in extra_envvars.splitlines():
+            if rl.strip():
+                out.append(indent + rl)
     elif name_override and name_re.match(line):
         out.append("  modelName: \"%s\"" % name_override)
     else:
@@ -669,6 +710,18 @@ echo "✅ HyperPod EKS deployment complete!"
 # ── Persist endpoint name for downstream workflows (AC-4) ─────────────────────
 # do/benchmark, do/test, and do/register consume ENDPOINT_NAME from do/config.
 _update_config "ENDPOINT_NAME" "${PROJECT_NAME}"
+# BL101 R2: persist the normalized serving-config tokens so the benchmark
+# query path (--compare-baseline) resolves the SAME Serving_Config_Key the
+# write path used. Equality-based Athena matching requires `none` (not empty)
+# for absent quantization and an integer tensor-parallel degree. Sourcing the
+# canonical resolver produces those normalized tokens; wrap the persist so a
+# failure here is non-fatal to the deploy.
+if [ -f "${SCRIPT_DIR}/lib/resolve-serving-config.sh" ]; then
+    # shellcheck disable=SC1091
+    source "${SCRIPT_DIR}/lib/resolve-serving-config.sh" 2>/dev/null || true
+    _update_config "VLLM_QUANTIZATION" "${SERVING_QUANTIZATION:-none}" 2>/dev/null || true
+    _update_config "VLLM_TENSOR_PARALLEL_SIZE" "${SERVING_TENSOR_PARALLEL:-${HP_GPU_COUNT:-1}}" 2>/dev/null || true
+fi
 # Persist cluster name and namespace so do/clean and subsequent deploys don't
 # require --reconfigure to re-run the interactive cluster picker prompts.
 _update_config "HP_CLUSTER_NAME" "${HP_CLUSTER_NAME}"

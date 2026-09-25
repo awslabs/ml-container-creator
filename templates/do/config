@@ -12,6 +12,7 @@
 # Project identification
 export PROJECT_NAME="<%= projectName %>"
 export DEPLOYMENT_CONFIG="<%= deploymentConfig %>"
+export MCC_VERSION="<%= typeof generatorVersion !== 'undefined' ? generatorVersion : '' %>"
 
 # Derived from deployment config
 export FRAMEWORK="<%= framework %>"
@@ -417,73 +418,29 @@ export BASE_IMAGE=${BASE_IMAGE:-<%= baseImage || '' %>}
 export INSTANCE_TYPE=${INSTANCE_TYPE:-<%= instanceType %>}
 <% } %>
 
-# Print configuration summary
+# Print configuration summary (once per process — guard against double-source)
+if [ -z "${_MLCC_CONFIG_PRINTED:-}" ]; then
+export _MLCC_CONFIG_PRINTED=1
 echo "⚙️  Configuration loaded"
 echo "   Project: ${PROJECT_NAME}"
-echo "   Config:  ${DEPLOYMENT_CONFIG}"
 echo "   Region:  ${AWS_REGION}"
-echo "   Build target: ${BUILD_TARGET}"
-echo "   Deployment target: ${DEPLOYMENT_TARGET:-<not set — configure at deploy time>}"
-<% if (orderedEnvVars && orderedEnvVars.length > 0) { %>
-echo "   Runtime env vars: <%= orderedEnvVars.length %>"
-<% } %>
-<% if ((typeof endpointInitialInstanceCount !== 'undefined' && endpointInitialInstanceCount != null) || (typeof endpointDataCapturePercent !== 'undefined' && endpointDataCapturePercent != null) || (typeof endpointVariantName !== 'undefined' && endpointVariantName != null) || (typeof endpointVolumeSize !== 'undefined' && endpointVolumeSize != null)) { %>
-echo "   Endpoint config:"
-<% if (typeof endpointInitialInstanceCount !== 'undefined' && endpointInitialInstanceCount != null) { %>
-echo "     Initial instance count: ${ENDPOINT_INITIAL_INSTANCE_COUNT}"
-<% } %>
-<% if (typeof endpointDataCapturePercent !== 'undefined' && endpointDataCapturePercent != null) { %>
-echo "     Data capture percent: ${ENDPOINT_DATA_CAPTURE_PERCENT}"
-<% } %>
-<% if (typeof endpointVariantName !== 'undefined' && endpointVariantName != null) { %>
-echo "     Variant name: ${ENDPOINT_VARIANT_NAME}"
-<% } %>
-<% if (typeof endpointVolumeSize !== 'undefined' && endpointVolumeSize != null) { %>
-echo "     Volume size: ${ENDPOINT_VOLUME_SIZE} GB"
-<% } %>
-<% } %>
-<% if ((typeof icCpuCount !== 'undefined' && icCpuCount != null) || (typeof icMemorySize !== 'undefined' && icMemorySize != null) || (typeof icGpuCount !== 'undefined' && icGpuCount != null) || (typeof icCopyCount !== 'undefined' && icCopyCount != null) || (typeof icModelWeight !== 'undefined' && icModelWeight != null)) { %>
-echo "   IC config:"
-<% if (typeof icCpuCount !== 'undefined' && icCpuCount != null) { %>
-echo "     CPU count: ${IC_CPU_COUNT}"
-<% } %>
-<% if (typeof icMemorySize !== 'undefined' && icMemorySize != null) { %>
-echo "     Memory size: ${IC_MEMORY_SIZE} MB"
-<% } %>
-<% if (typeof icGpuCount !== 'undefined' && icGpuCount != null) { %>
-echo "     GPU count: ${IC_GPU_COUNT}"
-<% } %>
-<% if (typeof icCopyCount !== 'undefined' && icCopyCount != null) { %>
-echo "     Copy count: ${IC_COPY_COUNT}"
-<% } %>
-<% if (typeof icModelWeight !== 'undefined' && icModelWeight != null) { %>
-echo "     Model weight: ${IC_MODEL_WEIGHT}"
-<% } %>
-<% } %>
-<% if (typeof modelEnvVars !== 'undefined' && modelEnvVars && Object.keys(modelEnvVars).length > 0) { %>
-echo "   Model env vars: <%= Object.keys(modelEnvVars).length %>"
-<% } %>
-<% if (typeof serverEnvVars !== 'undefined' && serverEnvVars && Object.keys(serverEnvVars).length > 0) { %>
-echo "   Server env vars: <%= Object.keys(serverEnvVars).length %>"
-<% } %>
+[ -n "${DEPLOYMENT_TARGET:-}" ] && echo "   Deployment target: ${DEPLOYMENT_TARGET}"
 <% if (deploymentTarget === 'realtime-inference') { %>
 <% if (typeof existingEndpointName !== 'undefined' && existingEndpointName) { %>
 echo "   Endpoint: ${ENDPOINT_NAME} (external)"
-<% } else { %>
+<% } else if (typeof instanceType !== 'undefined' && instanceType) { %>
 echo "   Instance: ${INSTANCE_TYPE}"
 <% } %>
 <% } else if (deploymentTarget === 'async-inference') { %>
+<% if (typeof instanceType !== 'undefined' && instanceType) { %>
 echo "   Instance: ${INSTANCE_TYPE}"
-echo "   S3 output: ${ASYNC_S3_OUTPUT_PATH}"
-echo "   SNS success: ${ASYNC_SNS_SUCCESS_TOPIC}"
-echo "   SNS error: ${ASYNC_SNS_ERROR_TOPIC}"
+<% } %>
 <% } else if (deploymentTarget === 'batch-transform') { %>
+<% if (typeof instanceType !== 'undefined' && instanceType) { %>
 echo "   Instance: ${INSTANCE_TYPE} x ${BATCH_INSTANCE_COUNT}"
-echo "   S3 input: ${BATCH_INPUT_PATH}"
-echo "   S3 output: ${BATCH_OUTPUT_PATH}"
-echo "   Split type: ${BATCH_SPLIT_TYPE}"
-echo "   Strategy: ${BATCH_STRATEGY}"
+<% } %>
 <% } else if (deploymentTarget === 'hyperpod-eks') { %>
 echo "   HyperPod cluster: ${HP_CLUSTER_NAME}"
 echo "   Namespace: ${HP_NAMESPACE}"
 <% } %>
+fi  # _MLCC_CONFIG_PRINTED

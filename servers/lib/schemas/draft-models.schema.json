@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "description": "MLCC draft model catalog \u2014 keyed by HuggingFace model ID",
+  "additionalProperties": {
+    "type": "object",
+    "required": [
+      "algorithm",
+      "target_model",
+      "target_arch",
+      "engine_support"
+    ],
+    "properties": {
+      "algorithm": {
+        "type": "string",
+        "enum": [
+          "eagle3",
+          "eagle2",
+          "eagle",
+          "draft-model",
+          "ngram",
+          "mtp"
+        ]
+      },
+      "target_model": {
+        "type": "string"
+      },
+      "target_arch": {
+        "type": "string"
+      },
+      "engine_support": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "vllm",
+            "sglang",
+            "lmi"
+          ]
+        },
+        "minItems": 1
+      },
+      "min_vllm_version": {
+        "type": "string"
+      },
+      "min_sglang_version": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  }
+}

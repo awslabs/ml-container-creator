@@ -200,7 +200,19 @@ def cmd_stage_hf(args):
 
         # Download and upload to S3
         s3_client = boto3.client("s3", region_name=args.region)
-        s3_prefix = f"{args.project_name}/datasets/{org}/{name}/{split}"
+        # Output prefix resolution:
+        #   • Default (do/tune, do/train): project-scoped, keyed by HF org/name/split
+        #     so each project stages into its own namespace.
+        #   • Override (do/register): an explicit --output-prefix pins the dataset to
+        #     the canonical, project-independent location 'datasets/<name>' so it is
+        #     shared across projects. The prefix is used verbatim (no split segment)
+        #     so the data lands exactly at 's3://<bucket>/datasets/<name>/', matching
+        #     the sidecar location 'datasets/<name>/_dataset.json'.
+        output_prefix = getattr(args, "output_prefix", None)
+        if output_prefix:
+            s3_prefix = output_prefix.strip("/")
+        else:
+            s3_prefix = f"{args.project_name}/datasets/{org}/{name}/{split}"
         num_records = 0
         empty_field_counts = {}
 
@@ -269,7 +281,7 @@ def cmd_stage_hf(args):
                             _error_exit(
                                 f"Column '{col_name}' contains chat-format data (detected: {det_type}) but --no-transform is active.\n\n"
                                 f"   Remove --no-transform to enable automatic conversion:\n"
-                                f"      ./do/tune --technique {technique} --dataset hf://{org}/{name} [--column-map ...]\n\n"
+                                f"      ./do/register dataset <name> --hf-id {org}/{name} --technique {technique} [--column-map ...]\n\n"
                                 f"   Detected format: {strategy_desc}"
                             )
 
@@ -344,7 +356,7 @@ def cmd_stage_hf(args):
                                 _error_exit(
                                     f"Column '{col_name}' contains chat-format data (detected: {det_type}) but --no-transform is active.\n\n"
                                     f"   Remove --no-transform to enable automatic conversion:\n"
-                                    f"      ./do/tune --technique {technique} --dataset hf://{org}/{name} [--column-map ...]\n\n"
+                                    f"      ./do/register dataset <name> --hf-id {org}/{name} --technique {technique} [--column-map ...]\n\n"
                                     f"   Detected format: {strategy_desc}"
                                 )
 

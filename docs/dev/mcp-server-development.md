@@ -43,7 +43,7 @@ For user-facing documentation (adding/removing servers, smart mode, configuring 
 
 ## Bundled Servers
 
-Eleven servers ship with the project:
+Twelve servers ship with the project:
 
 | Server | Tool Name | Modes | Purpose |
 |--------|-----------|-------|---------|
@@ -56,6 +56,7 @@ Eleven servers ship with the project:
 | `marketplace-picker` | `get_ml_config` | static, discover | Lists SageMaker AI Marketplace models |
 | `e2e-status` | `get_ml_config` | static | Returns E2E validation status for models |
 | `workload-picker` | `list_workloads`, `get_workload_profile` | static | Provides named benchmark workload profiles for `do/benchmark` |
+| `draft-model-picker` | `list_draft_models`, `get_draft_model`, `recommend_draft` | static, discover | Catalog of speculative-decoding draft models; queried at runtime by `do/draft list` |
 | `model-registry` | `list_model_packages`, `get_model_version` | discover | Queries SageMaker Model Package Groups |
 | `agent-knowledge` | `query_knowledge` | static | Script reference, config docs, troubleshooting, capability matrix |
 
@@ -64,6 +65,21 @@ Eleven servers ship with the project:
 - **Static** — Filters local catalog data (no network calls, fast)
 - **Smart** — Queries Amazon Bedrock for context-aware recommendations (set `BEDROCK_SMART=true`)
 - **Discover** — Queries live AWS APIs (e.g., HuggingFace Hub, SageMaker AI ListEndpoints)
+
+### draft-model-picker tools
+
+Unlike the generation-time servers, `draft-model-picker` is queried at **runtime** — by
+`do/draft list` and by any MCP client — rather than during project generation. Its three
+tools read the shared `servers/lib/catalogs/draft-models.json` catalog:
+
+- `list_draft_models` — list known draft models; optional `target_model` (partial match) and `algorithm` filters.
+- `get_draft_model` — return full metadata for one draft model by its HuggingFace `hf_id`.
+- `recommend_draft` — recommend the best draft model for a target model, ranked eagle3 → eagle2 → eagle → draft-model → mtp → ngram, with all alternatives.
+
+Core functions (`listDraftModels`, `getDraftModel`, `recommendDraft`) are exported from
+`servers/draft-model-picker/index.js` for direct unit testing. See
+[MCP Servers — draft-model-picker](../mcp-configuration.md#draft-model-picker) for the
+user-facing view.
 
 ---
 
@@ -100,7 +116,8 @@ servers/lib/
 │   ├── python-slim.json
 │   ├── triton-backends.json
 │   ├── triton.json
-│   └── jumpstart-public.json
+│   ├── jumpstart-public.json
+│   └── draft-models.json
 ├── schemas/                # JSON schemas for catalog validation
 │   ├── manifest.schema.json
 │   ├── instances.schema.json
@@ -108,7 +125,8 @@ servers/lib/
 │   ├── image-catalog.schema.json
 │   ├── model-catalog.schema.json
 │   ├── triton-backends.schema.json
-│   └── unified-model-catalog.schema.json
+│   ├── unified-model-catalog.schema.json
+│   └── draft-models.schema.json
 └── package.json            # Shared dependencies (@aws-sdk/*)
 ```
 

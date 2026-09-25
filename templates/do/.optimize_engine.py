@@ -54,13 +54,41 @@ METRIC_DIRECTION = {
     'cost_per_1m_tokens': 'lower_is_better',
 }
 
-# Dimension → IC_ENV_ config key mapping
-DIMENSION_CONFIG_KEY = {
-    'quantization': 'IC_ENV_VLLM_QUANTIZATION',
-    'tensor_parallel_degree': 'IC_ENV_VLLM_TENSOR_PARALLEL_SIZE',
-    'max_model_len': 'IC_ENV_VLLM_MAX_MODEL_LEN',
-    'kv_cache_dtype': 'IC_ENV_VLLM_KV_CACHE_DTYPE',
+# Dimension → config key mapping, keyed by deployment target.
+# TODO BL105: when serve-layer plugin manifests land, this dict is derivable from
+# serve.d/<engine>/manifest.json (env_var_prefix + dimension → flag mapping).
+# Until then, add new targets here when introducing new deployment targets.
+_DIMENSION_CONFIG_KEY_BY_TARGET = {
+    'realtime-inference': {
+        'quantization':           'IC_ENV_VLLM_QUANTIZATION',
+        'tensor_parallel_degree': 'IC_ENV_VLLM_TENSOR_PARALLEL_SIZE',
+        'max_model_len':          'IC_ENV_VLLM_MAX_MODEL_LEN',
+        'kv_cache_dtype':         'IC_ENV_VLLM_KV_CACHE_DTYPE',
+    },
+    'hyperpod-eks': {
+        'quantization':           'VLLM_QUANTIZATION',
+        'tensor_parallel_degree': 'VLLM_TENSOR_PARALLEL_SIZE',
+        'max_model_len':          'VLLM_MAX_MODEL_LEN',
+        'kv_cache_dtype':         'VLLM_KV_CACHE_DTYPE',
+    },
+    'async-inference': {
+        'quantization':           'VLLM_QUANTIZATION',
+        'tensor_parallel_degree': 'VLLM_TENSOR_PARALLEL_SIZE',
+        'max_model_len':          'VLLM_MAX_MODEL_LEN',
+        'kv_cache_dtype':         'VLLM_KV_CACHE_DTYPE',
+    },
 }
+
+def _dimension_config_key(dimension: str, deployment_target: str | None = None) -> str:
+    """Return the do/config key for a benchmark dimension, resolved per deployment target."""
+    target = (deployment_target or 'realtime-inference').lower()
+    mapping = _DIMENSION_CONFIG_KEY_BY_TARGET.get(
+        target, _DIMENSION_CONFIG_KEY_BY_TARGET['realtime-inference']
+    )
+    return mapping.get(dimension, '')
+
+# Legacy alias — realtime-inference default; prefer _dimension_config_key() for new code
+DIMENSION_CONFIG_KEY = _DIMENSION_CONFIG_KEY_BY_TARGET['realtime-inference']
 
 # Metric aliases for --threshold parsing
 METRIC_ALIASES = {
@@ -68,6 +96,7 @@ METRIC_ALIASES = {
     'ttft': 'ttft_p90_ms',
     'itl': 'itl_p90_ms',
     'latency': 'e2e_latency_p90_ms',
+    'cost': 'cost_per_1m_tokens',
 }
 
 # All comparison metrics for --compare-baseline
@@ -108,6 +137,16 @@ def _resolve_metric(name: str) -> str:
     return METRIC_ALIASES.get(name, name)
 
 
+def _is_positive_int(value) -> bool:
+    """True when value is a positive integer (accepts int or numeric string)."""
+    if value is None:
+        return False
+    try:
+        return int(value) > 0
+    except (ValueError, TypeError):
+        return False
+
+
 def _parse_threshold_arg(value: str) -> tuple[str, float]:
     """Parse 'metric:pct' threshold string.
 
@@ -125,6 +164,29 @@ def _parse_threshold_arg(value: str) -> tuple[str, float]:
     except ValueError:
         raise ValueError(f"Invalid threshold percentage: {parts[1]!r}")
     return (metric_name, pct)
+
+
+# GPU efficiency display columns (BL086) grouped by collection phase, used by
+# the compare-baseline display layer to substitute "N/A" for columns that are
+# structurally absent for a given deployment target (values stay DOUBLE/NULL in
+# Athena — this substitution is display-only).
+_NA_GPU_COLUMNS = ('gpu_utilization_avg', 'gpu_utilization_max',
+                   'gpu_memory_util_avg', 'gpu_memory_used_avg_gb')
+_NA_ENGINE_COLUMNS = ('prefix_cache_hit_rate', 'queue_depth_running_avg')
+
+
+def _is_na_efficiency_column(column: str, source: str) -> bool:
+    """True when `column` is structurally not-applicable for provenance `source`.
+
+    Phase 1 (CloudWatch) GPU columns → N/A for 'engine_metrics_only' or 'none'.
+    Phase 2 (engine /metrics) columns → N/A for 'cloudwatch_only' or 'none'.
+    Display-only: Athena columns remain DOUBLE/NULL.
+    """
+    if column in _NA_GPU_COLUMNS:
+        return source in ('engine_metrics_only', 'none')
+    if column in _NA_ENGINE_COLUMNS:
+        return source in ('cloudwatch_only', 'none')
+    return False
 
 
 def _sanitize_partition_value(name: str) -> str:
@@ -232,12 +294,40 @@ class AthenaQueryEngine:
                             quantization: str, tensor_parallel_degree: int,
                             adapter_name: str | None = None,
                             before_timestamp: str | None = None,
+                            max_model_len: int | None = None,
+                            kv_cache_dtype: str | None = None,
+                            pinned_job_name: str | None = None,
                             limit: int = 20) -> list[dict]:
-        """Query all historical runs for this config, ordered by run_timestamp DESC."""
+        """Query all historical runs for this config, ordered by run_timestamp DESC.
+
+        BL101: the Serving_Config_Key is extended with max_model_len and
+        kv_cache_dtype *conditionally* — a filter is added only when the current
+        run specifies the dimension (positive int max_model_len; non-empty,
+        non-`auto` kv_cache_dtype). This prevents silently invalidating
+        pre-existing baselines and runs that do not specify those dimensions.
+
+        When pinned_job_name is set, the query targets that specific job name
+        (overriding the rolling before_timestamp most-recent-prior logic).
+        """
         model_partition = _sanitize_partition_value(model_name)
         adapter_clause = f"AND adapter_name = '{adapter_name}' " if adapter_name is not None else ''
         # Exclude current run — run_timestamp is varchar (ISO string), compare lexicographically
         time_clause = f"AND run_timestamp < '{before_timestamp}' " if before_timestamp else ''
+
+        # ── Conditional key extension (BL101 R2.6) ──────────────────────────
+        ext_clause = ''
+        if _is_positive_int(max_model_len):
+            ext_clause += f"AND max_model_len = {int(max_model_len)} "
+        if kv_cache_dtype and str(kv_cache_dtype).strip().lower() not in ('', 'auto'):
+            ext_clause += f"AND kv_cache_dtype = '{kv_cache_dtype}' "
+
+        # ── Pinned baseline overrides recency ───────────────────────────────
+        if pinned_job_name:
+            # Target the specific pinned job; ignore the before_timestamp filter.
+            pinned_clause = f"AND benchmark_job_name = '{pinned_job_name}' "
+            time_clause = ''
+        else:
+            pinned_clause = ''
 
         sql = (
             f"SELECT output_token_throughput_tps, request_throughput_rps, "
@@ -255,7 +345,9 @@ class AthenaQueryEngine:
             f"AND instance = '{instance_type}' "
             f"AND quantization = '{quantization}' "
             f"AND tensor_parallel_degree = {tensor_parallel_degree} "
+            f"{ext_clause}"
             f"{adapter_clause}"
+            f"{pinned_clause}"
             f"{time_clause}"
             f"ORDER BY run_timestamp DESC "
             f"LIMIT {limit}"
@@ -274,6 +366,89 @@ class AthenaQueryEngine:
             adapter_name=adapter_name,
         )
         return records[0] if records else None
+
+    def query_peak(self, model_name: str, instance_type: str,
+                   quantization: str, tensor_parallel_degree: int,
+                   metric: str, workload: str | None = None,
+                   max_model_len: int | None = None,
+                   kv_cache_dtype: str | None = None) -> list[dict]:
+        """Query the best historical records for the current Serving_Config_Key,
+        sorted by `metric` in the correct direction (BL101 --peak).
+
+        Returns records ordered best-first (index 0 is the peak).
+        """
+        model_partition = _sanitize_partition_value(model_name)
+        workload_clause = f"AND workload = '{workload}' " if workload else ''
+        ext_clause = ''
+        if _is_positive_int(max_model_len):
+            ext_clause += f"AND max_model_len = {int(max_model_len)} "
+        if kv_cache_dtype and str(kv_cache_dtype).strip().lower() not in ('', 'auto'):
+            ext_clause += f"AND kv_cache_dtype = '{kv_cache_dtype}' "
+
+        direction = METRIC_DIRECTION.get(metric, 'higher_is_better')
+        order = 'ASC' if direction == 'lower_is_better' else 'DESC'
+
+        sql = (
+            f"SELECT output_token_throughput_tps, request_throughput_rps, "
+            f"ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, cost_per_1m_tokens, "
+            f"benchmark_job_name, run_timestamp, workload, concurrency, "
+            f"adapter_name, deployment_target "
+            f"FROM {self.database}.{self.table} "
+            f"WHERE LOWER(model) = '{model_partition}' "
+            f"AND instance = '{instance_type}' "
+            f"AND quantization = '{quantization}' "
+            f"AND tensor_parallel_degree = {tensor_parallel_degree} "
+            f"{ext_clause}"
+            f"{workload_clause}"
+            f"AND {metric} IS NOT NULL "
+            f"ORDER BY {metric} {order} "
+            f"LIMIT 50"
+        )
+        return self._run_query(sql)
+
+    def query_list(self, model_name: str | None = None,
+                   model_family: str | None = None,
+                   workload: str | None = None,
+                   sort_metric: str = 'output_token_throughput_tps',
+                   limit: int = 100) -> list[dict]:
+        """Query all runs for a model (exact name or family prefix), across all
+        deployment targets, for the BL101 --list surface.
+        """
+        clauses = []
+        if model_name:
+            # Family-prefix support: match model_family OR exact model partition.
+            model_partition = _sanitize_partition_value(model_name)
+            family = _sanitize_partition_value(model_family) if model_family else None
+            if family:
+                clauses.append(
+                    f"(LOWER(model) = '{model_partition}' "
+                    f"OR LOWER(model) LIKE '{model_partition}%' "
+                    f"OR model_family = '{family}')"
+                )
+            else:
+                clauses.append(
+                    f"(LOWER(model) = '{model_partition}' "
+                    f"OR LOWER(model) LIKE '{model_partition}%')"
+                )
+        if workload:
+            clauses.append(f"workload = '{workload}'")
+
+        where = ('WHERE ' + ' AND '.join(clauses) + ' ') if clauses else ''
+        direction = METRIC_DIRECTION.get(sort_metric, 'higher_is_better')
+        order = 'ASC' if direction == 'lower_is_better' else 'DESC'
+
+        sql = (
+            f"SELECT model_name, instance_type, quantization, tensor_parallel_degree, "
+            f"max_model_len, kv_cache_dtype, deployment_target, "
+            f"workload, concurrency, output_token_throughput_tps, "
+            f"ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, cost_per_1m_tokens, "
+            f"adapter_name, benchmark_job_name, run_timestamp "
+            f"FROM {self.database}.{self.table} "
+            f"{where}"
+            f"ORDER BY {sort_metric} {order} "
+            f"LIMIT {limit}"
+        )
+        return self._run_query(sql)
 
     def _run_query(self, sql: str) -> list[dict]:
         """Execute query and return parsed results."""
@@ -399,10 +574,12 @@ class AthenaQueryEngine:
 class RecommendationEngine:
     """Computes serving config recommendations from benchmark data."""
 
-    def __init__(self, current_config: dict, benchmark_records: list, target_metric: str):
+    def __init__(self, current_config: dict, benchmark_records: list, target_metric: str,
+                 deployment_target: str | None = None):
         self.current = current_config
         self.records = benchmark_records
         self.metric = target_metric
+        self.deployment_target = deployment_target or 'realtime-inference'
 
     def compute_recommendations(self) -> list[dict]:
         """Compute ranked recommendations.
@@ -497,7 +674,7 @@ class RecommendationEngine:
 
             recommendations.append({
                 'dimension': dimension,
-                'config_key': DIMENSION_CONFIG_KEY.get(dimension, ''),
+                'config_key': _dimension_config_key(dimension, self.deployment_target),
                 'current_value': current_value,
                 'recommended_value': self._coerce_dimension_value(dimension, best_key),
                 'improvement_pct': round(improvement_pct, 1),
@@ -677,10 +854,65 @@ class RecommendationEngine:
 # ── Bedrock Interpretation ────────────────────────────────────────────────────
 
 
-def bedrock_interpret(recommendations: list[dict], context: dict, region: str) -> str | None:
-    """Single headless Strands call to explain recommendations.
+def _load_catalog_facts(script_dir: str, model_name: str, instance_type: str) -> dict:
+    """Load model arch + instance specs from local .mlcc/ catalogs for Bedrock context enrichment."""
+    facts: dict = {}
+    base = os.path.join(script_dir, '..', '.mlcc')
 
-    Returns a 2-4 sentence plain-language analysis, or None on failure.
+    # Instance specs (GPU count, VRAM, vCPU)
+    inst_path = os.path.join(base, 'instances.json')
+    if os.path.exists(inst_path):
+        try:
+            with open(inst_path) as f:
+                instances = json.load(f)
+            inst = instances.get(instance_type, {})
+            if inst:
+                facts['instance'] = {
+                    'gpu_count': inst.get('gpu_count'),
+                    'gpu_type': inst.get('gpu_type'),
+                    'gpu_memory_gb': inst.get('gpu_memory_gb'),
+                    'vcpu': inst.get('vcpu'),
+                    'memory_gb': inst.get('memory_gb'),
+                }
+        except Exception:
+            pass
+
+    # Model architecture (parameter count, architecture class, MoE)
+    sizes_path = os.path.join(base, 'model-sizes.json')
+    if not os.path.exists(sizes_path):
+        # Fall back to source tree
+        sizes_path = os.path.join(script_dir, '..', '..', 'servers', 'lib', 'catalogs', 'model-sizes.json')
+    if os.path.exists(sizes_path):
+        try:
+            with open(sizes_path) as f:
+                sizes = json.load(f)
+            # Try exact match then prefix match
+            arch = sizes.get(model_name)
+            if not arch:
+                for key, val in sizes.items():
+                    if model_name.startswith(key) or key in model_name:
+                        arch = val
+                        break
+            if arch:
+                facts['model_arch'] = {
+                    'params_b': arch.get('params_b'),
+                    'active_params_b': arch.get('active_params_b'),
+                    'architecture': arch.get('architecture'),
+                    'is_moe': arch.get('is_moe', False),
+                    'context_length': arch.get('context_length'),
+                }
+        except Exception:
+            pass
+
+    return facts
+
+
+def bedrock_interpret(recommendations: list[dict], context: dict, region: str,
+                      records: list[dict] | None = None) -> dict | None:
+    """Bedrock-powered recommendation analysis with structured output.
+
+    Returns a dict with keys: headline, risks (list[str]), next_steps (list[str]).
+    Returns None on failure or opt-out.
     """
     if not recommendations:
         return None
@@ -706,31 +938,83 @@ def bedrock_interpret(recommendations: list[dict], context: dict, region: str) -
             except Exception:
                 pass
 
+        # Enrich context with catalog facts (model arch + instance specs)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        catalog_facts = _load_catalog_facts(
+            script_dir,
+            context.get('model_name', ''),
+            context.get('instance_type', ''),
+        )
+
+        # Summarise workloads and metric values that drove the recommendation
+        workload_summary: list[dict] = []
+        if records:
+            # Group by workload, show best metric value per workload
+            by_workload: dict = {}
+            metric = recommendations[0].get('metric', 'output_token_throughput_tps') if recommendations else 'output_token_throughput_tps'
+            for r in records[:40]:  # cap to avoid token explosion
+                wl = r.get('workload', 'unknown')
+                val = r.get(metric)
+                tp = r.get('tensor_parallel_degree', 1)
+                if val is not None:
+                    existing = by_workload.get(wl)
+                    if existing is None or float(val) > float(existing['best_metric']):
+                        by_workload[wl] = {'workload': wl, 'best_metric': round(float(val), 1),
+                                           'tp': tp, 'metric': metric}
+            workload_summary = list(by_workload.values())
+
         system_prompt = (
-            "You are an ML infrastructure advisor. Given these optimization recommendations "
-            "and project context, write a 2-4 sentence plain-language analysis. Mention "
-            "specific risks from the capability matrix if relevant. Be specific about "
-            "values and expected gains."
+            "You are an expert ML infrastructure advisor specialising in LLM serving optimisation. "
+            "Given benchmark data, configuration recommendations, model architecture, and instance specs, "
+            "produce a concise structured analysis.\n\n"
+            "Rules:\n"
+            "- Be specific: use the actual numbers from the data.\n"
+            "- Identify interaction risks between the recommended settings (e.g. high TP + speculative decoding, "
+            "  flash-attention limitations, NCCL overhead at small batch sizes).\n"
+            "- Consider whether the model architecture (dense vs MoE, parameter count) and available GPU VRAM "
+            "  make the recommendation practical.\n"
+            "- If speculative decoding is configured, comment on expected acceptance rate and workload fit.\n"
+            "- Note which workloads benefit most from the change.\n\n"
+            "Respond with ONLY valid JSON matching this schema (no markdown, no prose outside JSON):\n"
+            '{"headline": "<one sentence summary of the key recommendation and expected gain>", '
+            '"risks": ["<risk 1>", "<risk 2>"], '
+            '"next_steps": ["<actionable step 1>", "<actionable step 2>"]}'
         )
 
         user_content = json.dumps({
             'recommendations': recommendations,
-            'current_config': context,
+            'current_config': {**context, **catalog_facts},
+            'deployment_target': os.environ.get('DEPLOYMENT_TARGET', 'realtime-inference'),
+            'speculative_config': {
+                'algorithm': os.environ.get('HP_SPECULATIVE_ALGORITHM', ''),
+                'model': os.environ.get('HP_SPECULATIVE_MODEL', ''),
+                'num_tokens': os.environ.get('HP_SPECULATIVE_NUM_TOKENS', ''),
+            },
+            'workload_evidence': workload_summary,
         }, indent=2)
 
         response = bedrock_client.converse(
             modelId=model_id,
             messages=[{'role': 'user', 'content': [{'text': user_content}]}],
             system=[{'text': system_prompt}],
-            inferenceConfig={'maxTokens': 300, 'temperature': 0.3},
+            inferenceConfig={'maxTokens': 600, 'temperature': 0.2},
         )
 
         output_message = response.get('output', {}).get('message', {})
         content_blocks = output_message.get('content', [])
-        if content_blocks:
-            return content_blocks[0].get('text', '')
+        if not content_blocks:
+            return None
 
-        return None
+        raw = content_blocks[0].get('text', '').strip()
+        # Parse structured JSON response
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and 'headline' in parsed:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        # Fallback: return as plain headline if JSON parse fails
+        return {'headline': raw, 'risks': [], 'next_steps': []}
 
     except Exception as e:
         print(f"⚠️  Bedrock interpretation failed: {e}", file=sys.stderr)
@@ -787,6 +1071,7 @@ def cmd_recommend(args):
         current_config=current_config,
         benchmark_records=records,
         target_metric=args.metric,
+        deployment_target=os.environ.get('DEPLOYMENT_TARGET', 'realtime-inference'),
     )
 
     recommendations = rec_engine.compute_recommendations()
@@ -806,9 +1091,14 @@ def cmd_recommend(args):
         'no_change_dimensions': no_change,
     }
 
-    # Optionally add Bedrock interpretation
+    # Optionally add Bedrock interpretation (structured: headline + risks + next_steps)
     if args.bedrock_interpret and (recommendations or efficiency_recommendations):
-        analysis = bedrock_interpret(recommendations + efficiency_recommendations, current_config, args.region)
+        analysis = bedrock_interpret(
+            recommendations + efficiency_recommendations,
+            current_config,
+            args.region,
+            records=records,
+        )
         if analysis:
             result['analysis'] = analysis
 
@@ -871,17 +1161,22 @@ def cmd_compare_baseline(args):
     )
 
     # Query all historical runs
+    _pinned = getattr(args, 'pinned_baseline', None) or None
     all_records = engine.query_all_baselines(
         model_name=model_name,
         instance_type=instance_type,
         quantization=args.quantization,
         tensor_parallel_degree=args.tensor_parallel,
         adapter_name=getattr(args, 'adapter_name', None),
-        before_timestamp=_current_run_timestamp,
+        before_timestamp=None if _pinned else _current_run_timestamp,
+        max_model_len=getattr(args, 'max_model_len', None),
+        kv_cache_dtype=getattr(args, 'kv_cache_dtype', None),
+        pinned_job_name=_pinned,
     )
 
     if not all_records:
         result = {'status': 'no_baseline', 'has_baseline': False,
+                  'pinned_baseline': _pinned,
                   'thresholds_applied': thresholds, 'comparisons': []}
         _output(result)
         return
@@ -959,6 +1254,7 @@ def cmd_compare_baseline(args):
     result = {
         'status': 'regression' if has_regression else 'pass',
         'has_baseline': True,
+        'pinned_baseline': _pinned,
         'most_recent_job': most_recent.get('benchmark_job_name', ''),
         'most_recent_timestamp': most_recent.get('run_timestamp', ''),
         'run_count': run_count,
@@ -969,8 +1265,11 @@ def cmd_compare_baseline(args):
 
     if not args.json_output:
         # Header table: current vs most_recent with historical range
+        _pin_label = ' [pinned]' if _pinned else ''
         note = f' (1 run — no prior comparison)' if run_count == 1 else f' ({run_count} historical runs)'
-        print(f'\n📊 Performance Comparison vs. Historical Best{note}\n')
+        print(f'\n📊 Performance Comparison vs. Historical Best{_pin_label}{note}\n')
+        if _pinned:
+            print(f'   Pinned baseline: {_pinned}\n')
 
         # Primary comparison table
         header = f'  {"METRIC":<30} {"CURRENT":>10} {"MOST RECENT":>12} {"DELTA":>8}  {"AVG":>10} {"MIN":>10} {"MAX":>10}  {"STATUS"}'
@@ -1022,12 +1321,18 @@ def cmd_compare_baseline(args):
             for r in result['efficiency']:
                 ts = str(r.get('run_timestamp', ''))[:19].replace('T', ' ')
                 src = str(r.get('metrics_source', ''))[:16]
+                row_source = str(r.get('metrics_source', 'none') or 'none').strip().lower()
 
-                def _f(v):
+                def _f(v, column=None):
+                    # Structurally not-applicable for this row's target → "N/A".
+                    if column is not None and _is_na_efficiency_column(column, row_source):
+                        return 'N/A'
                     return '—' if v is None else str(round(v, 3))
-                print(f'  {ts:<22} {src:<16} {_f(r.get("gpu_utilization_avg")):>10} '
-                      f'{_f(r.get("kv_cache_util_avg")):>10} {_f(r.get("prefix_cache_hit_rate")):>11} '
-                      f'{_f(r.get("queue_depth_waiting_avg")):>8}')
+                print(f'  {ts:<22} {src:<16} '
+                      f'{_f(r.get("gpu_utilization_avg"), "gpu_utilization_avg"):>10} '
+                      f'{_f(r.get("kv_cache_util_avg"), "kv_cache_util_avg"):>10} '
+                      f'{_f(r.get("prefix_cache_hit_rate"), "prefix_cache_hit_rate"):>11} '
+                      f'{_f(r.get("queue_depth_waiting_avg"), "queue_depth_waiting_avg"):>8}')
             print(eff_sep)
 
         # Summary
@@ -1115,6 +1420,222 @@ def _parse_local_results(results_file: str) -> dict:
 # ── Subcommand: bedrock-interpret (direct invocation) ─────────────────────────
 
 
+def _resolve_peak_metric(name: str) -> str:
+    """Resolve a --peak/--metric alias to a full metric name.
+
+    Accepts the documented aliases (throughput/ttft/itl/latency/cost) and full
+    metric names. Rejects anything else with a clear error (never silently
+    falls back to the default) per Req 4.4.
+    """
+    if not name:
+        return 'output_token_throughput_tps'
+    resolved = METRIC_ALIASES.get(name, name)
+    if resolved not in METRIC_DIRECTION:
+        valid = ', '.join(sorted(METRIC_ALIASES.keys()))
+        _error_exit(
+            f"Unrecognized metric: {name!r}. Valid aliases: {valid} "
+            f"(or a full metric name)."
+        )
+    return resolved
+
+
+def cmd_peak(args):
+    """Show the best historical record for the current Serving_Config_Key
+    on a workload, and compare the most-recent run to that peak (BL101)."""
+    metric = _resolve_peak_metric(getattr(args, 'metric', None))
+
+    engine = AthenaQueryEngine(
+        glue_database=args.glue_database,
+        glue_table=args.glue_table,
+        bucket=args.bucket,
+        region=args.region,
+    )
+
+    records = engine.query_peak(
+        model_name=args.model_name,
+        instance_type=args.instance_type,
+        quantization=args.quantization,
+        tensor_parallel_degree=args.tensor_parallel,
+        metric=metric,
+        workload=getattr(args, 'workload', None) or None,
+        max_model_len=getattr(args, 'max_model_len', None),
+        kv_cache_dtype=getattr(args, 'kv_cache_dtype', None),
+    )
+
+    if not records:
+        result = {'status': 'no_results', 'metric': metric, 'peak': None}
+        if getattr(args, 'json_output', False):
+            _output(result)
+        print(f"\nℹ️  No historical records found for this configuration"
+              f"{(' on workload ' + args.workload) if getattr(args, 'workload', None) else ''}.")
+        sys.exit(0)
+
+    peak = records[0]
+    # Most recent run = record with the max run_timestamp among the set.
+    most_recent = max(records, key=lambda r: str(r.get('run_timestamp', '')))
+
+    def _fnum(v):
+        try:
+            return float(v) if v not in (None, '') else None
+        except (ValueError, TypeError):
+            return None
+
+    peak_val = _fnum(peak.get(metric))
+    recent_val = _fnum(most_recent.get(metric))
+    delta_pct = None
+    if peak_val is not None and recent_val is not None and peak_val != 0:
+        delta_pct = round(((recent_val - peak_val) / abs(peak_val)) * 100, 1)
+
+    result = {
+        'status': 'ok',
+        'metric': metric,
+        'peak': {
+            'value': round(peak_val, 2) if peak_val is not None else None,
+            'run_timestamp': peak.get('run_timestamp', ''),
+            'benchmark_job_name': peak.get('benchmark_job_name', ''),
+            'workload': peak.get('workload', ''),
+            'deployment_target': peak.get('deployment_target', ''),
+        },
+        'most_recent': {
+            'value': round(recent_val, 2) if recent_val is not None else None,
+            'run_timestamp': most_recent.get('run_timestamp', ''),
+            'benchmark_job_name': most_recent.get('benchmark_job_name', ''),
+        },
+        'delta_from_peak_pct': delta_pct,
+    }
+
+    if getattr(args, 'json_output', False):
+        _output(result)
+
+    label = metric_aliases_reverse.get(metric, metric)
+    print(f'\n🏔️  Peak {label} for this configuration\n')
+    print(f'   Best value:   {result["peak"]["value"]}')
+    print(f'   When:         {str(peak.get("run_timestamp", ""))[:19].replace("T", " ")}')
+    print(f'   Job:          {peak.get("benchmark_job_name", "")}')
+    if peak.get('workload'):
+        print(f'   Workload:     {peak.get("workload")}')
+    if peak.get('deployment_target'):
+        print(f'   Target:       {peak.get("deployment_target")}')
+    if delta_pct is not None:
+        arrow = '↑' if delta_pct > 0 else ('↓' if delta_pct < 0 else '=')
+        print(f'\n   Most recent:  {result["most_recent"]["value"]} '
+              f'({arrow} {abs(delta_pct)}% vs peak)')
+    print()
+    sys.exit(0)
+
+
+def cmd_list(args):
+    """List all benchmark runs for a model across configs / workloads / targets,
+    grouped by Serving_Config_Key (BL101 --list)."""
+    sort_metric = _resolve_peak_metric(getattr(args, 'sort', None) or 'output_token_throughput_tps')
+
+    engine = AthenaQueryEngine(
+        glue_database=args.glue_database,
+        glue_table=args.glue_table,
+        bucket=args.bucket,
+        region=args.region,
+    )
+
+    records = engine.query_list(
+        model_name=getattr(args, 'model', None) or None,
+        model_family=getattr(args, 'model_family', None) or None,
+        workload=getattr(args, 'workload', None) or None,
+        sort_metric=sort_metric,
+        limit=getattr(args, 'limit', 100) or 100,
+    )
+
+    if not records:
+        if getattr(args, 'json_output', False):
+            _output({'status': 'no_results', 'groups': []})
+        print('\nℹ️  No benchmark records found matching the given filters.')
+        sys.exit(0)
+
+    # Apply client-side filters (--min-tp, --quantization, --max-model-len, --kv-cache-dtype, --exclude-instance)
+    min_tp = getattr(args, 'min_tp', None)
+    filter_quant = getattr(args, 'filter_quantization', None)
+    filter_max_len = getattr(args, 'filter_max_model_len', None)
+    filter_kv = getattr(args, 'filter_kv_cache_dtype', None)
+    _excl_raw = getattr(args, 'exclude_instances', '') or ''
+    exclude_instances = {x.strip() for x in _excl_raw.split(',') if x.strip()}
+    _incl_raw = getattr(args, 'include_instances', '') or ''
+    include_instances = {x.strip() for x in _incl_raw.split(',') if x.strip()}
+
+    def _passes_filters(r):
+        if min_tp is not None and (r.get('tensor_parallel_degree') or 1) < min_tp:
+            return False
+        if filter_quant is not None and str(r.get('quantization', 'none')) != filter_quant:
+            return False
+        if filter_max_len is not None:
+            rl = r.get('max_model_len')
+            if rl is None or int(rl) != filter_max_len:
+                return False
+        if filter_kv is not None and str(r.get('kv_cache_dtype', 'auto')) != filter_kv:
+            return False
+        if r.get('instance_type') in exclude_instances:
+            return False
+        if include_instances and r.get('instance_type') not in include_instances:
+            return False
+        return True
+
+    records = [r for r in records if _passes_filters(r)]
+
+    if not records:
+        if getattr(args, 'json_output', False):
+            _output({'status': 'no_results', 'groups': []})
+        print('\nℹ️  No benchmark records match the given filters.')
+        sys.exit(0)
+
+    # Group by Serving_Config_Key
+    def _key(r):
+        return (
+            r.get('model_name', ''), r.get('instance_type', ''),
+            str(r.get('quantization', 'none')), str(r.get('tensor_parallel_degree', '')),
+            str(r.get('max_model_len', '')), str(r.get('kv_cache_dtype', 'auto')),
+            r.get('deployment_target', ''),
+        )
+
+    groups: dict = {}
+    for r in records:
+        groups.setdefault(_key(r), []).append(r)
+
+    if getattr(args, 'json_output', False):
+        out_groups = []
+        for k, rows in groups.items():
+            out_groups.append({
+                'config': {
+                    'model_name': k[0], 'instance_type': k[1], 'quantization': k[2],
+                    'tensor_parallel_degree': k[3], 'max_model_len': k[4],
+                    'kv_cache_dtype': k[5], 'deployment_target': k[6],
+                },
+                'runs': rows,
+            })
+        _output({'status': 'ok', 'sort_metric': sort_metric, 'groups': out_groups})
+
+    print(f'\n📋 Benchmark runs (sorted by {metric_aliases_reverse.get(sort_metric, sort_metric)})\n')
+    for k, rows in groups.items():
+        print(f'  ▸ {k[0]}  |  {k[1]}  |  quant={k[2]}  tp={k[3]}  '
+              f'max_len={k[4] or "—"}  kv={k[5]}  target={k[6]}')
+        rh = (f'    {"WORKLOAD":<20} {"CONC":>5} {"TPUT":>9} {"TTFT_P90":>9} '
+              f'{"ITL_P90":>9} {"E2E_P90":>9} {"ADAPTER":<16} {"TIMESTAMP":<20}')
+        print(rh)
+        for r in rows:
+            def _r(v):
+                try:
+                    return str(round(float(v), 1)) if v not in (None, '') else '—'
+                except (ValueError, TypeError):
+                    return '—'
+            print(f'    {str(r.get("workload", ""))[:20]:<20} '
+                  f'{str(r.get("concurrency", "")):>5} '
+                  f'{_r(r.get("output_token_throughput_tps")):>9} '
+                  f'{_r(r.get("ttft_p90_ms")):>9} '
+                  f'{_r(r.get("itl_p90_ms")):>9} '
+                  f'{_r(r.get("e2e_latency_p90_ms")):>9} '
+                  f'{str(r.get("adapter_name", "") or "base")[:16]:<16} '
+                  f'{str(r.get("run_timestamp", ""))[:19].replace("T", " "):<20}')
+        print()
+    sys.exit(0)
+
+
 def cmd_bedrock_interpret(args):
     """Direct bedrock interpretation invocation."""
     try:
@@ -1167,6 +1688,12 @@ def main():
     p_compare.add_argument('--instance-type', required=True)
     p_compare.add_argument('--quantization', default='bf16')
     p_compare.add_argument('--tensor-parallel', type=int, default=1)
+    p_compare.add_argument('--max-model-len', type=int, default=None,
+                           help='BL101: conditionally added to the key when > 0')
+    p_compare.add_argument('--kv-cache-dtype', default=None,
+                           help='BL101: conditionally added to the key when non-empty/non-auto')
+    p_compare.add_argument('--pinned-baseline', default=None,
+                           help='BL101: pin comparison to a specific benchmark job name')
     p_compare.add_argument('--bucket', required=True)
     p_compare.add_argument('--glue-database', default='mlcc_ci')
     p_compare.add_argument('--glue-table', default='benchmark_results')
@@ -1177,6 +1704,52 @@ def main():
                            help='Filter baseline to this adapter name (empty string = base model only)')
     p_compare.add_argument('--json', dest='json_output', action='store_true', default=False)
     p_compare.set_defaults(func=cmd_compare_baseline)
+
+    # ── peak (BL101) ──────────────────────────────────────────────────────────
+    p_peak = subparsers.add_parser('peak',
+                                   help='Show best historical record for the current config')
+    p_peak.add_argument('--model-name', required=True)
+    p_peak.add_argument('--instance-type', required=True)
+    p_peak.add_argument('--quantization', default='none')
+    p_peak.add_argument('--tensor-parallel', type=int, default=1)
+    p_peak.add_argument('--max-model-len', type=int, default=None)
+    p_peak.add_argument('--kv-cache-dtype', default=None)
+    p_peak.add_argument('--workload', default=None)
+    p_peak.add_argument('--metric', default='output_token_throughput_tps')
+    p_peak.add_argument('--bucket', required=True)
+    p_peak.add_argument('--glue-database', default='mlcc_ci')
+    p_peak.add_argument('--glue-table', default='benchmark_results')
+    p_peak.add_argument('--region', default='us-east-1')
+    p_peak.add_argument('--json', dest='json_output', action='store_true', default=False)
+    p_peak.set_defaults(func=cmd_peak)
+
+    # ── list (BL101) ──────────────────────────────────────────────────────────
+    p_list = subparsers.add_parser('list',
+                                   help='List all benchmark runs grouped by config key')
+    p_list.add_argument('--model', default=None,
+                        help='Exact model name or family prefix (e.g. llama-3.1)')
+    p_list.add_argument('--model-family', dest='model_family', default=None,
+                        help='Optional pre-derived model family for prefix matching')
+    p_list.add_argument('--workload', default=None)
+    p_list.add_argument('--sort', default='output_token_throughput_tps')
+    p_list.add_argument('--limit', type=int, default=100)
+    p_list.add_argument('--min-tp', dest='min_tp', type=int, default=None,
+                        help='Minimum tensor parallel degree')
+    p_list.add_argument('--quantization', dest='filter_quantization', default=None)
+    p_list.add_argument('--max-model-len', dest='filter_max_model_len', type=int, default=None)
+    p_list.add_argument('--kv-cache-dtype', dest='filter_kv_cache_dtype', default=None)
+    p_list.add_argument('--exclude-instance', dest='exclude_instances', default='',
+                        metavar='INSTANCES',
+                        help='Comma-separated instance types to exclude (e.g. ml.m5.large,ml.g6.2xlarge)')
+    p_list.add_argument('--include-instance', dest='include_instances', default='',
+                        metavar='INSTANCES',
+                        help='Comma-separated instance types to include (whitelist)')
+    p_list.add_argument('--bucket', required=True)
+    p_list.add_argument('--glue-database', default='mlcc_ci')
+    p_list.add_argument('--glue-table', default='benchmark_results')
+    p_list.add_argument('--region', default='us-east-1')
+    p_list.add_argument('--json', dest='json_output', action='store_true', default=False)
+    p_list.set_defaults(func=cmd_list)
 
     # ── bedrock-interpret ─────────────────────────────────────────────────────
     p_bedrock = subparsers.add_parser('bedrock-interpret',

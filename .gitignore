@@ -39,3 +39,7 @@ cdk.out/
 infra/bootstrap-modules/.hyperpod-helm-cache/
 
 .mlcc
+# Release-process scratch docs (internal; not versioned or published)
+docs/dev/*-pr-summary.md
+docs/dev/*-pr-description.md
+docs/dev/v*-release-notes.md

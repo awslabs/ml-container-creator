@@ -271,13 +271,13 @@ def _validate_dataset_columns(first_record, technique, column_map_str, dataset_i
         lines.append(f"")
         lines.append(f"   \U0001f4a1 Suggested fix:")
         take_suffix = f" --take {take}" if take else ""
-        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {suggestion}{take_suffix}")
+        lines.append(f"      ./do/register dataset <name> --hf-id {dataset_id} --column-map {suggestion} --technique {technique}{take_suffix}")
     else:
         lines.append(f"")
         lines.append(f"   \U0001f4a1 Use --column-map to rename columns:")
         example_map = ",".join(f"{r}=<your_column>" for r in missing)
         take_suffix = f" --take {take}" if take else ""
-        lines.append(f"      ./do/tune --technique {technique} --dataset hf://{dataset_id} --column-map {example_map}{take_suffix}")
+        lines.append(f"      ./do/register dataset <name> --hf-id {dataset_id} --column-map {example_map} --technique {technique}{take_suffix}")
 
     lines.append(f"")
     lines.append(f"   First record sample:")

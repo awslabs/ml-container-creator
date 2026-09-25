@@ -1,0 +1,335 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# do/draft — Configure speculative decoding draft model for the current deployment.
+#
+# @mlcc-script
+# type: deployment-centric
+# guard: deployment-active
+# lifecycle: post-deploy
+# targets: hyperpod-eks
+
+# Usage:
+#   ./do/draft set <hf-id> [--algorithm eagle3|eagle2|eagle|draft-model|ngram|mtp] [--num-tokens N]
+#   ./do/draft remove
+#   ./do/draft status
+#   ./do/draft --help
+#
+# NOTE: Speculative decoding on realtime-inference is configured via:
+#   ./do/optimize --apply <arn>   (maps SpeculativeDecodingConfig → HP_SPECULATIVE_*)
+# This script manages the HyperPod EKS speculative decoding config only.
+
+set -e
+set -u
+set -o pipefail
+
+# ── Source project configuration ──────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/script-contract.sh"
+source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
+
+# ── Target guard ──────────────────────────────────────────────────────────────
+if [ "${DEPLOYMENT_TARGET:-}" != "hyperpod-eks" ]; then
+    echo "❌ do/draft is only supported on DEPLOYMENT_TARGET=hyperpod-eks."
+    echo "   For realtime-inference speculative decoding, use:"
+    echo "     ./do/optimize --apply <arn>   (maps SpeculativeDecodingConfig → HP_SPECULATIVE_*)"
+    exit 1
+fi
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+_update_draft_var() {
+    local key="$1" val="$2"
+    local cfg="${SCRIPT_DIR}/config"
+    if grep -q "^export ${key}=" "${cfg}" 2>/dev/null; then
+        python3 - <<EOF
+import re, sys
+cfg = open("${cfg}").read()
+cfg = re.sub(r'^export ${key}=.*$', 'export ${key}="${val}"', cfg, flags=re.MULTILINE)
+open("${cfg}", 'w').write(cfg)
+EOF
+    else
+        echo "export ${key}=\"${val}\"" >> "${cfg}"
+    fi
+}
+
+_clear_draft_var() {
+    local key="$1"
+    local cfg="${SCRIPT_DIR}/config"
+    python3 - <<EOF
+import re
+cfg = open("${cfg}").read()
+cfg = re.sub(r'^export ${key}=.*\n?', '', cfg, flags=re.MULTILINE)
+open("${cfg}", 'w').write(cfg)
+EOF
+}
+
+# ── Parse subcommand ──────────────────────────────────────────────────────────
+CMD="${1:-}"
+shift || true
+
+case "${CMD}" in
+    --help|-h|"")
+        echo "Usage: ./do/draft <command> [options]"
+        echo ""
+        echo "Commands:"
+        echo "  set <hf-id>   Configure a speculative decoding draft model"
+        echo "  remove        Clear speculative decoding configuration"
+        echo "  status        Show current draft model configuration"
+        echo "  list          Browse catalog of known draft models (--limit N, default 20)"
+        echo ""
+        echo "Options for 'set':"
+        echo "  --algorithm <alg>   Speculative algorithm (default: eagle3)"
+        echo "                      vLLM:   eagle3, eagle2, eagle, draft-model, ngram, mtp"
+        echo "                      SGLang: eagle3, eagle2, eagle, draft-model, ngram, mtp"
+        echo "  --num-tokens <N>    Speculative tokens per step (default: 5)"
+        echo "  --draft-tp <N>      Tensor-parallel degree for draft model (optional)"
+        echo "  --eagle-topk <N>    EAGLE top-k candidates (SGLang only, optional)"
+        echo "  --deploy            Redeploy immediately after updating config"
+        echo ""
+        echo "Prerequisites:"
+        echo "  - DEPLOYMENT_TARGET=hyperpod-eks (HyperPod only)"
+        echo "  - HF model ID only — s3:// draft URIs are not supported"
+        echo "  - A redeploy is required after 'set' or 'remove': ./do/deploy"
+        echo ""
+        echo "Examples:"
+        echo "  ./do/draft set thoughtworks/Llama-3.1-8B-Instruct-Eagle3"
+        echo "  ./do/draft set thoughtworks/Llama-3.1-8B-Instruct-Eagle3 --num-tokens 3"
+        echo "  ./do/draft set meta-llama/Llama-3.1-8B-Eagle3 --algorithm eagle3 --num-tokens 5"
+        echo "  ./do/draft status"
+        echo "  ./do/draft remove"
+        exit 0
+        ;;
+
+    set)
+        DRAFT_HF_ID="${1:-}"
+        shift || true
+
+        if [ -z "${DRAFT_HF_ID}" ]; then
+            echo "❌ Missing draft model HF ID."
+            echo "   Usage: ./do/draft set <hf-id> [--algorithm eagle3] [--num-tokens 5]"
+            exit 1
+        fi
+
+        # Guard: no s3:// URIs (not supported in phase 1)
+        if [[ "${DRAFT_HF_ID}" == s3://* ]]; then
+            echo "❌ S3 URIs are not supported for draft models."
+            echo "   Provide a HuggingFace model ID, e.g.:"
+            echo "     ./do/draft set thoughtworks/Llama-3.1-8B-Instruct-Eagle3"
+            exit 1
+        fi
+
+        # Guard: engine must support speculative decoding
+        case "${MODEL_SERVER:-vllm}" in
+            vllm|sglang)
+                # Supported — continue
+                ;;
+            lmi)
+                echo "⚠️  LMI speculative decoding support is limited."
+                echo "   LMI uses serving.properties (option.speculative_draft_model),"
+                echo "   not the HP_SPECULATIVE_* env vars written by this command."
+                echo "   Set manually in do/ic/default.conf or use do/deploy --env."
+                echo ""
+                echo "   Proceed anyway? [y/N] "
+                read -r _CONFIRM
+                [[ "${_CONFIRM:-N}" =~ ^[Yy]$ ]] || exit 0
+                ;;
+            *)
+                echo "❌ MODEL_SERVER=${MODEL_SERVER:-<unset>} does not support speculative decoding."
+                echo "   Speculative decoding requires MODEL_SERVER=vllm or MODEL_SERVER=sglang."
+                exit 1
+                ;;
+        esac
+
+        # Guard: algorithm/engine compatibility
+        case "${MODEL_SERVER:-vllm}" in
+            sglang)
+                case "${DRAFT_ALGORITHM}" in
+                    ngram|medusa)
+                        echo "❌ Algorithm '${DRAFT_ALGORITHM}' is not supported by SGLang."
+                        echo "   SGLang supports: eagle3, eagle2, eagle, draft-model, mtp"
+                        exit 1
+                        ;;
+                esac
+                ;;
+            vllm)
+                # All algorithms supported by vLLM
+                ;;
+        esac
+
+        # Parse options
+        DRAFT_ALGORITHM="eagle3"
+        DRAFT_NUM_TOKENS="5"
+        DRAFT_TP=""
+        DRAFT_EAGLE_TOPK=""
+        DRAFT_AUTO_DEPLOY=false
+
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --algorithm) shift; DRAFT_ALGORITHM="${1:-eagle3}"; shift ;;
+                --num-tokens) shift; DRAFT_NUM_TOKENS="${1:-5}"; shift ;;
+                --draft-tp) shift; DRAFT_TP="${1:-}"; shift ;;
+                --eagle-topk) shift; DRAFT_EAGLE_TOPK="${1:-}"; shift ;;
+                --deploy) DRAFT_AUTO_DEPLOY=true; shift ;;
+                *) echo "❌ Unknown option: $1"; echo "   Run ./do/draft --help for usage."; exit 1 ;;
+            esac
+        done
+
+        # Validate algorithm
+        case "${DRAFT_ALGORITHM}" in
+            eagle3|eagle2|eagle|draft-model|ngram|mtp) ;;
+            *)
+                echo "❌ Unknown algorithm: ${DRAFT_ALGORITHM}"
+                echo "   Supported: eagle3, eagle2, eagle, draft-model, ngram, mtp"
+                exit 1
+                ;;
+        esac
+
+        # eagle3 guard: requires a draft model path
+        if [ "${DRAFT_ALGORITHM}" = "eagle3" ] && [ -z "${DRAFT_HF_ID}" ]; then
+            echo "❌ EAGLE3 requires a draft model path (--speculative-draft-model-path)."
+            echo "   Provide a HF model ID: ./do/draft set <hf-id> --algorithm eagle3"
+            exit 1
+        fi
+
+        echo "📝 Configuring speculative decoding in do/config..."
+        _update_draft_var "HP_SPECULATIVE_ALGORITHM" "${DRAFT_ALGORITHM}"
+        _update_draft_var "HP_SPECULATIVE_MODEL"     "${DRAFT_HF_ID}"
+        _update_draft_var "HP_SPECULATIVE_NUM_TOKENS" "${DRAFT_NUM_TOKENS}"
+        [ -n "${DRAFT_TP}" ]        && _update_draft_var "HP_SPECULATIVE_DRAFT_TP"    "${DRAFT_TP}"
+        [ -n "${DRAFT_EAGLE_TOPK}" ] && _update_draft_var "HP_SPECULATIVE_EAGLE_TOPK" "${DRAFT_EAGLE_TOPK}"
+
+        echo ""
+        echo "✅ Draft model configured:"
+        echo "   Algorithm  : ${DRAFT_ALGORITHM}"
+        echo "   Draft model: ${DRAFT_HF_ID}"
+        echo "   Num tokens : ${DRAFT_NUM_TOKENS}"
+        [ -n "${DRAFT_TP}" ]        && echo "   Draft TP   : ${DRAFT_TP}"
+        [ -n "${DRAFT_EAGLE_TOPK}" ] && echo "   Eagle top-k: ${DRAFT_EAGLE_TOPK}"
+        echo ""
+        if [ "${DRAFT_AUTO_DEPLOY}" = "true" ]; then
+            echo "🧹 Cleaning existing deployment to avoid GPU resource deadlock..."
+            "${SCRIPT_DIR}/clean" hyperpod --force 2>/dev/null || true
+            echo "🚀 Deploying with updated draft model config..."
+            echo ""
+            "${SCRIPT_DIR}/deploy"
+        else
+            echo "⚡ Redeploy to apply: ./do/deploy"
+            echo "   Or run in one step: ./do/draft set <hf-id> --deploy"
+            echo "   Then benchmark:     ./do/benchmark --workload sample"
+            echo "   Compare baseline:   ./do/benchmark --compare-baseline"
+        fi
+        ;;
+
+    remove)
+        echo "🗑️  Clearing speculative decoding configuration..."
+        _update_draft_var "HP_SPECULATIVE_ALGORITHM"          ""
+        _update_draft_var "HP_SPECULATIVE_MODEL"              ""
+        _update_draft_var "HP_SPECULATIVE_NUM_TOKENS"         "5"
+        _update_draft_var "HP_SPECULATIVE_DRAFT_TP"           ""
+        _update_draft_var "HP_SPECULATIVE_EAGLE_TOPK"         ""
+        _update_draft_var "HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE" ""
+        echo "✅ Speculative decoding disabled."
+        echo ""
+        echo "⚡ Redeploy to apply: ./do/deploy"
+        ;;
+
+    status)
+        source "${SCRIPT_DIR}/config"
+        echo "📋 Speculative decoding configuration"
+        echo ""
+        if [ -z "${HP_SPECULATIVE_ALGORITHM:-}" ] && [ -z "${HP_SPECULATIVE_MODEL:-}" ]; then
+            echo "   Status     : disabled (no draft model configured)"
+            echo ""
+            echo "   To enable:   ./do/draft set <hf-id> [--algorithm eagle3]"
+        else
+            echo "   Status     : configured (redeploy required to take effect)"
+            echo "   Algorithm  : ${HP_SPECULATIVE_ALGORITHM:-<not set>}"
+            echo "   Draft model: ${HP_SPECULATIVE_MODEL:-<not set>}"
+            echo "   Num tokens : ${HP_SPECULATIVE_NUM_TOKENS:-5}"
+            [ -n "${HP_SPECULATIVE_DRAFT_TP:-}" ]           && echo "   Draft TP   : ${HP_SPECULATIVE_DRAFT_TP}"
+            [ -n "${HP_SPECULATIVE_EAGLE_TOPK:-}" ]         && echo "   Eagle top-k: ${HP_SPECULATIVE_EAGLE_TOPK}"
+            [ -n "${HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE:-}" ] && echo "   Disable at batch: ${HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE}"
+            echo ""
+            echo "   Target     : ${DEPLOYMENT_TARGET:-hyperpod-eks}"
+            echo "   Cluster    : ${HP_CLUSTER_NAME:-<not set>}"
+        fi
+        echo ""
+        ;;
+
+    list)
+        # Find the catalog — prefer .mlcc/ copy (project-local), fall back to source tree
+        _CATALOG=""
+        for _p in             "${SCRIPT_DIR}/../.mlcc/draft-models.json"             "${SCRIPT_DIR}/lib/catalogs/draft-models.json"; do
+            [ -f "${_p}" ] && { _CATALOG="${_p}"; break; }
+        done
+
+        if [ -z "${_CATALOG}" ]; then
+            echo "❌ Draft model catalog not found."
+            echo "   Run 'mcc regenerate' to copy it, or check .mlcc/draft-models.json"
+            exit 1
+        fi
+
+        # Optional filter: --target <hf-model-id> or --algorithm <alg>
+        _FILTER_TARGET=""
+        _FILTER_ALG=""
+        _LIMIT=20
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --target)    shift; _FILTER_TARGET="${1:-}"; shift ;;
+                --algorithm) shift; _FILTER_ALG="${1:-}"; shift ;;
+                --limit)     shift; _LIMIT="${1:-20}"; shift ;;
+                *) echo "❌ Unknown option: $1"; exit 1 ;;
+            esac
+        done
+
+        python3 - "${_CATALOG}" "${_FILTER_TARGET}" "${_FILTER_ALG}" "${_LIMIT}" <<'PYEOF'
+import json, sys, os
+
+catalog_path = sys.argv[1]
+filter_target = sys.argv[2] if len(sys.argv) > 2 else ""
+filter_alg    = sys.argv[3] if len(sys.argv) > 3 else ""
+limit         = int(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4].isdigit() else 20
+
+with open(catalog_path) as f:
+    catalog = json.load(f)
+
+entries = [
+    (hf_id, meta) for hf_id, meta in catalog.items()
+    if (not filter_target or filter_target.lower() in meta.get("target_model","").lower())
+    and (not filter_alg or meta.get("algorithm","").lower() == filter_alg.lower())
+]
+
+if not entries:
+    print("  No draft models found matching the filter.")
+    sys.exit(0)
+
+total = len(entries)
+entries = entries[:limit]
+truncated = total > limit
+label = f"{len(entries)} of {total}" if truncated else str(total)
+print(f"\n📚 Known draft models ({label} shown)\n")
+print(f"  {'HF MODEL ID':<55} {'ALGORITHM':<12} {'TARGET MODEL':<45} ENGINES")
+print(f"  {'-'*55} {'-'*12} {'-'*45} {'-------'}")
+for hf_id, meta in sorted(entries, key=lambda x: x[1].get("algorithm","") + x[0]):
+    engines = "+".join(meta.get("engine_support", []))
+    print(f"  {hf_id:<55} {meta.get('algorithm',''):<12} {meta.get('target_model',''):<45} {engines}")
+    if meta.get("notes"):
+        print(f"  {'':>4}↳ {meta['notes']}")
+if truncated:
+    print(f"  ... {total - limit} more (use --limit {total} to see all)")
+print()
+print("  To use:  ./do/draft set <hf-id>")
+print("  Filter:  ./do/draft list --target meta-llama/Llama-3.1-8B-Instruct")
+print("  Limit:   ./do/draft list --limit 50")
+print()
+PYEOF
+        ;;
+
+    *)
+        echo "❌ Unknown command: ${CMD}"
+        echo "   Run ./do/draft --help for usage."
+        exit 1
+        ;;
+esac

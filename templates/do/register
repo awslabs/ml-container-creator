@@ -86,6 +86,8 @@ _show_usage() {
     echo "  --force             Overwrite / register a new version even if already registered"
     echo ""
     echo "  Dataset management (no source required):"
+    echo "  --list [--source local|remote|all]"
+    echo "                           List registered datasets (default: all). --json for scripting."
     echo "  --list-versions <name>   List all registered versions of a dataset from the S3"
     echo "                           sidecar (human-readable; add --json for scripting)."
     echo "  --discover <org/name>    Browse a HuggingFace dataset (splits, files, row counts,"
@@ -109,6 +111,18 @@ _show_usage() {
     echo "  --status <s>        Deployment status: success|partial|failed (default: success)"
     echo "  --json              Output JSON"
     echo "  --ci                CI mode (writes to DynamoDB)"
+    echo ""
+    echo "Prerequisites:"
+    echo "  • AWS credentials configured"
+    echo "  • Bootstrap provisioned (provides mlcc-core S3 bucket for dataset canonical location)"
+    echo "  • For --hf-id: HF_TOKEN_ARN set in do/config (required for gated models)"
+    echo ""
+    echo "Typical dataset workflow:"
+    echo "  ./do/register dataset --discover timdettmers/openassistant-guanaco  # Browse first"
+    echo "  ./do/register dataset guanaco --hf-id timdettmers/openassistant-guanaco --technique sft"
+    echo "  ./do/register dataset --list                                          # Confirm registered"
+    echo "  ./do/tune --technique sft --dataset guanaco                           # Use in tuning"
+    echo "  ./do/optimize --goal throughput --dataset guanaco                     # Use in optimization"
     echo ""
     echo "Examples:"
     echo "  ./do/register                              # Register model (default)"
@@ -828,10 +842,18 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
         fi
 
         # Build stage-hf arguments (same helper + flags as do/tune).
+        # BL099: pin the staged output to the canonical, project-independent
+        # location on the mlcc-core bucket:
+        #   s3://<CORE_BUCKET>/datasets/<name>/
+        # --output-bucket is CORE_BUCKET (mlcc-core), NOT the CI source bucket, and
+        # --output-prefix omits the project-name prefix so the dataset is a shared,
+        # cross-project cache keyed by the registered dataset <name> (not org/name).
+        # This matches the sidecar location datasets/<name>/_dataset.json.
         stage_args=(
             --hf-org "${_hf_org}"
             --hf-name "${_hf_name}"
             --output-bucket "${CORE_BUCKET}"
+            --output-prefix "datasets/${DATASET_NAME}"
             --project-name "${PROJECT_NAME}"
             --region "${AWS_REGION}"
             --technique "${DATASET_TECHNIQUE}"

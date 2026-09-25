@@ -240,14 +240,8 @@ while [ $# -gt 0 ]; do
             echo "  --status                Show deployment state for all targets and exit"
             echo "  --dry-run               Show resolved config and command without deploying"
             echo ""
-            echo "The --target flag overrides DEPLOYMENT_TARGET from do/config."
-            echo "If no target is configured and no --target flag is provided,"
-            echo "an interactive prompt flow guides deployment setup."
-            echo ""
-            echo "If all required flags for a target are provided, deploy proceeds"
-            echo "without interactive prompts (FR-3.2)."
-            echo ""
             echo "After a successful deploy, DEPLOYMENT_TARGET is written back to do/config."
+            echo "Re-run without --target to switch focus to a different active deployment."
             exit 0
             ;;
         *)
@@ -558,7 +552,19 @@ if [ -n "$FLAG_TARGET" ]; then
                 _update_config INSTANCE_TYPE "${HP_INSTANCE_TYPE:-}"
                 ;;
         esac
-        echo "Focused on $FLAG_TARGET"
+        # For hyperpod-eks: show a useful status summary before exiting
+        if [ "$FLAG_TARGET" = "hyperpod-eks" ]; then
+            echo "✅ Already deployed to HyperPod EKS"
+            echo "   Cluster:   ${HP_CLUSTER_NAME}"
+            echo "   Namespace: ${HP_NAMESPACE}"
+            echo "   Endpoint:  ${ENDPOINT_NAME:-<not yet registered>}"
+            echo "   Instance:  ${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-<unknown>}}"
+            echo ""
+            echo "   Run ./do/test to verify the endpoint is healthy."
+            echo "   Use --force to redeploy with updated configuration."
+        else
+            echo "Focused on $FLAG_TARGET"
+        fi
         exit 0
     fi
     # No existing deployment — fall through to deploy flow

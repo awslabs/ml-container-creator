@@ -37,6 +37,7 @@ All catalogs live in the centralized shared directory `servers/lib/catalogs/`. I
 | `triton.json` | `servers/lib/catalogs/` | Triton base images |
 | `triton-backends.json` | `servers/lib/catalogs/` | Triton backend configurations |
 | `regions.json` | `servers/lib/catalogs/` | AWS region availability |
+| `draft-models.json` | `servers/lib/catalogs/` | Speculative-decoding draft model catalog (keyed by HF model ID) |
 
 Each catalog has a corresponding JSON schema in `servers/lib/schemas/` that defines the required fields and value constraints.
 
@@ -111,6 +112,103 @@ The `supportedModelTypes` field is optional. When it's absent or an empty array,
 - `registry sync-architectures` has not been run
 - The server entry doesn't have a matching source configuration
 - The fetch for a specific version failed (network error, tag not found)
+
+## Draft Model Catalog (`draft-models.json`)
+
+The `draft-models.json` catalog lists known speculative-decoding draft models for the
+HyperPod EKS deployment target. Unlike the registries above, it is **not** loaded by
+`RegistryLoader` into an internal registry — it is a runtime lookup catalog consumed by
+the [`draft-model-picker` MCP server](mcp-server-development.md#draft-model-picker-tools)
+and by the `do/draft list` command.
+
+### Location
+
+| File | Location |
+|------|----------|
+| Source catalog | `servers/lib/catalogs/draft-models.json` |
+| Schema | `servers/lib/schemas/draft-models.schema.json` |
+| Project-local copy | `<project>/.mlcc/draft-models.json` (written at `mcc generate` time) |
+
+### Schema
+
+The catalog is a flat object keyed by the draft model's HuggingFace model ID. Each entry
+is validated against `servers/lib/schemas/draft-models.schema.json`:
+
+| Field | Type | Required | Description |
+|-------|------|:---:|-------------|
+| *(key)* | string | yes | HuggingFace model ID of the draft model (e.g. `nvidia/Llama-3.1-8B-Instruct-Eagle3`) |
+| `algorithm` | enum | yes | One of `eagle3`, `eagle2`, `eagle`, `draft-model`, `ngram`, `mtp` |
+| `target_model` | string | yes | HF ID of the target model this draft is built for |
+| `target_arch` | string | yes | Target model architecture class (e.g. `LlamaForCausalLM`) |
+| `engine_support` | string[] | yes | Serving engines that support it — any of `vllm`, `sglang`, `lmi` (min 1 item) |
+| `min_vllm_version` | string | — | Minimum vLLM version required |
+| `min_sglang_version` | string | — | Minimum SGLang version required |
+| `notes` | string | — | Free-form note surfaced by `do/draft list` |
+
+`additionalProperties` is `false` at the entry level — unknown fields fail schema
+validation.
+
+### Example Entry
+
+```json
+{
+  "thoughtworks/Llama-3.1-8B-Instruct-Eagle3": {
+    "algorithm": "eagle3",
+    "target_model": "meta-llama/Llama-3.1-8B-Instruct",
+    "target_arch": "LlamaForCausalLM",
+    "engine_support": ["vllm", "sglang"],
+    "min_vllm_version": "0.6.0",
+    "min_sglang_version": "0.4.0",
+    "notes": "Validated by Thoughtworks; 2-3x throughput on MT-Bench workloads"
+  }
+}
+```
+
+### Adding a New Entry
+
+1. Look up the draft model on HuggingFace and confirm its **target model** and
+   **architecture** (`architectures[0]` in the target's `config.json`).
+2. Add a new top-level key (the draft model's HF ID) to
+   `servers/lib/catalogs/draft-models.json` with the required fields above. Set
+   `engine_support` to the engines you have verified — remember `ngram`/`medusa` are
+   vLLM-only, so an `ngram` entry must not list `sglang`.
+3. Validate against the schema:
+
+   ```bash
+   node scripts/validate-catalogs.js
+   ```
+
+4. Regenerate any test project so the new entry is copied into `.mlcc/` (see below), then
+   confirm it appears:
+
+   ```bash
+   ./do/draft list --target <target-model>
+   ```
+
+No merge/build step is needed — the catalog is read as-is by both the MCP server and
+`do/draft`.
+
+### Copy-to-`.mlcc` Mechanism
+
+`draft-models.json` is copied into each generated project so `do/draft list` can read it
+without the MLCC source tree. During generation, `_writeGenerationParams()` in
+`src/app.js` copies the catalog from the generator into the project's `.mlcc/` directory
+(alongside `instances.json`):
+
+```javascript
+// Copy draft-models catalog for do/draft list
+const draftCatalogSrc  = path.join(__dirname, '../servers/lib/catalogs/draft-models.json');
+const draftCatalogDest = path.join(destDir, '.mlcc', 'draft-models.json');
+if (fs.existsSync(draftCatalogSrc)) {
+    fs.copyFileSync(draftCatalogSrc, draftCatalogDest);
+}
+```
+
+The copy is best-effort (wrapped in a `try`/`catch`; a failure is non-fatal). At runtime,
+`do/draft list` prefers the project-local `.mlcc/draft-models.json` and falls back to the
+source-tree `servers/lib/catalogs/draft-models.json` if the copy is absent. Because the
+`.mlcc/` directory is `.gitignore`d and only refreshed at generation time, editing the
+source catalog does **not** update existing projects until you run `mcc regenerate`.
 
 ## Contributing Data
 

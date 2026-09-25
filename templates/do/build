@@ -24,6 +24,30 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
 
+# ── Help ─────────────────────────────────────────────────────────────────────
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            echo "Usage: ./do/build"
+            echo ""
+            echo "Build the Docker container image locally using the project Dockerfile."
+            echo ""
+            echo "Preferred for: local testing and development. For production builds,"
+            echo "use ./do/submit (CodeBuild) to avoid architecture mismatches and"
+            echo "benefit from faster ECR network access."
+            echo ""
+            echo "Prerequisites:"
+            echo "  • Docker installed and running  (https://docs.docker.com/get-docker/)"
+            echo "  • AWS credentials configured"
+            echo ""
+            echo "After building:"
+            echo "  ./do/push      Push the image to Amazon ECR"
+            echo "  ./do/run       Run the container locally on port 8080"
+            exit 0
+            ;;
+    esac
+done
+
 echo "🚀 Building Docker image for ${PROJECT_NAME}"
 echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
 echo "   Framework: ${FRAMEWORK}"

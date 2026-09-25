@@ -133,9 +133,14 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
 
         # Get kubeconfig for HyperPod cluster
         KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME}"
+
+        local _profile_arg=""
+        [ -n "${_PROFILE_awsProfile:-}" ] && _profile_arg="--profile ${_PROFILE_awsProfile}"
+
         EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
             --cluster-name "${HP_CLUSTER_NAME}" \
             --region "${AWS_REGION}" \
+            ${_profile_arg} \
             --query "Orchestrator.Eks.ClusterArn" \
             --output text 2>&1) || {
             echo "❌ Failed to describe HyperPod cluster: ${HP_CLUSTER_NAME}"
@@ -145,6 +150,7 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
         if ! aws eks update-kubeconfig \
             --name "${EKS_CLUSTER_NAME}" \
             --region "${AWS_REGION}" \
+            ${_profile_arg} \
             --kubeconfig "${KUBECONFIG_PATH}" &>/dev/null; then
             echo "❌ Failed to configure kubectl for cluster: ${EKS_CLUSTER_NAME}"
             exit 4

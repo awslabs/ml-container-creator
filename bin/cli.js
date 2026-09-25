@@ -179,6 +179,26 @@ program.configureHelp({
         }
 
         // Option sections
+        // Quick-start summary (shown before the option wall)
+        output = output.concat([
+            helper.styleTitle('Quick start:'),
+            '  # 1. Generate a project',
+            '  ml-container-creator my-project --model-name meta-llama/Llama-3.1-8B-Instruct',
+            '',
+            '  # 2. Build & push the container image',
+            '  cd my-project && ./do/submit     # CodeBuild (recommended)',
+            '  # or: ./do/build && ./do/push    # local Docker',
+            '',
+            '  # 3. Deploy and test',
+            '  ./do/deploy && ./do/test',
+            '',
+            '  # 4. Benchmark performance',
+            '  ./do/benchmark --workload multi_turn_chat',
+            '',
+            helper.styleTitle('All generation options:'),
+            ''
+        ]);
+
         output = output.concat(formatSection('General', groups.general));
         output = output.concat(formatSection('Model & Framework', groups.model));
         output = output.concat(formatSection('Build & Infrastructure', groups.infra));

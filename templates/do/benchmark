@@ -20,7 +20,12 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Check for --json or --compare-baseline flag early — suppress config output for structured output modes
 _BENCHMARK_JSON_MODE=false
-for _arg in "$@"; do [ "$_arg" = "--json" ] || [ "$_arg" = "--compare-baseline" ] && _BENCHMARK_JSON_MODE=true && break; done
+for _arg in "$@"; do
+    case "$_arg" in
+        --json|--compare-baseline|--gpu-metrics|--peak|--list|--set-baseline)
+            _BENCHMARK_JSON_MODE=true; break ;;
+    esac
+done
 
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 _require_python_env
@@ -51,8 +56,14 @@ _collect_engine_metrics_file() {
     local _sd
     _sd="$(dirname "${BASH_SOURCE[0]}")"
 
-    # Resolve kubeconfig for the HyperPod cluster (same pattern as do/test).
+    # Resolve kubeconfig for the HyperPod cluster.
+    # If KUBECONFIG is already set and functional, reuse it (skips describe-cluster).
+    # Otherwise, fall back to the kubeconfig written by do/deploy.
     local _kubeconfig="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME:-}"
+    # Always resolve the EKS cluster ARN and refresh the kubeconfig token.
+    # Reusing an existing kubeconfig file is not sufficient — the exec credential
+    # (aws eks get-token) must run with the correct AWS profile which is only
+    # available after do/config is sourced. Always run update-kubeconfig.
     local _eks_arn _eks_name
     _eks_arn=$(aws sagemaker describe-cluster \
         --cluster-name "${HP_CLUSTER_NAME:-}" \
@@ -61,10 +72,13 @@ _collect_engine_metrics_file() {
         --output text 2>/dev/null) || return 0
     [ -z "${_eks_arn}" ] || [ "${_eks_arn}" = "None" ] && return 0
     _eks_name=$(echo "${_eks_arn}" | awk -F'/' '{print $NF}')
-
+    # Pass --profile explicitly so the subshell uses the same AWS profile as do/benchmark
+    local _profile_arg=""
+    [ -n "${AWS_PROFILE:-}" ] && _profile_arg="--profile ${AWS_PROFILE}"
     aws eks update-kubeconfig \
         --name "${_eks_name}" \
         --region "${AWS_REGION}" \
+        ${_profile_arg} \
         --kubeconfig "${_kubeconfig}" >/dev/null 2>&1 || return 0
     export KUBECONFIG="${_kubeconfig}"
 
@@ -72,7 +86,15 @@ _collect_engine_metrics_file() {
 
     # Port-forward svc/<project> to a local port (same pattern as do/test).
     local _local_port=18080
-    kubectl port-forward "svc/${PROJECT_NAME}" "${_local_port}:8080" \
+    # Port-forward directly to the serving pod (same pattern as do/test).
+    # The operator creates ${PROJECT_NAME}-routing-service on TLS/443, not plain 8080.
+    local _pod_name
+    _pod_name=$(kubectl get pods -n "${HP_NAMESPACE:-default}" \
+        -l "app=${PROJECT_NAME}" \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || return 0
+    [ -z "${_pod_name}" ] && return 0
+    kubectl port-forward "pod/${_pod_name}" "${_local_port}:8080" \
         -n "${HP_NAMESPACE:-default}" >/dev/null 2>&1 &
     local _pf_pid=$!
     sleep 3
@@ -129,6 +151,23 @@ ARG_RECOMMEND_METRIC="output_token_throughput_tps"
 ARG_NO_BEDROCK=false
 ARG_THRESHOLDS=()
 ARG_JSON=false
+# BL101 analytics surface flags
+ARG_GPU_METRICS=false
+ARG_PEAK=false
+ARG_PEAK_METRIC=""
+ARG_LIST=false
+ARG_LIST_MODEL=""
+ARG_LIST_SORT=""
+ARG_LIST_LIMIT=""
+ARG_LIST_MIN_TP=""
+ARG_LIST_QUANT=""
+ARG_LIST_MAX_LEN=""
+ARG_LIST_KV_DTYPE=""
+ARG_LIST_EXCLUDE_INSTANCES=""
+ARG_LIST_INCLUDE_INSTANCES=""
+ARG_SET_BASELINE=false
+ARG_SET_BASELINE_VALUE=""
+ARG_SET_BASELINE_CLEAR=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --clean) CLEAN_AFTER=true; shift ;;
@@ -141,18 +180,73 @@ while [ $# -gt 0 ]; do
         --compare-baseline) ARG_COMPARE_BASELINE=true; shift ;;
         --recommend) ARG_RECOMMEND=true; shift ;;
         --apply) ARG_RECOMMEND_APPLY=true; shift ;;
-        --metric) shift; ARG_RECOMMEND_METRIC="${1:-output_token_throughput_tps}"; shift ;;
+        --metric) shift; ARG_RECOMMEND_METRIC="${1:-output_token_throughput_tps}"; ARG_PEAK_METRIC="${1:-}"; shift ;;
         --no-bedrock) ARG_NO_BEDROCK=true; shift ;;
         --threshold) shift; ARG_THRESHOLDS+=("${1:-}"); shift ;;
         --json) ARG_JSON=true; shift ;;
+        --gpu-metrics) ARG_GPU_METRICS=true; shift ;;
+        --peak) ARG_PEAK=true; shift ;;
+        --list) ARG_LIST=true; shift ;;
+        --model) shift; ARG_LIST_MODEL="${1:-}"; shift ;;
+        --sort) shift; ARG_LIST_SORT="${1:-}"; shift ;;
+        --limit) shift; ARG_LIST_LIMIT="${1:-}"; shift ;;
+        --min-tp) shift; ARG_LIST_MIN_TP="${1:-}"; shift ;;
+        --quantization) shift; ARG_LIST_QUANT="${1:-}"; shift ;;
+        --max-model-len) shift; ARG_LIST_MAX_LEN="${1:-}"; shift ;;
+        --kv-cache-dtype) shift; ARG_LIST_KV_DTYPE="${1:-}"; shift ;;
+        --exclude-instance) shift; ARG_LIST_EXCLUDE_INSTANCES="${1:-}"; shift ;;
+        --include-instance) shift; ARG_LIST_INCLUDE_INSTANCES="${1:-}"; shift ;;
+        --set-baseline)
+            ARG_SET_BASELINE=true; shift
+            # Optional positional value: <job-name> | latest | --clear
+            if [ "${1:-}" = "--clear" ]; then
+                ARG_SET_BASELINE_CLEAR=true; shift
+            elif [ $# -gt 0 ] && [ "${1#-}" = "${1}" ]; then
+                ARG_SET_BASELINE_VALUE="${1}"; shift
+            fi
+            ;;
+        --clear) ARG_SET_BASELINE_CLEAR=true; shift ;;
         --help|-h)
-            echo "Usage: ./do/benchmark [--workload <name>] [--status] [--compare-baseline] [--recommend] [--ic <name>] [--adapter <name>] [--force] [--clean]"
+            echo "Usage: ./do/benchmark --workload <name> [OPTIONS]"
+            echo "       ./do/benchmark --status"
+            echo "       ./do/benchmark --recommend [--apply] [--metric <m>]"
+            echo ""
+            echo "Workload profiles (--workload value):"
+            echo "  sample                  Quick smoke test (low concurrency)"
+            echo "  multi_turn_chat         Multi-turn chat  (concurrency=10, 550 in / 150 out tokens)"
+            echo "  rag_document_qa         RAG workload     (concurrency=8,  2048 in / 256 out tokens)"
+            echo "  agent_tool_calling      Tool calling     (concurrency=4,  800 in / 100 out tokens)"
+            echo "  long_context_scaling    Long context     (concurrency=2,  8192 in / 512 out tokens)"
+            echo "  production_traffic_mix  Mixed production (concurrency=16, 1024 in / 200 out tokens)"
+            echo "  shared_system_prompt    Shared prompt    (concurrency=12, 300 in / 150 out tokens)"
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
             echo "Options:"
             echo "  --status            Check job status; if completed, download results + write to Athena"
             echo "  --compare-baseline  Compare latest results against historical best in Athena"
+            echo "  --gpu-metrics       Show GPU/engine efficiency signals from the most recent local run"
+            echo "  --peak              Show the best historical record for this config (Athena)"
+            echo "                      Optional: --workload <name> --metric <throughput|ttft|itl|latency|cost>"
+            echo "  --set-baseline [<job|latest>]  Pin a benchmark run as the --compare-baseline reference"
+            echo "  --set-baseline --clear         Remove the pinned baseline (revert to rolling most-recent)"
+            echo "  --list              List all runs for a model grouped by config key (Athena)"
+            echo "    --model <name>      Exact name or family prefix (e.g. llama-3.1)"
+            echo "    --workload <name>   Filter by workload"
+            echo "    --sort <metric>     Sort metric (default: throughput)"
+            echo "    --limit <n>         Max rows (default: 100)"
+            echo "    --min-tp <n>        Minimum tensor parallel degree (hides tp=1 etc.)"
+            echo "    --quantization <q>  Filter by quantization (e.g. fp8, none)"
+            echo "    --max-model-len <n> Filter by max_model_len value"
+            echo "    --kv-cache-dtype <d> Filter by kv_cache_dtype (e.g. fp8, auto)"
+            echo "    --min-tp <n>         Minimum tensor parallel degree (e.g. 2 hides tp=1 runs)"
+            echo "    --quantization <q>   Filter by quantization (e.g. fp8, none)"
+            echo "    --max-model-len <n>  Filter by max_model_len value"
+            echo "    --kv-cache-dtype <d> Filter by kv_cache_dtype (e.g. fp8, auto)"
+            echo "    --exclude-instance <types> Comma-separated instance types to exclude"
+            echo "                         (e.g. ml.m5.large,ml.g6.2xlarge)"
+            echo "    --include-instance <types> Comma-separated instance types to include (whitelist)"
+            echo "                      Optional: --model <name|family> --workload <n> --sort <metric> --limit <N>"
             echo "  --recommend         Show Athena-backed config recommendations for current model/instance"
             echo "  --apply             (with --recommend) Write recommended changes to do/ic/default.conf"
             echo "  --metric <name>     (with --recommend) Metric to optimize (default: output_token_throughput_tps)"
@@ -169,6 +263,25 @@ while [ $# -gt 0 ]; do
             echo "IC resolution:"
             echo "  --adapter <name> Use ADAPTER_IC_NAME from do/adapters/<name>.conf"
             echo "  --ic <name>      Use IC_DEPLOYED_NAME from do/ic/<name>.conf"
+            echo ""
+            echo "Prerequisites:"
+            echo "  • Endpoint must be InService — run ./do/deploy first"
+            echo "  • ENDPOINT_NAME must be set in do/config (written automatically after ./do/deploy)"
+            echo "  • For HyperPod EKS: ENDPOINT_NAME and HP_CLUSTER_NAME must be set in do/config"
+            echo ""
+            echo "HyperPod EKS — enhanced metrics:"
+            echo "  Set HP_BENCHMARK_METRICS_ENABLED=true in do/config to enable opt-in /metrics"
+            echo "  scrape (Phase 2). Adds prefix_cache_hit_rate and engine KV cache metrics."
+            echo "  Phase 1 (CloudWatch OTel) requires account-level OTel enrichment:"
+            echo "    aws cloudwatch start-otel-enrichment --region <region>"
+            echo ""
+            echo "Typical workflow:"
+            echo "  ./do/benchmark --workload multi_turn_chat    # Run benchmark"
+            echo "  ./do/benchmark --compare-baseline            # Compare against history"
+            echo "  ./do/benchmark --peak                        # See the best this config ever achieved"
+            echo "  ./do/benchmark --list                        # Browse all runs across configs/targets"
+            echo "  ./do/benchmark --recommend                   # Get config recommendations"
+            echo "  ./do/benchmark --recommend --apply           # Apply recommended changes"
             echo "  (no flag)        Use first IC in do/ic/ alphabetically, or legacy config"
             echo ""
             echo "Adapter benchmarks are differentiated from base model runs in Athena via the adapter_name column."
@@ -314,6 +427,12 @@ fi
 # ── Handle --compare-baseline (early exit) ────────────────────────────────────
 # Compare latest local benchmark results against historical best in Athena.
 if [ "${ARG_COMPARE_BASELINE}" = true ]; then
+    # BL101 R1/R4: resolve the canonical Serving_Config_Key via the shared
+    # library. This early-exit path runs BEFORE RESOLVED_INSTANCE_TYPE is
+    # computed at the end of the file, so the resolver's per-target chain
+    # (BENCHMARK_INSTANCE_TYPE-first for HyperPod) is the authoritative source.
+    source "${SCRIPT_DIR}/lib/resolve-serving-config.sh"
+
     _LATEST_RESULTS_DIR=$(ls -td "${SCRIPT_DIR}/../benchmarks/${PROJECT_NAME}-benchmark-"* 2>/dev/null | head -1) || _LATEST_RESULTS_DIR=""
     _LATEST_JSONL=""
 
@@ -356,18 +475,208 @@ else:
     _JSON_FLAG=""
     [ "${ARG_JSON}" = "true" ] && _JSON_FLAG="--json"
 
+    # BL101 R2.6: conditionally extend the key with max_model_len / kv_cache_dtype
+    # only when this run specifies them (positive int / non-empty non-auto), so
+    # pre-existing baselines that omit these dimensions are not invalidated.
+    _KEY_EXT_ARGS=()
+    if [ -n "${SERVING_MAX_MODEL_LEN}" ]; then
+        _KEY_EXT_ARGS+=("--max-model-len" "${SERVING_MAX_MODEL_LEN}")
+    fi
+    if [ -n "${SERVING_KV_CACHE_DTYPE}" ] && [ "${SERVING_KV_CACHE_DTYPE}" != "auto" ]; then
+        _KEY_EXT_ARGS+=("--kv-cache-dtype" "${SERVING_KV_CACHE_DTYPE}")
+    fi
+
+    # BL101 R5/set-baseline: when a baseline is pinned, compare against it.
+    _PINNED_ARGS=()
+    if [ -n "${BENCHMARK_PINNED_BASELINE:-}" ]; then
+        _PINNED_ARGS+=("--pinned-baseline" "${BENCHMARK_PINNED_BASELINE}")
+    fi
+
     # Run the comparison engine — it handles all display directly (text or JSON based on --json flag)
     python3 "$(dirname "${BASH_SOURCE[0]}")/.optimize_engine.py" compare-baseline \
         --results-file "${_LATEST_JSONL}" \
-        --model-name "${HF_MODEL_ID:-${MODEL_NAME:-}}" \
-        --instance-type "${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}" \
-        --quantization "${IC_ENV_VLLM_QUANTIZATION:-none}" \
-        --tensor-parallel "${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}" \
+        --model-name "${SERVING_MODEL_NAME}" \
+        --instance-type "${SERVING_INSTANCE_TYPE}" \
+        --quantization "${SERVING_QUANTIZATION}" \
+        --tensor-parallel "${SERVING_TENSOR_PARALLEL}" \
         --bucket "${_CB_BUCKET}" \
         --region "${AWS_REGION:-${REGION:-us-east-1}}" \
+        "${_KEY_EXT_ARGS[@]+"${_KEY_EXT_ARGS[@]}"}" \
+        "${_PINNED_ARGS[@]+"${_PINNED_ARGS[@]}"}" \
         "${_THRESHOLD_ARGS[@]+"${_THRESHOLD_ARGS[@]}"}" \
         ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
         ${_JSON_FLAG}
+    exit $?
+fi
+
+
+# ── BL101 analytics helpers ───────────────────────────────────────────────────
+# Resolve the benchmark results bucket from the active profile (shared by --peak
+# and --list). Echoes the bucket name or empty string.
+_bl101_resolve_bucket() {
+    python3 -c "
+import json, os
+cfg = os.path.expanduser('~/.ml-container-creator/config.json')
+if os.path.exists(cfg):
+    d = json.load(open(cfg))
+    profiles = d.get('profiles', {})
+    active = d.get('activeProfile', next(iter(profiles), ''))
+    print(profiles.get(active, {}).get('ciBenchmarkResultsBucket', ''))
+else:
+    print('')
+" 2>/dev/null || true
+}
+
+# Echo the most-recent local profile_export.jsonl path, or empty.
+_bl101_latest_jsonl() {
+    local _dir
+    _dir=$(ls -td "${SCRIPT_DIR}/../benchmarks/${PROJECT_NAME}-benchmark-"* 2>/dev/null | head -1) || _dir=""
+    [ -z "${_dir}" ] && return 0
+    find "${_dir}" -name "profile_export.jsonl" -type f 2>/dev/null | head -1 || true
+}
+
+# Echo the most-recent local benchmark job name (dir basename), or empty.
+_bl101_latest_job_name() {
+    local _dir
+    _dir=$(ls -td "${SCRIPT_DIR}/../benchmarks/${PROJECT_NAME}-benchmark-"* 2>/dev/null | head -1) || _dir=""
+    [ -z "${_dir}" ] && return 0
+    basename "${_dir}"
+}
+
+
+# ── Handle --gpu-metrics (early exit) ─────────────────────────────────────────
+# Display GPU/engine efficiency signals (BL086) from the most recent LOCAL
+# benchmark result. Reads profile_export.jsonl (+ sibling gpu_metrics json when
+# present); does NOT query Athena.
+if [ "${ARG_GPU_METRICS}" = true ]; then
+    _GM_JSONL=$(_bl101_latest_jsonl)
+    if [ -z "${_GM_JSONL}" ]; then
+        echo "ℹ️  No local benchmark results found. Run ./do/benchmark --workload <name> first."
+        exit 0
+    fi
+    _GM_JSON_FLAG=""
+    [ "${ARG_JSON}" = "true" ] && _GM_JSON_FLAG="--json"
+    # Prefer the fixed sidecar (written by the most recent run that had Phase 2 metrics)
+    _GM_FIXED="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+    [ -f "${_GM_FIXED}" ] && _GM_JSON_FLAG="${_GM_JSON_FLAG} --gpu-metrics-file ${_GM_FIXED}"
+    python3 "${SCRIPT_DIR}/lib/python/benchmark_gpu_metrics.py" "${_GM_JSONL}" ${_GM_JSON_FLAG}
+    exit $?
+fi
+
+
+# ── Handle --set-baseline (early exit) ────────────────────────────────────────
+# Pin (or clear) a specific benchmark job as the reference baseline for
+# --compare-baseline. Stored as BENCHMARK_PINNED_BASELINE in do/config.
+if [ "${ARG_SET_BASELINE}" = true ]; then
+    if [ "${ARG_SET_BASELINE_CLEAR}" = true ]; then
+        _config_file="${SCRIPT_DIR}/config"
+        if grep -q "^export BENCHMARK_PINNED_BASELINE=" "${_config_file}" 2>/dev/null; then
+            sed -i.bak "/^export BENCHMARK_PINNED_BASELINE=/d" "${_config_file}"
+            rm -f "${_config_file}.bak"
+        fi
+        echo "✅ Cleared pinned baseline. --compare-baseline reverts to rolling most-recent."
+        exit 0
+    fi
+
+    _SB_JOB="${ARG_SET_BASELINE_VALUE}"
+    if [ -z "${_SB_JOB}" ] || [ "${_SB_JOB}" = "latest" ]; then
+        _SB_JOB=$(_bl101_latest_job_name)
+        if [ -z "${_SB_JOB}" ]; then
+            echo "❌ No local benchmark results found to resolve 'latest'. Run ./do/benchmark --workload <name> first."
+            exit 1
+        fi
+    fi
+
+    # Write BENCHMARK_PINNED_BASELINE to do/config (this early-exit path runs
+    # before _update_benchmark_var is defined later in the file).
+    _sb_config_file="${SCRIPT_DIR}/config"
+    if grep -q "^export BENCHMARK_PINNED_BASELINE=" "${_sb_config_file}" 2>/dev/null; then
+        sed -i.bak "s|^export BENCHMARK_PINNED_BASELINE=.*|export BENCHMARK_PINNED_BASELINE=\"${_SB_JOB}\"|" "${_sb_config_file}"
+        rm -f "${_sb_config_file}.bak"
+    else
+        echo "export BENCHMARK_PINNED_BASELINE=\"${_SB_JOB}\"" >> "${_sb_config_file}"
+    fi
+    echo "✅ Pinned baseline set: ${_SB_JOB}"
+
+    # Print the pinned run's key metrics (throughput, TTFT P90, ITL P90) so the
+    # user can confirm they pinned the right run — from the local jsonl.
+    _SB_JSONL=$(_bl101_latest_jsonl)
+    if [ -n "${_SB_JSONL}" ]; then
+        python3 "${SCRIPT_DIR}/lib/python/benchmark_gpu_metrics.py" "${_SB_JSONL}" --summary-only 2>/dev/null || true
+    fi
+    echo "   Use ./do/benchmark --compare-baseline to compare against it (shown as [pinned])."
+    exit 0
+fi
+
+
+# ── Handle --peak (early exit) ────────────────────────────────────────────────
+# Query Athena for the best historical record matching the current
+# Serving_Config_Key on a workload; compare the most-recent run to that peak.
+if [ "${ARG_PEAK}" = true ]; then
+    source "${SCRIPT_DIR}/lib/resolve-serving-config.sh"
+    _PEAK_BUCKET=$(_bl101_resolve_bucket)
+    if [ -z "${_PEAK_BUCKET}" ]; then
+        echo "❌ No benchmark results bucket configured."
+        echo "   Run: mcc bootstrap add-module benchmark"
+        exit 1
+    fi
+
+    _PEAK_ARGS=()
+    [ -n "${ARG_WORKLOAD}" ] && _PEAK_ARGS+=("--workload" "${ARG_WORKLOAD}")
+    [ -n "${ARG_PEAK_METRIC}" ] && _PEAK_ARGS+=("--metric" "${ARG_PEAK_METRIC}")
+    [ -n "${SERVING_MAX_MODEL_LEN}" ] && _PEAK_ARGS+=("--max-model-len" "${SERVING_MAX_MODEL_LEN}")
+    if [ -n "${SERVING_KV_CACHE_DTYPE}" ] && [ "${SERVING_KV_CACHE_DTYPE}" != "auto" ]; then
+        _PEAK_ARGS+=("--kv-cache-dtype" "${SERVING_KV_CACHE_DTYPE}")
+    fi
+    _PEAK_JSON_FLAG=""
+    [ "${ARG_JSON}" = "true" ] && _PEAK_JSON_FLAG="--json"
+
+    python3 "$(dirname "${BASH_SOURCE[0]}")/.optimize_engine.py" peak \
+        --model-name "${SERVING_MODEL_NAME}" \
+        --instance-type "${SERVING_INSTANCE_TYPE}" \
+        --quantization "${SERVING_QUANTIZATION}" \
+        --tensor-parallel "${SERVING_TENSOR_PARALLEL}" \
+        --bucket "${_PEAK_BUCKET}" \
+        --region "${AWS_REGION:-${REGION:-us-east-1}}" \
+        "${_PEAK_ARGS[@]+"${_PEAK_ARGS[@]}"}" \
+        ${_PEAK_JSON_FLAG}
+    exit $?
+fi
+
+
+# ── Handle --list (early exit) ────────────────────────────────────────────────
+# Query Athena for all runs for a model across configs/workloads/targets,
+# grouped by Serving_Config_Key.
+if [ "${ARG_LIST}" = true ]; then
+    source "${SCRIPT_DIR}/lib/resolve-serving-config.sh"
+    _LIST_BUCKET=$(_bl101_resolve_bucket)
+    if [ -z "${_LIST_BUCKET}" ]; then
+        echo "❌ No benchmark results bucket configured."
+        echo "   Run: mcc bootstrap add-module benchmark"
+        exit 1
+    fi
+
+    # Default model filter to the current project's model when --model omitted.
+    _LIST_MODEL="${ARG_LIST_MODEL:-${SERVING_MODEL_NAME}}"
+    _LIST_ARGS=()
+    [ -n "${_LIST_MODEL}" ] && _LIST_ARGS+=("--model" "${_LIST_MODEL}")
+    [ -n "${ARG_WORKLOAD}" ] && _LIST_ARGS+=("--workload" "${ARG_WORKLOAD}")
+    [ -n "${ARG_LIST_SORT}" ] && _LIST_ARGS+=("--sort" "${ARG_LIST_SORT}")
+    [ -n "${ARG_LIST_LIMIT}" ] && _LIST_ARGS+=("--limit" "${ARG_LIST_LIMIT}")
+    [ -n "${ARG_LIST_MIN_TP}" ] && _LIST_ARGS+=("--min-tp" "${ARG_LIST_MIN_TP}")
+    [ -n "${ARG_LIST_QUANT}" ] && _LIST_ARGS+=("--quantization" "${ARG_LIST_QUANT}")
+    [ -n "${ARG_LIST_MAX_LEN}" ] && _LIST_ARGS+=("--max-model-len" "${ARG_LIST_MAX_LEN}")
+    [ -n "${ARG_LIST_KV_DTYPE}" ] && _LIST_ARGS+=("--kv-cache-dtype" "${ARG_LIST_KV_DTYPE}")
+    [ -n "${ARG_LIST_EXCLUDE_INSTANCES}" ] && _LIST_ARGS+=("--exclude-instance" "${ARG_LIST_EXCLUDE_INSTANCES}")
+    [ -n "${ARG_LIST_INCLUDE_INSTANCES}" ] && _LIST_ARGS+=("--include-instance" "${ARG_LIST_INCLUDE_INSTANCES}")
+    _LIST_JSON_FLAG=""
+    [ "${ARG_JSON}" = "true" ] && _LIST_JSON_FLAG="--json"
+
+    python3 "$(dirname "${BASH_SOURCE[0]}")/.optimize_engine.py" list \
+        --bucket "${_LIST_BUCKET}" \
+        --region "${AWS_REGION:-${REGION:-us-east-1}}" \
+        "${_LIST_ARGS[@]+"${_LIST_ARGS[@]}"}" \
+        ${_LIST_JSON_FLAG}
     exit $?
 fi
 
@@ -377,17 +686,34 @@ fi
 # Moved from do/optimize in v1.4 — this is the Athena-backed recommendation path.
 if [ "${ARG_RECOMMEND}" = true ]; then
 
+# batch-transform has no persistent endpoint — recommend is N/A
+if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
+    echo "ℹ️  --recommend is not supported for batch-transform deployments."
+    echo "   Batch jobs are parameterized per-submission — there is no persistent"
+    echo "   config to update. Use do/submit to change batch job parameters."
+    exit 0
+fi
+
 _run_athena_recommendations() {
     local model_name="${HF_MODEL_ID:-${MODEL_NAME:-}}"
     local instance_type="${DEPLOYED_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
-    local quantization="${IC_ENV_VLLM_QUANTIZATION:-${IC_ENV_QUANTIZATION:-bf16}}"
-    local tp="${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}"
-    # BL046: This 4096 is a runtime shell fallback only, retained intentionally.
-    # The authoritative default now lives in the exported IC_ENV_VLLM_MAX_MODEL_LEN
-    # from the rendered do/config (sizer-computed when available); this fires only
-    # when the variable is genuinely unset in the environment.
-    local max_len="${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}"
-    local kv_dtype="${IC_ENV_VLLM_KV_CACHE_DTYPE:-auto}"
+    # Resolve current serving config — target-aware.
+    # realtime-inference uses IC_ENV_* (Inference Component vars).
+    # hyperpod-eks and async-inference use bare VLLM_* vars.
+    local quantization kv_dtype tp max_len
+    if [ "${DEPLOYMENT_TARGET:-realtime-inference}" = "hyperpod-eks" ] || \
+       [ "${DEPLOYMENT_TARGET:-realtime-inference}" = "async-inference" ]; then
+        quantization="${VLLM_QUANTIZATION:-none}"
+        tp="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
+        max_len="${VLLM_MAX_MODEL_LEN:-4096}"
+        kv_dtype="${VLLM_KV_CACHE_DTYPE:-auto}"
+    else
+        quantization="${IC_ENV_VLLM_QUANTIZATION:-${IC_ENV_QUANTIZATION:-bf16}}"
+        tp="${IC_ENV_VLLM_TENSOR_PARALLEL_SIZE:-1}"
+        # BL046: This 4096 is a runtime shell fallback only, retained intentionally.
+        max_len="${IC_ENV_VLLM_MAX_MODEL_LEN:-4096}"
+        kv_dtype="${IC_ENV_VLLM_KV_CACHE_DTYPE:-auto}"
+    fi
 
     if [ -z "$model_name" ] || [ -z "$instance_type" ]; then
         echo "⚠️  Cannot query benchmark history — MODEL_NAME and INSTANCE_TYPE required" >&2
@@ -490,20 +816,33 @@ for r in recs:
 analysis = data.get('analysis', '')
 if analysis:
     print()
-    print('Analysis:')
-    for line in analysis.split('. '):
-        line = line.strip()
-        if line:
-            if not line.endswith('.'):
-                line += '.'
-            print(f'  {line}')
+    if isinstance(analysis, dict):
+        headline = analysis.get('headline', '')
+        risks = analysis.get('risks', [])
+        next_steps = analysis.get('next_steps', [])
+        if headline:
+            print('💡 Analysis:')
+            print(f'  {headline}')
+        if risks:
+            print()
+            print('  ⚠️  Risks:')
+            for r in risks:
+                print(f'     • {r}')
+        if next_steps:
+            print()
+            print('  ✅ Suggested next steps:')
+            for s in next_steps:
+                print(f'     • {s}')
+    else:
+        print('💡 Analysis:')
+        print(f'  {analysis}')
 
 # Footer
 print()
 print('Next steps:')
 print('  Apply these changes:     ./do/benchmark --recommend --apply')
 print('  See raw recommendation:  ./do/benchmark --recommend --json')
-print('  Apply and deploy:        ./do/deploy --optimize')
+print('  Apply and deploy:        ./do/deploy')
 print()
 " 2>/dev/null
 }
@@ -542,11 +881,19 @@ for r in recs:
             echo "   ✅ ${key}=${value}"
         fi
     done
+    _APPLIED_COUNT=$?
 
-    echo ""
-    echo "✅ Recommendations applied to do/config"
-    echo "   Backups: do/config.bak, do/ic/default.conf.bak"
-    echo "   Run ./do/deploy to deploy with optimized configuration."
+    # Check if python found any recs (it exits 0 with output, or exits 0 with no-change message)
+    if echo "$json_data" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('recommendations') else 1)" 2>/dev/null; then
+        echo ""
+        echo "✅ Recommendations applied to do/config"
+        echo "   Backups: do/config.bak, do/ic/default.conf.bak"
+        echo "   Run ./do/deploy to deploy with optimized configuration."
+    else
+        echo ""
+        echo "ℹ️  No changes applied — current config is already optimal."
+        rm -f "${config_file}.bak" "${ic_conf}.bak" 2>/dev/null || true
+    fi
 }
 
 _recommend_apply_config_change() {
@@ -554,12 +901,24 @@ _recommend_apply_config_change() {
     local config_file="${SCRIPT_DIR}/config"
     local ic_conf="${SCRIPT_DIR}/ic/default.conf"
 
-    # Special case: tensor_parallel_degree also updates IC_GPU_COUNT
-    if [ "${key}" = "IC_ENV_VLLM_TENSOR_PARALLEL_SIZE" ] && [ -f "${ic_conf}" ]; then
-        _recommend_update_or_append "${ic_conf}" "IC_GPU_COUNT" "${value}"
-    fi
+    # Special case: tensor_parallel_degree — secondary writes per target
+    # (primary config_key is already target-resolved by Python _dimension_config_key)
+    case "${DEPLOYMENT_TARGET:-realtime-inference}" in
+        hyperpod-eks)
+            # Also write HP_GPU_COUNT so the CRD resource request stays in sync
+            if [ "${key}" = "VLLM_TENSOR_PARALLEL_SIZE" ]; then
+                _recommend_update_or_append "${config_file}" "HP_GPU_COUNT" "${value}"
+            fi
+            ;;
+        realtime-inference)
+            # Also update IC_GPU_COUNT in do/ic/default.conf
+            if [ "${key}" = "IC_ENV_VLLM_TENSOR_PARALLEL_SIZE" ] && [ -f "${ic_conf}" ]; then
+                _recommend_update_or_append "${ic_conf}" "IC_GPU_COUNT" "${value}"
+            fi
+            ;;
+    esac
 
-    # Update or append the IC_ENV_* var in do/config
+    # Write the primary config var
     _recommend_update_or_append "${config_file}" "${key}" "${value}"
 }
 
@@ -585,7 +944,7 @@ _recommend_update_or_append() {
         echo "ℹ️  No benchmark history available for recommendations."
         echo "   Run benchmarks first: ./do/benchmark --workload <name>"
         echo ""
-        echo "   Or use SageMaker AI Recommendations API:"
+        echo "   Or use SageMaker AI Inference Optimizer:"
         echo "   ./do/optimize --goal throughput"
         exit 0
     fi
@@ -1015,6 +1374,9 @@ print(f'Combined {n_metrics} concurrency level results')
             }
             CONFIG_ID=$(_compute_config_id)
 
+            # Phase 2 (BL086): collect engine /metrics for HyperPod EKS before writing
+            _ML_GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
+
             if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
                 --results-file "${_COMBINED_FILE}" \
                 --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
@@ -1023,7 +1385,17 @@ print(f'Combined {n_metrics} concurrency level results')
                 --bucket "${CI_BENCHMARK_RESULTS_BUCKET}" \
                 --region "${AWS_REGION:-${REGION}}" \
                 ${RESOLVED_INSTANCE_TYPE:+--instance-type "${RESOLVED_INSTANCE_TYPE}"} \
-                ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"}; then
+                ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
+                ${_ML_GPU_METRICS_FILE:+--gpu-metrics-file "${_ML_GPU_METRICS_FILE}"}; then
+                # Persist GPU metrics locally so --gpu-metrics can read them without Athena
+                if [ -n "${_ML_GPU_METRICS_FILE:-}" ] && [ -f "${_ML_GPU_METRICS_FILE}" ]; then
+                    # Fixed location: always wins over per-run dir (avoids mtime ordering issues)
+                    cp "${_ML_GPU_METRICS_FILE}" "${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json" 2>/dev/null || true
+                    # Also copy into the per-run output dir for traceability
+                    _latest_bm_dir=$(ls -td "${SCRIPT_DIR}/../benchmarks/${BENCHMARK_JOB_NAME}" 2>/dev/null | head -1)
+                    [ -n "${_latest_bm_dir}" ] && cp "${_ML_GPU_METRICS_FILE}" "${_latest_bm_dir}/output/gpu_metrics.json" 2>/dev/null || true
+                    rm -f "${_ML_GPU_METRICS_FILE}" 2>/dev/null || true
+                fi
                 echo "✅ Multi-level benchmark results persisted to S3"
             else
                 echo "⚠️  Failed to persist multi-level benchmark results to Athena (non-fatal)"
@@ -1364,6 +1736,13 @@ except:
             [ "${RESOLVED_INSTANCE_TYPE}" = "None" ] && RESOLVED_INSTANCE_TYPE=""
         fi
     fi
+fi
+
+# HyperPod EKS: use HP_INSTANCE_TYPE (actual GPU worker node) not the SMAI
+# endpoint placeholder instance (ml.m5.large). This ensures --compare-baseline
+# queries the correct Athena partition key for HyperPod benchmarks.
+if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ] && [ -n "${HP_INSTANCE_TYPE:-}" ]; then
+    RESOLVED_INSTANCE_TYPE="${HP_INSTANCE_TYPE}"
 fi
 
 # Final fallback: use INSTANCE_TYPE from do/config
@@ -1952,6 +2331,7 @@ except Exception as e:
             ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
             ${ENDPOINT_NAME:+--endpoint-name "${ENDPOINT_NAME}"} \
             ${IC_NAME:+--ic-name "${IC_NAME}"} \
+            ${BENCHMARK_JOB_NAME:+--benchmark-job-name "${BENCHMARK_JOB_NAME}"} \
             ${BENCHMARK_RUN_START:+--run-start "${BENCHMARK_RUN_START}"} \
             ${BENCHMARK_RUN_END:+--run-end "${BENCHMARK_RUN_END}"} \
             ${_GPU_METRICS_FILE:+--gpu-metrics-file "${_GPU_METRICS_FILE}"}; then

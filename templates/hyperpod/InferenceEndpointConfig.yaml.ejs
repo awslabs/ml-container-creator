@@ -156,3 +156,6 @@ spec:
       - name: NCCL_PROTOCOL
         value: "simple"
 <% } %>
+      # Auto-injected VLLM_* pass-through vars from do/config (set by deploy driver).
+      # Any VLLM_* var not already explicitly listed above is injected here at deploy time.
+      __VLLM_EXTRA_ENVVARS__

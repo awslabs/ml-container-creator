@@ -245,6 +245,51 @@ do/benchmark --workload multi_turn_chat
 
 The workload catalog lives at `servers/workload-picker/catalogs/workload-profiles.json`. Add custom workloads by appending entries to that file.
 
+### draft-model-picker
+
+Provides a catalog of known **speculative-decoding draft models** compatible with MLCC's
+HyperPod EKS deployment target. Instead of hunting HuggingFace for a draft head that
+matches your target model, the draft-model-picker server lets you (or an MCP-connected
+agent) browse, look up, and get a recommendation for a draft model by target model ID and
+algorithm.
+
+```bash
+ml-container-creator mcp add draft-model-picker --bundled
+```
+
+Like workload-picker, draft-model-picker is **not queried during project generation**. It
+is queried at **runtime** — `do/draft list` reads the same catalog to browse draft models,
+and any MCP client (Kiro, Claude, your own) can call its tools directly. See
+[Speculative Decoding on HyperPod EKS](hyperpod-speculative-decoding.md) for the `do/draft`
+workflow.
+
+#### Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_draft_models` | List known draft models. Optional filters: `target_model` (partial match) and `algorithm` (`eagle3`, `eagle2`, `eagle`, `draft-model`, `ngram`, `mtp`). |
+| `get_draft_model` | Return full metadata for one draft model by its HuggingFace model ID (`hf_id`). |
+| `recommend_draft` | Recommend the best draft model for a given target model ID, ranked by algorithm quality (eagle3 first), plus all alternatives. |
+
+#### Example: asking the agent for a recommendation
+
+Because the server is MCP-compliant, you can ask a connected agent a natural-language
+question and it will call `recommend_draft` under the hood:
+
+> **You:** What draft model should I use for Llama-3.1-8B?
+
+The agent calls `recommend_draft` with `target_model: "Llama-3.1-8B"` and gets back the
+top-ranked match (e.g. `thoughtworks/Llama-3.1-8B-Instruct-Eagle3`, algorithm `eagle3`,
+supported by both vLLM and SGLang) along with every alternative. You can then wire it in:
+
+```bash
+./do/draft set thoughtworks/Llama-3.1-8B-Instruct-Eagle3 --deploy
+```
+
+The catalog lives at `servers/lib/catalogs/draft-models.json`. Add draft models by
+appending entries there (see
+[Registries and Catalogs — draft-models.json](dev/registries-and-catalogs.md#draft-modelsjson)).
+
 ## Smart Mode (Amazon Bedrock)
 
 Both bundled servers support an optional smart mode that queries Amazon Bedrock for context-aware recommendations instead of returning static lists. Set `BEDROCK_SMART=true` in the server's environment to enable it. If the Bedrock call fails, the server falls back to static recommendations.

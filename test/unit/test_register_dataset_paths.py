@@ -116,7 +116,9 @@ print(json.dumps({"name": name, "s3_uri": s3, "technique": tech,
 """
 
 # .tune_helper.py stub: only implements stage-hf. Returns a staged URI under the
-# provided --output-bucket and records the args it received.
+# provided --output-bucket. When --output-prefix is supplied (BL099, the do/register
+# canonical path) it is honored verbatim; otherwise it falls back to the legacy
+# project-scoped layout keyed by the HF name.
 _TUNE_HELPER_STUB = """import sys, json
 argv = sys.argv
 assert argv[1] == "stage-hf", argv
@@ -125,7 +127,11 @@ with open(sys.argv[0] + ".log", "a") as fh:
 ob = argv[argv.index("--output-bucket") + 1]
 name = argv[argv.index("--hf-name") + 1]
 take = argv[argv.index("--take") + 1] if "--take" in argv else "0"
-print(json.dumps({"s3_uri": f"s3://{ob}/datasets/{name}/data.jsonl",
+if "--output-prefix" in argv:
+    prefix = argv[argv.index("--output-prefix") + 1].strip("/")
+else:
+    prefix = f"datasets/{name}"
+print(json.dumps({"s3_uri": f"s3://{ob}/{prefix}/data.jsonl",
                   "num_records": int(take) if take.isdigit() else 500}))
 """
 
@@ -277,6 +283,8 @@ class TestHuggingFacePath:
         assert "--hf-org timdettmers" in stage[0]
         assert "--hf-name openassistant-guanaco" in stage[0]
         assert f"--output-bucket {_CORE_BUCKET}" in stage[0]
+        # BL099: canonical, project-independent prefix keyed by the dataset <name>
+        assert "--output-prefix datasets/guanaco" in stage[0]
         assert "--project-name testproj" in stage[0]
         assert "--region us-west-2" in stage[0]
         assert "--technique sft" in stage[0]
@@ -286,12 +294,36 @@ class TestHuggingFacePath:
         # No direct aws s3 copy on the HF path (staging owns the transfer)
         assert sandbox.aws_calls() == []
 
-        # Registered the staged canonical URI returned by stage-hf
+        # Registered the staged canonical URI returned by stage-hf. BL099: the URI
+        # is keyed by the registered dataset <name> on the mlcc-core bucket, with no
+        # project-name prefix.
         reg = sandbox.helper_calls(".register_helper.py")
         assert len(reg) == 1
-        expected = f"s3://{_CORE_BUCKET}/datasets/openassistant-guanaco/data.jsonl"
+        expected = f"s3://{_CORE_BUCKET}/datasets/guanaco/data.jsonl"
         assert f"--s3-uri {expected}" in reg[0]
         assert "--name guanaco" in reg[0]
+
+    def test_ticket_example_canonical_path(self, sandbox):
+        # BL099 acceptance example: name "alpaca-sft-1K", hf-id "tatsu-lab/alpaca"
+        # must land at s3://<CORE_BUCKET>/datasets/alpaca-sft-1K/ and register that
+        # canonical URI — keyed by the dataset <name>, with no project-name prefix
+        # and no org path segment.
+        r = sandbox.run_dataset(
+            "alpaca-sft-1K", "--hf-id", "tatsu-lab/alpaca", "--technique", "sft",
+        )
+        assert r.returncode == 0, r.stderr + r.stdout
+
+        stage = sandbox.helper_calls(".tune_helper.py")[0]
+        assert f"--output-bucket {_CORE_BUCKET}" in stage
+        assert "--output-prefix datasets/alpaca-sft-1K" in stage
+        # No project-name or org appears in the canonical prefix.
+        assert "testproj/datasets" not in stage
+        assert "datasets/tatsu-lab" not in stage
+
+        reg = sandbox.helper_calls(".register_helper.py")[0]
+        expected = f"s3://{_CORE_BUCKET}/datasets/alpaca-sft-1K/data.jsonl"
+        assert f"--s3-uri {expected}" in reg
+        assert "--name alpaca-sft-1K" in reg
 
     def test_hf_split_and_column_map_forwarded(self, sandbox):
         r = sandbox.run_dataset(
