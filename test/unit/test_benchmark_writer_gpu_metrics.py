@@ -11,6 +11,7 @@ Covers:
 """
 
 import importlib.util
+import json as _json
 import os
 from datetime import datetime, timezone
 
@@ -115,6 +116,84 @@ class TestMetricsSourceProvenance:
         gpu = {'gpu_utilization_avg': 55.0, 'metrics_source': 'both'}
         recs = _bw.enrich_records(_config(), _results(), _ts(), gpu_metrics=gpu)
         assert recs[0]['metrics_source'] == 'both'
+
+    def test_new_source_values_are_honored_by_enrich(self):
+        """enrich_records passes through the new target-aware provenance values."""
+        for src in ('cloudwatch_only', 'engine_metrics_only'):
+            gpu = {'gpu_utilization_avg': 55.0, 'metrics_source': src}
+            recs = _bw.enrich_records(_config(), _results(), _ts(), gpu_metrics=gpu)
+            assert recs[0]['metrics_source'] == src
+
+
+# ── Target-aware provenance in _collect_gpu_signals ────────────────────────────
+
+
+class _Args:
+    """Minimal args stand-in for _collect_gpu_signals (uses getattr)."""
+
+    def __init__(self, gpu_metrics_file=None):
+        self.gpu_metrics_file = gpu_metrics_file
+        # CloudWatch path disabled (no endpoint/window) so target logic is isolated.
+        self.endpoint_name = None
+        self.run_start = None
+        self.run_end = None
+        self.variant_name = None
+        self.ic_name = None
+
+
+class TestCollectGpuSignalsProvenance:
+    def _engine_file(self, tmp_path, payload):
+        p = tmp_path / 'gpu_metrics.json'
+        p.write_text(_json.dumps(payload))
+        return str(p)
+
+    def test_engine_metrics_only_for_hyperpod(self, tmp_path):
+        """hyperpod-eks + engine signals, no CloudWatch → 'engine_metrics_only'."""
+        f = self._engine_file(tmp_path, {'kv_cache_util_avg': 0.9,
+                                         'queue_depth_running_avg': 3.0})
+        signals = _bw._collect_gpu_signals(
+            _Args(gpu_metrics_file=f), {'deployment_target': 'hyperpod-eks'}
+        )
+        assert signals['metrics_source'] == 'engine_metrics_only'
+        assert signals['kv_cache_util_avg'] == 0.9
+
+    def test_cloudwatch_only_for_realtime(self, tmp_path):
+        """realtime-inference + CloudWatch signals only → 'cloudwatch_only'.
+
+        We simulate CloudWatch signals via the engine-metrics file (both paths
+        merge into the same dict); the target + presence of only CW keys drives
+        the classification.
+        """
+        f = self._engine_file(tmp_path, {'gpu_utilization_avg': 60.0,
+                                         'gpu_memory_util_avg': 40.0})
+        signals = _bw._collect_gpu_signals(
+            _Args(gpu_metrics_file=f), {'deployment_target': 'realtime-inference'}
+        )
+        assert signals['metrics_source'] == 'cloudwatch_only'
+
+    def test_both_when_cw_and_engine(self, tmp_path):
+        f = self._engine_file(tmp_path, {'gpu_utilization_avg': 60.0,
+                                         'kv_cache_util_avg': 0.5})
+        signals = _bw._collect_gpu_signals(
+            _Args(gpu_metrics_file=f), {'deployment_target': 'hyperpod-eks'}
+        )
+        assert signals['metrics_source'] == 'both'
+
+    def test_none_when_no_signals(self, tmp_path):
+        signals = _bw._collect_gpu_signals(
+            _Args(), {'deployment_target': 'realtime-inference'}
+        )
+        assert signals['metrics_source'] == 'none'
+
+    def test_realtime_with_engine_signals_is_not_cloudwatch_only(self, tmp_path):
+        """realtime + engine signals present → not 'cloudwatch_only' (falls to none)."""
+        f = self._engine_file(tmp_path, {'kv_cache_util_avg': 0.7})
+        signals = _bw._collect_gpu_signals(
+            _Args(gpu_metrics_file=f), {'deployment_target': 'realtime-inference'}
+        )
+        # realtime + engine-only + no CW → not cloudwatch_only, and not
+        # engine_metrics_only (that is hyperpod-only) → 'none'.
+        assert signals['metrics_source'] == 'none'
 
 
 # ── Additive migration integrity ───────────────────────────────────────────────

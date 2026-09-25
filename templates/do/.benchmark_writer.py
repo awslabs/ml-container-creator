@@ -856,20 +856,33 @@ def register_partition(bucket, model, instance, target,
 
 
 def load_instance_catalog():
-    """Load the instance catalog from servers/lib/catalogs/instances.json.
+    """Load the instance catalog from the project-local .mlcc cache or the MLCC source tree.
 
-    Resolves the path relative to the project root (two levels up from templates/do/).
-    Returns the 'catalog' dict mapping instance_type → metadata, or empty dict on failure.
+    Resolution order:
+    1. <project_root>/.mlcc/instance-sizer-catalog.json  (populated by catalog_registration.py)
+    2. <mlcc_source>/servers/lib/catalogs/instances.json (fallback for dev/test environment)
 
     Returns:
         dict mapping instance type strings to their metadata dicts.
     """
-    # Resolve relative to this file: templates/do/.benchmark_writer.py → project root
     this_dir = os.path.dirname(os.path.abspath(__file__))
-    # Navigate up from templates/do/ to project root
-    project_root = os.path.normpath(os.path.join(this_dir, '..', '..'))
-    catalog_path = os.path.join(project_root, 'servers', 'lib', 'catalogs', 'instances.json')
 
+    # 1. Project-local .mlcc cache: do/lib/python/ → do/ → project_root → .mlcc/
+    project_root = os.path.normpath(os.path.join(this_dir, '..', '..'))
+    mlcc_cache_path = os.path.join(project_root, '.mlcc', 'instances.json')
+    try:
+        with open(mlcc_cache_path, 'r') as f:
+            data = json.load(f)
+        # catalog_registration.py stores the catalog under 'instances' key
+        catalog = data.get('catalog') or data.get('instances') or data
+        if isinstance(catalog, dict):
+            return catalog
+    except (FileNotFoundError, json.JSONDecodeError, IOError):
+        pass
+
+    # 2. MLCC source tree fallback (dev/test: templates/do/ → project root → servers/)
+    source_root = os.path.normpath(os.path.join(this_dir, '..', '..'))
+    catalog_path = os.path.join(source_root, 'servers', 'lib', 'catalogs', 'instances.json')
     try:
         with open(catalog_path, 'r') as f:
             data = json.load(f)
@@ -1258,7 +1271,13 @@ def _collect_gpu_signals(args, input_data):
         produced by do/benchmark's port-forward scrape on HyperPod EKS.
 
     Returns a merged dict of signals plus a derived 'metrics_source' provenance
-    value (cloudwatch | engine_metrics | both | none). Never raises.
+    value. Provenance is target-aware, distinguishing "not collected" from
+    "structurally not applicable" for the deployment target:
+      * cloudwatch_only     — realtime-inference: Phase 1 collected, Phase 2 N/A.
+      * engine_metrics_only — hyperpod-eks: Phase 2 collected, Phase 1 N/A.
+      * both                — collected from both sources.
+      * none                — attempted both/neither, got nothing.
+    Never raises.
     """
     from datetime import datetime as _dt
 
@@ -1310,8 +1329,38 @@ def _collect_gpu_signals(args, input_data):
         except Exception:
             pass  # Non-fatal: no engine signals.
 
-    # Provenance is derived downstream in enrich_records() from which signal
-    # groups are present; return the merged dict (enrich_records sets the source).
+    # ── Provenance (metrics_source) ────────────────────────────────────────
+    # Distinguish "not collected" from "structurally not applicable" for the
+    # deployment target:
+    #   * cloudwatch_only     — realtime-inference: Phase 1 CloudWatch collected,
+    #     Phase 2 engine /metrics not applicable (no pod access from SMAI).
+    #   * engine_metrics_only — hyperpod-eks: Phase 2 engine /metrics collected,
+    #     Phase 1 CloudWatch not applicable (no OTel path for HyperPod CRD
+    #     endpoints).
+    #   * both                — collected from both sources.
+    #   * none                — attempted both/neither, got nothing.
+    _CW_KEYS = (
+        'gpu_utilization_avg', 'gpu_utilization_max',
+        'gpu_memory_used_avg_gb', 'gpu_memory_util_avg',
+    )
+    _ENGINE_KEYS = (
+        'kv_cache_util_avg', 'kv_cache_util_max', 'prefix_cache_hit_rate',
+        'queue_depth_running_avg', 'queue_depth_waiting_avg', 'queue_depth_waiting_max',
+    )
+    has_cw = any(signals.get(k) is not None for k in _CW_KEYS)
+    has_engine = any(signals.get(k) is not None for k in _ENGINE_KEYS)
+
+    deployment_target = (input_data.get('deployment_target') or '').strip().lower()
+
+    if has_cw and has_engine:
+        signals['metrics_source'] = 'both'
+    elif deployment_target == 'hyperpod-eks' and has_engine:
+        signals['metrics_source'] = 'engine_metrics_only'
+    elif deployment_target == 'realtime-inference' and has_cw and not has_engine:
+        signals['metrics_source'] = 'cloudwatch_only'
+    else:
+        signals['metrics_source'] = 'none'
+
     return signals
 
 
@@ -1410,6 +1459,8 @@ def cmd_write(args):
         results_obj = {'metrics': input_data['metrics']}
         if isinstance(benchmark_data, dict) and 'job_name' in benchmark_data:
             results_obj['job_name'] = benchmark_data['job_name']
+        if not results_obj.get('job_name') and getattr(args, 'benchmark_job_name', None):
+            results_obj['job_name'] = args.benchmark_job_name
 
         enriched_records = enrich_records(config_context, results_obj, timestamp, gpu_metrics=gpu_signals)
 
@@ -1624,6 +1675,14 @@ def _load_config_file(config_path):
                     'IC_ENV_VLLM_GPU_MEMORY_UTILIZATION': 'gpu_memory_utilization',
                     'IC_ENV_VLLM_KV_CACHE_DTYPE': 'kv_cache_dtype',
                     'IC_ENV_VLLM_TENSOR_PARALLEL_SIZE': 'tensor_parallel_degree',
+                    # HyperPod EKS: no IC config — map VLLM_* env vars directly.
+                    # IC_ENV_* takes precedence (set later in the loop) for SMAI path.
+                    'VLLM_QUANTIZATION': 'quantization',
+                    'VLLM_MAX_MODEL_LEN': 'max_model_len',
+                    'VLLM_KV_CACHE_DTYPE': 'kv_cache_dtype',
+                    'VLLM_TENSOR_PARALLEL_SIZE': 'tensor_parallel_degree',
+                    # HP_GPU_COUNT as fallback for tensor_parallel_degree when VLLM_TENSOR_PARALLEL_SIZE absent
+                    'HP_GPU_COUNT': 'tensor_parallel_degree',
                 }
                 if key in shell_map:
                     context[shell_map[key]] = value
@@ -1762,6 +1821,11 @@ def main():
     write_parser.add_argument(
         '--ic-name', dest='ic_name', default=None,
         help='Inference component name for per-IC CloudWatch GPU enrichment'
+    )
+
+    write_parser.add_argument(
+        '--benchmark-job-name', dest='benchmark_job_name', default=None,
+        help='AIPerf benchmark job name (written as benchmark_job_name in Athena)'
     )
     write_parser.add_argument(
         '--run-start', dest='run_start', default=None,

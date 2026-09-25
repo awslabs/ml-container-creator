@@ -405,3 +405,35 @@ class TestCVComputation:
         """Varied values → positive CV."""
         cv = RecommendationEngine._cv([100.0, 200.0, 150.0])
         assert cv > 0
+
+
+# ── Test: _is_na_efficiency_column (display-layer N/A substitution, BL086) ────
+
+
+class TestNaEfficiencyColumn:
+    """GPU (Phase 1) vs engine (Phase 2) column N/A classification by source."""
+
+    def test_gpu_column_na_for_engine_metrics_only(self):
+        assert _engine._is_na_efficiency_column('gpu_utilization_avg', 'engine_metrics_only') is True
+
+    def test_gpu_column_na_for_none(self):
+        assert _engine._is_na_efficiency_column('gpu_utilization_avg', 'none') is True
+
+    def test_gpu_column_not_na_for_cloudwatch_only(self):
+        assert _engine._is_na_efficiency_column('gpu_utilization_avg', 'cloudwatch_only') is False
+
+    def test_engine_column_na_for_cloudwatch_only(self):
+        assert _engine._is_na_efficiency_column('prefix_cache_hit_rate', 'cloudwatch_only') is True
+
+    def test_engine_column_na_for_none(self):
+        assert _engine._is_na_efficiency_column('prefix_cache_hit_rate', 'none') is True
+
+    def test_engine_column_not_na_for_engine_metrics_only(self):
+        assert _engine._is_na_efficiency_column('prefix_cache_hit_rate', 'engine_metrics_only') is False
+
+    def test_non_classified_column_never_na(self):
+        # kv_cache_util_avg and queue_depth_waiting_avg are available via both
+        # phases → never structurally N/A.
+        for src in ('cloudwatch_only', 'engine_metrics_only', 'none', 'both'):
+            assert _engine._is_na_efficiency_column('kv_cache_util_avg', src) is False
+            assert _engine._is_na_efficiency_column('queue_depth_waiting_avg', src) is False

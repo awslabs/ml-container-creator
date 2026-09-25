@@ -39,6 +39,7 @@ _DEFAULTS = AgentConfig(
         "base-image-picker",
         "model-picker",
         "workload-picker",
+        "draft-model-picker",
         "e2e-status",
         "agent-knowledge",
     ],

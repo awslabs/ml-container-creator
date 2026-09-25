@@ -368,6 +368,14 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         serverEnvVars: prefixedServerEnvVars
     };
 
+    // Add generator version to template vars so templates can embed it (e.g. MCC_VERSION in do/config)
+    try {
+        const { version } = JSON.parse(fs.readFileSync(path.join(GENERATOR_ROOT, 'package.json'), 'utf8'));
+        templateVars.generatorVersion = version || '';
+    } catch {
+        templateVars.generatorVersion = '';
+    }
+
     // Build ignore patterns
     const ignorePatterns = [];
 
@@ -790,6 +798,23 @@ function _writeGenerationParams(destDir, answers) {
     // Write .mlcc-version so `mcc regenerate` shows the correct project version
     const versionPath = path.join(destDir, '.mlcc-version');
     fs.writeFileSync(versionPath, `${generatorVersion}\n`);
+
+    // Copy instances.json to .mlcc/ so do/.benchmark_writer.py can resolve GPU metadata
+    // (gpu_count, gpu_type, gpu_memory_gb) at benchmark write time without the MLCC source tree.
+    const instancesCatalogSrc = path.join(GENERATOR_ROOT, 'servers', 'lib', 'catalogs', 'instances.json');
+    const mlccDir = path.join(destDir, '.mlcc');
+    const instancesCatalogDest = path.join(mlccDir, 'instances.json');
+    try {
+        fs.mkdirSync(mlccDir, { recursive: true });
+        fs.copyFileSync(instancesCatalogSrc, instancesCatalogDest);
+
+        // Copy draft-models catalog for do/draft list
+        const draftCatalogSrc  = path.join(__dirname, '../servers/lib/catalogs/draft-models.json');
+        const draftCatalogDest = path.join(destDir, '.mlcc', 'draft-models.json');
+        if (fs.existsSync(draftCatalogSrc)) {
+            fs.copyFileSync(draftCatalogSrc, draftCatalogDest);
+        }
+    } catch { /* non-fatal */ }
 }
 
 /**

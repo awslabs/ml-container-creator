@@ -1,0 +1,16 @@
+{
+  "name": "@amzn/ml-container-creator-draft-model-picker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MCP server that provides speculative-decoding draft model catalog and recommendations for ML Container Creator HyperPod EKS deployments.",
+  "type": "module",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.22.0"
+  }
+}

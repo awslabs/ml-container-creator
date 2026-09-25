@@ -1,6 +1,6 @@
 {
   "name": "@aws/ml-container-creator",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Build and deploy custom ML containers on AWS SageMaker with minimal configuration.",
   "main": "src/index.js",
   "bin": {
@@ -103,7 +103,7 @@
     "test:fast": "mocha 'test/**/*.test.js' --recursive --timeout 15000 --parallel",
     "test:unit": "mocha 'test/unit/**/*.test.js' --recursive --timeout 15000",
     "test:integration": "mocha 'test/integration/**/*.test.js' --recursive --timeout 30000",
-    "test:servers": "node servers/region-picker/test.js && node servers/instance-sizer/test.js && node servers/workload-picker/test.js && node servers/reasoning/test.js",
+    "test:servers": "node servers/region-picker/test.js && node servers/instance-sizer/test.js && node servers/workload-picker/test.js && node servers/reasoning/test.js && node servers/draft-model-picker/test.js",
     "test:watch": "mocha 'test/**/*.test.js' --recursive --timeout 30000 --watch",
     "test:coverage": "nyc npm test",
     "test:ci": "npm run lint && npm run test:all",

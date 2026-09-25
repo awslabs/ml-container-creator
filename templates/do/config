@@ -12,6 +12,7 @@
 # Project identification
 export PROJECT_NAME="<%= projectName %>"
 export DEPLOYMENT_CONFIG="<%= deploymentConfig %>"
+export MCC_VERSION="<%= typeof generatorVersion !== 'undefined' ? generatorVersion : '' %>"
 
 # Derived from deployment config
 export FRAMEWORK="<%= framework %>"

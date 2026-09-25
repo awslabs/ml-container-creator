@@ -134,6 +134,13 @@ export class MlccBenchmarkStack extends cdk.Stack {
                         { name: 'gpu_utilization_avg', type: 'double', comment: 'Average GPU compute utilization (0-100) over benchmark window; Phase 1 CloudWatch OTel' },
                         { name: 'gpu_utilization_max', type: 'double', comment: 'Peak GPU compute utilization (0-100); Phase 1 CloudWatch OTel' },
                         { name: 'gpu_memory_util_avg', type: 'double', comment: 'Average GPU memory copy utilization (0-100); Phase 1 CloudWatch OTel' },
+                        // BL101 R5: writer emits these two columns but the DDL previously omitted
+                        // them. NOTE (migration): editing this file only affects newly-bootstrapped
+                        // tables. Existing deployed Glue tables need the columns added out-of-band
+                        // (ALTER TABLE ... ADD COLUMNS) or via re-running bootstrap; until then the
+                        // writer emits data the deployed table cannot surface for these two columns.
+                        { name: 'gpu_memory_used_avg_gb', type: 'double', comment: 'Avg GPU memory used (GB); Phase 1 CloudWatch OTel' },
+                        { name: 'queue_depth_waiting_max', type: 'double', comment: 'Peak waiting-request queue depth; Phase 2 engine metrics' },
                         { name: 'kv_cache_util_avg', type: 'double', comment: 'Average KV cache utilization (0-1); Phase 1 OTel (KVCacheUtilization) or Phase 2 engine metrics' },
                         { name: 'kv_cache_util_max', type: 'double', comment: 'Peak KV cache utilization (0-1)' },
                         { name: 'prefix_cache_hit_rate', type: 'double', comment: 'Prefix/prompt cache hit ratio (0-1); Phase 2 engine /metrics only — not available via CloudWatch' },

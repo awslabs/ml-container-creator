@@ -700,6 +700,18 @@ echo "✅ HyperPod EKS deployment complete!"
 # ── Persist endpoint name for downstream workflows (AC-4) ─────────────────────
 # do/benchmark, do/test, and do/register consume ENDPOINT_NAME from do/config.
 _update_config "ENDPOINT_NAME" "${PROJECT_NAME}"
+# BL101 R2: persist the normalized serving-config tokens so the benchmark
+# query path (--compare-baseline) resolves the SAME Serving_Config_Key the
+# write path used. Equality-based Athena matching requires `none` (not empty)
+# for absent quantization and an integer tensor-parallel degree. Sourcing the
+# canonical resolver produces those normalized tokens; wrap the persist so a
+# failure here is non-fatal to the deploy.
+if [ -f "${SCRIPT_DIR}/lib/resolve-serving-config.sh" ]; then
+    # shellcheck disable=SC1091
+    source "${SCRIPT_DIR}/lib/resolve-serving-config.sh" 2>/dev/null || true
+    _update_config "VLLM_QUANTIZATION" "${SERVING_QUANTIZATION:-none}" 2>/dev/null || true
+    _update_config "VLLM_TENSOR_PARALLEL_SIZE" "${SERVING_TENSOR_PARALLEL:-${HP_GPU_COUNT:-1}}" 2>/dev/null || true
+fi
 # Persist cluster name and namespace so do/clean and subsequent deploys don't
 # require --reconfigure to re-run the interactive cluster picker prompts.
 _update_config "HP_CLUSTER_NAME" "${HP_CLUSTER_NAME}"

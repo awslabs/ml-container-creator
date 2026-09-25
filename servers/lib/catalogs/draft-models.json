@@ -1,0 +1,62 @@
+{
+  "thoughtworks/Llama-3.1-8B-Instruct-Eagle3": {
+    "algorithm": "eagle3",
+    "target_model": "meta-llama/Llama-3.1-8B-Instruct",
+    "target_arch": "LlamaForCausalLM",
+    "engine_support": [
+      "vllm",
+      "sglang"
+    ],
+    "min_vllm_version": "0.6.0",
+    "min_sglang_version": "0.4.0",
+    "notes": "Validated by Thoughtworks; 2-3x throughput on MT-Bench workloads"
+  },
+  "nvidia/Llama-3.1-8B-Instruct-Eagle3": {
+    "algorithm": "eagle3",
+    "target_model": "meta-llama/Llama-3.1-8B-Instruct",
+    "target_arch": "LlamaForCausalLM",
+    "engine_support": [
+      "vllm",
+      "sglang"
+    ],
+    "min_vllm_version": "0.6.0",
+    "min_sglang_version": "0.4.0",
+    "notes": "NVIDIA-published EAGLE3 draft head for Llama-3.1-8B"
+  },
+  "nvidia/Llama-3.1-70B-Instruct-Eagle3": {
+    "algorithm": "eagle3",
+    "target_model": "meta-llama/Llama-3.1-70B-Instruct",
+    "target_arch": "LlamaForCausalLM",
+    "engine_support": [
+      "vllm",
+      "sglang"
+    ],
+    "min_vllm_version": "0.6.0",
+    "min_sglang_version": "0.4.0",
+    "notes": "NVIDIA-published EAGLE3 draft head for Llama-3.1-70B"
+  },
+  "nvidia/Llama-3.3-70B-Instruct-Eagle3": {
+    "algorithm": "eagle3",
+    "target_model": "meta-llama/Llama-3.3-70B-Instruct",
+    "target_arch": "LlamaForCausalLM",
+    "engine_support": [
+      "vllm",
+      "sglang"
+    ],
+    "min_vllm_version": "0.6.0",
+    "min_sglang_version": "0.4.0",
+    "notes": "NVIDIA-published EAGLE3 draft head for Llama-3.3-70B"
+  },
+  "lmsys/vicuna-68m-context-v0.3": {
+    "algorithm": "draft-model",
+    "target_model": "lmsys/vicuna-7b-v1.5",
+    "target_arch": "LlamaForCausalLM",
+    "engine_support": [
+      "vllm",
+      "sglang"
+    ],
+    "min_vllm_version": "0.4.0",
+    "min_sglang_version": "0.3.0",
+    "notes": "Classic small draft model for Vicuna-7B"
+  }
+}

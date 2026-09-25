@@ -1,0 +1,16 @@
+{
+  "name": "@amzn/ml-container-creator-draft-model-picker",
+  "version": "1.0.0",
+  "description": "MCP server that provides speculative-decoding draft model recommendations for MLCC HyperPod EKS deployments.",
+  "modes": {
+    "static": true,
+    "smart": false,
+    "discover": true
+  },
+  "catalogs": {
+    "draft-models": "../lib/catalogs/draft-models.json"
+  },
+  "tool": {
+    "name": "list_draft_models"
+  }
+}
