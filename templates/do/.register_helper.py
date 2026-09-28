@@ -83,6 +83,8 @@ def main():
     adapter_parser = subparsers.add_parser("register-adapter", help="Register an adapter as a versioned Model Package linked to base model")
     adapter_parser.add_argument("--project-name", required=True, help="Project name (used as MPG name)")
     adapter_parser.add_argument("--parent-version-arn", required=True, help="Base model version ARN in the same MPG")
+    adapter_parser.add_argument("--base-id", default="", help="Base model family id (heads the MLflow family; enables family sub-model registration)")
+    adapter_parser.add_argument("--adapter-name", default="", help="Adapter name (used in the <base_id>__adapter__<name> registered model)")
     adapter_parser.add_argument("--tune-technique", default="", help="Tune technique (sft/dpo/rlvr)")
     adapter_parser.add_argument("--dataset-s3-uri", default="", help="Training dataset S3 URI")
     adapter_parser.add_argument("--dataset-version", default="", help="Dataset version ordinal")
@@ -157,6 +159,12 @@ def main():
     list_adapters_parser = subparsers.add_parser("list-adapters", help="List adapter versions from MPG")
     list_adapters_parser.add_argument("--project-name", required=True, help="Project name (MPG name)")
     list_adapters_parser.add_argument("--region", default=None, help="AWS region")
+    list_adapters_parser.add_argument("--group-by-family", dest="group_by_family", action="store_true", default=False,
+                                      help="Group adapters under their base model via MLflow mlcc.family (default: flat MPG listing)")
+    list_adapters_parser.add_argument("--base-id", action="append", default=[],
+                                      help="Base model family id to group under (repeatable; used with --group-by-family)")
+    list_adapters_parser.add_argument("--base-ids", default="",
+                                      help="Comma-separated base model family ids to group under (used with --group-by-family)")
 
     # ── list-models ───────────────────────────────────────────────────────
     list_models_parser = subparsers.add_parser("list-models", help="List base model versions from MPG")

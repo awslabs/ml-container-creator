@@ -193,7 +193,7 @@ program.configureHelp({
             '  ./do/deploy && ./do/test',
             '',
             '  # 4. Benchmark performance',
-            '  ./do/benchmark --workload multi_turn_chat',
+            '  ./do/benchmark --workload multi-turn-chat',
             '',
             helper.styleTitle('All generation options:'),
             ''
@@ -243,6 +243,7 @@ program
     .option('--non-interactive', 'Run without prompts (requires --profile and --region)')
     .option('--name <name>', 'Bootstrap profile name (default: "default")')
     .option('--with <modules>', 'Comma-separated modules to provision (non-interactive; default: core,registry)')
+    .option('--module <name>', 'Redeploy only the named module\'s CDK stack (for update)')
     .option('--force', 'Force removal without confirmation')
     .option('--dry-run', 'Preview module changes (stacks, resources, profile updates) without provisioning or destroying anything')
     .option('--verify', 'Verify resources exist (for status)')

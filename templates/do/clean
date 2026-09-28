@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
         --help|-h)
             echo "Usage: ./do/clean [--target <mode>] [clean-script-flags...]"
             echo ""
-            echo "Targets: managed-inference, async-inference, batch-transform, hyperpod-eks"
+            echo "Targets: managed-inference, async-inference, batch-transform, hyperpod-eks, eks"
             exit 0
             ;;
         *)
@@ -60,6 +60,7 @@ const target = await select({
         { name: 'Async Inference', value: 'async-inference' },
         { name: 'Batch Transform', value: 'batch-transform' },
         { name: 'HyperPod EKS', value: 'hyperpod-eks' },
+        { name: 'Plain EKS (Deployment/Service/ConfigMap)', value: 'eks' },
     ],
 });
 process.stdout.write(target);
@@ -86,6 +87,9 @@ case "$DEPLOYMENT_TARGET" in
         ;;
     hyperpod-eks)
         source "${SCRIPT_DIR}/clean.d/hyperpod-eks" "${CLEAN_ARGS[@]+"${CLEAN_ARGS[@]}"}"
+        ;;
+    eks)
+        source "${SCRIPT_DIR}/clean.d/eks" "${CLEAN_ARGS[@]+"${CLEAN_ARGS[@]}"}"
         ;;
     *)
         echo "❌ Unknown DEPLOYMENT_TARGET: $DEPLOYMENT_TARGET"

@@ -1,0 +1,25 @@
+{
+  "engine": "vllm",
+  "env_var_prefix": "VLLM_",
+  "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "ngram", "mtp"],
+  "algorithm_map": {
+    "eagle3": "eagle3",
+    "eagle2": "eagle2",
+    "eagle": "eagle",
+    "draft-model": "draft_model",
+    "ngram": "ngram",
+    "mtp": "mtp"
+  },
+  "hot_reload": true,
+  "metrics_endpoint": {
+    "path": "/metrics",
+    "port": 8080,
+    "format": "prometheus"
+  },
+  "dimension_map": {
+    "quantization": "QUANTIZATION",
+    "tensor_parallel_degree": "TENSOR_PARALLEL_SIZE",
+    "max_model_len": "MAX_MODEL_LEN",
+    "kv_cache_dtype": "KV_CACHE_DTYPE"
+  }
+}

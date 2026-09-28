@@ -16,6 +16,7 @@ import CommentGenerator from './lib/comment-generator.js';
 import ConfigurationManager from './lib/configuration-manager.js';
 import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
+import { readEnvVarPrefix } from './lib/serve-manifest-reader.js';
 import { _ensureTemplateVariables, _validateEnvironmentVariables } from './lib/template-variable-resolver.js';
 import ejs from 'ejs';
 import { globSync } from 'tinyglobby';
@@ -368,6 +369,13 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         serverEnvVars: prefixedServerEnvVars
     };
 
+    // BL107: inject the active engine's env-var prefix from its serve-layer
+    // manifest (serve.d/<engine>/manifest.json). The serve wrappers read this
+    // via <%= envVarPrefix %> instead of hardcoding e.g. PREFIX="SGLANG_", so the
+    // prefix has a single source of truth (the manifest). Falls back to the
+    // engine-prefix map for engines without a manifest, then to empty.
+    templateVars.envVarPrefix = readEnvVarPrefix(engine) || '';
+
     // Add generator version to template vars so templates can embed it (e.g. MCC_VERSION in do/config)
     try {
         const { version } = JSON.parse(fs.readFileSync(path.join(GENERATOR_ROOT, 'package.json'), 'utf8'));
@@ -495,6 +503,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/triton/**');
         ignorePatterns.push('**/diffusors/**');
         ignorePatterns.push('**/hyperpod/**');
+        ignorePatterns.push('**/eks/**');
         ignorePatterns.push('**/MIGRATION.md');
         ignorePatterns.push('**/TEMPLATE_SYSTEM.md');
         ignorePatterns.push('**/IAM_PERMISSIONS.md');
@@ -659,6 +668,25 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     _copyFile(path.join(LIB_DIR, 'asset-manager.js'), path.join(doLibDir, 'asset-manager.js'));
     _copyFile(path.join(LIB_DIR, 'bootstrap-config.js'), path.join(doLibDir, 'bootstrap-config.js'));
 
+    // BL111: ship the eks manifest EJS *source* (unrendered) into the project so
+    // do/deploy.d/eks can re-render from the template at deploy time — the render
+    // source of truth is the .ejs template resolved against current do/config, not
+    // the generate-time-frozen eks/*.yaml that copyTpl also writes (kept only as the
+    // envsubst-fallback input). Only the plain-EKS target needs this.
+    if (answers.deploymentTarget === 'eks' && architecture !== 'marketplace') {
+        const eksTemplateDir = path.join(templateDir, 'eks');
+        if (fs.existsSync(eksTemplateDir)) {
+            const eksDestDir = path.join(destDir, 'eks');
+            fs.mkdirSync(eksDestDir, { recursive: true });
+            for (const ejsSrc of fs.readdirSync(eksTemplateDir)) {
+                if (!ejsSrc.endsWith('.yaml.ejs')) continue;
+                // Copy verbatim (NOT EJS-rendered): the deploy-time render owns the
+                // <%= %> resolution so instanceType/GPU/model/serve reflect deploy time.
+                _copyFile(path.join(eksTemplateDir, ejsSrc), path.join(eksDestDir, ejsSrc));
+            }
+        }
+    }
+
     // Copy tune catalog to generated project when tune is included
     if (architecture === 'transformers' && answers.deploymentTarget !== 'batch-transform') {
         const tuneCatalogSrc = path.join(GENERATOR_ROOT, 'config', 'tune-catalog.json');
@@ -814,6 +842,30 @@ function _writeGenerationParams(destDir, answers) {
         const draftCatalogDest = path.join(destDir, '.mlcc', 'draft-models.json');
         if (fs.existsSync(draftCatalogSrc)) {
             fs.copyFileSync(draftCatalogSrc, draftCatalogDest);
+        }
+
+        // Copy serve-engine plugin manifests to .mlcc/serve.d/ so do/draft and
+        // do/deploy can read engine capabilities (supported_algorithms,
+        // env_var_prefix, dimension_map) at generation and deploy time. The
+        // wrappers themselves are excluded from output by the **/serve.d/**
+        // ignore pattern; only the manifest data is copied for the reader.
+        const serveDSrc = path.join(GENERATOR_ROOT, 'templates', 'code', 'serve.d');
+        const serveDDest = path.join(mlccDir, 'serve.d');
+        if (fs.existsSync(serveDSrc)) {
+            const schemaSrc = path.join(serveDSrc, 'manifest.schema.json');
+            if (fs.existsSync(schemaSrc)) {
+                fs.mkdirSync(serveDDest, { recursive: true });
+                fs.copyFileSync(schemaSrc, path.join(serveDDest, 'manifest.schema.json'));
+            }
+            for (const entry of fs.readdirSync(serveDSrc, { withFileTypes: true })) {
+                if (!entry.isDirectory()) continue;
+                const manifestSrc = path.join(serveDSrc, entry.name, 'manifest.json');
+                if (fs.existsSync(manifestSrc)) {
+                    const engineDest = path.join(serveDDest, entry.name);
+                    fs.mkdirSync(engineDest, { recursive: true });
+                    fs.copyFileSync(manifestSrc, path.join(engineDest, 'manifest.json'));
+                }
+            }
         }
     } catch { /* non-fatal */ }
 }

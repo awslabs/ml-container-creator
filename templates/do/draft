@@ -31,8 +31,8 @@ source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
 # ── Target guard ──────────────────────────────────────────────────────────────
-if [ "${DEPLOYMENT_TARGET:-}" != "hyperpod-eks" ]; then
-    echo "❌ do/draft is only supported on DEPLOYMENT_TARGET=hyperpod-eks."
+if [ "${DEPLOYMENT_TARGET:-}" != "hyperpod-eks" ] && [ "${DEPLOYMENT_TARGET:-}" != "eks" ]; then
+    echo "❌ do/draft is only supported on DEPLOYMENT_TARGET=hyperpod-eks or eks."
     echo "   For realtime-inference speculative decoding, use:"
     echo "     ./do/optimize --apply <arn>   (maps SpeculativeDecodingConfig → HP_SPECULATIVE_*)"
     exit 1
@@ -81,8 +81,20 @@ case "${CMD}" in
         echo ""
         echo "Options for 'set':"
         echo "  --algorithm <alg>   Speculative algorithm (default: eagle3)"
-        echo "                      vLLM:   eagle3, eagle2, eagle, draft-model, ngram, mtp"
-        echo "                      SGLang: eagle3, eagle2, eagle, draft-model, ngram, mtp"
+        # BL107: the per-engine supported-algorithm lists are read from each
+        # engine's serve-layer manifest (serve.d/<engine>/supported_algorithms)
+        # rather than hardcoded here, so the help text can never drift from the
+        # validator's real capabilities. Falls back to a static line if the
+        # reader is unavailable.
+        _draft_help_algos() {
+            local engine="$1"
+            python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" supported_algorithms "${engine}" 2>/dev/null \
+                | python3 -c 'import json,sys; print(", ".join(json.load(sys.stdin)))' 2>/dev/null
+        }
+        _vllm_algos="$(_draft_help_algos vllm)"
+        _sglang_algos="$(_draft_help_algos sglang)"
+        echo "                      vLLM:   ${_vllm_algos:-eagle3, eagle2, eagle, draft-model, ngram, mtp}"
+        echo "                      SGLang: ${_sglang_algos:-eagle3, eagle2, eagle, draft-model, mtp}"
         echo "  --num-tokens <N>    Speculative tokens per step (default: 5)"
         echo "  --draft-tp <N>      Tensor-parallel degree for draft model (optional)"
         echo "  --eagle-topk <N>    EAGLE top-k candidates (SGLang only, optional)"
@@ -90,13 +102,16 @@ case "${CMD}" in
         echo ""
         echo "Prerequisites:"
         echo "  - DEPLOYMENT_TARGET=hyperpod-eks (HyperPod only)"
-        echo "  - HF model ID only — s3:// draft URIs are not supported"
+        echo "  - HF model ID or s3:// URI (e.g. an in-house fine-tuned draft head)"
+        echo "    Note: s3:// draft heads are validated on 'set', but end-to-end"
+        echo "    routing of an S3 draft requires BL105 (plugin manifests)."
         echo "  - A redeploy is required after 'set' or 'remove': ./do/deploy"
         echo ""
         echo "Examples:"
         echo "  ./do/draft set thoughtworks/Llama-3.1-8B-Instruct-Eagle3"
         echo "  ./do/draft set thoughtworks/Llama-3.1-8B-Instruct-Eagle3 --num-tokens 3"
         echo "  ./do/draft set meta-llama/Llama-3.1-8B-Eagle3 --algorithm eagle3 --num-tokens 5"
+        echo "  ./do/draft set s3://my-bucket/drafts/llama31-8b-eagle3/ --algorithm eagle3"
         echo "  ./do/draft status"
         echo "  ./do/draft remove"
         exit 0
@@ -112,18 +127,71 @@ case "${CMD}" in
             exit 1
         fi
 
-        # Guard: no s3:// URIs (not supported in phase 1)
+        # BL114: s3:// URIs are now accepted for draft models. When an s3:// URI
+        # is supplied we validate its structure and that it points at a usable
+        # draft head (via the draft-model-picker get_draft_from_s3 tool, which
+        # checks for adapter_config.json or a model config at the path) BEFORE
+        # accepting it. Malformed or non-draft-head URIs are rejected.
+        #
+        # NOTE (BLOCKED BY BL105): the tool validates and this guard accepts the
+        # URI, and HP_SPECULATIVE_MODEL is written with the s3:// value — but
+        # end-to-end routing of an S3 draft through the algorithm_map requires the
+        # plugin manifests introduced by BL105. Until BL105 lands, an S3 draft
+        # cannot deploy end-to-end.
+        _IS_S3_DRAFT=false
         if [[ "${DRAFT_HF_ID}" == s3://* ]]; then
-            echo "❌ S3 URIs are not supported for draft models."
-            echo "   Provide a HuggingFace model ID, e.g.:"
-            echo "     ./do/draft set thoughtworks/Llama-3.1-8B-Instruct-Eagle3"
-            exit 1
+            _IS_S3_DRAFT=true
+
+            # Structural check: s3://<bucket>/<key...> — reject a bare "s3://" or
+            # a scheme with no bucket.
+            if [[ ! "${DRAFT_HF_ID}" =~ ^s3://[^/]+ ]]; then
+                echo "❌ Malformed S3 URI: ${DRAFT_HF_ID}"
+                echo "   Expected form: s3://<bucket>/<prefix>/"
+                exit 1
+            fi
+
+            # Validate the head. This mirrors the draft-model-picker
+            # get_draft_from_s3 tool (Requirement 1): a head is usable iff
+            # adapter_config.json OR a model config.json is present under the
+            # prefix. The generated project does not bundle the Node MCP server,
+            # so the guard performs the equivalent local check via the AWS CLI
+            # (the same accessor the tool uses in production). If the AWS CLI is
+            # unavailable, we accept the URI without validation and warn.
+            if command -v aws >/dev/null 2>&1; then
+                # `aws s3 ls --recursive` lists keys under the prefix; a non-zero
+                # exit means unreachable / bad credentials / no such path.
+                _S3_LS_URI="${DRAFT_HF_ID%/}/"
+                if _S3_KEYS="$(aws s3 ls "${_S3_LS_URI}" --recursive 2>/dev/null)"; then
+                    if printf '%s\n' "${_S3_KEYS}" | grep -Eq '(^|/)(adapter_config|config)\.json[[:space:]]*$'; then
+                        : # valid draft head — continue
+                    else
+                        echo "❌ S3 URI does not point at a usable draft head: ${DRAFT_HF_ID}"
+                        echo "   No adapter_config.json or model config.json found under the prefix."
+                        exit 1
+                    fi
+                else
+                    echo "❌ S3 path could not be reached: ${DRAFT_HF_ID}"
+                    echo "   Check the URI and your AWS credentials/permissions."
+                    exit 1
+                fi
+            else
+                echo "⚠️  AWS CLI not found; skipping S3 draft-head validation."
+                echo "   Accepting the s3:// URI without validation; verify it points at a real draft head."
+            fi
         fi
 
         # Guard: engine must support speculative decoding
         case "${MODEL_SERVER:-vllm}" in
             vllm|sglang)
                 # Supported — continue
+                ;;
+            tgi|triton)
+                # BL103: permitted on the eks/hyperpod-eks targets without a hard
+                # error. Speculative decoding wiring for these engines is limited;
+                # warn and continue rather than blocking configuration.
+                echo "⚠️  ${MODEL_SERVER} speculative decoding support is limited."
+                echo "   The HP_SPECULATIVE_* values are still written to do/config,"
+                echo "   but the engine may not consume all of them. Continuing."
                 ;;
             lmi)
                 echo "⚠️  LMI speculative decoding support is limited."
@@ -142,21 +210,8 @@ case "${CMD}" in
                 ;;
         esac
 
-        # Guard: algorithm/engine compatibility
-        case "${MODEL_SERVER:-vllm}" in
-            sglang)
-                case "${DRAFT_ALGORITHM}" in
-                    ngram|medusa)
-                        echo "❌ Algorithm '${DRAFT_ALGORITHM}' is not supported by SGLang."
-                        echo "   SGLang supports: eagle3, eagle2, eagle, draft-model, mtp"
-                        exit 1
-                        ;;
-                esac
-                ;;
-            vllm)
-                # All algorithms supported by vLLM
-                ;;
-        esac
+        # Guard: algorithm/engine compatibility is validated after option parsing,
+        # against the active engine's manifest supported_algorithms (BL105).
 
         # Parse options
         DRAFT_ALGORITHM="eagle3"
@@ -176,15 +231,34 @@ case "${CMD}" in
             esac
         done
 
-        # Validate algorithm
-        case "${DRAFT_ALGORITHM}" in
-            eagle3|eagle2|eagle|draft-model|ngram|mtp) ;;
-            *)
-                echo "❌ Unknown algorithm: ${DRAFT_ALGORITHM}"
-                echo "   Supported: eagle3, eagle2, eagle, draft-model, ngram, mtp"
-                exit 1
-                ;;
-        esac
+        # Validate algorithm against the active engine's manifest (BL105).
+        # supported_algorithms is read from serve.d/<engine>/manifest.json rather
+        # than a hardcoded per-engine case statement, so algorithm support is
+        # data-driven and each engine declares its own real capabilities.
+        _ACTIVE_ENGINE="${MODEL_SERVER:-vllm}"
+        _SUPPORTED_JSON="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" supported_algorithms "${_ACTIVE_ENGINE}" 2>/dev/null)" || {
+            echo "❌ ${_ACTIVE_ENGINE} has no serve-layer manifest (serve.d/${_ACTIVE_ENGINE}/manifest.json)."
+            echo "   Cannot validate speculative-decoding algorithms for this engine."
+            exit 1
+        }
+
+        # Check membership and build a human-readable supported list from the manifest.
+        _ALG_CHECK="$(ALG="${DRAFT_ALGORITHM}" python3 - "${_SUPPORTED_JSON}" <<'PYEOF'
+import json, os, sys
+supported = json.loads(sys.argv[1])
+alg = os.environ.get("ALG", "")
+print("OK" if alg in supported else "NO")
+print(", ".join(supported))
+PYEOF
+)"
+        _ALG_OK="$(printf '%s\n' "${_ALG_CHECK}" | sed -n '1p')"
+        _ALG_LIST="$(printf '%s\n' "${_ALG_CHECK}" | sed -n '2p')"
+
+        if [ "${_ALG_OK}" != "OK" ]; then
+            echo "❌ Algorithm '${DRAFT_ALGORITHM}' is not supported by ${_ACTIVE_ENGINE}."
+            echo "   ${_ACTIVE_ENGINE} supports: ${_ALG_LIST}"
+            exit 1
+        fi
 
         # eagle3 guard: requires a draft model path
         if [ "${DRAFT_ALGORITHM}" = "eagle3" ] && [ -z "${DRAFT_HF_ID}" ]; then
@@ -207,6 +281,13 @@ case "${CMD}" in
         echo "   Num tokens : ${DRAFT_NUM_TOKENS}"
         [ -n "${DRAFT_TP}" ]        && echo "   Draft TP   : ${DRAFT_TP}"
         [ -n "${DRAFT_EAGLE_TOPK}" ] && echo "   Eagle top-k: ${DRAFT_EAGLE_TOPK}"
+        if [ "${_IS_S3_DRAFT}" = "true" ]; then
+            echo ""
+            echo "ℹ️  S3 draft head accepted and validated."
+            echo "   Note: end-to-end routing of an S3 draft through the algorithm_map"
+            echo "   requires BL105 (plugin manifests). Until BL105 lands, deployment"
+            echo "   of an S3 draft is not yet end-to-end."
+        fi
         echo ""
         if [ "${DRAFT_AUTO_DEPLOY}" = "true" ]; then
             echo "🧹 Cleaning existing deployment to avoid GPU resource deadlock..."

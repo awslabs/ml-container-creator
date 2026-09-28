@@ -475,7 +475,8 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 { name: 'Real-time Inference (SageMaker)', value: 'realtime-inference' },
                 { name: 'Async Inference (SageMaker async)', value: 'async-inference' },
                 { name: 'Batch Transform (SageMaker batch)', value: 'batch-transform' },
-                { name: 'HyperPod EKS (GPU cluster)', value: 'hyperpod-eks' }
+                { name: 'HyperPod EKS (GPU cluster)', value: 'hyperpod-eks' },
+                { name: 'Plain EKS (Deployment/Service/ConfigMap)', value: 'eks' }
             ],
             default: 'realtime-inference'
         });
@@ -503,8 +504,8 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
     }
 
     // ── Instance type ────────────────────────────────────────────────────────
-    // Skip for hyperpod-eks — instance type comes from cluster node groups (below)
-    if (target === 'hyperpod-eks') {
+    // Skip for hyperpod-eks and eks — instance type comes from the cluster/target section below
+    if (target === 'hyperpod-eks' || target === 'eks') {
         // Handled in target-specific section
     } else if (preInstanceType) {
         answers.instance_type = preInstanceType;
@@ -720,6 +721,66 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
             });
         }
 
+    } else if (target === 'eks') {
+        // ── Plain EKS (BL103) ────────────────────────────────────────────────
+        // Reuses the HyperPod cluster/GPU fields, but the cluster is OPTIONAL:
+        // when skipped, the deploy uses the ambient kubectl context.
+        if (!config.HP_CLUSTER_NAME) {
+            let clusters = [];
+            const clusterSpinner = ora('Querying cluster-picker...').start();
+            try {
+                clusters = await getClusters(region);
+            } catch {
+                clusters = [];
+            }
+            clusterSpinner.stop();
+            const choices = clusters.map(c => ({
+                name: `${c.name} (${c.gpuTotal} GPUs, ${c.instanceTypes.join(', ')})`,
+                value: c.name
+            }));
+            choices.push({ name: '(use current kubectl context — no cluster)', value: '' });
+            answers.cluster_name = await select({
+                message: 'Target cluster (optional):',
+                choices,
+                default: ''
+            });
+        }
+
+        // Instance type — used only to auto-detect GPU/CPU/memory requests.
+        if (!config.INSTANCE_TYPE && !preInstanceType) {
+            answers.instance_type = await promptInstanceType(modelName, region, null, target);
+        } else if (preInstanceType) {
+            answers.instance_type = preInstanceType;
+        }
+
+        // GPU count (BL096) — auto-detect from the resolved instance type.
+        const gpuResolution = resolveHpGpuCount({
+            selectedInstanceType: answers.instance_type,
+            configInstanceType: config.INSTANCE_TYPE || preInstanceType,
+            existingGpuCount: config.HP_GPU_COUNT
+        });
+        if (gpuResolution.gpuCount !== null) {
+            answers.hp_gpu_count = gpuResolution.gpuCount;
+            console.log(`   GPU count: ${gpuResolution.gpuCount} (auto-detected)`);
+        }
+
+        // Namespace
+        if (!config.HP_NAMESPACE) {
+            answers.namespace = await input({
+                message: 'Kubernetes namespace:',
+                default: 'default'
+            });
+        }
+
+        // Replicas
+        if (!config.HP_REPLICAS) {
+            answers.replicas = await input({
+                message: 'Number of replicas:',
+                default: '1',
+                validate: v => !isNaN(v) && Number(v) > 0 ? true : 'Must be positive'
+            });
+        }
+
     } else if (target === 'async-inference') {
         // Async endpoint name (separate from SMAI)
         if (!config.ASYNC_ENDPOINT_NAME) {
@@ -815,6 +876,9 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
             answers.batch_instance_type = answers.instance_type;
             break;
         case 'hyperpod-eks':
+            answers.hp_instance_type = answers.instance_type;
+            break;
+        case 'eks':
             answers.hp_instance_type = answers.instance_type;
             break;
         }

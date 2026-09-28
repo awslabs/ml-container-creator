@@ -1,4 +1,15 @@
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+# Normalize --flag=value → --flag value before the main arg loop.
+# This lets users pass either `--min-tp 4` or `--min-tp=4`.
+_NORMALIZED_ARGS=()
+for _a in "$@"; do
+    case "$_a" in
+        --*=*) _NORMALIZED_ARGS+=("${_a%%=*}" "${_a#*=}") ;;
+        *)     _NORMALIZED_ARGS+=("$_a") ;;
+    esac
+done
+set -- "${_NORMALIZED_ARGS[@]+"${_NORMALIZED_ARGS[@]}"}"
+
 # SPDX-License-Identifier: Apache-2.0
 #
 # do/benchmark — Run SageMaker AI Benchmark against deployed endpoint.
@@ -41,29 +52,62 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
 # ── Phase 2 engine /metrics scrape (BL086, HyperPod EKS opt-in) ───────────────
-# When HP_BENCHMARK_METRICS_ENABLED=true and DEPLOYMENT_TARGET=hyperpod-eks,
-# port-forward to the serving pod (same pattern as the do/test HyperPod path),
-# scrape engine /metrics via gpu_metrics.py, and write the JSON to a temp file.
-# Echoes the temp-file path on success, or nothing. Always non-fatal.
-_collect_engine_metrics_file() {
+# BL108 upgrades the BL086 point-in-time /metrics scrape into a background
+# poller. When HP_BENCHMARK_METRICS_ENABLED=true, DEPLOYMENT_TARGET is
+# hyperpod-eks/eks, AND the active engine's serve.d/<engine>/manifest.json
+# declares a metrics_endpoint (BL105), a background poller is spawned at
+# benchmark start (Req 1.1). It samples engine /metrics every 5s for the whole
+# run and writes peak/avg to benchmarks/.last_gpu_metrics.json at the end
+# (Req 2, 3). When no metrics_endpoint is declared, Phase 2 is silently skipped
+# (Req 4.1). The port-forward is started before the poller (Req 7.1) and stopped
+# after benchmark end, on both normal and abnormal exit (Req 7.2).
+#
+# State shared between _phase2_start_poller and _phase2_stop_poller:
+_PHASE2_PF_PID=""        # kubectl port-forward PID
+_PHASE2_POLLER_PID=""    # phase2_poller.py PID
+_PHASE2_STOP_FILE=""     # sentinel file that signals the poller to stop
+_PHASE2_ACTIVE=false     # true once a poller has been spawned
+
+# ── Spawn the poller (Req 1, 4, 7.1) ──────────────────────────────────────────
+# Resolves the metrics_endpoint from the engine manifest and, only if declared,
+# starts the port-forward and spawns the background poller. Always non-fatal:
+# any failure degrades to "no Phase 2 file" and returns 0.
+_phase2_start_poller() {
+    # Outer opt-in guards (subsume the BL086 gates). Silent skip if not opted in.
     if [ "${HP_BENCHMARK_METRICS_ENABLED:-false}" != "true" ]; then
         return 0
     fi
-    if [ "${DEPLOYMENT_TARGET:-}" != "hyperpod-eks" ]; then
+    if [ "${DEPLOYMENT_TARGET:-}" != "hyperpod-eks" ] && [ "${DEPLOYMENT_TARGET:-}" != "eks" ]; then
         return 0
     fi
 
     local _sd
     _sd="$(dirname "${BASH_SOURCE[0]}")"
 
-    # Resolve kubeconfig for the HyperPod cluster.
-    # If KUBECONFIG is already set and functional, reuse it (skips describe-cluster).
-    # Otherwise, fall back to the kubeconfig written by do/deploy.
+    # Req 4.1: spawn only if the engine manifest declares a metrics_endpoint.
+    # serve_manifest.py exits non-zero (and prints nothing usable) when absent.
+    local _me_json
+    _me_json=$(python3 "${_sd}/lib/python/serve_manifest.py" metrics_endpoint "${MODEL_SERVER}" 2>/dev/null) || _me_json=""
+    if [ -z "${_me_json}" ] || [ "${_me_json}" = "null" ]; then
+        # No metrics_endpoint → silently skip Phase 2 (no poller, no error).
+        return 0
+    fi
+
+    # Extract the remote port from the metrics_endpoint (default 8080, matching
+    # the historical hardcoded value). Parsing failures fall back to 8080.
+    local _remote_port
+    _remote_port=$(printf '%s' "${_me_json}" | python3 -c \
+        'import json,sys
+try:
+    print(int(json.load(sys.stdin).get("port", 8080)))
+except Exception:
+    print(8080)' 2>/dev/null) || _remote_port=8080
+    [ -z "${_remote_port}" ] && _remote_port=8080
+
+    # Resolve kubeconfig for the cluster. The exec credential (aws eks get-token)
+    # must run with the correct AWS profile, only available after do/config is
+    # sourced — so always run update-kubeconfig rather than reusing a stale file.
     local _kubeconfig="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME:-}"
-    # Always resolve the EKS cluster ARN and refresh the kubeconfig token.
-    # Reusing an existing kubeconfig file is not sufficient — the exec credential
-    # (aws eks get-token) must run with the correct AWS profile which is only
-    # available after do/config is sourced. Always run update-kubeconfig.
     local _eks_arn _eks_name
     _eks_arn=$(aws sagemaker describe-cluster \
         --cluster-name "${HP_CLUSTER_NAME:-}" \
@@ -72,7 +116,6 @@ _collect_engine_metrics_file() {
         --output text 2>/dev/null) || return 0
     [ -z "${_eks_arn}" ] || [ "${_eks_arn}" = "None" ] && return 0
     _eks_name=$(echo "${_eks_arn}" | awk -F'/' '{print $NF}')
-    # Pass --profile explicitly so the subshell uses the same AWS profile as do/benchmark
     local _profile_arg=""
     [ -n "${AWS_PROFILE:-}" ] && _profile_arg="--profile ${AWS_PROFILE}"
     aws eks update-kubeconfig \
@@ -84,38 +127,90 @@ _collect_engine_metrics_file() {
 
     kubectl cluster-info >/dev/null 2>&1 || return 0
 
-    # Port-forward svc/<project> to a local port (same pattern as do/test).
-    local _local_port=18080
-    # Port-forward directly to the serving pod (same pattern as do/test).
-    # The operator creates ${PROJECT_NAME}-routing-service on TLS/443, not plain 8080.
+    # Discover the Running serving pod (empty → pod not Running → silent skip).
     local _pod_name
     _pod_name=$(kubectl get pods -n "${HP_NAMESPACE:-default}" \
         -l "app=${PROJECT_NAME}" \
         --field-selector=status.phase=Running \
         -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || return 0
     [ -z "${_pod_name}" ] && return 0
-    kubectl port-forward "pod/${_pod_name}" "${_local_port}:8080" \
-        -n "${HP_NAMESPACE:-default}" >/dev/null 2>&1 &
-    local _pf_pid=$!
-    sleep 3
-    if ! kill -0 "${_pf_pid}" 2>/dev/null; then
-        return 0  # port-forward failed → non-fatal, no engine metrics
-    fi
 
-    # Scrape engine /metrics via the gpu_metrics.py CLI and capture JSON.
-    local _out_file
-    _out_file=$(mktemp)
-    if python3 "${_sd}/lib/python/gpu_metrics.py" engine-metrics \
-        "http://localhost:${_local_port}" "${MODEL_SERVER}" > "${_out_file}" 2>/dev/null; then
-        kill "${_pf_pid}" 2>/dev/null || true
-        echo "${_out_file}"
+    # Req 7.1: start the port-forward BEFORE the poller.
+    local _local_port=18080
+    kubectl port-forward "pod/${_pod_name}" "${_local_port}:${_remote_port}" \
+        -n "${HP_NAMESPACE:-default}" >/dev/null 2>&1 &
+    _PHASE2_PF_PID=$!
+    sleep 3
+    if ! kill -0 "${_PHASE2_PF_PID}" 2>/dev/null; then
+        # Port-forward failed → non-fatal, do not spawn the poller (Error Handling).
+        _PHASE2_PF_PID=""
         return 0
     fi
 
-    kill "${_pf_pid}" 2>/dev/null || true
-    rm -f "${_out_file}"
+    # Req 1.1: spawn the background poller only after the port-forward is live.
+    _PHASE2_STOP_FILE="$(mktemp -t mlcc_phase2_stop.XXXXXX)"
+    rm -f "${_PHASE2_STOP_FILE}" 2>/dev/null || true  # sentinel must not pre-exist
+    local _output="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+    python3 "${_sd}/lib/python/phase2_poller.py" \
+        "http://localhost:${_local_port}" "${MODEL_SERVER}" "${_output}" \
+        --interval 5 --min-samples 5 --stop-file "${_PHASE2_STOP_FILE}" \
+        >/dev/null 2>&1 &
+    _PHASE2_POLLER_PID=$!
+    if ! kill -0 "${_PHASE2_POLLER_PID}" 2>/dev/null; then
+        # Req 1.2: poller failed to spawn → continue without Phase 2, warn.
+        echo "⚠️  Phase 2 metrics poller failed to spawn (non-fatal)" >&2
+        _PHASE2_POLLER_PID=""
+        kill "${_PHASE2_PF_PID}" 2>/dev/null || true
+        _PHASE2_PF_PID=""
+        return 0
+    fi
+    _PHASE2_ACTIVE=true
     return 0
 }
+
+# ── Stop the poller and port-forward (Req 3, 7.2) ─────────────────────────────
+# Signals the poller to stop (it aggregates + writes .last_gpu_metrics.json),
+# waits for it to finish, then stops the port-forward. Safe to call multiple
+# times and from an EXIT trap; runs regardless of how the benchmark ended.
+_phase2_stop_poller() {
+    if [ "${_PHASE2_ACTIVE}" != "true" ]; then
+        return 0
+    fi
+    _PHASE2_ACTIVE=false
+
+    # Signal the poller to stop via the sentinel file (Req 3.1: it writes on stop).
+    [ -n "${_PHASE2_STOP_FILE}" ] && : > "${_PHASE2_STOP_FILE}" 2>/dev/null || true
+
+    # Wait for the poller to finish writing (bounded so a hung poller cannot
+    # stall the benchmark). It should exit within ~1 interval of the sentinel.
+    if [ -n "${_PHASE2_POLLER_PID}" ]; then
+        local _waited=0
+        while kill -0 "${_PHASE2_POLLER_PID}" 2>/dev/null; do
+            sleep 1
+            _waited=$((_waited + 1))
+            if [ ${_waited} -ge 15 ]; then
+                kill "${_PHASE2_POLLER_PID}" 2>/dev/null || true
+                break
+            fi
+        done
+        wait "${_PHASE2_POLLER_PID}" 2>/dev/null || true
+        _PHASE2_POLLER_PID=""
+    fi
+
+    # Req 7.2: stop the port-forward AFTER the poller has finished.
+    if [ -n "${_PHASE2_PF_PID}" ]; then
+        kill "${_PHASE2_PF_PID}" 2>/dev/null || true
+        _PHASE2_PF_PID=""
+    fi
+
+    [ -n "${_PHASE2_STOP_FILE}" ] && rm -f "${_PHASE2_STOP_FILE}" 2>/dev/null || true
+    _PHASE2_STOP_FILE=""
+    return 0
+}
+
+# Req 7.3: ensure the port-forward is stopped on any exit (normal or abnormal,
+# including a poller crash or an interrupt during the run).
+trap '_phase2_stop_poller' EXIT
 
 # ── Target guard: benchmark uses InvokeEndpoint (real-time only) ──────────────
 # BL086: run-window timestamps for post-run CloudWatch enrichment (set at
@@ -134,6 +229,136 @@ if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
     echo "   AIPerf benchmarking requires a real-time endpoint."
     echo "   Switch target: do/deploy --target realtime-inference"
     exit 1
+fi
+
+# ── Plain EKS benchmark: direct pod port-forward (BL103, Requirement 6) ────────
+# The eks target has no SageMaker endpoint, so the SageMaker AI Benchmarking
+# service path below does not apply. Instead, reach the serving pod directly via
+# `kubectl port-forward pod/<pod> 8080` (same mechanism hyperpod-eks uses for its
+# pod-facing paths) and drive a local latency/throughput measurement. If the
+# port-forward cannot be established, fail fast with a clear error (Req 6.2).
+if [ "${DEPLOYMENT_TARGET:-}" = "eks" ]; then
+    HP_NAMESPACE="${HP_NAMESPACE:-default}"
+    _profile_arg=""
+    [ -n "${_PROFILE_awsProfile:-${AWS_PROFILE:-}}" ] && _profile_arg="--profile ${_PROFILE_awsProfile:-${AWS_PROFILE}}"
+
+    echo "📊 Plain EKS benchmark (direct pod port-forward)"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Namespace: ${HP_NAMESPACE}"
+    echo "   Model server: ${MODEL_SERVER}"
+
+    # Kubeconfig update is gated on HP_CLUSTER_NAME (as in deploy/test).
+    if [ -n "${HP_CLUSTER_NAME:-}" ]; then
+        KUBECONFIG_PATH="${HOME}/.kube/eks-${HP_CLUSTER_NAME}"
+        _eks_name="${HP_CLUSTER_NAME}"
+        _eks_arn=$(aws sagemaker describe-cluster \
+            --cluster-name "${HP_CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            ${_profile_arg} \
+            --query "Orchestrator.Eks.ClusterArn" \
+            --output text 2>/dev/null) || _eks_arn=""
+        if [ -n "${_eks_arn}" ] && [ "${_eks_arn}" != "None" ]; then
+            _eks_name=$(echo "${_eks_arn}" | awk -F'/' '{print $NF}')
+        fi
+        aws eks update-kubeconfig \
+            --name "${_eks_name}" \
+            --region "${AWS_REGION}" \
+            ${_profile_arg} \
+            --kubeconfig "${KUBECONFIG_PATH}" >/dev/null 2>&1 || {
+            echo "❌ do/benchmark could not configure kubectl for cluster '${HP_CLUSTER_NAME}'."
+            echo "   Port-forward to the serving pod cannot be established."
+            exit 1
+        }
+        export KUBECONFIG="${KUBECONFIG_PATH}"
+    fi
+
+    # Resolve the running serving pod by label.
+    _EKS_POD=$(kubectl get pods -n "${HP_NAMESPACE}" \
+        -l "app=${PROJECT_NAME}" \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || _EKS_POD=""
+    if [ -z "${_EKS_POD}" ]; then
+        echo "❌ do/benchmark: no running pod found for app=${PROJECT_NAME} in namespace ${HP_NAMESPACE}."
+        echo "   Port-forward to the serving pod cannot be established."
+        echo "   Check: kubectl get pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
+        exit 1
+    fi
+
+    _EKS_LOCAL_PORT="${HP_BENCHMARK_PORT:-18080}"
+    echo "🔌 Port-forwarding pod/${_EKS_POD}:8080 to localhost:${_EKS_LOCAL_PORT}..."
+    kubectl port-forward "pod/${_EKS_POD}" "${_EKS_LOCAL_PORT}:8080" \
+        -n "${HP_NAMESPACE}" >/dev/null 2>&1 &
+    _EKS_PF_PID=$!
+    sleep 3
+    trap "kill ${_EKS_PF_PID} 2>/dev/null || true" EXIT
+
+    # Fail fast on port-forward failure (Requirement 6.2).
+    if ! kill -0 "${_EKS_PF_PID}" 2>/dev/null; then
+        echo "❌ do/benchmark: port-forward to pod/${_EKS_POD} failed."
+        echo "   The serving pod could not be reached via kubectl port-forward."
+        echo "   Check: kubectl get pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
+        exit 1
+    fi
+    if ! curl -s -o /dev/null -m 10 "http://localhost:${_EKS_LOCAL_PORT}/ping"; then
+        echo "❌ do/benchmark: port-forward established but /ping did not respond."
+        echo "   The serving pod is not ready to accept traffic."
+        kill "${_EKS_PF_PID}" 2>/dev/null || true
+        exit 1
+    fi
+    echo "✅ Port-forward established — pod is reachable at http://localhost:${_EKS_LOCAL_PORT}"
+
+    # Drive a lightweight local latency/throughput measurement against the pod.
+    _EKS_BENCH_URL="http://localhost:${_EKS_LOCAL_PORT}"
+    if [ "${FRAMEWORK}" = "diffusors" ]; then
+        _EKS_BENCH_PATH="/v1/images/generations"
+        _EKS_BENCH_PAYLOAD='{"prompt": "A white cat", "n": 1, "size": "512x512"}'
+    elif [ "${MODEL_SERVER}" = "vllm" ] || [ "${MODEL_SERVER}" = "sglang" ]; then
+        _EKS_MODEL="${MODEL_NAME}"
+        if [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+            _EKS_MODEL="/opt/ml/model"
+        fi
+        _EKS_BENCH_PATH="/invocations"
+        _EKS_BENCH_PAYLOAD='{"model": "'"${_EKS_MODEL}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 64, "temperature": 0.7}'
+    else
+        _EKS_BENCH_PATH="/invocations"
+        _EKS_BENCH_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 64}}'
+    fi
+
+    _EKS_ITERS="${BENCHMARK_REQUEST_COUNT:-20}"
+    echo ""
+    echo "🏁 Running ${_EKS_ITERS} sequential requests against ${_EKS_BENCH_URL}${_EKS_BENCH_PATH}..."
+    _EKS_OK=0
+    _EKS_TOTAL_MS=0
+    for _i in $(seq 1 "${_EKS_ITERS}"); do
+        _t=$(curl -s -o /dev/null -m 120 -w "%{http_code} %{time_total}" -X POST \
+            "${_EKS_BENCH_URL}${_EKS_BENCH_PATH}" \
+            -H "Content-Type: application/json" \
+            -d "${_EKS_BENCH_PAYLOAD}" 2>/dev/null) || _t="000 0"
+        _code=$(echo "${_t}" | awk '{print $1}')
+        _secs=$(echo "${_t}" | awk '{print $2}')
+        if [ "${_code}" = "200" ]; then
+            _EKS_OK=$((_EKS_OK + 1))
+            _ms=$(awk "BEGIN{printf \"%d\", ${_secs} * 1000}")
+            _EKS_TOTAL_MS=$((_EKS_TOTAL_MS + _ms))
+        fi
+    done
+
+    kill "${_EKS_PF_PID}" 2>/dev/null || true
+    trap - EXIT
+
+    echo ""
+    echo "📊 Plain EKS benchmark results:"
+    echo "   Requests:   ${_EKS_ITERS}"
+    echo "   Successful: ${_EKS_OK}"
+    if [ "${_EKS_OK}" -gt 0 ]; then
+        _EKS_AVG_MS=$((_EKS_TOTAL_MS / _EKS_OK))
+        echo "   Avg latency: ${_EKS_AVG_MS} ms"
+    fi
+    echo ""
+    echo "ℹ️  The eks target serves plain Kubernetes objects with no SageMaker"
+    echo "   endpoint, so the SageMaker AI Benchmarking service is not used."
+    echo "   For richer engine metrics, set HP_BENCHMARK_METRICS_ENABLED=true."
+    exit 0
 fi
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
@@ -213,12 +438,12 @@ while [ $# -gt 0 ]; do
             echo ""
             echo "Workload profiles (--workload value):"
             echo "  sample                  Quick smoke test (low concurrency)"
-            echo "  multi_turn_chat         Multi-turn chat  (concurrency=10, 550 in / 150 out tokens)"
-            echo "  rag_document_qa         RAG workload     (concurrency=8,  2048 in / 256 out tokens)"
-            echo "  agent_tool_calling      Tool calling     (concurrency=4,  800 in / 100 out tokens)"
-            echo "  long_context_scaling    Long context     (concurrency=2,  8192 in / 512 out tokens)"
-            echo "  production_traffic_mix  Mixed production (concurrency=16, 1024 in / 200 out tokens)"
-            echo "  shared_system_prompt    Shared prompt    (concurrency=12, 300 in / 150 out tokens)"
+            echo "  multi-turn-chat         Multi-turn chat  (concurrency=10, 550 in / 150 out tokens)"
+            echo "  rag-document-qa         RAG workload     (concurrency=8,  2048 in / 256 out tokens)"
+            echo "  agent-tool-calling      Tool calling     (concurrency=4,  800 in / 100 out tokens)"
+            echo "  long-context-scaling    Long context     (concurrency=2,  8192 in / 512 out tokens)"
+            echo "  production-traffic-mix  Mixed production (concurrency=16, 1024 in / 200 out tokens)"
+            echo "  shared-system-prompt    Shared prompt    (concurrency=12, 300 in / 150 out tokens)"
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
@@ -276,7 +501,7 @@ while [ $# -gt 0 ]; do
             echo "    aws cloudwatch start-otel-enrichment --region <region>"
             echo ""
             echo "Typical workflow:"
-            echo "  ./do/benchmark --workload multi_turn_chat    # Run benchmark"
+            echo "  ./do/benchmark --workload multi-turn-chat    # Run benchmark"
             echo "  ./do/benchmark --compare-baseline            # Compare against history"
             echo "  ./do/benchmark --peak                        # See the best this config ever achieved"
             echo "  ./do/benchmark --list                        # Browse all runs across configs/targets"
@@ -386,7 +611,10 @@ if [ "${ARG_STATUS}" = true ]; then
                 if [ -n "${_WRITER_INPUT}" ]; then
                     echo ""
                     echo "   📊 Writing to Athena..."
-                    _GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
+                    # BL108: the Phase 2 poller (spawned at benchmark start) writes
+                    # peak/avg to the fixed sidecar at run end. Use it when present.
+                    _GPU_METRICS_FILE="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+                    [ -f "${_GPU_METRICS_FILE}" ] || _GPU_METRICS_FILE=""
                     if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
                         --results-file "${_WRITER_INPUT}" \
                         --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
@@ -398,12 +626,12 @@ if [ "${ARG_STATUS}" = true ]; then
                         ${_STATUS_INSTANCE_TYPE:+--instance-type "${_STATUS_INSTANCE_TYPE}"} \
                         ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
                         ${ENDPOINT_NAME:+--endpoint-name "${ENDPOINT_NAME}"} \
+                        ${BENCHMARK_RUN_NAME:+--run-name "${BENCHMARK_RUN_NAME}"} \
                         ${_GPU_METRICS_FILE:+--gpu-metrics-file "${_GPU_METRICS_FILE}"}; then
                         echo "   ✅ Results persisted to Athena"
                     else
                         echo "   ⚠️  Athena write failed (non-fatal)"
                     fi
-                    [ -n "${_GPU_METRICS_FILE:-}" ] && rm -f "${_GPU_METRICS_FILE}" 2>/dev/null || true
                 fi
             fi
             ;;
@@ -1021,7 +1249,7 @@ for name, wl in catalog.get('workloads', {}).items():
         echo "   Run 'ml-container-creator mcp init' to install workload profiles"
     fi
     echo ""
-    echo "   Usage: ./do/benchmark --workload multi_turn_chat"
+    echo "   Usage: ./do/benchmark --workload multi-turn-chat"
     exit 1
 fi
 
@@ -1120,6 +1348,33 @@ ROLE_ARN=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.loa
 # Preserve BENCHMARK_JOB_NAME if already set (from do/config or env) for resume logic.
 BENCHMARK_JOB_NAME="${BENCHMARK_JOB_NAME:-${PROJECT_NAME}-benchmark-$(date +%Y%m%d-%H%M%S)}"
 BENCHMARK_WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config-$(date +%Y%m%d-%H%M%S)"
+
+# ── Generate human-readable run name ─────────────────────────────────────────
+# Format: {adjective-noun}_{workload}_{max-concurrency}
+# e.g. coral-hawk_multi-turn-chat_16
+# Generated once per run, stored in BENCHMARK_RUN_NAME in do/config.
+_BENCHMARK_ADJECTIVES=(smart fast clever bright swift agile sharp quick wise keen
+    bold sleek neat cool fresh prime vivid rapid elite noble lucid adept deft epic
+    crisp vital zen hyper turbo cosmic lunar solar quantum atomic neon stellar
+    iron amber coral jade onyx ruby opal ivory silver golden silent hollow calm)
+_BENCHMARK_NOUNS=(river hawk fox wolf bear deer crane raven finch swift oak pine
+    stone peak ridge grove creek vale cove reef mesa dune glade fern dawn dusk
+    mist frost ember blaze cedar birch cliff shore brook glen ridge helm sable)
+_BM_ADJ="${_BENCHMARK_ADJECTIVES[$(( RANDOM % ${#_BENCHMARK_ADJECTIVES[@]} ))]}"
+_BM_NOUN="${_BENCHMARK_NOUNS[$(( RANDOM % ${#_BENCHMARK_NOUNS[@]} ))]}"
+_BM_WORKLOAD_SLUG="${BENCHMARK_WORKLOAD//_/-}"
+# Max concurrency: use levels if set, else BENCHMARK_CONCURRENCY
+if [ -n "${BENCHMARK_CONCURRENCY_LEVELS:-}" ]; then
+    _BM_MAX_CONC=$(echo "${BENCHMARK_CONCURRENCY_LEVELS}" | tr -d '[] ' | tr ',' '\n' | sort -n | tail -1)
+else
+    _BM_MAX_CONC="${BENCHMARK_CONCURRENCY:-1}"
+fi
+BENCHMARK_RUN_NAME="${_BM_ADJ}-${_BM_NOUN}_${_BM_WORKLOAD_SLUG}_${_BM_MAX_CONC}"
+
+echo ""
+echo "🎲 Run: ${_BM_ADJ}-${_BM_NOUN} | ${_BM_WORKLOAD_SLUG} | conc ${BENCHMARK_CONCURRENCY_LEVELS:-${BENCHMARK_CONCURRENCY}}"
+echo "   Run ID: ${BENCHMARK_RUN_NAME}"
+echo ""
 
 # Ensure benchmark params have defaults (in case workload catalog wasn't found)
 BENCHMARK_CONCURRENCY=${BENCHMARK_CONCURRENCY:-10}
@@ -1374,8 +1629,10 @@ print(f'Combined {n_metrics} concurrency level results')
             }
             CONFIG_ID=$(_compute_config_id)
 
-            # Phase 2 (BL086): collect engine /metrics for HyperPod EKS before writing
-            _ML_GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
+            # Phase 2 (BL108): the background poller writes peak/avg to the fixed
+            # sidecar at each child run's end. Use it here when present.
+            _ML_GPU_METRICS_FILE="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+            [ -f "${_ML_GPU_METRICS_FILE}" ] || _ML_GPU_METRICS_FILE=""
 
             if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
                 --results-file "${_COMBINED_FILE}" \
@@ -1386,15 +1643,13 @@ print(f'Combined {n_metrics} concurrency level results')
                 --region "${AWS_REGION:-${REGION}}" \
                 ${RESOLVED_INSTANCE_TYPE:+--instance-type "${RESOLVED_INSTANCE_TYPE}"} \
                 ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
-                ${_ML_GPU_METRICS_FILE:+--gpu-metrics-file "${_ML_GPU_METRICS_FILE}"}; then
-                # Persist GPU metrics locally so --gpu-metrics can read them without Athena
+                ${_ML_GPU_METRICS_FILE:+--gpu-metrics-file "${_ML_GPU_METRICS_FILE}"} \
+                ${BENCHMARK_RUN_NAME:+--run-name "${BENCHMARK_RUN_NAME}"}; then
+                # Persist GPU metrics into the per-run output dir for traceability
+                # (the fixed sidecar is already the poller's own output — leave it).
                 if [ -n "${_ML_GPU_METRICS_FILE:-}" ] && [ -f "${_ML_GPU_METRICS_FILE}" ]; then
-                    # Fixed location: always wins over per-run dir (avoids mtime ordering issues)
-                    cp "${_ML_GPU_METRICS_FILE}" "${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json" 2>/dev/null || true
-                    # Also copy into the per-run output dir for traceability
                     _latest_bm_dir=$(ls -td "${SCRIPT_DIR}/../benchmarks/${BENCHMARK_JOB_NAME}" 2>/dev/null | head -1)
                     [ -n "${_latest_bm_dir}" ] && cp "${_ML_GPU_METRICS_FILE}" "${_latest_bm_dir}/output/gpu_metrics.json" 2>/dev/null || true
-                    rm -f "${_ML_GPU_METRICS_FILE}" 2>/dev/null || true
                 fi
                 echo "✅ Multi-level benchmark results persisted to S3"
             else
@@ -1905,6 +2160,11 @@ echo "🚀 Step 2: Creating AI Benchmark Job: ${BENCHMARK_JOB_NAME}"
 # BL086: capture the run window (UTC ISO 8601) for post-run CloudWatch enrichment.
 BENCHMARK_RUN_START=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
+# BL108: spawn the Phase 2 background metrics poller at benchmark start. Self-
+# skips unless opted in AND the engine manifest declares a metrics_endpoint;
+# always non-fatal. The port-forward is started before the poller (Req 7.1).
+_phase2_start_poller || true
+
 # HyperPod EKS endpoints host the model directly (no inference component), so the
 # benchmark target references only the endpoint. All other targets include the IC.
 if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ] || [ -z "${IC_NAME}" ]; then
@@ -1933,6 +2193,7 @@ echo "✅ Benchmark job created: ${BENCHMARK_JOB_NAME}"
 
 # Save job name to do/config for idempotency on re-run
 _update_benchmark_var "BENCHMARK_JOB_NAME" "${BENCHMARK_JOB_NAME}"
+_update_benchmark_var "BENCHMARK_RUN_NAME" "${BENCHMARK_RUN_NAME}"
 
 echo ""
 
@@ -1980,6 +2241,9 @@ while [ ${POLL_COUNT} -lt ${MAX_POLL_ATTEMPTS} ]; do
         Completed)
             echo "✅ Benchmark completed successfully!"
             BENCHMARK_RUN_END=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+            # BL108: benchmark end → stop the poller (it aggregates + writes
+            # .last_gpu_metrics.json), then stop the port-forward (Req 3.1, 7.2).
+            _phase2_stop_poller || true
             break
             ;;
         Failed)
@@ -2315,8 +2579,10 @@ except Exception as e:
             _WRITER_INPUT="${RESULTS_FILE}"
         fi
 
-        # Phase 2 (BL086): opt-in engine /metrics scrape on HyperPod EKS.
-        _GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
+        # Phase 2 (BL108): the background poller (spawned at benchmark start,
+        # stopped at end) has written peak/avg to the fixed sidecar. Use it here.
+        _GPU_METRICS_FILE="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+        [ -f "${_GPU_METRICS_FILE}" ] || _GPU_METRICS_FILE=""
 
         # Best-effort: errors are logged but do not fail the benchmark script
         if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
@@ -2334,13 +2600,15 @@ except Exception as e:
             ${BENCHMARK_JOB_NAME:+--benchmark-job-name "${BENCHMARK_JOB_NAME}"} \
             ${BENCHMARK_RUN_START:+--run-start "${BENCHMARK_RUN_START}"} \
             ${BENCHMARK_RUN_END:+--run-end "${BENCHMARK_RUN_END}"} \
+            ${BENCHMARK_RUN_NAME:+--run-name "${BENCHMARK_RUN_NAME}"} \
             ${_GPU_METRICS_FILE:+--gpu-metrics-file "${_GPU_METRICS_FILE}"}; then
             echo "✅ Benchmark results persisted to S3"
         else
             echo "⚠️  Failed to persist benchmark results to Athena (non-fatal)"
             echo "   Results remain available locally in: benchmarks/${BENCHMARK_JOB_NAME}/"
         fi
-        [ -n "${_GPU_METRICS_FILE:-}" ] && rm -f "${_GPU_METRICS_FILE}" 2>/dev/null || true
+        # NOTE: do NOT remove ${_GPU_METRICS_FILE} — it is the fixed poller sidecar
+        # benchmarks/.last_gpu_metrics.json that `do/benchmark --gpu-metrics` reads.
     fi
 elif [ "${JOB_STATUS}" = "Failed" ]; then
     # Display failure reason

@@ -1046,6 +1046,190 @@ with open('${OUTPUT_IMAGE}', 'wb') as f:
 }
 
 # ============================================================
+# Plain EKS test implementation (BL103)
+# ============================================================
+# Reuses the same pod port-forward path as _test_hyperpod_eks. The only
+# difference is that kubeconfig resolution is gated on HP_CLUSTER_NAME (plain
+# EKS may use the ambient kubectl context) and no SageMaker endpoint status is
+# ever checked.
+_test_eks() {
+    TEST_TARGET="${1:-eks}"
+
+    case "${TEST_TARGET}" in
+        local)
+            echo "🧪 Testing local container at localhost:8080"
+            echo "   Project: ${PROJECT_NAME}"
+            echo "   Framework: ${FRAMEWORK}"
+            echo "   Model server: ${MODEL_SERVER}"
+            TARGET_URL="http://localhost:8080"
+            ;;
+        eks|hyperpod)
+            echo "🧪 Testing plain EKS deployment"
+            echo "   Project: ${PROJECT_NAME}"
+            echo "   Framework: ${FRAMEWORK}"
+            echo "   Model server: ${MODEL_SERVER}"
+            echo "   Cluster: ${HP_CLUSTER_NAME:-<ambient kubectl context>}"
+            echo "   Namespace: ${HP_NAMESPACE:-default}"
+            echo "   Region: ${AWS_REGION}"
+            echo ""
+
+            local _profile_arg=""
+            [ -n "${_PROFILE_awsProfile:-}" ] && _profile_arg="--profile ${_PROFILE_awsProfile}"
+
+            # Kubeconfig update is gated on HP_CLUSTER_NAME (as in deploy).
+            if [ -n "${HP_CLUSTER_NAME:-}" ]; then
+                echo "🔑 Configuring kubectl for cluster: ${HP_CLUSTER_NAME}"
+                KUBECONFIG_PATH="${HOME}/.kube/eks-${HP_CLUSTER_NAME}"
+                EKS_CLUSTER_NAME="${HP_CLUSTER_NAME}"
+                EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+                    --cluster-name "${HP_CLUSTER_NAME}" \
+                    --region "${AWS_REGION}" \
+                    ${_profile_arg} \
+                    --query "Orchestrator.Eks.ClusterArn" \
+                    --output text 2>/dev/null) || EKS_CLUSTER_ARN=""
+                if [ -n "${EKS_CLUSTER_ARN}" ] && [ "${EKS_CLUSTER_ARN}" != "None" ]; then
+                    EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+                fi
+                if ! aws eks update-kubeconfig \
+                    --name "${EKS_CLUSTER_NAME}" \
+                    --region "${AWS_REGION}" \
+                    ${_profile_arg} \
+                    --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+                    echo "❌ Failed to configure kubectl for EKS cluster: ${EKS_CLUSTER_NAME}"
+                    exit 4
+                fi
+                export KUBECONFIG="${KUBECONFIG_PATH}"
+            else
+                echo "🔑 HP_CLUSTER_NAME not set — using ambient kubectl context"
+            fi
+
+            if ! kubectl cluster-info &> /dev/null; then
+                echo "❌ Cannot connect to the target Kubernetes cluster"
+                exit 4
+            fi
+            echo "✅ Connected to cluster"
+
+            # Resolve the serving pod by label and port-forward to it on 8080.
+            _POD=$(kubectl get pod -n "${HP_NAMESPACE:-default}" -l "app=${PROJECT_NAME}" \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            if [ -z "${_POD}" ]; then
+                echo "❌ No pod found for app=${PROJECT_NAME} in namespace ${HP_NAMESPACE:-default}"
+                exit 1
+            fi
+
+            LOCAL_PORT="${HP_TEST_PORT:-8080}"
+            echo ""
+            echo "🔌 Port-forwarding pod/${_POD}:8080 to localhost:${LOCAL_PORT}..."
+            kubectl port-forward "pod/${_POD}" "${LOCAL_PORT}:8080" \
+                -n "${HP_NAMESPACE:-default}" &
+            PF_PID=$!
+            sleep 3
+            trap "kill ${PF_PID} 2>/dev/null || true" EXIT
+
+            if ! kill -0 ${PF_PID} 2>/dev/null; then
+                echo "❌ Port-forward failed to start"
+                echo ""
+                echo "   Check that:"
+                echo "   • The pod is running: kubectl get pods -n ${HP_NAMESPACE:-default} -l app=${PROJECT_NAME}"
+                exit 1
+            fi
+            echo "✅ Port-forward established"
+            TARGET_URL="http://localhost:${LOCAL_PORT}"
+            ;;
+        *)
+            echo "Usage: ./do/test --target eks [local|eks]"
+            echo ""
+            echo "Test modes:"
+            echo "  local - Test local container at localhost:8080"
+            echo "  eks   - Test the plain EKS deployment via pod port-forward"
+            exit 1
+            ;;
+    esac
+
+    echo ""
+    echo "🔍 Test 1: Health check"
+    echo "   Sending GET request to ${TARGET_URL}/ping"
+    if ! PING_RESPONSE=$(curl -s -w "\n%{http_code}" -X GET "${TARGET_URL}/ping" 2>&1); then
+        echo "❌ Health check failed: Could not connect"
+        echo "   Check that the port-forward is working and pods are running"
+        exit 1
+    fi
+    HTTP_CODE=$(echo "${PING_RESPONSE}" | tail -n1)
+    RESPONSE_BODY=$(echo "${PING_RESPONSE}" | sed '$d')
+    if [ "${HTTP_CODE}" = "200" ]; then
+        echo "✅ Health check passed (HTTP ${HTTP_CODE})"
+    else
+        echo "❌ Health check failed (HTTP ${HTTP_CODE})"
+        echo "   Response: ${RESPONSE_BODY}"
+        exit 1
+    fi
+
+    echo ""
+    echo "🔍 Test 2: Inference request"
+    case "${FRAMEWORK}" in
+        sklearn|xgboost|tensorflow)
+            TEST_PAYLOAD='{"instances": [[1.0, 2.0, 3.0, 4.0]]}'
+            echo "   Payload: Sample feature vector"
+            ;;
+        transformers)
+            case "${MODEL_SERVER}" in
+                vllm|sglang)
+                    VLLM_MODEL_NAME="${MODEL_NAME}"
+                    if [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+                        VLLM_MODEL_NAME="/opt/ml/model"
+                    fi
+                    TEST_PAYLOAD='{"model": "'"${VLLM_MODEL_NAME}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 50, "temperature": 0.7}'
+                    echo "   Payload: OpenAI-compatible chat completion request"
+                    echo "   Model: ${VLLM_MODEL_NAME}"
+                    ;;
+                *)
+                    TEST_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 50, "temperature": 0.7}}'
+                    echo "   Payload: HuggingFace-style text generation request"
+                    ;;
+            esac
+            ;;
+        diffusors)
+            TEST_PAYLOAD='{"prompt": "A white cat", "n": 1, "size": "512x512"}'
+            echo "   Payload: OpenAI DALL-E compatible image generation request"
+            ;;
+        *)
+            echo "❌ Unknown framework: ${FRAMEWORK}"
+            exit 3
+            ;;
+    esac
+
+    if [ "${FRAMEWORK}" = "diffusors" ]; then
+        INVOKE_PATH="/v1/images/generations"
+    else
+        INVOKE_PATH="/invocations"
+    fi
+    echo "   Sending POST request to ${TARGET_URL}${INVOKE_PATH}"
+    if ! INVOKE_RESPONSE=$(curl -s -m 120 -w "\n%{http_code}" -X POST "${TARGET_URL}${INVOKE_PATH}" \
+        -H "Content-Type: application/json" \
+        -d "${TEST_PAYLOAD}" 2>&1); then
+        echo "❌ Inference request failed: Could not connect"
+        exit 1
+    fi
+    HTTP_CODE=$(echo "${INVOKE_RESPONSE}" | tail -n1)
+    RESPONSE_BODY=$(echo "${INVOKE_RESPONSE}" | sed '$d')
+    if [ "${HTTP_CODE}" = "200" ]; then
+        echo "✅ Inference request successful (HTTP ${HTTP_CODE})"
+        echo "   Response preview: ${RESPONSE_BODY:0:200}"
+    else
+        echo "❌ Inference request failed (HTTP ${HTTP_CODE})"
+        echo "   Response: ${RESPONSE_BODY}"
+        exit 1
+    fi
+
+    echo ""
+    echo "✅ All tests passed!"
+    echo ""
+    echo "📋 What's next?"
+    echo "   • Check pod status:  kubectl get pods -n ${HP_NAMESPACE:-default}"
+    echo "   • View pod logs:     kubectl logs -n ${HP_NAMESPACE:-default} -l app=${PROJECT_NAME}"
+}
+
+# ============================================================
 # Batch Transform test implementation
 # ============================================================
 _test_batch_transform() {
@@ -1331,6 +1515,9 @@ case "${EFFECTIVE_TARGET}" in
     hyperpod-eks)
         _test_hyperpod_eks "$@"
         ;;
+    eks)
+        _test_eks "$@"
+        ;;
     batch-transform)
         _test_batch_transform "$@"
         ;;
@@ -1341,6 +1528,7 @@ case "${EFFECTIVE_TARGET}" in
         echo "     ./do/test --target realtime-inference"
         echo "     ./do/test --target async-inference"
         echo "     ./do/test --target hyperpod-eks"
+        echo "     ./do/test --target eks"
         echo "     ./do/test --target batch-transform"
         exit 1
         ;;

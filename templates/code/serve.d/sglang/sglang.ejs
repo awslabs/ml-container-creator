@@ -1,13 +1,22 @@
 # ---------------------------------------------------------------------------
 # SGLang Server Configuration
 # ---------------------------------------------------------------------------
-# Env prefix: SGLANG_
+# Env prefix: SGLANG_ (sourced from serve.d/sglang/manifest.json env_var_prefix)
 # Entrypoint: python3 -m sglang.launch_server
 # Port: 8080 (SageMaker requirement)
 # ---------------------------------------------------------------------------
 
-PREFIX="SGLANG_"
+<%# BL107: PREFIX is injected from serve.d/sglang/manifest.json (env_var_prefix)
+    via the generation-time reader (src/lib/serve-manifest-reader.js), rather
+    than a hardcoded literal. Defensive fallback to SGLANG_ keeps the rendered
+    output byte-identical when the render context omits envVarPrefix. %>
+PREFIX="<%= (typeof envVarPrefix !== 'undefined' && envVarPrefix) ? envVarPrefix : 'SGLANG_' %>"
 ARG_PREFIX="--"
+<%# _p mirrors PREFIX at generation time so the speculative env-var *names* below
+    (e.g. SGLANG_SPECULATIVE_ALGORITHM) are emitted from the manifest-sourced
+    prefix rather than a hardcoded literal, keeping the rendered names in lockstep
+    with env_var_prefix. %>
+<% const _p = (typeof envVarPrefix !== 'undefined' && envVarPrefix) ? envVarPrefix : 'SGLANG_'; %>
 
 # ---------------------------------------------------------------------------
 # Positive whitelist via --help introspection (same approach as vLLM).
@@ -48,7 +57,7 @@ for var in "${env_vars[@]}"; do
     # Speculative decoding flags are assembled explicitly below so optional
     # values and the S3 draft-model validation follow one code path.
     case "${key}" in
-        SGLANG_SPECULATIVE_ALGORITHM|SGLANG_SPECULATIVE_DRAFT_MODEL_PATH|SGLANG_SPECULATIVE_NUM_STEPS|SGLANG_SPECULATIVE_EAGLE_TOPK)
+        <%= _p %>SPECULATIVE_ALGORITHM|<%= _p %>SPECULATIVE_DRAFT_MODEL_PATH|<%= _p %>SPECULATIVE_NUM_STEPS|<%= _p %>SPECULATIVE_EAGLE_TOPK)
             continue
             ;;
     esac
@@ -77,24 +86,24 @@ done
 
 # ---------------------------------------------------------------------------
 # Speculative decoding (BL085) — SGLang discrete flags.
-# The HyperPod CRD supplies engine-specific SGLANG_SPECULATIVE_* values. The
+# The HyperPod CRD supplies engine-specific <%= _p %>SPECULATIVE_* values. The
 # algorithm is already in SGLang's required uppercase enum form.
 # ---------------------------------------------------------------------------
-_speculative_draft_model="${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH:-${HP_SPECULATIVE_MODEL:-}}"
+_speculative_draft_model="${<%= _p %>SPECULATIVE_DRAFT_MODEL_PATH:-${HP_SPECULATIVE_MODEL:-}}"
 if [ -n "${_speculative_draft_model}" ] && [[ "${_speculative_draft_model}" == s3://* ]]; then
     echo "❌ HP_SPECULATIVE_MODEL must be a HuggingFace model ID or local path, not an s3:// URI. Stage it first with do/stage." >&2
     exit 1
 fi
-if [ -n "${SGLANG_SPECULATIVE_ALGORITHM:-}" ]; then
-    SERVER_ARGS+=(--speculative-algorithm "${SGLANG_SPECULATIVE_ALGORITHM}")
-    if [ -n "${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH:-}" ]; then
-        SERVER_ARGS+=(--speculative-draft-model-path "${SGLANG_SPECULATIVE_DRAFT_MODEL_PATH}")
+if [ -n "${<%= _p %>SPECULATIVE_ALGORITHM:-}" ]; then
+    SERVER_ARGS+=(--speculative-algorithm "${<%= _p %>SPECULATIVE_ALGORITHM}")
+    if [ -n "${<%= _p %>SPECULATIVE_DRAFT_MODEL_PATH:-}" ]; then
+        SERVER_ARGS+=(--speculative-draft-model-path "${<%= _p %>SPECULATIVE_DRAFT_MODEL_PATH}")
     fi
-    if [ -n "${SGLANG_SPECULATIVE_NUM_STEPS:-}" ]; then
-        SERVER_ARGS+=(--speculative-num-steps "${SGLANG_SPECULATIVE_NUM_STEPS}")
+    if [ -n "${<%= _p %>SPECULATIVE_NUM_STEPS:-}" ]; then
+        SERVER_ARGS+=(--speculative-num-steps "${<%= _p %>SPECULATIVE_NUM_STEPS}")
     fi
-    if [ -n "${SGLANG_SPECULATIVE_EAGLE_TOPK:-}" ]; then
-        SERVER_ARGS+=(--speculative-eagle-topk "${SGLANG_SPECULATIVE_EAGLE_TOPK}")
+    if [ -n "${<%= _p %>SPECULATIVE_EAGLE_TOPK:-}" ]; then
+        SERVER_ARGS+=(--speculative-eagle-topk "${<%= _p %>SPECULATIVE_EAGLE_TOPK}")
     fi
 fi
 

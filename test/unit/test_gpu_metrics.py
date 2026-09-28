@@ -48,6 +48,12 @@ class TestMetricRegistry:
         sglang = gpu_metrics.METRIC_REGISTRY['sglang']
         assert sglang['prefix_cache_hit_rate'] == 'sglang:cache_hit_rate'
 
+    def test_vllm_spec_decode_is_counter_pair(self):
+        # BL108: speculative-decoding acceptance rate is a counter pair.
+        vllm = gpu_metrics.METRIC_REGISTRY['vllm']
+        assert vllm['spec_decode_num_accepted_tokens'] == 'vllm:spec_decode_num_accepted_tokens'
+        assert vllm['spec_decode_num_draft_tokens'] == 'vllm:spec_decode_num_draft_tokens'
+
 
 # ── collect_cloudwatch (PromQL / SageMaker detailed observability OTel) ────────
 
@@ -208,6 +214,35 @@ class TestCollectEngineMetrics:
             out = gpu_metrics.collect_engine_metrics('http://localhost:8080', 'vllm')
         # Division by zero avoided → no hit rate key.
         assert 'prefix_cache_hit_rate' not in out
+
+    def test_vllm_spec_decode_acceptance_rate_counter_pair(self):
+        """BL108: spec_decode is a counter pair → acceptance = accepted / draft."""
+        text = _VLLM_METRICS + (
+            '# TYPE vllm:spec_decode_num_accepted_tokens counter\n'
+            'vllm:spec_decode_num_accepted_tokens{model_name="m"} 680.0\n'
+            '# TYPE vllm:spec_decode_num_draft_tokens counter\n'
+            'vllm:spec_decode_num_draft_tokens{model_name="m"} 1000.0\n'
+        )
+        with mock.patch('urllib.request.urlopen', return_value=_FakeResp(text)):
+            out = gpu_metrics.collect_engine_metrics('http://localhost:8080', 'vllm')
+        # 680 / 1000 = 0.68
+        assert out['spec_decode_acceptance_rate'] == pytest.approx(0.68)
+
+    def test_vllm_spec_decode_absent_when_counters_missing(self):
+        """No spec-decode counters (speculation disabled) → key omitted."""
+        with mock.patch('urllib.request.urlopen', return_value=_FakeResp(_VLLM_METRICS)):
+            out = gpu_metrics.collect_engine_metrics('http://localhost:8080', 'vllm')
+        assert 'spec_decode_acceptance_rate' not in out
+
+    def test_vllm_spec_decode_zero_draft_yields_no_rate(self):
+        """Zero draft tokens → division avoided → key omitted."""
+        text = _VLLM_METRICS + (
+            'vllm:spec_decode_num_accepted_tokens{model_name="m"} 0.0\n'
+            'vllm:spec_decode_num_draft_tokens{model_name="m"} 0.0\n'
+        )
+        with mock.patch('urllib.request.urlopen', return_value=_FakeResp(text)):
+            out = gpu_metrics.collect_engine_metrics('http://localhost:8080', 'vllm')
+        assert 'spec_decode_acceptance_rate' not in out
 
 
 # ── CLI entrypoint ─────────────────────────────────────────────────────────────

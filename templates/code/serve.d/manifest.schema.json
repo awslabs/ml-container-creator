@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlcc/serve.d/manifest.schema.json",
+  "title": "MLCC Serve Engine Manifest",
+  "description": "Per-engine serve-layer plugin manifest. Declares an engine's capabilities as data so do/draft, do/deploy, and .optimize_engine.py read engine knowledge from the manifest instead of hardcoded logic.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["engine", "env_var_prefix", "supported_algorithms", "algorithm_map", "hot_reload"],
+  "properties": {
+    "engine": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Engine name; matches the plugin directory name (e.g. vllm, sglang)."
+    },
+    "env_var_prefix": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*_$",
+      "description": "Environment-variable prefix, e.g. VLLM_. Uppercase with a trailing underscore."
+    },
+    "supported_algorithms": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Speculative-decoding algorithms the engine actually supports."
+    },
+    "algorithm_map": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "description": "Maps MLCC algorithm names to engine-specific names."
+    },
+    "hot_reload": {
+      "type": "boolean",
+      "description": "Whether the engine supports hot reload."
+    },
+    "metrics_endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "port", "format"],
+      "description": "Describes the engine's metrics endpoint (consumed by BL108).",
+      "properties": {
+        "path": { "type": "string", "pattern": "^/" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "format": { "type": "string", "enum": ["prometheus", "json", "text"] }
+      }
+    },
+    "dimension_map": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "description": "Maps a benchmark dimension to an engine config key / flag suffix. Combined with env_var_prefix to yield the full config key."
+    }
+  }
+}

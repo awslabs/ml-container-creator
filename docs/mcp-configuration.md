@@ -224,18 +224,18 @@ Unlike other bundled servers, workload-picker is not queried during project gene
 | Workload | Use Case | Input Tokens | Output Tokens | Streaming | Concurrency Levels |
 |----------|----------|:---:|:---:|:---:|---|
 | `sample` | POC sample workload | 100 | 100 | yes | 2 |
-| `multi_turn_chat` | Interactive chat, low latency | 550 | 150 | yes | 1, 4, 8, 16 |
-| `rag_document_qa` | RAG, document Q&A | 2000 | 500 | yes | 1, 4, 8 |
-| `agent_tool_calling` | Agents, structured output | 200 | 100 | no | 1, 4, 8, 16, 32 |
-| `long_context_scaling` | Long context, summarization | 8000 | 1000 | yes | 1, 2, 4 |
-| `production_traffic_mix` | Production fleet sizing | 1000 | 300 | yes | 4, 8, 16, 32 |
-| `shared_system_prompt` | Prefix caching validation | 1000 | 200 | yes | 4, 8, 16, 32 |
+| `multi-turn-chat` | Interactive chat, low latency | 550 | 150 | yes | 1, 4, 8, 16 |
+| `rag-document-qa` | RAG, document Q&A | 2000 | 500 | yes | 1, 4, 8 |
+| `agent-tool-calling` | Agents, structured output | 200 | 100 | no | 1, 4, 8, 16, 32 |
+| `long-context-scaling` | Long context, summarization | 8000 | 1000 | yes | 1, 2, 4 |
+| `production-traffic-mix` | Production fleet sizing | 1000 | 300 | yes | 4, 8, 16, 32 |
+| `shared-system-prompt` | Prefix caching validation | 1000 | 200 | yes | 4, 8, 16, 32 |
 
 #### Usage
 
 ```bash
 # Run benchmarks with a named workload
-do/benchmark --workload multi_turn_chat
+do/benchmark --workload multi-turn-chat
 
 # The workload resolves all parameters at runtime:
 #   concurrency, input/output tokens, streaming, dataset type

@@ -115,17 +115,44 @@ describe('BL085: HyperPod speculative CRD injection', () => {
         assert.ok(DEPLOY_TEMPLATE.includes('export SGLANG_SPECULATIVE_NUM_STEPS="${HP_SPECULATIVE_NUM_STEPS:-${HP_SPECULATIVE_NUM_TOKENS:-5}}"'));
     });
 
-    it('contains the exact deploy-time mappings and only supplies SGLang top-k for eagle/eagle3', () => {
+    // BL107: the deploy-time algorithm→enum translation is now read from each
+    // engine's serve-layer manifest (algorithm_map) instead of a hardcoded case
+    // statement. Assert the manifest-driven mechanism is wired and the enum
+    // outcomes still match, rather than inspecting retired case-arm source.
+    it('translates the algorithm via the manifest algorithm_map (no hardcoded case)', () => {
+        // The retired per-algorithm case arms must be gone.
+        assert.ok(!DEPLOY_TEMPLATE.includes('export SGLANG_SPECULATIVE_ALGORITHM="STANDALONE"'),
+            'the hardcoded SGLang enum case must be retired in favor of algorithm_map reads');
+        // The manifest reader must be consulted for the algorithm_map.
+        assert.ok(DEPLOY_TEMPLATE.includes('serve_manifest.py'),
+            'deploy must read engine capabilities from the serve manifest');
+        assert.ok(DEPLOY_TEMPLATE.includes('algorithm_map'),
+            'deploy must translate the algorithm via the manifest algorithm_map');
+        // The manifests themselves carry the expected enum outcomes.
+        const vllmMap = JSON.parse(
+            readFileSync(resolve(templatesRoot, 'code/serve.d/vllm/manifest.json'), 'utf8')
+        ).algorithm_map;
+        const sglangMap = JSON.parse(
+            readFileSync(resolve(templatesRoot, 'code/serve.d/sglang/manifest.json'), 'utf8')
+        ).algorithm_map;
         for (const algorithm of ALGORITHMS) {
-            assert.ok(DEPLOY_TEMPLATE.includes(`        ${algorithm.user})`));
-            assert.ok(DEPLOY_TEMPLATE.includes(`export VLLM_SPECULATIVE_ALGORITHM="${algorithm.vllm}"`));
-            assert.ok(DEPLOY_TEMPLATE.includes(`export SGLANG_SPECULATIVE_ALGORITHM="${algorithm.sglang}"`));
+            assert.strictEqual(vllmMap[algorithm.user], algorithm.vllm,
+                `vLLM manifest must map ${algorithm.user} → ${algorithm.vllm}`);
+            // SGLang omits ngram (unsupported); every other algorithm maps to its enum.
+            if (algorithm.user === 'ngram') {
+                assert.ok(!('ngram' in sglangMap), 'SGLang manifest must not map ngram');
+            } else {
+                assert.strictEqual(sglangMap[algorithm.user], algorithm.sglang,
+                    `SGLang manifest must map ${algorithm.user} → ${algorithm.sglang}`);
+            }
         }
-        const eagle2Block = DEPLOY_TEMPLATE.slice(
-            DEPLOY_TEMPLATE.indexOf('        eagle2)'),
-            DEPLOY_TEMPLATE.indexOf('        eagle3)')
-        );
-        assert.ok(!eagle2Block.includes('SGLANG_SPECULATIVE_EAGLE_TOPK'), 'eagle2 must not receive SGLang EAGLE top-k');
+    });
+
+    it('supplies SGLang EAGLE top-k only for the eagle/eagle3 MLCC algorithms', () => {
+        // The top-k gate keys off the MLCC algorithm name (eagle, eagle3) so
+        // eagle2 — which also maps to the EAGLE enum — does not receive top-k.
+        assert.ok(DEPLOY_TEMPLATE.includes('eagle|eagle3)'),
+            'top-k must be gated on the eagle/eagle3 MLCC algorithm names');
     });
 });
 

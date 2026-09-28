@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-25T18:13:07.596Z",
+  "generatedAt": "2026-09-28T02:12:24.979Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -98,7 +98,7 @@
         "key": "deploymentTarget",
         "cliFlag": "--deployment-target",
         "type": "enum",
-        "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)",
+        "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks, eks)",
         "inputType": "select",
         "placeholder": null,
         "datalist": null,
@@ -109,7 +109,8 @@
             "realtime-inference",
             "async-inference",
             "batch-transform",
-            "hyperpod-eks"
+            "hyperpod-eks",
+            "eks"
           ]
         },
         "group": "infrastructure",
@@ -230,7 +231,11 @@
         "group": "lora",
         "appliesTo": {
           "deploymentTargets": [
-            "managed-inference"
+            "managed-inference",
+            "hyperpod-eks",
+            "async-inference",
+            "batch-transform",
+            "eks"
           ],
           "architectures": [
             "transformers"
@@ -253,7 +258,11 @@
         "group": "lora",
         "appliesTo": {
           "deploymentTargets": [
-            "managed-inference"
+            "managed-inference",
+            "hyperpod-eks",
+            "async-inference",
+            "batch-transform",
+            "eks"
           ],
           "architectures": [
             "transformers"
@@ -276,7 +285,11 @@
         "group": "lora",
         "appliesTo": {
           "deploymentTargets": [
-            "managed-inference"
+            "managed-inference",
+            "hyperpod-eks",
+            "async-inference",
+            "batch-transform",
+            "eks"
           ],
           "architectures": [
             "transformers"
@@ -494,7 +507,7 @@
     {
       "key": "deploymentTarget",
       "cliFlag": "--deployment-target",
-      "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)",
+      "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks, eks)",
       "type": "enum",
       "group": "infrastructure",
       "phase": "infrastructure",
@@ -1255,6 +1268,7 @@
     "realtime-inference",
     "async-inference",
     "batch-transform",
-    "hyperpod-eks"
+    "hyperpod-eks",
+    "eks"
   ]
 }

@@ -40,6 +40,19 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "HP_INSTANCE_GROUP_NAME": "",
         },
     },
+    # BL103: plain EKS target. HP_CLUSTER_NAME is OPTIONAL — when unset, the
+    # deploy uses the ambient kubectl context (no kubeconfig update). Reuses the
+    # HyperPod cluster/GPU fields.
+    "eks": {
+        "required": [],
+        "optional": {
+            "HP_CLUSTER_NAME": "",
+            "HP_GPU_COUNT": "auto",
+            "HP_NAMESPACE": "default",
+            "HP_REPLICAS": "1",
+            "HP_QUEUE": "",
+        },
+    },
     "async-inference": {
         "required": [
             "INSTANCE_TYPE",
@@ -74,6 +87,7 @@ STATUS_VARS: dict[str, str] = {
     "hyperpod-eks": "DEPLOYMENT_TARGET_HP_STATUS",
     "async-inference": "DEPLOYMENT_TARGET_ASYNC_STATUS",
     "batch-transform": "DEPLOYMENT_TARGET_BATCH_STATUS",
+    "eks": "DEPLOYMENT_TARGET_EKS_STATUS",
 }
 
 

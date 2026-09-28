@@ -9,11 +9,27 @@ Related: register_common.py (registry constants), common.py (output utilities)
 """
 
 import json
+import logging
 import os
 import sys
 
 from common import _output, _error_exit, _warn, _check_sagemaker_core
 from register_common import MAX_METADATA_VALUE_LEN
+
+logger = logging.getLogger(__name__)
+
+
+class BaseRunNotFoundError(RuntimeError):
+    """Raised when the base model's MLflow run id cannot be resolved for a family.
+
+    Emitted by ``_resolve_base_source_run_id`` when ``search_family`` returns no
+    base member (empty family, or no member with ``mlcc.artifact_type == 'base'``).
+    ``cmd_register_adapter`` catches it and fails fast **before** any adapter
+    registration, so an adapter is never recorded with a missing/guessed base
+    link (enforces the Req 3 resolve-before-register ordering under failure too).
+
+    Related: _resolve_base_source_run_id, cmd_register_adapter
+    """
 
 
 # ── Metadata helpers ──────────────────────────────────────────────────────────
@@ -106,7 +122,15 @@ def _build_metadata(args):
 
 
 def _build_adapter_metadata(args):
-    """Build customer_metadata_properties dict for adapter registration."""
+    """Build customer_metadata_properties dict for adapter registration.
+
+    BL056 (Req 4): mirrors the MLflow family linkage into the SageMaker MPG by
+    adding ``mlcc.family`` and ``mlcc.base_model_id`` (both = the base id) to the
+    metadata that feeds ``create_model_package``. All existing keys are
+    preserved; these two are additive. Base ids are short, so ``_truncate_metadata``
+    is a no-op for them in practice.
+    """
+    base_id = getattr(args, "base_id", "") or ""
     props = {
         "deploymentConfig": args.deployment_config or "",
         "architecture": args.architecture or "",
@@ -121,6 +145,9 @@ def _build_adapter_metadata(args):
         "parentModelVersionArn": args.parent_version_arn or "",
         "tuneTechnique": args.tune_technique or "",
         "datasetS3Uri": args.dataset_s3_uri or "",
+        # BL056 additions (Req 4): family linkage mirrored into the MPG version.
+        "mlcc.family": base_id,
+        "mlcc.base_model_id": base_id,
     }
 
     dataset_version = getattr(args, "dataset_version", "") or ""
@@ -293,6 +320,102 @@ def cmd_register_model(args):
 # ── Subcommand: register-adapter ─────────────────────────────────────────────
 
 
+def _resolve_base_source_run_id(base_id, client=None):
+    """Resolve the base model's MLflow run id (Source_Run_Id) for ``base_id``.
+
+    Looks up the family via ``mlcc_mlflow.search_family(base_id)``, selects the
+    base member (``mlcc.artifact_type == 'base'``), and returns its source run
+    id. This runs **before** the adapter is registered so the adapter's lineage
+    links to the correct base run (BL056 Req 3).
+
+    Raises ``BaseRunNotFoundError`` when no base member is present in the family
+    (empty search result, or no member tagged ``artifact_type == 'base'``), so
+    the caller can fail fast without registering an adapter with a missing base
+    link.
+
+    Related: mlcc_mlflow.search_family, cmd_register_adapter
+    """
+    import mlcc_mlflow
+
+    members = mlcc_mlflow.search_family(base_id, client=client)
+    for member in members:
+        if mlcc_mlflow._tag_value(member, mlcc_mlflow.TAG_ARTIFACT_TYPE) == "base":
+            run_id = _base_member_run_id(member)
+            if run_id:
+                return run_id
+
+    raise BaseRunNotFoundError(
+        f"No base model run found for family '{base_id}'; cannot resolve the "
+        f"base source_run_id required to register the adapter with lineage."
+    )
+
+
+def _base_member_run_id(member):
+    """Read a base LoggedModel's source run id, tolerating attr/dict shapes.
+
+    MLflow ``LoggedModel`` records expose the producing run via ``source_run_id``.
+    Falls back to ``run_id`` and to dict-style access so injected test doubles
+    and real records both work.
+    """
+    for attr in ("source_run_id", "run_id"):
+        value = getattr(member, attr, None)
+        if value:
+            return value
+    if isinstance(member, dict):
+        return member.get("source_run_id") or member.get("run_id")
+    return None
+
+
+def _register_adapter_in_mlflow(base_id, adapter_name, model_uri, source_run_id,
+                                adapter_type, client=None):
+    """Register the adapter as a family sub-model in MLflow (BL056 Reqs 1, 2).
+
+    Writes a ``<base_id>__adapter__<name>`` registered model through
+    ``mlcc_mlflow.register`` (which applies the ``sanitize_name`` guard), tagged
+    with ``family_tags(base_id, 'adapter')`` and parameterized with
+    ``family_params(base_id, base_model_run_id=source_run_id, adapter_type=...)``.
+
+    Naming-failure fallback (Req 1.2): if the registry resolves/accepts a name
+    other than the intended ``<base_id>__adapter__<name>``, registration is NOT
+    failed or rolled back — the adapter is registered under the resolved name and
+    a warning recording the naming/lineage divergence is logged.
+
+    Returns the ``(intended_name, registered_name)`` pair.
+
+    Related: mlcc_mlflow.register, mlcc_mlflow.family_tags, mlcc_mlflow.family_params
+    """
+    import mlcc_mlflow
+
+    intended_name = f"{base_id}__adapter__{adapter_name}"
+    version = mlcc_mlflow.register(
+        model_uri=model_uri,
+        name=intended_name,
+        tags=mlcc_mlflow.family_tags(base_id, "adapter"),
+        params=mlcc_mlflow.family_params(
+            base_id,
+            base_model_run_id=source_run_id,
+            adapter_type=(adapter_type or None),
+        ),
+        client=client,
+    )
+
+    # The registry identity is sanitize_name(intended_name). If the name the
+    # registry actually used diverges from the intended sub-model name, record a
+    # warning (Req 1.2) but keep the registration.
+    expected_name = mlcc_mlflow.sanitize_name(intended_name)
+    registered_name = getattr(version, "name", None) or expected_name
+    if registered_name != expected_name:
+        logger.warning(
+            "BL056 adapter naming/lineage violation: adapter for family '%s' "
+            "was registered as '%s' instead of the intended family sub-model "
+            "name '%s' (sanitized: '%s'). Registration succeeded under the "
+            "resolved name; lineage may not group under the base model.",
+            base_id, registered_name, intended_name, expected_name,
+        )
+
+    return intended_name, registered_name
+
+
 def cmd_register_adapter(args):
     """Register an adapter as a versioned Model Package linked to its base model."""
     _check_sagemaker_core()
@@ -335,6 +458,41 @@ def cmd_register_adapter(args):
 
     # Step 2: Build adapter metadata
     metadata = _build_adapter_metadata(args)
+
+    # Step 2.1: BL056 — register the adapter as a family sub-model in MLflow.
+    # Resolve the base source_run_id FIRST (Req 3), then register with family
+    # tags/params (Reqs 1, 2). Gated on --base-id: pre-BL056 callers that do not
+    # supply a family id skip MLflow family tracking (MPG mirror still applies).
+    base_id = getattr(args, "base_id", "") or ""
+    adapter_name = getattr(args, "adapter_name", "") or ""
+    mlflow_registered_name = None
+    if base_id and adapter_name:
+        try:
+            # Resolve-before-register: this MUST complete before register(...).
+            source_run_id = _resolve_base_source_run_id(base_id)
+            _, mlflow_registered_name = _register_adapter_in_mlflow(
+                base_id=base_id,
+                adapter_name=adapter_name,
+                model_uri=(args.model_data_url or "").rstrip("/"),
+                source_run_id=source_run_id,
+                adapter_type=(args.tune_technique or None),
+            )
+            print(
+                f"Registered adapter family sub-model in MLflow: {mlflow_registered_name}",
+                file=sys.stderr,
+            )
+        except BaseRunNotFoundError as e:
+            # Fail fast BEFORE any adapter registration — never link to a
+            # missing/guessed base run (enforces Req 3 under the failure path).
+            _error_exit(str(e), code="BASE_RUN_NOT_FOUND")
+        except Exception as e:
+            # MLflow unavailable/unconfigured (or other MLflow errors): the
+            # adapter cannot be recorded as a family sub-model, which is a hard
+            # error, not a silent skip.
+            _error_exit(
+                f"Failed to register adapter as a family sub-model in MLflow: {e}",
+                code="MLFLOW_UNAVAILABLE",
+            )
 
     # Step 2.5: Dedup check
     try:

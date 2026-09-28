@@ -48,12 +48,12 @@ test('workload names match expected set', () => {
     const names = new Set(result.workloads.map(w => w.name));
     const expected = [
         'sample',
-        'multi_turn_chat',
-        'rag_document_qa',
-        'agent_tool_calling',
-        'long_context_scaling',
-        'production_traffic_mix',
-        'shared_system_prompt'
+        'multi-turn-chat',
+        'rag-document-qa',
+        'agent-tool-calling',
+        'long-context-scaling',
+        'production-traffic-mix',
+        'shared-system-prompt'
     ];
     for (const name of expected) {
         assert.ok(names.has(name), `should include ${name}`);
@@ -63,10 +63,10 @@ test('workload names match expected set', () => {
 console.log('\nworkload-picker: getWorkloadProfile\n');
 
 // --- get_workload_profile returns correct shape ---
-test('returns multi_turn_chat profile with all fields', () => {
-    const profile = getWorkloadProfile('multi_turn_chat');
+test('returns multi-turn-chat profile with all fields', () => {
+    const profile = getWorkloadProfile('multi-turn-chat');
     assert.ok(profile, 'should return a profile');
-    assert.strictEqual(profile.name, 'multi_turn_chat');
+    assert.strictEqual(profile.name, 'multi-turn-chat');
     assert.strictEqual(profile.input_tokens_mean, 550);
     assert.strictEqual(profile.output_tokens_mean, 150);
     assert.strictEqual(profile.streaming, true);
@@ -75,8 +75,8 @@ test('returns multi_turn_chat profile with all fields', () => {
     assert.strictEqual(profile.use_case, 'Interactive chat, low latency');
 });
 
-test('returns agent_tool_calling with streaming=false', () => {
-    const profile = getWorkloadProfile('agent_tool_calling');
+test('returns agent-tool-calling with streaming=false', () => {
+    const profile = getWorkloadProfile('agent-tool-calling');
     assert.ok(profile, 'should return a profile');
     assert.strictEqual(profile.streaming, false);
     assert.strictEqual(profile.input_tokens_mean, 200);
@@ -84,8 +84,8 @@ test('returns agent_tool_calling with streaming=false', () => {
     assert.deepStrictEqual(profile.concurrency_levels, [1, 4, 8, 16, 32]);
 });
 
-test('returns long_context_scaling with high token counts', () => {
-    const profile = getWorkloadProfile('long_context_scaling');
+test('returns long-context-scaling with high token counts', () => {
+    const profile = getWorkloadProfile('long-context-scaling');
     assert.ok(profile, 'should return a profile');
     assert.strictEqual(profile.input_tokens_mean, 8000);
     assert.strictEqual(profile.output_tokens_mean, 1000);

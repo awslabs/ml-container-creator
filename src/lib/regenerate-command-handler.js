@@ -65,7 +65,8 @@ const RUNTIME_OWNED_VARS = new Set([
     'OPTIMIZE_INSTANCE_TYPE',
     // Written by do/benchmark (job tracking)
     'BENCHMARK_JOB_NAME',
-    'BENCHMARK_WORKLOAD_CONFIG_NAME'
+    'BENCHMARK_WORKLOAD_CONFIG_NAME',
+    'BENCHMARK_RUN_NAME'
 ]);
 
 /**

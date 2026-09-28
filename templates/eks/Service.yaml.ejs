@@ -1,0 +1,25 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Plain EKS inference deployment — standard Kubernetes Service (BL103).
+#
+# A ClusterIP Service selecting the serving pods by `app: <projectName>`, exposing
+# the BYOC serve port 8080. do/test and do/benchmark reach the model through a
+# `kubectl port-forward` to the pod (or this Service).
+apiVersion: v1
+kind: Service
+metadata:
+  name: <%= projectName %>
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    managed-by: ml-container-creator
+spec:
+  type: ClusterIP
+  selector:
+    app: <%= projectName %>
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

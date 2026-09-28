@@ -267,6 +267,16 @@ ml-container-creator bootstrap update --dry-run
 !!! tip "Preview updates with --dry-run"
     `bootstrap update --dry-run` runs `cdk diff` per module and shows exactly what would change — applying nothing. Use it after pulling new template code to see the blast radius before committing.
 
+### Redeploy a single module
+
+To shorten the iteration loop when only one module changed, scope the update to a single module with `--module <name>`:
+
+```bash
+ml-container-creator bootstrap update --module registry
+```
+
+This deploys only the named module's CDK stack and leaves all other modules untouched. The module must already be in the active profile's `provisionedModules`; if it is not, the command exits with an error listing the available provisioned modules. Running `bootstrap update` without `--module` still redeploys every provisioned module.
+
 ---
 
 ## MLflow (Training Module)

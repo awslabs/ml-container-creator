@@ -63,7 +63,7 @@ while [ $# -gt 0 ]; do
         --target)
             shift
             if [ $# -eq 0 ]; then
-                echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks)"
+                echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks)"
                 exit 1
             fi
             FLAG_TARGET="$1"
@@ -206,6 +206,7 @@ while [ $# -gt 0 ]; do
             echo "  async-inference     SageMaker async endpoint with S3 output"
             echo "  batch-transform     SageMaker batch transform job"
             echo "  hyperpod-eks        SageMaker HyperPod EKS cluster"
+            echo "  eks                 Plain Kubernetes (Deployment + Service + ConfigMap)"
             echo ""
             echo "Options:"
             echo "  --target <mode>         Select or switch deployment target"
@@ -280,6 +281,7 @@ _backfill_status_var() {
         hyperpod-eks)      status_var="DEPLOYMENT_TARGET_HP_STATUS" ;;
         async-inference)   status_var="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
         batch-transform)   status_var="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        eks)               status_var="DEPLOYMENT_TARGET_EKS_STATUS" ;;
         *) return 0 ;;
     esac
 
@@ -404,6 +406,7 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
         hyperpod-eks)      _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
         async-inference)   _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
         batch-transform)   _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        eks)               _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS" ;;
     esac
 
     if [ -n "$_RECONFIG_STATUS_VAR" ] && [ -n "${!_RECONFIG_STATUS_VAR:-}" ]; then
@@ -419,6 +422,7 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
                 async-inference)   "${SCRIPT_DIR}/clean" --target async-inference endpoint --force 2>/dev/null || true ;;
                 batch-transform)   "${SCRIPT_DIR}/clean" --target batch-transform batch --force 2>/dev/null || true ;;
                 hyperpod-eks)      "${SCRIPT_DIR}/clean" --target hyperpod-eks hyperpod --force 2>/dev/null || true ;;
+                eks)               "${SCRIPT_DIR}/clean" --target eks eks --force 2>/dev/null || true ;;
             esac
             _update_config "$_RECONFIG_STATUS_VAR" ""
             # Clear IC deployment refs from do/ic/*.conf
@@ -492,6 +496,13 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
             _update_config "HP_REPLICAS" ""
             _update_config "HP_QUEUE" ""
             ;;
+        eks)
+            _update_config "HP_CLUSTER_NAME" ""
+            _update_config "HP_GPU_COUNT" ""
+            _update_config "HP_NAMESPACE" ""
+            _update_config "HP_REPLICAS" ""
+            _update_config "HP_QUEUE" ""
+            ;;
         async-inference)
             _update_config "ASYNC_ENDPOINT_NAME" ""
             _update_config "ENDPOINT_NAME" ""
@@ -529,6 +540,7 @@ if [ -n "$FLAG_TARGET" ]; then
         hyperpod-eks)      _STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
         async-inference)   _STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
         batch-transform)   _STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        eks)               _STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS" ;;
         *)                 _STATUS_VAR="" ;;
     esac
 
@@ -550,6 +562,9 @@ if [ -n "$FLAG_TARGET" ]; then
                 ;;
             hyperpod-eks)
                 _update_config INSTANCE_TYPE "${HP_INSTANCE_TYPE:-}"
+                ;;
+            eks)
+                _update_config INSTANCE_TYPE "${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
                 ;;
         esac
         # For hyperpod-eks: show a useful status summary before exiting
@@ -759,6 +774,26 @@ if [ "$DEPLOYMENT_TARGET" = "realtime-inference" ]; then
     DEPLOYMENT_TARGET="realtime-inference"
 fi
 
+# ── LoRA + speculative-decoding advisory (BL115, Req 6.1) ────
+# LoRA is on by default across vLLM targets, and speculative decoding may not be
+# compatible with LoRA on every vLLM build. Warn (non-fatally) when both are
+# requested for the active target so the operator can verify their vLLM version.
+# "LoRA on for the active target" reads the target family's own switch:
+#   • managed/realtime/async/batch → ENABLE_LORA (default true via do/config)
+#   • hyperpod-eks / eks           → HP_LORA_ENABLED (default true for vLLM)
+_lora_on_for_target=false
+case "${DEPLOYMENT_TARGET}" in
+    hyperpod-eks|eks)
+        [ "${HP_LORA_ENABLED:-false}" = "true" ] && _lora_on_for_target=true
+        ;;
+    *)
+        [ "${ENABLE_LORA:-false}" = "true" ] && _lora_on_for_target=true
+        ;;
+esac
+if [ "${_lora_on_for_target}" = "true" ] && [ -n "${HP_SPECULATIVE_ALGORITHM:-}" ]; then
+    echo "⚠️ LoRA + speculative decoding may conflict — verify vLLM version supports both simultaneously"
+fi
+
 # ── Dry-run output (FR-3.6, CP-4) ────────────────────────────
 # Show resolved config and the command that would execute, without deploying.
 if [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
@@ -804,6 +839,9 @@ case "${DEPLOYMENT_TARGET}" in
     hyperpod-eks)
         export INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
         ;;
+    eks)
+        export INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+        ;;
 esac
 
 # Dispatch to target-specific deploy script
@@ -820,9 +858,12 @@ case "$DEPLOYMENT_TARGET" in
     hyperpod-eks)
         source "${SCRIPT_DIR}/deploy.d/hyperpod-eks" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
         ;;
+    eks)
+        source "${SCRIPT_DIR}/deploy.d/eks" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
+        ;;
     *)
         echo "❌ Unknown DEPLOYMENT_TARGET: $DEPLOYMENT_TARGET"
-        echo "   Valid targets: realtime-inference, async-inference, batch-transform, hyperpod-eks"
+        echo "   Valid targets: realtime-inference, async-inference, batch-transform, hyperpod-eks, eks"
         exit 1
         ;;
 esac

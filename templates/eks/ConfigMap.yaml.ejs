@@ -1,0 +1,31 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Plain EKS inference deployment — standard Kubernetes ConfigMap (BL103).
+#
+# Carries the serve configuration (engine selection, model name/path, tensor-
+# parallel degree, and pass-through VLLM_*/SGLANG_* values) consumed by the
+# container via `envFrom`. do/deploy.d/eks substitutes the ${...} placeholders at
+# deploy time; the ${VAR:-default} shapes keep raw-template renders valid.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: <%= projectName %>
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    managed-by: ml-container-creator
+data:
+  # Model identity — the engine reads its own key (VLLM_MODEL / SGLANG_MODEL_PATH).
+  VLLM_MODEL: "${HP_MODEL_ID:-<%= typeof modelName !== 'undefined' ? modelName : '' %>}"
+  SGLANG_MODEL_PATH: "${HP_MODEL_ID:-<%= typeof modelName !== 'undefined' ? modelName : '' %>}"
+  # Tensor-parallel degree tracks the requested GPU count.
+  VLLM_TENSOR_PARALLEL_SIZE: "${VLLM_TENSOR_PARALLEL_SIZE:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
+  # Pass-through quantization (empty unless set in do/config).
+  VLLM_QUANTIZATION: "${VLLM_QUANTIZATION:-}"
+<% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
+  # LoRA adapter serving (BL115) — enabled by default for vLLM targets. The
+  # serve wrapper forwards VLLM_ENABLE_LORA=true as --enable-lora. Gated on
+  # HP_LORA_ENABLED so an explicit opt-out (HP_LORA_ENABLED=false) omits it.
+  VLLM_ENABLE_LORA: "true"
+<% } %>

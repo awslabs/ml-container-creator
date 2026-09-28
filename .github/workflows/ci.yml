@@ -74,6 +74,10 @@ jobs:
         if: matrix.node-version == '24.x'
         run: node scripts/schema-template-coverage.js --strict
 
+      - name: Validate serve-engine manifests
+        if: matrix.node-version == '24.x'
+        run: node scripts/validate-serve-manifests.js
+
   integration:
     name: Integration
     runs-on: ubuntu-latest

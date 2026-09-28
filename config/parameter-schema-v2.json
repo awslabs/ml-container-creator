@@ -127,7 +127,7 @@
         },
         "deploymentTarget": {
             "type": "enum",
-            "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)",
+            "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks, eks)",
             "cliFlag": "--deployment-target",
             "cliArgName": "target",
             "envVar": "ML_DEPLOYMENT_TARGET",
@@ -140,7 +140,8 @@
                     "realtime-inference",
                     "async-inference",
                     "batch-transform",
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ]
             },
             "phase": "infrastructure",
@@ -193,7 +194,7 @@
             "prompt": {
                 "message": "Instance type?",
                 "type": "input",
-                "when": "deploymentTarget !== 'hyperpod-eks'"
+                "when": "deploymentTarget !== 'hyperpod-eks' && deploymentTarget !== 'eks'"
             },
             "deprecated": false,
             "since": "0.1.0"
@@ -317,7 +318,11 @@
             "group": "lora",
             "appliesTo": {
                 "deploymentTargets": [
-                    "managed-inference"
+                    "managed-inference",
+                    "hyperpod-eks",
+                    "async-inference",
+                    "batch-transform",
+                    "eks"
                 ],
                 "architectures": [
                     "transformers"
@@ -356,7 +361,11 @@
             "group": "lora",
             "appliesTo": {
                 "deploymentTargets": [
-                    "managed-inference"
+                    "managed-inference",
+                    "hyperpod-eks",
+                    "async-inference",
+                    "batch-transform",
+                    "eks"
                 ],
                 "architectures": [
                     "transformers"
@@ -395,7 +404,11 @@
             "group": "lora",
             "appliesTo": {
                 "deploymentTargets": [
-                    "managed-inference"
+                    "managed-inference",
+                    "hyperpod-eks",
+                    "async-inference",
+                    "batch-transform",
+                    "eks"
                 ],
                 "architectures": [
                     "transformers"
@@ -1708,7 +1721,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1718,7 +1732,7 @@
             "prompt": {
                 "message": "HyperPod cluster name?",
                 "type": "input",
-                "when": "deploymentTarget === 'hyperpod-eks'"
+                "when": "deploymentTarget === 'hyperpod-eks' || deploymentTarget === 'eks'"
             },
             "deprecated": false,
             "since": "0.4.0"
@@ -1737,7 +1751,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1764,7 +1779,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1789,7 +1805,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1817,7 +1834,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1842,7 +1860,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1867,7 +1886,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1892,7 +1912,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1917,7 +1938,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"
@@ -1942,7 +1964,8 @@
             "group": "hyperpod",
             "appliesTo": {
                 "deploymentTargets": [
-                    "hyperpod-eks"
+                    "hyperpod-eks",
+                    "eks"
                 ],
                 "architectures": [
                     "*"

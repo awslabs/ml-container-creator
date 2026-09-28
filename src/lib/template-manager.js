@@ -66,7 +66,7 @@ export default class TemplateManager {
                 'marketplace'
             ],
             buildTargets: ['codebuild'],
-            deploymentTargets: ['realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'],
+            deploymentTargets: ['realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks', 'eks'],
             testTypes: ['local-model-cli', 'local-model-server', 'hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'],
             awsRegions: [
                 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',

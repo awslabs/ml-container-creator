@@ -1,0 +1,24 @@
+{
+  "engine": "sglang",
+  "env_var_prefix": "SGLANG_",
+  "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "mtp"],
+  "algorithm_map": {
+    "eagle3": "EAGLE3",
+    "eagle2": "EAGLE",
+    "eagle": "EAGLE",
+    "draft-model": "STANDALONE",
+    "mtp": "MTP"
+  },
+  "hot_reload": true,
+  "metrics_endpoint": {
+    "path": "/metrics",
+    "port": 8080,
+    "format": "prometheus"
+  },
+  "dimension_map": {
+    "quantization": "QUANTIZATION",
+    "tensor_parallel_degree": "TP_SIZE",
+    "max_model_len": "CONTEXT_LENGTH",
+    "kv_cache_dtype": "KV_CACHE_DTYPE"
+  }
+}

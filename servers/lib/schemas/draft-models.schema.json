@@ -48,6 +48,17 @@
       },
       "notes": {
         "type": "string"
+      },
+      "source": {
+        "type": "string",
+        "enum": [
+          "hf",
+          "s3"
+        ]
+      },
+      "s3_uri": {
+        "type": "string",
+        "pattern": "^s3://"
       }
     },
     "additionalProperties": false

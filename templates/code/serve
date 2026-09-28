@@ -10,7 +10,7 @@ source /usr/bin/cuda_compat.sh 2>/dev/null || true
 echo "Starting <%= modelServer %> server"
 
 <% if (modelServer === 'lmi' || modelServer === 'djl') { %>
-<%- include('serve.d/lmi') %>
+<%- include('serve.d/lmi/lmi') %>
 <% } else { %>
 
 <% if (typeof modelSource !== 'undefined' && modelSource !== 'huggingface') { %>
@@ -183,6 +183,6 @@ SERVER_ARGS=(--host 0.0.0.0 --port 8080)
 
 # --- Server-specific arg conversion and exec ---
 <% if (['vllm', 'sglang', 'tensorrt-llm'].includes(modelServer)) { %>
-<%- include('serve.d/' + modelServer) %>
+<%- include('serve.d/' + modelServer + '/' + modelServer) %>
 <% } %>
 <% } %>

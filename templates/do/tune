@@ -366,7 +366,7 @@ _show_help() {
     echo ""
     echo "After fine-tuning:"
     echo "  ./do/adapter add tuned-sft --from-tune    # Deploy adapter to the endpoint"
-    echo "  ./do/benchmark --workload multi_turn_chat --adapter tuned-sft  # Benchmark"
+    echo "  ./do/benchmark --workload multi-turn-chat --adapter tuned-sft  # Benchmark"
     exit 0
 }
 

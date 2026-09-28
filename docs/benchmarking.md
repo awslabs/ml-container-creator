@@ -30,7 +30,7 @@ Deploy and benchmark:
 
 ```bash
 ./do/build && ./do/push && ./do/deploy
-./do/benchmark --workload multi_turn_chat
+./do/benchmark --workload multi-turn-chat
 ```
 
 !!! note "No benchmark configuration in `do/config`"
@@ -73,12 +73,12 @@ Benchmark parameters are resolved from named **workload profiles** served by the
 
 | Workload | Concurrency | Input Tokens | Output Tokens | Streaming | Description |
 |---|---|---|---|---|---|
-| `multi_turn_chat` | 10 | 550 | 150 | ✅ | Multi-turn conversational workload |
-| `rag_document_qa` | 8 | 2048 | 256 | ✅ | RAG with long context retrieval |
-| `agent_tool_calling` | 4 | 800 | 100 | ❌ | Tool-calling agent (structured output) |
-| `long_context_scaling` | 2 | 8192 | 512 | ✅ | Long-context stress test |
-| `production_traffic_mix` | 16 | 1024 | 200 | ✅ | Simulated production traffic mix |
-| `shared_system_prompt` | 12 | 300 | 150 | ✅ | Short requests with shared system prompt |
+| `multi-turn-chat` | 10 | 550 | 150 | ✅ | Multi-turn conversational workload |
+| `rag-document-qa` | 8 | 2048 | 256 | ✅ | RAG with long context retrieval |
+| `agent-tool-calling` | 4 | 800 | 100 | ❌ | Tool-calling agent (structured output) |
+| `long-context-scaling` | 2 | 8192 | 512 | ✅ | Long-context stress test |
+| `production-traffic-mix` | 16 | 1024 | 200 | ✅ | Simulated production traffic mix |
+| `shared-system-prompt` | 12 | 300 | 150 | ✅ | Short requests with shared system prompt |
 
 List available workloads:
 
@@ -92,7 +92,7 @@ cat servers/workload-picker/workload-profiles.json
 
 ### How Resolution Works
 
-When you run `./do/benchmark --workload multi_turn_chat`:
+When you run `./do/benchmark --workload multi-turn-chat`:
 
 1. **Workload params** — `do/benchmark` queries the workload-picker MCP server for the named profile, which returns concurrency, input/output token counts, streaming mode, and request count
 2. **S3 paths** — Read from the bootstrap profile (`~/.ml-container-creator/config.json`): `benchmarkS3Bucket` for raw results, `ciBenchmarkResultsBucket` for Athena Parquet
@@ -170,7 +170,7 @@ Default when no `--threshold` is specified: all four metrics at 10%.
 # Example: run after every deployment, fail on regression
 - name: Benchmark regression check
   run: |
-    ./do/benchmark --workload multi_turn_chat
+    ./do/benchmark --workload multi-turn-chat
     ./do/benchmark --compare-baseline --threshold throughput:5 --json
 ```
 
@@ -223,7 +223,7 @@ configs. If your endpoint was deployed before v1.7, redeploy it to pick this up:
 **3. Run a benchmark** — metrics are collected after the job completes:
 
 ```bash
-./do/benchmark --workload multi_turn_chat
+./do/benchmark --workload multi-turn-chat
 ```
 
 #### Verifying Phase 1 is working
@@ -363,7 +363,7 @@ table — the CDK stack update adds the columns via Glue `UpdateTable` (idempote
 
 ### No benchmark data
 
-If no Athena records exist for your model and instance, `--recommend` prints "No recommendations available" and exits 0. Run `./do/benchmark --workload multi_turn_chat` first to generate baseline data, then re-run `--recommend`.
+If no Athena records exist for your model and instance, `--recommend` prints "No recommendations available" and exits 0. Run `./do/benchmark --workload multi-turn-chat` first to generate baseline data, then re-run `--recommend`.
 
 ### Deploy integration
 
@@ -430,7 +430,7 @@ This will:
 This is the recommended workflow for long-running benchmarks:
 
 ```bash
-./do/benchmark --workload multi_turn_chat   # Start the job, Ctrl+C when you want
+./do/benchmark --workload multi-turn-chat   # Start the job, Ctrl+C when you want
 ./do/benchmark --status                     # Check later; auto-resolves on completion
 ```
 
@@ -439,7 +439,7 @@ This is the recommended workflow for long-running benchmarks:
 To benchmark a LoRA adapter instead of the base model, pass `--adapter`:
 
 ```bash
-./do/benchmark --adapter my-adapter --workload multi_turn_chat
+./do/benchmark --adapter my-adapter --workload multi-turn-chat
 ```
 
 This routes requests through the adapter's inference component and records `adapter_name` in the Athena results. Works identically for adapters from any source — `do/tune` (managed), `do/train` (custom), or `--from-registry` (imported).
@@ -491,8 +491,8 @@ Run the same workload across different configurations to find the optimal setup:
 
 ```bash
 # Same model, different instance types
-cd bench-g5-xlarge && ./do/benchmark --workload production_traffic_mix
-cd bench-g5-2xlarge && ./do/benchmark --workload production_traffic_mix
+cd bench-g5-xlarge && ./do/benchmark --workload production-traffic-mix
+cd bench-g5-2xlarge && ./do/benchmark --workload production-traffic-mix
 ```
 
 Use `do/register` after each benchmark to record results in the deployment registry for comparison.
@@ -503,10 +503,10 @@ Benchmark a specific LoRA adapter to compare against the base model:
 
 ```bash
 # Benchmark base model
-./do/benchmark --workload multi_turn_chat
+./do/benchmark --workload multi-turn-chat
 
 # Benchmark adapter
-./do/benchmark --workload multi_turn_chat --adapter my-sft
+./do/benchmark --workload multi-turn-chat --adapter my-sft
 
 # Compare results (both recorded in benchmark history)
 ```
@@ -533,7 +533,7 @@ If these keys are not set (benchmark infra not provisioned), results are display
 In CI pipelines, benchmark results can be registered for regression detection:
 
 ```bash
-./do/benchmark --workload production_traffic_mix
+./do/benchmark --workload production-traffic-mix
 ./do/register --ci --notes "Nightly benchmark run"
 ```
 

@@ -1,0 +1,66 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Plain EKS inference deployment — standard Kubernetes Deployment (BL103).
+#
+# This is a vanilla Kubernetes Deployment (NOT an InferenceEndpointConfig CRD):
+# it does not depend on the HyperPod inference operator and creates no SageMaker
+# endpoint. The container is the MLCC BYOC image; its baked-in ENTRYPOINT
+# (code/serve) starts the model server on port 8080 (SageMaker BYOC contract).
+#
+# Values marked with a shell ${...} placeholder are substituted at deploy time by
+# do/deploy.d/eks via envsubst; EJS expressions are baked in at project-generation
+# time. Placeholders keep the ${VAR} / ${VAR:-default} shape so both envsubst
+# (now) and BL111's node+ejs re-render resolve them identically.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <%= projectName %>
+  namespace: <%= hyperPodNamespace %>
+  labels:
+    app: <%= projectName %>
+    framework: <%= framework %>
+    managed-by: ml-container-creator
+spec:
+  replicas: <%= hyperPodReplicas %>
+  selector:
+    matchLabels:
+      app: <%= projectName %>
+  template:
+    metadata:
+      labels:
+        app: <%= projectName %>
+        framework: <%= framework %>
+        managed-by: ml-container-creator
+    spec:
+      containers:
+        - name: <%= projectName %>
+          image: ${ECR_IMAGE}
+          ports:
+            - name: http
+              containerPort: 8080
+          # Serve configuration is carried by the ConfigMap (same name as the
+          # Deployment) and injected as environment variables via envFrom.
+          envFrom:
+            - configMapRef:
+                name: <%= projectName %>
+          env:
+            # MODEL_SOURCE steers the BYOC entrypoint (code/serve resolve_model):
+            # "s3" pulls the staged model from S3; "huggingface" pulls MODEL_NAME.
+            - name: MODEL_SOURCE
+              value: "${HP_MODEL_SOURCE:-huggingface}"
+            # HF_TOKEN injected from the hf-token-secret K8s Secret (optional=true
+            # so the pod still starts for public models / staged S3 weights).
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token-secret
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: "${HP_CPU_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 4) %>}"
+              memory: "${HP_MEM_REQUEST:-<%= String(parseInt(typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1') * 16) %>Gi}"
+              nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"
+            limits:
+              nvidia.com/gpu: "${HP_GPU_COUNT:-<%= typeof HP_GPU_COUNT !== 'undefined' && HP_GPU_COUNT ? HP_GPU_COUNT : '1' %>}"

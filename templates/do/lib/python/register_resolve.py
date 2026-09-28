@@ -82,6 +82,37 @@ def cmd_resolve_dataset(args):
         or os.environ.get("AWS_DEFAULT_REGION")
         or os.environ.get("AWS_REGION")
     )
+
+    # BL110: when MLflow is configured, resolve the dataset by name from MLflow
+    # run inputs instead of the S3 sidecar.
+    import mlcc_mlflow
+    if mlcc_mlflow._mlflow_configured():
+        try:
+            entry = mlcc_mlflow.resolve_dataset_by_name(name)
+        except mlcc_mlflow.MlflowUnavailableError as e:
+            print(json.dumps({"error": str(e), "code": "MLFLOW_UNAVAILABLE"}))
+            print(f"\u26a0\ufe0f  {e}", file=sys.stderr)
+            sys.exit(3)
+        except Exception as e:  # noqa: BLE001 — surface, do not silently fall back
+            print(json.dumps({"error": str(e), "code": "MLFLOW_RESOLVE_FAILED"}))
+            print(f"\u26a0\ufe0f  {e}", file=sys.stderr)
+            sys.exit(3)
+
+        if entry is None:
+            _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+
+        meta = entry.get("meta") or {}
+        _output({
+            "name": entry.get("name", mlcc_mlflow.sanitize_name(name)),
+            "s3_uri": entry.get("s3_uri", "") or meta.get("s3_uri", ""),
+            "arn": meta.get("arn"),
+            "format": meta.get("format", "jsonl"),
+            "technique": meta.get("technique", ""),
+            "version": meta.get("latest_version", "1.0.0"),
+            "ordinal": meta.get("ordinal"),
+            "hash": entry.get("digest"),
+        })
+
     core_bucket = _resolve_core_bucket(args)
     if not core_bucket:
         _error_exit(

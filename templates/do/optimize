@@ -31,6 +31,13 @@ CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSo
 # Note: hyperpod-eks IS supported — CreateAIRecommendationJob uses --model-source
 # (S3 URI from STAGED_MODEL_PATH), not a live endpoint. No SageMakerEndpointRegistration
 # required. Blocked targets are async-inference and batch-transform only.
+if [ "${DEPLOYMENT_TARGET:-}" = "eks" ]; then
+    echo "❌ do/optimize is N/A for eks target."
+    echo "   The eks target creates plain Kubernetes objects with no SageMaker endpoint;"
+    echo "   SageMaker AI Recommendations do not apply."
+    exit 1
+fi
+
 if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
     echo "❌ do/optimize (AI Recommendations) is not supported on ${DEPLOYMENT_TARGET}."
     echo "   AI Recommendations requires a real-time or HyperPod EKS deployment."

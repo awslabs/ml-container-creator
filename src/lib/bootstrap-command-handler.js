@@ -561,7 +561,22 @@ export default class BootstrapCommandHandler {
 
         const provisioned = profileConfig.provisionedModules || ['core'];
         const manifest = loadModuleManifest();
-        const ordered = topologicalSort(provisioned);
+        let ordered = topologicalSort(provisioned);
+
+        // Scoped redeploy: `--module <name>` targets a single provisioned module.
+        // Validate against the provisioned set and narrow `ordered` to just that
+        // module so no other module's CDK stack is deployed. The full profile's
+        // provisionedModules list is preserved (see save block below).
+        const scopedModule = options.module;
+        if (scopedModule) {
+            if (!provisioned.includes(scopedModule)) {
+                console.log(`❌ Module "${scopedModule}" is not provisioned for profile "${name}".`);
+                console.log(`   Available provisioned modules: ${provisioned.join(', ')}`);
+                return;
+            }
+            ordered = [scopedModule];
+            console.log(`   Scoped to single module: ${scopedModule}`);
+        }
 
         // Dry-run: show `cdk diff` per module, apply nothing.
         if (options.dryRun) {
@@ -604,7 +619,7 @@ export default class BootstrapCommandHandler {
         }
 
         // MLflow best-effort for training module
-        if (provisioned.includes('training')) {
+        if (ordered.includes('training')) {
             this._displayProgress('📊', 'MLflow App for experiment tracking (best-effort)...');
             try {
                 const { ensureMlflowApp } = await import('../../infra/bootstrap-modules/training/provision-mlflow.cjs');
@@ -625,8 +640,16 @@ export default class BootstrapCommandHandler {
             }
         }
 
-        profileConfig.provisionedModules = ordered;
-        profileConfig.moduleOutputs = moduleOutputs;
+        if (scopedModule) {
+            // Scoped redeploy: preserve the full provisioned set and merge the
+            // redeployed module's outputs into the existing outputs, leaving
+            // other modules' recorded outputs untouched.
+            profileConfig.provisionedModules = provisioned;
+            profileConfig.moduleOutputs = { ...(profileConfig.moduleOutputs || {}), ...moduleOutputs };
+        } else {
+            profileConfig.provisionedModules = ordered;
+            profileConfig.moduleOutputs = moduleOutputs;
+        }
         this._denormalizeModuleOutputs(profileConfig);
 
         // Save updated profile
