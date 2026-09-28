@@ -127,8 +127,19 @@ def test_property_5_avg_within_range(samples):
         if vals:
             lo, hi = min(vals), max(vals)
             assert lo - 1e-9 <= out[avg_key] <= hi + 1e-9
-    # avg <= corresponding max for the derived/explicit gauge pairs.
+    # avg <= corresponding max for the derived gauge pairs. This invariant only
+    # holds when the peak was *derived* from the avg values (max of the same
+    # numbers is always >= their mean). When a sample supplies an explicit
+    # ``*_max`` column the aggregator honours it (explicit max wins — see
+    # test_explicit_max_key_wins_over_derived), and that operator-supplied peak
+    # may legitimately be below the avg, so it is excluded here.
     for avg_key, max_key in phase2_poller._DERIVE_MAX_FROM_AVG.items():
+        explicit_max = any(
+            isinstance(s.get(max_key), (int, float)) and not isinstance(s.get(max_key), bool)
+            for s in samples
+        )
+        if explicit_max:
+            continue
         if avg_key in out and max_key in out:
             assert out[avg_key] <= out[max_key] + 1e-9
 

@@ -44,6 +44,37 @@ phase2_poller = _load("phase2_poller", _POLLER_PATH)
 benchmark_gpu_metrics = _load("benchmark_gpu_metrics_bl108", _BM_GPU_PATH)
 
 
+def _run_bounded(fn, *args, timeout=5, **kwargs):
+    """Run ``fn`` in a worker thread and fail fast if it does not return.
+
+    ``run_poller`` executes its sample loop synchronously in the calling thread,
+    so a loop that never observes its stop condition would hang the test suite
+    forever. We run it in a daemon thread and join with an explicit timeout; if
+    the thread is still alive after the timeout the loop did not terminate and we
+    fail with a clear message instead of hanging. The thread is a daemon so a
+    genuinely stuck loop cannot block interpreter exit.
+    """
+    result_box: dict = {}
+
+    def _target():
+        try:
+            result_box["value"] = fn(*args, **kwargs)
+        except BaseException as exc:  # surface loop-body errors to the caller
+            result_box["error"] = exc
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    worker.join(timeout=timeout)
+    if worker.is_alive():
+        pytest.fail(
+            f"run_poller did not terminate within {timeout}s — the sample loop "
+            f"never observed its stop condition (BL108 poller hang)."
+        )
+    if "error" in result_box:
+        raise result_box["error"]
+    return result_box.get("value", {})
+
+
 # ── aggregate() examples (Req 3.1, 5) ─────────────────────────────────────────
 
 
@@ -187,9 +218,10 @@ class TestRunPoller:
         monkeypatch.setattr(phase2_poller, "sample_once", _fake_sample)
 
         out_file = tmp_path / ".last_gpu_metrics.json"
-        result = phase2_poller.run_poller(
+        result = _run_bounded(
+            phase2_poller.run_poller,
             "http://localhost:18080", "vllm", str(out_file),
-            interval=0, min_samples=5, max_samples=5,
+            interval=0, min_samples=5, max_samples=5, timeout=5,
         )
         assert out_file.exists()
         written = json.loads(out_file.read_text())
@@ -200,15 +232,29 @@ class TestRunPoller:
         assert result == written
 
     def test_empty_samples_write_no_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(phase2_poller, "sample_once", lambda *a: {})
+        # An all-empty run must terminate via its stop signal. sample_once
+        # returns {} on every tick, so the buffer never fills and max_samples
+        # (which counts non-empty samples only) can never be reached — the loop
+        # would spin forever without a stop_event. We arm one after a few empty
+        # ticks, matching how do/benchmark ends an idle poller in production.
+        stop = threading.Event()
+        ticks = {"n": 0}
+
+        def _fake_sample(*a):
+            ticks["n"] += 1
+            if ticks["n"] >= 3:
+                stop.set()
+            return {}
+
+        monkeypatch.setattr(phase2_poller, "sample_once", _fake_sample)
         out_file = tmp_path / ".last_gpu_metrics.json"
-        result = phase2_poller.run_poller(
+        result = _run_bounded(
+            phase2_poller.run_poller,
             "http://localhost:18080", "vllm", str(out_file),
-            interval=0, min_samples=5, max_samples=3,
+            interval=0, min_samples=5, max_samples=3, stop_event=stop, timeout=5,
         )
-        # Buffer never fills (samples empty) but max_samples counts non-empty
-        # only, so stop via stop_event after a few ticks instead.
-        # Here we rely on stop_event to end an all-empty run.
+        # Buffer never fills (samples empty); the loop ends via stop_event and
+        # an empty buffer writes no file.
         assert not out_file.exists()
         assert result == {}
 
@@ -227,9 +273,10 @@ class TestRunPoller:
 
         monkeypatch.setattr(phase2_poller, "sample_once", _fake_sample)
         out_file = tmp_path / ".last_gpu_metrics.json"
-        result = phase2_poller.run_poller(
+        result = _run_bounded(
+            phase2_poller.run_poller,
             "http://localhost:18080", "vllm", str(out_file),
-            interval=0, min_samples=5, stop_event=stop,
+            interval=0, min_samples=5, stop_event=stop, timeout=5,
         )
         assert out_file.exists()
         assert result["sample_count"] == 2
@@ -252,9 +299,10 @@ class TestEmptySamplesTermination:
 
         monkeypatch.setattr(phase2_poller, "sample_once", _fake_sample)
         out_file = tmp_path / ".last_gpu_metrics.json"
-        result = phase2_poller.run_poller(
+        result = _run_bounded(
+            phase2_poller.run_poller,
             "http://localhost:18080", "vllm", str(out_file),
-            interval=0, min_samples=5, stop_event=stop,
+            interval=0, min_samples=5, stop_event=stop, timeout=5,
         )
         assert result == {}
         assert not out_file.exists()
