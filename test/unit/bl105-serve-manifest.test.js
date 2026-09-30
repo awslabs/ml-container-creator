@@ -18,7 +18,7 @@ import { describe, it } from 'mocha';
 import assert from 'node:assert';
 import ejs from 'ejs';
 import Ajv from 'ajv/dist/2020.js';
-import { readFileSync, existsSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, rmSync, mkdirSync, readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -46,7 +46,9 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
             });
         }
 
-        for (const engine of ['vllm', 'sglang']) {
+        // ADR-004 parity: EVERY serve.d engine dir must ship a manifest.json —
+        // no engine may rely on manifest absence.
+        for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
             it(`serve.d/${engine}/ contains manifest.json`, () => {
                 assert.ok(existsSync(resolve(SERVE_D, engine, 'manifest.json')),
                     `serve.d/${engine}/manifest.json must exist`);
@@ -74,7 +76,7 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
         });
         it('supported_algorithms is the vLLM set', () => {
             assert.deepStrictEqual(m.supported_algorithms,
-                ['eagle3', 'eagle2', 'eagle', 'draft-model', 'ngram', 'mtp']);
+                ['eagle3', 'eagle2', 'eagle', 'draft-model', 'ngram', 'mtp', 'dspark']);
         });
         it('hot_reload is a boolean', () => {
             assert.strictEqual(typeof m.hot_reload, 'boolean');
@@ -84,6 +86,10 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
         });
         it('algorithm_map maps draft-model → draft_model', () => {
             assert.strictEqual(m.algorithm_map['draft-model'], 'draft_model');
+        });
+        it('algorithm_map maps dspark → dspark (passthrough, Kimi-K3)', () => {
+            assert.ok(m.supported_algorithms.includes('dspark'));
+            assert.strictEqual(m.algorithm_map.dspark, 'dspark');
         });
     });
 
@@ -109,6 +115,116 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
             assert.strictEqual(m.algorithm_map.eagle2, 'EAGLE');
             assert.strictEqual(m.algorithm_map['draft-model'], 'STANDALONE');
             assert.strictEqual(m.algorithm_map.eagle3, 'EAGLE3');
+        });
+    });
+
+    // ── ADR-004: plugin parity — every engine has a schema-valid manifest ────
+    describe('ADR-004: serve-engine plugin parity', () => {
+        const ajv = new Ajv({ allErrors: true, strict: false });
+        const validate = ajv.compile(JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')));
+        // Discover engine dirs dynamically so a future manifest-less engine fails.
+        const engineDirs = readdirSync(SERVE_D, { withFileTypes: true })
+            .filter((d) => d.isDirectory())
+            .map((d) => d.name);
+
+        it('discovers all four shipped engines', () => {
+            for (const e of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+                assert.ok(engineDirs.includes(e), `expected serve.d/${e}/ to exist`);
+            }
+        });
+
+        for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+            it(`serve.d/${engine}/manifest.json is schema-valid and declares speculative_decoding`, () => {
+                const m = loadManifest(engine);
+                assert.strictEqual(validate(m), true,
+                    `${engine} manifest invalid: ${JSON.stringify(validate.errors)}`);
+                assert.strictEqual(typeof m.speculative_decoding, 'boolean',
+                    `${engine} must declare speculative_decoding as a boolean`);
+            });
+        }
+
+        it('non-speculative engines declare it explicitly (empty algorithms, not omission)', () => {
+            for (const engine of ['lmi', 'tensorrt-llm']) {
+                const m = loadManifest(engine);
+                assert.strictEqual(m.speculative_decoding, false,
+                    `${engine} must declare speculative_decoding:false`);
+                assert.deepStrictEqual(m.supported_algorithms, [],
+                    `${engine} must declare an empty supported_algorithms`);
+                assert.deepStrictEqual(m.algorithm_map, {},
+                    `${engine} must declare an empty algorithm_map`);
+            }
+        });
+
+        it('speculative engines declare speculative_decoding:true', () => {
+            for (const engine of ['vllm', 'sglang']) {
+                assert.strictEqual(loadManifest(engine).speculative_decoding, true);
+            }
+        });
+    });
+
+    // ── ADR-004 T4: speculative-decoding acceptance is manifest-driven ───────
+    // The manifest's supported_algorithms is the SOLE authority on which
+    // algorithms an engine accepts, and algorithm_map is the SOLE source of the
+    // engine-specific emitted names. This holds uniformly for every engine —
+    // including the non-speculative ones, which reject ALL algorithms because
+    // their supported_algorithms is [].
+    describe('ADR-004 T4: manifest-driven speculative acceptance', () => {
+        // The universe of MLCC algorithm names a user could request.
+        const ALGO_UNIVERSE = ['eagle3', 'eagle2', 'eagle', 'draft-model', 'ngram', 'mtp', 'medusa', 'lookahead'];
+
+        // accept(engine, alg) mirrors do/draft's decision: alg ∈ supported_algorithms.
+        const accepts = (engine, alg) => loadManifest(engine).supported_algorithms.includes(alg);
+
+        it('each engine accepts EXACTLY the algorithms in its supported_algorithms', () => {
+            for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+                const supported = new Set(loadManifest(engine).supported_algorithms);
+                for (const alg of ALGO_UNIVERSE) {
+                    assert.strictEqual(accepts(engine, alg), supported.has(alg),
+                        `${engine} accept(${alg}) must equal membership in supported_algorithms`);
+                }
+            }
+        });
+
+        it('non-speculative engines (lmi, tensorrt-llm) reject every algorithm', () => {
+            for (const engine of ['lmi', 'tensorrt-llm']) {
+                for (const alg of ALGO_UNIVERSE) {
+                    assert.strictEqual(accepts(engine, alg), false,
+                        `${engine} must reject ${alg} (no speculative decoding)`);
+                }
+            }
+        });
+
+        it('every supported algorithm has an algorithm_map entry (emitted name comes from data)', () => {
+            for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+                const m = loadManifest(engine);
+                for (const alg of m.supported_algorithms) {
+                    assert.ok(alg in m.algorithm_map,
+                        `${engine}: supported algorithm "${alg}" must have an algorithm_map entry`);
+                    assert.strictEqual(typeof m.algorithm_map[alg], 'string');
+                    assert.ok(m.algorithm_map[alg].length > 0,
+                        `${engine}: algorithm_map["${alg}"] must be a non-empty engine name`);
+                }
+            }
+        });
+
+        it('algorithm_map never maps an UNsupported algorithm (no orphan mappings)', () => {
+            for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+                const m = loadManifest(engine);
+                const supported = new Set(m.supported_algorithms);
+                for (const alg of Object.keys(m.algorithm_map)) {
+                    assert.ok(supported.has(alg),
+                        `${engine}: algorithm_map has "${alg}" not in supported_algorithms`);
+                }
+            }
+        });
+
+        it('vLLM and SGLang emit DIFFERENT engine names for the same MLCC algorithm (data, not code)', () => {
+            const vllm = loadManifest('vllm').algorithm_map;
+            const sglang = loadManifest('sglang').algorithm_map;
+            // draft-model is supported by both but maps to different engine names.
+            assert.strictEqual(vllm['draft-model'], 'draft_model');
+            assert.strictEqual(sglang['draft-model'], 'STANDALONE');
+            assert.notStrictEqual(vllm['draft-model'], sglang['draft-model']);
         });
     });
 

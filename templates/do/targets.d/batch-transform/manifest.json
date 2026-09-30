@@ -1,0 +1,25 @@
+{
+  "target": "batch-transform",
+  "aliases": ["batch"],
+  "status_var": "DEPLOYMENT_TARGET_BATCH_STATUS",
+  "answer_key": "deploymentTargetBatchStatus",
+  "success_status": "Completed",
+  "family": "sagemaker-job",
+  "deploy_script": "deploy.d/batch-transform",
+  "clean_script": "clean.d/batch-transform",
+  "required_vars": ["INSTANCE_TYPE", "BATCH_INPUT_PATH", "BATCH_OUTPUT_PATH"],
+  "optional_vars": {
+    "BATCH_SPLIT_TYPE": "Line",
+    "BATCH_STRATEGY": "MultiRecord",
+    "BATCH_MAX_CONCURRENT": "1"
+  },
+  "runtime_owned_vars": ["DEPLOYMENT_TARGET_BATCH_STATUS"],
+  "serving_config_source": "sagemaker-ic",
+  "verbs": {
+    "optimize": false,
+    "add-ic": false,
+    "ci": false,
+    "adapter": false,
+    "draft": false
+  }
+}

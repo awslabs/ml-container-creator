@@ -121,6 +121,61 @@ class TestSchema:
         assert dataset_qol._get_required_columns("sft") == ["prompt", "completion"]
         assert dataset_qol._get_required_columns("dpo") == ["prompt", "chosen", "rejected"]
 
+    # ── BL100: benchmark technique uses AIPerf single_turn `text` schema ──────
+
+    def test_benchmark_required_columns_is_text(self):
+        # Corrected from the old ["prompt"] (BL120): AIPerf BYOD single_turn
+        # requires a `text` modality column.
+        assert dataset_qol._get_required_columns("benchmark") == ["text"]
+
+    def test_benchmark_schema_types_is_text_string(self):
+        assert dataset_qol._get_schema_types("benchmark") == {"text": "string"}
+
+    def test_benchmark_schema_no_longer_uses_prompt(self):
+        assert "prompt" not in dataset_qol._get_required_columns("benchmark")
+        assert "prompt" not in dataset_qol._get_schema_types("benchmark")
+
+    def test_benchmark_text_record_passes_validation(self):
+        # A text/output_length-shaped record (AIPerf single_turn) validates:
+        # `text` is required, `output_length` is an optional extra and ignored.
+        rec = {"text": "Summarize the following report.", "output_length": 128}
+        mapped, cmap = dataset_qol._validate_dataset_columns(rec, "benchmark", None, "org/name")
+        assert mapped == rec
+
+    def test_benchmark_output_length_is_optional_not_required(self):
+        # output_length must never be required — a text-only row is valid, and
+        # _check_empty_fields (keyed off required columns) never flags it.
+        rec = {"text": "hello"}
+        mapped, _ = dataset_qol._validate_dataset_columns(rec, "benchmark", None, "org/name")
+        assert mapped == rec
+        assert dataset_qol._check_empty_fields(
+            rec, dataset_qol._get_required_columns("benchmark")
+        ) == []
+
+    def test_benchmark_prompt_record_now_fails_validation(self):
+        # Inverted from the old behavior: a prompt/max_tokens-shaped record no
+        # longer satisfies the benchmark schema (which now needs `text`).
+        rec = {"prompt": "Summarize this.", "max_tokens": 128}
+        with pytest.raises(SystemExit):
+            dataset_qol._validate_dataset_columns(rec, "benchmark", None, "org/name")
+
+    def test_benchmark_prompt_record_passes_with_column_map(self):
+        # ...but --column-map text=prompt maps it onto the required column.
+        rec = {"prompt": "Summarize this.", "max_tokens": 128}
+        mapped, cmap = dataset_qol._validate_dataset_columns(
+            rec, "benchmark", "text=prompt", "org/name"
+        )
+        assert mapped.get("text") == "Summarize this."
+        assert cmap == {"text": "prompt"}
+
+    def test_benchmark_column_map_suggestion_targets_text(self):
+        # The suggestion for a prompt-shaped dataset maps `text` from a prompt-like
+        # column so the emitted error/--column-map example is consistent.
+        suggestion = dataset_qol._suggest_column_map(
+            ["prompt", "max_tokens"], dataset_qol._get_required_columns("benchmark")
+        )
+        assert suggestion == "text=prompt"
+
     def test_validate_columns_ok(self):
         rec = {"prompt": "p", "completion": "c"}
         mapped, cmap = dataset_qol._validate_dataset_columns(rec, "sft", None, "org/name")

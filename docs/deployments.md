@@ -1,6 +1,6 @@
 # Deployment & Inference
 
-MCC supports four deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Every generated project contains scripts for all four targets — you select which target to deploy to at deploy time, not at generation time. See [Interactive Deployment UX](deploy-ux.md) for the full deploy-time workflow.
+MCC supports five deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Every generated project contains scripts for all targets — you select which target to deploy to at deploy time, not at generation time. See [Interactive Deployment UX](deploy-ux.md) for the full deploy-time workflow.
 
 ## Build Paths
 
@@ -18,7 +18,15 @@ Local containers may produce `exec` errors when deployed to a different architec
 
 ## Deployment Targets
 
-MCC supports four deployment targets. Select the active target at deploy time using `./do/deploy --target <mode>`. The active target determines how `./do/test`, `./do/clean`, and `./do/logs` behave.
+MCC supports five deployment targets. Select the active target at deploy time using `./do/deploy --target <mode>`. The active target determines how `./do/test`, `./do/clean`, and `./do/logs` behave.
+
+| Target | Where it runs | Notes |
+|---|---|---|
+| `realtime-inference` | SageMaker real-time endpoint (Inference Components) | Default |
+| `async-inference` | SageMaker async endpoint | Large payloads / long jobs |
+| `batch-transform` | SageMaker batch transform job | Offline batch |
+| `hyperpod-eks` | EKS via the HyperPod Inference Operator | Registers a SageMaker endpoint |
+| `eks` | EKS **without** the HyperPod operator (standard Deployment + Service + ConfigMap) | First-class, **currently untested/unvalidated** |
 
 ### SageMaker AI Real-Time Inference (`realtime-inference`)
 
@@ -89,6 +97,32 @@ For offline batch processing of large datasets. `./do/deploy` submits a SageMake
 !!! note "Limitations"
     Batch transform does not support `do/tune` or `do/adapter` (no running endpoint to attach adapters to).
 
+### Plain EKS (`eks`)
+
+Deploys the model to any conformant EKS cluster as **standard Kubernetes objects**
+— a Deployment, a Service, and a ConfigMap — **without** the HyperPod Inference
+Operator and without any SageMaker endpoint. It works on a plain EKS cluster or a
+HyperPod EKS cluster used as plain EKS.
+
+```bash
+./do/deploy --target eks
+```
+
+!!! warning "Untested target"
+    `eks` is a first-class, supported target, but it is **currently untested and
+    unvalidated** end-to-end. Treat it as experimental.
+
+Because there is no SageMaker endpoint, verbs that operate on the serving pod
+directly work via a `kubectl` port-forward (same mechanism as `hyperpod-eks`):
+
+- **Supported:** `do/deploy`, `do/test eks`, `do/benchmark` (direct pod
+  port-forward), `do/adapter` (vLLM LoRA hot-load), `do/logs`, `do/status`,
+  `do/clean eks`.
+- **Not applicable:** `do/optimize` (SageMaker AI Recommendations need a SageMaker
+  endpoint), `do/add-ic` (Inference Components are real-time-only), `do/ci` (the CI
+  harness is SageMaker-managed-inference specific). These print a clear message and
+  exit with code `3`.
+
 ## Lifecycle Scripts Reference
 
 All generated projects include these `do/` scripts:
@@ -107,15 +141,33 @@ All generated projects include these `do/` scripts:
 | `./do/add-ic` | Add an inference component to an existing endpoint |
 | `./do/benchmark` | Run latency and throughput benchmarks via SageMaker AI Benchmarking |
 | `./do/status` | Check endpoint and inference component status |
-| `./do/logs` | Tail logs (CloudWatch for realtime-inference, kubectl for HyperPod) |
+| `./do/logs` | Tail logs (CloudWatch for SageMaker targets, kubectl for hyperpod-eks / eks) |
 | `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
 | `./do/config` | Centralized configuration for all scripts (sourced, not executed) |
 | `./do/export` | Export current configuration as a reproducible CLI command |
 | `./do/register` | Capture deployment to the deployment registry |
 | `./do/ci` | CI pipeline integration (report, status, trigger, dashboard) |
 | `./do/submit` | Submit build to AWS CodeBuild (CodeBuild build target only) |
+| `./do/draft` | Configure speculative decoding for an active deployment (hyperpod-eks) |
 
 See the generated `do/README.md` for detailed documentation on each command.
+
+### Reading exit codes
+
+Every `do/` script uses a consistent exit-code convention, so you (and CI) can
+tell *why* a command stopped:
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | General error (including missing AWS credentials) |
+| `2` | Usage / argument error |
+| `3` | **Not supported for this deployment target** — the command doesn't apply to your current `DEPLOYMENT_TARGET`, or a required deployment/precondition isn't in place. The message names the supported targets. |
+
+Exit `3` is not a failure of the operation — it means the command couldn't start
+because a precondition (a live deployment, or a compatible target) wasn't met.
+For the full contract behind these codes, see the developer guide:
+[do/ Script Contracts](do-script-contract.md).
 
 ### Pre-Deploy Validation
 

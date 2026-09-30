@@ -42,6 +42,30 @@ function normalizeTarget(target) {
     return TARGET_ALIASES[target] || target;
 }
 
+// Per-target optional CLI flags → { configVar, answerKey }. Used to skip the
+// matching interactive prompt when the caller supplied the value (e.g. do/deploy
+// forwards --batch-input-path in --dry-run / all-flags mode). configVar seeds the
+// parsed config so the `if (!config.X)` prompt guard is satisfied; answerKey seeds
+// the output `answers` object so the value is emitted.
+const CLI_FLAG_TO_VARS = {
+    '--endpoint-name': { configVar: 'ENDPOINT_NAME', answerKey: 'endpoint_name' },
+    '--endpoint-strategy': { configVar: 'ENDPOINT_STRATEGY', answerKey: 'endpoint_strategy' },
+    '--instance-types': { configVar: 'INSTANCE_TYPES', answerKey: 'instance_types' },
+    '--gpu-count': { configVar: 'IC_GPU_COUNT', answerKey: 'gpu_count' },
+    '--cluster-name': { configVar: 'HP_CLUSTER_NAME', answerKey: 'cluster_name' },
+    '--namespace': { configVar: 'HP_NAMESPACE', answerKey: 'namespace' },
+    '--replicas': { configVar: 'HP_REPLICAS', answerKey: 'replicas' },
+    '--queue': { configVar: 'HP_QUEUE', answerKey: 'queue' },
+    '--async-output-path': { configVar: 'ASYNC_S3_OUTPUT_PATH', answerKey: 'async_output_path' },
+    '--async-sns-topic': { configVar: 'ASYNC_SNS_TOPIC', answerKey: 'async_sns_topic' },
+    '--async-max-concurrent': { configVar: 'ASYNC_MAX_CONCURRENT_INVOCATIONS', answerKey: 'async_max_concurrent' },
+    '--batch-input-path': { configVar: 'BATCH_INPUT_PATH', answerKey: 'batch_input_path' },
+    '--batch-output-path': { configVar: 'BATCH_OUTPUT_PATH', answerKey: 'batch_output_path' },
+    '--batch-split-type': { configVar: 'BATCH_SPLIT_TYPE', answerKey: 'batch_split_type' },
+    '--batch-strategy': { configVar: 'BATCH_STRATEGY', answerKey: 'batch_strategy' },
+    '--batch-max-concurrent': { configVar: 'BATCH_MAX_CONCURRENT', answerKey: 'batch_max_concurrent' }
+};
+
 // ── Config parsing ───────────────────────────────────────────────────────────
 
 function parseConfig(configPath) {
@@ -288,7 +312,9 @@ const GPU_MAP = {
     'g5.12xlarge': 4, 'g5.16xlarge': 1, 'g5.24xlarge': 4, 'g5.48xlarge': 8,
     'g6.xlarge': 1, 'g6.2xlarge': 1, 'g6.4xlarge': 1, 'g6.8xlarge': 1,
     'g6.12xlarge': 4, 'g6.16xlarge': 1, 'g6.24xlarge': 4, 'g6.48xlarge': 8,
-    'p4d.24xlarge': 8, 'p4de.24xlarge': 8, 'p5.48xlarge': 8
+    'p4d.24xlarge': 8, 'p4de.24xlarge': 8, 'p5.48xlarge': 8,
+    // B300 (Blackwell Ultra) — 8 GPUs per node
+    'p6-b300.48xlarge': 8
 };
 
 function detectGpuCount(instanceType) {
@@ -440,9 +466,17 @@ async function promptInstanceType(modelName, region, strategy, deploymentTarget)
 
 // ── Main interactive flow ────────────────────────────────────────────────────
 
-export async function run({ configFile, outputFile, preTarget, preInstanceType }) {
+export async function run({ configFile, outputFile, preTarget, preInstanceType, preFlags }) {
     const configPath = resolve(configFile);
     const config = parseConfig(configPath);
+
+    // Overlay caller-supplied per-target flags onto the parsed config so the
+    // `if (!config.X)` prompt guards below are satisfied without prompting
+    // (FR-3.1/FR-3.2 non-interactive path). The values are also seeded into
+    // `answers` below so they appear in the output.
+    for (const { configVar, value } of preFlags || []) {
+        if (value && !config[configVar]) config[configVar] = value;
+    }
     const region = process.env.AWS_REGION
         || process.env.AWS_DEFAULT_REGION
         || config.AWS_REGION
@@ -483,6 +517,12 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
     }
 
     const answers = { target };
+
+    // Seed caller-supplied per-target flag values into answers so the resolved
+    // config carries them (they also skipped their prompt via the config overlay).
+    for (const { answerKey, value } of preFlags || []) {
+        if (value) answers[answerKey] = value;
+    }
 
     // ── Endpoint strategy (for realtime-inference) ───────────────────────────
     // Asked FIRST because it determines which MCP server to call next:
@@ -812,7 +852,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 default: ''
             });
         }
-        if (!config.ASYNC_MAX_CONCURRENT_INVOCATIONS && !config.ASYNC_MAX_CONCURRENT) {
+        if (!config.ASYNC_MAX_CONCURRENT_INVOCATIONS) {
             answers.async_max_concurrent = await input({
                 message: 'Max concurrent invocations:',
                 default: '1'
@@ -898,6 +938,15 @@ for (let i = 0; i < args.length; i++) {
     else if (args[i] === '--output-file' && args[i + 1]) parsed.outputFile = args[++i];
     else if (args[i] === '--target' && args[i + 1]) parsed.preTarget = args[++i];
     else if (args[i] === '--instance-type' && args[i + 1]) parsed.preInstanceType = args[++i];
+    else {
+        // Per-target optional flags (FR-3.1/FR-3.2 non-interactive path): record
+        // each caller-supplied value so run() can skip the matching prompt.
+        const flagVars = CLI_FLAG_TO_VARS[args[i]];
+        if (flagVars && args[i + 1]) {
+            parsed.preFlags = parsed.preFlags || [];
+            parsed.preFlags.push({ ...flagVars, value: args[++i] });
+        }
+    }
 }
 
 if (parsed.configFile && parsed.outputFile) {

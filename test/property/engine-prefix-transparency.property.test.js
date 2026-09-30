@@ -20,11 +20,19 @@ import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'assert';
 import {
-    ENGINE_PREFIX_MAP,
+    ENGINE_PREFIX_ALIASES,
+    resolveEnginePrefix,
     resolvePrefix,
     resolvePrefixedEnvVars
 } from '../../src/lib/engine-prefix-resolver.js';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
+
+// The set of prefixed engines = the four manifest-backed engines (prefix from
+// their serve.d manifest) plus the serve.d-less aliases. Expected prefixes come
+// from resolveEnginePrefix (manifest → alias table), the single source of truth.
+const PREFIXED_ENGINES = ['vllm', 'sglang', 'tensorrt-llm', 'lmi', ...Object.keys(ENGINE_PREFIX_ALIASES)];
+const EXPECTED_PREFIX = Object.fromEntries(
+    PREFIXED_ENGINES.map((e) => [e, resolveEnginePrefix(e)]));
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
@@ -37,7 +45,7 @@ const arbEnvVarKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{0,30}$/);
 /**
  * Select from engines that have a defined prefix.
  */
-const arbPrefixedEngine = fc.constantFrom(...Object.keys(ENGINE_PREFIX_MAP));
+const arbPrefixedEngine = fc.constantFrom(...PREFIXED_ENGINES);
 
 /**
  * Select from engines that do NOT have a defined prefix.
@@ -62,7 +70,7 @@ describe('Engine Prefix Transparency Property-Based Tests', () => {
                 arbPrefixedEngine,
                 arbEnvVarKey,
                 (engine, key) => {
-                    const expectedPrefix = ENGINE_PREFIX_MAP[engine];
+                    const expectedPrefix = EXPECTED_PREFIX[engine];
                     const result = resolvePrefix(engine, key);
 
                     assert.strictEqual(result, `${expectedPrefix}${key}`,
@@ -97,7 +105,7 @@ describe('Engine Prefix Transparency Property-Based Tests', () => {
                 arbPrefixedEngine,
                 fc.dictionary(arbEnvVarKey, fc.string({ minLength: 0, maxLength: 50 }), { minKeys: 1, maxKeys: 10 }),
                 (engine, serverEnvVars) => {
-                    const expectedPrefix = ENGINE_PREFIX_MAP[engine];
+                    const expectedPrefix = EXPECTED_PREFIX[engine];
                     const result = resolvePrefixedEnvVars(engine, serverEnvVars);
 
                     // Every key in the result should be prefixed

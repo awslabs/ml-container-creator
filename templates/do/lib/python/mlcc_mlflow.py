@@ -1,37 +1,5 @@
-from __future__ import annotations
-"""MLflow model-family foundation: shared tag/param/search/register conventions.
-
-Purpose: Centralize how MLCC groups related models (a base model and its
-         adapters, draft models, and other derived artifacts) into a "family"
-         in MLflow, and how it records dataset lineage. Names derived from
-         Hugging Face ids (e.g. ``meta-llama/Llama-3.1-8B-Instruct``) contain
-         ``/`` and spaces that are invalid or ambiguous in registry names, so
-         this module owns a sanitizer plus the ``mlcc.*`` tag/param vocabulary.
-Callers: do/tune flow (tune_submit.py), do/register flow (register_model.py,
-         BL056), and dataset flows (BL110).
-Related: dataset_store.py (injectable-client + typed-error pattern),
-         common.py (callers own their own output/error formatting).
-
-CRITICAL naming constraint: forward slashes in registered model names BREAK
-MLflow loading (MLflow issue #8801). ``sanitize_name`` therefore replaces every
-``/`` with ``--`` (double dash) and removes spaces, and is applied as a guard
-inside ``register`` and ``log_dataset`` so a raw HF id can never reach the
-registry as-is.
-
-Design notes:
-- The pure helpers (``sanitize_name``, ``family_tags``, ``family_params``) have
-  no external dependency and can be imported/called even where MLflow is not
-  installed. Importing this module is side-effect free.
-- The MLflow-touching helpers (``search_family``, ``register``, ``log_dataset``)
-  lazily ``import mlflow`` inside the function body, mirroring how
-  ``register_model.py`` defers ``import boto3`` / ``sagemaker``.
-- The MLflow client is injectable via an optional ``client=`` parameter
-  (mirroring the injectable S3 client in ``dataset_store.py``), so tests pass a
-  stub/mock and no real MLflow server is contacted.
-- This module raises typed exceptions and returns values; it never prints JSON
-  or calls ``sys.exit`` — formatting/exit codes are the caller's responsibility.
-"""
-
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 import hashlib
 import os
 
@@ -452,7 +420,17 @@ def _mlflow_configured(config_path=None):
     """
     if os.environ.get("MLFLOW_TRACKING_URI") or os.environ.get("MLFLOW_TRACKING_SERVER_ARN"):
         return True
-    return bool(_config_tracking_uri(config_path))
+    uri = _config_tracking_uri(config_path)
+    if not uri:
+        return False
+    # Apply the resolved value to the environment so mlflow / sagemaker-mlflow
+    # picks it up on the first mlflow.* call. ARNs (mlflow-app / mlflow-tracking-server)
+    # go to MLFLOW_TRACKING_SERVER_ARN; HTTPS URLs go to MLFLOW_TRACKING_URI.
+    if uri.startswith("arn:"):
+        os.environ["MLFLOW_TRACKING_SERVER_ARN"] = uri
+    else:
+        os.environ["MLFLOW_TRACKING_URI"] = uri
+    return True
 
 
 def _config_tracking_uri(config_path=None):
@@ -474,7 +452,7 @@ def _config_tracking_uri(config_path=None):
     except (FileNotFoundError, json.JSONDecodeError, IOError, OSError):
         return None
 
-    keys = ("mlflowTrackingUri", "mlflowTrackingServerArn")
+    keys = ("mlflowTrackingUri", "mlflowTrackingServerArn", "mlflowAppArn")
 
     def _from(profile):
         if isinstance(profile, dict):
@@ -564,6 +542,38 @@ def list_dataset_inputs(client=None, experiment_ids=None):
     caller rather than silently returning empty.
     """
     runs = _search_runs(client=client, experiment_ids=experiment_ids)
+    # On the module (real mlflow) path, search_runs returns lightweight summaries
+    # that may not include full inputs, so re-fetch each run to populate
+    # dataset_inputs. An injected client (test / client path) already returns
+    # full runs, so skip the re-fetch entirely — and avoid assuming a dict shape.
+    if client is None:
+        try:
+            import mlflow as _mlflow
+            full_runs = []
+            for run in runs:
+                run_id = getattr(getattr(run, 'info', None), 'run_id', None)
+                if run_id:
+                    try:
+                        full = _mlflow.get_run(run_id)
+                        # Skip runs tagged deleted by do/register dataset --delete
+                        tags = getattr(full, 'data', None)
+                        tag_dict = getattr(tags, 'tags', {}) if tags else {}
+                        if tag_dict.get(TAG_DELETED) == "true":
+                            continue
+                        full_runs.append(full)
+                    except Exception:
+                        full_runs.append(run)  # fallback to summary on error
+                else:
+                    full_runs.append(run)
+            # Sort newest-first by start_time so the most recent registration wins
+            full_runs.sort(
+                key=lambda r: getattr(getattr(r, 'info', None), 'start_time', 0) or 0,
+                reverse=True,
+            )
+            runs = full_runs
+        except ImportError:
+            pass  # mlflow absent — fall through with the summary runs
+
 
     by_key = {}
     for run in runs:
@@ -576,12 +586,15 @@ def list_dataset_inputs(client=None, experiment_ids=None):
             if name is None:
                 continue
             uri, meta = _source_uri_and_meta(ds)
-            by_key[(name, digest)] = {
+            # Only keep the first (newest) entry per (name, digest) pair.
+            # search_runs returns newest-first; do NOT overwrite or the oldest run wins.
+            if (name, digest) not in by_key:
+                by_key[(name, digest)] = {
                 "name": name,
                 "digest": digest,
                 "s3_uri": uri or meta.get("s3_uri", ""),
                 "meta": meta,
-            }
+                }
     return list(by_key.values())
 
 
@@ -636,6 +649,12 @@ def _search_runs(client=None, experiment_ids=None):
     kwargs = {"output_format": "list"}
     if experiment_ids is not None:
         kwargs["experiment_ids"] = experiment_ids
+    else:
+        # Default to experiment 0 ("Default") when no explicit IDs are given.
+        # Without this, SageMaker MLflow Serverless may search only the active
+        # experiment context rather than the Default experiment where
+        # register_dataset writes its runs.
+        kwargs["experiment_ids"] = ["0"]
     return list(mlflow.search_runs(**kwargs))
 
 
@@ -648,3 +667,25 @@ def _run_dataset_inputs(run):
     if dataset_inputs is None and isinstance(inputs, dict):
         dataset_inputs = inputs.get("dataset_inputs")
     return dataset_inputs or []
+
+def tag_dataset_runs_deleted(name, client=None):
+    """Tag all MLflow runs for a given dataset name as deleted.
+
+    Used by do/register dataset --delete so that list_dataset_inputs()
+    excludes them. mlflow.delete_run() does not reliably work on
+    SageMaker MLflow Serverless — tagging is the portable alternative.
+    """
+    try:
+        import mlflow as _mlflow
+        _client = client or _mlflow.tracking.MlflowClient()
+        runs = _search_runs(experiment_ids=["0"])
+        for run in runs:
+            run_id = run.info.run_id if hasattr(run, 'info') else run.get('run_id', '')
+            full = _mlflow.get_run(run_id)
+            for di in _run_dataset_inputs(full):
+                ds = getattr(di, 'dataset', None)
+                if ds and getattr(ds, 'name', '') == name:
+                    _client.set_tag(run_id, TAG_DELETED, "true")
+    except Exception:  # noqa: BLE001 — best-effort
+        pass
+

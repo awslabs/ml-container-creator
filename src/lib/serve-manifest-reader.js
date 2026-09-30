@@ -45,3 +45,59 @@ export function readEnvVarPrefix(engine, serveDir = SERVE_D) {
         return '';
     }
 }
+
+/**
+ * List the serve-engine plugin names that have a manifest, sorted.
+ *
+ * @param {string} [serveDir] - Optional override for the serve.d root (tests).
+ * @returns {string[]} Engine directory names (e.g. ['lmi', 'sglang', 'tensorrt-llm', 'vllm']).
+ */
+export function listServeEngines(serveDir = SERVE_D) {
+    let entries;
+    try {
+        entries = fs.readdirSync(serveDir, { withFileTypes: true });
+    } catch {
+        return [];
+    }
+    return entries
+        .filter(e => e.isDirectory()
+            && fs.existsSync(path.join(serveDir, e.name, 'manifest.json')))
+        .map(e => e.name)
+        .sort();
+}
+
+/**
+ * Union of every serve engine's runtime-owned tunable vars (ADR-008 / BL105).
+ *
+ * Each engine's benchmark-tunable config vars are `env_var_prefix` + each
+ * `dimension_map` value (e.g. vLLM's `tensor_parallel_degree → TENSOR_PARALLEL_SIZE`
+ * becomes `VLLM_TENSOR_PARALLEL_SIZE`). These are written at runtime by
+ * `do/benchmark --apply` / `do/deploy` and must survive `mcc regenerate`, so
+ * `RUNTIME_OWNED_VARS` derives its engine slice from here instead of hardcoding
+ * one engine's names. A generated project uses a single engine, so the union is a
+ * harmless superset — a var not present in a project's do/config is simply never
+ * captured.
+ *
+ * @param {string} [serveDir] - Optional override for the serve.d root (tests).
+ * @returns {string[]} Sorted, de-duplicated full var names across all engines.
+ */
+export function serveEngineRuntimeVarsUnion(serveDir = SERVE_D) {
+    const vars = new Set();
+    for (const engine of listServeEngines(serveDir)) {
+        let manifest;
+        try {
+            manifest = JSON.parse(
+                fs.readFileSync(path.join(serveDir, engine, 'manifest.json'), 'utf8')
+            );
+        } catch {
+            continue;
+        }
+        const prefix = typeof manifest.env_var_prefix === 'string' ? manifest.env_var_prefix : '';
+        const dims = manifest.dimension_map;
+        if (!prefix || typeof dims !== 'object' || dims === null) continue;
+        for (const suffix of Object.values(dims)) {
+            if (typeof suffix === 'string' && suffix) vars.add(`${prefix}${suffix}`);
+        }
+    }
+    return [...vars].sort();
+}

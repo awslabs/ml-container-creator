@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
@@ -50,21 +51,7 @@ echo "   Project: ${PROJECT_NAME}"
 echo "   Region: ${AWS_REGION}"
 echo "   Repository: ${ECR_REPOSITORY_NAME}"
 
-# Validate AWS credentials
-echo "🔍 Validating AWS credentials..."
-if ! aws sts get-caller-identity &> /dev/null; then
-    echo "❌ AWS credentials not configured"
-    echo ""
-    echo "Please configure AWS credentials:"
-    echo "  • Run: aws configure"
-    echo "  • Or set environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY"
-    echo "  • Or use IAM role (recommended for EC2/ECS)"
-    exit 4
-fi
-
-# Get AWS account ID
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
+_aws_preflight --verbose
 
 # Construct ECR repository URI
 ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"

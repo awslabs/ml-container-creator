@@ -178,6 +178,8 @@ def cmd_list_datasets(args):
     The ``{local, remote}`` JSON shape is preserved for bash callers: sidecar
     entries populate ``local``; ``remote`` reflects Hub contents when present.
     """
+    import mlcc_mlflow
+
     source = getattr(args, 'source', 'all')
     region = getattr(args, 'region', None) or os.environ.get('AWS_DEFAULT_REGION') or os.environ.get('AWS_REGION')
     technique_filter = getattr(args, 'technique', None)
@@ -195,20 +197,27 @@ def cmd_list_datasets(args):
             print('\u26a0\ufe0f  No AI Registry Hub configured \u2014 skipping remote datasets.', file=sys.stderr)
 
     if source in ('local', 'all'):
-        import mlcc_mlflow
+        # BL110 Req 2.1 / Property 5: when MLflow is configured it is the read
+        # source for --list (run inputs recorded by log_dataset), projected onto
+        # the same list-entry shape; the S3 sidecar is the fallback ONLY when
+        # MLflow is not configured. The branch is decided by the single
+        # _mlflow_configured() predicate so list/resolve/register stay consistent.
         if mlcc_mlflow._mlflow_configured():
-            # BL110: read dataset run inputs from MLflow instead of sidecars.
             try:
                 inputs = mlcc_mlflow.list_dataset_inputs()
             except mlcc_mlflow.MlflowUnavailableError as e:
-                _error_exit(f"MLflow is configured but unavailable: {e}", code="MLFLOW_UNAVAILABLE")
-            except Exception as e:  # noqa: BLE001 — surface, do not silently fall back
-                _error_exit(f"Could not list datasets from MLflow: {e}", code="MLFLOW_LIST_FAILED")
+                # Configured-but-unreachable is a hard error on a read path (no
+                # durable side effect to protect); do not silently read the
+                # sidecar, which would hide the misconfiguration (design: Error Handling).
+                _error_exit(
+                    f"MLflow is configured but could not be read: {e}",
+                    code="MLFLOW_READ_FAILED",
+                )
             for entry in inputs:
-                proj = _mlflow_input_to_list_entry(entry)
-                if technique_filter and proj.get('technique') != technique_filter:
+                list_entry = _mlflow_input_to_list_entry(entry)
+                if technique_filter and list_entry.get('technique') != technique_filter:
                     continue
-                local_entries.append(proj)
+                local_entries.append(list_entry)
         else:
             core_bucket = _resolve_core_bucket(args)
             if not core_bucket:

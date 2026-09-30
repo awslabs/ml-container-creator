@@ -19,65 +19,15 @@ import path from 'node:path';
 import os from 'node:os';
 import { writeProject } from '../../src/app.js';
 import { fileURLToPath } from 'node:url';
+// parseDoConfig + shellVarsToAnswers are now the shared do-config utilities that
+// regenerate-command-handler uses (single source of truth). Import them directly
+// rather than replicating the logic in the test.
+import { parseDoConfig, shellVarsToAnswers } from '../../src/lib/do-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const GENERATOR_ROOT = path.resolve(__dirname, '../..');
 const TEMPLATE_DIR = path.join(GENERATOR_ROOT, 'templates');
-
-// Import the regenerate handler to access parseDoConfig and shellVarsToAnswers
-// Since they're not exported, we replicate them here for testing (same logic)
-function parseDoConfig(configPath) {
-    const content = fs.readFileSync(configPath, 'utf8');
-    const result = {};
-    for (const line of content.split('\n')) {
-        const match = line.match(/^\s*export\s+([A-Z_][A-Z0-9_]*)=["']?([^"']*)["']?\s*$/);
-        if (match) {
-            result[match[1]] = match[2];
-        }
-    }
-    return result;
-}
-
-function shellVarsToAnswers(shellVars) {
-    const answers = {};
-    const mapping = {
-        PROJECT_NAME: 'projectName',
-        DEPLOYMENT_CONFIG: 'deploymentConfig',
-        DEPLOYMENT_TARGET: 'deploymentTarget',
-        INSTANCE_TYPE: 'instanceType',
-        MODEL_NAME: 'modelName',
-        BASE_IMAGE: 'baseImage',
-        REGION: 'region',
-        AWS_REGION: 'awsRegion',
-        ENDPOINT_NAME: 'endpointName',
-        DEPLOY_MODE: 'deployMode',
-        CONTAINER_IMAGE_URI: 'container_image_uri',
-        ENDPOINT_STATUS: 'endpointStatus',
-        IC_GPU_COUNT: 'icGpuCount',
-        IC_COPY_COUNT: 'icCopyCount',
-        IC_MEMORY_SIZE: 'icMemorySize',
-        IC_CPU_COUNT: 'icCpuCount',
-        ENABLE_LORA: 'enableLora',
-        MAX_LORAS: 'maxLoras',
-        QUANTIZATION: 'quantization',
-        HF_TOKEN_ARN: 'hfTokenArn',
-        NGC_TOKEN_ARN: 'ngcTokenArn',
-        GENERATOR_VERSION: 'generatorVersion',
-        DEPLOYMENT_TARGET_SMAI_STATUS: 'deploymentTargetSmaiStatus',
-        DEPLOYMENT_TARGET_HP_STATUS: 'deploymentTargetHpStatus',
-        DEPLOYMENT_TARGET_ASYNC_STATUS: 'deploymentTargetAsyncStatus',
-        DEPLOYMENT_TARGET_BATCH_STATUS: 'deploymentTargetBatchStatus'
-    };
-
-    for (const [shellKey, value] of Object.entries(shellVars)) {
-        const camelKey = mapping[shellKey];
-        if (camelKey) {
-            answers[camelKey] = value;
-        }
-    }
-    return answers;
-}
 
 describe('regenerate preserves config values (FR-9.3)', () => {
     let tmpDir;

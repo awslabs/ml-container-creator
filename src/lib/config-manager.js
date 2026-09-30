@@ -2,8 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Configuration Manager - Handles configuration precedence and merging
- * 
+ * ConfigManager - the CLI parameter-precedence engine.
+ *
+ * NAMING NOTE (ADR-005): this is NOT the registry subsystem. That is
+ * `RegistryConfigManager` in src/lib/registry-config-manager.js, which loads and
+ * matches the framework/model/instance registries. This class merges the user's
+ * intent from all CLI-facing sources into a single answers object per the
+ * precedence order below; it knows nothing about registries.
+ *
+ * Handles configuration precedence and merging.
+ *
  * Implements the complete precedence order (Highest → Lowest Priority):
  * 1. CLI Options (--framework=transformers)
  * 2. CLI Arguments (yo generator projectName)
@@ -17,8 +25,6 @@
  */
 
 import path from 'path';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import DeploymentConfigResolver from './deployment-config-resolver.js';
 import ParameterSchemaValidator from './parameter-schema-validator.js';
@@ -26,22 +32,11 @@ import ConfigLoader from './config-loader.js';
 import ConfigMcpClient from './config-mcp-client.js';
 import ConfigValidator from './config-validator.js';
 import { parameterMatrix } from './generated/parameter-matrix.js';
+// Triton backend metadata comes from the shared catalog loader (single source
+// of truth; previously duplicated here and in config-validator.js).
+import { tritonBackends } from './triton-backends-catalog.js';
 
-const __configMgrFilename = fileURLToPath(import.meta.url);
-const __configMgrDir = dirname(__configMgrFilename);
-const tritonBackendsCatalogPath = resolve(__configMgrDir, '../../servers/lib/catalogs/triton-backends.json');
 
-function loadTritonBackendsFromCatalog() {
-    try {
-        const raw = readFileSync(tritonBackendsCatalogPath, 'utf8');
-        return JSON.parse(raw);
-    } catch (error) {
-        console.warn(`Failed to load triton backends catalog: ${error.message}`);
-        return {};
-    }
-}
-
-const tritonBackends = loadTritonBackendsFromCatalog();
 
 // Resolve the generator project root (two levels up from src/lib/)
 const __filename = fileURLToPath(import.meta.url);

@@ -13,7 +13,7 @@ import PromptRunner from './lib/prompt-runner.js';
 import TemplateManager from './lib/template-manager.js';
 import DeploymentConfigResolver from './lib/deployment-config-resolver.js';
 import CommentGenerator from './lib/comment-generator.js';
-import ConfigurationManager from './lib/configuration-manager.js';
+import RegistryConfigManager from './lib/registry-config-manager.js';
 import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
 import { readEnvVarPrefix } from './lib/serve-manifest-reader.js';
@@ -77,7 +77,7 @@ export async function run(projectName, options) {
             effectiveValidateWithDocker = false;
         }
 
-        registryConfigManager = new ConfigurationManager({
+        registryConfigManager = new RegistryConfigManager({
             validateEnvVars,
             validateWithDocker: effectiveValidateWithDocker,
             offline,

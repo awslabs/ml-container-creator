@@ -124,6 +124,7 @@ def _run_deploy_helper(
         text=True,
         env=env,
         timeout=timeout,
+        stdin=subprocess.DEVNULL,  # deterministically non-interactive (no TTY)
     )
 
 
@@ -157,7 +158,8 @@ class TestManagedInferenceFlow:
         assert result.returncode == 0, f"stderr: {result.stderr}"
 
         output = json.loads(result.stdout)
-        assert output["target"] == "managed-inference"
+        # The managed-inference alias normalizes to canonical realtime-inference (ADR-008).
+        assert output["target"] == "realtime-inference"
         assert output["instance_type"] == "ml.g6.xlarge"
         assert output["endpoint_name"] == "test-project-ep"
         assert output["endpoint_strategy"] == "new"
@@ -185,7 +187,8 @@ class TestManagedInferenceFlow:
         assert result.returncode == 0, f"stderr: {result.stderr}"
 
         output = json.loads(result.stdout)
-        assert output["target"] == "managed-inference"
+        # The managed-inference alias normalizes to canonical realtime-inference (ADR-008).
+        assert output["target"] == "realtime-inference"
         assert output["endpoint_strategy"] == "heterogeneous"
         assert output["instance_types"] == "ml.g6.xlarge,ml.g6e.xlarge,ml.g6.12xlarge"
 
@@ -211,7 +214,8 @@ class TestManagedInferenceFlow:
         assert result.returncode == 0, f"stderr: {result.stderr}"
 
         output = json.loads(result.stdout)
-        assert output["target"] == "managed-inference"
+        # The managed-inference alias normalizes to canonical realtime-inference (ADR-008).
+        assert output["target"] == "realtime-inference"
         assert output["endpoint_strategy"] == "existing"
         assert output["endpoint_name"] == "existing-ep-1"
 
@@ -443,6 +447,9 @@ class TestAllTargetsFlow:
             },
         }
 
+        # Aliases normalize to their canonical target in the output (ADR-008).
+        canonical = {"managed-inference": "realtime-inference"}
+
         for target, answers in targets_and_answers.items():
             target_dir = str(tmp_path / target)
             os.makedirs(target_dir, exist_ok=True)
@@ -459,7 +466,8 @@ class TestAllTargetsFlow:
             )
 
             output = json.loads(result.stdout)
-            assert output["target"] == target, f"Wrong target in output for {target}"
+            expected_target = canonical.get(target, target)
+            assert output["target"] == expected_target, f"Wrong target in output for {target}"
             assert output["instance_type"] == "ml.g6.xlarge", (
                 f"Missing instance_type for {target}"
             )
@@ -568,7 +576,8 @@ class TestIdempotency:
         assert result.returncode == 0, f"stderr: {result.stderr}"
 
         output = json.loads(result.stdout)
-        assert output["target"] == "managed-inference"
+        # The managed-inference alias normalizes to canonical realtime-inference (ADR-008).
+        assert output["target"] == "realtime-inference"
         # Should return existing config values unchanged
         assert output["instance_type"] == "ml.g5.xlarge"
         assert output["endpoint_name"] == "existing-ep"
@@ -667,6 +676,7 @@ class TestAllFlagsMode:
             text=True,
             env=env,
             timeout=timeout,
+            stdin=subprocess.DEVNULL,  # deterministically non-interactive (no TTY)
         )
 
     def test_managed_inference_all_flags(self, tmp_path):
@@ -689,7 +699,8 @@ class TestAllFlagsMode:
 
         assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
         output = json.loads(result.stdout)
-        assert output["target"] == "managed-inference"
+        # The managed-inference alias normalizes to canonical realtime-inference (ADR-008).
+        assert output["target"] == "realtime-inference"
         assert output["instance_type"] == "ml.g5.xlarge"
         assert output["endpoint_name"] == "my-endpoint"
         assert output["endpoint_strategy"] == "new"
@@ -828,7 +839,8 @@ class TestAllFlagsMode:
 
         assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
         output = json.loads(result.stdout)
-        assert output["target"] == "managed-inference"
+        # The managed-inference alias normalizes to canonical realtime-inference (ADR-008).
+        assert output["target"] == "realtime-inference"
         assert output["instance_type"] == "ml.g5.2xlarge"
         assert output["endpoint_name"] == "partial-test-ep"
 
@@ -875,7 +887,8 @@ class TestAllFlagsMode:
 
         assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
         output = json.loads(result.stdout)
-        assert output["target"] == "managed-inference"
+        # The managed-inference alias normalizes to canonical realtime-inference (ADR-008).
+        assert output["target"] == "realtime-inference"
         assert output["instance_type"] == "ml.g5.xlarge"
         assert output["endpoint_name"] == "ci-endpoint"
 

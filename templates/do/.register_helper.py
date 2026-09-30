@@ -106,7 +106,7 @@ def main():
     dataset_parser.add_argument("--name", required=True, help="Dataset name (unique identifier)")
     dataset_parser.add_argument("--s3-uri", required=True, help="S3 URI of the dataset")
     dataset_parser.add_argument("--format", default="jsonl", choices=["jsonl", "parquet", "csv"], help="Dataset format")
-    dataset_parser.add_argument("--technique", default="sft", choices=["sft", "dpo", "rlaif", "rlvr"], help="Associated tuning technique")
+    dataset_parser.add_argument("--technique", default="benchmark", choices=["sft", "dpo", "rlaif", "rlvr", "benchmark"], help="Associated tuning technique (default: benchmark for AIPerf BYOD benchmark/eval datasets)")
     dataset_parser.add_argument("--row-count", type=int, default=None, help="Number of rows in dataset")
     dataset_parser.add_argument("--column-schema", default=None, help="Column schema as JSON string")
     dataset_parser.add_argument("--project-name", default=None, help="Project name for context")
@@ -117,10 +117,11 @@ def main():
     dataset_parser.add_argument("--origination", default=None, help="Custom metadata: origination (e.g. hf://org/name@rev)")
     dataset_parser.add_argument("--application", default=None, help="Custom metadata: application")
     dataset_parser.add_argument("--force", action="store_true", default=False, help="Force new version even if content hash matches")
+    dataset_parser.add_argument("--hf-files", default=None, help="File pattern selector passed to load_dataset(data_files=...) for --hf-id staging (e.g. 'train-00*.parquet')")
 
     # ── list-datasets ─────────────────────────────────────────────────────
     list_datasets_parser = subparsers.add_parser("list-datasets", help="List all registered datasets")
-    list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlaif", "rlvr"], help="Filter by tuning technique")
+    list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlaif", "rlvr", "benchmark"], help="Filter by tuning technique")
     list_datasets_parser.add_argument("--source", choices=["remote", "local", "all"], default="all", help="Dataset source to list")
     list_datasets_parser.add_argument("--region", default=None, help="AWS region")
     list_datasets_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket (defaults to $CORE_BUCKET)")

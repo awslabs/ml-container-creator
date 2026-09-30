@@ -6,27 +6,11 @@
  * Uses delegation pattern: receives parent ConfigManager reference to access shared state.
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { ValidationError } from './config-manager.js';
 import { validationRules } from './generated/validation-rules.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const tritonBackendsCatalogPath = resolve(__dirname, '../../servers/lib/catalogs/triton-backends.json');
-
-function loadTritonBackendsFromCatalog() {
-    try {
-        const raw = readFileSync(tritonBackendsCatalogPath, 'utf8');
-        return JSON.parse(raw);
-    } catch (error) {
-        console.warn(`Failed to load triton backends catalog: ${error.message}`);
-        return {};
-    }
-}
-
-const tritonBackends = loadTritonBackendsFromCatalog();
+// Triton backend metadata comes from the shared catalog loader (single source
+// of truth; previously duplicated here and in config-manager.js).
+import { tritonBackends } from './triton-backends-catalog.js';
 
 export default class ConfigValidator {
     constructor(manager) {

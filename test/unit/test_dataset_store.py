@@ -35,6 +35,19 @@ import dataset_store  # noqa: E402
 import register_dataset  # noqa: E402
 import register_resolve  # noqa: E402
 import register_list  # noqa: E402
+import mlcc_mlflow  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _mlflow_not_configured(monkeypatch):
+    """This module tests the S3 sidecar / dataset_store layer — i.e. the
+    MLflow-NOT-configured path of register_list/register_resolve (BL110). Pin
+    _mlflow_configured() to False so the sidecar branch is exercised regardless
+    of any ambient MLflow config in the dev/CI environment (where it can
+    otherwise resolve True and route --list/resolve to MLflow). The
+    MLflow-configured branches are covered by test_bl110_register_mlflow.py.
+    """
+    monkeypatch.setattr(mlcc_mlflow, "_mlflow_configured", lambda *a, **k: False)
 
 CORE_BUCKET = "mlcc-core-111122223333-us-west-2"
 

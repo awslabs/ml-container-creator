@@ -1,6 +1,7 @@
 {
   "engine": "sglang",
   "env_var_prefix": "SGLANG_",
+  "speculative_decoding": true,
   "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "mtp"],
   "algorithm_map": {
     "eagle3": "EAGLE3",

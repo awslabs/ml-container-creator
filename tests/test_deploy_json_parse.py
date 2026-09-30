@@ -19,7 +19,7 @@ KEY_MAP = {
     'queue': 'HP_QUEUE',
     'async_output_path': 'ASYNC_S3_OUTPUT_PATH',
     'async_sns_topic': 'ASYNC_SNS_TOPIC',
-    'async_max_concurrent': 'ASYNC_MAX_CONCURRENT',
+    'async_max_concurrent': 'ASYNC_MAX_CONCURRENT_INVOCATIONS',
     'batch_input_path': 'BATCH_INPUT_PATH',
     'batch_output_path': 'BATCH_OUTPUT_PATH',
     'batch_split_type': 'BATCH_SPLIT_TYPE',
@@ -109,7 +109,7 @@ def test_async_response():
     assert 'export INSTANCE_TYPE="ml.g5.xlarge"' in lines
     assert 'export ASYNC_S3_OUTPUT_PATH="s3://my-bucket/async-output/"' in lines
     assert 'export ASYNC_SNS_TOPIC="arn:aws:sns:us-east-1:123456:my-topic"' in lines
-    assert 'export ASYNC_MAX_CONCURRENT="5"' in lines
+    assert 'export ASYNC_MAX_CONCURRENT_INVOCATIONS="5"' in lines
 
 
 def test_batch_response():

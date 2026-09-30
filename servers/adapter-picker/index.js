@@ -21,12 +21,25 @@
  * This server does NOT load adapters. The existing S3-based adapter loading in
  * templates/do/adapter and templates/do/lib/python/lora_vllm.py is a separate
  * concern and is untouched by this server.
+ *
+ * PATTERN: MCP picker server built on the shared createPickerServer factory.
+ *   Declares only its unique pieces — the pure adapter classification/ranking
+ *   logic, the HF Hub search/get/recommend functions, and the three
+ *   search_hf_adapters / get_adapter_metadata / recommend_adapter tools — and
+ *   lets the factory own the scaffold (logger, main-guard, stdio wiring).
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold); local
+ *   hf-client.js (searchModels, fetchAdapterConfig against the live HF Hub);
+ *   spawned by src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: discovery-only. Consumes a base model id (+ optional task);
+ *   produces compatible PEFT/LoRA adapter listings, per-adapter metadata, or a
+ *   single ranked recommendation. Loads no adapters.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { searchModels, fetchAdapterConfig } from './hf-client.js';
+import { createPickerServer } from '../lib/create-picker-server.js';
 
 // ── Pure logic (exported for tests) ──────────────────────────────────────────
 
@@ -267,99 +280,94 @@ function log(message) {
 
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
-const server = new McpServer({
+const picker = createPickerServer({
     name: 'adapter-picker',
-    version: '1.0.0'
+    serverDir: import.meta.url,
+    tools: [
+        {
+            name: 'search_hf_adapters',
+            description: 'Search the HuggingFace Hub for PEFT/LoRA adapters compatible with a base model. ' +
+                'Compatibility is an exact match of the adapter\'s declared base_model_name_or_path ' +
+                '(no inference or heuristics). Optionally narrow by task. Returns count:0 when none match.',
+            schema: {
+                base_model: z.string().describe(
+                    'Base model HF ID the adapter must be compatible with (e.g. "meta-llama/Llama-3.1-8B-Instruct")'
+                ),
+                task: z.string().optional().describe(
+                    'Optional task filter: chat, code, summarization, etc.'
+                )
+            },
+            handler: searchHfAdaptersHandler
+        },
+        {
+            name: 'get_adapter_metadata',
+            description: 'Get full metadata for a specific HuggingFace adapter, including adapter_type, ' +
+                'base_model_name_or_path, and a faithfully-reported classification (LoRA/DoRA/QLoRA ' +
+                'for recognized cases, else the detected type as-is).',
+            schema: {
+                hf_id: z.string().describe('HuggingFace adapter repo ID (e.g. "org/llama31-8b-chat-lora")')
+            },
+            handler: getAdapterMetadataHandler
+        },
+        {
+            name: 'recommend_adapter',
+            description: 'Recommend the top PEFT/LoRA adapter for a base model and task. Returns the top ' +
+                'pick plus all ranked alternatives (all_options). Errors when no compatible adapter is found.',
+            schema: {
+                base_model: z.string().describe('Base model HF ID (e.g. "meta-llama/Llama-3.1-8B-Instruct")'),
+                task: z.string().optional().describe('Task: chat, code, summarization, etc.')
+            },
+            handler: recommendAdapterHandler
+        }
+    ]
 });
 
-server.tool(
-    'search_hf_adapters',
-    'Search the HuggingFace Hub for PEFT/LoRA adapters compatible with a base model. ' +
-    'Compatibility is an exact match of the adapter\'s declared base_model_name_or_path ' +
-    '(no inference or heuristics). Optionally narrow by task. Returns count:0 when none match.',
-    {
-        base_model: z.string().describe(
-            'Base model HF ID the adapter must be compatible with (e.g. "meta-llama/Llama-3.1-8B-Instruct")'
-        ),
-        task: z.string().optional().describe(
-            'Optional task filter: chat, code, summarization, etc.'
-        )
-    },
-    async ({ base_model, task }) => {
-        const result = await searchHfAdapters(base_model, task);
-        log(`search_hf_adapters base="${base_model}" task="${task ?? ''}" → ${result.count}`);
-        return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-        };
-    }
-);
+async function searchHfAdaptersHandler({ base_model, task }) {
+    const result = await searchHfAdapters(base_model, task);
+    log(`search_hf_adapters base="${base_model}" task="${task ?? ''}" → ${result.count}`);
+    return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+    };
+}
 
-server.tool(
-    'get_adapter_metadata',
-    'Get full metadata for a specific HuggingFace adapter, including adapter_type, ' +
-    'base_model_name_or_path, and a faithfully-reported classification (LoRA/DoRA/QLoRA ' +
-    'for recognized cases, else the detected type as-is).',
-    {
-        hf_id: z.string().describe('HuggingFace adapter repo ID (e.g. "org/llama31-8b-chat-lora")')
-    },
-    async ({ hf_id }) => {
-        const metadata = await getAdapterMetadata(hf_id);
-        if (!metadata) {
-            return {
-                content: [{ type: 'text', text: JSON.stringify({
-                    error: `No adapter_config.json for ${hf_id}`,
-                    hint: 'The repo may not be a PEFT adapter, or the Hub is unreachable'
-                }) }],
-                isError: true
-            };
-        }
-        log(`get_adapter_metadata → ${hf_id} (${metadata.classification})`);
+async function getAdapterMetadataHandler({ hf_id }) {
+    const metadata = await getAdapterMetadata(hf_id);
+    if (!metadata) {
         return {
-            content: [{ type: 'text', text: JSON.stringify(metadata, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify({
+                error: `No adapter_config.json for ${hf_id}`,
+                hint: 'The repo may not be a PEFT adapter, or the Hub is unreachable'
+            }) }],
+            isError: true
         };
     }
-);
+    log(`get_adapter_metadata → ${hf_id} (${metadata.classification})`);
+    return {
+        content: [{ type: 'text', text: JSON.stringify(metadata, null, 2) }]
+    };
+}
 
-server.tool(
-    'recommend_adapter',
-    'Recommend the top PEFT/LoRA adapter for a base model and task. Returns the top ' +
-    'pick plus all ranked alternatives (all_options). Errors when no compatible adapter is found.',
-    {
-        base_model: z.string().describe('Base model HF ID (e.g. "meta-llama/Llama-3.1-8B-Instruct")'),
-        task: z.string().optional().describe('Task: chat, code, summarization, etc.')
-    },
-    async ({ base_model, task }) => {
-        const result = await recommendAdapter(base_model, task);
-        if (!result) {
-            return {
-                content: [{ type: 'text', text: JSON.stringify({
-                    error: `No compatible adapters found for ${base_model}`,
-                    hint: 'Try search_hf_adapters or a different base_model/task'
-                }) }],
-                isError: true
-            };
-        }
-        log(`recommend_adapter base="${base_model}" task="${task ?? ''}" → ${result.hf_id}`);
+async function recommendAdapterHandler({ base_model, task }) {
+    const result = await recommendAdapter(base_model, task);
+    if (!result) {
         return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify({
+                error: `No compatible adapters found for ${base_model}`,
+                hint: 'Try search_hf_adapters or a different base_model/task'
+            }) }],
+            isError: true
         };
     }
-);
+    log(`recommend_adapter base="${base_model}" task="${task ?? ''}" → ${result.hf_id}`);
+    return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+    };
+}
 
 // ── Start server ─────────────────────────────────────────────────────────────
 
-async function main() {
-    const transport = new StdioServerTransport();
-    log('starting');
-    await server.connect(transport);
-    log('ready');
-}
-
-// Only start the server when run directly (not when imported by tests).
-import { fileURLToPath } from 'node:url';
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-    main().catch(err => {
-        process.stderr.write(`[adapter-picker] Fatal: ${err.message}\n`);
-        process.exit(1);
-    });
-}
+// Connect stdio transport only when run as the main module.
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => log('starting')
+});

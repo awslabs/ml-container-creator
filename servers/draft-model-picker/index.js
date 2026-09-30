@@ -8,52 +8,34 @@
  * A bundled MCP server that provides a catalog of known speculative-decoding
  * draft models compatible with MLCC's HyperPod EKS deployment target.
  *
+ * PATTERN: MCP picker server built on the shared createPickerServer factory.
+ *   Declares only its unique pieces — the draft-models catalog, the S3 draft-head
+ *   validation, and the four list/get/recommend/s3 tools.
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold),
+ *   servers/lib/load-catalog.js (catalog loader); catalog
+ *   servers/lib/catalogs/draft-models.json; spawned by src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: returns speculative-decoding draft-model metadata and
+ *   recommendations for a target model, plus S3 draft-head validation.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
+ *
  * Tools:
  *   - list_draft_models:  List known draft models with optional filters
  *   - get_draft_model:    Get full metadata for a specific draft model HF ID
  *   - recommend_draft:    Recommend the best draft model given a target model ID
  *
- * The catalog is loaded from ../../servers/lib/catalogs/draft-models.json.
+ * The catalog is loaded from servers/lib/catalogs/draft-models.json.
  * Add new entries there to extend the list.
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { resolve, dirname } from 'node:path';
+import { createPickerServer } from '../lib/create-picker-server.js';
+import { makeLoadCatalog, resolveServerDir } from '../lib/load-catalog.js';
 
-// ── Catalog loader ───────────────────────────────────────────────────────────
+// ── Load draft model catalog (shared loader; single source of truth) ──────────
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function loadCatalog(relativePath) {
-    const fullPath = resolve(__dirname, relativePath);
-    let raw;
-    try {
-        raw = readFileSync(fullPath, 'utf8');
-    } catch (err) {
-        throw new Error(`Catalog file not found: ${fullPath}`);
-    }
-    try {
-        return JSON.parse(raw);
-    } catch (err) {
-        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`);
-    }
-}
-
-// ── Load draft model catalog ─────────────────────────────────────────────────
-
-let CATALOG;
-try {
-    CATALOG = loadCatalog('../lib/catalogs/draft-models.json');
-} catch (err) {
-    process.stderr.write(`[draft-model-picker] Fatal: ${err.message}\n`);
-    process.exit(1);
-}
-
+const loadCatalog = makeLoadCatalog(resolveServerDir(import.meta.url));
+const CATALOG = loadCatalog('../lib/catalogs/draft-models.json');
 const HF_IDS = Object.keys(CATALOG);
 
 // ── Helper functions ─────────────────────────────────────────────────────────
@@ -274,117 +256,106 @@ export async function getDraftFromS3(s3Uri, options = {}) {
     return result;
 }
 
-function log(message) {
-    process.stderr.write(`[draft-model-picker] ${message}\n`);
-}
+// ── Server construction (scaffold via the factory) ────────────────────────────
 
-// ── MCP Server ───────────────────────────────────────────────────────────────
-
-const server = new McpServer({
+const picker = createPickerServer({
     name: 'draft-model-picker',
-    version: '1.0.0'
+    serverDir: import.meta.url,
+    tools: [
+        {
+            name: 'list_draft_models',
+            description: 'List known speculative-decoding draft models from the MLCC catalog. ' +
+                'Optionally filter by target model (partial match) or algorithm.',
+            schema: {
+                target_model: z.string().optional().describe(
+                    'Partial HF model ID to filter by target (e.g. "Llama-3.1-8B")'
+                ),
+                algorithm: z.string().optional().describe(
+                    'Algorithm filter: eagle3, eagle2, eagle, draft-model, ngram, mtp'
+                )
+            },
+            handler: async ({ target_model = '', algorithm = '' }) => {
+                const result = listDraftModels({ targetModel: target_model, algorithm });
+                log(`list_draft_models target="${target_model}" alg="${algorithm}" → ${result.count}`);
+                return {
+                    content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+                };
+            }
+        },
+        {
+            name: 'get_draft_model',
+            description: 'Get full metadata for a specific draft model by its HuggingFace model ID.',
+            schema: {
+                hf_id: z.string().describe('HuggingFace model ID (e.g. "thoughtworks/Llama-3.1-8B-Instruct-Eagle3")')
+            },
+            handler: async ({ hf_id }) => {
+                const model = getDraftModel(hf_id);
+                if (!model) {
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify({
+                            error: `Unknown draft model: ${hf_id}`,
+                            available: HF_IDS
+                        }) }],
+                        isError: true
+                    };
+                }
+                log(`get_draft_model → ${hf_id}`);
+                return {
+                    content: [{ type: 'text', text: JSON.stringify(model, null, 2) }]
+                };
+            }
+        },
+        {
+            name: 'recommend_draft',
+            description: 'Recommend the best draft model for a given target model ID. ' +
+                'Returns the top recommendation plus all alternatives, ranked by algorithm quality (eagle3 first).',
+            schema: {
+                target_model: z.string().describe(
+                    'Target model HF ID or partial name (e.g. "meta-llama/Llama-3.1-8B-Instruct" or "Llama-3.1-8B")'
+                )
+            },
+            handler: async ({ target_model }) => {
+                const result = recommendDraft(target_model);
+                if (!result) {
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify({
+                            error: `No draft models found for target: ${target_model}`,
+                            hint: 'Use list_draft_models to see all available models'
+                        }) }],
+                        isError: true
+                    };
+                }
+                log(`recommend_draft "${target_model}" → ${result.hf_id}`);
+                return {
+                    content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+                };
+            }
+        },
+        {
+            name: 'get_draft_from_s3',
+            description: 'Validate that an s3:// URI points at a usable speculative-decoding draft head ' +
+                '(checks for adapter_config.json or a model config), and return structured metadata.',
+            schema: {
+                s3_uri: z.string().regex(/^s3:\/\//, 'must be an s3:// URI')
+                    .describe('S3 URI to a draft head, e.g. "s3://my-bucket/drafts/llama-eagle3/"')
+            },
+            handler: async ({ s3_uri }) => {
+                const result = await getDraftFromS3(s3_uri);
+                log(`get_draft_from_s3 "${s3_uri}" → valid=${result.valid}${result.error ? ` (${result.error})` : ''}`);
+                return {
+                    content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+                    isError: result.valid === false
+                };
+            }
+        }
+    ]
 });
 
-server.tool(
-    'list_draft_models',
-    'List known speculative-decoding draft models from the MLCC catalog. ' +
-    'Optionally filter by target model (partial match) or algorithm.',
-    {
-        target_model: z.string().optional().describe(
-            'Partial HF model ID to filter by target (e.g. "Llama-3.1-8B")'
-        ),
-        algorithm: z.string().optional().describe(
-            'Algorithm filter: eagle3, eagle2, eagle, draft-model, ngram, mtp'
-        )
-    },
-    async ({ target_model = '', algorithm = '' }) => {
-        const result = listDraftModels({ targetModel: target_model, algorithm });
-        log(`list_draft_models target="${target_model}" alg="${algorithm}" → ${result.count}`);
-        return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-        };
-    }
-);
+const { log } = picker;
 
-server.tool(
-    'get_draft_model',
-    'Get full metadata for a specific draft model by its HuggingFace model ID.',
-    {
-        hf_id: z.string().describe('HuggingFace model ID (e.g. "thoughtworks/Llama-3.1-8B-Instruct-Eagle3")')
-    },
-    async ({ hf_id }) => {
-        const model = getDraftModel(hf_id);
-        if (!model) {
-            return {
-                content: [{ type: 'text', text: JSON.stringify({
-                    error: `Unknown draft model: ${hf_id}`,
-                    available: HF_IDS
-                }) }],
-                isError: true
-            };
-        }
-        log(`get_draft_model → ${hf_id}`);
-        return {
-            content: [{ type: 'text', text: JSON.stringify(model, null, 2) }]
-        };
-    }
-);
+// ── Start server (connects only when run as the main module) ──────────────────
 
-server.tool(
-    'recommend_draft',
-    'Recommend the best draft model for a given target model ID. ' +
-    'Returns the top recommendation plus all alternatives, ranked by algorithm quality (eagle3 first).',
-    {
-        target_model: z.string().describe(
-            'Target model HF ID or partial name (e.g. "meta-llama/Llama-3.1-8B-Instruct" or "Llama-3.1-8B")'
-        )
-    },
-    async ({ target_model }) => {
-        const result = recommendDraft(target_model);
-        if (!result) {
-            return {
-                content: [{ type: 'text', text: JSON.stringify({
-                    error: `No draft models found for target: ${target_model}`,
-                    hint: 'Use list_draft_models to see all available models'
-                }) }],
-                isError: true
-            };
-        }
-        log(`recommend_draft "${target_model}" → ${result.hf_id}`);
-        return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-        };
-    }
-);
-
-server.tool(
-    'get_draft_from_s3',
-    'Validate that an s3:// URI points at a usable speculative-decoding draft head ' +
-    '(checks for adapter_config.json or a model config), and return structured metadata.',
-    {
-        s3_uri: z.string().regex(/^s3:\/\//, 'must be an s3:// URI')
-            .describe('S3 URI to a draft head, e.g. "s3://my-bucket/drafts/llama-eagle3/"')
-    },
-    async ({ s3_uri }) => {
-        const result = await getDraftFromS3(s3_uri);
-        log(`get_draft_from_s3 "${s3_uri}" → valid=${result.valid}${result.error ? ` (${result.error})` : ''}`);
-        return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-            isError: result.valid === false
-        };
-    }
-);
-
-// ── Start server ─────────────────────────────────────────────────────────────
-
-async function main() {
-    const transport = new StdioServerTransport();
-    log('starting');
-    await server.connect(transport);
-    log('ready');
-}
-
-main().catch(err => {
-    process.stderr.write(`[draft-model-picker] Fatal: ${err.message}\n`);
-    process.exit(1);
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => log('starting')
 });

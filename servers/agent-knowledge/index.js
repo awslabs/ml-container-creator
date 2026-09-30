@@ -18,15 +18,26 @@
  *   - config_reference: do/config exported variables and documentation
  *   - troubleshooting: parsed TROUBLESHOOTING.md patterns
  *   - capability_matrix: agent capability matrix (full or filtered)
+ *
+ * PATTERN: MCP server built on the shared createPickerServer factory for its
+ *   scaffold (logger, main-guard, stdio wiring). Not a catalog-backed picker;
+ *   it parses project files (do scripts, config, TROUBLESHOOTING.md, capability
+ *   matrix) on demand and caches the parsed results in-process.
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold);
+ *   servers/lib/override-loader.js for project-local capability overrides;
+ *   reads templates and docs under PACKAGE_ROOT; spawned by src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: knowledge query. Given { topic, filter? }, returns structured
+ *   project knowledge; write_local_capability upserts a local capability entry.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { readFileSync, readdirSync, statSync, mkdirSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname, basename, join } from 'node:path';
 import { loadWithOverridesObject, resolveProjectDir } from '../lib/override-loader.js';
+import { createPickerServer } from '../lib/create-picker-server.js';
 
 // ── Path setup ───────────────────────────────────────────────────────────────
 
@@ -674,94 +685,103 @@ async function handleQueryKnowledge({ topic, filter, context }) {
 
 // ── MCP Server setup ─────────────────────────────────────────────────────────
 
-const server = new McpServer({
+/**
+ * Main tool handler for write_local_capability.
+ */
+async function handleWriteLocalCapability(params) {
+    const { capability, status, message, alternatives, context } = params;
+
+    // Validate required fields
+    if (!capability || !capability.trim()) {
+        return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'capability is required and must be non-empty' }) }] };
+    }
+    if (!status) {
+        return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'status is required (green, yellow, or red)' }) }] };
+    }
+
+    const projectDir = resolveProjectDir(context);
+    const mlccDir = join(projectDir, '.mlcc');
+    const overridePath = join(mlccDir, 'capabilities.json');
+    const tmpPath = `${overridePath  }.tmp`;
+
+    // Ensure .mlcc directory exists
+    mkdirSync(mlccDir, { recursive: true });
+
+    // Read existing or initialize
+    let data = { capabilities: {} };
+    if (existsSync(overridePath)) {
+        try {
+            data = JSON.parse(readFileSync(overridePath, 'utf8'));
+        } catch {
+            data = { capabilities: {} };
+        }
+    }
+    if (!data.capabilities || typeof data.capabilities !== 'object' || Array.isArray(data.capabilities)) {
+        data.capabilities = {};
+    }
+
+    // Build entry
+    const entry = { status, source: 'local', addedAt: new Date().toISOString() };
+    if (message) entry.message = message;
+    if (alternatives) entry.alternatives = alternatives;
+
+    // Upsert by capability key
+    data.capabilities[capability] = entry;
+
+    // Atomic write
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+    renameSync(tmpPath, overridePath);
+
+    // NFR-3 size check
+    const result = { status: 'ok', entry: { capability, ...entry }, file: '.mlcc/capabilities.json' };
+    const stat = statSync(overridePath);
+    if (stat.size > 100 * 1024) {
+        result.warning = 'Override file exceeds 100KB — consider upstreaming entries';
+    }
+
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+}
+
+// ── MCP Server setup ─────────────────────────────────────────────────────────
+
+const picker = createPickerServer({
     name: 'agent-knowledge',
-    version: '1.0.0'
+    serverDir: import.meta.url,
+    tools: [
+        {
+            name: 'query_knowledge',
+            description: 'Query project knowledge base. Returns structured data for script reference, config documentation, troubleshooting patterns, or capability matrix. Call this tool BEFORE answering questions about do/* scripts, configuration variables, or common issues.',
+            schema: {
+                topic: z.enum(['script_reference', 'config_reference', 'troubleshooting', 'capability_matrix'])
+                    .describe('Knowledge topic to query'),
+                filter: z.string().optional()
+                    .describe('Optional filter — narrows results by keyword match (e.g., script name, lifecycle stage, error pattern)'),
+                context: z.object({
+                    projectDir: z.string().optional()
+                }).optional().describe('Optional context with projectDir for local override resolution')
+            },
+            handler: async (params) => {
+                return handleQueryKnowledge(params);
+            }
+        },
+        {
+            name: 'write_local_capability',
+            description: 'Add or update a capability status in the project-local override (.mlcc/capabilities.json). Use when the user has validated something locally that the shipped matrix doesn\'t reflect.',
+            schema: {
+                capability: z.string().min(1).describe('Capability key (e.g., "vllm.realtime-inference.my-feature")'),
+                status: z.enum(['green', 'yellow', 'red']).describe('Capability status'),
+                message: z.string().optional().describe('Descriptive message about the capability'),
+                alternatives: z.array(z.string()).optional().describe('Alternative capabilities or workarounds'),
+                context: z.object({
+                    projectDir: z.string().optional()
+                }).optional().describe('Optional context with projectDir')
+            },
+            handler: handleWriteLocalCapability
+        }
+    ]
 });
 
-server.tool(
-    'query_knowledge',
-    'Query project knowledge base. Returns structured data for script reference, config documentation, troubleshooting patterns, or capability matrix. Call this tool BEFORE answering questions about do/* scripts, configuration variables, or common issues.',
-    {
-        topic: z.enum(['script_reference', 'config_reference', 'troubleshooting', 'capability_matrix'])
-            .describe('Knowledge topic to query'),
-        filter: z.string().optional()
-            .describe('Optional filter — narrows results by keyword match (e.g., script name, lifecycle stage, error pattern)'),
-        context: z.object({
-            projectDir: z.string().optional()
-        }).optional().describe('Optional context with projectDir for local override resolution')
-    },
-    async (params) => {
-        return handleQueryKnowledge(params);
-    }
-);
-
-server.tool(
-    'write_local_capability',
-    'Add or update a capability status in the project-local override (.mlcc/capabilities.json). Use when the user has validated something locally that the shipped matrix doesn\'t reflect.',
-    {
-        capability: z.string().min(1).describe('Capability key (e.g., "vllm.realtime-inference.my-feature")'),
-        status: z.enum(['green', 'yellow', 'red']).describe('Capability status'),
-        message: z.string().optional().describe('Descriptive message about the capability'),
-        alternatives: z.array(z.string()).optional().describe('Alternative capabilities or workarounds'),
-        context: z.object({
-            projectDir: z.string().optional()
-        }).optional().describe('Optional context with projectDir')
-    },
-    async (params) => {
-        const { capability, status, message, alternatives, context } = params;
-
-        // Validate required fields
-        if (!capability || !capability.trim()) {
-            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'capability is required and must be non-empty' }) }] };
-        }
-        if (!status) {
-            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'status is required (green, yellow, or red)' }) }] };
-        }
-
-        const projectDir = resolveProjectDir(context);
-        const mlccDir = join(projectDir, '.mlcc');
-        const overridePath = join(mlccDir, 'capabilities.json');
-        const tmpPath = `${overridePath  }.tmp`;
-
-        // Ensure .mlcc directory exists
-        mkdirSync(mlccDir, { recursive: true });
-
-        // Read existing or initialize
-        let data = { capabilities: {} };
-        if (existsSync(overridePath)) {
-            try {
-                data = JSON.parse(readFileSync(overridePath, 'utf8'));
-            } catch {
-                data = { capabilities: {} };
-            }
-        }
-        if (!data.capabilities || typeof data.capabilities !== 'object' || Array.isArray(data.capabilities)) {
-            data.capabilities = {};
-        }
-
-        // Build entry
-        const entry = { status, source: 'local', addedAt: new Date().toISOString() };
-        if (message) entry.message = message;
-        if (alternatives) entry.alternatives = alternatives;
-
-        // Upsert by capability key
-        data.capabilities[capability] = entry;
-
-        // Atomic write
-        writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
-        renameSync(tmpPath, overridePath);
-
-        // NFR-3 size check
-        const result = { status: 'ok', entry: { capability, ...entry }, file: '.mlcc/capabilities.json' };
-        const stat = statSync(overridePath);
-        if (stat.size > 100 * 1024) {
-            result.warning = 'Override file exceeds 100KB — consider upstreaming entries';
-        }
-
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-    }
-);
+const { server } = picker;
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
@@ -778,10 +798,7 @@ export {
 
 // ── Transport connection (main module only) ──────────────────────────────────
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    log('Starting agent-knowledge MCP server (stdio transport)');
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => log('Starting agent-knowledge MCP server (stdio transport)')
+});

@@ -19,22 +19,26 @@
  * Environment variables:
  *   AWS_REGION - AWS region for SageMaker API calls (default: us-east-1)
  *   AWS_PROFILE - AWS profile to use for credentials
+ *
+ * PATTERN: MCP server built on the shared createPickerServer factory. Declares
+ *   only its SageMaker-backed tool and lets the factory own the scaffold
+ *   (logger, main-guard, stdio wiring). Discovers subscriptions live from the
+ *   SageMaker API rather than a bundled JSON catalog.
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold); queries
+ *   @aws-sdk/client-sagemaker with credentials via @aws-sdk/credential-providers;
+ *   spawned by src/lib/mcp-client.js over stdio.
+ * DATA-FLOW ROLE: discovery. Given { region, limit }, returns the active
+ *   Marketplace model-package subscriptions with their supported instance and
+ *   content types.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-
-/**
- * Log to stderr so it doesn't interfere with MCP stdio protocol on stdout.
- */
-function log(message) {
-    process.stderr.write(`[marketplace-picker] ${message}\n`);
-}
+import { createPickerServer } from '../lib/create-picker-server.js';
 
 // ── AWS SDK lazy loading ─────────────────────────────────────────────────────
 
@@ -200,125 +204,129 @@ function buildResponse(subscriptions) {
     };
 }
 
-// ── MCP Server ───────────────────────────────────────────────────────────────
+// ── Tool handler ─────────────────────────────────────────────────────────────
 
-const server = new McpServer({
-    name: 'marketplace-picker',
-    version: '1.0.0'
-});
+async function getMarketplaceSubscriptionsHandler({ region, limit }) {
+    const effectiveRegion = region || process.env.AWS_REGION || 'us-east-1';
+    const profile = process.env.AWS_PROFILE || null;
+    log(`Querying Marketplace subscriptions in region: ${effectiveRegion}${profile ? ` (profile: ${profile})` : ''}`);
 
-// Register the get_marketplace_subscriptions tool
-server.tool(
-    'get_marketplace_subscriptions',
-    'Discovers active AWS Marketplace model package subscriptions with supported instance types and content types',
-    {
-        region: z.string().optional().describe('AWS region to query (defaults to AWS_REGION env var or us-east-1)'),
-        limit: z.number().int().positive().default(20).describe('Maximum number of subscriptions to return')
-    },
-    async ({ region, limit }) => {
-        const effectiveRegion = region || process.env.AWS_REGION || 'us-east-1';
-        const profile = process.env.AWS_PROFILE || null;
-        log(`Querying Marketplace subscriptions in region: ${effectiveRegion}${profile ? ` (profile: ${profile})` : ''}`);
+    try {
+        await _ensureSdkLoaded();
 
-        try {
-            await _ensureSdkLoaded();
+        let subscriptions = null;
+        let lastError = null;
 
-            let subscriptions = null;
-            let lastError = null;
-
-            // Strategy 1: If a specific profile was requested, use it directly
-            if (profile) {
-                try {
-                    log(`Trying explicit profile: ${profile}`);
-                    const client = _createClientWithProfile(effectiveRegion, profile);
-                    subscriptions = await fetchMarketplaceSubscriptions(client, { limit });
-                } catch (err) {
-                    log(`Profile "${profile}" failed: ${err.message}`);
-                    lastError = err;
-                }
+        // Strategy 1: If a specific profile was requested, use it directly
+        if (profile) {
+            try {
+                log(`Trying explicit profile: ${profile}`);
+                const client = _createClientWithProfile(effectiveRegion, profile);
+                subscriptions = await fetchMarketplaceSubscriptions(client, { limit });
+            } catch (err) {
+                log(`Profile "${profile}" failed: ${err.message}`);
+                lastError = err;
             }
+        }
 
-            // Strategy 2: Try the default credential chain
-            if (!subscriptions) {
-                try {
-                    log('Trying default credential chain');
-                    const client = _createClient(effectiveRegion);
-                    subscriptions = await fetchMarketplaceSubscriptions(client, { limit });
-                } catch (err) {
-                    log(`Default credential chain failed: ${err.message}`);
-                    lastError = err;
-                }
+        // Strategy 2: Try the default credential chain
+        if (!subscriptions) {
+            try {
+                log('Trying default credential chain');
+                const client = _createClient(effectiveRegion);
+                subscriptions = await fetchMarketplaceSubscriptions(client, { limit });
+            } catch (err) {
+                log(`Default credential chain failed: ${err.message}`);
+                lastError = err;
             }
+        }
 
-            // Strategy 3: Detect available AWS profiles and try each
-            if (!subscriptions && _fromIni) {
-                const profiles = _detectAwsProfiles();
-                if (profiles.length > 0) {
-                    log(`Default credentials failed, trying ${profiles.length} detected profile(s): ${profiles.join(', ')}`);
-                    for (const p of profiles) {
-                        try {
-                            const client = _createClientWithProfile(effectiveRegion, p);
-                            subscriptions = await fetchMarketplaceSubscriptions(client, { limit });
-                            log(`Profile "${p}" succeeded`);
-                            break;
-                        } catch (err) {
-                            log(`Profile "${p}" failed: ${err.message}`);
-                            lastError = err;
-                        }
+        // Strategy 3: Detect available AWS profiles and try each
+        if (!subscriptions && _fromIni) {
+            const profiles = _detectAwsProfiles();
+            if (profiles.length > 0) {
+                log(`Default credentials failed, trying ${profiles.length} detected profile(s): ${profiles.join(', ')}`);
+                for (const p of profiles) {
+                    try {
+                        const client = _createClientWithProfile(effectiveRegion, p);
+                        subscriptions = await fetchMarketplaceSubscriptions(client, { limit });
+                        log(`Profile "${p}" succeeded`);
+                        break;
+                    } catch (err) {
+                        log(`Profile "${p}" failed: ${err.message}`);
+                        lastError = err;
                     }
                 }
             }
+        }
 
-            // If all strategies failed, throw the last error
-            if (!subscriptions) {
-                throw lastError || new Error('No AWS credentials available');
-            }
+        // If all strategies failed, throw the last error
+        if (!subscriptions) {
+            throw lastError || new Error('No AWS credentials available');
+        }
 
-            const result = buildResponse(subscriptions);
+        const result = buildResponse(subscriptions);
 
-            if (subscriptions.length > 0) {
-                log(`Found ${subscriptions.length} Marketplace subscription(s)`);
-            } else {
-                log('No Marketplace subscriptions found');
-            }
+        if (subscriptions.length > 0) {
+            log(`Found ${subscriptions.length} Marketplace subscription(s)`);
+        } else {
+            log('No Marketplace subscriptions found');
+        }
 
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify(result)
+            }]
+        };
+    } catch (err) {
+        log(`Error querying Marketplace subscriptions: ${err.message}`);
+
+        // Handle AccessDeniedException gracefully
+        if (err.name === 'AccessDeniedException' || err.Code === 'AccessDeniedException') {
+            log('AccessDeniedException — returning empty result');
             return {
                 content: [{
                     type: 'text',
-                    text: JSON.stringify(result)
-                }]
-            };
-        } catch (err) {
-            log(`Error querying Marketplace subscriptions: ${err.message}`);
-
-            // Handle AccessDeniedException gracefully
-            if (err.name === 'AccessDeniedException' || err.Code === 'AccessDeniedException') {
-                log('AccessDeniedException — returning empty result');
-                return {
-                    content: [{
-                        type: 'text',
-                        text: JSON.stringify({
-                            subscriptions: [],
-                            message: 'Access denied when querying Marketplace subscriptions. Check IAM permissions for sagemaker:ListModelPackages and sagemaker:DescribeModelPackage.'
-                        })
-                    }]
-                };
-            }
-
-            const errorResult = {
-                subscriptions: [],
-                error: err.message,
-                message: `Failed to query Marketplace subscriptions: ${err.message}`
-            };
-            return {
-                content: [{
-                    type: 'text',
-                    text: JSON.stringify(errorResult)
+                    text: JSON.stringify({
+                        subscriptions: [],
+                        message: 'Access denied when querying Marketplace subscriptions. Check IAM permissions for sagemaker:ListModelPackages and sagemaker:DescribeModelPackage.'
+                    })
                 }]
             };
         }
+
+        const errorResult = {
+            subscriptions: [],
+            error: err.message,
+            message: `Failed to query Marketplace subscriptions: ${err.message}`
+        };
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify(errorResult)
+            }]
+        };
     }
-);
+}
+
+// ── MCP Server ───────────────────────────────────────────────────────────────
+
+const picker = createPickerServer({
+    name: 'marketplace-picker',
+    serverDir: import.meta.url,
+    tools: [{
+        name: 'get_marketplace_subscriptions',
+        description: 'Discovers active AWS Marketplace model package subscriptions with supported instance types and content types',
+        schema: {
+            region: z.string().optional().describe('AWS region to query (defaults to AWS_REGION env var or us-east-1)'),
+            limit: z.number().int().positive().default(20).describe('Maximum number of subscriptions to return')
+        },
+        handler: getMarketplaceSubscriptionsHandler
+    }]
+});
+
+const { log } = picker;
 
 // Export for testing
 export {
@@ -331,12 +339,10 @@ export {
 };
 
 // Guard MCP transport — only connect when run as main module
-const __filename = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    log('Starting Marketplace Picker MCP server');
-    await _ensureSdkLoaded();
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: async () => {
+        log('Starting Marketplace Picker MCP server');
+        await _ensureSdkLoaded();
+    }
+});

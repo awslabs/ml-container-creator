@@ -18,6 +18,7 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
@@ -99,11 +100,7 @@ clean_ecr() {
     echo "   Repository: ${ECR_REPOSITORY_NAME}"
     echo "   Region: ${AWS_REGION}"
 
-    if ! aws sts get-caller-identity &> /dev/null; then
-        echo "❌ AWS credentials not configured"
-        echo "   Run: aws configure"
-        exit 4
-    fi
+    _aws_preflight
 
     if ! aws ecr describe-repositories \
         --repository-names "${ECR_REPOSITORY_NAME}" \
@@ -223,11 +220,7 @@ clean_codebuild() {
         return 0
     fi
 
-    if ! aws sts get-caller-identity &> /dev/null; then
-        echo "❌ AWS credentials not configured"
-        echo "   Run: aws configure"
-        exit 4
-    fi
+    _aws_preflight
 
     PROJECT_CHECK=$(aws codebuild batch-get-projects \
         --names "${CODEBUILD_PROJECT_NAME}" \

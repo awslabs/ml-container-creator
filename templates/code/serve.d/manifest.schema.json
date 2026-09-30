@@ -5,7 +5,7 @@
   "description": "Per-engine serve-layer plugin manifest. Declares an engine's capabilities as data so do/draft, do/deploy, and .optimize_engine.py read engine knowledge from the manifest instead of hardcoded logic.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["engine", "env_var_prefix", "supported_algorithms", "algorithm_map", "hot_reload"],
+  "required": ["engine", "env_var_prefix", "speculative_decoding", "supported_algorithms", "algorithm_map", "hot_reload"],
   "properties": {
     "engine": {
       "type": "string",
@@ -17,12 +17,16 @@
       "pattern": "^[A-Z][A-Z0-9]*_$",
       "description": "Environment-variable prefix, e.g. VLLM_. Uppercase with a trailing underscore."
     },
+    "speculative_decoding": {
+      "type": "boolean",
+      "description": "Whether the engine supports speculative decoding at all. When false, supported_algorithms is [] and algorithm_map is {} — an explicit 'none' rather than an omitted field (ADR-004)."
+    },
     "supported_algorithms": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "minItems": 1,
+      "minItems": 0,
       "uniqueItems": true,
-      "description": "Speculative-decoding algorithms the engine actually supports."
+      "description": "Speculative-decoding algorithms the engine actually supports. Empty [] when speculative_decoding is false."
     },
     "algorithm_map": {
       "type": "object",

@@ -2,6 +2,14 @@
 
 This guide covers everything you need to know to add a new `do/` script to MLCC — whether you're a human contributor or a coding agent. Every `do/` script in MLCC is governed by a machine-readable contract that controls runtime behavior, advisory agent suggestions, and developer ecosystem consistency.
 
+> **Related developer docs.** For the *structural* map of the subsystem (the
+> enforcer, the shared `lib/` helpers, the shell↔JS seam) see
+> [Architecture → do/ Scripts](architecture/do-scripts.md). To add a whole new
+> *deployment target* (not just a script) see
+> [Adding a Deployment Target](architecture/deployment-target-authoring.md). The
+> enforcement decision is recorded in
+> [ADR-007](adr/ADR-007-do-script-contract-enforcement.md).
+
 ---
 
 ## Why a contract system?
@@ -21,7 +29,7 @@ MLCC runs in two contexts: as a CLI tool operated by a developer, and as a proje
 Every `do/` script begins with this structure:
 
 ```bash
-#!/usr/bin/env bash
+#!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -117,22 +125,27 @@ Answer these four questions:
 3. **When in the lifecycle does it fit?** → `lifecycle`
 4. **Which targets does it apply to?** → `targets`
 
-Example: `do/draft` (speculative decoding configuration)
+Example: a hypothetical `do/myfeature` that configures a live deployment on
+GPU-backed targets only
 ```
 - type: deployment-centric   (configures a live deployment)
 - guard: deployment-active   (requires a running endpoint/cluster)
 - lifecycle: post-deploy     (runs after deploy, before benchmark)
-- targets: realtime-inference, hyperpod-eks   (async/batch don't support speculative decoding)
+- targets: realtime-inference, hyperpod-eks   (async/batch don't apply)
 ```
+
+> The shipped `do/draft` is close to this shape but declares
+> `targets: hyperpod-eks` only — real-time speculative decoding is applied via
+> `do/optimize --apply` instead. See the registry below for its actual fields.
 
 ### Step 2: Start from the template
 
 ```bash
-#!/usr/bin/env bash
+#!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# do/draft — Configure speculative decoding for an active deployment.
+# do/myfeature — Configure the feature for an active deployment.
 #
 # @mlcc-script
 # type: deployment-centric
@@ -180,23 +193,30 @@ done
 
 ### Step 4: Add target-restriction guards for `target-restricted` scripts
 
-If your script doesn't apply to all targets, add a target check near the top:
+If your script doesn't apply to all targets, call `_restrict_targets` near the
+top with the comma-separated allow-list and an optional guidance sentence. Do
+**not** hand-roll a `case … exit 1` block — `_restrict_targets` emits the
+standard contract-violation format and the reserved exit code `3`, so every
+target restriction behaves identically:
 
 ```bash
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 # ...
 
-# Restrict to supported targets
-case "${DEPLOYMENT_TARGET:-}" in
-    realtime-inference|hyperpod-eks) ;;   # supported
-    *)
-        echo "❌ do/draft is not supported on ${DEPLOYMENT_TARGET:-<unset>}."
-        echo "   Speculative decoding requires: realtime-inference or hyperpod-eks."
-        exit 1 ;;
-esac
+_restrict_targets "realtime-inference,hyperpod-eks" \
+    "Speculative decoding requires a real-time or HyperPod EKS deployment."
 ```
 
-This is separate from the `targets` field in the annotation — the annotation is for the agent planner, the runtime check is for user-facing error messages.
+This is separate from the `targets` field in the annotation — the annotation is
+for the agent planner; `_restrict_targets` is the runtime enforcement with a
+user-facing error message.
+
+If a *specific* target needs its own distinct guidance (rather than a single
+"not supported" message for everything outside the allow-list), call
+`_contract_violation "target" "<reason>" "<remedy>"` in an explicit branch — it
+also exits `3` with the standard format. (See `do/optimize`, which gives the
+plain `eks` target its own message before falling through to `_restrict_targets`
+for async/batch.)
 
 ### Step 5: Write tests
 
@@ -250,6 +270,34 @@ else
 fi
 ```
 
+### `_restrict_targets <allow-list> [guidance]`
+
+Enforce a deployment-target allow-list. On a mismatch it emits the standard
+contract-violation format and exits `3` — the one way to express
+"not supported on this target," replacing hand-rolled `case … exit 1` blocks.
+
+```bash
+_restrict_targets "realtime-inference,hyperpod-eks" \
+    "This feature requires a real-time or HyperPod EKS deployment."
+```
+
+For a target that needs distinct guidance, use `_contract_violation` directly in
+an explicit branch (also exit `3`).
+
+### `_aws_preflight [--verbose]`
+
+Validate AWS credentials and export `AWS_ACCOUNT_ID`, from the shared
+`lib/aws-preflight.sh` (source it after `config`/`profile.sh`). This replaces the
+credential-check block that used to be copy-pasted across scripts. A failure is a
+**general runtime error → exit 1**, not a contract violation. `--verbose` prints
+the `🔍 validating` / `✅ validated` lines; the default is silent.
+
+```bash
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
+_aws_preflight --verbose    # or: _aws_preflight  (silent)
+# ... AWS_ACCOUNT_ID is now set
+```
+
 ### Exit codes
 
 | Code | Meaning |
@@ -280,7 +328,10 @@ Warnings don't prevent the script from running. They surface in `agent-knowledge
 
 ## Current script registry
 
-The authoritative classification of all 23 `do/` scripts:
+The authoritative classification of all 24 `do/` scripts. This table is kept in
+sync with the shipped scripts by the conformance test
+(`test/unit/do-contract-conformance.test.js`, ADR-007), which fails if a script
+drifts from its contract.
 
 | Script | Type | Guard | Lifecycle | Targets |
 |---|---|---|---|---|
@@ -305,10 +356,27 @@ The authoritative classification of all 23 `do/` scripts:
 | `do/optimize` | deployment-centric | deployment-active | post-deploy | realtime-inference, hyperpod-eks |
 | `do/adapter` | deployment-centric | deployment-active | post-deploy | realtime-inference, hyperpod-eks |
 | `do/add-ic` | deployment-centric | deployment-active | post-deploy | realtime-inference |
+| `do/draft` | deployment-centric | deployment-active | post-deploy | hyperpod-eks |
 | `do/evaluate` | deployment-centric | deployment-active | post-deploy | all |
 | `do/register` | hybrid | none | publish | all |
 
 > **Note on `do/deploy`**: Despite being `deployment-centric` in scope, its `guard` is `none` because it *creates* the deployment — it can't check for something it's about to create. The guard is `none` for this reason only.
+
+> **Note on `do/draft`**: its `targets` is `hyperpod-eks` only. This manages the
+> HyperPod EKS speculative-decoding config; real-time speculative decoding is
+> applied through `do/optimize --apply` instead.
+
+### Two contract exceptions
+
+Two files carry an `@mlcc-script` block but are not ordinary executable steps:
+
+- **`do/config`** is a *sourced data file* — every script `source`s it to load
+  its variables. It has a contract block (so the agent can classify it) but does
+  **not** source `lib/script-contract.sh`, because it is not itself run.
+- **`do/manifest`** is a *thin Node shim*: it sources the enforcer but delegates
+  to `lib/manifest-cli.js` rather than sourcing `config` / `profile.sh`.
+
+The conformance test encodes both exceptions.
 
 ---
 
@@ -324,3 +392,23 @@ When documenting a new `do/` script in `ADDING_FEATURES.md`, reference this cont
 3. Add `myscript` to the `scripts` section of `templates/do/README.md`.
 4. Add contract tests in `test/unit/do-script-contracts.test.js`.
 ```
+
+---
+
+## The `config` ↔ generator contract
+
+`do/config` is sourced by every script at runtime, and is **also read back** on
+the Node side by `src/lib/do-config.js` (used by the `import` / `update` /
+`regenerate` / `validate` command paths). That crossing is a contract:
+
+- Lines the JS parser sees must be single-line `export UPPER_SNAKE=value`.
+  Multi-line or computed exports are invisible to `parseDoConfig`.
+- Only the keys in `do-config.js`'s `SHELL_VAR_TO_ANSWER` map round-trip back
+  into generator answers (`shellVarsToAnswers`); every other exported key is
+  intentionally dropped.
+
+So adding `export FOO=…` to `config` is inert on the JS side until `FOO` is added
+to that map — a deliberate allow-list, not an oversight. See
+[`docs/architecture/do-scripts.md`](architecture/do-scripts.md) for the full
+subsystem map and [ADR-007](adr/ADR-007-do-script-contract-enforcement.md) for
+the enforcement decision.

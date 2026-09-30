@@ -1,0 +1,8 @@
+{
+  "engine": "lmi",
+  "env_var_prefix": "LMI_",
+  "speculative_decoding": false,
+  "supported_algorithms": [],
+  "algorithm_map": {},
+  "hot_reload": false
+}

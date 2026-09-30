@@ -174,10 +174,11 @@ describe('Feature: v18-w4-01-bl112 — sourcing-verb guard (Req 7.1, 7.2)', () =
         const guardStart = HP.indexOf('from-hub|from-tune|from-train|from-registry)');
         const guardEnd = HP.indexOf(';;', guardStart);
         const guard = HP.slice(guardStart, guardEnd);
-        assert.ok(/❌/.test(guard), 'guard must be an error');
+        // Wave 6 (ADR-007): the guard now raises the shared contract violation
+        // (_contract_violation → ❌ + exit 3) instead of a hand-rolled ❌/exit 1.
+        assert.ok(/_contract_violation/.test(guard), 'guard must raise a contract violation (exit 3)');
         assert.ok(/SageMaker Inference Components/.test(guard), 'guard must explain the SMAI dependency');
         assert.ok(/do\/adapter add <name> --weights s3:\/\//.test(guard), 'guard must direct to add --weights');
-        assert.ok(/exit 1/.test(guard), 'guard must exit non-zero');
         // The guard precedes any connection setup.
         const pfPos = HP.indexOf('# ── Direct-pod port-forward setup');
         assert.ok(guardStart < pfPos, 'sourcing-verb guard must run before port-forward setup');
@@ -213,6 +214,42 @@ describe('Feature: v18-w4-01-bl112 — legacy-flag deprecation (Req 8.1, 8.2)', 
         const routerPos = HP.indexOf('Parse unified verbs into an internal');
         assert.ok(shimPos !== -1 && routerPos !== -1 && shimPos < routerPos,
             'deprecation shims must precede the unified verb parser');
+    });
+});
+
+describe('do/adapter — plain eks target support (Wave 6 follow-up, ADR-007)', () => {
+    // eks is a first-class (untested) target: vLLM on plain EKS without the
+    // HyperPod Inference Operator. LoRA hot-load works identically to hyperpod-eks,
+    // so adapters must be ALLOWED on eks (routed to the same vLLM path), not rejected.
+    const commands = commandLines(RENDERED);
+
+    it('allows eks in the top-level target restriction', () => {
+        assert.ok(
+            /_restrict_targets "realtime-inference,hyperpod-eks,eks"/.test(commands),
+            'eks must be in the adapter target allow-list'
+        );
+    });
+
+    it('routes eks through the same vLLM k8s path as hyperpod-eks', () => {
+        assert.ok(
+            /\[ "\$\{DEPLOYMENT_TARGET:-\}" = "hyperpod-eks" \] \|\| \[ "\$\{DEPLOYMENT_TARGET:-\}" = "eks" \]/.test(commands),
+            'the vLLM hot-load branch must fire for hyperpod-eks OR eks'
+        );
+    });
+
+    it('declares eks in its @mlcc-script targets', () => {
+        assert.ok(
+            /# targets:.*\beks\b/.test(ADAPTER_SRC),
+            'the contract targets field must list eks'
+        );
+    });
+
+    it('does not statically reject eks anywhere', () => {
+        // No target-restriction should name eks as unsupported.
+        assert.ok(
+            !/is not supported on.*\beks\b/.test(commands),
+            'eks must not be rejected by any adapter target guard'
+        );
     });
 });
 

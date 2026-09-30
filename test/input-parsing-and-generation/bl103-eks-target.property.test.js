@@ -250,7 +250,10 @@ describe('BL103: Plain EKS deployment target', () => {
             const branch = optimizeContent.slice(idx, idx + 300);
             assert.ok(/N\/A for eks target/.test(branch),
                 'optimize must print an "N/A for eks target" message');
-            assert.ok(/exit 1/.test(branch), 'optimize eks guard must exit non-zero');
+            // Wave 6 (ADR-007): the eks guard now raises the shared contract
+            // violation (_contract_violation → exit 3) instead of a bare exit 1.
+            assert.ok(/_contract_violation/.test(branch),
+                'optimize eks guard must raise a contract violation (exit 3)');
         });
     });
 });

@@ -1,0 +1,29 @@
+{
+  "target": "eks",
+  "aliases": [],
+  "status_var": "DEPLOYMENT_TARGET_EKS_STATUS",
+  "answer_key": "deploymentTargetEksStatus",
+  "success_status": "Running",
+  "family": "kubernetes",
+  "deploy_script": "deploy.d/eks",
+  "clean_script": "clean.d/eks",
+  "required_vars": [],
+  "optional_vars": {
+    "HP_CLUSTER_NAME": "",
+    "HP_GPU_COUNT": "auto",
+    "HP_NAMESPACE": "default",
+    "HP_REPLICAS": "1",
+    "HP_QUEUE": ""
+  },
+  "runtime_owned_vars": [
+    "DEPLOYMENT_TARGET_EKS_STATUS"
+  ],
+  "serving_config_source": "kubernetes",
+  "verbs": {
+    "optimize": false,
+    "add-ic": false,
+    "ci": false,
+    "adapter": true,
+    "draft": false
+  }
+}

@@ -334,10 +334,15 @@ export default class PromptRunner {
             moduleAnswers.includeSampleModel = false;
         }
 
-        // Test types, benchmark, and LoRA are always-on (BL-122)
+        // Test types and benchmark are always-on (BL-122)
         moduleAnswers.testTypes = ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
         const benchmarkAnswers = { includeBenchmark: true };
-        const loraAnswers = { enableLora: true };
+        // LoRA defaults on (BL-122) but respects an explicit opt-out (BL127).
+        // See _resolveEnableLora — the final authority on whether LoRA is actually
+        // enabled for the selected backend remains the scoping logic in
+        // template-variable-resolver.js; this only stops the prompt runner from
+        // clobbering an explicit user opt-out before that check even runs.
+        const loraAnswers = { enableLora: this._resolveEnableLora(explicitConfig, existingConfig) };
 
         // Validate instance type against framework requirements (now that framework version is known)
         // FR-1.2: Instance type is no longer resolved at generation time — skip validation
@@ -537,6 +542,42 @@ export default class PromptRunner {
         
         const paramConfig = this.configManager.parameterMatrix[parameterName];
         return paramConfig ? paramConfig.promptable : true;
+    }
+
+    /**
+     * Resolves the generate-time `enableLora` answer, respecting an explicit
+     * user opt-out (BL127).
+     *
+     * LoRA defaults on (BL-122). This mirrors the explicitConfig.modelName
+     * override pattern in run(): prefer an explicit value (from CLI flags, env
+     * vars, or do/config), then fall back to the preserved existingConfig value
+     * on regenerate, and only default to `true` when neither source set it.
+     *
+     * A value of boolean `false` or the string `"false"` is treated as an
+     * explicit opt-out; boolean `true` or `"true"` as an explicit opt-in. Any
+     * other value (undefined/null) is not considered explicit.
+     *
+     * This does NOT decide whether LoRA is ultimately enabled for the selected
+     * backend — the scoping logic in template-variable-resolver.js remains the
+     * final authority and may still force enableLora=false for non-LoRA-capable
+     * backends. This only stops the prompt runner from overriding an explicit
+     * user opt-out before that check runs.
+     *
+     * @param {Object} explicitConfig - Explicitly-set config (CLI/env/config file)
+     * @param {Object} existingConfig - Preserved config from regenerate
+     * @returns {boolean} The resolved enableLora answer
+     * @private
+     */
+    _resolveEnableLora(explicitConfig = {}, existingConfig = {}) {
+        const isExplicitFalse = (v) => v === false || v === 'false';
+        const isExplicitTrue = (v) => v === true || v === 'true';
+        if (isExplicitFalse(explicitConfig.enableLora) || isExplicitTrue(explicitConfig.enableLora)) {
+            return isExplicitTrue(explicitConfig.enableLora);
+        }
+        if (isExplicitFalse(existingConfig.enableLora) || isExplicitTrue(existingConfig.enableLora)) {
+            return isExplicitTrue(existingConfig.enableLora);
+        }
+        return true;
     }
 
     /**

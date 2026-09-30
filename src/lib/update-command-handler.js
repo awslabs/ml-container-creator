@@ -13,82 +13,17 @@
 import { parseKeyValue } from './key-value-parser.js';
 import { getAffectedFiles } from './template-dependency-map.js';
 import { writeProject } from '../app.js';
-import { fileURLToPath } from 'node:url';
-import { resolve, join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const GENERATOR_ROOT = resolve(__dirname, '../..');
-const TEMPLATE_DIR = join(GENERATOR_ROOT, 'templates');
-
-/**
- * Parse a do/config file into a key-value map.
- * Handles lines like: export KEY="VALUE" or export KEY=VALUE
- *
- * @param {string} configPath - Path to do/config
- * @returns {object} Parsed key-value pairs
- */
-function parseDoConfig(configPath) {
-    const content = readFileSync(configPath, 'utf8');
-    const result = {};
-    for (const line of content.split('\n')) {
-        const match = line.match(/^\s*export\s+([A-Z_][A-Z0-9_]*)=["']?([^"']*)["']?\s*$/);
-        if (match) {
-            result[match[1]] = match[2];
-        }
-    }
-    return result;
-}
-
-/**
- * Convert shell-style KEY names to camelCase answer keys.
- * e.g., INSTANCE_TYPE → instanceType, MODEL_NAME → modelName
- *
- * @param {object} shellVars - Shell variable map
- * @returns {object} camelCase answers map
- */
-function shellVarsToAnswers(shellVars) {
-    const answers = {};
-    const mapping = {
-        PROJECT_NAME: 'projectName',
-        DEPLOYMENT_CONFIG: 'deploymentConfig',
-        DEPLOYMENT_TARGET: 'deploymentTarget',
-        INSTANCE_TYPE: 'instanceType',
-        MODEL_NAME: 'modelName',
-        BASE_IMAGE: 'baseImage',
-        REGION: 'region',
-        AWS_REGION: 'awsRegion',
-        ENDPOINT_NAME: 'endpointName',
-        DEPLOY_MODE: 'deployMode',
-        CONTAINER_IMAGE_URI: 'container_image_uri',
-        ENDPOINT_STATUS: 'endpointStatus',
-        IC_GPU_COUNT: 'icGpuCount',
-        IC_COPY_COUNT: 'icCopyCount',
-        IC_MEMORY_SIZE: 'icMemorySize',
-        IC_CPU_COUNT: 'icCpuCount',
-        ENABLE_LORA: 'enableLora',
-        MAX_LORAS: 'maxLoras',
-        QUANTIZATION: 'quantization',
-        HF_TOKEN_ARN: 'hfTokenArn',
-        NGC_TOKEN_ARN: 'ngcTokenArn'
-    };
-
-    for (const [shellKey, value] of Object.entries(shellVars)) {
-        const camelKey = mapping[shellKey];
-        if (camelKey) {
-            answers[camelKey] = value;
-        }
-    }
-    return answers;
-}
+import { parseDoConfig, shellVarsToAnswers } from './do-config.js';
+import BaseCommandHandler, { TEMPLATE_DIR } from './base-command-handler.js';
 
 /**
  * Handler for `mcc update`.
  * Updates configuration fields and regenerates only affected template files.
  */
-export default class UpdateCommandHandler {
+export default class UpdateCommandHandler extends BaseCommandHandler {
     /**
      * @param {object} options
      * @param {boolean} [options.dryRun] - Show affected files without writing
@@ -97,6 +32,7 @@ export default class UpdateCommandHandler {
      * @param {Function} [options.promptFn] - Custom prompt function (for testing)
      */
     constructor({ dryRun, noRegister, fields, promptFn } = {}) {
+        super();
         this.dryRun = dryRun || false;
         this.noRegister = noRegister || false;
         this.fields = fields || [];

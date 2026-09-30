@@ -52,6 +52,7 @@ function validManifest() {
     return {
         engine: 'vllm',
         env_var_prefix: 'VLLM_',
+        speculative_decoding: true,
         supported_algorithms: ['eagle3', 'eagle2', 'eagle', 'draft-model', 'ngram', 'mtp'],
         algorithm_map: { eagle3: 'eagle3', 'draft-model': 'draft_model' },
         hot_reload: true,
@@ -60,7 +61,7 @@ function validManifest() {
     };
 }
 
-const REQUIRED_FIELDS = ['engine', 'env_var_prefix', 'supported_algorithms', 'algorithm_map', 'hot_reload'];
+const REQUIRED_FIELDS = ['engine', 'env_var_prefix', 'speculative_decoding', 'supported_algorithms', 'algorithm_map', 'hot_reload'];
 
 // ── Known algorithm universe (Property 3) ────────────────────────────────────
 
@@ -124,7 +125,8 @@ describe('Feature: v18-w2-02-bl105 Serve-Layer Plugin Interface', () => {
             const wrongValues = {
                 engine: [42, true, {}, []],
                 env_var_prefix: ['vllm_', 'VLLM', 'VLLM-', 123, 'lowercase_'],
-                supported_algorithms: ['not-an-array', 42, {}, []],
+                speculative_decoding: ['true', 1, 'yes', {}, []],
+                supported_algorithms: ['not-an-array', 42, {}],
                 algorithm_map: ['x', 42, true],
                 hot_reload: ['true', 1, 'yes', {}]
             };
@@ -167,6 +169,7 @@ describe('Feature: v18-w2-02-bl105 Serve-Layer Plugin Interface', () => {
                     const m = {
                         engine: 'test',
                         env_var_prefix: prefix,
+                        speculative_decoding: algorithms.length > 0,
                         supported_algorithms: algorithms,
                         algorithm_map: Object.fromEntries(algorithms.map((a) => [a, a])),
                         hot_reload: hotReload
@@ -238,6 +241,15 @@ describe('Feature: v18-w2-02-bl105 Serve-Layer Plugin Interface', () => {
             assert.ok(!sglang.has('ngram'), 'SGLang must reject ngram');
             assert.ok(!vllm.has('medusa'), 'vLLM must reject medusa');
             assert.ok(!sglang.has('medusa'), 'SGLang must reject medusa');
+        });
+
+        // Kimi-K3 DSpark: vLLM/Speculators-specific — accepted by vLLM only,
+        // rejected by SGLang (which does not implement the method).
+        it('anchored: dspark accepted for vllm, rejected for sglang (Kimi-K3)', () => {
+            const vllm = new Set(JSON.parse(readerField('supported_algorithms', 'vllm')));
+            const sglang = new Set(JSON.parse(readerField('supported_algorithms', 'sglang')));
+            assert.ok(vllm.has('dspark'), 'vLLM must accept dspark');
+            assert.ok(!sglang.has('dspark'), 'SGLang must reject dspark');
         });
     });
 

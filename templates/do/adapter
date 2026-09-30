@@ -8,7 +8,7 @@
 # type: deployment-centric
 # guard: deployment-active
 # lifecycle: post-deploy
-# targets: realtime-inference, hyperpod-eks
+# targets: realtime-inference, hyperpod-eks, eks
 
 # Usage:
 #   ./do/adapter add <name> --weights <s3-uri>
@@ -28,21 +28,26 @@ _require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
-# ── Target guard: adapters require IC-based real-time endpoints ───────────────
-if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
-    echo "❌ do/adapter is not supported on ${DEPLOYMENT_TARGET}."
-    echo "   LoRA adapters require a real-time (realtime-inference) endpoint with ICs."
-    echo "   Switch target: do/deploy --target realtime-inference"
-    exit 1
-fi
+# ── Target guard: adapters run on real-time (IC-based) or Kubernetes endpoints ──
+# LoRA hot-load works on: realtime-inference (via SageMaker Inference Components),
+# hyperpod-eks (vLLM behind the HyperPod Inference Operator), and eks (vLLM on a
+# plain EKS cluster without the operator — same vLLM hot-load mechanism). async /
+# batch are unsupported. _restrict_targets emits the standard contract violation
+# (exit 3); the Kubernetes targets fall through to the vLLM path below.
+_restrict_targets "realtime-inference,hyperpod-eks,eks" \
+    "LoRA adapters require a real-time (realtime-inference) endpoint with ICs, or a Kubernetes deployment (hyperpod-eks / eks)."
 
-# ── HyperPod path ─────────────────────────────────────────────────────────────
-if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
+# ── Kubernetes path (hyperpod-eks + plain eks) ────────────────────────────────
+# Both targets serve vLLM as k8s pods labelled app=${PROJECT_NAME} and support
+# the same vLLM LoRA hot-load over a direct-pod port-forward. hyperpod-eks runs
+# behind the HyperPod Inference Operator; eks (untested/unvalidated) runs the same
+# vLLM without the operator — the hot-load mechanism is identical.
+if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ] || [ "${DEPLOYMENT_TARGET:-}" = "eks" ]; then
     _adapter_hyperpod() {
         # Guard: HP_LORA_ENABLED must be true
         if [ "${HP_LORA_ENABLED:-false}" != "true" ]; then
-            echo "❌ LoRA is not enabled for this HyperPod deployment."
-            echo "   Set HP_LORA_ENABLED=true in do/config and redeploy: do/deploy --target hyperpod-eks"
+            echo "❌ LoRA is not enabled for this ${DEPLOYMENT_TARGET} deployment."
+            echo "   Set HP_LORA_ENABLED=true in do/config and redeploy: do/deploy --target ${DEPLOYMENT_TARGET}"
             exit 1
         fi
 
@@ -73,9 +78,9 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
         # kubectl, or HTTP call is made.
         case "${CMD}" in
             from-hub|from-tune|from-train|from-registry)
-                echo "❌ 'do/adapter ${CMD}' sources adapters via SageMaker Inference Components and is not supported on HyperPod."
-                echo "   On HyperPod, provide the adapter weights directly: do/adapter add <name> --weights s3://..."
-                exit 1
+                _contract_violation "target" \
+                    "'do/adapter ${CMD}' sources adapters via SageMaker Inference Components and is not supported on Kubernetes targets (${DEPLOYMENT_TARGET})." \
+                    "On ${DEPLOYMENT_TARGET}, provide the adapter weights directly: do/adapter add <name> --weights s3://..."
                 ;;
         esac
 
@@ -137,7 +142,7 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
             --help|-h|"")
                 echo "Usage: ./do/adapter <command> [options]"
                 echo ""
-                echo "HyperPod commands (DEPLOYMENT_TARGET=hyperpod-eks):"
+                echo "Kubernetes commands (DEPLOYMENT_TARGET=hyperpod-eks or eks):"
                 echo "  add <name> --weights s3://...      Hot-load a LoRA adapter into vLLM"
                 echo "  remove <name>                      Unload a LoRA adapter from vLLM"
                 echo "  list                               List loaded LoRA adapters"

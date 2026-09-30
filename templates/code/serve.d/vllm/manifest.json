@@ -1,14 +1,16 @@
 {
   "engine": "vllm",
   "env_var_prefix": "VLLM_",
-  "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "ngram", "mtp"],
+  "speculative_decoding": true,
+  "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "ngram", "mtp", "dspark"],
   "algorithm_map": {
     "eagle3": "eagle3",
     "eagle2": "eagle2",
     "eagle": "eagle",
     "draft-model": "draft_model",
     "ngram": "ngram",
-    "mtp": "mtp"
+    "mtp": "mtp",
+    "dspark": "dspark"
   },
   "hot_reload": true,
   "metrics_endpoint": {

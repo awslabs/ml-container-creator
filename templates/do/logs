@@ -515,7 +515,9 @@ case "${EFFECTIVE_TARGET}" in
     async-inference)
         _logs_async_inference "$@"
         ;;
-    hyperpod-eks)
+    hyperpod-eks|eks)
+        # eks (plain EKS, ADR-008) serves the same k8s pods (app=${PROJECT_NAME}
+        # in HP_NAMESPACE) as hyperpod-eks, so it reuses the same kubectl log tail.
         _logs_hyperpod_eks "$@"
         ;;
     batch-transform)
@@ -528,6 +530,7 @@ case "${EFFECTIVE_TARGET}" in
         echo "     ./do/logs --target realtime-inference"
         echo "     ./do/logs --target async-inference"
         echo "     ./do/logs --target hyperpod-eks"
+        echo "     ./do/logs --target eks"
         echo "     ./do/logs --target batch-transform"
         exit 1
         ;;

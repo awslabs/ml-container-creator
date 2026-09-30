@@ -32,10 +32,12 @@ ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-con
 HELPER_SCRIPT="${SCRIPT_DIR}/.tune_helper.py"
 
 # CORE_BUCKET is the mlcc-core bucket (e.g. mlcc-core-<account>-<region>). It is
-# recorded in the active profile as codebuildSourceS3Bucket. Datasets registered
+# recorded in the active profile as coreS3Bucket. Datasets registered
 # via do/register are moved to the canonical location:
 #   s3://<CORE_BUCKET>/datasets/<name>/
-CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-${_PROFILE_codebuildSourceS3Bucket:-}}}"
+# Prefer coreS3Bucket (the mlcc-core bucket); fall back to modelsS3Bucket; never use
+# the CodeBuild source bucket which is scoped to CI build artifacts, not shared data.
+CORE_BUCKET="${CORE_BUCKET:-${_PROFILE_coreS3Bucket:-${_PROFILE_modelsS3Bucket:-${CODEBUILD_SOURCE_S3_BUCKET:-}}}}"
 
 # Resolve INSTANCE_TYPE for heterogeneous pool endpoints (may be empty from config,
 # filled by do/deploy after InService resolution)
@@ -77,11 +79,12 @@ _show_usage() {
     echo ""
     echo "  Shared options:"
     echo "  <name>              Dataset name (required, positional)"
-    echo "  --technique <tech>  Technique: sft, dpo, rlaif, rlvr (default: sft)"
+    echo "  --technique <tech>  Technique: sft, dpo, rlaif, rlvr, benchmark (default: benchmark)"
     echo "  --row-count <n>     Number of records (with --hf-id, passed to staging as --take)"
     echo "  --format <fmt>      Format: jsonl, parquet, csv (default: jsonl)"
     echo "  --column-schema <j> Column schema as JSON string"
     echo "  --hf-split <split>  (--hf-id only) Dataset split to stage (default: train)"
+    echo "  --hf-files <pat>    (--hf-id only) File pattern selector (e.g. 'train-00*.parquet')"
     echo "  --column-map <map>  (--hf-id only) Rename columns (e.g., prompt=question,completion=answer)"
     echo "  --force             Overwrite / register a new version even if already registered"
     echo ""
@@ -168,9 +171,10 @@ DATASET_HF_ID=""
 DATASET_HF_SPLIT=""
 DATASET_COLUMN_MAP=""
 DATASET_FORMAT="jsonl"
-DATASET_TECHNIQUE="sft"
+DATASET_TECHNIQUE="benchmark"
 DATASET_ROW_COUNT=""
 DATASET_COLUMN_SCHEMA=""
+DATASET_HF_FILES=""
 DATASET_FORCE=false
 DATASET_ATTRIBUTION=""
 DATASET_LINEAGE=""
@@ -217,6 +221,8 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
             --hf-id=*)      DATASET_HF_ID="${1#*=}"; shift ;;
             --hf-split)     DATASET_HF_SPLIT="$2"; shift 2 ;;
             --hf-split=*)   DATASET_HF_SPLIT="${1#*=}"; shift ;;
+            --hf-files)     DATASET_HF_FILES="$2"; shift 2 ;;
+            --hf-files=*)   DATASET_HF_FILES="${1#*=}"; shift ;;
             --column-map)   DATASET_COLUMN_MAP="$2"; shift 2 ;;
             --column-map=*) DATASET_COLUMN_MAP="${1#*=}"; shift ;;
             --format)       DATASET_FORMAT="$2"; shift 2 ;;
@@ -434,7 +440,7 @@ if rec:
         if [ -n "${_ds_json}" ]; then
             printf "  %-24s %-10s %-10s %-8s %s\n" "NAME" "TECHNIQUE" "LATEST" "ROWS" "S3 URI"
             printf "  %-24s %-10s %-10s %-8s %s\n" "----" "---------" "------" "----" "------"
-            _count=$(echo "${_ds_json}" | python3 -c "
+            echo "${_ds_json}" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 rows = data.get('local', [])
@@ -449,7 +455,7 @@ for ds in rows:
     uri = ds.get('s3_uri','')
     print(f'  {name:<24} {tech:<10} {latest:<10} {r:<8} {uri}')
 print(len(rows), file=sys.stderr)
-" 2>/dev/null) || _count=0
+" 2>/dev/null
             _local_count=$(echo "${_ds_json}" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('local',[])))" 2>/dev/null) || _local_count=0
             if [ "${_local_count}" = "0" ]; then
                 echo "  (none)"
@@ -498,7 +504,7 @@ print(len(rows), file=sys.stderr)
 
         # Fill in from persisted tune state (don't override explicit flags)
         [ -z "${DATASET_S3_URI}" ] && DATASET_S3_URI="${_resolve_s3_uri}"
-        [ "${DATASET_TECHNIQUE}" = "sft" ] && DATASET_TECHNIQUE="${_resolve_technique:-sft}"
+        [ "${DATASET_TECHNIQUE}" = "benchmark" ] && DATASET_TECHNIQUE="${_resolve_technique:-sft}"
         [ -z "${DATASET_ROW_COUNT}" ] && DATASET_ROW_COUNT="${_resolve_row_count}"
 
         # Derive name from source if not provided
@@ -763,10 +769,10 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
 
     # Validate technique
     case "${DATASET_TECHNIQUE}" in
-        sft|dpo|rlaif|rlvr) ;;
+        sft|dpo|rlaif|rlvr|benchmark) ;;
         *)
             echo "❌ Invalid technique: ${DATASET_TECHNIQUE}"
-            echo "   Valid values: sft, dpo, rlaif, rlvr"
+            echo "   Valid values: sft, dpo, rlaif, rlvr, benchmark"
             exit 1
             ;;
     esac
@@ -860,6 +866,12 @@ if [ "${SUBCOMMAND}" = "dataset" ]; then
         )
         if [ -n "${DATASET_HF_SPLIT}" ]; then
             stage_args+=(--hf-split "${DATASET_HF_SPLIT}")
+        fi
+        # BL121: --hf-files selects specific files within the HF repo. Passed to
+        # the stage-hf helper as --hf-file (glob or substring pattern), which
+        # feeds load_dataset(data_files=pattern).
+        if [ -n "${DATASET_HF_FILES}" ]; then
+            stage_args+=(--hf-file "${DATASET_HF_FILES}")
         fi
         if [ -n "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}" ]; then
             stage_args+=(--hf-secret-name "${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}")

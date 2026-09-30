@@ -193,6 +193,7 @@ def _run_dry_run(
         env=env,
         timeout=timeout,
         cwd=config_dir,
+        stdin=subprocess.DEVNULL,  # deterministically non-interactive (no TTY)
     )
 
 
@@ -263,7 +264,7 @@ class TestDryRunCP4:
             'export INSTANCE_TYPE="ml.g6.xlarge"',
             'export ASYNC_S3_OUTPUT_PATH="s3://bucket/async-output/"',
             'export ASYNC_SNS_TOPIC="arn:aws:sns:us-east-1:123:topic"',
-            'export ASYNC_MAX_CONCURRENT="3"',
+            'export ASYNC_MAX_CONCURRENT_INVOCATIONS="3"',
             'export MODEL_NAME="meta-llama/Llama-2-7b-hf"',
             'export PROJECT_NAME="test-project"',
             # Pre-set status var to prevent backfill calling AWS
@@ -514,7 +515,7 @@ class TestDryRunCP4:
                 'export INSTANCE_TYPE="ml.g6.xlarge"',
                 'export ASYNC_S3_OUTPUT_PATH="s3://bucket/out/"',
                 'export ASYNC_SNS_TOPIC=""',
-                'export ASYNC_MAX_CONCURRENT="1"',
+                'export ASYNC_MAX_CONCURRENT_INVOCATIONS="1"',
                 'export MODEL_NAME="test-model"',
                 'export PROJECT_NAME="test-project"',
                 'export DEPLOYMENT_TARGET_ASYNC_STATUS="InService"',

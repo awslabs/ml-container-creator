@@ -24,6 +24,7 @@ import {
     StaticCatalogResolver
 } from '../../servers/base-image-picker/index.js';
 import { PROPERTY_CONFIG } from '../helpers/property-config.js';
+import { VALUES, NON_TRANSFORMER_FRAMEWORKS } from '../helpers/arbitraries.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -65,10 +66,14 @@ async function buildExpectedOutput(snapshotResolver, context, limit) {
 
 // ── Generators ───────────────────────────────────────────────────────────────
 
+// serve.d ENGINE names for base-image routing — a DIFFERENT set from the schema
+// `modelServer` enum (flask/fastapi/vllm/sglang). Kept local by design; see the
+// note in test/helpers/arbitraries.js. Do NOT replace with VALUES.modelServer.
 const MODEL_SERVERS = ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl'];
-const NON_TRANSFORMER_FRAMEWORKS = ['sklearn', 'xgboost', 'tensorflow'];
-// All frameworks (used by arbAnyContext below)
-const ALL_FRAMEWORKS = ['transformers', ...NON_TRANSFORMER_FRAMEWORKS]; // eslint-disable-line no-unused-vars
+// Framework lists sourced from the schema via the shared helper (single source
+// of truth). NON_TRANSFORMER_FRAMEWORKS is imported; ALL_FRAMEWORKS mirrors the
+// full schema `framework` enum.
+const ALL_FRAMEWORKS = VALUES.framework; // eslint-disable-line no-unused-vars
 
 /**
  * Generate a random context object representing a transformer framework

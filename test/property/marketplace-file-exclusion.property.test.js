@@ -19,9 +19,11 @@
 import fc from 'fast-check';
 import { describe, it, afterEach } from 'mocha';
 import { runGenerator } from '../helpers/run-generator.js';
-import { NUM_RUNS } from '../helpers/property-config.js';
+import { GEN_NUM_RUNS } from '../helpers/property-config.js';
 
-const PROPERTY_CONFIG = { numRuns: NUM_RUNS, timeout: 30000, seed: 42, verbose: false };
+// Generation-heavy property test: use the capped GEN_NUM_RUNS profile
+// (see docs/dev/test-inventory.md R3). Seed retained for reproducibility.
+const PROPERTY_CONFIG = { numRuns: GEN_NUM_RUNS, timeout: 120000, seed: 42, verbose: false };
 
 // Mocha timeout must be longer than fast-check's interruptAfterTimeLimit
 // to allow fast-check to complete gracefully

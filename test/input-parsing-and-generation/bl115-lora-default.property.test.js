@@ -175,7 +175,11 @@ describe('BL115 — do/config enables LoRA by default (Req 2)', () => {
 });
 
 // ── Requirement 3 / Property 2 (CRD) ──────────────────────────────────────────
-describe('BL115 — CRD worker env enables LoRA by default (Req 3, 7.2)', () => {
+// BL127: The CRD now emits the VLLM_ENABLE_LORA placeholder line unconditionally
+// at generate time so deploy-time envsubst (driven by HP_LORA_ENABLED in
+// do/config) can control LoRA without an image rebuild or regenerate. The
+// generate-time HP_LORA_ENABLED value no longer gates whether the line exists.
+describe('BL115 — CRD worker env carries the LoRA placeholder (Req 3, 7.2; BL127)', () => {
     const crdTpl = readTpl('templates/hyperpod/InferenceEndpointConfig.yaml.ejs');
     const renderCrd = (extra = {}) => ejs.render(crdTpl, {
         projectName: 'test-project',
@@ -187,24 +191,30 @@ describe('BL115 — CRD worker env enables LoRA by default (Req 3, 7.2)', () => 
         ...extra
     });
 
-    it('emits VLLM_ENABLE_LORA=true when HP_LORA_ENABLED === "true" (Req 3.1)', () => {
+    it('always emits the VLLM_ENABLE_LORA envsubst placeholder (BL127)', () => {
         const out = renderCrd({ HP_LORA_ENABLED: 'true' });
         assert.match(out, /name:\s*VLLM_ENABLE_LORA/);
-        assert.match(out, /value:\s*"true"/);
+        assert.match(out, /value:\s*"\$\{VLLM_ENABLE_LORA:-\}"/);
     });
 
-    it('omits the VLLM_ENABLE_LORA entry when opted out / undefined (Req 7.2)', () => {
-        assert.doesNotMatch(renderCrd({ HP_LORA_ENABLED: 'false' }), /name:\s*VLLM_ENABLE_LORA/);
-        assert.doesNotMatch(renderCrd({}), /name:\s*VLLM_ENABLE_LORA/);
+    it('emits the placeholder regardless of generate-time HP_LORA_ENABLED (BL127)', () => {
+        // Present when opted out or undefined at generate time — the value is a
+        // shell placeholder, filled by envsubst at deploy time, not a literal.
+        assert.match(renderCrd({ HP_LORA_ENABLED: 'false' }), /name:\s*VLLM_ENABLE_LORA/);
+        assert.match(renderCrd({}), /name:\s*VLLM_ENABLE_LORA/);
+        assert.match(renderCrd({ HP_LORA_ENABLED: 'false' }), /value:\s*"\$\{VLLM_ENABLE_LORA:-\}"/);
     });
 
-    // Feature: v18-w4-04-bl115, Property 2: LoRA resolves on-by-default via the target's switch
-    it('Property 2: CRD VLLM_ENABLE_LORA entry present iff HP_LORA_ENABLED === "true"', () => {
+    // Feature: v18-w4-04-bl115, Property 2 (BL127-updated): the placeholder line
+    // is always present and never a hardcoded literal, for any generate-time value.
+    it('Property 2: CRD always carries the VLLM_ENABLE_LORA placeholder, never a literal', () => {
         fc.assert(
             fc.property(fc.constantFrom('true', 'false', '', 'True', '1'), (val) => {
                 const out = renderCrd({ HP_LORA_ENABLED: val });
-                const present = /name:\s*VLLM_ENABLE_LORA/.test(out);
-                assert.strictEqual(present, val === 'true');
+                assert.match(out, /name:\s*VLLM_ENABLE_LORA/);
+                assert.match(out, /value:\s*"\$\{VLLM_ENABLE_LORA:-\}"/);
+                // Never emit a baked-in literal "true" for this env var.
+                assert.doesNotMatch(out, /name:\s*VLLM_ENABLE_LORA\s*\n\s*value:\s*"true"/);
             }),
             PROPERTY_CONFIG_EJS
         );
@@ -377,9 +387,12 @@ describe('BL115 — opt-out preserved (Req 7)', () => {
         assert.match(out, /HP_LORA_ENABLED="\$\{HP_LORA_ENABLED:-true\}"/);
     });
 
-    it('deploy.d/hyperpod-eks maps HP_LORA_ENABLED=false → empty VLLM_ENABLE_LORA', () => {
+    it('deploy.d/hyperpod-eks maps HP_LORA_ENABLED=false → VLLM_ENABLE_LORA="false" (BL127)', () => {
+        // Must be the literal "false", not empty: the serve wrapper only skips
+        // forwarding --enable-lora when the value is exactly "false".
         const hp = readTpl('templates/do/deploy.d/hyperpod-eks');
         assert.match(hp, /HP_LORA_ENABLED:-false/);
-        assert.match(hp, /export VLLM_ENABLE_LORA=""/);
+        assert.match(hp, /export VLLM_ENABLE_LORA="false"/);
+        assert.doesNotMatch(hp, /export VLLM_ENABLE_LORA=""/);
     });
 });

@@ -31,6 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 _require_python_env
 source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
 source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/staged-assets.sh"
 
@@ -390,11 +391,7 @@ if ! command -v aws &>/dev/null; then
 fi
 
 # Validate AWS credentials
-if ! aws sts get-caller-identity &>/dev/null; then
-    echo "❌ AWS credentials not configured or expired."
-    echo "   Run: aws configure"
-    exit 4
-fi
+_aws_preflight
 
 # ── Resolve HuggingFace token (for gated models) ─────────────────────────────
 # Single source of truth: Secrets Manager ARN via project do/config or bootstrap profile.

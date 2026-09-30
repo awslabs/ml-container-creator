@@ -1,9 +1,23 @@
 /**
- * Configuration Manager
- * 
- * Orchestrates configuration loading, matching, and merging for the multi-registry system.
- * Handles framework configurations, model-specific overrides, and HuggingFace API integration.
- * 
+ * RegistryConfigManager — the registry/framework-matching subsystem.
+ *
+ * PATTERN: Subsystem orchestrator (facade over the registry stack).
+ *   NOTE ON NAMING (ADR-005): this is NOT the CLI parameter-precedence engine.
+ *   That is `ConfigManager` in src/lib/config-manager.js, which merges CLI flags
+ *   / env / config files / MCP into an answers object. This class
+ *   (RegistryConfigManager, formerly the confusingly-named ConfigurationManager)
+ *   loads and matches the framework/model/instance REGISTRIES and enriches
+ *   generation with framework configs, model overrides, and HF metadata.
+ * COLLABORATORS: composes RegistryLoader, ConfigurationMatcher, ValidationEngine,
+ *   HuggingFaceClient; instantiated in src/app.js run() as `registryConfigManager`
+ *   and passed to PromptRunner / writeProject for env-var validation + enrichment.
+ *   Accelerator + env-var results are normalised into Findings and rebuilt into
+ *   their legacy shapes via validation-adapters.js (the one adapter boundary,
+ *   ADR-006), so this subsystem speaks the unified validation vocabulary.
+ * DATA-FLOW ROLE: loads registries, matches a config against them, and validates
+ *   / enriches environment variables at generation time.
+ * See: docs/architecture/command-handlers.md, docs/adr/ADR-005-command-handler-contract.md
+ *
  * Requirements: 1.7, 2.1, 2.2, 2.3, 2.4, 4.1, 4.2, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8
  */
 
@@ -11,8 +25,14 @@ import RegistryLoader from './registry-loader.js';
 import ConfigurationMatcher from './configuration-matcher.js';
 import ValidationEngine from './validation-engine.js';
 import HuggingFaceClient from './huggingface-client.js';
+import {
+    acceleratorFinding,
+    toAcceleratorResult,
+    envVarFinding,
+    toEnvVarResult
+} from './validation-adapters.js';
 
-export default class ConfigurationManager {
+export default class RegistryConfigManager {
     constructor(options = {}) {
         this.registryLoader = new RegistryLoader();
         this.validationEngine = new ValidationEngine();
@@ -232,24 +252,31 @@ export default class ConfigurationManager {
         const instanceConfig = this.instanceMapping[instanceType];
         
         if (!instanceConfig) {
-            return {
+            // Route even the early-out through the unified vocabulary: build a
+            // Finding, then rebuild the legacy shape via the adapter (ADR-006).
+            return toAcceleratorResult([acceleratorFinding({
                 compatible: true,
                 warning: `No accelerator data for ${instanceType}. Proceeding with best-effort validation.`
-            };
+            })]);
         }
         
         // Validate accelerator compatibility
         if (!frameworkConfig?.accelerator) {
-            return {
+            return toAcceleratorResult([acceleratorFinding({
                 compatible: true,
                 info: 'No accelerator requirements specified for framework.'
-            };
+            })]);
         }
         
-        const validation = this.validationEngine.validateAcceleratorCompatibility(
+        // The accelerator engine still speaks the legacy result shape; normalise
+        // it into a Finding so this subsystem speaks the unified vocabulary
+        // internally, then rebuild the caller's shape at the adapter boundary.
+        const engineResult = this.validationEngine.validateAcceleratorCompatibility(
             frameworkConfig,
             instanceConfig
         );
+        const finding = acceleratorFinding(engineResult);
+        const validation = toAcceleratorResult(finding ? [finding] : []);
         
         // Add recommendations if incompatible
         if (!validation.compatible && frameworkConfig.accelerator) {
@@ -276,7 +303,7 @@ export default class ConfigurationManager {
      * Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8
      */
     validateEnvironmentVariables(envVars, frameworkConfig) {
-        return this.validationEngine.validateEnvironmentVariables(
+        const engineResult = this.validationEngine.validateEnvironmentVariables(
             envVars,
             frameworkConfig,
             {
@@ -286,6 +313,16 @@ export default class ConfigurationManager {
                 useDockerIntrospection: false
             }
         );
+
+        // Normalise the engine's per-variable errors/warnings into Findings, then
+        // rebuild the caller's { errors, warnings, strategiesUsed } shape at the
+        // adapter boundary — the one place a legacy shape is constructed (ADR-006).
+        const strategiesUsed = engineResult.strategiesUsed || [];
+        const findings = [
+            ...(engineResult.errors || []).map(e => envVarFinding(e, 'error', strategiesUsed[0] || '')),
+            ...(engineResult.warnings || []).map(w => envVarFinding(w, 'warning', strategiesUsed[0] || ''))
+        ];
+        return toEnvVarResult(findings, strategiesUsed);
     }
     
     /**

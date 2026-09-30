@@ -26,20 +26,19 @@ _require_python_env
 source "${SCRIPT_DIR}/config"
 
 # ── HyperPod guard: IC is a SageMaker managed inference concept ───────────────
+# Distinct guidance from the generic case, so kept as an explicit branch; uses
+# _contract_violation for the standard contract-violation format + exit 3.
 if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
-    echo "❌ do/add-ic is not supported on HyperPod."
-    echo "   Inference Components are a SageMaker managed inference concept."
-    echo "   To load an adapter on HyperPod, use: do/adapter --load-lora"
-    exit 1
+    _contract_violation "target" \
+        "do/add-ic is not supported on HyperPod. Inference Components are a SageMaker managed inference concept." \
+        "To load an adapter on HyperPod, use: do/adapter --load-lora"
 fi
 
 # ── Async/Batch guard: ICs require real-time endpoints ────────────────────────
-if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
-    echo "❌ do/add-ic is not supported on ${DEPLOYMENT_TARGET}."
-    echo "   Inference Components require a real-time (managed-inference) endpoint."
-    echo "   Switch target: do/deploy --target managed-inference"
-    exit 1
-fi
+# Everything except real-time inference is unsupported; _restrict_targets emits
+# the standard violation (exit 3) for any other target.
+_restrict_targets "realtime-inference" \
+    "Inference Components require a real-time (managed-inference) endpoint."
 
 # ============================================================
 # Usage

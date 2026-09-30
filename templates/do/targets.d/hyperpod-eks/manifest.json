@@ -1,0 +1,36 @@
+{
+  "target": "hyperpod-eks",
+  "aliases": ["hyperpod"],
+  "status_var": "DEPLOYMENT_TARGET_HP_STATUS",
+  "answer_key": "deploymentTargetHpStatus",
+  "success_status": "Running",
+  "family": "kubernetes",
+  "deploy_script": "deploy.d/hyperpod-eks",
+  "clean_script": "clean.d/hyperpod-eks",
+  "required_vars": ["INSTANCE_TYPE", "HP_CLUSTER_NAME"],
+  "optional_vars": {
+    "HP_GPU_COUNT": "auto",
+    "HP_NAMESPACE": "default",
+    "HP_REPLICAS": "1",
+    "HP_QUEUE": "",
+    "HP_INSTANCE_GROUP_NAME": ""
+  },
+  "runtime_owned_vars": [
+    "DEPLOYMENT_TARGET_HP_STATUS",
+    "HP_CLUSTER_NAME",
+    "HP_NAMESPACE",
+    "HP_INSTANCE_TYPE",
+    "HP_GPU_COUNT",
+    "HP_CPU_REQUEST",
+    "HP_MEM_REQUEST",
+    "KUBECONFIG"
+  ],
+  "serving_config_source": "kubernetes",
+  "verbs": {
+    "optimize": true,
+    "add-ic": false,
+    "ci": false,
+    "adapter": true,
+    "draft": true
+  }
+}

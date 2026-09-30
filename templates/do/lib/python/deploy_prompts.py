@@ -159,7 +159,7 @@ PROMPT_MESSAGES: dict[str, str] = {
     "HP_QUEUE": "Kueue queue name",
     "ASYNC_S3_OUTPUT_PATH": "S3 output path",
     "ASYNC_SNS_TOPIC": "SNS topic ARN (optional, press Enter to skip)",
-    "ASYNC_MAX_CONCURRENT": "Max concurrent invocations",
+    "ASYNC_MAX_CONCURRENT_INVOCATIONS": "Max concurrent invocations",
     "BATCH_INPUT_PATH": "S3 input path",
     "BATCH_OUTPUT_PATH": "S3 output path",
     "BATCH_SPLIT_TYPE": "Split type",
@@ -325,7 +325,7 @@ _ANSWER_KEY_TO_VAR: dict[str, str] = {
     "hp_instance_group_name": "HP_INSTANCE_GROUP_NAME",
     "async_output_path": "ASYNC_S3_OUTPUT_PATH",
     "async_sns_topic": "ASYNC_SNS_TOPIC",
-    "async_max_concurrent": "ASYNC_MAX_CONCURRENT",
+    "async_max_concurrent": "ASYNC_MAX_CONCURRENT_INVOCATIONS",
     "batch_input_path": "BATCH_INPUT_PATH",
     "batch_output_path": "BATCH_OUTPUT_PATH",
     "batch_split_type": "BATCH_SPLIT_TYPE",
@@ -1187,6 +1187,18 @@ def prompt_for_missing(
             answers[var_name] = env_answers[var_name]
             continue
 
+        # Non-interactive fallback: when stdin is not a TTY we cannot show any
+        # prompt. Reached in --answers-file / DEPLOY_ANSWERS / all-flags mode for a
+        # var the caller didn't supply (a required var with no answer, or an
+        # optional var like HP_GPU_COUNT / HP_INSTANCE_GROUP_NAME that is normally
+        # resolved by an interactive prompt or a side effect). Use the schema
+        # default instead of driving prompt_toolkit against a closed stdin. This
+        # MUST precede the dedicated per-var prompt branches below, which are all
+        # interactive.
+        if not sys.stdin.isatty():
+            answers[var_name] = default if default is not None else ""
+            continue
+
         # Use MCP-aware prompt for INSTANCE_TYPE
         if var_name == "INSTANCE_TYPE" and config_vars is not None:
             if target == "hyperpod-eks":
@@ -1277,7 +1289,8 @@ def prompt_for_missing(
                 answers[var_name] = single_type
                 continue
 
-        # Interactive prompt
+        # Interactive prompt (only reachable when stdin is a TTY — see the
+        # non-interactive fallback above).
         answers[var_name] = prompt_for_var(var_name, default)
 
     return answers

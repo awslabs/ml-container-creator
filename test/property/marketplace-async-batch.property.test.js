@@ -14,11 +14,12 @@
 import { describe, it } from 'mocha';
 import fc from 'fast-check';
 import { runGenerator } from '../helpers/run-generator.js';
-import { NUM_RUNS } from '../helpers/property-config.js';
+import { GEN_NUM_RUNS } from '../helpers/property-config.js';
 
 // Subprocess-heavy tests: cap iterations to avoid timeout on slower machines.
 // Input domain: 3 instances × 2 regions = 6 combos — 30 runs gives full coverage.
-const SUBPROCESS_RUNS = Math.min(NUM_RUNS, 30);
+// Generation-heavy: capped via GEN_NUM_RUNS (see docs/dev/test-inventory.md R3).
+const SUBPROCESS_RUNS = GEN_NUM_RUNS;
 
 // ── Arbitraries ──────────────────────────────────────────────────────────────
 

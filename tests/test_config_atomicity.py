@@ -38,7 +38,7 @@ _persist_deploy_vars() {{
         DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY
         IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
         HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH
-        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH
+        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH
         BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT
     )
 
@@ -96,7 +96,7 @@ _persist_deploy_vars_non_atomic() {{
         DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY
         IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
         HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH
-        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH
+        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH
         BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT
     )
     for var in "${{vars[@]}}"; do
@@ -131,7 +131,7 @@ _persist_deploy_vars_with_crash() {{
         DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY
         IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
         HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH
-        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH
+        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH
         BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT
     )
 
@@ -199,7 +199,7 @@ _persist_deploy_vars_non_atomic_with_crash() {{
         DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY
         IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
         HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH
-        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH
+        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH
         BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT
     )
     local count=0
@@ -385,7 +385,7 @@ def test_crash_mid_atomic_persist_leaves_config_intact():
             'export DEPLOYMENT_TARGET="async-inference"\n'
             'export INSTANCE_TYPE="ml.g5.xlarge"\n'
             'export ASYNC_S3_OUTPUT_PATH="s3://bucket/output/"\n'
-            'export ASYNC_MAX_CONCURRENT="3"\n'
+            'export ASYNC_MAX_CONCURRENT_INVOCATIONS="3"\n'
         )
         with open(config_path, "w") as f:
             f.write(initial)
@@ -526,7 +526,7 @@ def test_successful_atomic_persist_with_s3_paths():
             'export INSTANCE_TYPE="ml.g5.2xlarge"\n'
             'export ASYNC_S3_OUTPUT_PATH="s3://my-bucket/async/output/path/"\n'
             'export ASYNC_SNS_TOPIC="arn:aws:sns:us-east-1:123456789:my-topic"\n'
-            'export ASYNC_MAX_CONCURRENT="5"\n'
+            'export ASYNC_MAX_CONCURRENT_INVOCATIONS="5"\n'
         )
         script = _ATOMIC_SCRIPT.format(tmpdir=tmpdir, exports=exports)
         rc, _ = _run_script(script)
@@ -535,7 +535,7 @@ def test_successful_atomic_persist_with_s3_paths():
         config = _read_config(tmpdir)
         assert 'export ASYNC_S3_OUTPUT_PATH="s3://my-bucket/async/output/path/"' in config
         assert 'export ASYNC_SNS_TOPIC="arn:aws:sns:us-east-1:123456789:my-topic"' in config
-        assert 'export ASYNC_MAX_CONCURRENT="5"' in config
+        assert 'export ASYNC_MAX_CONCURRENT_INVOCATIONS="5"' in config
 
 
 def test_signal_interrupt_during_atomic_persist():

@@ -1,0 +1,25 @@
+{
+  "target": "realtime-inference",
+  "aliases": ["managed-inference", "realtime"],
+  "status_var": "DEPLOYMENT_TARGET_SMAI_STATUS",
+  "answer_key": "deploymentTargetSmaiStatus",
+  "success_status": "InService",
+  "family": "sagemaker-endpoint",
+  "deploy_script": "deploy.d/realtime-inference",
+  "clean_script": "clean.d/realtime-inference",
+  "required_vars": ["INSTANCE_TYPE", "ENDPOINT_NAME"],
+  "optional_vars": {
+    "ENDPOINT_STRATEGY": "new",
+    "IC_GPU_COUNT": "auto",
+    "INSTANCE_TYPES": ""
+  },
+  "runtime_owned_vars": ["DEPLOYMENT_TARGET_SMAI_STATUS"],
+  "serving_config_source": "sagemaker-ic",
+  "verbs": {
+    "optimize": true,
+    "add-ic": true,
+    "ci": true,
+    "adapter": true,
+    "draft": false
+  }
+}

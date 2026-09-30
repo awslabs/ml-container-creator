@@ -4,6 +4,14 @@
 /**
  * DynamicResolver — abstract base class for all dynamic data resolvers.
  *
+ * PATTERN: Abstract base class (Template Method) for dynamic resolvers.
+ * COLLABORATORS: subclassed by server resolvers (model-picker ModelResolver,
+ *   base-image-picker DynamicResolver, endpoint-picker EndpointResolver,
+ *   hyperpod-cluster-picker ClusterResolver).
+ * DATA-FLOW ROLE: defines the resolver contract — fetch(key) returns
+ *   { items, defaultItem }; supportedKeys() declares which keys a resolver serves.
+ * See: docs/architecture/mcp-servers.md
+ *
  * Subclasses implement `fetch()` to retrieve data from an external source
  * (registry API, AWS API, etc.) and `supportedKeys()` to declare which
  * identifiers they handle.

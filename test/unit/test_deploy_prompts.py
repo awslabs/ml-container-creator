@@ -10,6 +10,8 @@ import tempfile
 
 import pytest
 
+import sys
+
 from deploy_prompts import (
     TARGETS,
     _ANSWER_KEY_TO_VAR,
@@ -37,6 +39,18 @@ from deploy_prompts import (
     prompt_target_selection,
     validate_instance_types,
 )
+
+
+@pytest.fixture(autouse=True)
+def _force_tty(monkeypatch):
+    """These tests exercise the INTERACTIVE prompt-routing in prompt_for_missing
+    by mocking questionary. prompt_for_missing() falls back to schema defaults
+    without prompting when stdin is not a TTY (the non-interactive guard). Under
+    pytest stdin is not a TTY, so force isatty()->True to keep the interactive
+    path (the thing under test) live. Tests that specifically cover the
+    non-interactive fallback opt out by re-patching isatty()->False locally.
+    """
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -2572,7 +2586,7 @@ class TestPromptForMissingWithAsyncFlow:
         assert "SNS topic ARN (optional, press Enter to skip):" in captured_kwargs["message"]
 
     def test_async_max_concurrent_works_with_generic_prompt_default_1(self, monkeypatch) -> None:
-        """ASYNC_MAX_CONCURRENT works with generic prompt — default is 1."""
+        """ASYNC_MAX_CONCURRENT_INVOCATIONS works with generic prompt — default is 1."""
         captured_kwargs: dict = {}
 
         class FakeQuestion:
@@ -2586,10 +2600,10 @@ class TestPromptForMissingWithAsyncFlow:
 
         monkeypatch.setattr("questionary.text", fake_text)
 
-        missing = {"ASYNC_MAX_CONCURRENT": "1"}
+        missing = {"ASYNC_MAX_CONCURRENT_INVOCATIONS": "1"}
         result = prompt_for_missing(missing, env_answers=None, config_vars={})
 
-        assert result["ASYNC_MAX_CONCURRENT"] == "1"
+        assert result["ASYNC_MAX_CONCURRENT_INVOCATIONS"] == "1"
         assert "Max concurrent invocations:" in captured_kwargs["message"]
 
     def test_env_answers_bypass_all_async_prompts(self, monkeypatch) -> None:
@@ -2598,13 +2612,13 @@ class TestPromptForMissingWithAsyncFlow:
             "INSTANCE_TYPE": None,
             "ASYNC_S3_OUTPUT_PATH": None,
             "ASYNC_SNS_TOPIC": "",
-            "ASYNC_MAX_CONCURRENT": "1",
+            "ASYNC_MAX_CONCURRENT_INVOCATIONS": "1",
         }
         env_answers = {
             "INSTANCE_TYPE": "ml.g5.xlarge",
             "ASYNC_S3_OUTPUT_PATH": "s3://my-bucket/output/",
             "ASYNC_SNS_TOPIC": "arn:aws:sns:us-east-1:123456:my-topic",
-            "ASYNC_MAX_CONCURRENT": "5",
+            "ASYNC_MAX_CONCURRENT_INVOCATIONS": "5",
         }
 
         result = prompt_for_missing(missing, env_answers=env_answers, config_vars={})
@@ -2612,7 +2626,7 @@ class TestPromptForMissingWithAsyncFlow:
         assert result["INSTANCE_TYPE"] == "ml.g5.xlarge"
         assert result["ASYNC_S3_OUTPUT_PATH"] == "s3://my-bucket/output/"
         assert result["ASYNC_SNS_TOPIC"] == "arn:aws:sns:us-east-1:123456:my-topic"
-        assert result["ASYNC_MAX_CONCURRENT"] == "5"
+        assert result["ASYNC_MAX_CONCURRENT_INVOCATIONS"] == "5"
 
 
 # ---------------------------------------------------------------------------

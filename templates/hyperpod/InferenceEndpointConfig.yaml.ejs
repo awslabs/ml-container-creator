@@ -136,6 +136,15 @@ spec:
         value: "${VLLM_SPECULATIVE_MODEL}"
       - name: VLLM_SPECULATIVE_NUM_TOKENS
         value: "${VLLM_SPECULATIVE_NUM_TOKENS}"
+      # DSpark (Kimi-K3) sample-method knobs. Emitted unconditionally with the
+      # ${VAR:-} empty-default placeholder (like VLLM_ENABLE_LORA, BL127) so
+      # envsubst can fill them at deploy time without an image rebuild. Non-dspark
+      # algorithms leave them empty and the serve wrapper omits them from the
+      # --speculative-config JSON.
+      - name: VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD
+        value: "${VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD:-}"
+      - name: VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD
+        value: "${VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD:-}"
       - name: SGLANG_SPECULATIVE_ALGORITHM
         value: "${SGLANG_SPECULATIVE_ALGORITHM}"
       - name: SGLANG_SPECULATIVE_DRAFT_MODEL_PATH
@@ -144,10 +153,12 @@ spec:
         value: "${SGLANG_SPECULATIVE_NUM_STEPS}"
       - name: SGLANG_SPECULATIVE_EAGLE_TOPK
         value: "${SGLANG_SPECULATIVE_EAGLE_TOPK}"
-<% if (typeof HP_LORA_ENABLED !== 'undefined' && HP_LORA_ENABLED === 'true') { %>
+      # LoRA is controlled at deploy time via HP_LORA_ENABLED in do/config, which
+      # the deploy driver maps to VLLM_ENABLE_LORA before envsubst (BL127). The
+      # line is emitted unconditionally so the placeholder survives generation and
+      # envsubst can fill it in without an image rebuild or regenerate.
       - name: VLLM_ENABLE_LORA
-        value: "true"
-<% } %>
+        value: "${VLLM_ENABLE_LORA:-}"
 <% if (typeof HP_EFA_ENABLED !== 'undefined' && HP_EFA_ENABLED === 'true') { %>
       - name: NCCL_SOCKET_IFNAME
         value: "eth"

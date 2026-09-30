@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
 # do/deploy — Universal deployment dispatcher.
 #
 # @mlcc-script
@@ -401,13 +404,15 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
 
     # Check for active deployment
     _RECONFIG_STATUS_VAR=""
+    # >>> GENERATED: reconfigure target->status_var (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
     case "$_RECONFIG_TARGET" in
-        realtime-inference|managed-inference) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
-        hyperpod-eks)      _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
-        async-inference)   _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
-        batch-transform)   _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
-        eks)               _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS" ;;
+        realtime-inference|managed-inference|realtime) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
+        async-inference|async) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
+        batch-transform|batch) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        hyperpod-eks|hyperpod) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
+        eks) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS" ;;
     esac
+    # <<< END GENERATED reconfigure
 
     if [ -n "$_RECONFIG_STATUS_VAR" ] && [ -n "${!_RECONFIG_STATUS_VAR:-}" ]; then
         echo "   ⚠️  Active deployment detected (${!_RECONFIG_STATUS_VAR})."
@@ -508,7 +513,7 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
             _update_config "ENDPOINT_NAME" ""
             _update_config "ASYNC_S3_OUTPUT_PATH" ""
             _update_config "ASYNC_SNS_TOPIC" ""
-            _update_config "ASYNC_MAX_CONCURRENT" ""
+            _update_config "ASYNC_MAX_CONCURRENT_INVOCATIONS" ""
             ;;
         batch-transform)
             _update_config "BATCH_INPUT_PATH" ""
@@ -535,14 +540,16 @@ fi
 _NEEDS_HELPER=0
 if [ -n "$FLAG_TARGET" ]; then
     # Map target to its status variable name
+    # >>> GENERATED: switch-or-deploy target->status_var (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
     case "$FLAG_TARGET" in
-        realtime-inference|managed-inference) _STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
-        hyperpod-eks)      _STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
-        async-inference)   _STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
-        batch-transform)   _STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
-        eks)               _STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS" ;;
-        *)                 _STATUS_VAR="" ;;
+        realtime-inference|managed-inference|realtime) _STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
+        async-inference|async) _STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
+        batch-transform|batch) _STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        hyperpod-eks|hyperpod) _STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
+        eks) _STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS" ;;
+        *) _STATUS_VAR="" ;;
     esac
+    # <<< END GENERATED switch-or-deploy
 
     if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ] && ! echo " ${DEPLOY_ARGS[*]:-} " | grep -qw -- "--force"; then
         # Existing deployment — switch focus only (FR-4.4, FR-4.5)
@@ -615,8 +622,33 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
     # Invoke the deploy helper prompt to collect deployment parameters
     _PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
     _HELPER_ERR=$(mktemp "${TMPDIR:-/tmp}/mlcc-deploy-helper-err.XXXXXX")
+    # Forward every user-provided flag to the helper so it does not re-prompt
+    # for a value the caller already supplied (FR-3.1/FR-3.2 non-interactive path).
+    # Empty flags are omitted via ${VAR:+...} so the helper falls back to its
+    # prompt / default only for values that were genuinely not provided.
     MLCC_PROJECT_DIR="${_PROJECT_ROOT}" \
-    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" --project-dir "${_PROJECT_ROOT}" 2>"${_HELPER_ERR}" || {
+    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt \
+        --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" \
+        --project-dir "${_PROJECT_ROOT}" \
+        ${ANSWERS_FILE:+--answers-file "$ANSWERS_FILE"} \
+        ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"} \
+        ${FLAG_ENDPOINT_NAME:+--endpoint-name "$FLAG_ENDPOINT_NAME"} \
+        ${FLAG_ENDPOINT_STRATEGY:+--endpoint-strategy "$FLAG_ENDPOINT_STRATEGY"} \
+        ${FLAG_INSTANCE_TYPES:+--instance-types "$FLAG_INSTANCE_TYPES"} \
+        ${FLAG_GPU_COUNT:+--gpu-count "$FLAG_GPU_COUNT"} \
+        ${FLAG_CLUSTER_NAME:+--cluster-name "$FLAG_CLUSTER_NAME"} \
+        ${FLAG_NAMESPACE:+--namespace "$FLAG_NAMESPACE"} \
+        ${FLAG_REPLICAS:+--replicas "$FLAG_REPLICAS"} \
+        ${FLAG_QUEUE:+--queue "$FLAG_QUEUE"} \
+        ${FLAG_ASYNC_OUTPUT_PATH:+--async-output-path "$FLAG_ASYNC_OUTPUT_PATH"} \
+        ${FLAG_ASYNC_SNS_TOPIC:+--async-sns-topic "$FLAG_ASYNC_SNS_TOPIC"} \
+        ${FLAG_ASYNC_MAX_CONCURRENT:+--async-max-concurrent "$FLAG_ASYNC_MAX_CONCURRENT"} \
+        ${FLAG_BATCH_INPUT_PATH:+--batch-input-path "$FLAG_BATCH_INPUT_PATH"} \
+        ${FLAG_BATCH_OUTPUT_PATH:+--batch-output-path "$FLAG_BATCH_OUTPUT_PATH"} \
+        ${FLAG_BATCH_SPLIT_TYPE:+--batch-split-type "$FLAG_BATCH_SPLIT_TYPE"} \
+        ${FLAG_BATCH_STRATEGY:+--batch-strategy "$FLAG_BATCH_STRATEGY"} \
+        ${FLAG_BATCH_MAX_CONCURRENT:+--batch-max-concurrent "$FLAG_BATCH_MAX_CONCURRENT"} \
+        2>"${_HELPER_ERR}" || {
         _ERR=$(cat "${_HELPER_ERR}" 2>/dev/null)
         rm -f "${_HELPER_ERR}"
         if echo "${_ERR}" | grep -q "No module named 'questionary'"; then
@@ -657,7 +689,23 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
           --config-file "${_ABS_CONFIG}" \
           --output-file "$_DEPLOY_JSON_TMP" \
           --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" \
-          ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"}) || true
+          ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"} \
+          ${FLAG_ENDPOINT_NAME:+--endpoint-name "$FLAG_ENDPOINT_NAME"} \
+          ${FLAG_ENDPOINT_STRATEGY:+--endpoint-strategy "$FLAG_ENDPOINT_STRATEGY"} \
+          ${FLAG_INSTANCE_TYPES:+--instance-types "$FLAG_INSTANCE_TYPES"} \
+          ${FLAG_GPU_COUNT:+--gpu-count "$FLAG_GPU_COUNT"} \
+          ${FLAG_CLUSTER_NAME:+--cluster-name "$FLAG_CLUSTER_NAME"} \
+          ${FLAG_NAMESPACE:+--namespace "$FLAG_NAMESPACE"} \
+          ${FLAG_REPLICAS:+--replicas "$FLAG_REPLICAS"} \
+          ${FLAG_QUEUE:+--queue "$FLAG_QUEUE"} \
+          ${FLAG_ASYNC_OUTPUT_PATH:+--async-output-path "$FLAG_ASYNC_OUTPUT_PATH"} \
+          ${FLAG_ASYNC_SNS_TOPIC:+--async-sns-topic "$FLAG_ASYNC_SNS_TOPIC"} \
+          ${FLAG_ASYNC_MAX_CONCURRENT:+--async-max-concurrent "$FLAG_ASYNC_MAX_CONCURRENT"} \
+          ${FLAG_BATCH_INPUT_PATH:+--batch-input-path "$FLAG_BATCH_INPUT_PATH"} \
+          ${FLAG_BATCH_OUTPUT_PATH:+--batch-output-path "$FLAG_BATCH_OUTPUT_PATH"} \
+          ${FLAG_BATCH_SPLIT_TYPE:+--batch-split-type "$FLAG_BATCH_SPLIT_TYPE"} \
+          ${FLAG_BATCH_STRATEGY:+--batch-strategy "$FLAG_BATCH_STRATEGY"} \
+          ${FLAG_BATCH_MAX_CONCURRENT:+--batch-max-concurrent "$FLAG_BATCH_MAX_CONCURRENT"}) || true
     else
         echo "❌ Deploy interactive mode requires Node.js and @aws/ml-container-creator."
         echo "   Install: npm install -g @aws/ml-container-creator"

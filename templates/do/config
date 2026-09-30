@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
 # do-framework configuration
 # This file is sourced by all do scripts
 # Generated: <%= new Date().toISOString() %>
@@ -57,6 +60,7 @@ export DEPLOYMENT_TARGET=""
 # ── Per-target deployment status (updated by do/deploy on success/failure) ────
 export DEPLOYMENT_TARGET_SMAI_STATUS="<%= typeof deploymentTargetSmaiStatus !== 'undefined' && deploymentTargetSmaiStatus ? deploymentTargetSmaiStatus : '' %>"
 export DEPLOYMENT_TARGET_HP_STATUS="<%= typeof deploymentTargetHpStatus !== 'undefined' && deploymentTargetHpStatus ? deploymentTargetHpStatus : '' %>"
+export DEPLOYMENT_TARGET_EKS_STATUS="<%= typeof deploymentTargetEksStatus !== 'undefined' && deploymentTargetEksStatus ? deploymentTargetEksStatus : '' %>"
 export DEPLOYMENT_TARGET_ASYNC_STATUS="<%= typeof deploymentTargetAsyncStatus !== 'undefined' && deploymentTargetAsyncStatus ? deploymentTargetAsyncStatus : '' %>"
 export DEPLOYMENT_TARGET_BATCH_STATUS="<%= typeof deploymentTargetBatchStatus !== 'undefined' && deploymentTargetBatchStatus ? deploymentTargetBatchStatus : '' %>"
 

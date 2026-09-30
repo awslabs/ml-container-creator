@@ -15,15 +15,22 @@
  * The server reads from the DynamoDB CI table using the bootstrap config
  * for credentials/region. If the table is not provisioned, tools return
  * empty results with a warning.
+ *
+ * PATTERN: MCP server built on the shared createPickerServer factory. Declares
+ *   only its DynamoDB-backed tools and defers the scaffold (logger, main-guard,
+ *   stdio wiring) to the factory. Not a catalog-backed picker; it queries the
+ *   CI table at request time rather than a bundled JSON catalog.
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold); reads the
+ *   DynamoDB CI table via @aws-sdk/client-dynamodb and src/lib/bootstrap-config.js;
+ *   spawned by src/lib/mcp-client.js over stdio.
+ * DATA-FLOW ROLE: query. Given configIds or a tier/limit, returns per-config
+ *   status or grouped run summaries pulled from the CI table.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
+import { createPickerServer } from '../lib/create-picker-server.js';
 
 // ── Bootstrap config loader ──────────────────────────────────────────────────
 
@@ -235,47 +242,55 @@ async function listE2eRuns(options = {}) {
     }
 }
 
+// ── Tool handlers ────────────────────────────────────────────────────────────
+
+async function getE2eStatusHandler({ configIds }) {
+    const result = await getE2eStatus(configIds);
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify(result)
+        }]
+    };
+}
+
+async function listE2eRunsHandler({ tier, limit }) {
+    const result = await listE2eRuns({ tier, limit });
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify(result)
+        }]
+    };
+}
+
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
-const server = new McpServer({
+const picker = createPickerServer({
     name: 'e2e-status',
-    version: '1.0.0'
+    serverDir: import.meta.url,
+    tools: [
+        {
+            name: 'get_e2e_status',
+            description: 'Returns E2E validation status for one or more configIds from the CI table',
+            schema: {
+                configIds: z.array(z.string()).min(1).describe('List of configId values to query status for')
+            },
+            handler: getE2eStatusHandler
+        },
+        {
+            name: 'list_e2e_runs',
+            description: 'Returns recent E2E run summaries with pass/fail counts, optionally filtered by tier',
+            schema: {
+                tier: z.string().optional().describe('Filter by tier (ci, nightly, weekly)'),
+                limit: z.number().int().positive().default(10).describe('Maximum number of runs to return')
+            },
+            handler: listE2eRunsHandler
+        }
+    ]
 });
 
-server.tool(
-    'get_e2e_status',
-    'Returns E2E validation status for one or more configIds from the CI table',
-    {
-        configIds: z.array(z.string()).min(1).describe('List of configId values to query status for')
-    },
-    async ({ configIds }) => {
-        const result = await getE2eStatus(configIds);
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
-
-server.tool(
-    'list_e2e_runs',
-    'Returns recent E2E run summaries with pass/fail counts, optionally filtered by tier',
-    {
-        tier: z.string().optional().describe('Filter by tier (ci, nightly, weekly)'),
-        limit: z.number().int().positive().default(10).describe('Maximum number of runs to return')
-    },
-    async ({ tier, limit }) => {
-        const result = await listE2eRuns({ tier, limit });
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
+const { log } = picker;
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
@@ -288,10 +303,7 @@ export {
 
 // ── Main guard ───────────────────────────────────────────────────────────────
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    process.stderr.write('[e2e-status] Starting E2E status MCP server\n');
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => log('Starting E2E status MCP server')
+});

@@ -1,0 +1,8 @@
+{
+  "engine": "tensorrt-llm",
+  "env_var_prefix": "TRTLLM_",
+  "speculative_decoding": false,
+  "supported_algorithms": [],
+  "algorithm_map": {},
+  "hot_reload": false
+}

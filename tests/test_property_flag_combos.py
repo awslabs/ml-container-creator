@@ -205,7 +205,7 @@ _ANSWER_KEY_TO_SCHEMA_VAR = {
     "queue": "HP_QUEUE",
     "async_output_path": "ASYNC_S3_OUTPUT_PATH",
     "async_sns_topic": "ASYNC_SNS_TOPIC",
-    "async_max_concurrent": "ASYNC_MAX_CONCURRENT",
+    "async_max_concurrent": "ASYNC_MAX_CONCURRENT_INVOCATIONS",
     "batch_input_path": "BATCH_INPUT_PATH",
     "batch_output_path": "BATCH_OUTPUT_PATH",
     "batch_split_type": "BATCH_SPLIT_TYPE",
@@ -289,8 +289,14 @@ def _validate_no_corruption(output: dict, answers: dict) -> None:
 
     For keys present in both the answers and output, the values must match.
     This ensures the prompt engine does not corrupt or mutate user-provided values.
+
+    `target` is exempt: the helper intentionally normalizes target aliases to
+    their canonical name (e.g. managed-inference -> realtime-inference, ADR-008),
+    so a differing `target` is expected normalization, not corruption.
     """
     for key, expected_value in answers.items():
+        if key == "target":
+            continue
         if key in output:
             assert output[key] == expected_value, (
                 f"Value corruption detected for key '{key}': "
@@ -329,9 +335,11 @@ class TestFlagCombosProduceValidConfig:
         )
 
         output = json.loads(result.stdout)
-        assert output["target"] == "managed-inference"
+        # The `managed-inference` alias is accepted on input and normalized to the
+        # canonical `realtime-inference` in the output (alias unification, ADR-008).
+        assert output["target"] == "realtime-inference"
 
-        _validate_output_against_schema(output, "managed-inference")
+        _validate_output_against_schema(output, "realtime-inference")
         _validate_no_corruption(output, answers)
 
     @given(answers=st_hyperpod_eks_answers())

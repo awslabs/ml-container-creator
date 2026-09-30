@@ -16,6 +16,21 @@
  * - Model-aware node group recommendation (VRAM-based)
  * - Kueue/PriorityClass awareness for queue selection
  *
+ * PATTERN: MCP picker server built on the shared createPickerServer factory.
+ *   Declares only its unique pieces — the HyperPod EKS cluster discovery logic,
+ *   the GPU-capacity/model-recommendation enrichment, the ClusterResolver, and
+ *   the get_hyperpod_clusters tool — and lets the factory own the scaffold
+ *   (logger, main-guard, stdio wiring).
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold);
+ *   servers/lib/dynamic-resolver.js (DynamicResolver base); local gpu-capacity.js
+ *   (VRAM/queue helpers); the AWS SDK client-sagemaker (lazy-loaded) and the aws
+ *   CLI fallback; spawned by src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: given { parameters, limit, context, modelName, modelParams },
+ *   returns { values: { hyperPodCluster }, choices: { hyperPodCluster: [...] },
+ *   metadata } for InService HyperPod EKS clusters.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
+ *
  * Tool: get_hyperpod_clusters
  *   Accepts: { parameters: string[], limit: number, context: object, modelName: string, modelParams: number }
  *   Returns: { values: Record<string, string>, choices: Record<string, string[]>, metadata: object }
@@ -24,15 +39,13 @@
  *   AWS_REGION - AWS region for SageMaker API calls (default: us-east-1)
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { execSync } from 'node:child_process';
 import { DynamicResolver } from '../lib/dynamic-resolver.js';
+import { createPickerServer } from '../lib/create-picker-server.js';
 import {
     calculateTotalGpus,
     getAllocatedGpus,
@@ -435,135 +448,134 @@ class ClusterResolver extends DynamicResolver {
     }
 }
 
-// Create MCP server
-const server = new McpServer({
+// Create MCP server via the shared factory
+const picker = createPickerServer({
     name: 'hyperpod-cluster-picker',
-    version: '1.0.0'
+    serverDir: import.meta.url,
+    tools: [{
+        name: 'get_hyperpod_clusters',
+        description: 'Discovers available SageMaker HyperPod EKS clusters for deployment target selection',
+        schema: {
+            parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
+            limit: z.number().int().positive().default(10).describe('Maximum number of choices per parameter'),
+            context: z.record(z.string(), z.any()).optional().describe('Current configuration context (awsRegion, etc.)'),
+            modelName: z.string().optional().describe('Model name for VRAM-based node group recommendation (e.g. meta-llama/Llama-3.2-7B-Instruct)'),
+            modelParams: z.number().optional().describe('Model parameter count in billions for VRAM calculation (e.g. 7 for 7B)')
+        },
+        handler: getHyperPodClustersHandler
+    }]
 });
 
-// Register the get_hyperpod_clusters tool
-server.tool(
-    'get_hyperpod_clusters',
-    'Discovers available SageMaker HyperPod EKS clusters for deployment target selection',
-    {
-        parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
-        limit: z.number().int().positive().default(10).describe('Maximum number of choices per parameter'),
-        context: z.record(z.string(), z.any()).optional().describe('Current configuration context (awsRegion, etc.)'),
-        modelName: z.string().optional().describe('Model name for VRAM-based node group recommendation (e.g. meta-llama/Llama-3.2-7B-Instruct)'),
-        modelParams: z.number().optional().describe('Model parameter count in billions for VRAM calculation (e.g. 7 for 7B)')
-    },
-    async ({ parameters, limit, context, modelName, modelParams }) => {
-        // If hyperPodCluster is not requested, return empty
-        if (!parameters.includes('hyperPodCluster')) {
-            return {
-                content: [{
-                    type: 'text',
-                    text: JSON.stringify({ values: {}, choices: {} })
-                }]
-            };
+// Register the get_hyperpod_clusters tool handler
+async function getHyperPodClustersHandler({ parameters, limit, context, modelName, modelParams }) {
+    // If hyperPodCluster is not requested, return empty
+    if (!parameters.includes('hyperPodCluster')) {
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({ values: {}, choices: {} })
+            }]
+        };
+    }
+
+    const region = context?.awsRegion || process.env.AWS_REGION || 'us-east-1';
+    const profile = context?.awsProfile || process.env.AWS_PROFILE || null;
+    log(`Querying HyperPod clusters in region: ${region}${profile ? ` (profile: ${profile})` : ''}`);
+
+    try {
+        await _ensureSdkLoaded();
+
+        let clusters = null;
+        let lastError = null;
+
+        // Strategy 1: If a specific profile was requested, use it directly
+        if (profile) {
+            try {
+                log(`Trying explicit profile: ${profile}`);
+                const client = _createClientWithProfile(region, profile);
+                clusters = await fetchHyperPodClusters(client, { limit, region, profile });
+            } catch (err) {
+                log(`Profile "${profile}" failed: ${err.message}`);
+                lastError = err;
+            }
         }
 
-        const region = context?.awsRegion || process.env.AWS_REGION || 'us-east-1';
-        const profile = context?.awsProfile || process.env.AWS_PROFILE || null;
-        log(`Querying HyperPod clusters in region: ${region}${profile ? ` (profile: ${profile})` : ''}`);
-
-        try {
-            await _ensureSdkLoaded();
-
-            let clusters = null;
-            let lastError = null;
-
-            // Strategy 1: If a specific profile was requested, use it directly
-            if (profile) {
-                try {
-                    log(`Trying explicit profile: ${profile}`);
-                    const client = _createClientWithProfile(region, profile);
-                    clusters = await fetchHyperPodClusters(client, { limit, region, profile });
-                } catch (err) {
-                    log(`Profile "${profile}" failed: ${err.message}`);
-                    lastError = err;
-                }
+        // Strategy 2: Try the default credential chain (env vars, instance profile, etc.)
+        if (!clusters) {
+            try {
+                log('Trying default credential chain');
+                const client = createSageMakerClient(region);
+                clusters = await fetchHyperPodClusters(client, { limit, region, profile });
+            } catch (err) {
+                log(`Default credential chain failed: ${err.message}`);
+                lastError = err;
             }
+        }
 
-            // Strategy 2: Try the default credential chain (env vars, instance profile, etc.)
-            if (!clusters) {
-                try {
-                    log('Trying default credential chain');
-                    const client = createSageMakerClient(region);
-                    clusters = await fetchHyperPodClusters(client, { limit, region, profile });
-                } catch (err) {
-                    log(`Default credential chain failed: ${err.message}`);
-                    lastError = err;
-                }
-            }
-
-            // Strategy 3: Detect available AWS profiles and try each
-            if (!clusters && _fromIni) {
-                const profiles = _detectAwsProfiles();
-                if (profiles.length > 0) {
-                    log(`Default credentials failed, trying ${profiles.length} detected profile(s): ${profiles.join(', ')}`);
-                    for (const p of profiles) {
-                        try {
-                            const client = _createClientWithProfile(region, p);
-                            clusters = await fetchHyperPodClusters(client, { limit, region, profile: p });
-                            log(`Profile "${p}" succeeded`);
-                            break;
-                        } catch (err) {
-                            log(`Profile "${p}" failed: ${err.message}`);
-                            lastError = err;
-                        }
+        // Strategy 3: Detect available AWS profiles and try each
+        if (!clusters && _fromIni) {
+            const profiles = _detectAwsProfiles();
+            if (profiles.length > 0) {
+                log(`Default credentials failed, trying ${profiles.length} detected profile(s): ${profiles.join(', ')}`);
+                for (const p of profiles) {
+                    try {
+                        const client = _createClientWithProfile(region, p);
+                        clusters = await fetchHyperPodClusters(client, { limit, region, profile: p });
+                        log(`Profile "${p}" succeeded`);
+                        break;
+                    } catch (err) {
+                        log(`Profile "${p}" failed: ${err.message}`);
+                        lastError = err;
                     }
                 }
             }
-
-            // If all strategies failed, throw the last error
-            if (!clusters) {
-                throw lastError || new Error('No AWS credentials available');
-            }
-
-            const result = buildResponse(clusters, { modelName, modelParams });
-
-            if (clusters.length > 0) {
-                log(`Found ${clusters.length} HyperPod EKS cluster(s)`);
-            } else {
-                log('No InService HyperPod EKS clusters found');
-            }
-
-            return {
-                content: [{
-                    type: 'text',
-                    text: JSON.stringify(result)
-                }]
-            };
-        } catch (err) {
-            log(`Error querying clusters: ${err.message}`);
-            const errorResult = {
-                values: {},
-                choices: { hyperPodCluster: [] },
-                error: err.message,
-                message: `Failed to query HyperPod clusters: ${err.message}`
-            };
-            return {
-                content: [{
-                    type: 'text',
-                    text: JSON.stringify(errorResult)
-                }]
-            };
         }
+
+        // If all strategies failed, throw the last error
+        if (!clusters) {
+            throw lastError || new Error('No AWS credentials available');
+        }
+
+        const result = buildResponse(clusters, { modelName, modelParams });
+
+        if (clusters.length > 0) {
+            log(`Found ${clusters.length} HyperPod EKS cluster(s)`);
+        } else {
+            log('No InService HyperPod EKS clusters found');
+        }
+
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify(result)
+            }]
+        };
+    } catch (err) {
+        log(`Error querying clusters: ${err.message}`);
+        const errorResult = {
+            values: {},
+            choices: { hyperPodCluster: [] },
+            error: err.message,
+            message: `Failed to query HyperPod clusters: ${err.message}`
+        };
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify(errorResult)
+            }]
+        };
     }
-);
+}
 
 // Export for testing
 export { fetchHyperPodClusters, buildResponse, createSageMakerClient, _ensureSdkLoaded, ClusterResolver };
 export { getGpuCount, calculateTotalGpus, getAllocatedGpus, computeVramGb, recommendNodeGroup, lookupModelParams, detectKueueQueues, detectPriorityClasses } from './gpu-capacity.js';
 
-// Guard MCP transport — only connect when run as main module
-const __filename = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    log('Starting HyperPod Cluster Picker MCP server');
-    await _ensureSdkLoaded();
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+// Connect stdio transport only when run as the main module.
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: async () => {
+        log('Starting HyperPod Cluster Picker MCP server');
+        await _ensureSdkLoaded();
+    }
+});

@@ -1,15 +1,5 @@
-
-# Normalize --flag=value → --flag value before the main arg loop.
-# This lets users pass either `--min-tp 4` or `--min-tp=4`.
-_NORMALIZED_ARGS=()
-for _a in "$@"; do
-    case "$_a" in
-        --*=*) _NORMALIZED_ARGS+=("${_a%%=*}" "${_a#*=}") ;;
-        *)     _NORMALIZED_ARGS+=("$_a") ;;
-    esac
-done
-set -- "${_NORMALIZED_ARGS[@]+"${_NORMALIZED_ARGS[@]}"}"
-
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # do/benchmark — Run SageMaker AI Benchmark against deployed endpoint.
@@ -26,6 +16,17 @@ set -- "${_NORMALIZED_ARGS[@]+"${_NORMALIZED_ARGS[@]}"}"
 set -e
 set -u
 set -o pipefail
+
+# Normalize --flag=value → --flag value before any arg inspection below.
+# This lets users pass either `--min-tp 4` or `--min-tp=4`.
+_NORMALIZED_ARGS=()
+for _a in "$@"; do
+    case "$_a" in
+        --*=*) _NORMALIZED_ARGS+=("${_a%%=*}" "${_a#*=}") ;;
+        *)     _NORMALIZED_ARGS+=("$_a") ;;
+    esac
+done
+set -- "${_NORMALIZED_ARGS[@]+"${_NORMALIZED_ARGS[@]}"}"
 
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -217,18 +218,18 @@ trap '_phase2_stop_poller' EXIT
 # job creation / completion). Default empty so ${VAR:+...} expansions are safe.
 BENCHMARK_RUN_START="${BENCHMARK_RUN_START:-}"
 BENCHMARK_RUN_END="${BENCHMARK_RUN_END:-}"
+# async-inference and batch-transform carry distinct guidance and sit above the
+# plain-EKS path below, so they stay explicit branches; _contract_violation
+# gives each the standard contract-violation format + exit 3.
 if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ]; then
-    echo "❌ do/benchmark is not supported on async-inference."
-    echo "   AIPerf benchmarking uses synchronous InvokeEndpoint calls."
-    echo "   Async endpoints only support invoke-endpoint-async."
-    echo "   Switch target: do/deploy --target realtime-inference"
-    exit 1
+    _contract_violation "target" \
+        "do/benchmark is not supported on async-inference. AIPerf benchmarking uses synchronous InvokeEndpoint calls; async endpoints only support invoke-endpoint-async." \
+        "Switch target: do/deploy --target realtime-inference"
 fi
 if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
-    echo "❌ do/benchmark is not supported on batch-transform."
-    echo "   AIPerf benchmarking requires a real-time endpoint."
-    echo "   Switch target: do/deploy --target realtime-inference"
-    exit 1
+    _contract_violation "target" \
+        "do/benchmark is not supported on batch-transform. AIPerf benchmarking requires a real-time endpoint." \
+        "Switch target: do/deploy --target realtime-inference"
 fi
 
 # ── Plain EKS benchmark: direct pod port-forward (BL103, Requirement 6) ────────
@@ -369,6 +370,7 @@ IC_ARG=""
 ADAPTER_ARG=""
 ARG_NO_STALE_WARNING=false
 ARG_WORKLOAD=""
+ARG_DATASET=""
 ARG_COMPARE_BASELINE=false
 ARG_RECOMMEND=false
 ARG_RECOMMEND_APPLY=false
@@ -400,6 +402,7 @@ while [ $# -gt 0 ]; do
         --status) ARG_STATUS=true; shift ;;
         --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
         --workload) shift; ARG_WORKLOAD="${1:-}"; shift ;;
+        --dataset) shift; ARG_DATASET="${1:-}"; shift ;;
         --ic) shift; IC_ARG="${1:-}"; shift ;;
         --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
         --compare-baseline) ARG_COMPARE_BASELINE=true; shift ;;
@@ -433,6 +436,7 @@ while [ $# -gt 0 ]; do
         --clear) ARG_SET_BASELINE_CLEAR=true; shift ;;
         --help|-h)
             echo "Usage: ./do/benchmark --workload <name> [OPTIONS]"
+            echo "       ./do/benchmark --workload <name> --dataset <name> [OPTIONS]"
             echo "       ./do/benchmark --status"
             echo "       ./do/benchmark --recommend [--apply] [--metric <m>]"
             echo ""
@@ -444,6 +448,17 @@ while [ $# -gt 0 ]; do
             echo "  long-context-scaling    Long context     (concurrency=2,  8192 in / 512 out tokens)"
             echo "  production-traffic-mix  Mixed production (concurrency=16, 1024 in / 200 out tokens)"
             echo "  shared-system-prompt    Shared prompt    (concurrency=12, 300 in / 150 out tokens)"
+            echo ""
+            echo "Custom dataset (BYOD):"
+            echo "  --dataset <name>    Drive benchmark traffic from a registered dataset instead of"
+            echo "                      synthetic prompts. <name> is resolved to its S3 URI via the"
+            echo "                      dataset registry (see 'do/register dataset'); it is passed as"
+            echo "                      the create-ai-workload-config DatasetConfig channel 'traffic'."
+            echo "                      Supports version pinning: --dataset <name>@v2 or @v1.0.0."
+            echo "                      When set, synthetic token-mean parameters are omitted (BYOD"
+            echo "                      traffic replaces synthetic generation); concurrency, streaming,"
+            echo "                      tokenizer, and request_count still apply. Can be combined with"
+            echo "                      --workload to reuse its concurrency profile."
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
@@ -481,6 +496,7 @@ while [ $# -gt 0 ]; do
             echo "  --json              Output comparison/recommendation results as JSON (for CI integration)"
             echo "  --ic <name>         Benchmark a specific inference component"
             echo "  --adapter <name>    Benchmark a specific LoRA adapter (routes via adapter IC, records adapter_name in Athena)"
+            echo "  --dataset <name>    Use a registered dataset (BYOD) for benchmark traffic — see 'Custom dataset (BYOD)' above"
             echo "  --force             Create a new benchmark job even if one is already running"
             echo "  --clean             Delete workload config and benchmark job after displaying results"
             echo "  --no-stale-warning  Suppress schema registry staleness warning"
@@ -1224,9 +1240,10 @@ _recommend_update_or_append() {
 fi
 
 
-# ── Require --workload flag ───────────────────────────────────────────────────
-if [ -z "${ARG_WORKLOAD}" ]; then
-    echo "❌ --workload <name> is required"
+# ── Require --workload or --dataset flag ──────────────────────────────────────
+# --dataset alone is valid (BL100 BYOD path) — synthetic token shape isn't needed.
+if [ -z "${ARG_WORKLOAD}" ] && [ -z "${ARG_DATASET}" ]; then
+    echo "❌ --workload <name> or --dataset <name> is required"
     echo ""
     # List available workloads from the MCP catalog
     _CATALOG_FOR_HELP=""
@@ -1249,7 +1266,7 @@ for name, wl in catalog.get('workloads', {}).items():
         echo "   Run 'ml-container-creator mcp init' to install workload profiles"
     fi
     echo ""
-    echo "   Usage: ./do/benchmark --workload multi-turn-chat"
+    echo "   Usage: ./do/benchmark --workload multi-turn-chat   (or --dataset <name> for BYOD)"
     exit 1
 fi
 
@@ -1344,6 +1361,78 @@ CI_BENCHMARK_RESULTS_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,j
 
 ROLE_ARN=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('roleArn', ''))" 2>/dev/null) || ROLE_ARN=""
 
+# ── Custom dataset (BYOD) resolution (BL100) ──────────────────────────────────
+# When --dataset <name> is passed, resolve it to an S3 URI via the shared dataset
+# sidecar registry (same resolve-dataset helper used by do/optimize / do/tune) and
+# drive the benchmark's traffic from that dataset instead of synthetic prompts.
+# CORE_BUCKET (mlcc-core) backs the sidecar registry — resolve it from the profile.
+CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-}}"
+if [ -z "${CORE_BUCKET}" ]; then
+    CORE_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('codebuildSourceS3Bucket', ''))" 2>/dev/null) || CORE_BUCKET=""
+fi
+
+# Dataset-derived values, empty unless --dataset resolves successfully.
+BENCHMARK_DATASET_S3URI=""
+BENCHMARK_DATASET_FORMAT=""
+BENCHMARK_DATASET_INPUT_FILE=""
+
+if [ -n "${ARG_DATASET}" ]; then
+    # Support the same name@vN / name@v1.2.3 version-pin syntax as do/optimize.
+    _DATASET_NAME="${ARG_DATASET}"
+    _DATASET_VERSION=""
+    if [[ "${ARG_DATASET}" =~ ^(.+)@v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+        _DATASET_NAME="${BASH_REMATCH[1]}"
+        _DATASET_VERSION="${BASH_REMATCH[2]}"
+    elif [[ "${ARG_DATASET}" =~ ^(.+)@v([0-9]+)$ ]]; then
+        _DATASET_NAME="${BASH_REMATCH[1]}"
+        _DATASET_VERSION="${BASH_REMATCH[2]}"
+    fi
+
+    echo "🔍 Resolving dataset '${_DATASET_NAME}' from registry (BYOD benchmark traffic)..."
+    _ds_resolve_args=("--name" "${_DATASET_NAME}")
+    if [ -n "${_DATASET_VERSION}" ]; then
+        _ds_resolve_args+=("--version" "${_DATASET_VERSION}")
+        echo "   Version: v${_DATASET_VERSION}"
+    fi
+    [ -n "${CORE_BUCKET}" ] && _ds_resolve_args+=("--core-bucket" "${CORE_BUCKET}")
+    [ -n "${AWS_REGION}" ] && _ds_resolve_args+=("--region" "${AWS_REGION}")
+
+    _ds_resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
+        "${_ds_resolve_args[@]}" 2>/dev/null) || _ds_resolve_result=""
+
+    if [ -n "${_ds_resolve_result}" ]; then
+        # Parse s3_uri + format from the resolver JSON. custom_dataset_type comes
+        # from the dataset's stored format (e.g. "jsonl"). input_file points at the
+        # file within the DatasetConfig mount (/opt/ml/input/data/<channel>/<file>)
+        # when the S3 URI names a specific file; a prefix URI leaves it unset so the
+        # benchmark tool discovers the file under the mount.
+        BENCHMARK_DATASET_S3URI=$(echo "${_ds_resolve_result}" | grep -E '^\{' | tail -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || BENCHMARK_DATASET_S3URI=""
+        BENCHMARK_DATASET_FORMAT=$(echo "${_ds_resolve_result}" | grep -E '^\{' | tail -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('format','') or '')" 2>/dev/null) || BENCHMARK_DATASET_FORMAT=""
+    fi
+
+    if [ -z "${BENCHMARK_DATASET_S3URI}" ]; then
+        echo "❌ Could not resolve dataset '${_DATASET_NAME}' from the registry."
+        echo "   The dataset may not exist, or the registry helper is unavailable."
+        echo "   Register one first: ./do/register dataset <name> ..."
+        echo "   List datasets:      ./do/optimize --list-datasets"
+        exit 1
+    fi
+
+    # Derive input_file only when the S3 URI names a concrete file (has an
+    # extension); prefix URIs (trailing '/') mount a directory instead.
+    BENCHMARK_DATASET_CHANNEL="traffic"
+    _DS_BASENAME="${BENCHMARK_DATASET_S3URI##*/}"
+    if [ -n "${_DS_BASENAME}" ] && [[ "${_DS_BASENAME}" == *.* ]]; then
+        BENCHMARK_DATASET_INPUT_FILE="/opt/ml/input/data/${BENCHMARK_DATASET_CHANNEL}/${_DS_BASENAME}"
+    fi
+
+    echo "   Resolved to: ${BENCHMARK_DATASET_S3URI}"
+    echo "   Format (custom_dataset_type): ${BENCHMARK_DATASET_FORMAT:-jsonl}"
+    [ -n "${BENCHMARK_DATASET_INPUT_FILE}" ] && echo "   input_file: ${BENCHMARK_DATASET_INPUT_FILE}"
+    echo "   ℹ️  BYOD traffic replaces synthetic prompt generation (token-mean params omitted)."
+    echo ""
+fi
+
 # Derive job names at runtime (unique per invocation).
 # Preserve BENCHMARK_JOB_NAME if already set (from do/config or env) for resume logic.
 BENCHMARK_JOB_NAME="${BENCHMARK_JOB_NAME:-${PROJECT_NAME}-benchmark-$(date +%Y%m%d-%H%M%S)}"
@@ -1425,6 +1514,7 @@ if [ -n "${BENCHMARK_CONCURRENCY_LEVELS:-}" ] && [ -z "${_BENCHMARK_SINGLE_LEVEL
             if [ "${CLEAN_AFTER}" = true ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --clean"; fi
             if [ "${ARG_NO_STALE_WARNING}" = true ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --no-stale-warning"; fi
             if [ -n "${ARG_WORKLOAD}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --workload ${ARG_WORKLOAD}"; fi
+            if [ -n "${ARG_DATASET}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --dataset ${ARG_DATASET}"; fi
             if [ -n "${IC_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --ic ${IC_ARG}"; fi
             if [ -n "${ADAPTER_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --adapter ${ADAPTER_ARG}"; fi
 
@@ -2083,10 +2173,41 @@ echo "⚙️  Step 1: Creating AI Workload Config: ${WORKLOAD_CONFIG_NAME}"
 # Use HF_MODEL_ID for tokenizer (the original HuggingFace repo ID, e.g. "Qwen/Qwen3-0.6B").
 # MODEL_NAME may have been rewritten to an S3 URI by do/stage, which AIPerf can't use as a tokenizer source.
 BENCHMARK_TOKENIZER="${HF_MODEL_ID:-${MODEL_NAME}}"
-PARAMS_JSON="{\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN},\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${BENCHMARK_TOKENIZER}\""
+
+# Params common to both synthetic and BYOD traffic: concurrency, streaming, tokenizer.
+PARAMS_JSON="{\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${BENCHMARK_TOKENIZER}\""
+
+# Some HF tokenizers (e.g. Kimi-K3's MoonViT tokenizer) ship custom Python code
+# that AutoTokenizer.from_pretrained() refuses to run without an explicit opt-in.
+# tokenizer_trust_remote_code is a real, accepted SageMaker workload-spec param
+# (undocumented in the public reference, confirmed via a live create-ai-workload-config
+# call on 2026-09-29) that forwards to AIPerf's --tokenizer-trust-remote-code.
+# Reuses the same opt-in flag already set for the serving container's trust_remote_code.
+if [ "${VLLM_TRUST_REMOTE_CODE:-false}" = "true" ]; then
+    PARAMS_JSON="${PARAMS_JSON},\"tokenizer_trust_remote_code\":true"
+fi
+
+if [ -n "${BENCHMARK_DATASET_S3URI}" ]; then
+    # BYOD path (BL100): a registered dataset drives traffic via DatasetConfig, so
+    # the synthetic prompt_input_tokens_mean/output_tokens_mean (and their stddev
+    # siblings) are omitted — they are mutually exclusive with a custom dataset per
+    # the AWS workload-spec docs. custom_dataset_type carries the dataset's stored
+    # AIPerf dataset-type ENUM (single_turn/multi_turn/random_pool/mooncake_trace/
+    # sagemaker_data_capture/raw_payload) — NOT the file format (e.g. "jsonl").
+    # Registered MLCC datasets are one independent request per line, so single_turn
+    # is the correct default; input_file (when known) points at the file inside the
+    # channel mount.
+    PARAMS_JSON="${PARAMS_JSON},\"custom_dataset_type\":\"${BENCHMARK_DATASET_CUSTOM_TYPE:-single_turn}\""
+    if [ -n "${BENCHMARK_DATASET_INPUT_FILE}" ]; then
+        PARAMS_JSON="${PARAMS_JSON},\"input_file\":\"${BENCHMARK_DATASET_INPUT_FILE}\""
+    fi
+else
+    # Synthetic path (unchanged): token distribution drives generated prompts.
+    PARAMS_JSON="${PARAMS_JSON},\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN}"
+fi
 
 # AIPerf requires at least one of request_count or duration per phase.
-# Default to 100 requests for a quick profile run.
+# Default to 100 requests for a quick profile run. Applies to BYOD too.
 PARAMS_JSON="${PARAMS_JSON},\"request_count\":${BENCHMARK_REQUEST_COUNT:-100}"
 
 PARAMS_JSON="${PARAMS_JSON}}"
@@ -2103,6 +2224,16 @@ WORKLOAD_SPEC="{\"benchmark\":{\"type\":\"aiperf\"},\"parameters\":${PARAMS_JSON
 # Wrap in the API's expected structure: --ai-workload-configs '{"WorkloadSpec":{"Inline":"..."}}'
 # The Inline field takes the spec as a JSON-encoded string
 WORKLOAD_CONFIGS="{\"WorkloadSpec\":{\"Inline\":$(echo "${WORKLOAD_SPEC}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}}"
+
+# BL100: build the top-level DatasetConfig for BYOD traffic. This is a SEPARATE
+# create-ai-workload-config parameter (--dataset-config) from --ai-workload-configs;
+# it names an InputDataConfig channel whose S3DataSource points at the resolved
+# dataset URI. ChannelName 'traffic' matches the AWS docs example and the mount
+# path used to derive input_file above.
+DATASET_CONFIG_JSON=""
+if [ -n "${BENCHMARK_DATASET_S3URI}" ]; then
+    DATASET_CONFIG_JSON="{\"InputDataConfig\":[{\"ChannelName\":\"${BENCHMARK_DATASET_CHANNEL:-traffic}\",\"DataSource\":{\"S3DataSource\":{\"S3Uri\":\"${BENCHMARK_DATASET_S3URI}\"}}}]}"
+fi
 
 # Workload config idempotency: reuse if params match, recreate if they differ
 EXISTING_CONFIG_SPEC=""
@@ -2136,11 +2267,19 @@ else
 fi
 
 if [ "${CREATE_WORKLOAD_CONFIG:-true}" = "true" ]; then
-    # Create the workload config
-    if ! aws sagemaker create-ai-workload-config \
-        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
-        --ai-workload-configs "${WORKLOAD_CONFIGS}" \
-        --region "${AWS_REGION}"; then
+    # Create the workload config. --dataset-config is a sibling of
+    # --ai-workload-configs (NOT a replacement) and is only passed for BYOD runs
+    # (BL100); synthetic runs omit it entirely.
+    _CREATE_WLC_ARGS=(
+        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}"
+        --ai-workload-configs "${WORKLOAD_CONFIGS}"
+    )
+    if [ -n "${DATASET_CONFIG_JSON}" ]; then
+        _CREATE_WLC_ARGS+=(--dataset-config "${DATASET_CONFIG_JSON}")
+    fi
+    _CREATE_WLC_ARGS+=(--region "${AWS_REGION}")
+
+    if ! aws sagemaker create-ai-workload-config "${_CREATE_WLC_ARGS[@]}"; then
         echo "❌ Failed to create AI Workload Config"
         echo "   This may indicate the SageMaker AI Benchmarking API is not available in region: ${AWS_REGION}"
         echo "   Check: https://docs.aws.amazon.com/sagemaker/latest/dg/regions-quotas.html"

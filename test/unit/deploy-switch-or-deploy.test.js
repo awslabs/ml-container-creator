@@ -29,18 +29,24 @@ const templateContent = readFileSync(TEMPLATE_PATH, 'utf-8');
 
 describe('Feature: interactive-deploy-ux — Switch-or-Deploy: Status Variable Mapping', () => {
 
-    it('maps managed-inference to DEPLOYMENT_TARGET_SMAI_STATUS', () => {
+    // The switch-or-deploy target→_STATUS_VAR map is now GENERATED from the
+    // deployment-target descriptors (ADR-008 T5, scripts/codegen-target-guard.js).
+    // Each arm keys on `<canonical>|<aliases...>`, so these assertions match the
+    // canonical target within its alias-union arm rather than a fixed whitespace form.
+    // Byte-for-byte drift is enforced separately by target-descriptor-conformance.test.js.
+
+    it('maps realtime-inference (incl. managed-inference alias) to DEPLOYMENT_TARGET_SMAI_STATUS', () => {
         // **Validates: Requirements FR-4.4**
         assert.ok(
-            templateContent.includes('managed-inference) _STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS"'),
-            'Must map managed-inference to DEPLOYMENT_TARGET_SMAI_STATUS'
+            /realtime-inference\|managed-inference\|realtime\) _STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS"/.test(templateContent),
+            'Must map the realtime-inference alias union to DEPLOYMENT_TARGET_SMAI_STATUS'
         );
     });
 
     it('maps hyperpod-eks to DEPLOYMENT_TARGET_HP_STATUS', () => {
         // **Validates: Requirements FR-4.4**
         assert.ok(
-            templateContent.includes('hyperpod-eks)      _STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS"'),
+            /hyperpod-eks\|hyperpod\) _STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS"/.test(templateContent),
             'Must map hyperpod-eks to DEPLOYMENT_TARGET_HP_STATUS'
         );
     });
@@ -48,7 +54,7 @@ describe('Feature: interactive-deploy-ux — Switch-or-Deploy: Status Variable M
     it('maps async-inference to DEPLOYMENT_TARGET_ASYNC_STATUS', () => {
         // **Validates: Requirements FR-4.4**
         assert.ok(
-            templateContent.includes('async-inference)   _STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS"'),
+            /async-inference\|async\) _STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS"/.test(templateContent),
             'Must map async-inference to DEPLOYMENT_TARGET_ASYNC_STATUS'
         );
     });
@@ -56,15 +62,23 @@ describe('Feature: interactive-deploy-ux — Switch-or-Deploy: Status Variable M
     it('maps batch-transform to DEPLOYMENT_TARGET_BATCH_STATUS', () => {
         // **Validates: Requirements FR-4.4**
         assert.ok(
-            templateContent.includes('batch-transform)   _STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS"'),
+            /batch-transform\|batch\) _STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS"/.test(templateContent),
             'Must map batch-transform to DEPLOYMENT_TARGET_BATCH_STATUS'
+        );
+    });
+
+    it('maps eks to DEPLOYMENT_TARGET_EKS_STATUS', () => {
+        // **Validates: Requirements FR-4.4**
+        assert.ok(
+            /\beks\) _STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS"/.test(templateContent),
+            'Must map eks to DEPLOYMENT_TARGET_EKS_STATUS'
         );
     });
 
     it('handles unknown targets with empty _STATUS_VAR', () => {
         // **Validates: Requirements FR-4.4**
         assert.ok(
-            templateContent.includes('*)                 _STATUS_VAR=""'),
+            templateContent.includes('*) _STATUS_VAR=""'),
             'Must set _STATUS_VAR to empty for unknown targets'
         );
     });

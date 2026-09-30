@@ -57,7 +57,12 @@ SERVING_DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-realtime-inference}"
 
 # ── Per-target resolution chains (first non-empty wins) ───────────────────────
 case "${SERVING_DEPLOYMENT_TARGET}" in
-    hyperpod-eks)
+    hyperpod-eks|eks)
+        # Kubernetes targets (serving_config_source=kubernetes in the target
+        # descriptor): both hyperpod-eks and plain eks serve vLLM as k8s pods and
+        # resolve serving config from the same HP_* / BENCHMARK_* vars. (ADR-008
+        # fix: eks previously fell through to the SageMaker-IC default arm and
+        # resolved the wrong instance/TP for benchmark analytics.)
         # Instance: persisted BENCHMARK_INSTANCE_TYPE (most reliable for the
         # query path) → deploy-time GPU worker node.
         SERVING_INSTANCE_TYPE="${BENCHMARK_INSTANCE_TYPE:-${HP_INSTANCE_TYPE:-}}"

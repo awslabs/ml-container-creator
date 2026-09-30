@@ -14,6 +14,7 @@
 #   _contract_violation     — structured error + exit 3
 #   _require_guard          — public API for inline flag escalation
 #   _guard_met              — non-enforcing predicate query
+#   _restrict_targets       — enforce a target allow-list (exit 3 on mismatch)
 #
 # Exit codes:
 #   3 = contract violation (guard not met)
@@ -48,18 +49,21 @@ _guard_deployment_active() {
     # Checks DEPLOYMENT_TARGET_*_STATUS is a valid active state for the target
     local target="${DEPLOYMENT_TARGET:-realtime-inference}"
     local status_var
+    # >>> GENERATED: target->status_var (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
     case "$target" in
-        realtime-inference|managed-inference) status_var="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
-        hyperpod-eks)   status_var="DEPLOYMENT_TARGET_HP_STATUS" ;;
-        async-inference) status_var="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
-        batch-transform) status_var="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        realtime-inference|managed-inference|realtime) status_var="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
+        async-inference|async) status_var="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
+        batch-transform|batch) status_var="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        hyperpod-eks|hyperpod) status_var="DEPLOYMENT_TARGET_HP_STATUS" ;;
+        eks) status_var="DEPLOYMENT_TARGET_EKS_STATUS" ;;
         *) status_var="" ;;
     esac
+    # <<< END GENERATED
     if [ -n "$status_var" ]; then
         local _status="${!status_var:-}"
         # Each target writes a different success status:
         #   realtime-inference/async-inference → InService
-        #   hyperpod-eks → Running
+        #   hyperpod-eks / eks → Running
         #   batch-transform → Completed
         case "$_status" in
             InService|Running|Completed) return 0 ;;
@@ -101,6 +105,35 @@ _require_guard() {
 _guard_met() {
     local guard="$1"
     ( "_guard_${guard//-/_}" ) >/dev/null 2>&1 && return 0 || return 1
+}
+
+# Restrict a script to a set of deployment targets. Call near the top of any
+# target-restricted script instead of hand-rolling an `if/case … exit 1` block,
+# so every restriction speaks the one contract-violation format and exit code 3.
+#
+# Usage:
+#   _restrict_targets "realtime-inference,hyperpod-eks" \
+#       "Speculative decoding requires a real-time or HyperPod EKS deployment."
+#
+# Args:
+#   $1 — comma-separated allow-list of supported DEPLOYMENT_TARGET values
+#   $2 — (optional) extra guidance line appended to the violation message
+_restrict_targets() {
+    local allowed="$1" guidance="${2:-}"
+    local target="${DEPLOYMENT_TARGET:-}"
+    # Match the current target against the allow-list (comma-delimited, exact).
+    case ",${allowed}," in
+        *",${target},"*) return 0 ;;
+    esac
+    local script_name
+    script_name="$(basename "${BASH_SOURCE[1]:-do/script}")"
+    local reason="do/${script_name} is not supported on ${target:-<unset>}."
+    if [ -n "$guidance" ]; then
+        reason="${reason} ${guidance}"
+    fi
+    _contract_violation "target" \
+        "$reason" \
+        "Supported targets: ${allowed}. Switch with: do/deploy --target <target>"
 }
 
 # ── Auto-enforcement on source ─────────────────────────────────────────────

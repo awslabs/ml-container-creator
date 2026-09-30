@@ -34,7 +34,7 @@ _persist_deploy_vars() {{
         DEPLOYMENT_TARGET INSTANCE_TYPE ENDPOINT_NAME ENDPOINT_STRATEGY
         IC_GPU_COUNT INSTANCE_TYPES HP_CLUSTER_NAME HP_GPU_COUNT
         HP_NAMESPACE HP_REPLICAS HP_QUEUE ASYNC_S3_OUTPUT_PATH
-        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT BATCH_INPUT_PATH
+        ASYNC_SNS_TOPIC ASYNC_MAX_CONCURRENT_INVOCATIONS BATCH_INPUT_PATH
         BATCH_OUTPUT_PATH BATCH_SPLIT_TYPE BATCH_STRATEGY BATCH_MAX_CONCURRENT
     )
     for var in "${{vars[@]}}"; do
@@ -127,12 +127,12 @@ def test_persist_async_vars_with_s3_path():
         'export DEPLOYMENT_TARGET="async-inference"\n'
         'export INSTANCE_TYPE="ml.g5.xlarge"\n'
         'export ASYNC_S3_OUTPUT_PATH="s3://my-bucket/async-output/project/"\n'
-        'export ASYNC_MAX_CONCURRENT="5"\n'
+        'export ASYNC_MAX_CONCURRENT_INVOCATIONS="5"\n'
     )
     config = _run_persist_test(initial, exports)
     assert 'export DEPLOYMENT_TARGET="async-inference"' in config
     assert 'export ASYNC_S3_OUTPUT_PATH="s3://my-bucket/async-output/project/"' in config
-    assert 'export ASYNC_MAX_CONCURRENT="5"' in config
+    assert 'export ASYNC_MAX_CONCURRENT_INVOCATIONS="5"' in config
 
 
 def test_persist_batch_vars():

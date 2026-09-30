@@ -49,6 +49,7 @@ done
 # Resolve SCRIPT_DIR to do/ (parent of deploy.d/) for lib/ access.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
@@ -64,17 +65,7 @@ echo "   HyperPod cluster: ${HP_CLUSTER_NAME}"
 echo "   Namespace: ${HP_NAMESPACE}"
 echo "   Replicas: ${HP_REPLICAS}"
 
-# Check AWS credentials
-echo "🔍 Validating AWS credentials..."
-if ! aws sts get-caller-identity &> /dev/null; then
-    echo "❌ AWS credentials not configured"
-    echo "   Run: aws configure"
-    echo "   Or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
-    exit 4
-fi
-
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
+_aws_preflight --verbose
 
 # Construct ECR repository URL
 ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
@@ -265,7 +256,10 @@ export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
 if [ "${HP_LORA_ENABLED:-false}" = "true" ]; then
     export VLLM_ENABLE_LORA="true"
 else
-    export VLLM_ENABLE_LORA=""
+    # Must be the literal "false" (not empty): the vLLM serve wrapper only skips
+    # forwarding --enable-lora when the value is exactly "false". An empty string
+    # would still add the flag with no value (BL127).
+    export VLLM_ENABLE_LORA="false"
 fi
 
 # Export speculative-decoding values for the CRD's two engine-specific env sets.
@@ -274,6 +268,8 @@ fi
 export VLLM_SPECULATIVE_ALGORITHM=""
 export VLLM_SPECULATIVE_MODEL=""
 export VLLM_SPECULATIVE_NUM_TOKENS=""
+export VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD=""
+export VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD=""
 # Pass-through: user-set quantization (e.g. fp8) flows into the CRD env
 export VLLM_QUANTIZATION="${VLLM_QUANTIZATION:-}"
 export SGLANG_SPECULATIVE_ALGORITHM=""
@@ -334,6 +330,11 @@ _PYEOF
 
     export VLLM_SPECULATIVE_MODEL="${HP_SPECULATIVE_MODEL:-}"
     export VLLM_SPECULATIVE_NUM_TOKENS="${HP_SPECULATIVE_NUM_TOKENS:-5}"
+    # DSpark (Kimi-K3) sample-method knobs flow from HP_SPECULATIVE_* → VLLM_*
+    # (mirroring HP_SPECULATIVE_MODEL/NUM_TOKENS above). Empty for all other
+    # algorithms; the serve wrapper omits empty keys from --speculative-config.
+    export VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD="${HP_SPECULATIVE_DRAFT_SAMPLE_METHOD:-}"
+    export VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD="${HP_SPECULATIVE_REJECTION_SAMPLE_METHOD:-}"
     export SGLANG_SPECULATIVE_DRAFT_MODEL_PATH="${HP_SPECULATIVE_MODEL:-}"
     export SGLANG_SPECULATIVE_NUM_STEPS="${HP_SPECULATIVE_NUM_STEPS:-${HP_SPECULATIVE_NUM_TOKENS:-5}}"
 fi
@@ -363,6 +364,8 @@ _hp_detect_gpu_count() {
         g6.12xlarge|g6.24xlarge) echo 4 ;;
         g6.48xlarge) echo 8 ;;
         p4d.24xlarge|p4de.24xlarge|p5.48xlarge) echo 8 ;;
+        # B300 (Blackwell Ultra)
+        p6-b300.48xlarge) echo 8 ;;
         *) echo 1 ;;
     esac
 }
@@ -527,6 +530,7 @@ managed = {
     "VLLM_MODEL", "VLLM_TENSOR_PARALLEL_SIZE", "VLLM_ENABLE_LORA",
     "VLLM_MAX_LORAS", "VLLM_MAX_LORA_RANK", "VLLM_SPECULATIVE_MODEL",
     "VLLM_SPECULATIVE_ALGORITHM", "VLLM_SPECULATIVE_NUM_TOKENS",
+    "VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD", "VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD",
     "SGLANG_SPECULATIVE_EAGLE_TOPK", "VLLM_ENABLE_CUDA_COMPATIBILITY",
     "VLLM_USAGE_SOURCE", "VLLM_BUILD_COMMIT", "VLLM_BUILD_PIPELINE",
     "VLLM_BUILD_URL", "VLLM_IMAGE_TAG", "VLLM_ALLOW_RUNTIME_LORA_UPDATING",

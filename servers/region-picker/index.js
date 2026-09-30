@@ -5,17 +5,22 @@
 /**
  * Region Picker MCP Server
  *
- * A bundled MCP server that suggests AWS regions based on a search term.
- * Useful for discovering available SageMaker regions without memorizing codes.
+ * PATTERN: MCP picker server built on the shared createPickerServer factory.
+ *   Declares only its unique piece — the AWS-region catalog, the get_regions
+ *   tool, and the filter/Bedrock handler — and lets the factory own the
+ *   scaffold (catalog loader, logger, main-guard, stdio wiring, smart-mode).
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold + Bedrock);
+ *   catalog servers/lib/catalogs/regions.json; spawned by src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: given { parameters, limit, context }, returns
+ *   { values: { awsRegion }, choices: { awsRegion: [...] } } filtered from the
+ *   region catalog (optionally reranked by Bedrock in smart mode).
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
  *
  * Supports two modes:
  *   - Static (default): Filters a hardcoded region list by string matching
  *   - Smart (BEDROCK_SMART=true): Queries Amazon Bedrock for context-aware
  *     region suggestions, falling back to static on failure
- *
- * Tool: get_regions
- *   Accepts: { parameters: string[], limit: number, context: object }
- *   Returns: { values: Record<string, string>, choices: Record<string, string[]> }
  *
  * Environment variables:
  *   BEDROCK_SMART  - Set to "true" to enable Bedrock-powered recommendations
@@ -23,65 +28,12 @@
  *   BEDROCK_REGION - AWS region for Bedrock API calls (fallback: AWS_REGION, then us-east-1)
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { resolve, dirname } from 'node:path';
-import { queryBedrock } from '../lib/bedrock-client.js';
+import { createPickerServer } from '../lib/create-picker-server.js';
 
-// ── Catalog loader ───────────────────────────────────────────────────────────
+// ── Bedrock system prompt (used only in smart mode) ───────────────────────────
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-/**
- * Load and parse a JSON catalog file relative to the server directory.
- * Throws on missing file or invalid JSON with the file path in the message.
- *
- * @param {string} relativePath - Path relative to server dir (e.g. './catalogs/regions.json')
- * @returns {any} Parsed JSON content
- */
-function loadCatalog(relativePath) {
-    const fullPath = resolve(__dirname, relativePath);
-    let raw;
-    try {
-        raw = readFileSync(fullPath, 'utf8');
-    } catch (err) {
-        throw new Error(`Catalog file not found: ${fullPath}`);
-    }
-    try {
-        return JSON.parse(raw);
-    } catch (err) {
-        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`);
-    }
-}
-
-// ── Load catalogs from JSON files ─────────────────────────────────────────────
-
-let AWS_REGIONS;
-let VALID_REGION_CODES;
-
-try {
-    AWS_REGIONS = loadCatalog('../lib/catalogs/regions.json');
-    VALID_REGION_CODES = new Set(AWS_REGIONS.map(r => r.code));
-} catch (err) {
-    process.stderr.write(`[region-picker] Fatal: ${err.message}\n`);
-    process.exit(1);
-}
-
-// Bedrock / smart-mode configuration
-const SMART_MODE = process.env.BEDROCK_SMART === 'true';
-const BEDROCK_MODEL = process.env.BEDROCK_MODEL || 'global.anthropic.claude-sonnet-4-20250514-v1:0';
-const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || 'us-east-1';
-
-/**
- * Per-server configuration passed to the shared Bedrock client.
- */
-const SERVER_CONFIG = {
-    serverName: 'region-picker',
-    systemPromptTemplate: `You are an AWS region advisor for SageMaker deployments. Given the following deployment context, recommend the best AWS region.
+const SYSTEM_PROMPT_TEMPLATE = `You are an AWS region advisor for SageMaker deployments. Given the following deployment context, recommend the best AWS region.
 
 Current configuration: {context}
 Requested parameters: {parameters}
@@ -100,12 +52,31 @@ Rules:
 - Consider service availability, latency, and pricing
 - Consider the user's existing configuration context
 - The first value should be your top recommendation
-- Return valid JSON only`,
-    temperature: 0.3,
-    maxTokens: 1024,
-    modelId: BEDROCK_MODEL,
-    region: BEDROCK_REGION
-};
+- Return valid JSON only`;
+
+// ── Server construction (scaffold + catalog via the factory) ──────────────────
+
+const picker = createPickerServer({
+    name: 'region-picker',
+    serverDir: import.meta.url,
+    catalogs: { regions: '../lib/catalogs/regions.json' },
+    bedrock: { systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE },
+    tools: [{
+        name: 'get_regions',
+        description: 'Returns recommended AWS regions for SageMaker deployments',
+        schema: {
+            parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
+            limit: z.number().int().positive().default(10).describe('Maximum number of choices per parameter'),
+            context: z.record(z.string(), z.any()).optional().describe('Current configuration context (regionSearch, framework, etc.)')
+        },
+        handler: getRegionsHandler
+    }]
+});
+
+const { log, catalogs, smartMode, querySmart } = picker;
+
+const AWS_REGIONS = catalogs.regions;
+const VALID_REGION_CODES = new Set(AWS_REGIONS.map(r => r.code));
 
 /**
  * Filter AWS_REGIONS by a case-insensitive substring match against
@@ -141,90 +112,69 @@ function filterRegions(searchTerm, limit) {
 }
 
 /**
- * Log to stderr so it doesn't interfere with MCP stdio protocol on stdout.
+ * get_regions tool handler. Static filtering by default; in smart mode, tries
+ * Bedrock first and falls back to static filtering on any miss.
  */
-function log(message) {
-    process.stderr.write(`[region-picker] ${message}\n`);
-}
-
-// Create MCP server
-const server = new McpServer({
-    name: 'region-picker',
-    version: '1.0.0'
-});
-
-// Register the get_regions tool
-server.tool(
-    'get_regions',
-    'Returns recommended AWS regions for SageMaker deployments',
-    {
-        parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
-        limit: z.number().int().positive().default(10).describe('Maximum number of choices per parameter'),
-        context: z.record(z.string(), z.any()).optional().describe('Current configuration context (regionSearch, framework, etc.)')
-    },
-    async ({ parameters, limit, context }) => {
-        // If awsRegion is not requested, return empty
-        if (!parameters.includes('awsRegion')) {
-            return {
-                content: [{
-                    type: 'text',
-                    text: JSON.stringify({ values: {}, choices: {} })
-                }]
-            };
-        }
-
-        const searchTerm = context?.regionSearch;
-        let result;
-
-        // Smart mode: try Bedrock first
-        if (SMART_MODE) {
-            log('[smart] Smart mode enabled, querying Amazon Bedrock...');
-            const bedrockResult = await queryBedrock(SERVER_CONFIG, parameters, limit, context || {});
-
-            if (bedrockResult?.values?.awsRegion && VALID_REGION_CODES.has(bedrockResult.values.awsRegion)) {
-                const bedrockValue = bedrockResult.values.awsRegion;
-                log(`[smart] Using Bedrock recommendation: ${bedrockValue}`);
-
-                // Pad with static results, deduplicating the Bedrock pick
-                const staticResult = filterRegions(searchTerm, limit);
-                const staticCodes = staticResult.choices.awsRegion || [];
-                const combined = [bedrockValue, ...staticCodes.filter(c => c !== bedrockValue)];
-
-                result = {
-                    values: { awsRegion: bedrockValue },
-                    choices: { awsRegion: combined.slice(0, limit) }
-                };
-            } else {
-                log('[smart] Bedrock did not return usable results, falling back to static filtering');
-                result = filterRegions(searchTerm, limit);
-            }
-        } else {
-            // Static mode (default)
-            result = filterRegions(searchTerm, limit);
-        }
-
+async function getRegionsHandler({ parameters, limit, context }) {
+    // If awsRegion is not requested, return empty
+    if (!parameters.includes('awsRegion')) {
         return {
             content: [{
                 type: 'text',
-                text: JSON.stringify(result)
+                text: JSON.stringify({ values: {}, choices: {} })
             }]
         };
     }
-);
 
-// Export for standalone testing
-export { loadCatalog, filterRegions, AWS_REGIONS, VALID_REGION_CODES };
+    const searchTerm = context?.regionSearch;
+    let result;
 
-// Guard MCP transport — only connect when run as main module
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
+    // Smart mode: try Bedrock first
+    if (smartMode) {
+        log('[smart] Smart mode enabled, querying Amazon Bedrock...');
+        const bedrockResult = await querySmart(parameters, limit, context || {});
 
-if (isMain) {
-    if (SMART_MODE) {
-        log(`Smart mode enabled (model: ${BEDROCK_MODEL}, region: ${BEDROCK_REGION})`);
+        if (bedrockResult?.values?.awsRegion && VALID_REGION_CODES.has(bedrockResult.values.awsRegion)) {
+            const bedrockValue = bedrockResult.values.awsRegion;
+            log(`[smart] Using Bedrock recommendation: ${bedrockValue}`);
+
+            // Pad with static results, deduplicating the Bedrock pick
+            const staticResult = filterRegions(searchTerm, limit);
+            const staticCodes = staticResult.choices.awsRegion || [];
+            const combined = [bedrockValue, ...staticCodes.filter(c => c !== bedrockValue)];
+
+            result = {
+                values: { awsRegion: bedrockValue },
+                choices: { awsRegion: combined.slice(0, limit) }
+            };
+        } else {
+            log('[smart] Bedrock did not return usable results, falling back to static filtering');
+            result = filterRegions(searchTerm, limit);
+        }
     } else {
-        log('Static mode (set BEDROCK_SMART=true to enable Bedrock-powered recommendations)');
+        // Static mode (default)
+        result = filterRegions(searchTerm, limit);
     }
 
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify(result)
+        }]
+    };
 }
+
+// Export for standalone testing
+export { filterRegions, AWS_REGIONS, VALID_REGION_CODES };
+
+// Connect stdio transport only when run as the main module.
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => {
+        if (smartMode) {
+            log(`Smart mode enabled (model: ${picker.bedrockConfig.modelId}, region: ${picker.bedrockConfig.region})`);
+        } else {
+            log('Static mode (set BEDROCK_SMART=true to enable Bedrock-powered recommendations)');
+        }
+    }
+});

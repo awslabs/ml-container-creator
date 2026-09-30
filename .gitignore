@@ -46,3 +46,6 @@ docs/dev/v*-release-notes.md
 
 # MLflow local tracking store (created when logging without a remote MLFLOW_TRACKING_URI)
 mlruns/
+mlflow.db
+mlflow.db-journal
+mlflow.db-wal

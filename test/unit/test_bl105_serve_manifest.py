@@ -39,7 +39,7 @@ serve_manifest = _load("serve_manifest", _READER_PATH)
 def test_vllm_manifest_fields():
     assert serve_manifest.env_var_prefix("vllm") == "VLLM_"
     assert serve_manifest.supported_algorithms("vllm") == [
-        "eagle3", "eagle2", "eagle", "draft-model", "ngram", "mtp"
+        "eagle3", "eagle2", "eagle", "draft-model", "ngram", "mtp", "dspark"
     ]
     assert serve_manifest.metrics_endpoint("vllm") == {
         "path": "/metrics", "port": 8080, "format": "prometheus"
