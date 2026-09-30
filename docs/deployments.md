@@ -144,13 +144,51 @@ All generated projects include these `do/` scripts:
 | `./do/logs` | Tail logs (CloudWatch for SageMaker targets, kubectl for hyperpod-eks / eks) |
 | `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
 | `./do/config` | Centralized configuration for all scripts (sourced, not executed) |
-| `./do/export` | Export current configuration as a reproducible CLI command |
+| `./do/export` | Export the project: a reproduce-it CLI command (default), config JSON (`--json`), or a runnable Jupyter deploy notebook (`--notebook`) |
 | `./do/register` | Capture deployment to the deployment registry |
 | `./do/ci` | CI pipeline integration (report, status, trigger, dashboard) |
 | `./do/submit` | Submit build to AWS CodeBuild (CodeBuild build target only) |
 | `./do/draft` | Configure speculative decoding for an active deployment (hyperpod-eks) |
 
 See the generated `do/README.md` for detailed documentation on each command.
+
+### Exporting the project (`do/export`)
+
+`do/export` turns the project's `do/config` into a portable artifact. It has three
+modes; they read the effective deployment target from `do/config`, or you can
+override it for one run with `--target <mode>`.
+
+| Mode | Command | Output |
+|---|---|---|
+| Default | `./do/export` | Prints the `ml-container-creator …` CLI command that reproduces this project. |
+| JSON | `./do/export --json` | Prints the configuration as JSON (camelCase keys), ready to feed back in via `ml-container-creator --config=<file>`. |
+| Notebook | `./do/export --notebook` | Writes `deploy_notebook.ipynb` — a runnable, step-by-step Jupyter notebook that builds, deploys, tests, and tears down the endpoint. |
+
+`--notebook` and `--json` are mutually exclusive.
+
+#### The deploy notebook (`--notebook`)
+
+The generated notebook walks the full lifecycle in order — install deps, build &
+push the container (or resolve a DLC image for LMI/DJL), then a deploy + test +
+cleanup section tailored to the deployment target:
+
+| Target | Deploy path in the notebook |
+|---|---|
+| `realtime-inference` | `boto3` create endpoint + inference component; invoke via `smr_client.invoke_endpoint`. Includes optional LoRA-adapter and managed fine-tuning sections when the project enables them. |
+| `async-inference` | `boto3` endpoint with `AsyncInferenceConfig`; upload input to S3, `invoke_endpoint_async`, poll S3 for the result. |
+| `batch-transform` | `boto3` `create_transform_job`; poll to completion and download output from S3. |
+| `hyperpod-eks` | `kubectl apply` of an `InferenceEndpointConfig` custom resource (the SageMaker HyperPod inference operator); poll the CRD to `DeploymentComplete` and the registered SageMaker endpoint to `InService`; test via `kubectl port-forward` to the serving pod. |
+
+Secrets are never baked into the notebook: when the project uses `HF_TOKEN_ARN`
+or `NGC_API_KEY_ARN`, the notebook resolves them from AWS Secrets Manager at
+runtime; when it uses a plain token, the notebook reads it from an environment
+variable you set before running the cell.
+
+The notebook is generated for every deployment target except `marketplace`
+(which builds no container). Open it in SageMaker Studio or any Jupyter
+environment with AWS credentials configured. The `hyperpod-eks` notebook also
+needs local `kubectl` and the HyperPod inference operator installed on the
+cluster — the same prerequisites as `./do/deploy` for that target.
 
 ### Reading exit codes
 

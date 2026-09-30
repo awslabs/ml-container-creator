@@ -12,10 +12,19 @@ fi
 # 1. Lint staged JS files (fast — only changed files)
 npx lint-staged
 
-# 2. Python syntax check on staged .py files in templates/do/lib/python/
+# 2. Python syntax check on staged .py files.
+#    Skips EJS templates (files containing <% %> tags, e.g.
+#    templates/deploy_notebook_generator.py and templates/code/*.py): those are
+#    only valid Python AFTER the generator renders them, so ast.parse on the raw
+#    template is a false positive. Real runtime Python (templates/do/lib/python/,
+#    scripts/, servers/) has no EJS tags and is still checked.
 STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
 if [ -n "$STAGED_PY" ]; then
     for pyfile in $STAGED_PY; do
+        # Skip EJS templates — they are not raw Python until rendered.
+        if grep -q '<%' "$pyfile" 2>/dev/null; then
+            continue
+        fi
         if ! python3 -c "import ast; ast.parse(open('$pyfile').read())" 2>/dev/null; then
             echo "❌ Python syntax error in: $pyfile"
             exit 1

@@ -214,7 +214,11 @@ cells.append(make_code_cell([
 <% } %>
 
 # ── Section 4: Model ─────────────────────────────────────────────────────────
-
+# HyperPod-EKS does NOT create a SageMaker Model resource — the HyperPod
+# inference operator manages the model via the InferenceEndpointConfig CRD from
+# the ECR image + model source. So this section is emitted for the SageMaker
+# managed targets (realtime / async / batch) only.
+<% if (deploymentTarget !== 'hyperpod-eks') { %>
 cells.append(make_markdown_cell([
     "## Create SageMaker Model\n",
     "\n",
@@ -235,6 +239,7 @@ cells.append(make_code_cell([
     '\n',
     'print(f"✅ Model created: {model_name}")'
 ]))
+<% } %>
 
 <% if (deploymentTarget === 'realtime-inference') { %>
 # ── Section 5: Endpoint ──────────────────────────────────────────────────────
@@ -868,6 +873,269 @@ cells.append(make_code_cell([
     'print(f"Deleting model: {model_name}...")\n',
     '\n',
     'print("\\n✅ All resources cleaned up")'
+]))
+<% } else if (deploymentTarget === 'hyperpod-eks') { %>
+# ── Section 5: HyperPod EKS Deployment ───────────────────────────────────────
+# HyperPod-EKS deploys via the amazon-sagemaker-hyperpod-inference operator: we
+# apply an InferenceEndpointConfig custom resource with kubectl, and the operator
+# reconciles it into a serving Deployment/Service/pods plus a registered
+# SageMaker endpoint. This mirrors do/deploy.d/hyperpod-eks (kubectl apply of the
+# CRD) rather than the boto3 create_endpoint path used by the managed targets.
+
+cells.append(make_markdown_cell([
+    "## Deploy to HyperPod EKS\n",
+    "\n",
+    "This deploys through the **SageMaker HyperPod inference operator** by applying an\n",
+    "`InferenceEndpointConfig` custom resource. The operator creates the serving pods and\n",
+    "registers a SageMaker endpoint named `PROJECT_NAME`.\n",
+    "\n",
+    "**Prerequisites** (see `./do/deploy` for the automated path):\n",
+    "\n",
+    "- A HyperPod EKS cluster in `InService` (name in `HP_CLUSTER_NAME`).\n",
+    "- The `amazon-sagemaker-hyperpod-inference` operator installed on the cluster.\n",
+    "- IAM: `sagemaker:DescribeCluster`, `eks:DescribeCluster`, `eks:AccessKubernetesApi`,\n",
+    "  plus RBAC to create resources in the target namespace.\n",
+    "- `kubectl` available locally and the ECR image already built & pushed (`./do/submit`).\n"
+]))
+
+# HyperPod configuration cell
+cells.append(make_code_cell([
+    'import subprocess\n',
+    '\n',
+    f'HP_CLUSTER_NAME = "{env("HP_CLUSTER_NAME")}"\n',
+    f'HP_NAMESPACE = "{env("HP_NAMESPACE", "default")}"\n',
+    f'HP_REPLICAS = {env("HP_REPLICAS", "1")}\n',
+    f'HP_QUEUE = "{env("HP_QUEUE", "")}"\n',
+    f'HP_INSTANCE_TYPE = "{env("HP_INSTANCE_TYPE", env("INSTANCE_TYPE", ""))}"\n',
+    f'HP_GPU_COUNT = {env("HP_GPU_COUNT", "1") if env("HP_GPU_COUNT", "1").isdigit() else "1"}\n',
+    f'MODEL_NAME = "{env("MODEL_NAME", "")}"\n',
+    '\n',
+    '# CPU/memory requests scale with GPU count (cpu = gpu*4, mem = gpu*16Gi),\n',
+    '# matching do/deploy.d/hyperpod-eks.\n',
+    'HP_CPU_REQUEST = HP_GPU_COUNT * 4\n',
+    'HP_MEM_REQUEST = f"{HP_GPU_COUNT * 16}Gi"\n',
+    '\n',
+    'print(f"Cluster: {HP_CLUSTER_NAME} | Namespace: {HP_NAMESPACE} | Replicas: {HP_REPLICAS}")\n',
+    'print(f"Instance: {HP_INSTANCE_TYPE} | GPUs: {HP_GPU_COUNT}")'
+]))
+
+# Configure kubectl against the HyperPod cluster's underlying EKS cluster
+cells.append(make_markdown_cell([
+    "### Configure kubectl\n",
+    "\n",
+    "Resolve the EKS cluster behind the HyperPod cluster and update the local kubeconfig.\n"
+]))
+
+cells.append(make_code_cell([
+    '# Resolve the underlying EKS cluster ARN from the HyperPod cluster\n',
+    'eks_cluster_arn = sm_client.describe_cluster(\n',
+    '    ClusterName=HP_CLUSTER_NAME\n',
+    ')["Orchestrator"]["Eks"]["ClusterArn"]\n',
+    'eks_cluster_name = eks_cluster_arn.split("/")[-1]\n',
+    'print(f"EKS cluster: {eks_cluster_name}")\n',
+    '\n',
+    '# Update kubeconfig so kubectl targets this cluster\n',
+    'subprocess.run(\n',
+    '    ["aws", "eks", "update-kubeconfig",\n',
+    '     "--name", eks_cluster_name, "--region", AWS_REGION],\n',
+    '    check=True,\n',
+    ')\n',
+    'subprocess.run(["kubectl", "cluster-info"], check=True)\n',
+    'print("✅ kubectl configured for the HyperPod cluster")'
+]))
+
+# Optional HF token secret + namespace
+cells.append(make_code_cell([
+    '# Ensure the target namespace exists\n',
+    'subprocess.run(\n',
+    '    ["kubectl", "create", "namespace", HP_NAMESPACE,\n',
+    '     "--dry-run=client", "-o", "yaml"],\n',
+    '    check=True, capture_output=True, text=True,\n',
+    ')\n',
+    '\n',
+    '# Create the hf-token-secret when an HF token is available (gated models).\n',
+    'hf_token_value = env.get("HF_TOKEN", "")\n',
+    'if hf_token_value:\n',
+    '    apply = subprocess.run(\n',
+    '        ["kubectl", "create", "secret", "generic", "hf-token-secret",\n',
+    '         f"--from-literal=token={hf_token_value}",\n',
+    '         "--namespace", HP_NAMESPACE,\n',
+    '         "--dry-run=client", "-o", "yaml"],\n',
+    '        check=True, capture_output=True, text=True,\n',
+    '    )\n',
+    '    subprocess.run(["kubectl", "apply", "-f", "-"], input=apply.stdout,\n',
+    '                   check=True, text=True)\n',
+    '    print("✅ hf-token-secret ready")\n',
+    'else:\n',
+    '    print("ℹ️  No HF_TOKEN — skipping hf-token-secret (fine for public models)")'
+]))
+
+# Build and apply the InferenceEndpointConfig CRD
+cells.append(make_markdown_cell([
+    "### Apply the InferenceEndpointConfig\n",
+    "\n",
+    "The operator downloads the model into the worker pod and serves it on port 8080\n",
+    "(the SageMaker BYOC contract; the image `ENTRYPOINT` owns the serve command).\n"
+]))
+
+cells.append(make_code_cell([
+    'import json\n',
+    '\n',
+    '# Endpoint name == metadata.name == PROJECT_NAME (matches do/deploy.d/hyperpod-eks).\n',
+    'HP_ENDPOINT_NAME = PROJECT_NAME\n',
+    '\n',
+    'inference_endpoint_config = {\n',
+    '    "apiVersion": "inference.sagemaker.aws.amazon.com/v1",\n',
+    '    "kind": "InferenceEndpointConfig",\n',
+    '    "metadata": {\n',
+    '        "name": PROJECT_NAME,\n',
+    '        "namespace": HP_NAMESPACE,\n',
+    '        "labels": {"app": PROJECT_NAME, "managed-by": "ml-container-creator"},\n',
+    '        **({"annotations": {"kueue.x-k8s.io/queue-name": HP_QUEUE}} if HP_QUEUE else {}),\n',
+    '    },\n',
+    '    "spec": {\n',
+    '        "modelName": MODEL_NAME,\n',
+    '        "endpointName": PROJECT_NAME,\n',
+    '        "instanceType": HP_INSTANCE_TYPE,\n',
+    '        "invocationEndpoint": "v1/chat/completions",\n',
+    '        "replicas": HP_REPLICAS,\n',
+    '        # HuggingFace model source; the operator pulls MODEL_NAME using the\n',
+    '        # hf-token-secret (optional). For an S3-staged model, swap this for\n',
+    '        # {"modelSourceType": "s3", "s3Storage": {...}, "modelLocation": "..."}.\n',
+    '        "modelSourceConfig": {\n',
+    '            "modelSourceType": "huggingface",\n',
+    '            "prefetchEnabled": True,\n',
+    '            "huggingFaceModel": {\n',
+    '                "modelId": MODEL_NAME,\n',
+    '                "tokenSecretRef": {"name": "hf-token-secret", "key": "token"},\n',
+    '            },\n',
+    '        },\n',
+    '        "worker": {\n',
+    '            "image": image_uri,\n',
+    '            "modelInvocationPort": {"containerPort": 8080, "name": "http"},\n',
+    '            "modelVolumeMount": {"name": "model-weights", "mountPath": "/opt/ml/model"},\n',
+    '            "resources": {\n',
+    '                "requests": {\n',
+    '                    "cpu": str(HP_CPU_REQUEST),\n',
+    '                    "memory": HP_MEM_REQUEST,\n',
+    '                    "nvidia.com/gpu": str(HP_GPU_COUNT),\n',
+    '                },\n',
+    '                "limits": {"nvidia.com/gpu": str(HP_GPU_COUNT)},\n',
+    '            },\n',
+    '            "args": [],\n',
+    '            "environmentVariables": [\n',
+    '                {"name": "MODEL_SOURCE", "value": "huggingface"},\n',
+    '                {"name": "VLLM_TENSOR_PARALLEL_SIZE", "value": str(HP_GPU_COUNT)},\n',
+    '                {"name": "HF_TOKEN", "valueFrom": {"secretKeyRef": {\n',
+    '                    "name": "hf-token-secret", "key": "token", "optional": True}}},\n',
+    '            ],\n',
+    '        },\n',
+    '    },\n',
+    '}\n',
+    '\n',
+    'apply = subprocess.run(\n',
+    '    ["kubectl", "apply", "-n", HP_NAMESPACE, "-f", "-"],\n',
+    '    input=json.dumps(inference_endpoint_config),\n',
+    '    check=True, text=True, capture_output=True,\n',
+    ')\n',
+    'print(apply.stdout)\n',
+    'print("✅ InferenceEndpointConfig applied")'
+]))
+
+# Poll the CRD state, then the SageMaker endpoint, until ready
+cells.append(make_code_cell([
+    '# The operator drives status.state: DeploymentPending → DeploymentInProgress\n',
+    '# → DeploymentComplete. Poll it, then confirm the SageMaker endpoint is InService.\n',
+    'DEPLOY_TIMEOUT = 900\n',
+    'elapsed = 0\n',
+    'while elapsed < DEPLOY_TIMEOUT:\n',
+    '    state = subprocess.run(\n',
+    '        ["kubectl", "get", "inferenceendpointconfig", PROJECT_NAME,\n',
+    '         "-n", HP_NAMESPACE, "-o", "jsonpath={.status.state}"],\n',
+    '        capture_output=True, text=True,\n',
+    '    ).stdout.strip()\n',
+    '    if state == "DeploymentComplete":\n',
+    '        print("✅ InferenceEndpointConfig: DeploymentComplete")\n',
+    '        break\n',
+    '    if state == "DeploymentFailed":\n',
+    '        raise RuntimeError("InferenceEndpointConfig reported DeploymentFailed — "\n',
+    '                           f"see: kubectl describe inferenceendpointconfig {PROJECT_NAME} -n {HP_NAMESPACE}")\n',
+    '    print(f"   state: {state or \'<pending>\'}...")\n',
+    '    time.sleep(15)\n',
+    '    elapsed += 15\n',
+    '\n',
+    '# Confirm the registered SageMaker endpoint reaches InService\n',
+    'while True:\n',
+    '    status = sm_client.describe_endpoint(EndpointName=HP_ENDPOINT_NAME)["EndpointStatus"]\n',
+    '    if status == "InService":\n',
+    '        print(f"✅ SageMaker endpoint InService: {HP_ENDPOINT_NAME}")\n',
+    '        break\n',
+    '    if status == "Failed":\n',
+    '        print(f"❌ Endpoint failed: {HP_ENDPOINT_NAME}")\n',
+    '        break\n',
+    '    print(f"   endpoint status: {status}...")\n',
+    '    time.sleep(30)'
+]))
+
+# ── Section 7: Test (port-forward) ───────────────────────────────────────────
+cells.append(make_markdown_cell([
+    "## Test the Deployment\n",
+    "\n",
+    "The serving pods aren't publicly exposed, so we `kubectl port-forward` to a pod on\n",
+    "port 8080 and send an OpenAI-compatible chat request — matching `./do/test hyperpod`.\n"
+]))
+
+cells.append(make_code_cell([
+    'import time as _time\n',
+    'import urllib.request\n',
+    '\n',
+    '# Find a serving pod and port-forward it to localhost:8080\n',
+    'pod = subprocess.run(\n',
+    '    ["kubectl", "get", "pod", "-n", HP_NAMESPACE, "-l", f"app={PROJECT_NAME}",\n',
+    '     "-o", "jsonpath={.items[0].metadata.name}"],\n',
+    '    capture_output=True, text=True,\n',
+    ').stdout.strip()\n',
+    'assert pod, f"No pod found for app={PROJECT_NAME} in namespace {HP_NAMESPACE}"\n',
+    '\n',
+    'pf = subprocess.Popen(\n',
+    '    ["kubectl", "port-forward", f"pod/{pod}", "8080:8080", "-n", HP_NAMESPACE],\n',
+    ')\n',
+    'try:\n',
+    '    _time.sleep(3)  # let the port-forward establish\n',
+    '    payload = {\n',
+    '        "model": MODEL_NAME,\n',
+    '        "messages": [{"role": "user", "content": "What is machine learning?"}],\n',
+    '        "max_tokens": 50,\n',
+    '        "temperature": 0.7,\n',
+    '    }\n',
+    '    req = urllib.request.Request(\n',
+    '        "http://localhost:8080/invocations",\n',
+    '        data=json.dumps(payload).encode(),\n',
+    '        headers={"Content-Type": "application/json"},\n',
+    '    )\n',
+    '    with urllib.request.urlopen(req, timeout=60) as resp:\n',
+    '        print(resp.read().decode())\n',
+    'finally:\n',
+    '    pf.terminate()'
+]))
+
+# ── Section 10: Cleanup ───────────────────────────────────────────────────────
+cells.append(make_markdown_cell([
+    "## ⚠️ Cleanup\n",
+    "\n",
+    "**Warning**: This deletes the InferenceEndpointConfig (and the operator-managed\n",
+    "serving pods + SageMaker endpoint). Only run when you're done testing.\n"
+]))
+
+cells.append(make_code_cell([
+    '# Deleting the CRD tells the operator to tear down the pods, Service, and the\n',
+    '# registered SageMaker endpoint.\n',
+    'subprocess.run(\n',
+    '    ["kubectl", "delete", "inferenceendpointconfig", PROJECT_NAME,\n',
+    '     "-n", HP_NAMESPACE, "--ignore-not-found"],\n',
+    '    check=True,\n',
+    ')\n',
+    'print(f"✅ Deleted InferenceEndpointConfig: {PROJECT_NAME}")'
 ]))
 <% } %>
 
