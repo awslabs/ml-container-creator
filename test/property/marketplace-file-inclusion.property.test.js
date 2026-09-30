@@ -348,7 +348,10 @@ describe('Feature: marketplace-model-packages, Property 3: Marketplace file incl
                     const doSubdirs = getDoSubdirs(result.dir);
 
                     // BL062: deploy.d/ and clean.d/ are now always generated alongside lib/
-                    const allowedSubdirs = new Set(['lib', 'deploy.d', 'clean.d']);
+                    // ADR-008: targets.d/ ships the per-target descriptors that
+                    // deploy_schema.py (via target_manifest) reads at runtime — part of
+                    // the do/ template tree for every project, marketplace included.
+                    const allowedSubdirs = new Set(['lib', 'deploy.d', 'clean.d', 'targets.d']);
                     const unexpected = doSubdirs.filter(d => !allowedSubdirs.has(d));
                     assert.deepStrictEqual(
                         unexpected,
