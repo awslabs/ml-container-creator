@@ -1,13 +1,16 @@
 import AcceleratorValidator from './accelerator-validator.js';
+import { parseAcceleratorVersion, isMajorMinorCompatible } from './accelerator-version.js';
 
 /*
  * PATTERN: Template Method / parameterized Strategy — one semantic-version
  *   compatibility algorithm (major must match, minor must be >=) shared by every
  *   accelerator that versions this way, specialised only by its display label
- *   and mismatch-message tail.
+ *   and mismatch-message tail. The comparison rule itself lives in
+ *   accelerator-version.js so cuda (a distinct strategy) shares it too.
  * COLLABORATORS: extends AcceleratorValidator (the strategy contract); subclassed
  *   by NeuronValidator and RocmValidator; instantiated/registered by
- *   ValidationEngine (validation-engine.js).
+ *   ValidationEngine (validation-engine.js); delegates the version compare to
+ *   accelerator-version.js.
  * DATA-FLOW ROLE: collapses the previously byte-identical neuron/rocm semver
  *   logic into one place while preserving each accelerator's distinct user-facing
  *   messages (neuron -> ml.inf2 guidance, rocm -> AMD GPU guidance).
@@ -69,23 +72,23 @@ export default class SemverAcceleratorValidator extends AcceleratorValidator {
 
     /**
      * Parse a dotted semantic version string into components.
+     * Delegates to the shared helper (single source of truth).
      * @param {string} versionString - Version string (e.g. '2.15.0')
      * @returns {{ major: number, minor: number, patch: number }}
      */
     parseVersion(versionString) {
-        const [major, minor, patch] = versionString.split('.').map(Number);
-        return { major, minor, patch };
+        return parseAcceleratorVersion(versionString);
     }
 
     /**
      * Compatibility rule: major must match, minor must be >= required.
+     * Delegates to the shared helper (single source of truth).
      * @param {Object} required - Parsed required version
      * @param {Object} provided - Parsed provided version
      * @returns {boolean}
      */
     isCompatible(required, provided) {
-        return provided.major === required.major &&
-               provided.minor >= required.minor;
+        return isMajorMinorCompatible(required, provided);
     }
 
     /**

@@ -147,6 +147,13 @@ that:
 `cpu` stays the trivial always-compatible strategy. Merging is limited to the two
 that are provably identical; distinct behavior is preserved distinctly.
 
+**Follow-up (post-Wave 5):** the major-match/minor-`>=` *comparison rule* that
+`cuda` had inlined was extracted to `src/lib/accelerator-version.js`
+(`parseAcceleratorVersion` / `isMajorMinorCompatible` / `compatibleVersions`) so
+`cuda` and `SemverAcceleratorValidator` share the one copy of that logic. `cuda`
+remains a distinct strategy — it keeps its own g5/g6 guidance message and its
+major.minor (2-segment) semantics — it just no longer re-implements the compare.
+
 ## Mapping table — every existing validator has a unified home
 
 | Existing element | File | Legacy result shape | Unified home | Legacy shape preserved by |

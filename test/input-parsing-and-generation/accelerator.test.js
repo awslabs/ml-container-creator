@@ -391,5 +391,36 @@ describe('Accelerator Validators', () => {
             ).info;
             assert(info.includes('ROCm'), 'rocm info keeps its label');
         });
+
+        // cuda now shares the major-match/minor->= compare via accelerator-version.js
+        // (the last inlined copy of that rule), but keeps its own g5/g6 guidance and
+        // its major.minor (2-segment) semantics.
+        it('cuda keeps its CUDA/g5-g6 wording after sharing the compare helper', () => {
+            const msg = validators.cuda.getVersionMismatchMessage('12.1', ['11.8']);
+            assert(msg.includes('CUDA'), 'cuda message keeps its label');
+            assert(msg.includes('ml.g5') || msg.includes('ml.g6'), 'cuda keeps its instance guidance');
+            assert(!msg.includes('ml.inf2') && !msg.includes('AMD GPU'), 'cuda must not leak other wording');
+        });
+
+        it('cuda still compares 2-segment versions correctly (major match, minor >=)', () => {
+            const compat = validators.cuda.validate(
+                { accelerator: { type: 'cuda', version: '12.1' } },
+                { accelerator: { type: 'cuda', versions: ['12.0', '12.4'] } }
+            );
+            assert.strictEqual(compat.compatible, true, '12.4 satisfies required 12.1');
+            assert(compat.info.includes('12.4'), 'info reports the matched version');
+
+            const incompatMajor = validators.cuda.validate(
+                { accelerator: { type: 'cuda', version: '12.1' } },
+                { accelerator: { type: 'cuda', versions: ['11.8'] } }
+            );
+            assert.strictEqual(incompatMajor.compatible, false, 'different major is incompatible');
+
+            const incompatMinor = validators.cuda.validate(
+                { accelerator: { type: 'cuda', version: '12.4' } },
+                { accelerator: { type: 'cuda', versions: ['12.1'] } }
+            );
+            assert.strictEqual(incompatMinor.compatible, false, 'lower minor is incompatible');
+        });
     });
 });

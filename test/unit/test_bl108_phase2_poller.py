@@ -312,11 +312,17 @@ class TestEmptySamplesTermination:
 
 
 class TestBenchmarkWriterUnchanged:
-    # Pinned SHA-256 of templates/do/.benchmark_writer.py as of BL108. If this
-    # test fails, BL108 (or a later change) has modified the writer — a BL082
-    # constraint violation. Update this hash ONLY when an intentional, separately
-    # reviewed change to the writer lands.
-    _EXPECTED_SHA256 = "26aae22ff23de7539867d09a58156a1e9c497519c49143633b4f0c69a251ec1a"
+    # Pinned SHA-256 of templates/do/.benchmark_writer.py. The guard exists so
+    # BL108's poller work could NOT silently modify the writer (BL108 Req 6.1:
+    # ".benchmark_writer.py SHALL NOT be modified BY THIS CHANGE") — BL108 slots
+    # in as a separate module and honored that. Update this hash ONLY when an
+    # intentional, separately reviewed change to the writer lands.
+    #
+    # Re-pinned: the "Ai-proof drift-detection" change widened _INSTANCE_TYPE_RE
+    # to allow a hyphen in the family segment so Blackwell Ultra instance types
+    # (ml.p6-b300.48xlarge) validate. That is a deliberate, reviewed writer change
+    # unrelated to BL108, so the pin is updated to the reviewed state.
+    _EXPECTED_SHA256 = "06ffb4a09ed079e29a85e6202bdb6b51960db413104378302c2ad1bd7fb2ed01"
 
     def test_writer_hash_unchanged(self):
         with open(_WRITER_PATH, "rb") as f:
