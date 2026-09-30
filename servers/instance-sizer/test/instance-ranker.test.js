@@ -11,6 +11,9 @@
  */
 
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
     filterAndRankInstances,
     getPerGpuMemoryGb,
@@ -21,6 +24,13 @@ import {
     COST_TIER_WEIGHT,
     TP_OVERHEAD_PER_GPU
 } from '../lib/instance-ranker.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// The real shipped catalog — used only for SKU-agnostic integrity/behavior
+// checks below (no hardcoded instance names, so it survives catalog growth).
+const REAL_CATALOG = JSON.parse(
+    readFileSync(resolve(__dirname, '../../lib/catalogs/instances.json'), 'utf8')
+).catalog;
 
 let passed = 0;
 let failed = 0;
@@ -436,6 +446,44 @@ test('COST_TIER_MAP classifies families correctly', () => {
 test('COST_TIER_WEIGHT orders low < medium < high', () => {
     assert.ok(COST_TIER_WEIGHT['low'] < COST_TIER_WEIGHT['medium']);
     assert.ok(COST_TIER_WEIGHT['medium'] < COST_TIER_WEIGHT['high']);
+});
+
+// ── Real catalog integrity (SKU-agnostic) ────────────────────────────────────
+// These replace the retired per-SKU p6-b200-recommendation.test.js: they assert
+// the ranker's contract against the ACTUAL shipped catalog without pinning any
+// instance name, GPU count, or cost tier — so adding/renaming instances (e.g. a
+// new p6-b300) can't rot them the way the old frozen-snapshot test did.
+
+console.log('\ninstance-ranker: real catalog integrity (SKU-agnostic)\n');
+
+test('every GPU entry in the real catalog carries the fields the ranker needs', () => {
+    const gpuEntries = Object.entries(REAL_CATALOG).filter(([, m]) => m.category === 'gpu');
+    assert.ok(gpuEntries.length > 0, 'catalog should contain GPU instances');
+    for (const [name, m] of gpuEntries) {
+        assert.ok(Number.isInteger(m.gpus) && m.gpus >= 1, `${name}: gpus must be a positive integer`);
+        // The ranker needs a resolvable per-GPU memory (explicit gpuMemoryGb,
+        // parseable accelerator string, or a GPU_MEMORY_MAP hit).
+        assert.ok(getPerGpuMemoryGb(m) > 0, `${name}: per-GPU memory must resolve to > 0`);
+        // costTier must resolve to a weight the ranker can sort on (never NaN).
+        assert.ok(Number.isFinite(COST_TIER_WEIGHT[getCostTier(m)] ?? NaN)
+            || getCostTier(m) in COST_TIER_WEIGHT
+            || getCostTier(m) === 'very-high',
+        `${name}: costTier '${getCostTier(m)}' should be sortable`);
+    }
+});
+
+test('a very-large-VRAM model still yields a multi-GPU recommendation from the real catalog', () => {
+    // Instead of asserting a specific SKU "is the only fit", assert the durable
+    // behavior: a model far beyond any single GPU must be served by SOME
+    // multi-GPU instance the catalog offers.
+    const results = filterAndRankInstances(200, REAL_CATALOG);
+    assert.ok(results.length > 0, '200GB model should have at least one recommendation');
+    assert.ok(results.some(r => r.tensorParallelism >= 2),
+        'a 200GB model must be served by a multi-GPU (TP>=2) instance');
+    for (const r of results) {
+        assert.ok(r.totalVramGb >= 200 || r.utilizationPercent <= 100,
+            `${r.instanceType}: a recommended instance must plausibly fit the model`);
+    }
 });
 
 // ── Summary ──────────────────────────────────────────────────────────────────

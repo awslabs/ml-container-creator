@@ -77,13 +77,15 @@ await test('Llama-3.1-8B top recommendation is a GPU instance with sufficient VR
     const data = parseResponse(result);
 
     const topInstance = data.values.instanceType;
-    // The ranker prefers cost-efficient instances — g5 (A10G 24GB) only in trimmed catalog
-    const isGpuInstance = topInstance.includes('.g5.');
-    assert.ok(isGpuInstance,
-        `top recommendation should be a g5 instance, got: ${topInstance}`);
-
-    // Verify the recommended instance has enough VRAM for the model
+    // Assert the DURABLE behavior (a GPU instance with enough VRAM), not a
+    // specific SKU: the ranker prefers the newest cost-efficient GPU family that
+    // fits, which changes as the catalog gains instances (g5 → g6 → g7e → …), so
+    // pinning a family name here rots on every catalog refresh.
     const topRec = data.metadata.recommendations[0];
+    assert.ok(topInstance.startsWith('ml.'),
+        `top recommendation should be an ml.* instance, got: ${topInstance}`);
+    assert.ok(topRec.gpuCount >= 1,
+        `top recommendation should be a GPU instance, got gpuCount=${topRec.gpuCount} (${topInstance})`);
     assert.ok(topRec.totalVramGb >= data.metadata.estimatedVramGb,
         `instance VRAM (${topRec.totalVramGb}GB) should be >= estimated need (${data.metadata.estimatedVramGb}GB)`);
 });
@@ -105,7 +107,7 @@ await test('Llama-3.3-70B with vllm backend recommends multi-GPU (TP > 1)', asyn
         `top recommendation should have TP > 1, got: ${topRec.tensorParallelism}`);
 });
 
-await test('Llama-3.3-70B top recommendation is ml.g5.48xlarge or similar multi-GPU', async () => {
+await test('Llama-3.3-70B top recommendation is a multi-GPU instance that fits the model', async () => {
     const result = await handleGetInstanceRecommendation({
         modelName: 'meta-llama/Llama-3.3-70B-Instruct',
         maxSequenceLength: 4096,
@@ -113,11 +115,17 @@ await test('Llama-3.3-70B top recommendation is ml.g5.48xlarge or similar multi-
     });
     const data = parseResponse(result);
 
+    // 70B at bf16 needs ~148GB → must be a multi-GPU instance with enough total
+    // VRAM. Assert that behavior generically rather than a fixed SKU list, which
+    // rots as the catalog gains newer multi-GPU families (g5 → g7e → p5 → …).
     const topInstance = data.values.instanceType;
-    // 70B at bf16 needs ~148GB — only multi-GPU g5 instances can fit
-    const multiGpuInstances = ['ml.g5.48xlarge', 'ml.g5.12xlarge', 'ml.g5.24xlarge'];
-    assert.ok(multiGpuInstances.includes(topInstance),
-        `top recommendation should be a multi-GPU instance, got: ${topInstance}`);
+    const topRec = data.metadata.recommendations[0];
+    assert.ok(topInstance.startsWith('ml.'),
+        `top recommendation should be an ml.* instance, got: ${topInstance}`);
+    assert.ok(topRec.gpuCount > 1,
+        `70B should recommend a multi-GPU instance, got gpuCount=${topRec.gpuCount} (${topInstance})`);
+    assert.ok(topRec.totalVramGb >= data.metadata.estimatedVramGb,
+        `instance VRAM (${topRec.totalVramGb}GB) should be >= estimated need (${data.metadata.estimatedVramGb}GB)`);
 });
 
 await test('Llama-3.3-70B metadata includes tensorParallelism field', async () => {

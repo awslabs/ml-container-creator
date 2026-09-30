@@ -29,7 +29,9 @@ REQUIRED_FIELDS = [
 ]
 
 # Pattern for valid SageMaker instance types: ml.<family>.<size>
-_INSTANCE_TYPE_RE = re.compile(r'^ml\.[a-z0-9]+\.[a-z0-9]+$')
+# Family segment allows a hyphen (e.g. Blackwell Ultra "p6-b300" in
+# ml.p6-b300.48xlarge) — size segment (e.g. 48xlarge) never has one.
+_INSTANCE_TYPE_RE = re.compile(r'^ml\.[a-z0-9-]+\.[a-z0-9]+$')
 
 # Known model family patterns — maps regex to family label
 # Known model family patterns — maps regex to family label.

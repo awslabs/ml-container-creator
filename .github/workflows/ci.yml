@@ -52,6 +52,14 @@ jobs:
         if: matrix.node-version == '24.x'
         run: node scripts/validate-servers.js
 
+      # MCP-server unit suites (servers/*/test/*.test.js). These use a custom
+      # node:assert harness (not mocha) and were previously orphaned from CI.
+      # Now a blocking gate — the runner (scripts/run-server-tests.js) discovers
+      # every suite by glob and exits non-zero if any fail.
+      - name: MCP server unit tests
+        if: matrix.node-version == '24.x'
+        run: npm run test:servers:unit
+
       - name: Python tests
         if: matrix.node-version == '24.x'
         run: |
