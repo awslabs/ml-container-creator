@@ -24,6 +24,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ora from 'ora';
+import { flagToVars } from './deploy-answers-reader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,24 +48,12 @@ function normalizeTarget(target) {
 // forwards --batch-input-path in --dry-run / all-flags mode). configVar seeds the
 // parsed config so the `if (!config.X)` prompt guard is satisfied; answerKey seeds
 // the output `answers` object so the value is emitted.
-const CLI_FLAG_TO_VARS = {
-    '--endpoint-name': { configVar: 'ENDPOINT_NAME', answerKey: 'endpoint_name' },
-    '--endpoint-strategy': { configVar: 'ENDPOINT_STRATEGY', answerKey: 'endpoint_strategy' },
-    '--instance-types': { configVar: 'INSTANCE_TYPES', answerKey: 'instance_types' },
-    '--gpu-count': { configVar: 'IC_GPU_COUNT', answerKey: 'gpu_count' },
-    '--cluster-name': { configVar: 'HP_CLUSTER_NAME', answerKey: 'cluster_name' },
-    '--namespace': { configVar: 'HP_NAMESPACE', answerKey: 'namespace' },
-    '--replicas': { configVar: 'HP_REPLICAS', answerKey: 'replicas' },
-    '--queue': { configVar: 'HP_QUEUE', answerKey: 'queue' },
-    '--async-output-path': { configVar: 'ASYNC_S3_OUTPUT_PATH', answerKey: 'async_output_path' },
-    '--async-sns-topic': { configVar: 'ASYNC_SNS_TOPIC', answerKey: 'async_sns_topic' },
-    '--async-max-concurrent': { configVar: 'ASYNC_MAX_CONCURRENT_INVOCATIONS', answerKey: 'async_max_concurrent' },
-    '--batch-input-path': { configVar: 'BATCH_INPUT_PATH', answerKey: 'batch_input_path' },
-    '--batch-output-path': { configVar: 'BATCH_OUTPUT_PATH', answerKey: 'batch_output_path' },
-    '--batch-split-type': { configVar: 'BATCH_SPLIT_TYPE', answerKey: 'batch_split_type' },
-    '--batch-strategy': { configVar: 'BATCH_STRATEGY', answerKey: 'batch_strategy' },
-    '--batch-max-concurrent': { configVar: 'BATCH_MAX_CONCURRENT', answerKey: 'batch_max_concurrent' }
-};
+//
+// DERIVED (do not hardcode): the flag→{configVar, answerKey} mapping is the union
+// of the per-target answer_params in targets.d/*/manifest.json (flag-input, minus
+// the core prompt-core flags handled directly). Single source of truth per ADR-008
+// / .kiro/steering/derive-dont-hardcode.md; see deploy-answers-reader.js.
+const CLI_FLAG_TO_VARS = flagToVars();
 
 // ── Config parsing ───────────────────────────────────────────────────────────
 

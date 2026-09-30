@@ -117,7 +117,7 @@
     "test:perf": "node scripts/analyze-test-performance.js",
     "lint": "eslint src/ servers/ bin/ --ext .js,.cjs,.mjs",
     "lint:fix": "eslint src/ servers/ bin/ --ext .js,.cjs,.mjs --fix",
-    "codegen": "node scripts/codegen-cli.js && node scripts/codegen-validator.js && node scripts/codegen-widget.js && node scripts/codegen-parameter-matrix.js && node scripts/codegen-target-guard.js && eslint src/lib/generated/ --fix",
+    "codegen": "node scripts/codegen-cli.js && node scripts/codegen-validator.js && node scripts/codegen-widget.js && node scripts/codegen-parameter-matrix.js && node scripts/codegen-target-guard.js && node scripts/codegen-deploy-flags.js && eslint src/lib/generated/ --fix",
     "validate:doc-commands": "node scripts/validate-docs-commands.js",
     "validate:catalogs": "node scripts/validate-catalogs.js",
     "validate:serve-manifests": "node scripts/validate-serve-manifests.js",

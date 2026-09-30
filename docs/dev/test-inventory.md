@@ -117,11 +117,13 @@ Notes:
   mechanical consolidation.
 
 ### R3 — Slow generation-based property tests
-- 7 property files run full project generation (`run-generator` /
-  `writeProject`): the marketplace suite (`marketplace-file-exclusion`,
-  `-file-inclusion`, `-deployment-target`, `-async-batch`,
-  `-jumpstart-rejection`), `tune-generator-inclusion`,
-  `train-generator-inclusion`. Individual cases were observed at 25–40 s, and
+- Several property files run full project generation (`run-generator` /
+  `writeProject`): `marketplace-refusal` and `marketplace-jumpstart-rejection`
+  (both assert the generator refuses the input), `tune-generator-inclusion`,
+  `train-generator-inclusion`. (The former marketplace generation-shape suites
+  — `-file-exclusion`, `-file-inclusion`, `-deployment-target`, `-async-batch`
+  — were removed when marketplace was deprecated and hard-refused.) Individual
+  cases were observed at 25–40 s, and
   one packaging property (`sagemaker-adapter-contract` Property 9) at ~119 s.
   These dominate the 10 m property wall time. **Target:** lower `numRuns` for
   generation-class properties via a dedicated `PROPERTY_CONFIG_GEN` profile,

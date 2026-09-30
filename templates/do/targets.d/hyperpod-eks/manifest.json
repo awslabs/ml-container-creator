@@ -32,5 +32,17 @@
     "ci": false,
     "adapter": true,
     "draft": true
-  }
+  },
+  "answer_params": [
+    { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "instance_type", "configVar": "INSTANCE_TYPE", "flag": "--instance-type", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "cluster_name", "configVar": "HP_CLUSTER_NAME", "flag": "--cluster-name", "roles": ["flag-input"] },
+    { "answerKey": "namespace", "configVar": "HP_NAMESPACE", "flag": "--namespace", "roles": ["flag-input"] },
+    { "answerKey": "replicas", "configVar": "HP_REPLICAS", "flag": "--replicas", "roles": ["flag-input"] },
+    { "answerKey": "queue", "configVar": "HP_QUEUE", "flag": "--queue", "roles": ["flag-input"] },
+    { "answerKey": "gpu_count", "configVar": "IC_GPU_COUNT", "flag": "--gpu-count", "roles": ["flag-input"] },
+    { "answerKey": "hp_gpu_count", "configVar": "HP_GPU_COUNT", "roles": ["internal"] },
+    { "answerKey": "hp_instance_group_name", "configVar": "HP_INSTANCE_GROUP_NAME", "roles": ["internal", "input-only"] },
+    { "answerKey": "hp_instance_type", "configVar": "HP_INSTANCE_TYPE", "roles": ["builder-output"] }
+  ]
 }

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T00:46:34.377Z",
+  "generatedAt": "2026-09-30T14:18:04.586Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
   "version": "1.7.2",
@@ -55,8 +55,7 @@
             "triton-vllm",
             "triton-tensorrtllm",
             "triton-python",
-            "diffusors-vllm-omni",
-            "marketplace"
+            "diffusors-vllm-omni"
           ]
         },
         "group": "model",
@@ -73,7 +72,7 @@
         "key": "modelName",
         "cliFlag": "--model-name",
         "type": "string",
-        "description": "Model identifier (hf-org/model, s3://..., registry://..., marketplace://...)",
+        "description": "Model identifier (hf-org/model, s3://..., registry://...)",
         "inputType": "text",
         "placeholder": "e.g. meta-llama/Llama-3.1-8B-Instruct",
         "datalist": "models",
@@ -497,7 +496,7 @@
     {
       "key": "modelName",
       "cliFlag": "--model-name",
-      "description": "Model identifier (hf-org/model, s3://..., registry://..., marketplace://...)",
+      "description": "Model identifier (hf-org/model, s3://..., registry://...)",
       "type": "string",
       "group": "model",
       "phase": "model",
@@ -1260,8 +1259,7 @@
     "triton-vllm",
     "triton-tensorrtllm",
     "triton-python",
-    "diffusors-vllm-omni",
-    "marketplace"
+    "diffusors-vllm-omni"
   ],
   "deploymentTargets": [
     "managed-inference",

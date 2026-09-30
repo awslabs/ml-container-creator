@@ -20,5 +20,16 @@
     "ci": false,
     "adapter": false,
     "draft": false
-  }
+  },
+  "answer_params": [
+    { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "instance_type", "configVar": "INSTANCE_TYPE", "flag": "--instance-type", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "endpoint_name", "configVar": "ENDPOINT_NAME", "flag": "--endpoint-name", "roles": ["flag-input", "input-only"] },
+    { "answerKey": "endpoint_strategy", "configVar": "ENDPOINT_STRATEGY", "flag": "--endpoint-strategy", "roles": ["flag-input"] },
+    { "answerKey": "async_output_path", "configVar": "ASYNC_S3_OUTPUT_PATH", "flag": "--async-output-path", "roles": ["flag-input"] },
+    { "answerKey": "async_sns_topic", "configVar": "ASYNC_SNS_TOPIC", "flag": "--async-sns-topic", "roles": ["flag-input"] },
+    { "answerKey": "async_max_concurrent", "configVar": "ASYNC_MAX_CONCURRENT_INVOCATIONS", "flag": "--async-max-concurrent", "roles": ["flag-input"] },
+    { "answerKey": "async_instance_type", "configVar": "ASYNC_INSTANCE_TYPE", "roles": ["builder-output"] },
+    { "answerKey": "async_endpoint_name", "configVar": "ASYNC_ENDPOINT_NAME", "roles": ["builder-output"] }
+  ]
 }

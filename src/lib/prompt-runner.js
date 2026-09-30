@@ -33,6 +33,7 @@ import McpQueryRunner from './mcp-query-runner.js';
 import SecretsPromptRunner from './secrets-prompt-runner.js';
 import CudaResolver from './cuda-resolver.js';
 import MarketplaceFlow from './marketplace-flow.js';
+import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './marketplace-refusal.js';
 
 const __pr_filename = fileURLToPath(import.meta.url);
 const __pr_dirname = path.dirname(__pr_filename);
@@ -127,11 +128,13 @@ export default class PromptRunner {
         };
 
         // ──────────────────────────────────────────────────────────────────────
-        // Marketplace fast-path: skip all container-related prompts
-        // Requirements: 2.3, 2.4, 2.5
+        // Marketplace is deprecated and hard-refused (see marketplace-refusal.js).
+        // The dormant _runMarketplaceFlow path is kept in tree for one release but
+        // is no longer reachable — refuse here rather than run it.
         // ──────────────────────────────────────────────────────────────────────
-        if (frameworkAnswers.architecture === 'marketplace') {
-            return this.marketplaceFlow._runMarketplaceFlow(frameworkAnswers, explicitConfig, existingConfig, buildTimestamp);
+        if (isMarketplaceConfig(frameworkAnswers.architecture) ||
+            isMarketplaceConfig(frameworkAnswers.deploymentConfig)) {
+            refuseMarketplaceAndExit();
         }
         
         // Engine prompt for http architecture
@@ -412,17 +415,12 @@ export default class PromptRunner {
                 console.error('   JumpStart model sources have been removed. Use one of:');
                 console.error('     • HuggingFace model ID (e.g., meta-llama/Llama-2-7b-hf)');
                 console.error('     • s3://bucket/path/model.tar.gz');
-                console.error('     • registry://model-package-name');
-                console.error('     • marketplace://arn:aws:sagemaker:...\n');
+                console.error('     • registry://model-package-name\n');
                 process.exit(1);
             }
-            if (modelName.startsWith('marketplace://')) {
-                // marketplace://arn:aws:sagemaker:... → set architecture to marketplace and store ARN
-                const arn = modelName.replace(/^marketplace:\/\//, '');
-                combinedAnswers.modelPackageArn = arn;
-                combinedAnswers.architecture = 'marketplace';
-                combinedAnswers.deploymentConfig = 'marketplace';
-                combinedAnswers.modelSource = undefined;
+            if (isMarketplaceModelName(modelName)) {
+                // Marketplace is deprecated and hard-refused (see marketplace-refusal.js).
+                refuseMarketplaceAndExit();
             } else if (modelName.startsWith('s3://')) {
                 combinedAnswers.modelSource = 's3';
                 combinedAnswers.artifactUri = modelName;

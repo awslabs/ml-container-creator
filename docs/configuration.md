@@ -44,8 +44,8 @@ All 68 parameters supported by MCC, organized by category. Each can be set via C
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `deploymentConfig` | `--deployment-config` | enum (16 values) | — | Deployment configuration (e.g. http-flask, transformers-vllm, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
-| `modelName` | `--model-name` | string | — | Model identifier (hf-org/model, s3://..., registry://..., marketplace://...) (env: `ML_MODEL_NAME`) |
+| `deploymentConfig` | `--deployment-config` | enum (15 values) | — | Deployment configuration (e.g. http-flask, transformers-vllm, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
+| `modelName` | `--model-name` | string | — | Model identifier (hf-org/model, s3://..., registry://...) (env: `ML_MODEL_NAME`) |
 | `framework` | `--framework` | enum: `sklearn`, `xgboost`, `tensorflow`, `transformers` | — | ~~ML framework~~ *(deprecated, use `--deploymentConfig` instead)* |
 | `modelFormat` | `--model-format` | string | — | Model serialization format (pkl, joblib, json, model, ubj, keras, h5, SavedModel) (env: `ML_MODEL_FORMAT`) |
 | `modelServer` | `--model-server` | enum: `flask`, `fastapi`, `vllm`, `sglang` | — | ~~Model server~~ *(deprecated, use `--deploymentConfig` instead)* |
@@ -184,19 +184,16 @@ The `--deployment-config` flag bundles the architecture and model server into a 
 | `triton-tensorrtllm` | Triton | TensorRT-LLM | LLM serving on Triton with TensorRT-LLM |
 | `triton-python` | Triton | Python | Custom Python models on Triton |
 | `diffusors-vllm-omni` | Diffusors | vLLM Omni | Diffusion/multimodal models |
-| `marketplace` | Marketplace | — | AWS Marketplace model packages (no container build) |
 
 For traditional ML configs (`http-flask`, `http-fastapi`), also specify `--model-format` to set the serialization format for your model.
 
-The `marketplace` config deploys pre-built vendor model packages from AWS Marketplace. No Dockerfile, no build/push — just deploy, test, and benchmark. Use the `marketplace://` prefix with `--model-name`:
-
-```bash
-ml-container-creator my-marketplace-model \
-  --deployment-config=marketplace \
-  --model-name='marketplace://arn:aws:sagemaker:us-east-1:aws:model-package/vendor-model/1' \
-  --instance-type=ml.g5.xlarge \
-  --region=us-east-1
-```
+!!! warning "Marketplace deployments are no longer supported"
+    The `marketplace` deployment config has been removed. It deployed a
+    pre-built vendor model package and never built a container, which conflicts
+    with this tool's core purpose: bring your own container. Both
+    `--deployment-config=marketplace` and the `marketplace://` model-name prefix
+    are now refused. To serve a model, build and deploy your own image with a
+    HuggingFace model ID, an `s3://` artifact, or a `registry://` model package.
 
 ### Model Formats
 

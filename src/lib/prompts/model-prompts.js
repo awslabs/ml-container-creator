@@ -98,13 +98,11 @@ const deploymentConfigPrompts = [
                 name: 'Diffusors with vLLM Omni',
                 value: 'diffusors-vllm-omni',
                 short: 'diffusors-vllm-omni'
-            },
-            { type: 'separator', separator: '── AWS Marketplace ──' },
-            {
-                name: 'Marketplace Model Package',
-                value: 'marketplace',
-                short: 'marketplace'
             }
+            // AWS Marketplace deployment config is deprecated and hard-refused
+            // (see src/lib/marketplace-refusal.js). The menu choice is removed so
+            // users cannot select a dead option; the flow file stays dormant for
+            // one release before removal.
         ]
     }
 ];

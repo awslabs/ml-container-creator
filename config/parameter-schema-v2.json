@@ -64,8 +64,7 @@
                     "triton-vllm",
                     "triton-tensorrtllm",
                     "triton-python",
-                    "diffusors-vllm-omni",
-                    "marketplace"
+                    "diffusors-vllm-omni"
                 ]
             },
             "phase": "model",
@@ -91,7 +90,7 @@
         },
         "modelName": {
             "type": "string",
-            "description": "Model identifier (hf-org/model, s3://..., registry://..., marketplace://...)",
+            "description": "Model identifier (hf-org/model, s3://..., registry://...)",
             "cliFlag": "--model-name",
             "cliArgName": "name",
             "envVar": "ML_MODEL_NAME",

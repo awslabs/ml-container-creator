@@ -21,5 +21,16 @@
     "ci": true,
     "adapter": true,
     "draft": false
-  }
+  },
+  "answer_params": [
+    { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "instance_type", "configVar": "INSTANCE_TYPE", "flag": "--instance-type", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "endpoint_name", "configVar": "ENDPOINT_NAME", "flag": "--endpoint-name", "roles": ["flag-input", "input-only"] },
+    { "answerKey": "endpoint_strategy", "configVar": "ENDPOINT_STRATEGY", "flag": "--endpoint-strategy", "roles": ["flag-input"] },
+    { "answerKey": "instance_types", "configVar": "INSTANCE_TYPES", "flag": "--instance-types", "roles": ["flag-input"] },
+    { "answerKey": "gpu_count", "configVar": "IC_GPU_COUNT", "flag": "--gpu-count", "roles": ["flag-input"] },
+    { "answerKey": "smai_instance_type", "configVar": "SMAI_INSTANCE_TYPE", "roles": ["builder-output"] },
+    { "answerKey": "smai_endpoint_name", "configVar": "SMAI_ENDPOINT_NAME", "roles": ["builder-output"] },
+    { "answerKey": "inference_ami_version", "configVar": "INFERENCE_AMI_VERSION", "roles": ["builder-output"] }
+  ]
 }

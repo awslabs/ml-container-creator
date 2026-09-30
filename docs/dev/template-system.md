@@ -274,7 +274,7 @@ These variables are available in all templates via the `templateVars` context:
 
 ## Adding a New Deployment Configuration
 
-A deployment configuration is a string like `transformers-vllm` or `triton-fil` that bundles an architecture and a backend. There are currently **16 canonical configs** (2 HTTP + 5 Transformers + 7 Triton + 1 Diffusors + 1 Marketplace).
+A deployment configuration is a string like `transformers-vllm` or `triton-fil` that bundles an architecture and a backend. There are currently **15 selectable configs** (2 HTTP + 5 Transformers + 7 Triton + 1 Diffusors). The resolver still carries a dormant `marketplace` mapping, but marketplace is deprecated and hard-refused at the generator entry point (see `src/lib/marketplace-refusal.js`) — it is no longer in the CLI enum and is scheduled for removal next release.
 
 To add one, touch these files:
 

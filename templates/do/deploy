@@ -90,6 +90,7 @@ while [ $# -gt 0 ]; do
             ANSWERS_FILE="$1"
             shift
             ;;
+        # >>> GENERATED: deploy-flag arg-parse (scripts/codegen-deploy-flags.js; ADR-008) — DO NOT EDIT
         --endpoint-name)
             shift
             if [ $# -eq 0 ]; then echo "❌ --endpoint-name requires a value"; exit 1; fi
@@ -100,42 +101,6 @@ while [ $# -gt 0 ]; do
             shift
             if [ $# -eq 0 ]; then echo "❌ --endpoint-strategy requires a value"; exit 1; fi
             FLAG_ENDPOINT_STRATEGY="$1"
-            shift
-            ;;
-        --instance-types)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --instance-types requires a value"; exit 1; fi
-            FLAG_INSTANCE_TYPES="$1"
-            shift
-            ;;
-        --gpu-count)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --gpu-count requires a value"; exit 1; fi
-            FLAG_GPU_COUNT="$1"
-            shift
-            ;;
-        --cluster-name)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --cluster-name requires a value"; exit 1; fi
-            FLAG_CLUSTER_NAME="$1"
-            shift
-            ;;
-        --namespace)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --namespace requires a value"; exit 1; fi
-            FLAG_NAMESPACE="$1"
-            shift
-            ;;
-        --replicas)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --replicas requires a value"; exit 1; fi
-            FLAG_REPLICAS="$1"
-            shift
-            ;;
-        --queue)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --queue requires a value"; exit 1; fi
-            FLAG_QUEUE="$1"
             shift
             ;;
         --async-output-path)
@@ -186,6 +151,43 @@ while [ $# -gt 0 ]; do
             FLAG_BATCH_MAX_CONCURRENT="$1"
             shift
             ;;
+        --cluster-name)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --cluster-name requires a value"; exit 1; fi
+            FLAG_CLUSTER_NAME="$1"
+            shift
+            ;;
+        --namespace)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --namespace requires a value"; exit 1; fi
+            FLAG_NAMESPACE="$1"
+            shift
+            ;;
+        --replicas)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --replicas requires a value"; exit 1; fi
+            FLAG_REPLICAS="$1"
+            shift
+            ;;
+        --queue)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --queue requires a value"; exit 1; fi
+            FLAG_QUEUE="$1"
+            shift
+            ;;
+        --gpu-count)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --gpu-count requires a value"; exit 1; fi
+            FLAG_GPU_COUNT="$1"
+            shift
+            ;;
+        --instance-types)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --instance-types requires a value"; exit 1; fi
+            FLAG_INSTANCE_TYPES="$1"
+            shift
+            ;;
+        # <<< END GENERATED deploy-flag arg-parse
         --status)
             FLAG_STATUS=1
             shift
@@ -618,6 +620,27 @@ fi
 # or if --target was provided with no existing deployment (_NEEDS_HELPER),
 # invoke the interactive deploy builder (FR-2.1, FR-2.6, FR-3.2)
 _HELPER_INVOKED=0
+# Build the per-target flag forwarding array once; forwarded to BOTH the Python
+# helper and the Node builder so a caller-supplied value is never re-prompted.
+    # >>> GENERATED: deploy-flag args-array (scripts/codegen-deploy-flags.js; ADR-008) — DO NOT EDIT
+    _DEPLOY_FLAG_ARGS=()
+    FLAG_ENDPOINT_NAME="${FLAG_ENDPOINT_NAME:-}"; [ -n "$FLAG_ENDPOINT_NAME" ] && _DEPLOY_FLAG_ARGS+=("--endpoint-name" "$FLAG_ENDPOINT_NAME")
+    FLAG_ENDPOINT_STRATEGY="${FLAG_ENDPOINT_STRATEGY:-}"; [ -n "$FLAG_ENDPOINT_STRATEGY" ] && _DEPLOY_FLAG_ARGS+=("--endpoint-strategy" "$FLAG_ENDPOINT_STRATEGY")
+    FLAG_ASYNC_OUTPUT_PATH="${FLAG_ASYNC_OUTPUT_PATH:-}"; [ -n "$FLAG_ASYNC_OUTPUT_PATH" ] && _DEPLOY_FLAG_ARGS+=("--async-output-path" "$FLAG_ASYNC_OUTPUT_PATH")
+    FLAG_ASYNC_SNS_TOPIC="${FLAG_ASYNC_SNS_TOPIC:-}"; [ -n "$FLAG_ASYNC_SNS_TOPIC" ] && _DEPLOY_FLAG_ARGS+=("--async-sns-topic" "$FLAG_ASYNC_SNS_TOPIC")
+    FLAG_ASYNC_MAX_CONCURRENT="${FLAG_ASYNC_MAX_CONCURRENT:-}"; [ -n "$FLAG_ASYNC_MAX_CONCURRENT" ] && _DEPLOY_FLAG_ARGS+=("--async-max-concurrent" "$FLAG_ASYNC_MAX_CONCURRENT")
+    FLAG_BATCH_INPUT_PATH="${FLAG_BATCH_INPUT_PATH:-}"; [ -n "$FLAG_BATCH_INPUT_PATH" ] && _DEPLOY_FLAG_ARGS+=("--batch-input-path" "$FLAG_BATCH_INPUT_PATH")
+    FLAG_BATCH_OUTPUT_PATH="${FLAG_BATCH_OUTPUT_PATH:-}"; [ -n "$FLAG_BATCH_OUTPUT_PATH" ] && _DEPLOY_FLAG_ARGS+=("--batch-output-path" "$FLAG_BATCH_OUTPUT_PATH")
+    FLAG_BATCH_SPLIT_TYPE="${FLAG_BATCH_SPLIT_TYPE:-}"; [ -n "$FLAG_BATCH_SPLIT_TYPE" ] && _DEPLOY_FLAG_ARGS+=("--batch-split-type" "$FLAG_BATCH_SPLIT_TYPE")
+    FLAG_BATCH_STRATEGY="${FLAG_BATCH_STRATEGY:-}"; [ -n "$FLAG_BATCH_STRATEGY" ] && _DEPLOY_FLAG_ARGS+=("--batch-strategy" "$FLAG_BATCH_STRATEGY")
+    FLAG_BATCH_MAX_CONCURRENT="${FLAG_BATCH_MAX_CONCURRENT:-}"; [ -n "$FLAG_BATCH_MAX_CONCURRENT" ] && _DEPLOY_FLAG_ARGS+=("--batch-max-concurrent" "$FLAG_BATCH_MAX_CONCURRENT")
+    FLAG_CLUSTER_NAME="${FLAG_CLUSTER_NAME:-}"; [ -n "$FLAG_CLUSTER_NAME" ] && _DEPLOY_FLAG_ARGS+=("--cluster-name" "$FLAG_CLUSTER_NAME")
+    FLAG_NAMESPACE="${FLAG_NAMESPACE:-}"; [ -n "$FLAG_NAMESPACE" ] && _DEPLOY_FLAG_ARGS+=("--namespace" "$FLAG_NAMESPACE")
+    FLAG_REPLICAS="${FLAG_REPLICAS:-}"; [ -n "$FLAG_REPLICAS" ] && _DEPLOY_FLAG_ARGS+=("--replicas" "$FLAG_REPLICAS")
+    FLAG_QUEUE="${FLAG_QUEUE:-}"; [ -n "$FLAG_QUEUE" ] && _DEPLOY_FLAG_ARGS+=("--queue" "$FLAG_QUEUE")
+    FLAG_GPU_COUNT="${FLAG_GPU_COUNT:-}"; [ -n "$FLAG_GPU_COUNT" ] && _DEPLOY_FLAG_ARGS+=("--gpu-count" "$FLAG_GPU_COUNT")
+    FLAG_INSTANCE_TYPES="${FLAG_INSTANCE_TYPES:-}"; [ -n "$FLAG_INSTANCE_TYPES" ] && _DEPLOY_FLAG_ARGS+=("--instance-types" "$FLAG_INSTANCE_TYPES")
+    # <<< END GENERATED deploy-flag args-array
 if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
     # Invoke the deploy helper prompt to collect deployment parameters
     _PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -632,22 +655,7 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
         --project-dir "${_PROJECT_ROOT}" \
         ${ANSWERS_FILE:+--answers-file "$ANSWERS_FILE"} \
         ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"} \
-        ${FLAG_ENDPOINT_NAME:+--endpoint-name "$FLAG_ENDPOINT_NAME"} \
-        ${FLAG_ENDPOINT_STRATEGY:+--endpoint-strategy "$FLAG_ENDPOINT_STRATEGY"} \
-        ${FLAG_INSTANCE_TYPES:+--instance-types "$FLAG_INSTANCE_TYPES"} \
-        ${FLAG_GPU_COUNT:+--gpu-count "$FLAG_GPU_COUNT"} \
-        ${FLAG_CLUSTER_NAME:+--cluster-name "$FLAG_CLUSTER_NAME"} \
-        ${FLAG_NAMESPACE:+--namespace "$FLAG_NAMESPACE"} \
-        ${FLAG_REPLICAS:+--replicas "$FLAG_REPLICAS"} \
-        ${FLAG_QUEUE:+--queue "$FLAG_QUEUE"} \
-        ${FLAG_ASYNC_OUTPUT_PATH:+--async-output-path "$FLAG_ASYNC_OUTPUT_PATH"} \
-        ${FLAG_ASYNC_SNS_TOPIC:+--async-sns-topic "$FLAG_ASYNC_SNS_TOPIC"} \
-        ${FLAG_ASYNC_MAX_CONCURRENT:+--async-max-concurrent "$FLAG_ASYNC_MAX_CONCURRENT"} \
-        ${FLAG_BATCH_INPUT_PATH:+--batch-input-path "$FLAG_BATCH_INPUT_PATH"} \
-        ${FLAG_BATCH_OUTPUT_PATH:+--batch-output-path "$FLAG_BATCH_OUTPUT_PATH"} \
-        ${FLAG_BATCH_SPLIT_TYPE:+--batch-split-type "$FLAG_BATCH_SPLIT_TYPE"} \
-        ${FLAG_BATCH_STRATEGY:+--batch-strategy "$FLAG_BATCH_STRATEGY"} \
-        ${FLAG_BATCH_MAX_CONCURRENT:+--batch-max-concurrent "$FLAG_BATCH_MAX_CONCURRENT"} \
+        "${_DEPLOY_FLAG_ARGS[@]}" \
         2>"${_HELPER_ERR}" || {
         _ERR=$(cat "${_HELPER_ERR}" 2>/dev/null)
         rm -f "${_HELPER_ERR}"
@@ -690,22 +698,7 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
           --output-file "$_DEPLOY_JSON_TMP" \
           --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" \
           ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"} \
-          ${FLAG_ENDPOINT_NAME:+--endpoint-name "$FLAG_ENDPOINT_NAME"} \
-          ${FLAG_ENDPOINT_STRATEGY:+--endpoint-strategy "$FLAG_ENDPOINT_STRATEGY"} \
-          ${FLAG_INSTANCE_TYPES:+--instance-types "$FLAG_INSTANCE_TYPES"} \
-          ${FLAG_GPU_COUNT:+--gpu-count "$FLAG_GPU_COUNT"} \
-          ${FLAG_CLUSTER_NAME:+--cluster-name "$FLAG_CLUSTER_NAME"} \
-          ${FLAG_NAMESPACE:+--namespace "$FLAG_NAMESPACE"} \
-          ${FLAG_REPLICAS:+--replicas "$FLAG_REPLICAS"} \
-          ${FLAG_QUEUE:+--queue "$FLAG_QUEUE"} \
-          ${FLAG_ASYNC_OUTPUT_PATH:+--async-output-path "$FLAG_ASYNC_OUTPUT_PATH"} \
-          ${FLAG_ASYNC_SNS_TOPIC:+--async-sns-topic "$FLAG_ASYNC_SNS_TOPIC"} \
-          ${FLAG_ASYNC_MAX_CONCURRENT:+--async-max-concurrent "$FLAG_ASYNC_MAX_CONCURRENT"} \
-          ${FLAG_BATCH_INPUT_PATH:+--batch-input-path "$FLAG_BATCH_INPUT_PATH"} \
-          ${FLAG_BATCH_OUTPUT_PATH:+--batch-output-path "$FLAG_BATCH_OUTPUT_PATH"} \
-          ${FLAG_BATCH_SPLIT_TYPE:+--batch-split-type "$FLAG_BATCH_SPLIT_TYPE"} \
-          ${FLAG_BATCH_STRATEGY:+--batch-strategy "$FLAG_BATCH_STRATEGY"} \
-          ${FLAG_BATCH_MAX_CONCURRENT:+--batch-max-concurrent "$FLAG_BATCH_MAX_CONCURRENT"}) || true
+          "${_DEPLOY_FLAG_ARGS[@]}") || true
     else
         echo "❌ Deploy interactive mode requires Node.js and @aws/ml-container-creator."
         echo "   Install: npm install -g @aws/ml-container-creator"
@@ -713,37 +706,23 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
         exit 1
     fi
 
-    # Parse JSON response from temp file and export all vars
+    # Parse JSON response from temp file and export all vars.
+    #
+    # DERIVED (do not hardcode): the answer-key → config-var map is the builder-output
+    # surface, read from deploy_answers.py (single source of truth, ADR-008 /
+    # .kiro/steering/derive-dont-hardcode.md). Falls back to an empty map only if the
+    # reader is unavailable, in which case no vars are exported and the caller falls
+    # back to prompts on the next run.
+    _LIB_PYTHON="${SCRIPT_DIR}/lib/python"
     json_output=$(cat "$_DEPLOY_JSON_TMP" 2>/dev/null || echo '{}')
-    eval "$(echo "$json_output" | python3 -c "
-import json, sys
-KEY_MAP = {
-    'target': 'DEPLOYMENT_TARGET',
-    'instance_type': 'INSTANCE_TYPE',
-    'smai_instance_type': 'SMAI_INSTANCE_TYPE',
-    'async_instance_type': 'ASYNC_INSTANCE_TYPE',
-    'batch_instance_type': 'BATCH_INSTANCE_TYPE',
-    'hp_instance_type': 'HP_INSTANCE_TYPE',
-    'smai_endpoint_name': 'SMAI_ENDPOINT_NAME',
-    'async_endpoint_name': 'ASYNC_ENDPOINT_NAME',
-    'endpoint_strategy': 'ENDPOINT_STRATEGY',
-    'instance_types': 'INSTANCE_TYPES',
-    'gpu_count': 'IC_GPU_COUNT',
-    'cluster_name': 'HP_CLUSTER_NAME',
-    'hp_gpu_count': 'HP_GPU_COUNT',
-    'namespace': 'HP_NAMESPACE',
-    'replicas': 'HP_REPLICAS',
-    'queue': 'HP_QUEUE',
-    'async_output_path': 'ASYNC_S3_OUTPUT_PATH',
-    'async_sns_topic': 'ASYNC_SNS_TOPIC',
-    'async_max_concurrent': 'ASYNC_MAX_CONCURRENT_INVOCATIONS',
-    'batch_input_path': 'BATCH_INPUT_PATH',
-    'batch_output_path': 'BATCH_OUTPUT_PATH',
-    'batch_split_type': 'BATCH_SPLIT_TYPE',
-    'batch_strategy': 'BATCH_STRATEGY',
-    'batch_max_concurrent': 'BATCH_MAX_CONCURRENT',
-    'inference_ami_version': 'INFERENCE_AMI_VERSION',
-}
+    eval "$(echo "$json_output" | _LIB_PYTHON="${_LIB_PYTHON}" python3 -c "
+import json, os, sys
+sys.path.insert(0, os.environ['_LIB_PYTHON'])
+try:
+    import deploy_answers
+    KEY_MAP = deploy_answers.answer_key_to_var('output')
+except Exception:
+    KEY_MAP = {}
 data = json.load(sys.stdin)
 if 'error' in data:
     err = data['error']

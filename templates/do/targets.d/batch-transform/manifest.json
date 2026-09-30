@@ -21,5 +21,15 @@
     "ci": false,
     "adapter": false,
     "draft": false
-  }
+  },
+  "answer_params": [
+    { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "instance_type", "configVar": "INSTANCE_TYPE", "flag": "--instance-type", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "batch_input_path", "configVar": "BATCH_INPUT_PATH", "flag": "--batch-input-path", "roles": ["flag-input"] },
+    { "answerKey": "batch_output_path", "configVar": "BATCH_OUTPUT_PATH", "flag": "--batch-output-path", "roles": ["flag-input"] },
+    { "answerKey": "batch_split_type", "configVar": "BATCH_SPLIT_TYPE", "flag": "--batch-split-type", "roles": ["flag-input"] },
+    { "answerKey": "batch_strategy", "configVar": "BATCH_STRATEGY", "flag": "--batch-strategy", "roles": ["flag-input"] },
+    { "answerKey": "batch_max_concurrent", "configVar": "BATCH_MAX_CONCURRENT", "flag": "--batch-max-concurrent", "roles": ["flag-input"] },
+    { "answerKey": "batch_instance_type", "configVar": "BATCH_INSTANCE_TYPE", "roles": ["builder-output"] }
+  ]
 }

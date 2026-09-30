@@ -23,6 +23,7 @@ import instance_sizer
 logging.disable(logging.CRITICAL)
 
 from deploy_schema import SCHEMAS, normalize_target  # noqa: E402
+import deploy_answers  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # MCP fallback warning message (FR-2.4)
@@ -309,29 +310,13 @@ def diff_config(target: str, config_vars: dict[str, str]) -> dict[str, str | Non
 # Non-interactive answers (DEPLOY_ANSWERS env var)
 # ---------------------------------------------------------------------------
 
-# Mapping from answer JSON keys to config variable names
-_ANSWER_KEY_TO_VAR: dict[str, str] = {
-    "target": "DEPLOYMENT_TARGET",
-    "instance_type": "INSTANCE_TYPE",
-    "endpoint_name": "ENDPOINT_NAME",
-    "endpoint_strategy": "ENDPOINT_STRATEGY",
-    "instance_types": "INSTANCE_TYPES",
-    "gpu_count": "IC_GPU_COUNT",
-    "cluster_name": "HP_CLUSTER_NAME",
-    "hp_gpu_count": "HP_GPU_COUNT",
-    "namespace": "HP_NAMESPACE",
-    "replicas": "HP_REPLICAS",
-    "queue": "HP_QUEUE",
-    "hp_instance_group_name": "HP_INSTANCE_GROUP_NAME",
-    "async_output_path": "ASYNC_S3_OUTPUT_PATH",
-    "async_sns_topic": "ASYNC_SNS_TOPIC",
-    "async_max_concurrent": "ASYNC_MAX_CONCURRENT_INVOCATIONS",
-    "batch_input_path": "BATCH_INPUT_PATH",
-    "batch_output_path": "BATCH_OUTPUT_PATH",
-    "batch_split_type": "BATCH_SPLIT_TYPE",
-    "batch_strategy": "BATCH_STRATEGY",
-    "batch_max_concurrent": "BATCH_MAX_CONCURRENT",
-}
+# Mapping from answer JSON keys to config variable names.
+#
+# DERIVED (do not hardcode): this is the DEPLOY_ANSWERS *input* surface, the union
+# of every target's answer_params in targets.d/*/manifest.json minus the pure
+# builder-output keys. Single source of truth per ADR-008 /
+# .kiro/steering/derive-dont-hardcode.md; see deploy_answers.py.
+_ANSWER_KEY_TO_VAR: dict[str, str] = deploy_answers.answer_key_to_var("input")
 
 # Reverse mapping: config var name to answer JSON key
 _VAR_TO_ANSWER_KEY: dict[str, str] = {v: k for k, v in _ANSWER_KEY_TO_VAR.items()}

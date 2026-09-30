@@ -18,7 +18,8 @@
     "optional_vars",
     "runtime_owned_vars",
     "serving_config_source",
-    "verbs"
+    "verbs",
+    "answer_params"
   ],
   "properties": {
     "target": {
@@ -94,6 +95,42 @@
         "ci": { "type": "boolean" },
         "adapter": { "type": "boolean" },
         "draft": { "type": "boolean" }
+      }
+    },
+    "answer_params": {
+      "type": "array",
+      "description": "The single source of truth for this target's deploy answer-key plumbing (see docs/adr/ADR-008 and .kiro/steering/derive-dont-hardcode.md). Each entry ties an answer key (DEPLOY_ANSWERS JSON key) to its config var, optional CLI flag, and roles. The four historical tables — CLI_FLAG_TO_VARS (deploy-config-builder.js), flag_to_answer_key (.deploy_helper.py), _ANSWER_KEY_TO_VAR (deploy_prompts.py), and the inline KEY_MAP (do/deploy) — plus do/deploy's flag arg-parse arms and both forwarding blocks all DERIVE from the union of these per-target arrays. Option B: every target lists all its params independently (including core target/instance_type) so a target can add or target-scope a param without touching a shared table; a conformance test enforces that any answerKey shared across targets maps to the same configVar.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["answerKey", "configVar", "roles"],
+        "properties": {
+          "answerKey": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "description": "The snake_case DEPLOY_ANSWERS JSON key."
+          },
+          "configVar": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "description": "The SCREAMING_SNAKE config/env var the answer key resolves to."
+          },
+          "flag": {
+            "type": "string",
+            "pattern": "^--[a-z][a-z-]*$",
+            "description": "The CLI flag (do/deploy) that supplies this value. Present only for roles that include flag-input."
+          },
+          "roles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": ["flag-input", "prompt-core", "internal", "builder-output", "input-only"]
+            },
+            "description": "flag-input: has a CLI flag; appears in builder/helper flag tables, do/deploy arg-parse arms, and both forwarding blocks. prompt-core: the core target/instance_type params handled specially by the builder but still answer keys on the Python side. internal: no flag; produced by prompts/builder; part of the DEPLOY_ANSWERS input surface (_ANSWER_KEY_TO_VAR). builder-output: emitted only in the Node builder's JSON output (do/deploy KEY_MAP); no flag, no prompt input. input-only: a flag/prompt/internal param the builder does NOT re-emit, so it is excluded from the output KEY_MAP (e.g. endpoint_name, re-emitted target-scoped as smai_/async_endpoint_name; hp_instance_group_name)."
+          }
+        }
       }
     }
   }

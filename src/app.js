@@ -16,6 +16,7 @@ import CommentGenerator from './lib/comment-generator.js';
 import RegistryConfigManager from './lib/registry-config-manager.js';
 import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
+import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './lib/marketplace-refusal.js';
 import { readEnvVarPrefix } from './lib/serve-manifest-reader.js';
 import { _ensureTemplateVariables, _validateEnvironmentVariables } from './lib/template-variable-resolver.js';
 import ejs from 'ejs';
@@ -42,6 +43,15 @@ export async function run(projectName, options) {
     // (ConfigManager expects kebab-case format for option keys)
     const kebabOptions = _toKebabCaseOptions(options);
 
+    // Hard-refuse marketplace deployments (deprecated — see marketplace-refusal.js).
+    // Detected from either the requested deployment config or a marketplace:// model
+    // name, as the very first step so every path (skip-prompts, auto-prompt, full
+    // prompt) refuses uniformly with a non-zero exit. Mirrors the JumpStart precedent.
+    if (isMarketplaceConfig(kebabOptions['deployment-config']) ||
+        isMarketplaceModelName(kebabOptions['model-name'])) {
+        refuseMarketplaceAndExit();
+    }
+
     // Build a lightweight adapter that satisfies ConfigManager's generator interface
     const generatorAdapter = _createGeneratorAdapter(projectName, kebabOptions);
     const args = projectName ? [projectName] : [];
@@ -54,6 +64,14 @@ export async function run(projectName, options) {
     } catch (error) {
         console.log(`⚠️  ${error.message}`);
         return;
+    }
+
+    // Re-check against the RESOLVED config (config file / env), not just CLI options,
+    // so a marketplace deployment requested through any source is refused uniformly.
+    const explicitConfig = configManager.getExplicitConfiguration();
+    if (isMarketplaceConfig(explicitConfig.deploymentConfig) ||
+        isMarketplaceModelName(explicitConfig.modelName)) {
+        refuseMarketplaceAndExit();
     }
 
     const errors = configManager.validateConfiguration();
@@ -170,8 +188,7 @@ export async function run(projectName, options) {
                 console.error('   JumpStart model sources have been removed. Use one of:');
                 console.error('     • HuggingFace model ID (e.g., meta-llama/Llama-2-7b-hf)');
                 console.error('     • s3://bucket/path/model.tar.gz');
-                console.error('     • registry://model-package-name');
-                console.error('     • marketplace://arn:aws:sagemaker:...\n');
+                console.error('     • registry://model-package-name\n');
                 process.exit(1);
             }
             if (modelName.startsWith('s3://')) {
