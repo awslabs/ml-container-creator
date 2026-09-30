@@ -23,5 +23,10 @@
     "tensor_parallel_degree": "TENSOR_PARALLEL_SIZE",
     "max_model_len": "MAX_MODEL_LEN",
     "kv_cache_dtype": "KV_CACHE_DTYPE"
-  }
+  },
+  "min_version": "0.6.0",
+  "version_features": [
+    { "since": "0.8.0", "adds": { "supported_algorithms": ["mtp"] } },
+    { "since": "0.10.2", "adds": { "supported_algorithms": ["dspark"] } }
+  ]
 }

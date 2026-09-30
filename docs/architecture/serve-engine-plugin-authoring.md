@@ -80,73 +80,95 @@ skips polling when an engine declares none. That is the template to copy.
 
 ---
 
-## b. Versioning capabilities within a plugin [PROPOSED]
+## b. Versioning capabilities within a plugin [IMPLEMENTED]
 
-> **Today there is no version field in the manifest.** Engine version knowledge
-> lives only as prose in the wrappers (e.g. `vllm.ejs` comments about "vLLM
-> v0.21+"). The following is the recommended design for supported-versions and
-> version-specific feature gating. It is not yet implemented; treat it as the
-> ADR to write when versioning is needed.
+> **Shipped in BL129 (see [ADR-009](../adr/ADR-009-serve-engine-capability-versioning.md)).**
+> The manifest carries two optional, engine-agnostic version fields; consumers
+> resolve an *effective* capability set for the deployed engine version, which is
+> derived from the base image. Fail-open throughout: a version MLCC cannot read
+> never blocks a user.
 
-**Design: an optional `versions` block, keyed by capability.** Keep the flat
-top-level fields (they describe the engine's *current/default* behavior) and add
-a `versions` object that gates capabilities by engine version range:
+**The fields: `min_version` + `version_features`.** Keep the flat top-level
+fields (they describe the engine's *latest/default* behavior) and add version
+gating as additive data. Both fields are optional — an engine with no
+version-specific behavior omits them and its effective set equals its flat set at
+every version. Example (the shipped vLLM manifest):
 
 ```jsonc
 {
   "engine": "vllm",
   "env_var_prefix": "VLLM_",
   "speculative_decoding": true,
-  "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "ngram", "mtp"],
+  "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "ngram", "mtp", "dspark"],
   "algorithm_map": { "eagle3": "eagle3", "draft-model": "draft_model" },
   "hot_reload": true,
 
-  // PROPOSED — version-gated capabilities.
-  "min_version": "0.6.0",              // engine versions below this are unsupported
+  "min_version": "0.6.0",              // lowest version MLCC gates against
   "version_features": [
-    {
-      "since": "0.8.0",                // semver: available from this version up
-      "adds": { "supported_algorithms": ["mtp"] }   // mtp only on >= 0.8.0
-    },
-    {
-      "since": "0.21.0",
-      "adds": { "env_only_vars": ["VLLM_BUILD_URL", "VLLM_IMAGE_TAG"] }  // exclude from CLI forwarding
-    }
+    { "since": "0.8.0",  "adds": { "supported_algorithms": ["mtp"] } },     // mtp available from >= 0.8.0
+    { "since": "0.10.2", "adds": { "supported_algorithms": ["dspark"] } }   // dspark from >= 0.10.2
   ]
 }
 ```
 
-**Contract for consumers.** A consumer resolves an *effective* capability set for
-the running engine version = the base fields plus every `version_features[].adds`
-whose `since` ≤ the detected version, minus anything gated above the version.
-The detected version comes from the image (the wrapper can read it once — e.g.
-`python3 -m vllm --version` — and cache it, mirroring the existing
-`--help`-introspection cache in `vllm.ejs`).
+Each `adds.supported_algorithms` value MUST be a subset of the flat
+`supported_algorithms` (the flat list is the newest truth; `version_features`
+records *when* each entry landed). The schema enforces the field shapes; the
+subset invariant is asserted by the BL105/BL129 tests.
+
+**The effective capability set.** For a detected engine version, the effective
+`supported_algorithms` = the flat list minus any algorithm whose gating
+`version_features[].since` is *above* that version. So at vLLM 0.8.5 the effective
+set includes `mtp` but not `dspark`; at 0.10.2+ it includes both.
+
+**Where the version comes from — the base image (not a runtime probe).** The
+engine version is resolved statically from the deployment's `BASE_IMAGE` in
+`do/config`:
+1. the base-image catalog (`servers/lib/catalogs/model-servers.json`) records
+   `labels.framework_version` per image entry — the authoritative image and
+   version map (this is that field's first consumer); else
+2. the version is parsed from the image tag (`vllm/vllm-openai:v0.29.0` becomes
+   `0.29.0`) for custom/override images not in the catalog; else
+3. `null` gives **fail-open** (no gating applied).
+
+**Readers (both runtimes, single source of truth).**
+- Python, deploy/config-time: `serve_manifest.py` —
+  `effective_supported_algorithms(engine, version)`,
+  `engine_version_from_base_image(engine, base_image)`, `min_version`,
+  `is_version_supported`, plus one-shot CLI ops
+  (`serve_manifest.py engine_version <engine> <base_image>`,
+  `serve_manifest.py effective_supported_algorithms <engine> [version]`).
+- Node, generation-time: `src/lib/serve-manifest-reader.js` mirrors the same
+  functions with identical semantics.
+
+**Consumers (the full loop).**
+- `do/draft` resolves the engine version from `BASE_IMAGE` and validates
+  `--algorithm` against the *effective* set. A gated-out algorithm is rejected
+  with an "available on a newer version — upgrade base image" hint. The
+  `--help` algorithm list shows the effective set for the active engine's version.
+- `do/deploy.d/hyperpod-eks` re-checks the configured `HP_SPECULATIVE_ALGORITHM`
+  against the effective set for the deployed image (defense-in-depth: the base
+  image may have changed since `do/draft` ran) before the `algorithm_map`
+  translation.
 
 **Why this shape:**
-- The flat fields stay valid and are the "latest/default" view, so existing
-  consumers keep working unchanged (backward compatible).
-- Gating is *additive data*, not code: an AI adding "algorithm X lands in engine
-  vN" edits the manifest, and every consumer that resolves the effective set
-  picks it up.
+- The flat fields stay valid as the "latest/default" view, so existing consumers
+  keep working unchanged (backward compatible; the three engines that declare no
+  `version_features` are unaffected).
+- Gating is *additive data*, not code: adding "algorithm X lands in engine vN"
+  edits the manifest, and every consumer that resolves the effective set picks it
+  up — engine-agnostic, no `if engine == ...` anywhere.
 - `min_version` gives a single, honest "we don't support below this" statement,
-  replacing scattered prose.
+  replacing scattered prose in the wrappers.
 
-**What to build when implementing this:**
-1. Extend `manifest.schema.json` with optional `min_version` (semver string) and
-   `version_features` (array of `{since, adds}`). Keep them optional so the four
-   existing manifests stay valid until they opt in.
-2. Add `effective_capabilities(engine, version)` to `serve_manifest.py` (and a
-   Node mirror) that folds `version_features` into the base fields.
-3. Teach `do/draft`'s `supported_algorithms` validation and
-   `hyperpod-eks`'s `algorithm_map` translation to use the *effective* set for
-   the detected engine version.
-4. Tests: an engine at version < a feature's `since` rejects that feature; at ≥
-   `since` accepts it — with no consumer code change, only manifest data.
+**Fail-open is the rule.** An unresolvable version (custom image, unparseable
+tag, `latest`) yields the full flat set — version gating is an enhancement, never
+a new gate. MLCC never blocks a user over a version it cannot read.
 
 **Do NOT** encode versions by forking the plugin directory (`vllm-0.8/`) or by
 `if version >= ...` in the wrapper — both reintroduce the per-engine hardcoding
-ADR-004 eliminates.
+ADR-004 eliminates. **Do NOT** add a runtime `vllm --version` probe as the version
+source; the base-image catalog is the static, generation-time source of truth.
 
 ---
 

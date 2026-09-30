@@ -105,3 +105,118 @@ def test_dimension_key_derivation_sglang(monkeypatch):
     # SGLang derives from its own manifest (SGLANG_ prefix + SGLang suffixes).
     assert optimize._dimension_config_key("tensor_parallel_degree", "hyperpod-eks") == "SGLANG_TP_SIZE"
     assert optimize._dimension_config_key("quantization", "realtime-inference") == "IC_ENV_SGLANG_QUANTIZATION"
+
+
+# -- BL129: capability versioning ---------------------------------------------
+# Data-driven: assertions derive from vLLM's own manifest version_features so
+# they track the shipped gating rather than pinning algorithm/version literals.
+
+def _vllm_manifest():
+    return serve_manifest.read_manifest("vllm")
+
+
+def _cmp_ver(v):
+    return tuple(int(x) for x in v.split("."))
+
+
+def test_effective_algorithms_failopen_on_unknown_version():
+    flat = serve_manifest.supported_algorithms("vllm")
+    assert serve_manifest.effective_supported_algorithms("vllm", None) == flat
+    assert serve_manifest.effective_supported_algorithms("vllm", "latest") == flat
+
+
+def test_effective_algorithms_below_earliest_gate_excludes_it():
+    features = _vllm_manifest().get("version_features", [])
+    assert features, "vLLM manifest should declare version_features for this test"
+    earliest = sorted(features, key=lambda f: _cmp_ver(f["since"]))[0]
+    below = f"{_cmp_ver(earliest['since'])[0]}.0.0"
+    eff = serve_manifest.effective_supported_algorithms("vllm", below)
+    for alg in earliest["adds"].get("supported_algorithms", []):
+        assert alg not in eff, f"{alg} (gated since {earliest['since']}) must be absent at {below}"
+
+
+def test_effective_algorithms_at_latest_gate_equals_flat():
+    features = _vllm_manifest().get("version_features", [])
+    latest_since = sorted((f["since"] for f in features), key=_cmp_ver)[-1]
+    eff = serve_manifest.effective_supported_algorithms("vllm", latest_since)
+    assert sorted(eff) == sorted(serve_manifest.supported_algorithms("vllm"))
+
+
+def test_effective_algorithms_datadriven_no_version_features():
+    # SGLang declares no version_features → effective == flat at any version.
+    assert serve_manifest.effective_supported_algorithms("sglang", "0.0.1") == \
+        serve_manifest.supported_algorithms("sglang")
+
+
+def test_is_version_supported_failopen():
+    assert serve_manifest.is_version_supported("vllm", None) is True
+    assert serve_manifest.is_version_supported("vllm", "latest") is True
+
+
+def test_is_version_supported_respects_min_version():
+    mv = serve_manifest.min_version("vllm")
+    if not mv:
+        pytest.skip("vLLM declares no min_version")
+    maj, minor, _ = _cmp_ver(mv)
+    if minor > 0:
+        assert serve_manifest.is_version_supported("vllm", f"{maj}.{minor - 1}.0") is False
+    assert serve_manifest.is_version_supported("vllm", mv) is True
+
+
+def test_engine_version_from_base_image_tag_parse():
+    # Not-in-catalog image → tag parse.
+    assert serve_manifest.engine_version_from_base_image(
+        "vllm", "my-registry/custom-vllm:v0.8.5-cu128") == "0.8.5"
+
+
+def test_engine_version_from_base_image_unparseable_returns_none():
+    assert serve_manifest.engine_version_from_base_image(
+        "vllm", "vllm/vllm-openai:latest") is None
+    assert serve_manifest.engine_version_from_base_image("vllm", "") is None
+
+
+
+# -- BL129: CLI contract (what do/draft + hyperpod-eks invoke verbatim) --------
+# do/draft and do/deploy.d/hyperpod-eks shell out to these exact CLI operations,
+# so pin the CLI I/O contract (stdout shape + exit codes), not just the library.
+
+import json as _json
+import subprocess as _subprocess
+import sys as _sys
+
+
+def _run_cli(*args):
+    return _subprocess.run(
+        [_sys.executable, _READER_PATH, *args],
+        capture_output=True, text=True,
+    )
+
+
+def test_cli_engine_version_tag_parse():
+    r = _run_cli("engine_version", "vllm", "my-registry/custom-vllm:v0.8.5-cu128")
+    assert r.returncode == 0
+    assert r.stdout.strip() == "0.8.5"
+
+
+def test_cli_engine_version_unresolvable_prints_empty():
+    r = _run_cli("engine_version", "vllm", "vllm/vllm-openai:latest")
+    assert r.returncode == 0
+    assert r.stdout.strip() == ""
+
+
+def test_cli_effective_supported_algorithms_gates_by_version():
+    features = _vllm_manifest().get("version_features", [])
+    earliest = sorted(features, key=lambda f: _cmp_ver(f["since"]))[0]
+    below = f"{_cmp_ver(earliest['since'])[0]}.0.0"
+    r = _run_cli("effective_supported_algorithms", "vllm", below)
+    assert r.returncode == 0
+    eff = _json.loads(r.stdout)
+    for alg in earliest["adds"].get("supported_algorithms", []):
+        assert alg not in eff
+
+
+def test_cli_effective_supported_algorithms_failopen_no_version():
+    # No version arg → full flat list (the fail-open path do/draft relies on).
+    r = _run_cli("effective_supported_algorithms", "vllm")
+    assert r.returncode == 0
+    assert _json.loads(r.stdout) == serve_manifest.supported_algorithms("vllm")

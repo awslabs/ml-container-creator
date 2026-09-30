@@ -37,6 +37,40 @@
       "type": "boolean",
       "description": "Whether the engine supports hot reload."
     },
+    "min_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Engine-agnostic capability versioning (BL129). Lowest engine version (semver) at which MLCC supports configuring this engine's version-gated capabilities. When the detected engine version is below this, consumers treat the engine as having no gated capabilities (fail-open — never blocks). Omit when the engine declares no minimum."
+    },
+    "version_features": {
+      "type": "array",
+      "description": "Engine-agnostic capability versioning (BL129). Version-gated capability additions: each entry's `adds` apply to the effective capability set ONLY when the detected engine version >= `since`. The flat fields (e.g. supported_algorithms) describe the engine's latest/default capabilities; version_features records when each of those landed, so a consumer resolving the effective set for an older version removes not-yet-available capabilities. An engine with no version-specific behavior omits this field (or []) — the effective set then equals the flat set for every version.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["since", "adds"],
+        "properties": {
+          "since": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Engine version (semver) at and above which the `adds` capabilities are available."
+          },
+          "adds": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Capabilities that become available at `since`. Keys mirror the flat capability fields; a value must be a subset of the corresponding flat field.",
+            "properties": {
+              "supported_algorithms": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true,
+                "description": "Speculative-decoding algorithms that become available at `since`. Must be a subset of the flat supported_algorithms."
+              }
+            }
+          }
+        }
+      }
+    },
     "metrics_endpoint": {
       "type": "object",
       "additionalProperties": false,

@@ -94,23 +94,5 @@
       ],
       "use_case": "Prefix caching validation"
     }
-  },
-  "med-voice-8k": {
-    "description": "Medical voice transcription, long context, short reply — prefix-cache warmed",
-    "input_tokens_mean": 8000,
-    "output_tokens_mean": 35,
-    "streaming": true,
-    "dataset": "med-voice-8k",
-    "concurrency_levels": [1, 2, 4, 8, 16, 32, 64, 128, 256],
-    "use_case": "Patient-context prefix caching validation"
-  },
-  "med-voice-16k": {
-    "description": "Medical voice transcription, long context, short reply — prefix-cache warmed",
-    "input_tokens_mean": 16000,
-    "output_tokens_mean": 35,
-    "streaming": true,
-    "dataset": "med-voice-16k",
-    "concurrency_levels": [1, 2, 4, 8, 16, 32, 64, 128, 256],
-    "use_case": "Patient-context prefix caching validation"
   }
 }

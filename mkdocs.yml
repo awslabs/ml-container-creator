@@ -107,6 +107,7 @@ nav:
           - ADR-006 Unified Validation Framework: adr/ADR-006-unified-validation-framework.md
           - ADR-007 do/ Script Contract Enforcement: adr/ADR-007-do-script-contract-enforcement.md
           - ADR-008 Deployment-Target Descriptor: adr/ADR-008-deployment-target-descriptor.md
+          - ADR-009 Serve-Engine Capability Versioning: adr/ADR-009-serve-engine-capability-versioning.md
       - Test Inventory: dev/test-inventory.md
   - Command Generator: command-generator.md
 

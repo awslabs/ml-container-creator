@@ -82,18 +82,23 @@ case "${CMD}" in
         echo ""
         echo "Options for 'set':"
         echo "  --algorithm <alg>   Speculative algorithm (default: eagle3)"
-        # BL107: the per-engine supported-algorithm lists are read from each
-        # engine's serve-layer manifest (serve.d/<engine>/supported_algorithms)
-        # rather than hardcoded here, so the help text can never drift from the
-        # validator's real capabilities. Falls back to a static line if the
-        # reader is unavailable.
+        # BL107/BL129: the per-engine supported-algorithm lists are read from each
+        # engine's serve-layer manifest rather than hardcoded here, so the help
+        # text can never drift from the validator's real capabilities. When the
+        # engine version is known (from BASE_IMAGE), the help shows the EFFECTIVE
+        # set for that version so it matches exactly what `set` will accept. Falls
+        # back to a static line if the reader is unavailable.
         _draft_help_algos() {
-            local engine="$1"
-            python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" supported_algorithms "${engine}" 2>/dev/null \
+            local engine="$1" version="$2"
+            python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" effective_supported_algorithms "${engine}" ${version:+"${version}"} 2>/dev/null \
                 | python3 -c 'import json,sys; print(", ".join(json.load(sys.stdin)))' 2>/dev/null
         }
-        _vllm_algos="$(_draft_help_algos vllm)"
-        _sglang_algos="$(_draft_help_algos sglang)"
+        _help_engine="${MODEL_SERVER:-vllm}"
+        _help_version="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" engine_version "${_help_engine}" "${BASE_IMAGE:-}" 2>/dev/null || echo "")"
+        # Show the effective set for the active engine's version; the other engine
+        # is shown version-agnostically (flat) since it isn't the deployed one.
+        _vllm_algos="$([ "${_help_engine}" = "vllm" ] && _draft_help_algos vllm "${_help_version}" || _draft_help_algos vllm "")"
+        _sglang_algos="$([ "${_help_engine}" = "sglang" ] && _draft_help_algos sglang "${_help_version}" || _draft_help_algos sglang "")"
         echo "                      vLLM:   ${_vllm_algos:-eagle3, eagle2, eagle, draft-model, ngram, mtp, dspark}"
         echo "                      SGLang: ${_sglang_algos:-eagle3, eagle2, eagle, draft-model, mtp}"
         echo "  --num-tokens <N>    Speculative tokens per step (default: 5)"
@@ -255,7 +260,14 @@ case "${CMD}" in
         # than a hardcoded per-engine case statement, so algorithm support is
         # data-driven and each engine declares its own real capabilities.
         _ACTIVE_ENGINE="${MODEL_SERVER:-vllm}"
-        _SUPPORTED_JSON="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" supported_algorithms "${_ACTIVE_ENGINE}" 2>/dev/null)" || {
+        # BL129: gate algorithms by the engine version. Resolve the version from
+        # BASE_IMAGE (model-servers.json framework_version → tag parse), then
+        # validate against the EFFECTIVE supported_algorithms for that version.
+        # Fail-open: an unresolvable version yields the full flat list (empty
+        # _ENGINE_VERSION → effective_supported_algorithms returns the flat set),
+        # so a version we cannot read never blocks the user.
+        _ENGINE_VERSION="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" engine_version "${_ACTIVE_ENGINE}" "${BASE_IMAGE:-}" 2>/dev/null || echo "")"
+        _SUPPORTED_JSON="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" effective_supported_algorithms "${_ACTIVE_ENGINE}" ${_ENGINE_VERSION:+"${_ENGINE_VERSION}"} 2>/dev/null)" || {
             echo "❌ ${_ACTIVE_ENGINE} has no serve-layer manifest (serve.d/${_ACTIVE_ENGINE}/manifest.json)."
             echo "   Cannot validate speculative-decoding algorithms for this engine."
             exit 1
@@ -274,8 +286,14 @@ PYEOF
         _ALG_LIST="$(printf '%s\n' "${_ALG_CHECK}" | sed -n '2p')"
 
         if [ "${_ALG_OK}" != "OK" ]; then
-            echo "❌ Algorithm '${DRAFT_ALGORITHM}' is not supported by ${_ACTIVE_ENGINE}."
-            echo "   ${_ACTIVE_ENGINE} supports: ${_ALG_LIST}"
+            echo "❌ Algorithm '${DRAFT_ALGORITHM}' is not supported by ${_ACTIVE_ENGINE}${_ENGINE_VERSION:+ ${_ENGINE_VERSION}}."
+            echo "   ${_ACTIVE_ENGINE}${_ENGINE_VERSION:+ ${_ENGINE_VERSION}} supports: ${_ALG_LIST}"
+            # BL129: the algorithm may exist on a newer engine version. If the flat
+            # (version-agnostic) manifest lists it, point the user at upgrading.
+            _FLAT_JSON="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" supported_algorithms "${_ACTIVE_ENGINE}" 2>/dev/null || echo '[]')"
+            if [ -n "${_ENGINE_VERSION}" ] && printf '%s' "${_FLAT_JSON}" | python3 -c "import json,sys,os; sys.exit(0 if os.environ['A'] in json.load(sys.stdin) else 1)" A="${DRAFT_ALGORITHM}" 2>/dev/null; then
+                echo "   Note: ${DRAFT_ALGORITHM} is available on a newer ${_ACTIVE_ENGINE} version — upgrade your base image to use it."
+            fi
             exit 1
         fi
 

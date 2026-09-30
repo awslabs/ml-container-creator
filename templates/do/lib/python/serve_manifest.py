@@ -28,6 +28,20 @@ CLI (one-shot, for bash callers):
     dimension_map          — prints a JSON object
     metrics_endpoint       — prints a JSON object (or exits non-zero if absent)
     engine | hot_reload    — prints the raw value
+    min_version            — prints the min_version string (or empty)
+    version_features       — prints a JSON array
+
+  Capability-versioning operations (BL129) take an extra argument:
+    engine_version <engine> <base_image>
+        — resolve the engine version from a BASE_IMAGE (model-servers.json
+          framework_version, else tag parse). Prints the version or empty.
+    effective_supported_algorithms <engine> [version]
+        — the supported_algorithms available at that engine version (flat list
+          minus version-gated-out algorithms). Fail-open: omitted/unparseable
+          version prints the full flat list.
+    is_version_supported <engine> [version]
+        — prints "true"/"false" for version >= min_version (fail-open: true when
+          no min_version or version unknown).
 
   Exit codes: 0 on success; non-zero on missing/malformed manifest or
   unknown field. Errors are printed to stderr.
@@ -37,6 +51,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 
@@ -146,6 +161,209 @@ def metrics_endpoint(engine: str, serve_dir: str | None = None) -> dict | None:
     return read_manifest(engine, serve_dir).get("metrics_endpoint")
 
 
+# ── Capability versioning (BL129) ──────────────────────────────────────────────
+#
+# Engine-agnostic capability versioning: the flat manifest fields (e.g.
+# supported_algorithms) describe the engine's latest/default capabilities;
+# `version_features` records the engine version at which each capability landed,
+# and `min_version` the lowest version MLCC gates against. A consumer resolves the
+# EFFECTIVE capability set for a detected engine version = the flat set minus any
+# capability whose `since` is above that version.
+#
+# FAIL-OPEN CONTRACT: when the engine version is unknown (None) the effective set
+# equals the flat set — version gating is an enhancement, never a new gate. Below
+# `min_version` the effective set is still the flat set (consumers may warn), so a
+# version we cannot fully reason about never blocks a user.
+
+
+def _parse_semver(version_string: str) -> tuple[int, int, int] | None:
+    """Parse a dotted version into a (major, minor, patch) tuple, or None.
+
+    Accepts 1-3 numeric segments (missing segments default to 0); a leading 'v'
+    is tolerated. Returns None for anything non-numeric so callers can fail open.
+    """
+    if not version_string or not isinstance(version_string, str):
+        return None
+    s = version_string.strip()
+    if s.startswith("v"):
+        s = s[1:]
+    parts = s.split(".")
+    nums: list[int] = []
+    for p in parts[:3]:
+        if not p.isdigit():
+            return None
+        nums.append(int(p))
+    if not nums:
+        return None
+    while len(nums) < 3:
+        nums.append(0)
+    return (nums[0], nums[1], nums[2])
+
+
+def _semver_ge(a: str, b: str) -> bool:
+    """True if version a >= version b. Unparseable versions compare False."""
+    pa, pb = _parse_semver(a), _parse_semver(b)
+    if pa is None or pb is None:
+        return False
+    return pa >= pb
+
+
+def effective_supported_algorithms(
+    engine: str, version: str | None = None, serve_dir: str | None = None
+) -> list[str]:
+    """Return the supported_algorithms available at the given engine version.
+
+    Starts from the flat supported_algorithms and removes any algorithm gated by
+    a version_features entry whose `since` is ABOVE the detected version.
+
+    Fail-open: when `version` is None or unparseable, no gating is applied and the
+    full flat list is returned. `min_version` does not remove algorithms here (the
+    consumer decides how to treat a below-minimum version); it is surfaced via
+    min_version() for messaging.
+    """
+    manifest = read_manifest(engine, serve_dir)
+    flat = list(manifest.get("supported_algorithms", []))
+
+    # Fail-open: unknown/unparseable version → no gating.
+    if _parse_semver(version) is None:
+        return flat
+
+    gated_out: set[str] = set()
+    for feature in manifest.get("version_features", []):
+        since = feature.get("since")
+        if since is None:
+            continue
+        # since > version  ⇔  NOT (version >= since)
+        if not _semver_ge(version, since):
+            for alg in feature.get("adds", {}).get("supported_algorithms", []):
+                gated_out.add(alg)
+
+    return [a for a in flat if a not in gated_out]
+
+
+def min_version(engine: str, serve_dir: str | None = None) -> str | None:
+    """Return the engine's declared min_version, or None if it declares none."""
+    return read_manifest(engine, serve_dir).get("min_version")
+
+
+def is_version_supported(
+    engine: str, version: str | None, serve_dir: str | None = None
+) -> bool:
+    """True if the detected version is at or above the engine's min_version.
+
+    Fail-open: True when the engine declares no min_version, or when the version
+    is unknown/unparseable (we never block on a version we cannot read).
+    """
+    mv = min_version(engine, serve_dir)
+    if not mv:
+        return True
+    if _parse_semver(version) is None:
+        return True
+    return _semver_ge(version, mv)
+
+
+# ── Version source: base image → engine version (BL129) ────────────────────────
+#
+# The engine version is resolved statically from the deployment's BASE_IMAGE (in
+# do/config), not by probing a running container. The authoritative map is the
+# base-image catalog (servers/lib/catalogs/model-servers.json), which records
+# `labels.framework_version` per image entry. When the image is not in the catalog
+# (custom/override images) we fall back to parsing the version out of the tag
+# (e.g. vllm/vllm-openai:v0.29.0 → 0.29.0). Any failure returns None → fail-open.
+
+
+def _candidate_model_servers_catalogs() -> list[str]:
+    """Return candidate model-servers.json paths in resolution order.
+
+    Mirrors the serve.d resolution: the project-local .mlcc copy first (generated
+    projects ship the catalog under .mlcc/servers-lib/ or similar), then the MLCC
+    source tree, then cwd layouts. Unknown layouts simply miss and we fall back to
+    tag parsing.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(here, "..", "..", ".."))
+    templates_root = os.path.abspath(os.path.join(here, "..", "..", ".."))
+    # From templates/do/lib/python → repo root is one level above templates/.
+    repo_root = os.path.abspath(os.path.join(templates_root, ".."))
+    candidates = [
+        os.path.join(project_root, ".mlcc", "catalogs", "model-servers.json"),
+        os.path.join(project_root, ".mlcc", "servers", "lib", "catalogs", "model-servers.json"),
+        os.path.join(repo_root, "servers", "lib", "catalogs", "model-servers.json"),
+        os.path.join(os.getcwd(), "servers", "lib", "catalogs", "model-servers.json"),
+    ]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            ordered.append(c)
+    return ordered
+
+
+def _parse_version_from_tag(image_or_tag: str) -> str | None:
+    """Extract a semver-ish version from an image ref or tag.
+
+    Examples:
+        vllm/vllm-openai:v0.29.0     → 0.29.0
+        v0.29.0-cu128                → 0.29.0
+        0.4.9.post1                  → 0.4.9
+    Returns None when no leading numeric version is present (e.g. 'latest').
+    """
+    if not image_or_tag or not isinstance(image_or_tag, str):
+        return None
+    tag = image_or_tag.rsplit(":", 1)[-1] if ":" in image_or_tag else image_or_tag
+    if tag.startswith("v"):
+        tag = tag[1:]
+    # Take the leading dotted-numeric run (stop at first non [0-9.] char).
+    match = re.match(r"^(\d+(?:\.\d+){0,2})", tag)
+    if not match:
+        return None
+    parsed = _parse_semver(match.group(1))
+    if parsed is None:
+        return None
+    return f"{parsed[0]}.{parsed[1]}.{parsed[2]}"
+
+
+def engine_version_from_base_image(
+    engine: str, base_image: str, catalog_path: str | None = None
+) -> str | None:
+    """Resolve the engine version for a deployment's BASE_IMAGE.
+
+    Precedence:
+      1. model-servers.json: the entry (under key `engine`) whose `image` or `tag`
+         matches base_image, using its `labels.framework_version`.
+      2. Tag parse: the version embedded in the image ref (fallback for
+         custom/override images not in the catalog).
+      3. None (fail-open — the consumer applies no gating).
+    """
+    if not base_image:
+        return None
+
+    # 1. Catalog lookup by exact image or tag match.
+    roots = [catalog_path] if catalog_path else _candidate_model_servers_catalogs()
+    for path in roots:
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                catalog = json.load(f)
+        except (json.JSONDecodeError, ValueError, OSError):
+            continue
+        entries = catalog.get(engine, []) if isinstance(catalog, dict) else []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("image") == base_image or entry.get("tag") == base_image:
+                fw = (entry.get("labels") or {}).get("framework_version")
+                if fw and _parse_semver(fw) is not None:
+                    return _parse_version_from_tag(fw) or fw
+        # Catalog found but no entry matched → break to tag-parse fallback.
+        break
+
+    # 2. Tag-parse fallback.
+    return _parse_version_from_tag(base_image)
+
+
 # ── CLI one-shot for bash callers ──────────────────────────────────────────────
 
 _FIELD_PRINTERS = {
@@ -155,10 +373,63 @@ _FIELD_PRINTERS = {
     "dimension_map": lambda m: json.dumps(m.get("dimension_map", {})),
     "engine": lambda m: m.get("engine", ""),
     "hot_reload": lambda m: json.dumps(m.get("hot_reload")),
+    "min_version": lambda m: m.get("min_version", ""),
+    "version_features": lambda m: json.dumps(m.get("version_features", [])),
 }
 
 
 def _cli(argv: list[str]) -> int:
+    # ── Version-aware operations (BL129) ──────────────────────────────────────
+    # These take an extra argument (a version or a base image) and resolve the
+    # capability-versioning fields. They are dispatched before the flat field
+    # lookup below. All fail open: a missing/unparseable version yields the flat
+    # set (no gating), so a version we can't read never blocks a caller.
+    if argv and argv[0] == "engine_version":
+        # engine_version <engine> <base_image>  → resolved version or empty string.
+        if len(argv) != 3:
+            print("usage: serve_manifest.py engine_version <engine> <base_image>", file=sys.stderr)
+            return 2
+        _engine, base_image = argv[1], argv[2]
+        version = engine_version_from_base_image(_engine, base_image)
+        print(version or "")
+        return 0
+
+    if argv and argv[0] == "effective_supported_algorithms":
+        # effective_supported_algorithms <engine> [version]  → JSON array.
+        if len(argv) not in (2, 3):
+            print("usage: serve_manifest.py effective_supported_algorithms <engine> [version]", file=sys.stderr)
+            return 2
+        _engine = argv[1]
+        _version = argv[2] if len(argv) == 3 else None
+        try:
+            algos = effective_supported_algorithms(_engine, _version)
+        except ManifestNotFound as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 3
+        except ManifestMalformed as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 4
+        print(json.dumps(algos))
+        return 0
+
+    if argv and argv[0] == "is_version_supported":
+        # is_version_supported <engine> [version]  → prints "true"/"false".
+        if len(argv) not in (2, 3):
+            print("usage: serve_manifest.py is_version_supported <engine> [version]", file=sys.stderr)
+            return 2
+        _engine = argv[1]
+        _version = argv[2] if len(argv) == 3 else None
+        try:
+            ok = is_version_supported(_engine, _version)
+        except ManifestNotFound as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 3
+        except ManifestMalformed as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 4
+        print("true" if ok else "false")
+        return 0
+
     if len(argv) != 2:
         print("usage: serve_manifest.py <field> <engine>", file=sys.stderr)
         return 2

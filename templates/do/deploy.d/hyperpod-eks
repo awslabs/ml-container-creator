@@ -278,6 +278,25 @@ export SGLANG_SPECULATIVE_NUM_STEPS=""
 export SGLANG_SPECULATIVE_EAGLE_TOPK=""
 
 if [ -n "${HP_SPECULATIVE_ALGORITHM:-}" ]; then
+    # BL129: gate the requested algorithm by the DEPLOYED engine version. do/draft
+    # validated it at config time, but the base image may have changed since; this
+    # re-checks against the effective supported_algorithms for the version resolved
+    # from BASE_IMAGE (model-servers.json framework_version → tag parse). Fail-open:
+    # an unresolvable version yields the full flat set, so we never block a deploy
+    # over a version we cannot read. A gate failure here means the configured
+    # algorithm needs a newer engine image than the one being deployed.
+    _HP_ENGINE="${MODEL_SERVER:-vllm}"
+    _HP_ENGINE_VERSION="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" engine_version "${_HP_ENGINE}" "${BASE_IMAGE:-}" 2>/dev/null || echo "")"
+    if [ -n "${_HP_ENGINE_VERSION}" ]; then
+        _HP_EFFECTIVE="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" effective_supported_algorithms "${_HP_ENGINE}" "${_HP_ENGINE_VERSION}" 2>/dev/null || echo '[]')"
+        if ! printf '%s' "${_HP_EFFECTIVE}" | HP_ALG="${HP_SPECULATIVE_ALGORITHM}" python3 -c "import json,sys,os; sys.exit(0 if os.environ['HP_ALG'] in json.load(sys.stdin) else 1)" 2>/dev/null; then
+            echo "❌ Speculative algorithm '${HP_SPECULATIVE_ALGORITHM}' is not available on ${_HP_ENGINE} ${_HP_ENGINE_VERSION} (the deployed base image)." >&2
+            echo "   Upgrade the base image to a version that supports it, or reconfigure with ./do/draft." >&2
+            _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
+            exit 1
+        fi
+    fi
+
     # BL107: the MLCC algorithm name → engine-specific enum translation is read
     # from each engine's serve-layer manifest (algorithm_map) rather than a
     # hardcoded case statement. The CRD carries both engine sets; each engine's
@@ -287,7 +306,8 @@ if [ -n "${HP_SPECULATIVE_ALGORITHM:-}" ]; then
     # the vLLM names (draft-model→draft_model, ngram→ngram, …) live in
     # serve.d/<engine>/manifest.json. Any algorithm reaching deploy has already
     # been validated against the active engine's supported_algorithms by
-    # do/draft, so an unmapped algorithm here is a defense-in-depth error.
+    # do/draft (version-aware, BL129), so an unmapped algorithm here is a
+    # defense-in-depth error.
     _spec_enum() {
         # _spec_enum <engine> <mlcc-algorithm> → prints the engine-specific enum
         # (empty string if the engine does not map the algorithm).

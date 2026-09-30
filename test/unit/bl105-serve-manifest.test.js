@@ -274,6 +274,55 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
         });
     });
 
+    // ── BL129: capability-versioning schema fields ───────────────────────────
+    describe('BL129: min_version / version_features schema', () => {
+        const ajv = new Ajv({ allErrors: true, strict: false });
+        const validate = ajv.compile(JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')));
+        const base = {
+            engine: 'x', env_var_prefix: 'X_', speculative_decoding: false,
+            supported_algorithms: [], algorithm_map: {}, hot_reload: false
+        };
+
+        it('accepts a manifest with neither version field (back-compat)', () => {
+            assert.strictEqual(validate(base), true);
+        });
+
+        it('accepts valid min_version + version_features', () => {
+            assert.strictEqual(validate({
+                ...base,
+                min_version: '0.6.0',
+                version_features: [{ since: '0.8.0', adds: { supported_algorithms: ['mtp'] } }]
+            }), true);
+        });
+
+        it('rejects a non-semver min_version', () => {
+            assert.strictEqual(validate({ ...base, min_version: '1.2' }), false);
+        });
+
+        it('rejects a version_features entry missing `since`', () => {
+            assert.strictEqual(validate({
+                ...base, version_features: [{ adds: { supported_algorithms: ['a'] } }]
+            }), false);
+        });
+
+        it('rejects an unknown key inside `adds`', () => {
+            assert.strictEqual(validate({
+                ...base, version_features: [{ since: '1.0.0', adds: { bogus: 1 } }]
+            }), false);
+        });
+
+        it('the shipped vLLM manifest gates a subset of its flat supported_algorithms', () => {
+            const m = loadManifest('vllm');
+            const flat = new Set(m.supported_algorithms);
+            for (const vf of m.version_features || []) {
+                for (const alg of vf.adds.supported_algorithms || []) {
+                    assert.ok(flat.has(alg),
+                        `version_features adds '${alg}' which must be in flat supported_algorithms`);
+                }
+            }
+        });
+    });
+
     // ── Migration / back-compat ──────────────────────────────────────────────
     describe('Migration: nested EJS include renders for each engine', () => {
         const SERVE_TEMPLATE = readFileSync(SERVE_TEMPLATE_PATH, 'utf8');
