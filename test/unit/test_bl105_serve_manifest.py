@@ -143,9 +143,30 @@ def test_effective_algorithms_at_latest_gate_equals_flat():
 
 
 def test_effective_algorithms_datadriven_no_version_features():
-    # SGLang declares no version_features → effective == flat at any version.
-    assert serve_manifest.effective_supported_algorithms("sglang", "0.0.1") == \
-        serve_manifest.supported_algorithms("sglang")
+    # Derive an ungated engine rather than pinning one: any engine whose manifest
+    # declares no version_features must return its flat supported_algorithms at
+    # every version. Pinning a specific engine here rots the moment that engine
+    # gains a gate — which is exactly what happened when sglang adopted
+    # version_features, so we discover an ungated engine from serve.d instead.
+    import glob
+    import json
+
+    serve_d = os.path.join(_REPO_ROOT, "templates", "code", "serve.d")
+    ungated = None
+    for manifest_path in sorted(glob.glob(os.path.join(serve_d, "*", "manifest.json"))):
+        with open(manifest_path, encoding="utf-8") as fh:
+            m = json.load(fh)
+        if not m.get("version_features"):
+            ungated = m
+            break
+
+    if ungated is None:
+        pytest.skip("every serve engine is version-gated; no ungated engine to assert")
+
+    engine = ungated["engine"]
+    assert serve_manifest.effective_supported_algorithms(engine, "0.0.1") == \
+        serve_manifest.supported_algorithms(engine), \
+        f"{engine} declares no version_features → effective must equal flat at any version"
 
 
 def test_is_version_supported_failopen():

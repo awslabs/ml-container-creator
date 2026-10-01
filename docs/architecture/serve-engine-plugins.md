@@ -26,7 +26,7 @@ Schema: `templates/code/serve.d/manifest.schema.json`.
 | Field | Required | Meaning |
 |---|:---:|---|
 | `engine` | ✓ | Engine name; must equal the directory name. |
-| `env_var_prefix` | ✓ | Env→CLI prefix (`^[A-Z][A-Z0-9]*_$`, e.g. `VLLM_`). The ONE source of truth for the prefix. |
+| `env_var_prefix` | ✓ | Env→CLI prefix (`^[A-Z][A-Z0-9_]*_$`, e.g. `VLLM_`, or `VLLM_OMNI_` for multi-token engines). The ONE source of truth for the prefix. |
 | `speculative_decoding` | ✓ | Whether the engine supports speculative decoding at all. `false` = explicitly none. |
 | `supported_algorithms` | ✓ | Algorithms the engine supports (empty `[]` when `speculative_decoding` is false). |
 | `algorithm_map` | ✓ | MLCC name → engine-specific name/enum (empty `{}` when unsupported). |
@@ -56,6 +56,7 @@ absence explicit — an engine says "I support none," it doesn't stay silent.
 | `dimension_map` | `.optimize_engine.py` `_dimension_config_key()` | benchmark/optimize |
 | `metrics_endpoint` | `do/benchmark` phase-2 poller | benchmark |
 | `speculative_decoding` | `do/draft` (fast reject when false) | pre-deploy |
+| `min_version` / `version_features` (BL129, optional) | `serve_manifest.py` / `serve-manifest-reader.js` `effective_supported_algorithms` → `do/draft` + `hyperpod-eks` (version-gated `--algorithm` validation); `serve-manifest-catalog-version-drift.test.js` (reachability guard vs. catalog `framework_version`) | pre-deploy + deploy + CI/commit |
 | `engine` | `validate-serve-manifests.js` (dir-name match) | CI/commit |
 
 The reader on the Node side is `src/lib/serve-manifest-reader.js`; on the Python

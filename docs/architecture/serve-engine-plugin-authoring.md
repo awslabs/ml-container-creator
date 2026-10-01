@@ -298,9 +298,131 @@ To add an engine `foo` served as `transformers-foo`:
 
 ---
 
+## f. SGLang — a worked reference plugin [IMPLEMENTED]
+
+> **Read this if you are building a new plugin and want a complete, shipping
+> example to copy.** SGLang exercises every seam above: manifest parity, a
+> real *version-gated* capability, engine-specific data (uppercase enums),
+> the MCP catalog, and the version-drift guard. Everything below points at code
+> that ships today — clone the shape, don't reinvent it.
+
+### f.1 What SGLang declares (the manifest)
+
+`templates/code/serve.d/sglang/manifest.json` is at full parity with vLLM and
+adds version gating:
+
+```jsonc
+{
+  "engine": "sglang",
+  "env_var_prefix": "SGLANG_",
+  "speculative_decoding": true,
+  "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "mtp"],
+  "algorithm_map": {                    // engine-specific DATA in a shared field (see §c.1)
+    "eagle3": "EAGLE3", "eagle2": "EAGLE", "eagle": "EAGLE",
+    "draft-model": "STANDALONE", "mtp": "MTP"    // SGLang's enums are UPPERCASE (vLLM's are lowercase)
+  },
+  "hot_reload": true,
+  "metrics_endpoint": { "path": "/metrics", "port": 8080, "format": "prometheus" },
+  "dimension_map": {                    // benchmark dimension → SGLang's own key names
+    "quantization": "QUANTIZATION", "tensor_parallel_degree": "TP_SIZE",
+    "max_model_len": "CONTEXT_LENGTH", "kv_cache_dtype": "KV_CACHE_DTYPE"
+  },
+  "min_version": "0.4.0",               // BL129 gating (see §b)
+  "version_features": [
+    { "since": "0.4.0", "adds": { "supported_algorithms": ["mtp"] } }   // MTP/NEXTN gated to >= 0.4.0
+  ]
+}
+```
+
+Two things make this a *reference*, not just a config:
+- **`algorithm_map` proves the "shared field, engine-specific value" rule** (§c.1):
+  the same MLCC name (`draft-model`) maps to SGLang's `STANDALONE` while vLLM
+  maps it to `draft_model`. No consumer branches on the engine — they read the map.
+- **`version_features` gates a real capability** (§b): `mtp` (SGLang's NEXTN
+  speculative decoding) is only offered when the deployed image is `>= 0.4.0`.
+  The catalog currently ships `0.5.17`–`0.5.19`, all above the gate, so every
+  shipped image gets the full set; an older custom image correctly loses `mtp`.
+
+### f.2 The full loop, for SGLang specifically
+
+Nothing in the loop is SGLang-specific code — SGLang rides the engine-agnostic
+machinery from §b and §d:
+
+1. **CLI/UI in:** the user selects `--deployment-config=transformers-sglang`
+   (enum in `config/parameter-schema-v2.json`);
+   `deployment-config-resolver.js` decomposes it to `{ backend: 'sglang' }`.
+2. **Version resolved from the base image:**
+   `serve_manifest.py engine_version sglang <BASE_IMAGE>` →
+   e.g. `lmsysorg/sglang:v0.5.19` resolves to `0.5.19` (catalog
+   `labels.framework_version`, else tag parse, else `null` = fail-open).
+3. **`do/draft` validates** `--algorithm` against
+   `effective_supported_algorithms(sglang, <version>)`; a gated-out `mtp` on an
+   old image is rejected with an "upgrade the base image" hint.
+4. **`do/deploy.d/hyperpod-eks` re-checks** `HP_SPECULATIVE_ALGORITHM` against
+   the effective set (defense-in-depth), then translates via `algorithm_map`
+   (`mtp` → `MTP`) into `SGLANG_SPECULATIVE_ALGORITHM`.
+
+If you build a plugin and this loop doesn't work end-to-end, one of the seams in
+§d is unwired — check the enum, the resolver split, and the serve dispatch first.
+
+### f.3 Updating the MCPs and QoL scripts (do NOT skip this)
+
+A plugin isn't "done" when the manifest validates — the version-gating loop is
+only as good as the catalog it reads. Two MCP/QoL touch-points:
+
+- **`sync-serving-versions.js` (QoL).** This script discovers the latest image
+  tags per engine and updates `servers/lib/catalogs/model-servers.json`
+  (`labels.framework_version`, pruning to the newest three). Its `SERVER_SOURCES`
+  map already lists `sglang` → DockerHub `lmsysorg/sglang`. **Important gap to
+  know:** the script updates the *catalog* but does **not** touch serve.d
+  manifests. So when a new engine version introduces a gated capability, *you*
+  edit the manifest's `version_features` by hand — the sync script will not do it
+  for you.
+
+- **The version-drift guard** (`test/unit/serve-manifest-catalog-version-drift.test.js`).
+  Because that gap is manual, a conformance test makes drift **loud**: every
+  manifest `min_version` / `version_features[].since` must be valid semver **and
+  must not exceed the newest catalog `framework_version`** for that engine (a gate
+  no shipped image can reach is dead config). When you add a gated capability,
+  set its `since` at or below a shipped version — or bump the catalog first
+  (run `sync-serving-versions.js`), then add the gate. The test fails with the
+  exact engine, gate, and newest-shipped version when they drift apart.
+
+- **`base-image-picker` (MCP).** The picker surfaces the engine version as a
+  first-class output: `get_base_images` returns `baseImageVersion` in both
+  `values` and `choices`, index-aligned with `baseImage` (sourced from each
+  entry's `labels.framework_version`). A consumer that needs the version for the
+  BL129 loop can read it straight from the picker instead of digging into
+  `metadata.baseImage[i].labels`. If you add an engine to the picker's dynamic
+  `--discover` endpoints, its dynamic entries have empty `labels`, so
+  `baseImageVersion` is `null` for them until the static catalog carries the
+  version — that is expected, not a bug.
+
+### f.4 Tests that prove it (copy these shapes)
+
+- `test/unit/bl107-sglang-plugin.test.js` — the plugin's own suite. Its BL129
+  block is **data-driven**: it reads the gate boundary out of the manifest,
+  checks that the gated algorithm is removed just below the gate and present at
+  it, that a `null` version fails open to the full set, and that the newest
+  *catalog* image reaches every capability — no frozen version literals, so a
+  legitimate version bump doesn't break it.
+- `test/unit/serve-manifest-catalog-version-drift.test.js` — the drift guard
+  above.
+- `servers/base-image-picker/test.js` — asserts `baseImageVersion` is present
+  and index-aligned, again derived from catalog metadata, not pinned strings.
+
+The rule from the derive-don't-hardcode guidance: **assert the behavior
+(reachability, alignment, gating), never a pinned version string** — catalogs
+bump constantly and a pinned literal fails on every legitimate change.
+
+---
+
 ## Where this leads
 
-Items (a), (c), (d), (e) are supported by the system as it stands today. Item
-(b), versioning, is the next ADR to write when an engine's capabilities need to
-diverge by version — the design above is the recommended starting point and is
-deliberately additive so it does not disturb the four current manifests.
+Items (a) through (f) are all supported by the system as it stands today —
+including (b) version gating, shipped in BL129 (see
+[ADR-009](../adr/ADR-009-serve-engine-capability-versioning.md)), and the SGLang
+reference plugin (f). When the next engine's capabilities need to diverge by
+version, follow §b and §f: declare the gate in the manifest, let the
+engine-agnostic readers derive the effective set, and add the drift guard entry
+in the same commit so the catalog↔manifest contract can't silently rot.

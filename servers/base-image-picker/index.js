@@ -382,7 +382,11 @@ async function resolveBaseImage(context, limit) {
 
     const resolver = registry.getResolver(resolverKey);
     if (!resolver) {
-        return { values: { baseImage: null }, choices: { baseImage: [] }, metadata: { baseImage: [] } };
+        return {
+            values: { baseImage: null, baseImageVersion: null },
+            choices: { baseImage: [], baseImageVersion: [] },
+            metadata: { baseImage: [] }
+        };
     }
 
     let resultImages;
@@ -432,9 +436,24 @@ async function resolveBaseImage(context, limit) {
     resultImages = resultImages.slice(0, limit);
 
     const images = resultImages.map(e => e.image);
+    // Surface the engine framework version as a first-class output alongside
+    // baseImage, index-aligned so baseImageVersion[i] is the version of
+    // baseImage[i]. The version already lives in each entry's
+    // labels.framework_version; promoting it to values/choices lets consumers
+    // (e.g. the BL129 version-gating loop) read the engine version directly
+    // from the picker instead of digging into metadata.baseImage[i].labels.
+    // Entries with no framework_version (e.g. dynamic-discover entries whose
+    // labels are {}) map to null, preserving index alignment.
+    const versions = resultImages.map(e => (e.labels && e.labels.framework_version) || null);
     return {
-        values: { baseImage: images[0] || null },
-        choices: { baseImage: images },
+        values: {
+            baseImage: images[0] || null,
+            baseImageVersion: versions[0] || null
+        },
+        choices: {
+            baseImage: images,
+            baseImageVersion: versions
+        },
         metadata: {
             baseImage: resultImages,
             ...(filterMetadata ? { driverFilter: filterMetadata } : {})

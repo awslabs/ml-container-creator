@@ -145,12 +145,28 @@ describe('serve-manifest-reader', () => {
         });
 
         it('gating is manifest-data-driven (an engine with no version_features returns flat at any version)', () => {
-            // sglang declares no version_features → effective == flat for any version.
-            const sglang = JSON.parse(readFileSync(
-                resolve('templates/code/serve.d/sglang/manifest.json'), 'utf8'));
+            // Derive an ungated engine from the catalog rather than pinning one:
+            // any engine whose manifest declares no version_features must return
+            // its flat supported_algorithms at every version. (Pinning a specific
+            // engine here rots the moment that engine gains a gate — which is
+            // exactly what happened when sglang adopted version_features.)
+            const ungated = listServeEngines()
+                .map(e => ({
+                    e,
+                    m: JSON.parse(readFileSync(
+                        resolve(`templates/code/serve.d/${e}/manifest.json`), 'utf8'))
+                }))
+                .find(({ m }) => !Array.isArray(m.version_features) || m.version_features.length === 0);
+
+            if (!ungated) {
+                // Every engine is version-gated — the invariant is still exercised
+                // by the vLLM/sglang cases above; nothing ungated to assert here.
+                return;
+            }
             assert.deepStrictEqual(
-                effectiveSupportedAlgorithms('sglang', '0.0.1'),
-                sglang.supported_algorithms);
+                effectiveSupportedAlgorithms(ungated.e, '0.0.1'),
+                ungated.m.supported_algorithms,
+                `${ungated.e} declares no version_features → effective must equal flat at any version`);
         });
     });
 

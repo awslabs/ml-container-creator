@@ -14,8 +14,8 @@
     },
     "env_var_prefix": {
       "type": "string",
-      "pattern": "^[A-Z][A-Z0-9]*_$",
-      "description": "Environment-variable prefix, e.g. VLLM_. Uppercase with a trailing underscore."
+      "pattern": "^[A-Z][A-Z0-9_]*_$",
+      "description": "Environment-variable prefix, e.g. VLLM_ or VLLM_OMNI_. Uppercase, with a trailing underscore; interior underscores are allowed for multi-token engine names (e.g. vLLM-Omni → VLLM_OMNI_)."
     },
     "speculative_decoding": {
       "type": "boolean",

@@ -35,11 +35,21 @@ function loadManifest(engine) {
     return JSON.parse(readFileSync(resolve(SERVE_D, engine, 'manifest.json'), 'utf8'));
 }
 
+// Discover every shipped serve.d engine dir dynamically so parity coverage
+// tracks the catalog as engines are added (e.g. vllm-omni), rather than a
+// hardcoded list that silently skips new plugins (derive-dont-hardcode).
+const ALL_ENGINES = readdirSync(SERVE_D, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+
 describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
 
     // ── Requirement 1: Plugin_Directory ─────────────────────────────────────
     describe('Requirement 1: per-engine Plugin_Directory', () => {
-        for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+        // Every DISCOVERED engine dir must ship BOTH a wrapper and a manifest —
+        // data-driven so a new plugin (e.g. vllm-omni) is covered automatically.
+        for (const engine of ALL_ENGINES) {
             it(`serve.d/${engine}/ contains the relocated wrapper ${engine}.ejs`, () => {
                 assert.ok(existsSync(resolve(SERVE_D, engine, `${engine}.ejs`)),
                     `serve.d/${engine}/${engine}.ejs must exist`);
@@ -48,12 +58,18 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
 
         // ADR-004 parity: EVERY serve.d engine dir must ship a manifest.json —
         // no engine may rely on manifest absence.
-        for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+        for (const engine of ALL_ENGINES) {
             it(`serve.d/${engine}/ contains manifest.json`, () => {
                 assert.ok(existsSync(resolve(SERVE_D, engine, 'manifest.json')),
                     `serve.d/${engine}/manifest.json must exist`);
             });
         }
+
+        it('the known engines (incl. the vllm-omni diffusion plugin) are all present', () => {
+            for (const e of ['vllm', 'sglang', 'lmi', 'tensorrt-llm', 'vllm-omni']) {
+                assert.ok(ALL_ENGINES.includes(e), `expected serve.d/${e}/ to exist`);
+            }
+        });
 
         it('the old flat wrappers no longer exist', () => {
             for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
@@ -123,17 +139,15 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
         const ajv = new Ajv({ allErrors: true, strict: false });
         const validate = ajv.compile(JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')));
         // Discover engine dirs dynamically so a future manifest-less engine fails.
-        const engineDirs = readdirSync(SERVE_D, { withFileTypes: true })
-            .filter((d) => d.isDirectory())
-            .map((d) => d.name);
+        const engineDirs = ALL_ENGINES;
 
-        it('discovers all four shipped engines', () => {
-            for (const e of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+        it('discovers the shipped engines', () => {
+            for (const e of ['vllm', 'sglang', 'lmi', 'tensorrt-llm', 'vllm-omni']) {
                 assert.ok(engineDirs.includes(e), `expected serve.d/${e}/ to exist`);
             }
         });
 
-        for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+        for (const engine of ALL_ENGINES) {
             it(`serve.d/${engine}/manifest.json is schema-valid and declares speculative_decoding`, () => {
                 const m = loadManifest(engine);
                 assert.strictEqual(validate(m), true,
@@ -143,11 +157,13 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
             });
         }
 
-        it('non-speculative engines declare it explicitly (empty algorithms, not omission)', () => {
-            for (const engine of ['lmi', 'tensorrt-llm']) {
+        it('every non-speculative engine declares it explicitly (empty algorithms, not omission)', () => {
+            // Derive the non-speculative set from the manifests rather than
+            // pinning it — vllm-omni (diffusion) joins lmi/tensorrt-llm here.
+            const nonSpeculative = ALL_ENGINES.filter((e) => loadManifest(e).speculative_decoding === false);
+            assert.ok(nonSpeculative.length > 0, 'expected at least one non-speculative engine');
+            for (const engine of nonSpeculative) {
                 const m = loadManifest(engine);
-                assert.strictEqual(m.speculative_decoding, false,
-                    `${engine} must declare speculative_decoding:false`);
                 assert.deepStrictEqual(m.supported_algorithms, [],
                     `${engine} must declare an empty supported_algorithms`);
                 assert.deepStrictEqual(m.algorithm_map, {},
@@ -155,7 +171,7 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
             }
         });
 
-        it('speculative engines declare speculative_decoding:true', () => {
+        it('the known speculative engines declare speculative_decoding:true', () => {
             for (const engine of ['vllm', 'sglang']) {
                 assert.strictEqual(loadManifest(engine).speculative_decoding, true);
             }
@@ -176,7 +192,7 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
         const accepts = (engine, alg) => loadManifest(engine).supported_algorithms.includes(alg);
 
         it('each engine accepts EXACTLY the algorithms in its supported_algorithms', () => {
-            for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+            for (const engine of ALL_ENGINES) {
                 const supported = new Set(loadManifest(engine).supported_algorithms);
                 for (const alg of ALGO_UNIVERSE) {
                     assert.strictEqual(accepts(engine, alg), supported.has(alg),
@@ -185,8 +201,9 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
             }
         });
 
-        it('non-speculative engines (lmi, tensorrt-llm) reject every algorithm', () => {
-            for (const engine of ['lmi', 'tensorrt-llm']) {
+        it('every non-speculative engine rejects every algorithm', () => {
+            const nonSpeculative = ALL_ENGINES.filter((e) => loadManifest(e).speculative_decoding === false);
+            for (const engine of nonSpeculative) {
                 for (const alg of ALGO_UNIVERSE) {
                     assert.strictEqual(accepts(engine, alg), false,
                         `${engine} must reject ${alg} (no speculative decoding)`);
@@ -195,7 +212,7 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
         });
 
         it('every supported algorithm has an algorithm_map entry (emitted name comes from data)', () => {
-            for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+            for (const engine of ALL_ENGINES) {
                 const m = loadManifest(engine);
                 for (const alg of m.supported_algorithms) {
                     assert.ok(alg in m.algorithm_map,
@@ -208,7 +225,7 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
         });
 
         it('algorithm_map never maps an UNsupported algorithm (no orphan mappings)', () => {
-            for (const engine of ['vllm', 'sglang', 'lmi', 'tensorrt-llm']) {
+            for (const engine of ALL_ENGINES) {
                 const m = loadManifest(engine);
                 const supported = new Set(m.supported_algorithms);
                 for (const alg of Object.keys(m.algorithm_map)) {

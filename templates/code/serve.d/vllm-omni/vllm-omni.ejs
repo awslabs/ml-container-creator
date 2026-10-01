@@ -1,0 +1,84 @@
+# ---------------------------------------------------------------------------
+# vLLM-Omni Server Configuration
+# ---------------------------------------------------------------------------
+# Env prefix: VLLM_OMNI_ (sourced from serve.d/vllm-omni/manifest.json env_var_prefix)
+# Entrypoint: vllm serve <model> --omni  (diffusion / any-to-any multi-stage)
+# Ports: 8081 internal (vLLM-Omni) + nginx on 8080 (SageMaker requirement)
+# Speculative decoding: none (declared explicitly in the manifest, ADR-004) —
+#   vLLM-Omni is a stage-based diffusion engine, not autoregressive draft/verify,
+#   so there is no --speculative-config block here (contrast serve.d/vllm/vllm.ejs).
+#
+# NOTE ON DISPATCH. The shipped runtime serve script for the diffusors
+# architecture is templates/diffusors/serve (selected by architecture in
+# src/app.js), NOT this serve.d wrapper — the serve.d dispatch in
+# templates/code/serve currently routes only the transformers engines
+# (vllm/sglang/tensorrt-llm) and the lmi/djl early-branch. This wrapper exists so
+# vLLM-Omni is a first-class serve.d plugin whose manifest feeds the deploy-time
+# readers (serve_manifest.py / serve-manifest-reader.js) exactly like every other
+# engine (ADR-004 parity), and it renders the same --omni launch that
+# templates/diffusors/serve ships. Wiring the diffusors dispatch to this wrapper
+# is a separate change (see §d of the authoring guide) and is intentionally out
+# of scope here.
+# ---------------------------------------------------------------------------
+
+<%# ADR-004: PREFIX is injected from serve.d/vllm-omni/manifest.json
+    (env_var_prefix) via the generation-time reader
+    (src/lib/serve-manifest-reader.js), rather than a hardcoded literal —
+    matching vllm.ejs / sglang.ejs. The defensive fallback to VLLM_OMNI_ keeps
+    the rendered output byte-identical when the render context omits
+    envVarPrefix. %>
+PREFIX="<%= (typeof envVarPrefix !== 'undefined' && envVarPrefix) ? envVarPrefix : 'VLLM_OMNI_' %>"
+ARG_PREFIX="--"
+
+# --omni activates vLLM-Omni diffusion / multi-stage support.
+# Port 8081 is the internal port; nginx on 8080 handles SageMaker routing
+#   /invocations -> /v1/images/generations
+#   /ping        -> /health
+SERVER_ARGS=(--omni --host 0.0.0.0 --port 8081)
+
+# VLLM_OMNI_MODEL is used as the positional model argument, not a --flag, so it
+# is excluded from the env->flag conversion below.
+EXCLUDE_VARS=("${PREFIX}MODEL")
+
+# Declare and populate array of matching environment variables
+mapfile -t env_vars < <(env | grep "^${PREFIX}")
+
+# Convert VLLM_OMNI_ env vars to CLI arguments
+for var in "${env_vars[@]}"; do
+    IFS='=' read -r key value <<< "$var"
+
+    # Skip excluded variables (the positional model arg)
+    skip=false
+    for exclude in "${EXCLUDE_VARS[@]}"; do
+        if [ "$key" = "$exclude" ]; then
+            skip=true
+            break
+        fi
+    done
+    if [ "$skip" = true ]; then continue; fi
+
+    # Remove prefix, convert to lowercase, replace underscores with dashes
+    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+
+    # Boolean handling: true = flag only, false = skip entirely
+    if [ "$value" = "false" ]; then continue; fi
+
+    SERVER_ARGS+=("${ARG_PREFIX}${arg_name}")
+    if [ -n "$value" ] && [ "$value" != "true" ]; then
+        SERVER_ARGS+=("$value")
+    fi
+done
+
+# Resolve the model identifier (positional arg). MODEL is resolved upstream by
+# the shared model-loading adapter; fall back to the prefixed env var.
+_OMNI_MODEL="${VLLM_OMNI_MODEL:-}"
+if [ -z "${_OMNI_MODEL}" ]; then
+    echo "Error: ${PREFIX}MODEL environment variable is not set" >&2
+    exit 1
+fi
+
+echo "-------------------------------------------------------------------"
+echo "vLLM-Omni engine args: vllm serve ${_OMNI_MODEL} [${SERVER_ARGS[@]}]"
+echo "-------------------------------------------------------------------"
+
+exec vllm serve "${_OMNI_MODEL}" "${SERVER_ARGS[@]}"
