@@ -216,7 +216,7 @@ still works if you'd rather set the underlying variable directly.
 |---|---|---|---|
 | **vLLM** (`transformers-vllm`) | ✓ eagle3, eagle2, eagle, draft-model, ngram, mtp, dspark (consolidated `--speculative-config`) | quantization, tensor-parallel, max-model-len, kv-cache-dtype | — (prefix caching is on by default) |
 | **SGLang** (`transformers-sglang`) | ✓ eagle3, eagle2, eagle, draft-model, mtp (discrete flags; `mtp` needs engine ≥ 0.4.0) | quantization, tensor-parallel, context-length, kv-cache-dtype | **RadixAttention** — automatic KV-cache reuse across requests with shared prefixes (multi-turn chat, RAG, agents). Enable: `--engine-feature radix_attention=true` (raw: `--server-env SGLANG_ENABLE_RADIX_CACHE=true`) |
-| **TensorRT-LLM** (`transformers-tensorrt-llm`) | ✗ | — | — |
+| **TensorRT-LLM** (`transformers-tensorrt-llm`) | ✗ (not yet wired — the engine supports it, but MLCC's flat-flag wrapper can't emit its structured config; v1.9) | quantization, tensor-parallel, max-input-len | — |
 | **LMI / DJL** (`transformers-lmi`) | ✗ (at the LMI layer) | quantization, tensor-parallel, max-model-len | **Pluggable backend** — LMI is a meta-engine that delegates to vLLM, TensorRT-LLM, or LMI-Dist. Choose: `--engine-feature rolling_batch_backend=vllm` (or `tensorrt-llm`, `lmi-dist`, `auto`; raw: `--server-env OPTION_ROLLING_BATCH=...`) |
 | **vLLM-Omni** (`diffusors-vllm-omni`) | ✗ (diffusion engine) | — | Diffusion / any-to-any multimodal serving (`--omni`) |
 

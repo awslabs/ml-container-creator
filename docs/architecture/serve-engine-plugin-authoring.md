@@ -669,6 +669,22 @@ revisiting it against the catalog:
 > than bundled in. Scoping discipline (§g.5) is itself a lesson: fix the thing you
 > set out to fix; record the adjacent opportunity instead of absorbing it.
 
+> **TensorRT-LLM — the same scope line, written down.** TRT-LLM's manifest
+> declares `speculative_decoding: false`, which is a SCOPE statement, not a
+> capability one. NVIDIA's docs confirm TRT-LLM supports EAGLE3, MTP,
+> draft/target, and NGram — but it configures them through structured LLM-API
+> config objects / a `speculative_config` JSON, NOT the flat `TRTLLM_*` env→flag
+> conversion its wrapper performs. Declaring `speculative_decoding: true` +
+> `supported_algorithms`/`algorithm_map` *without* teaching the wrapper to
+> assemble that config (and wiring the hyperpod-eks `_spec_enum` path) would
+> over-claim support the generator cannot emit — the mirror image of the LMI
+> under-declaration above, and just as dishonest. So the TRT-LLM pass added only
+> the honest, flat-wrapper-compatible fixes (`dimension_map` + the ADR-004 prefix
+> correction) and left full speculative decoding as a v1.9 backlog item
+> (`.kiro/specs/bl-v19-trtllm-speculative/`). The rule, stated plainly:
+> `speculative_decoding` reflects what MLCC's wrapper can CONFIGURE, not what the
+> upstream engine can do — never set it `true` ahead of the wiring.
+
 ---
 
 ## Where this leads

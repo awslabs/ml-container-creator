@@ -43,7 +43,7 @@ absence explicit — an engine says "I support none," it doesn't stay silent.
 |---|---|:---:|---|---|---|
 | vllm | `VLLM_` | ✓ | eagle3, eagle2, eagle, draft-model, ngram, mtp | — | consolidated `--speculative-config` JSON |
 | sglang | `SGLANG_` | ✓ | eagle3, eagle2, eagle, draft-model, mtp (no ngram) | `radix_attention` (RadixAttention; `SGLANG_ENABLE_RADIX_CACHE`) | discrete `--speculative-*` flags |
-| tensorrt-llm | `TRTLLM_` | ✗ | — | — | positional model arg; no speculative logic |
+| tensorrt-llm | `TRTLLM_` | ✗ (engine supports it; wrapper can't emit the structured `speculative_config` yet — v1.9) | — | — | positional model arg; prefix sourced from manifest. `dimension_map`: DTYPE / TENSOR_PARALLEL_SIZE / MAX_INPUT_LEN |
 | lmi | `OPTION_` | ✗ | — | `rolling_batch_backend` (pluggable backend; `OPTION_ROLLING_BATCH`) | DJL reads `OPTION_*` env vars; defers to base-image entrypoint (serving.properties). `dimension_map`: QUANTIZE / TENSOR_PARALLEL_DEGREE / MAX_MODEL_LEN |
 
 The **engine-specific feature** column is the deviation each engine offers that

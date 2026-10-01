@@ -4,5 +4,10 @@
   "speculative_decoding": false,
   "supported_algorithms": [],
   "algorithm_map": {},
-  "hot_reload": false
+  "hot_reload": false,
+  "dimension_map": {
+    "quantization": "DTYPE",
+    "tensor_parallel_degree": "TENSOR_PARALLEL_SIZE",
+    "max_model_len": "MAX_INPUT_LEN"
+  }
 }

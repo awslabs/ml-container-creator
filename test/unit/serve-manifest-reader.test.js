@@ -85,15 +85,28 @@ describe('serve-manifest-reader', () => {
             }
         });
 
+        it('includes TensorRT-LLM vars — composed from its manifest dimension_map', () => {
+            // TRT-LLM declares a dimension_map (TRTLLM_ prefix + DTYPE /
+            // TENSOR_PARALLEL_SIZE / MAX_INPUT_LEN) — the real catalog vars.
+            for (const v of [
+                'TRTLLM_DTYPE',
+                'TRTLLM_TENSOR_PARALLEL_SIZE',
+                'TRTLLM_MAX_INPUT_LEN'
+            ]) {
+                assert.ok(union.includes(v), `union must include ${v}`);
+            }
+        });
+
         it('is sorted and de-duplicated', () => {
             assert.deepStrictEqual(union, [...new Set(union)].sort());
         });
 
-        it('never emits a bare prefix (skips engines with no dimension_map)', () => {
-            // tensorrt-llm has an empty dimension_map → contributes nothing (no
-            // bare TRTLLM_). lmi now DOES declare a dimension_map, so it
-            // contributes OPTION_<suffix> keys, never a bare OPTION_.
-            assert.ok(!union.includes('TRTLLM_'), 'must not emit a bare prefix');
+        it('never emits a bare prefix (composes prefix + dimension suffix)', () => {
+            // Every engine that declares a dimension_map contributes
+            // <prefix><suffix> keys, never a bare prefix. Engines with an empty
+            // dimension_map (vllm-omni) contribute nothing. Guard against the
+            // retired bare/renamed prefixes too.
+            assert.ok(!union.includes('TRTLLM_'), 'must not emit a bare TRTLLM_ prefix');
             assert.ok(!union.includes('OPTION_'), 'must not emit a bare OPTION_ prefix');
             assert.ok(!union.includes('LMI_'), 'the retired LMI_ prefix must not appear');
         });

@@ -482,6 +482,27 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
             });
         }
 
+        it('the tensorrt-llm wrapper sources PREFIX from the manifest, not a hardcoded literal (ADR-004)', () => {
+            // Regression: the TRT-LLM wrapper previously hardcoded PREFIX="TRTLLM_".
+            // It must now derive from the injected envVarPrefix like vllm/sglang.
+            const wrapperPath = resolve(SERVE_D, 'tensorrt-llm', 'tensorrt-llm.ejs');
+            const wrapper = readFileSync(wrapperPath, 'utf8');
+
+            // Manifest-sourced render: prefix comes through as declared.
+            const trtPrefix = loadManifest('tensorrt-llm').env_var_prefix;
+            const rendered = ejs.render(wrapper, { envVarPrefix: trtPrefix }, { filename: wrapperPath });
+            assert.ok(rendered.includes(`PREFIX="${trtPrefix}"`),
+                'rendered wrapper must carry the manifest env_var_prefix');
+
+            // A different injected prefix must flow through to the functional
+            // PREFIX assignment — proving it is not hardcoded.
+            const alt = ejs.render(wrapper, { envVarPrefix: 'ZZZ_' }, { filename: wrapperPath });
+            assert.ok(alt.includes('PREFIX="ZZZ_"'),
+                'a different injected prefix must flow into the wrapper PREFIX');
+            assert.ok(!alt.includes('PREFIX="TRTLLM_"'),
+                'no hardcoded PREFIX="TRTLLM_" may remain when a different prefix is injected');
+        });
+
         it('the serve template references the nested include path', () => {
             assert.match(SERVE_TEMPLATE, /serve\.d\/' \+ modelServer \+ '\/' \+ modelServer/);
             assert.match(SERVE_TEMPLATE, /serve\.d\/lmi\/lmi/);
