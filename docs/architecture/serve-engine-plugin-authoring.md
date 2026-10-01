@@ -30,9 +30,12 @@ A serve-engine plugin is a directory `templates/code/serve.d/<engine>/` with:
   `env_var_prefix`, `speculative_decoding`, `supported_algorithms`,
   `algorithm_map`, `hot_reload`. Optional: `metrics_endpoint`, `dimension_map`.
 - **`<engine>.ejs`** — the runtime wrapper rendered into the generated project's
-  `code/serve`. It sources its env-var prefix from the manifest
+  `code/serve`. For a *translating* engine it sources its env-var prefix from the
+  manifest
   (`PREFIX="<%= (typeof envVarPrefix !== 'undefined' && envVarPrefix) ? envVarPrefix : 'ENGINE_' %>"`)
-  and execs the server.
+  and execs the server. For a *container-owns-entrypoint* engine (lmi, djl,
+  llama-cpp) it instead validates inputs and hands off to the base image's own
+  entrypoint — no env→flag translation, no `exec` (see §d step 4).
 
 Readers of the manifest:
 - Node, generation-time: `src/lib/serve-manifest-reader.js` (`readEnvVarPrefix`)
@@ -299,6 +302,27 @@ A serve engine is exposed to users through the `deploymentConfig` value
    relevant dispatch condition. **This is the one remaining place with
    engine-name literals** — keep it minimal.
 
+   **Two wrapper patterns — pick the one that matches your container.** Before
+   writing the `.ejs`, decide which kind of engine you have:
+   - **Translating wrapper (vllm, sglang, tensorrt-llm).** The base image is a
+     bare server. Your `.ejs` reads the engine's prefixed env vars, converts them
+     to `--flags` (the `--help`-introspection whitelist loop), and ends with
+     `exec <server> "${SERVER_ARGS[@]}"`. The generated Dockerfile sets
+     `ENTRYPOINT [ "/usr/bin/serve" ]` so your wrapper is PID 1.
+   - **Container-owns-entrypoint (lmi, djl, llama-cpp).** The base image (e.g. an
+     AWS DLC) already owns its entrypoint and maps its own env vars to args
+     internally. Your `.ejs` must NOT translate env→flags and must NOT `exec` a
+     server — that would double-map and fight the DLC. It takes an **early
+     dispatch branch** (like `lmi`/`djl`), validates inputs, logs the effective
+     config, and `exit 0`s to hand off; the generated Dockerfile for these engines
+     **does NOT emit an `ENTRYPOINT`** (see §e step 5), so the base image's own
+     entrypoint runs. The engine's `env_var_prefix` is whatever the container
+     literally reads (e.g. llama.cpp's AWS DLC reads `SM_LLAMA_CPP_*`), so a
+     `--server-env` value passes through verbatim with no stripping.
+   Getting this wrong is a silent runtime failure, not a generation error — a
+   translating wrapper on a DLC double-maps; a hand-off wrapper on a bare server
+   never starts the server.
+
 5. **Base images / instance sizing.** If the engine needs specific base images,
    add them to `servers/lib/catalogs/model-servers.json` (the base-image-picker
    catalog); the picker routes by `modelServer` generically.
@@ -311,11 +335,20 @@ A serve engine is exposed to users through the `deploymentConfig` value
    reader), so a new engine MUST be added here too — add a
    `<engine>) echo "<PREFIX>_" ;;` arm matching the manifest `env_var_prefix`.
    Miss it and the `*)` arm returns `""`: `do/register` silently records no
-   parameters for the engine (the ADR-006/007/008 drift class). The
-   serve-engine registration drift test (see §e step 7) asserts this map agrees
-   with the manifests, so a forgotten arm fails loudly rather than silently.
+   parameters for the engine (the ADR-006/007/008 drift class).
 
-7. **Register + validate.** `scripts/validate-serve-manifests.js` and the
+7. **Generation-time validation allow-list (`src/lib/template-manager.js`).**
+   `validate()` keeps its OWN hardcoded `supportedOptions.deploymentConfigs`
+   array (and a fallback `backends` list for the architecture+backend path). A new
+   engine MUST be added to both, or generation throws
+   `⚠️  transformers-<engine> not implemented yet for deploymentConfig` — even
+   though the manifest, enum, and resolver are all correct. This surface is NOT
+   caught by `validate-serve-manifests` or the bl105 parity test; it surfaces only
+   at an actual generate (which is why step 8 runs one). The registration drift
+   test now also asserts `TemplateManager.validate()` accepts every `serve.d`
+   engine, so a forgotten entry fails loudly.
+
+8. **Register + validate.** `scripts/validate-serve-manifests.js` and the
    parity test (`test/unit/bl105-serve-manifest.test.js`) will now gate the
    engine's manifest. `scripts/schema-template-coverage.js` checks schema↔template
    coverage. Run the full serve suite before committing.
@@ -365,9 +398,22 @@ To add an engine `foo` served as `transformers-foo`:
 4. **Add `transformers-foo`** to `deploymentConfig.validation.enum` in
    `config/parameter-schema-v2.json`; run `npm run codegen`.
 5. **Wire the serve dispatch** in `templates/code/serve` if `foo` needs a
-   non-default branch (most engines fall through the default `else`).
-6. **Add base images** to `servers/lib/catalogs/model-servers.json` if needed.
-7. **Verify:**
+   non-default branch (most translating engines fall through the default `else`;
+   a container-owns-entrypoint engine needs an early branch like `lmi`/`djl` —
+   see §d step 4). For a **container-owns-entrypoint** engine, also add a branch
+   in `templates/Dockerfile` that sets the engine's `ENV` but emits **NO**
+   `ENTRYPOINT` (so the base image's own entrypoint runs), mirroring the
+   `lmi`/`djl`/`llama-cpp` arms. A translating engine keeps the default
+   `ENTRYPOINT [ "/usr/bin/serve" ]`.
+6. **Add base images** to `servers/lib/catalogs/model-servers.json` if needed,
+   and add a default `ARG BASE_IMAGE` arm for `foo` in `templates/Dockerfile`.
+7. **Finish the registration surfaces (§d steps 1, 2, 6, 7).** Beyond the enum
+   (step 4): `CANONICAL_CONFIGS` in `deployment-config-resolver.js`, the
+   `get_engine_prefix()` shell map in `templates/do/register`, and the
+   `TemplateManager.validate()` allow-list in `src/lib/template-manager.js`. The
+   registration drift test checks all of these; the end-to-end generate (below)
+   is the backstop.
+8. **Verify:**
    - `npm run validate:serve-manifests` → every engine (now including `foo`) valid.
    - `npx mocha test/unit/bl105-serve-manifest.test.js` → the parity test must
      actually **cover** `foo`, not merely tolerate it. The parity/T4 loops are
@@ -378,14 +424,21 @@ To add an engine `foo` served as `transformers-foo`:
      (§g.3).
    - `npx mocha test/unit/serve-engine-registration-drift.test.js` → the
      registration drift guard. It discovers every engine under `serve.d/` and
-     asserts each is registered in ALL the hand-maintained surfaces: the
-     `deploymentConfig` enum, `CANONICAL_CONFIGS`, and the `get_engine_prefix()`
-     shell map in `templates/do/register` (prefix must equal the manifest
-     `env_var_prefix`). A new engine missing from any one fails here with the
-     exact surface and the line to add — this is what makes step 6 (the shell
-     prefix map) safe to not forget.
-   - `npm run lint` and a generation smoke test for `--deployment-config=transformers-foo`.
-8. **Document** the engine in
+     asserts each is registered in the hand-maintained surfaces it can check
+     statically: the `deploymentConfig` enum, `CANONICAL_CONFIGS`, the
+     `get_engine_prefix()` shell map in `templates/do/register` (prefix must equal
+     the manifest `env_var_prefix`), and the `TemplateManager.validate()`
+     allow-list. A new engine missing from any one fails here with the exact
+     surface and the line to add — this is what makes steps 6 and 7 safe to not
+     forget.
+   - `npm run lint` and — **required, not optional** — an end-to-end generation
+     smoke test:
+     `node bin/cli.js <name> --project-dir /tmp/<name> --deployment-config=transformers-foo --model-name=... --deployment-target=realtime-inference --instance-type=... --build-target=codebuild --region=us-east-1 --skip-prompts`.
+     Only a real generate exercises every seam; the `TemplateManager` allow-list
+     (step 7) was discovered this way, because no unit test or validator covered
+     it. Inspect the generated `Dockerfile` (`FROM`, `ENTRYPOINT`, engine `ENV`)
+     and `code/serve` before trusting the plugin.
+9. **Document** the engine in
    [serve-engine-plugins.md](serve-engine-plugins.md) (the engine table + matrix).
 
 ### Gotchas

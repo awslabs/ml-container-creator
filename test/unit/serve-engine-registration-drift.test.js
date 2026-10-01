@@ -46,6 +46,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listServeEngines, readEnvVarPrefix } from '../../src/lib/serve-manifest-reader.js';
 import DeploymentConfigResolver from '../../src/lib/deployment-config-resolver.js';
+import TemplateManager from '../../src/lib/template-manager.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '../..');
@@ -133,6 +134,40 @@ describe('serve.d engine ↔ registration surfaces conformance', () => {
                 `serve.d engine "${engine}" is absent from CANONICAL_CONFIGS in ` +
                 'src/lib/deployment-config-resolver.js. Add its deployment-config entry.'
             );
+        }
+    });
+
+    it('TemplateManager.validate() accepts every serve.d engine deployment-config', () => {
+        // template-manager.js keeps its OWN hardcoded deploymentConfigs allow-list
+        // (src/lib/template-manager.js validate()). A serve.d engine missing from it
+        // passes the manifest validator and the resolver but fails at generation with
+        // "not implemented yet for deploymentConfig" — a seam only an end-to-end
+        // generate catches. This asserts that allow-list agrees with serve.d.
+        for (const engine of engines) {
+            const dc = enumValues.find((c) => {
+                try {
+                    return resolver.decompose(c).backend === engine;
+                } catch {
+                    return false;
+                }
+            });
+            if (!dc) continue; // covered by the enum test above
+            const tm = new TemplateManager({
+                deploymentConfig: dc,
+                // a GPU instance so a GPU-requiring engine does not throw for a
+                // different reason; we only care about the deploymentConfig check.
+                instanceType: 'ml.g5.xlarge'
+            });
+            try {
+                tm.validate();
+            } catch (err) {
+                assert.ok(
+                    !/not implemented yet for deploymentConfig/.test(err.message),
+                    `TemplateManager.validate() rejects "${dc}" as unimplemented — add it to the ` +
+                    'deploymentConfigs allow-list in src/lib/template-manager.js validate().'
+                );
+                // Any OTHER validation error (missing fields, etc.) is irrelevant here.
+            }
         }
     });
 

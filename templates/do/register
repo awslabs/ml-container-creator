@@ -1192,6 +1192,9 @@ get_engine_prefix() {
         # match no real var, so the recorded parameters would be empty).
         lmi)          echo "OPTION_" ;;
         djl)          echo "OPTION_" ;;
+        # llama-cpp runs the AWS DLC for llama.cpp, which reads SM_LLAMA_CPP_* and
+        # maps them to llama.cpp args itself — capture those.
+        llama-cpp)    echo "SM_LLAMA_CPP_" ;;
         *)            echo "" ;;
     esac
 }

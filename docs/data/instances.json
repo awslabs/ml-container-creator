@@ -1189,10 +1189,7 @@
       "notes": "8x NVIDIA B300 (Blackwell Ultra / sm_100) GPUs. 268 GB HBM3e per GPU, 2144 GB total. Requires CUDA 12.8+ (Blackwell architecture). 6.4 Tbps EFA, 30 TB NVMe.",
       "gpuMemoryGb": 268,
       "gpuType": "NVIDIA B300",
-      "costTier": "ultra",
-      "efaBandwidthGbps": 6400,
-      "networkBandwidthGbps": 300,
-      "inferenceAmiVersion": "al2023-ami-sagemaker-inference-gpu-4-1"
+      "costTier": "very-high"
     }
   },
   "recommendations": {

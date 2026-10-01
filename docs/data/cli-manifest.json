@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-30T00:43:30.528Z",
-  "version": "1.7.2",
+  "generatedAt": "2026-10-01T19:00:22.159Z",
+  "version": "1.8.0",
   "cliOptions": [
     {
       "flag": "--backend",
@@ -1175,7 +1175,7 @@
       "vcpus": 192,
       "memGb": 4096,
       "family": "p6-b300",
-      "costTier": "ultra"
+      "costTier": "very-high"
     }
   },
   "deploymentTargets": [
@@ -1261,6 +1261,11 @@
     ],
     "triton-python": [
       "TRITON_MODEL_REPOSITORY"
+    ],
+    "llama-cpp": [
+      "SM_LLAMA_CPP_N_GPU_LAYERS",
+      "SM_LLAMA_CPP_PORT",
+      "SM_LLAMA_CPP_THREADS"
     ]
   },
   "icVars": [

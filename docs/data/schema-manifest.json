@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-10-01T17:10:59.609Z",
+  "generatedAt": "2026-10-01T19:01:48.340Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "1.7.2",
+  "version": "1.8.0",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -48,6 +48,7 @@
             "transformers-tensorrt-llm",
             "transformers-lmi",
             "transformers-djl",
+            "transformers-llama-cpp",
             "triton-fil",
             "triton-onnxruntime",
             "triton-tensorflow",
@@ -1282,6 +1283,7 @@
     "transformers-tensorrt-llm",
     "transformers-lmi",
     "transformers-djl",
+    "transformers-llama-cpp",
     "triton-fil",
     "triton-onnxruntime",
     "triton-tensorflow",

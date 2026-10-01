@@ -57,6 +57,7 @@
                     "transformers-tensorrt-llm",
                     "transformers-lmi",
                     "transformers-djl",
+                    "transformers-llama-cpp",
                     "triton-fil",
                     "triton-onnxruntime",
                     "triton-tensorflow",

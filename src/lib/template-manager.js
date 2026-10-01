@@ -50,13 +50,14 @@ export default class TemplateManager {
      */
     validate() {
         const supportedOptions = {
-            // 16 canonical deployment-config values (2 http, 5 transformers, 7 triton, 1 diffusors, 1 marketplace)
+            // 17 canonical deployment-config values (2 http, 6 transformers, 7 triton, 1 diffusors, 1 marketplace)
             deploymentConfigs: [
                 // HTTP architecture (2)
                 'http-flask', 'http-fastapi',
-                // Transformers architecture (5)
+                // Transformers architecture (6)
                 'transformers-vllm', 'transformers-sglang',
                 'transformers-tensorrt-llm', 'transformers-lmi', 'transformers-djl',
+                'transformers-llama-cpp',
                 // Triton architecture (7)
                 'triton-fil', 'triton-onnxruntime', 'triton-tensorflow',
                 'triton-pytorch', 'triton-vllm', 'triton-tensorrtllm', 'triton-python',
@@ -89,7 +90,7 @@ export default class TemplateManager {
                 // http backends
                 'flask', 'fastapi',
                 // transformers backends
-                'vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl',
+                'vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl', 'llama-cpp',
                 // triton backends
                 'fil', 'onnxruntime', 'tensorflow', 'pytorch', 'tensorrtllm', 'python',
                 // diffusors backends

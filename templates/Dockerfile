@@ -142,6 +142,15 @@ ARG BASE_IMAGE=<%= baseImage || '763104351884.dkr.ecr.us-east-1.amazonaws.com/dj
 # Deep Java Library serving with support for multiple inference backends
 # Documentation: https://djl.ai/
 ARG BASE_IMAGE=<%= baseImage || 'deepjavalibrary/djl-serving:0.36.0-pytorch-gpu' %>
+<% } else if (modelServer === 'llama-cpp') { %>
+# AWS Deep Learning Container for llama.cpp
+# Serves GGUF models via llama-server (OpenAI-compatible API). The container
+# owns its entrypoint and reads SM_LLAMA_CPP_* env vars, mapping them to
+# llama.cpp arguments itself. Select the SageMaker image (server-sagemaker-cpu-v1
+# or server-sagemaker-cuda-v1) — NOT the EC2 image — so the /ping and
+# /invocations SageMaker contract is implemented.
+# Documentation: AWS DLC for llama.cpp.
+ARG BASE_IMAGE=<%= baseImage || '763104351884.dkr.ecr.us-east-1.amazonaws.com/llama-cpp:server-sagemaker-cpu-v1' %>
 <% } %>
 
 FROM ${BASE_IMAGE}
@@ -197,6 +206,22 @@ ENV HF_MODEL_ID="<%= modelName %>"
 
 # DJL Serving listens on port 8080 by default (SageMaker requirement)
 ENV SERVING_PORT=8080
+<% } else if (modelServer === 'llama-cpp') { %>
+# llama.cpp (AWS DLC) Configuration
+# The DLC finds the first .gguf under /opt/ml/model (SageMaker model artifact).
+# Alternatively, point it at a HuggingFace GGUF repo/file (requires egress):
+<% if (typeof modelSource !== 'undefined' && modelSource === 'huggingface' && modelName) { %>
+ENV SM_LLAMA_CPP_HF_REPO="<%= modelName %>"
+# Set SM_LLAMA_CPP_HF_FILE (the specific .gguf filename) via --server-env or
+# do/config — a GGUF repo contains multiple quantizations and the DLC needs the
+# exact file (e.g. SM_LLAMA_CPP_HF_FILE=Qwen3-4B-Q4_K_M.gguf).
+<% } else { %>
+# Model will be loaded from the packaged .gguf under /opt/ml/model.
+<% } %>
+
+# llama-server listens on port 8080 (SageMaker requirement). The DLC maps
+# POST /invocations to /v1/chat/completions.
+ENV SM_LLAMA_CPP_PORT=8080
 <% } %>
 
 <% if (hfToken && (!modelSource || modelSource === 'huggingface')) { %>
@@ -239,7 +264,7 @@ ENV SGLANG_ENABLE_LORA=true
 ENV SGLANG_MAX_LORAS=<%= maxLoras %>
 <% } %>
 
-<% if (typeof modelSource !== 'undefined' && modelSource && modelSource !== 'huggingface' && modelServer !== 'lmi' && modelServer !== 'djl') { %>
+<% if (typeof modelSource !== 'undefined' && modelSource && modelSource !== 'huggingface' && modelServer !== 'lmi' && modelServer !== 'djl' && modelServer !== 'llama-cpp') { %>
 # Install AWS CLI for S3 model downloads
 RUN pip install --no-cache-dir awscli
 
@@ -274,6 +299,16 @@ COPY code/serving.properties /opt/ml/model/serving.properties
 
 # LMI/DJL containers use their own entrypoint
 # The container will automatically start DJL Serving with the configuration
+<% } else if (modelServer === 'llama-cpp') { %>
+<% if (comments && comments.troubleshooting) { %>
+<%= comments.troubleshooting %>
+<% } %>
+
+# llama.cpp (AWS DLC) uses its OWN entrypoint — do NOT override it.
+# The DLC runs llama-server, finds the first .gguf under /opt/ml/model (or
+# downloads via SM_LLAMA_CPP_HF_REPO/SM_LLAMA_CPP_HF_FILE), and maps SM_LLAMA_CPP_*
+# env vars to llama.cpp arguments itself. We only set env (above); the container
+# starts llama-server automatically. No ENTRYPOINT line here, like lmi/djl.
 <% } else { %>
 <% if (enableLora && (modelServer === 'vllm' || modelServer === 'sglang')) { %>
 # Install aiohttp for the adapter sidecar

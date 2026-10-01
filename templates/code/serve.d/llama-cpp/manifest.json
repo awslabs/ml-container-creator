@@ -1,0 +1,36 @@
+{
+  "engine": "llama-cpp",
+  "env_var_prefix": "SM_LLAMA_CPP_",
+  "speculative_decoding": false,
+  "supported_algorithms": [],
+  "algorithm_map": {},
+  "hot_reload": false,
+  "metrics_endpoint": {
+    "path": "/metrics",
+    "port": 8080,
+    "format": "prometheus"
+  },
+  "dimension_map": {
+    "max_model_len": "CTX_SIZE"
+  },
+  "engine_features": {
+    "gpu_layers": {
+      "env_var": "SM_LLAMA_CPP_N_GPU_LAYERS",
+      "type": "int",
+      "default": "0",
+      "description": "Number of model layers to offload to GPU (llama.cpp --n-gpu-layers). 0 keeps the model on CPU (the DLC CPU image default); -1 offloads every layer (full GPU). llama.cpp-specific — vLLM/SGLang always run fully on GPU and expose no per-layer CPU/GPU split knob."
+    },
+    "threads": {
+      "env_var": "SM_LLAMA_CPP_THREADS",
+      "type": "int",
+      "default": "0",
+      "description": "CPU threads used for generation (llama.cpp --threads). The dominant latency lever on CPU instances (0 lets llama.cpp pick). llama.cpp-specific — the GPU-only engines have no CPU-thread knob."
+    },
+    "flash_attn": {
+      "env_var": "SM_LLAMA_CPP_FLASH_ATTN",
+      "type": "boolean",
+      "default": "false",
+      "description": "Enable llama.cpp's Flash Attention kernel (--flash-attn). A llama.cpp build-level toggle exposed as an env flag; vLLM/SGLang use Flash Attention unconditionally and expose no equivalent on/off switch."
+    }
+  }
+}

@@ -37,7 +37,10 @@ Schema: `templates/code/serve.d/manifest.schema.json`.
 `supported_algorithms` allows an empty array and `speculative_decoding` makes
 absence explicit — an engine says "I support none," it doesn't stay silent.
 
-## The four engines
+## The transformers-architecture engines
+
+(The `vllm-omni` diffusion engine ships the same manifest contract but serves the
+`diffusors-vllm-omni` config; it is covered in the vLLM-Omni docs, not this table.)
 
 | Engine | prefix | speculative | algorithms | engine-specific feature | notes |
 |---|---|:---:|---|---|---|
@@ -45,12 +48,20 @@ absence explicit — an engine says "I support none," it doesn't stay silent.
 | sglang | `SGLANG_` | ✓ | eagle3, eagle2, eagle, draft-model, mtp (no ngram) | `radix_attention` (RadixAttention; `SGLANG_ENABLE_RADIX_CACHE`) | discrete `--speculative-*` flags |
 | tensorrt-llm | `TRTLLM_` | ✗ (engine supports it; wrapper can't emit the structured `speculative_config` yet — v1.9) | — | — | positional model arg; prefix sourced from manifest. `dimension_map`: DTYPE / TENSOR_PARALLEL_SIZE / MAX_INPUT_LEN |
 | lmi | `OPTION_` | ✗ | — | `rolling_batch_backend` (pluggable backend; `OPTION_ROLLING_BATCH`) | DJL reads `OPTION_*` env vars; defers to base-image entrypoint (serving.properties). `dimension_map`: QUANTIZE / TENSOR_PARALLEL_DEGREE / MAX_MODEL_LEN |
+| llama-cpp | `SM_LLAMA_CPP_` | ✗ | — | `gpu_layers`, `threads`, `flash_attn` (`SM_LLAMA_CPP_N_GPU_LAYERS` / `_THREADS` / `_FLASH_ATTN`) | AWS DLC for llama.cpp serves GGUF via `llama-server`; the container OWNS its entrypoint and maps `SM_LLAMA_CPP_*` to args itself (no wrapper translation, like lmi/djl). CPU or GPU image. `dimension_map`: CTX_SIZE |
 
 The **engine-specific feature** column is the deviation each engine offers that
 the others don't (or implement differently) — declared in the manifest's
 `engine_features` map (ADR-004 §c). vLLM and TensorRT-LLM declare none; that
-absence *is* the signal that RadixAttention / pluggable backend are not shared
-capabilities.
+absence *is* the signal that RadixAttention / pluggable backend / the llama.cpp
+CPU-GPU-split knobs are not shared capabilities.
+
+llama.cpp is the second **container-owns-entrypoint** engine (after lmi/djl): its
+`.ejs` wrapper validates the GGUF source and hands off rather than translating
+env vars into `--flags`, and the generated Dockerfile does not override the DLC
+`ENTRYPOINT`. The `SM_LLAMA_CPP_` prefix is deliberate — it is literally what the
+AWS DLC reads, so a `--server-env` value is passed through to the container
+unchanged rather than stripped-and-retranslated.
 
 ## Consumer matrix (engine × field × who reads it)
 

@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# llama.cpp Server Configuration (AWS DLC for llama.cpp)
+# ---------------------------------------------------------------------------
+# Env prefix: SM_LLAMA_CPP_ (sourced from serve.d/llama-cpp/manifest.json)
+# Entrypoint: llama-server (built into the AWS DLC — the container OWNS it)
+# Port: 8080 (SageMaker requirement; the DLC maps POST /invocations →
+#       llama-server /v1/chat/completions)
+# ---------------------------------------------------------------------------
+#
+# CONTAINER-OWNS-ENTRYPOINT (like lmi/djl, unlike vllm/sglang):
+# The AWS DLC for llama.cpp reads SM_LLAMA_CPP_* environment variables and maps
+# them to llama.cpp arguments ITSELF, then runs its own llama-server entrypoint.
+# This wrapper therefore does NOT translate env vars into --flags (doing so would
+# double-translate and corrupt the launch). Its only job is to confirm a GGUF
+# model is resolvable, surface the effective config in the logs, and hand off to
+# the DLC's own entrypoint. The generated Dockerfile does NOT override the DLC
+# ENTRYPOINT for this engine, so after this check the DLC's llama-server starts.
+#
+# A GGUF model reaches the container one of two ways (both DLC-native):
+#   1. a .gguf file packaged under /opt/ml/model (SageMaker model artifact), or
+#   2. SM_LLAMA_CPP_HF_REPO + SM_LLAMA_CPP_HF_FILE to download from HuggingFace
+#      when the endpoint has network egress.
+
+_MODEL_DIR="/opt/ml/model"
+_gguf_present=false
+if [ -d "${_MODEL_DIR}" ] && ls "${_MODEL_DIR}"/*.gguf >/dev/null 2>&1; then
+    _gguf_present=true
+fi
+
+if [ "${_gguf_present}" = true ]; then
+    _gguf_file=$(ls "${_MODEL_DIR}"/*.gguf 2>/dev/null | head -n 1)
+    echo "Using packaged GGUF model artifact: ${_gguf_file}"
+elif [ -n "${SM_LLAMA_CPP_HF_REPO:-}" ] && [ -n "${SM_LLAMA_CPP_HF_FILE:-}" ]; then
+    echo "No local .gguf under ${_MODEL_DIR}; the DLC will download ${SM_LLAMA_CPP_HF_FILE} from HuggingFace repo ${SM_LLAMA_CPP_HF_REPO}"
+else
+    echo "❌ No llama.cpp model source resolved." >&2
+    echo "   Provide a .gguf file under ${_MODEL_DIR} (SageMaker model artifact)," >&2
+    echo "   or set SM_LLAMA_CPP_HF_REPO and SM_LLAMA_CPP_HF_FILE to download from HuggingFace." >&2
+    exit 1
+fi
+
+# Surface the effective llama.cpp tunables (the DLC consumes these directly).
+echo "llama.cpp config (consumed by the DLC):"
+echo "   N_GPU_LAYERS = ${SM_LLAMA_CPP_N_GPU_LAYERS:-0 (CPU)}"
+echo "   THREADS      = ${SM_LLAMA_CPP_THREADS:-auto}"
+echo "   CTX_SIZE     = ${SM_LLAMA_CPP_CTX_SIZE:-DLC default}"
+echo "   FLASH_ATTN   = ${SM_LLAMA_CPP_FLASH_ATTN:-false}"
+
+# The AWS DLC for llama.cpp owns the entrypoint and starts llama-server itself.
+echo "Handing off to the AWS DLC for llama.cpp entrypoint (llama-server)."
+exit 0

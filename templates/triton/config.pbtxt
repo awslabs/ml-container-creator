@@ -55,15 +55,19 @@ output [
 # FIL-specific parameters
 parameters: {
     key: "model_type"
-<% if (modelFormat === 'xgboost_json' || modelFormat === 'xgboost_ubj') { %>
-    value: { string_value: "xgboost_json" }
-<% } else if (modelFormat === 'lightgbm_txt') { %>
+<%# FIL model_type accepts both the FIL-native format names (xgboost_json,
+    xgboost_ubj, lightgbm_txt) and the HTTP-xgboost --model-format enum values the
+    CLI actually allows (json, ubj, model → XGBoost). LightGBM maps to "lightgbm";
+    everything XGBoost-shaped maps to "xgboost_json" (FIL's unified XGBoost loader). %>
+<% if (modelFormat === 'lightgbm_txt') { %>
     value: { string_value: "lightgbm" }
+<% } else if (['xgboost_json', 'xgboost_ubj', 'json', 'ubj', 'model'].includes(modelFormat)) { %>
+    value: { string_value: "xgboost_json" }
 <% } else { %>
     # WARNING: unrecognized model-format "<%= modelFormat || '(unset)' %>" for the FIL
-    # backend. Valid formats are xgboost_json, xgboost_ubj, lightgbm_txt. Defaulting
-    # to xgboost_json so this config still loads — regenerate with a valid
-    # --model-format to silence this warning.
+    # backend. Expected an XGBoost format (json/ubj/model or xgboost_json/xgboost_ubj)
+    # or lightgbm_txt. Defaulting to xgboost_json so this config still loads —
+    # regenerate with a valid --model-format to silence this warning.
     value: { string_value: "xgboost_json" }
 <% } %>
 }

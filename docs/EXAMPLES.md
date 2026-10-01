@@ -186,6 +186,47 @@ ml-container-creator djl-demo \
 ./do/submit && ./do/deploy && ./do/test
 ```
 
+## Transformers: llama.cpp (GGUF, CPU or GPU)
+
+Deploy a quantized GGUF model with the AWS DLC for llama.cpp. The container serves an OpenAI-compatible API via `llama-server` and reads `SM_LLAMA_CPP_*` environment variables, which it maps to llama.cpp arguments itself (MLCC does not translate them). Works on CPU instances for cost-sensitive or background workloads, or on GPU with full layer offload for low latency.
+
+CPU (the default DLC image). Point it at a HuggingFace GGUF repo and the specific `.gguf` file, and tune CPU threads:
+
+```bash
+ml-container-creator llamacpp-cpu-demo \
+  --deployment-config=transformers-llama-cpp \
+  --model-name=Qwen/Qwen3-4B-GGUF \
+  --server-env=HF_FILE=Qwen3-4B-Q4_K_M.gguf \
+  --engine-feature=threads=32 \
+  --deployment-target=realtime-inference \
+  --instance-type=ml.c6i.8xlarge \
+  --build-target=codebuild \
+  --region=us-east-1 \
+  --skip-prompts
+```
+
+GPU — select the CUDA DLC image and offload every layer (`gpu_layers=-1`):
+
+```bash
+ml-container-creator llamacpp-gpu-demo \
+  --deployment-config=transformers-llama-cpp \
+  --model-name=Qwen/Qwen3-4B-GGUF \
+  --server-env=HF_FILE=Qwen3-4B-Q4_K_M.gguf \
+  --base-image=763104351884.dkr.ecr.us-east-1.amazonaws.com/llama-cpp:server-sagemaker-cuda-v1 \
+  --engine-feature=gpu_layers=-1 \
+  --deployment-target=realtime-inference \
+  --instance-type=ml.g6e.xlarge \
+  --build-target=codebuild \
+  --region=us-east-1 \
+  --skip-prompts
+```
+
+```bash
+./do/submit && ./do/deploy && ./do/test
+```
+
+`--engine-feature` knobs for llama.cpp: `gpu_layers` (layers to offload to GPU; `-1` = all, `0` = CPU-only), `threads` (CPU generation threads), and `flash_attn` (enable the Flash Attention kernel). You can also package a `.gguf` directly in the SageMaker model artifact under `/opt/ml/model` instead of downloading from HuggingFace.
+
 ## Triton: FIL (Tree Models)
 
 Deploy XGBoost or LightGBM models on NVIDIA Triton Inference Server using the Forest Inference Library backend.
@@ -193,7 +234,7 @@ Deploy XGBoost or LightGBM models on NVIDIA Triton Inference Server using the Fo
 ```bash
 ml-container-creator triton-fil-demo \
   --deployment-config=triton-fil \
-  --model-format=xgboost_json \
+  --model-format=json \
   --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --build-target=codebuild \

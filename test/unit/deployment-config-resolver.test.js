@@ -9,12 +9,12 @@ describe('DeploymentConfigResolver', () => {
     });
 
     describe('getAllConfigs()', () => {
-        it('should return exactly 16 valid deployment-config strings', () => {
+        it('should return exactly 17 valid deployment-config strings', () => {
             const configs = resolver.getAllConfigs();
-            assert.equal(configs.length, 16);
+            assert.equal(configs.length, 17);
         });
 
-        it('should include 2 http, 5 transformers, 7 triton, 1 diffusors, and 1 marketplace configs', () => {
+        it('should include 2 http, 6 transformers, 7 triton, 1 diffusors, and 1 marketplace configs', () => {
             const configs = resolver.getAllConfigs();
             const http = configs.filter(c => c.startsWith('http-'));
             const transformers = configs.filter(c => c.startsWith('transformers-'));
@@ -22,7 +22,7 @@ describe('DeploymentConfigResolver', () => {
             const diffusors = configs.filter(c => c.startsWith('diffusors-'));
             const marketplace = configs.filter(c => c === 'marketplace');
             assert.equal(http.length, 2);
-            assert.equal(transformers.length, 5);
+            assert.equal(transformers.length, 6);
             assert.equal(triton.length, 7);
             assert.equal(diffusors.length, 1);
             assert.equal(marketplace.length, 1);
@@ -121,9 +121,20 @@ describe('DeploymentConfigResolver', () => {
             assert.ok(configs.includes('http-fastapi'));
         });
 
-        it('should return 5 configs for transformers', () => {
+        it('should return 6 configs for transformers', () => {
             const configs = resolver.getConfigsForArchitecture('transformers');
-            assert.equal(configs.length, 5);
+            assert.equal(configs.length, 6);
+            // Assert membership (not just count) so a renamed/dropped engine is caught.
+            for (const dc of [
+                'transformers-vllm',
+                'transformers-sglang',
+                'transformers-tensorrt-llm',
+                'transformers-lmi',
+                'transformers-djl',
+                'transformers-llama-cpp'
+            ]) {
+                assert.ok(configs.includes(dc), `expected transformers configs to include ${dc}`);
+            }
         });
 
         it('should return 7 configs for triton', () => {

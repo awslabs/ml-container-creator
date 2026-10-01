@@ -110,20 +110,48 @@ describe('Triton config.pbtxt conformance (derived from triton-backends.json)', 
         });
     }
 
-    describe('FIL model_type fallback', () => {
-        it('an unrecognized model-format still renders a non-empty model_type', () => {
-            // Regression guard: `json` is NOT a valid FIL format (the valid set is
-            // xgboost_json / xgboost_ubj / lightgbm_txt). It must not render an
-            // empty model_type.
-            const output = renderConfig({ backend: 'fil', modelFormat: 'json', modelName: 'model' });
-            assertNoEmptyParameterValues(output, 'fil/json (invalid format)');
+    describe('FIL model_type mapping', () => {
+        // The CLI's --model-format enum (schema) allows the HTTP-xgboost names
+        // json/ubj/model; the FIL template must accept those AND the FIL-native
+        // names, mapping every XGBoost-shaped format to model_type "xgboost_json"
+        // and lightgbm_txt to "lightgbm" — with NO warning for recognized values.
+        for (const fmt of ['json', 'ubj', 'model', 'xgboost_json', 'xgboost_ubj']) {
+            it(`maps recognized XGBoost format "${fmt}" to model_type xgboost_json without a warning`, () => {
+                const output = renderConfig({ backend: 'fil', modelFormat: fmt, modelName: 'model' });
+                assertNoEmptyParameterValues(output, `fil/${fmt}`);
+                assert.ok(
+                    /key:\s*"model_type"[\s\S]*?string_value:\s*"xgboost_json"/.test(output),
+                    `FIL "${fmt}" should render model_type xgboost_json`
+                );
+                assert.ok(
+                    !/WARNING: unrecognized model-format/.test(output),
+                    `FIL "${fmt}" is a recognized format and must NOT emit the fallback warning`
+                );
+            });
+        }
+
+        it('maps lightgbm_txt to model_type lightgbm', () => {
+            const output = renderConfig({ backend: 'fil', modelFormat: 'lightgbm_txt', modelName: 'model' });
+            assert.ok(
+                /key:\s*"model_type"[\s\S]*?string_value:\s*"lightgbm"/.test(output),
+                'FIL lightgbm_txt should render model_type lightgbm'
+            );
+            assert.ok(!/WARNING/.test(output), 'lightgbm_txt is recognized — no warning');
+        });
+
+        it('a genuinely unrecognized model-format still renders a non-empty model_type with a warning', () => {
+            // 'pkl' is a valid --model-format enum value but is NOT an XGBoost/LightGBM
+            // format, so for the FIL backend it is unrecognized and must fall back
+            // (non-empty model_type + visible warning) rather than render empty.
+            const output = renderConfig({ backend: 'fil', modelFormat: 'pkl', modelName: 'model' });
+            assertNoEmptyParameterValues(output, 'fil/pkl (unrecognized for FIL)');
             assert.ok(
                 /key:\s*"model_type"[\s\S]*?string_value:\s*"xgboost_json"/.test(output),
-                'FIL fallback should default an unknown model-format to xgboost_json'
+                'FIL fallback should default an unrecognized model-format to xgboost_json'
             );
             assert.ok(
                 /WARNING: unrecognized model-format/.test(output),
-                'FIL fallback should emit a visible warning comment'
+                'FIL fallback should emit a visible warning comment for an unrecognized format'
             );
         });
     });

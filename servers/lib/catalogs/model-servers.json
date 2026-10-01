@@ -2144,5 +2144,85 @@
             "validationLevel": "experimental",
             "notes": "Triton Python backend for custom model serving with TritonPythonModel interface. GPU optional"
         }
+    ],
+    "llama-cpp": [
+        {
+            "image": "763104351884.dkr.ecr.us-east-1.amazonaws.com/llama-cpp:server-sagemaker-cpu-v1",
+            "tag": "server-sagemaker-cpu-v1",
+            "architecture": "amd64",
+            "created": "2026-09-25T00:00:00Z",
+            "labels": {
+                "framework_version": "1.0.0"
+            },
+            "registry": "ecr",
+            "repository": "llama-cpp",
+            "defaults": {
+                "envVars": {
+                    "SM_LLAMA_CPP_N_GPU_LAYERS": "0",
+                    "SM_LLAMA_CPP_PORT": "8080"
+                },
+                "inferenceAmiVersion": "al2023-ami-sagemaker-inference-cpu-0"
+            },
+            "profiles": {
+                "cpu-latency": {
+                    "displayName": "CPU Latency",
+                    "description": "Tune CPU thread count for lower per-request latency on compute-optimized instances",
+                    "envVars": {
+                        "SM_LLAMA_CPP_N_GPU_LAYERS": "0",
+                        "SM_LLAMA_CPP_THREADS": "32"
+                    },
+                    "notes": "On ml.c6i.8xlarge, 32 threads is a strong starting point; match the thread count to the instance vCPUs."
+                }
+            },
+            "accelerator": {
+                "type": "cpu",
+                "version": "0",
+                "versionRange": {
+                    "min": "0",
+                    "max": "0"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "AWS DLC for llama.cpp (SageMaker CPU image). Serves GGUF models via llama-server (OpenAI-compatible). The container owns its entrypoint and reads SM_LLAMA_CPP_* env vars. CPU default; set SM_LLAMA_CPP_N_GPU_LAYERS=-1 only on a GPU image."
+        },
+        {
+            "image": "763104351884.dkr.ecr.us-east-1.amazonaws.com/llama-cpp:server-sagemaker-cuda-v1",
+            "tag": "server-sagemaker-cuda-v1",
+            "architecture": "amd64",
+            "created": "2026-09-26T00:00:00Z",
+            "labels": {
+                "cuda_version": "12.4",
+                "framework_version": "1.0.0"
+            },
+            "registry": "ecr",
+            "repository": "llama-cpp",
+            "defaults": {
+                "envVars": {
+                    "SM_LLAMA_CPP_N_GPU_LAYERS": "-1",
+                    "SM_LLAMA_CPP_PORT": "8080"
+                },
+                "inferenceAmiVersion": "al2-ami-sagemaker-inference-gpu-3-1"
+            },
+            "profiles": {
+                "gpu-full-offload": {
+                    "displayName": "GPU Full Offload",
+                    "description": "Offload all model layers to the GPU for lowest latency",
+                    "envVars": {
+                        "SM_LLAMA_CPP_N_GPU_LAYERS": "-1"
+                    },
+                    "notes": "Full offload fits small/medium GGUF models on a single L40S/A10G-class GPU (e.g. g6e). Confirm layer count in the startup logs."
+                }
+            },
+            "accelerator": {
+                "type": "cuda",
+                "version": "12.4",
+                "versionRange": {
+                    "min": "12.0",
+                    "max": "12.6"
+                }
+            },
+            "validationLevel": "experimental",
+            "notes": "AWS DLC for llama.cpp (SageMaker CUDA image). Serves GGUF models via llama-server with GPU offload. The container owns its entrypoint and reads SM_LLAMA_CPP_* env vars. Use SM_LLAMA_CPP_N_GPU_LAYERS=-1 for full offload."
+        }
     ]
 }

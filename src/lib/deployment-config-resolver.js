@@ -19,12 +19,13 @@ const CANONICAL_CONFIGS = new Map([
     ['http-flask',              { architecture: 'http',         backend: 'flask',         engine: null }],
     ['http-fastapi',            { architecture: 'http',         backend: 'fastapi',       engine: null }],
 
-    // Transformers architecture (5)
+    // Transformers architecture (6)
     ['transformers-vllm',       { architecture: 'transformers', backend: 'vllm',          engine: null }],
     ['transformers-sglang',     { architecture: 'transformers', backend: 'sglang',        engine: null }],
     ['transformers-tensorrt-llm', { architecture: 'transformers', backend: 'tensorrt-llm', engine: null }],
     ['transformers-lmi',        { architecture: 'transformers', backend: 'lmi',           engine: null }],
     ['transformers-djl',        { architecture: 'transformers', backend: 'djl',           engine: null }],
+    ['transformers-llama-cpp',  { architecture: 'transformers', backend: 'llama-cpp',     engine: null }],
 
     // Triton architecture (7)
     ['triton-fil',              { architecture: 'triton',       backend: 'fil',           engine: null }],
