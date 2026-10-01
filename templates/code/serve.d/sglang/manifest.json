@@ -25,5 +25,13 @@
   "min_version": "0.4.0",
   "version_features": [
     { "since": "0.4.0", "adds": { "supported_algorithms": ["mtp"] } }
-  ]
+  ],
+  "engine_features": {
+    "radix_attention": {
+      "env_var": "SGLANG_ENABLE_RADIX_CACHE",
+      "type": "boolean",
+      "default": "false",
+      "description": "RadixAttention: automatic KV-cache reuse across requests sharing a prefix, via a radix tree. SGLang-specific — vLLM has block-level prefix caching, not RadixAttention. Big TTFT wins on multi-turn/RAG/agent workloads with shared prefixes."
+    }
+  }
 }

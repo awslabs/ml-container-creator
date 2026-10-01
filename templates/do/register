@@ -1184,11 +1184,14 @@ get_engine_prefix() {
     local backend="$1"
     case "${backend}" in
         vllm)         echo "VLLM_" ;;
-        vllm-omni)    echo "VLLM_" ;;
+        vllm-omni)    echo "VLLM_OMNI_" ;;
         sglang)       echo "SGLANG_" ;;
         tensorrt-llm) echo "TRTLLM_" ;;
-        lmi)          echo "LMI_" ;;
-        djl)          echo "DJL_" ;;
+        # lmi and djl both run DJL Serving, which reads OPTION_* env vars — the
+        # registry must capture those, not the stale LMI_/DJL_ prefixes (which
+        # match no real var, so the recorded parameters would be empty).
+        lmi)          echo "OPTION_" ;;
+        djl)          echo "OPTION_" ;;
         *)            echo "" ;;
     esac
 }

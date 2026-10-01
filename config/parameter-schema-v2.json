@@ -2062,6 +2062,35 @@
             "deprecated": false,
             "since": "0.12.0"
         },
+        "engineFeature": {
+            "type": "string",
+            "description": "Enable an engine-specific feature declared in the selected engine's serve plugin (engine_features). Form NAME=VALUE, repeatable (e.g. radix_attention=true for SGLang, rolling_batch_backend=vllm for LMI). Resolved to the engine's real env var and validated against the manifest.",
+            "cliFlag": "--engine-feature",
+            "cliArgName": "NAME=VALUE",
+            "envVar": null,
+            "templateVar": null,
+            "configKey": "engineFeature",
+            "default": [],
+            "validation": {},
+            "phase": "features",
+            "group": "model",
+            "appliesTo": {
+                "deploymentTargets": [
+                    "*"
+                ],
+                "architectures": [
+                    "*"
+                ]
+            },
+            "widget": {
+                "section": "env-vars",
+                "inputType": "repeatable-kv"
+            },
+            "prompt": null,
+            "repeatable": true,
+            "deprecated": false,
+            "since": "1.8.0"
+        },
         "includeSample": {
             "type": "boolean",
             "description": "Include sample model code",

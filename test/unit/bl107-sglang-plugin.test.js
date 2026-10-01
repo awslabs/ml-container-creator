@@ -25,7 +25,9 @@ import {
     effectiveSupportedAlgorithms,
     minVersion,
     isVersionSupported,
-    engineVersionFromBaseImage
+    engineVersionFromBaseImage,
+    engineFeature,
+    engineFeatures
 } from '../../src/lib/serve-manifest-reader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -290,6 +292,34 @@ describe('Feature: v18-w3-01-bl107 — SGLang plugin', () => {
             const full = `${m.env_var_prefix}${m.dimension_map.tensor_parallel_degree}`;
             assert.strictEqual(full, 'SGLANG_TP_SIZE',
                 'prefix + dimension key composes the engine env var');
+        });
+    });
+
+    // ── engine_features: RadixAttention is SGLang's showcase deviation ───────
+    // The reader is generic (no engine-name branch); these assert SGLang's
+    // declared feature and that the reader returns it as data.
+    describe('SGLang engine_features (RadixAttention — a vLLM-differs feature)', () => {
+        it('declares radix_attention via the generic engine_features reader', () => {
+            const f = engineFeature('sglang', 'radix_attention');
+            assert.ok(f, 'sglang must declare radix_attention');
+            assert.strictEqual(f.type, 'boolean');
+            assert.strictEqual(f.env_var, 'SGLANG_ENABLE_RADIX_CACHE',
+                'the controlling env var is the real SGLang RadixAttention toggle');
+            assert.ok(f.description && f.description.length > 0, 'feature carries a description');
+        });
+
+        it('the feature env var composes from the engine prefix (manifest-sourced)', () => {
+            const m = loadSglangManifest();
+            const f = engineFeature('sglang', 'radix_attention');
+            assert.ok(f.env_var.startsWith(m.env_var_prefix),
+                'the feature env var is a SGLANG_ var, consistent with env_var_prefix');
+        });
+
+        it('reads back as an empty map default for an engine with no features (generic reader)', () => {
+            // The reader never throws / never branches on engine name: a
+            // feature-less engine yields {} and a missing feature yields null.
+            assert.deepStrictEqual(engineFeatures('tensorrt-llm'), {});
+            assert.strictEqual(engineFeature('sglang', 'does-not-exist'), null);
         });
     });
 });

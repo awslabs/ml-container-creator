@@ -340,6 +340,131 @@ describe('Feature: v18-w2-02-bl105 — structure & shipped manifests', () => {
         });
     });
 
+    // ── engine_features: engine-specific capabilities (ADR-004 §c) ───────────
+    // The generic home for "this engine can do X and vLLM cannot (or does it
+    // differently)". Declared as data; consumers read it without branching on
+    // the engine name. These tests assert the SCHEMA shape and that the shipped
+    // manifests declare the real features — data-driven, no engine-name logic.
+    describe('engine_features: engine-specific capability declarations', () => {
+        const ajv = new Ajv({ allErrors: true, strict: false });
+        const validate = ajv.compile(JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')));
+        const base = {
+            engine: 'x', env_var_prefix: 'X_', speculative_decoding: false,
+            supported_algorithms: [], algorithm_map: {}, hot_reload: false
+        };
+
+        it('accepts a manifest with no engine_features (back-compat)', () => {
+            assert.strictEqual(validate(base), true);
+        });
+
+        it('accepts a well-formed boolean feature', () => {
+            assert.strictEqual(validate({
+                ...base,
+                engine_features: {
+                    radix_attention: { env_var: 'X_RADIX', type: 'boolean', default: 'false', description: 'x' }
+                }
+            }), true);
+        });
+
+        it('accepts a well-formed enum feature with values', () => {
+            assert.strictEqual(validate({
+                ...base,
+                engine_features: {
+                    backend: { env_var: 'X_BACKEND', type: 'enum', values: ['a', 'b'], default: 'a', description: 'x' }
+                }
+            }), true);
+        });
+
+        it('rejects a feature missing the required env_var', () => {
+            assert.strictEqual(validate({
+                ...base, engine_features: { f: { type: 'boolean', description: 'x' } }
+            }), false);
+        });
+
+        it('rejects a feature with a non-uppercase env_var', () => {
+            assert.strictEqual(validate({
+                ...base, engine_features: { f: { env_var: 'lower_case', type: 'boolean', description: 'x' } }
+            }), false);
+        });
+
+        it('rejects a feature with an unknown type', () => {
+            assert.strictEqual(validate({
+                ...base, engine_features: { f: { env_var: 'X_F', type: 'matrix', description: 'x' } }
+            }), false);
+        });
+
+        it('rejects an unknown key inside a feature declaration', () => {
+            assert.strictEqual(validate({
+                ...base, engine_features: { f: { env_var: 'X_F', type: 'boolean', description: 'x', bogus: 1 } }
+            }), false);
+        });
+
+        it('rejects an enum feature that omits `values` (enum ⇒ values enforced)', () => {
+            // Without this, an enum with no values is silently unsettable: the
+            // resolver treats allowed=[] and rejects every value. The schema
+            // if/then catches it at validation time instead.
+            assert.strictEqual(validate({
+                ...base, engine_features: { f: { env_var: 'X_F', type: 'enum', description: 'x' } }
+            }), false);
+        });
+
+        it('accepts a non-enum feature with no `values` (enforcement is enum-only)', () => {
+            assert.strictEqual(validate({
+                ...base, engine_features: { f: { env_var: 'X_F', type: 'boolean', description: 'x' } }
+            }), true);
+        });
+
+        // ── The shipped deviations (data-driven, read from the manifests) ────
+        it('SGLang declares RadixAttention — a feature vLLM implements differently', () => {
+            const f = (loadManifest('sglang').engine_features || {}).radix_attention;
+            assert.ok(f, 'sglang must declare radix_attention');
+            assert.strictEqual(f.type, 'boolean');
+            assert.match(f.env_var, /^SGLANG_/, 'the controlling env var is an SGLANG_ var');
+            // vLLM must NOT declare the same feature (that is the whole point).
+            assert.ok(!(loadManifest('vllm').engine_features || {}).radix_attention,
+                'vLLM must not declare radix_attention (it has block-level prefix caching, not RadixAttention)');
+        });
+
+        it('LMI declares a pluggable rolling-batch backend — vLLM has no equivalent', () => {
+            const f = (loadManifest('lmi').engine_features || {}).rolling_batch_backend;
+            assert.ok(f, 'lmi must declare rolling_batch_backend');
+            assert.strictEqual(f.type, 'enum');
+            assert.ok(Array.isArray(f.values) && f.values.length > 1,
+                'enum feature must list its allowed backends');
+            assert.ok(f.values.includes(f.default), 'the default must be one of the allowed values');
+            assert.ok(!(loadManifest('vllm').engine_features || {}).rolling_batch_backend,
+                'vLLM must not declare rolling_batch_backend (it is a single engine)');
+        });
+
+        it('an enum feature in any shipped manifest always lists its default among values', () => {
+            // Data-driven invariant across every engine that declares features.
+            for (const engine of ALL_ENGINES) {
+                const features = loadManifest(engine).engine_features || {};
+                for (const [name, decl] of Object.entries(features)) {
+                    if (decl.type === 'enum') {
+                        assert.ok(Array.isArray(decl.values) && decl.values.length >= 1,
+                            `${engine}.${name}: enum feature must declare values`);
+                        if (decl.default !== undefined) {
+                            assert.ok(decl.values.includes(decl.default),
+                                `${engine}.${name}: default "${decl.default}" must be one of values`);
+                        }
+                    }
+                }
+            }
+        });
+
+        it('every declared feature env_var starts with its engine prefix (data integrity)', () => {
+            for (const engine of ALL_ENGINES) {
+                const m = loadManifest(engine);
+                const prefix = m.env_var_prefix;
+                for (const [name, decl] of Object.entries(m.engine_features || {})) {
+                    assert.ok(decl.env_var.startsWith(prefix),
+                        `${engine}.${name}: env_var "${decl.env_var}" should start with the engine prefix "${prefix}"`);
+                }
+            }
+        });
+    });
+
     // ── Migration / back-compat ──────────────────────────────────────────────
     describe('Migration: nested EJS include renders for each engine', () => {
         const SERVE_TEMPLATE = readFileSync(SERVE_TEMPLATE_PATH, 'utf8');

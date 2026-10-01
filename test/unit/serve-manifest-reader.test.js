@@ -73,14 +73,29 @@ describe('serve-manifest-reader', () => {
             }
         });
 
+        it('includes LMI vars — DJL reads OPTION_* keys (composed from the manifest dimension_map)', () => {
+            // LMI's env_var_prefix is OPTION_ (what the DJL container reads), and
+            // its dimension_map was populated with the real DJL option suffixes.
+            for (const v of [
+                'OPTION_QUANTIZE',
+                'OPTION_TENSOR_PARALLEL_DEGREE',
+                'OPTION_MAX_MODEL_LEN'
+            ]) {
+                assert.ok(union.includes(v), `union must include ${v}`);
+            }
+        });
+
         it('is sorted and de-duplicated', () => {
             assert.deepStrictEqual(union, [...new Set(union)].sort());
         });
 
         it('never emits a bare prefix (skips engines with no dimension_map)', () => {
-            // lmi / tensorrt-llm have empty dimension_map → contribute nothing.
-            assert.ok(!union.includes('LMI_'), 'must not emit a bare prefix');
+            // tensorrt-llm has an empty dimension_map → contributes nothing (no
+            // bare TRTLLM_). lmi now DOES declare a dimension_map, so it
+            // contributes OPTION_<suffix> keys, never a bare OPTION_.
             assert.ok(!union.includes('TRTLLM_'), 'must not emit a bare prefix');
+            assert.ok(!union.includes('OPTION_'), 'must not emit a bare OPTION_ prefix');
+            assert.ok(!union.includes('LMI_'), 'the retired LMI_ prefix must not appear');
         });
     });
 

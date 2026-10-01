@@ -17,7 +17,7 @@ import RegistryConfigManager from './lib/registry-config-manager.js';
 import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
 import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './lib/marketplace-refusal.js';
-import { readEnvVarPrefix } from './lib/serve-manifest-reader.js';
+import { readEnvVarPrefix, resolveEngineFeatureVars } from './lib/serve-manifest-reader.js';
 import { _ensureTemplateVariables, _validateEnvironmentVariables } from './lib/template-variable-resolver.js';
 import ejs from 'ejs';
 import { globSync } from 'tinyglobby';
@@ -377,6 +377,53 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     Object.entries(prefixedServerEnvVars).forEach(([key, value]) => {
         orderedEnvVars.push({ key, value });
     });
+
+    // Engine-specific features (ADR-004 §c): resolve each requested feature to the
+    // engine's real env var and validate against the serve-plugin manifest's
+    // engine_features. Reads the manifest generically — no engine-name branching.
+    // The resolved env vars join orderedEnvVars so do/config (and the Dockerfile)
+    // emit them identically to --server-env; the container reads them directly.
+    const engineFeatureVars = answers.engineFeatureVars || {};
+    if (Object.keys(engineFeatureVars).length > 0) {
+        const { resolved, errors } = resolveEngineFeatureVars(engine, engineFeatureVars);
+        if (errors.length > 0) {
+            throw new Error(
+                `Invalid --engine-feature value(s):\n   • ${errors.join('\n   • ')}`
+            );
+        }
+        resolved.forEach(({ key, value }) => {
+            orderedEnvVars.push({ key, value });
+        });
+    }
+
+    // De-duplicate orderedEnvVars by key. The sources above are pushed in order of
+    // increasing specificity (catalog/envVars → model-env → prefixed server-env →
+    // engine-feature), so a later entry for the same key is the more deliberate
+    // one and wins. Without this, two sources targeting the same engine var (e.g.
+    // --engine-feature rolling_batch_backend=vllm → OPTION_ROLLING_BATCH=vllm AND
+    // --server-env OPTION_ROLLING_BATCH=auto) would emit two conflicting `export`
+    // lines into do/config and bash would silently take the last — order-dependent
+    // and invisible. Collapse to one entry per key (last-wins) and warn when the
+    // collision actually changed the value.
+    const _dedupedEnvVars = [];
+    const _envVarIndexByKey = new Map();
+    for (const { key, value } of orderedEnvVars) {
+        if (_envVarIndexByKey.has(key)) {
+            const idx = _envVarIndexByKey.get(key);
+            if (_dedupedEnvVars[idx].value !== value) {
+                console.warn(
+                    `⚠️  Multiple values for ${key}: using "${value}" (overrides "${_dedupedEnvVars[idx].value}"). ` +
+                    'Set it once — via --engine-feature OR --server-env/--model-env, not both.'
+                );
+            }
+            _dedupedEnvVars[idx] = { key, value };
+        } else {
+            _envVarIndexByKey.set(key, _dedupedEnvVars.length);
+            _dedupedEnvVars.push({ key, value });
+        }
+    }
+    orderedEnvVars.length = 0;
+    orderedEnvVars.push(..._dedupedEnvVars);
 
     // Prepare template variables
     const templateVars = {

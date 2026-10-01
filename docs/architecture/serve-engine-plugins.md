@@ -39,12 +39,18 @@ absence explicit — an engine says "I support none," it doesn't stay silent.
 
 ## The four engines
 
-| Engine | prefix | speculative | algorithms | notes |
-|---|---|:---:|---|---|
-| vllm | `VLLM_` | ✓ | eagle3, eagle2, eagle, draft-model, ngram, mtp | consolidated `--speculative-config` JSON |
-| sglang | `SGLANG_` | ✓ | eagle3, eagle2, eagle, draft-model, mtp (no ngram) | discrete `--speculative-*` flags |
-| tensorrt-llm | `TRTLLM_` | ✗ | — | positional model arg; no speculative logic |
-| lmi | `LMI_` | ✗ | — | defers to DJL base-image entrypoint (serving.properties) |
+| Engine | prefix | speculative | algorithms | engine-specific feature | notes |
+|---|---|:---:|---|---|---|
+| vllm | `VLLM_` | ✓ | eagle3, eagle2, eagle, draft-model, ngram, mtp | — | consolidated `--speculative-config` JSON |
+| sglang | `SGLANG_` | ✓ | eagle3, eagle2, eagle, draft-model, mtp (no ngram) | `radix_attention` (RadixAttention; `SGLANG_ENABLE_RADIX_CACHE`) | discrete `--speculative-*` flags |
+| tensorrt-llm | `TRTLLM_` | ✗ | — | — | positional model arg; no speculative logic |
+| lmi | `OPTION_` | ✗ | — | `rolling_batch_backend` (pluggable backend; `OPTION_ROLLING_BATCH`) | DJL reads `OPTION_*` env vars; defers to base-image entrypoint (serving.properties). `dimension_map`: QUANTIZE / TENSOR_PARALLEL_DEGREE / MAX_MODEL_LEN |
+
+The **engine-specific feature** column is the deviation each engine offers that
+the others don't (or implement differently) — declared in the manifest's
+`engine_features` map (ADR-004 §c). vLLM and TensorRT-LLM declare none; that
+absence *is* the signal that RadixAttention / pluggable backend are not shared
+capabilities.
 
 ## Consumer matrix (engine × field × who reads it)
 
@@ -57,6 +63,7 @@ absence explicit — an engine says "I support none," it doesn't stay silent.
 | `metrics_endpoint` | `do/benchmark` phase-2 poller | benchmark |
 | `speculative_decoding` | `do/draft` (fast reject when false) | pre-deploy |
 | `min_version` / `version_features` (BL129, optional) | `serve_manifest.py` / `serve-manifest-reader.js` `effective_supported_algorithms` → `do/draft` + `hyperpod-eks` (version-gated `--algorithm` validation); `serve-manifest-catalog-version-drift.test.js` (reachability guard vs. catalog `framework_version`) | pre-deploy + deploy + CI/commit |
+| `engine_features` (ADR-004 §c, optional) | `serve-manifest-reader.js` `engineFeature`/`engineFeatures` + `serve_manifest.py` `engine_feature`/`engine_features` (generic readers, no engine-name branching). The generator uses `resolveEngineFeatureVars()` to turn a user's `--engine-feature NAME=VALUE` (or the engine-gated interactive prompt) into the feature's real env var, validate it against the manifest, and emit it into `orderedEnvVars` → `do/config`. | generate + deploy |
 | `engine` | `validate-serve-manifests.js` (dir-name match) | CI/commit |
 
 The reader on the Node side is `src/lib/serve-manifest-reader.js`; on the Python

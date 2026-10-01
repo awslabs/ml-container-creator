@@ -16,6 +16,8 @@ import {
     modelFormatPrompts,
     modelServerPrompts,
     modelProfilePrompts,
+    engineFeaturePrompts,
+    ENGINE_FEATURE_ANSWER_PREFIX,
     modulePrompts,
     infraRegionAndTargetPrompts,
     infraBuildPrompts,
@@ -34,10 +36,52 @@ import SecretsPromptRunner from './secrets-prompt-runner.js';
 import CudaResolver from './cuda-resolver.js';
 import MarketplaceFlow from './marketplace-flow.js';
 import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './marketplace-refusal.js';
+import { engineFeature } from './serve-manifest-reader.js';
 
 const __pr_filename = fileURLToPath(import.meta.url);
 const __pr_dirname = path.dirname(__pr_filename);
 const GENERATOR_ROOT = path.resolve(__pr_dirname, '..', '..');
+
+/**
+ * Collapse interactive engine-feature prompt answers (`__engine_feature__<name>`)
+ * into `combinedAnswers.engineFeatureVars` — the same shape the `--engine-feature`
+ * CLI flag produces (so app.js resolves/validates both paths identically).
+ *
+ * Emits ONLY a feature the user actually CHANGED from the engine's declared
+ * default. Leaving a prompt at its default (declining a boolean, keeping an
+ * enum's default) means "let the engine do what it does by default", so baking
+ * that value into do/config would (a) emit a declined feature as FEATURE=false
+ * and (b) freeze a default the engine might later change — matching
+ * `--server-env`'s "only what you pass" semantics. A feature with no declared
+ * default emits any answer (every value is a deliberate choice). CLI-provided
+ * engineFeatureVars always win over the prompt. Mutates `combinedAnswers` in
+ * place: strips the `__engine_feature__*` keys and sets `engineFeatureVars` when
+ * non-empty. Exported for unit testing; reads the manifest via engineFeature().
+ *
+ * @param {Object} combinedAnswers
+ * @param {string} [serveDir] - serve.d root override (tests)
+ * @returns {Object} the same combinedAnswers (for chaining)
+ */
+export function normalizeEngineFeatureAnswers(combinedAnswers, serveDir) {
+    const engine = combinedAnswers.modelServer || combinedAnswers.backend || '';
+    const engineFeatureVars = { ...(combinedAnswers.engineFeatureVars || {}) };
+    for (const key of Object.keys(combinedAnswers)) {
+        if (key.startsWith(ENGINE_FEATURE_ANSWER_PREFIX)) {
+            const name = key.slice(ENGINE_FEATURE_ANSWER_PREFIX.length);
+            const value = String(combinedAnswers[key]);
+            const decl = engineFeature(engine, name, serveDir);
+            const declaredDefault = decl && decl.default !== undefined ? String(decl.default) : undefined;
+            if (!(name in engineFeatureVars) && value !== declaredDefault) {
+                engineFeatureVars[name] = value;
+            }
+            delete combinedAnswers[key];
+        }
+    }
+    if (Object.keys(engineFeatureVars).length > 0) {
+        combinedAnswers.engineFeatureVars = engineFeatureVars;
+    }
+    return combinedAnswers;
+}
 
 
 export default class PromptRunner {
@@ -166,6 +210,18 @@ export default class PromptRunner {
             modelServerPrompts, 
             {...frameworkAnswers, ...engineAnswers}, 
             explicitConfig, 
+            existingConfig
+        );
+
+        // Engine-specific features (ADR-004 §c). The selected engine is known
+        // now (frameworkAnswers.backend/modelServer), so each feature prompt's
+        // when() gates it to the chosen engine. Answers come back under the
+        // __engine_feature__<name> namespace and are normalized into the
+        // engineFeatureVars map below (same shape --engine-feature produces).
+        const engineFeatureAnswers = await this._runPhase(
+            engineFeaturePrompts,
+            { ...frameworkAnswers, ...engineAnswers, ...modelServerAnswers },
+            explicitConfig,
             existingConfig
         );
 
@@ -376,6 +432,7 @@ export default class PromptRunner {
             ...frameworkProfileAnswers,
             ...modelFormatAnswers,
             ...modelServerAnswers,
+            ...engineFeatureAnswers,
             ...modelProfileAnswers,
             ...hfTokenAnswers,
             ...ngcApiKeyAnswers,
@@ -522,6 +579,13 @@ export default class PromptRunner {
             combinedAnswers.roleArn = combinedAnswers.awsRoleArn;
             delete combinedAnswers.awsRoleArn;
         }
+
+        // Normalize engine-feature prompt answers (__engine_feature__<name>) into
+        // the engineFeatureVars map that app.js resolves — same shape the
+        // --engine-feature CLI flag produces. Extracted to normalizeEngineFeatureAnswers()
+        // so the "emit only non-default" rule (fix below) is unit-testable without
+        // driving the whole prompt flow.
+        normalizeEngineFeatureAnswers(combinedAnswers);
 
         return combinedAnswers;
     }

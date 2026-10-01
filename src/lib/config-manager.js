@@ -178,6 +178,9 @@ export default class ConfigManager {
         if (this.config.serverEnvVars && typeof this.config.serverEnvVars === 'object') {
             finalConfig.serverEnvVars = { ...this.config.serverEnvVars };
         }
+        if (this.config.engineFeatureVars && typeof this.config.engineFeatureVars === 'object') {
+            finalConfig.engineFeatureVars = { ...this.config.engineFeatureVars };
+        }
         if (this.config.icEnvVars && typeof this.config.icEnvVars === 'object') {
             finalConfig.icEnvVars = { ...this.config.icEnvVars };
         }
@@ -410,7 +413,8 @@ export default class ConfigManager {
             ...icParams,
             'modelEnvVars',
             'serverEnvVars',
-            'icEnvVars'
+            'icEnvVars',
+            'engineFeatureVars'
         ]);
         const core = {};
         for (const [key, value] of Object.entries(this.config)) {
@@ -426,6 +430,7 @@ export default class ConfigManager {
             modelEnvVars: { ...(this.config.modelEnvVars || {}) },
             serverEnvVars: { ...(this.config.serverEnvVars || {}) },
             icEnvVars: { ...(this.config.icEnvVars || {}) },
+            engineFeatureVars: { ...(this.config.engineFeatureVars || {}) },
             manifest: [...this._sourceManifest]
         };
     }
@@ -554,6 +559,7 @@ export default class ConfigManager {
         // Collection parameters for env vars (not in matrix, handled separately)
         defaults.modelEnvVars = {};
         defaults.serverEnvVars = {};
+        defaults.engineFeatureVars = {};
 
         return defaults;
     }

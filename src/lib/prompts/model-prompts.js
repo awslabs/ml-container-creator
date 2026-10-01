@@ -8,6 +8,65 @@
  */
 
 import { discoverSecrets } from './secrets-discovery.js';
+import { listServeEngines, engineFeatures } from '../serve-manifest-reader.js';
+
+/**
+ * Engine-specific feature prompts (ADR-004 §c), built from the serve-plugin
+ * manifests. One prompt per (engine, feature) pair, each gated to appear only
+ * when that engine is selected — so a vLLM project is never asked about SGLang's
+ * RadixAttention. The widget is DERIVED from the feature's declared `type`
+ * (boolean → confirm, enum → list of `values`, int/string → input). Each answer
+ * is stored under a namespaced key `__engine_feature__<name>` that PromptRunner
+ * normalizes into the `engineFeatureVars` map (same shape the --engine-feature
+ * CLI flag produces). Reads the manifests as data — no engine-name branching.
+ */
+export const ENGINE_FEATURE_ANSWER_PREFIX = '__engine_feature__';
+
+function buildEngineFeaturePrompts() {
+    const prompts = [];
+    for (const engine of listServeEngines()) {
+        const features = engineFeatures(engine);
+        for (const [name, decl] of Object.entries(features)) {
+            const answerKey = `${ENGINE_FEATURE_ANSWER_PREFIX}${name}`;
+            const base = {
+                name: answerKey,
+                // Only ask when THIS engine is the selected one.
+                when: (answers) => {
+                    const selected = answers.modelServer || answers.backend ||
+                        answers.deploymentConfig?.split('-').slice(1).join('-');
+                    return selected === engine;
+                }
+            };
+            if (decl.type === 'boolean') {
+                prompts.push({
+                    ...base,
+                    type: 'confirm',
+                    message: `Enable ${name}? (${decl.description})`,
+                    default: decl.default === 'true'
+                });
+            } else if (decl.type === 'enum') {
+                prompts.push({
+                    ...base,
+                    type: 'list',
+                    message: `${name}: ${decl.description}`,
+                    choices: decl.values || [],
+                    default: decl.default
+                });
+            } else {
+                // int / string → free input
+                prompts.push({
+                    ...base,
+                    type: 'input',
+                    message: `${name}: ${decl.description}`,
+                    default: decl.default
+                });
+            }
+        }
+    }
+    return prompts;
+}
+
+const engineFeaturePrompts = buildEngineFeaturePrompts();
 
 /**
  * Phase 1: Core ML configuration (moved to first)
@@ -618,5 +677,6 @@ export {
     modelProfilePrompts,
     hfTokenPrompts,
     buildHfTokenPrompts,
-    ngcApiKeyPrompts
+    ngcApiKeyPrompts,
+    engineFeaturePrompts
 };

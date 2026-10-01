@@ -107,6 +107,46 @@ def test_dimension_key_derivation_sglang(monkeypatch):
     assert optimize._dimension_config_key("quantization", "realtime-inference") == "IC_ENV_SGLANG_QUANTIZATION"
 
 
+def test_dimension_key_derivation_lmi(monkeypatch):
+    monkeypatch.setenv("MODEL_SERVER", "lmi")
+    optimize = _load("optimize_engine_bl105_unit_lmi", _OPTIMIZE_PATH)
+    # LMI derives from its own manifest. Its env_var_prefix is OPTION_ (what the
+    # DJL container actually reads), and its dimension_map carries the real DJL
+    # option suffixes — so the composed keys are OPTION_TENSOR_PARALLEL_DEGREE,
+    # OPTION_QUANTIZE, OPTION_MAX_MODEL_LEN (realtime wraps them with IC_ENV_).
+    assert optimize._dimension_config_key("tensor_parallel_degree", "hyperpod-eks") == "OPTION_TENSOR_PARALLEL_DEGREE"
+    assert optimize._dimension_config_key("quantization", "realtime-inference") == "IC_ENV_OPTION_QUANTIZE"
+    assert optimize._dimension_config_key("max_model_len", "hyperpod-eks") == "OPTION_MAX_MODEL_LEN"
+
+
+# -- engine_features: engine-specific capabilities (ADR-004 §c) ----------------
+# These are capabilities UNIQUE to one engine or implemented differently from
+# vLLM, declared as data and read generically (no engine-name branching).
+
+def test_engine_features_sglang_radix_attention():
+    # SGLang's RadixAttention — vLLM has block-level prefix caching, not this.
+    f = serve_manifest.engine_feature("sglang", "radix_attention")
+    assert f is not None, "sglang must declare radix_attention"
+    assert f["type"] == "boolean"
+    assert f["env_var"] == "SGLANG_ENABLE_RADIX_CACHE"
+
+
+def test_engine_features_lmi_rolling_batch_backend():
+    # LMI's pluggable backend — vLLM/SGLang are single engines, no equivalent.
+    f = serve_manifest.engine_feature("lmi", "rolling_batch_backend")
+    assert f is not None, "lmi must declare rolling_batch_backend"
+    assert f["type"] == "enum"
+    assert f["env_var"] == "OPTION_ROLLING_BATCH"
+    assert f["default"] in f["values"], "default must be one of the allowed values"
+
+
+def test_engine_features_vllm_declares_none():
+    # The deviation: vLLM declares no engine_features — the SGLang/LMI features
+    # above are genuinely engine-specific, not shared capabilities.
+    assert serve_manifest.engine_features("vllm") == {}
+    assert serve_manifest.engine_feature("vllm", "radix_attention") is None
+
+
 # -- BL129: capability versioning ---------------------------------------------
 # Data-driven: assertions derive from vLLM's own manifest version_features so
 # they track the shipped gating rather than pinning algorithm/version literals.

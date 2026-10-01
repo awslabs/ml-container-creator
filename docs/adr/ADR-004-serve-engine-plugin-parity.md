@@ -35,7 +35,7 @@ are correctly data-driven:
 
 2. **Two sources of truth for the prefix.** `src/lib/engine-prefix-resolver.js`
    keeps `ENGINE_PREFIX_MAP` (vllm→VLLM_, sglang→SGLANG_, tensorrt-llm→TRTLLM_,
-   lmi→LMI_, djl→DJL_, vllm-omni→VLLM_OMNI_). For vllm/sglang this **duplicates**
+   lmi→OPTION_, djl→OPTION_, vllm-omni→VLLM_OMNI_). For vllm/sglang this **duplicates**
    the manifest's `env_var_prefix`; it can drift. But it is also the **only**
    prefix source for the manifest-less engines — so it cannot simply be deleted.
 
@@ -82,9 +82,13 @@ read `speculative_decoding: false` instead of inferring from a missing manifest.
 
 - `tensorrt-llm`: `env_var_prefix: "TRTLLM_"`, `speculative_decoding: false`,
   empty algorithms. (Its `.ejs` has no speculative logic.)
-- `lmi`: `env_var_prefix: "LMI_"`, `speculative_decoding: false`, empty
-  algorithms. (Its `.ejs` defers to the DJL base-image entrypoint via
-  serving.properties.)
+- `lmi`: `env_var_prefix: "OPTION_"`, `speculative_decoding: false`, empty
+  algorithms, plus a `dimension_map` of the real DJL option suffixes
+  (`QUANTIZE`, `TENSOR_PARALLEL_DEGREE`, `MAX_MODEL_LEN`). (Its `.ejs` defers to
+  the DJL base-image entrypoint via serving.properties.) The prefix is `OPTION_`
+  — not a `LMI_` brand — because that is what the DJL container actually reads
+  (`OPTION_TENSOR_PARALLEL_DEGREE`, `OPTION_QUANTIZE`, …); an earlier `LMI_`
+  declaration never matched the runtime and was corrected.
 
 `validate-serve-manifests.js` then covers 4/4 engines, and a test asserts every
 serve.d engine directory has a schema-valid manifest — so no future engine can

@@ -198,6 +198,93 @@ export function minVersion(engine, serveDir = SERVE_D) {
 }
 
 /**
+ * The engine's `engine_features` map — capabilities unique to this engine or
+ * implemented differently from the others (ADR-004 §c), declared as data. Returns
+ * {} when the engine declares none (vLLM/TensorRT-LLM/vLLM-Omni today).
+ * @param {string} engine
+ * @param {string} [serveDir]
+ * @returns {Object<string, {env_var: string, type: string, values?: string[], default?: string, description: string}>}
+ */
+export function engineFeatures(engine, serveDir = SERVE_D) {
+    const manifest = readManifest(engine, serveDir);
+    return (manifest && manifest.engine_features) || {};
+}
+
+/**
+ * A single named engine feature's declaration, or null when the engine does not
+ * declare it. Read generically — never branch on the engine name.
+ * @param {string} engine
+ * @param {string} feature - MLCC-stable feature key (e.g. 'radix_attention')
+ * @param {string} [serveDir]
+ * @returns {{env_var: string, type: string, values?: string[], default?: string, description: string}|null}
+ */
+export function engineFeature(engine, feature, serveDir = SERVE_D) {
+    return engineFeatures(engine, serveDir)[feature] || null;
+}
+
+/**
+ * Resolve user-requested engine features (MLCC feature name → value, as strings)
+ * for the selected engine into concrete `{ key: env_var, value }` pairs, validating
+ * each against the engine's `engine_features` declaration. Pure data: reads the
+ * manifest, never branches on the engine name.
+ *
+ * Validation (derived from each feature's declaration):
+ *   - unknown feature for this engine        → error (lists the engine's features)
+ *   - type 'boolean' and value not true/false → error
+ *   - type 'enum' and value not in `values`   → error (lists allowed values)
+ *   - type 'int' and value not an integer     → error
+ * On any error the pair is NOT emitted. Returns both the resolved pairs and the
+ * collected error strings so the caller decides how to surface them.
+ *
+ * @param {string} engine
+ * @param {Object<string,string>} requested - { featureName: value } (values are strings, as parsed from NAME=VALUE)
+ * @param {string} [serveDir]
+ * @returns {{ resolved: Array<{key: string, value: string}>, errors: string[] }}
+ */
+export function resolveEngineFeatureVars(engine, requested = {}, serveDir = SERVE_D) {
+    const resolved = [];
+    const errors = [];
+    const features = engineFeatures(engine, serveDir);
+    const available = Object.keys(features);
+
+    for (const [name, rawValue] of Object.entries(requested || {})) {
+        const decl = features[name];
+        if (!decl) {
+            const list = available.length ? available.join(', ') : '(none)';
+            errors.push(
+                `engine '${engine || 'unknown'}' has no feature '${name}'. ` +
+                `Available engine features for this engine: ${list}.`
+            );
+            continue;
+        }
+
+        const value = String(rawValue);
+        if (decl.type === 'boolean') {
+            if (value !== 'true' && value !== 'false') {
+                errors.push(`feature '${name}' is boolean — value must be 'true' or 'false', got '${value}'.`);
+                continue;
+            }
+        } else if (decl.type === 'enum') {
+            const allowed = Array.isArray(decl.values) ? decl.values : [];
+            if (!allowed.includes(value)) {
+                errors.push(`feature '${name}' must be one of: ${allowed.join(', ')} — got '${value}'.`);
+                continue;
+            }
+        } else if (decl.type === 'int') {
+            if (!/^-?\d+$/.test(value)) {
+                errors.push(`feature '${name}' is an integer — got '${value}'.`);
+                continue;
+            }
+        }
+        // 'string' accepts any value.
+
+        resolved.push({ key: decl.env_var, value });
+    }
+
+    return { resolved, errors };
+}
+
+/**
  * True if the detected version is at or above the engine's min_version. Fail-open:
  * true when the engine declares no min_version or the version is unparseable.
  * @param {string} engine

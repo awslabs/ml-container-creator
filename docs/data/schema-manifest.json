@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T01:31:22.603Z",
+  "generatedAt": "2026-10-01T16:34:54.010Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
   "version": "1.7.2",
@@ -464,6 +464,26 @@
         "appliesTo": {
           "deploymentTargets": [
             "managed-inference"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "engineFeature",
+        "cliFlag": "--engine-feature",
+        "type": "string",
+        "description": "Enable an engine-specific feature declared in the selected engine's serve plugin (engine_features). Form NAME=VALUE, repeatable (e.g. radix_attention=true for SGLang, rolling_batch_backend=vllm for LMI). Resolved to the engine's real env var and validated against the manifest.",
+        "inputType": "repeatable-kv",
+        "placeholder": null,
+        "datalist": null,
+        "default": [],
+        "validation": {},
+        "group": "model",
+        "appliesTo": {
+          "deploymentTargets": [
+            "*"
           ],
           "architectures": [
             "*"
@@ -1150,6 +1170,16 @@
       "type": "string",
       "group": "inference-component",
       "phase": "infrastructure",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
+      "key": "engineFeature",
+      "cliFlag": "--engine-feature",
+      "description": "Enable an engine-specific feature declared in the selected engine's serve plugin (engine_features). Form NAME=VALUE, repeatable (e.g. radix_attention=true for SGLang, rolling_batch_backend=vllm for LMI). Resolved to the engine's real env var and validated against the manifest.",
+      "type": "string",
+      "group": "model",
+      "phase": "features",
       "deprecated": false,
       "hasWidget": true
     },

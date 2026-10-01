@@ -191,14 +191,76 @@ Two mechanisms keep these honest:
    **inputs** to the strategy (prefix, which algorithms, mapped names) come from
    the manifest; only the **emission shape** is hardcoded in the wrapper.
 
-If a feature is truly unique to one engine and has no cross-engine analog, it is
-fine for only that engine's manifest to declare it (an optional schema field) and
-only that engine's wrapper to consume it. Document it in the field's schema
-`description`.
+3. **A feature unique to one engine (or implemented differently): declare it in
+   `engine_features`.** [IMPLEMENTED] When a capability exists on *one* engine
+   and the others simply don't have it — or have it in a shape with no shared
+   analog — it goes in the manifest's optional `engine_features` map. This is the
+   general home for "this engine can do X and vLLM cannot." Each entry is the
+   feature declared as DATA — its controlling env var, type, allowed values, and
+   default — so a consumer reads it generically (`engineFeature(engine, name)` /
+   `serve_manifest.py engine_features <engine>`) and NEVER branches on the engine
+   name. An engine without the feature simply does not list it; the reader
+   returns `{}` / `null`, which *is* the deviation.
+
+   Two shipped worked examples (the deviations themselves):
+
+   ```jsonc
+   // serve.d/sglang/manifest.json — a boolean toggle vLLM has no analog for
+   "engine_features": {
+     "radix_attention": {
+       "env_var": "SGLANG_ENABLE_RADIX_CACHE",   // the real SGLang toggle
+       "type": "boolean", "default": "false",
+       "description": "RadixAttention: automatic KV-cache reuse across requests
+         sharing a prefix. vLLM has block-level prefix caching, not this."
+     }
+   }
+   ```
+   ```jsonc
+   // serve.d/lmi/manifest.json — an enum knob only a meta-engine has
+   "engine_features": {
+     "rolling_batch_backend": {
+       "env_var": "OPTION_ROLLING_BATCH",
+       "type": "enum", "values": ["auto", "vllm", "tensorrt-llm", "lmi-dist"],
+       "default": "auto",
+       "description": "LMI delegates serving to a chosen backend. vLLM/SGLang ARE
+         a single engine and expose no equivalent 'choose your backend' knob."
+     }
+   }
+   ```
+
+   vLLM, TensorRT-LLM, and vLLM-Omni declare NO `engine_features` — which is how a
+   reader (or a reader of the docs) sees that RadixAttention and the pluggable
+   backend are genuinely engine-specific, not shared capabilities. The schema
+   (`manifest.schema.json`) enforces each entry's shape (`env_var` uppercase,
+   `type` ∈ {boolean, enum, int, string}, `values` for enums, a `description`);
+   the BL105 tests assert the shapes and the shipped deviations, and the drift
+   tests assert cross-engine invariants (an enum's `default` is one of its
+   `values`; a feature's `env_var` starts with the engine's `env_var_prefix`).
+
+   **To add your own:** declare the feature in `engine_features` (one entry, real
+   env var), run `npm run validate:serve-manifests`, and add a data-driven test
+   that reads it back via the generic reader and asserts the engines *without* it
+   return `{}`/`null`.
+
+   **You get the user-facing wiring for free.** Because the generator resolves
+   `engine_features` generically, a newly-declared feature is *immediately*
+   available end-to-end with no extra code: the `--engine-feature NAME=VALUE`
+   CLI flag accepts it (validated against your declaration — unknown name / bad
+   enum / non-boolean are rejected), the interactive flow prompts for it with a
+   widget derived from its `type` (boolean→confirm, enum→pick-list of `values`),
+   and `resolveEngineFeatureVars()` emits `env_var=value` into `orderedEnvVars` →
+   `do/config`. The seam is `src/app.js` (resolve/emit) and
+   `src/lib/prompts/model-prompts.js` (`buildEngineFeaturePrompts`); both read the
+   manifest, so you add nothing there. (This is the config-only "Option A" wiring;
+   if a future feature must become a parsed CLI *flag* on the server binary rather
+   than an env var, that is a separate, deliberate extension — see the note below.)
+   If some *other* consumer needs to ACT on the feature, read it from
+   `engine_features` there too — never add an `if engine == ...`.
 
 **Anti-pattern:** a consumer (do-script, resolver, `app.js`) branching on the
-engine name to decide behavior. That knowledge belongs in the manifest as data;
-the consumer should be engine-agnostic and read the data.
+engine name to decide behavior. That knowledge belongs in the manifest as data
+(a shared field's value, or an `engine_features` entry); the consumer should be
+engine-agnostic and read the data.
 
 ---
 
@@ -265,6 +327,20 @@ To add an engine `foo` served as `transformers-foo`:
    Add `metrics_endpoint` / `dimension_map` only if the engine exposes them.
    Set `speculative_decoding: true` + populate `supported_algorithms` /
    `algorithm_map` only if it truly supports speculative decoding.
+   - **Declare the engine's REAL capabilities — do not under-declare (§g.4).**
+     "Declare absence explicitly" (ADR-004) means an *honest* `false`/`[]`/`{}`
+     for what the engine genuinely lacks — NOT a lazy all-empty stub for an
+     engine that actually has config dimensions or a metrics endpoint. If the
+     engine has benchmark-tunable knobs (tensor-parallel degree, dtype, batch
+     size), declare them in `dimension_map`; an empty `dimension_map` means
+     `serveEngineRuntimeVarsUnion` contributes nothing for it and `mcc
+     regenerate` will not preserve those vars.
+   - **Check the `env_var_prefix` against the schema pattern BEFORE writing it
+     (§g.1).** The pattern is `^[A-Z][A-Z0-9_]*_$`: leading uppercase letter,
+     trailing underscore, interior underscores allowed for compound names
+     (`VLLM_OMNI_`). A prefix that fails the pattern (lowercase, no trailing
+     underscore) fails `validate-serve-manifests`. Use the engine's REAL prefix
+     — the one its container actually reads — never a prettier invented one.
 3. **Write `foo.ejs`** — source the prefix from the manifest (never hardcode a
    bare `PREFIX="FOO_"`):
    ```bash
@@ -278,9 +354,14 @@ To add an engine `foo` served as `transformers-foo`:
    non-default branch (most engines fall through the default `else`).
 6. **Add base images** to `servers/lib/catalogs/model-servers.json` if needed.
 7. **Verify:**
-   - `node scripts/validate-serve-manifests.js` → 5/5 valid.
-   - `npx mocha test/unit/bl105-serve-manifest.test.js` → parity test discovers
-     `foo` and passes.
+   - `npm run validate:serve-manifests` → every engine (now including `foo`) valid.
+   - `npx mocha test/unit/bl105-serve-manifest.test.js` → the parity test must
+     actually **cover** `foo`, not merely tolerate it. The parity/T4 loops are
+     **data-driven** (they iterate `ALL_ENGINES` discovered from `serve.d/`), so
+     a new engine is asserted automatically. If you find a test that *discovers*
+     engines dynamically but then only *asserts* a hardcoded subset, fix it to
+     iterate the discovered set — otherwise your plugin is silently uncovered
+     (§g.3).
    - `npm run lint` and a generation smoke test for `--deployment-config=transformers-foo`.
 8. **Document** the engine in
    [serve-engine-plugins.md](serve-engine-plugins.md) (the engine table + matrix).
@@ -295,6 +376,17 @@ To add an engine `foo` served as `transformers-foo`:
   project's `.mlcc/serve.d/` — the `.ejs` wrapper is rendered, not copied. A
   manifest-less engine copies nothing and breaks deploy-time readers, which is
   why every engine must have a manifest (ADR-004 parity).
+- `npm run codegen` rewrites a `Generated: <timestamp>` comment into
+  `src/lib/generated/*` on every run, so `git status` shows those files as
+  modified even when the real content is unchanged. The run is still a no-op in
+  substance; `git checkout -- src/lib/generated/` after codegen to drop the
+  timestamp churn, and trust the `codegen-target-guard: no change` /
+  `codegen-deploy-flags: no change` lines for the real verdict.
+- The serve-engine `env_var_prefix` is a **load-bearing contract** read by
+  `engine-prefix-resolver.js`, `serveEngineRuntimeVarsUnion`, and several tests.
+  Do NOT "correct" an existing engine's prefix as a drive-by — changing it is a
+  cross-cutting change with its own blast radius (§g.1). Flag the inconsistency
+  and decide it deliberately.
 
 ---
 
@@ -370,14 +462,31 @@ If you build a plugin and this loop doesn't work end-to-end, one of the seams in
 A plugin isn't "done" when the manifest validates — the version-gating loop is
 only as good as the catalog it reads. Two MCP/QoL touch-points:
 
-- **`sync-serving-versions.js` (QoL).** This script discovers the latest image
-  tags per engine and updates `servers/lib/catalogs/model-servers.json`
-  (`labels.framework_version`, pruning to the newest three). Its `SERVER_SOURCES`
-  map already lists `sglang` → DockerHub `lmsysorg/sglang`. **Important gap to
-  know:** the script updates the *catalog* but does **not** touch serve.d
-  manifests. So when a new engine version introduces a gated capability, *you*
-  edit the manifest's `version_features` by hand — the sync script will not do it
-  for you.
+- **`sync-serving-versions.js` (QoL — MANUAL, not CI).** This script discovers
+  the latest image tags per engine and updates
+  `servers/lib/catalogs/model-servers.json` (`labels.framework_version`, pruning
+  to the newest three). It is **not run in CI** — it makes live DockerHub/NGC
+  calls, so a maintainer runs it on demand (`ml-container-creator bootstrap
+  sync-serving-versions`, or `node scripts/sync-serving-versions.js`), reviews the
+  diff, and commits the catalog change. New engine versions do **not** appear on
+  merge; they appear when a human runs the sync.
+  - **Required change for a NEW engine:** add a `SERVER_SOURCES` entry
+    (`<engine>: { registry, namespace, repository, imagePrefix }`) — without it,
+    the sync never discovers your engine's versions. The map already lists
+    `vllm`/`sglang` → DockerHub and `tensorrt-llm` → NGC; copy the nearest.
+  - **Known gap:** the script updates the *catalog* but does **not** touch serve.d
+    manifests. So when a new engine version introduces a gated capability, *you*
+    edit the manifest's `version_features` by hand — the sync will not do it.
+
+- **`validate-servers.js` (CI gate for the catalog).** This is the CI step
+  ("Validate MCP servers") that validates the MCP picker servers and their
+  catalogs — including `model-servers.json` — against
+  `servers/lib/schemas/*.schema.json`. It is distinct from
+  `validate-serve-manifests.js` (which gates the serve.d plugin manifests,
+  including `engine_features`). Both run on every PR. So a malformed catalog
+  entry you add for a new engine fails here, and a malformed manifest fails
+  there — you do not need to wire either into CI, but you DO need your additions
+  to pass both.
 
 - **The version-drift guard** (`test/unit/serve-manifest-catalog-version-drift.test.js`).
   Because that gap is manual, a conformance test makes drift **loud**: every
@@ -387,6 +496,17 @@ only as good as the catalog it reads. Two MCP/QoL touch-points:
   set its `since` at or below a shipped version — or bump the catalog first
   (run `sync-serving-versions.js`), then add the gate. The test fails with the
   exact engine, gate, and newest-shipped version when they drift apart.
+
+- **The engine-feature env-var drift guard**
+  (`test/unit/engine-features-catalog-envvar-drift.test.js`). An
+  `engine_features[].env_var` is spelled in two human-updated places — the serve
+  manifest and the catalog's `defaults`/`profiles` example configs (refreshed by
+  the manual sync above). This conformance test makes a rename on one side loud:
+  where both files reference the same feature, the env var must match verbatim,
+  and a near-miss (e.g. `OPTION_ROLLING_BATCH` vs a typo'd `OPTION_ROLLING_BACKEND`
+  while the catalog keeps the real one) is flagged as drift, not accepted. When
+  you add a feature whose env var also appears in a catalog profile, keep the two
+  identical; a feature with no catalog example is fine and never fails here.
 
 - **`base-image-picker` (MCP).** The picker surfaces the engine version as a
   first-class output: `get_base_images` returns `baseImageVersion` in both
@@ -406,8 +526,17 @@ only as good as the catalog it reads. Two MCP/QoL touch-points:
   it, that a `null` version fails open to the full set, and that the newest
   *catalog* image reaches every capability — no frozen version literals, so a
   legitimate version bump doesn't break it.
-- `test/unit/serve-manifest-catalog-version-drift.test.js` — the drift guard
-  above.
+- `test/unit/serve-manifest-catalog-version-drift.test.js` — the version-drift
+  guard above (manifest gates ≤ newest catalog version).
+- `test/unit/engine-features-catalog-envvar-drift.test.js` — the engine-feature
+  env-var drift guard above (manifest `engine_features` env vars ↔ catalog
+  profile env vars agree where they overlap).
+- `test/unit/bl105-serve-manifest.test.js` + `test/unit/test_bl105_serve_manifest.py`
+  — the `engine_features` describe blocks: schema accept/reject shapes, the
+  shipped SGLang/LMI deviations, and that vLLM declares none (data-driven).
+- `test/unit/engine-feature-generation.test.js` — the `--engine-feature`
+  end-to-end: resolve → validate → emit into `do/config`, plus the engine-gated
+  prompt widgets.
 - `servers/base-image-picker/test.js` — asserts `baseImageVersion` is present
   and index-aligned, again derived from catalog metadata, not pinned strings.
 
@@ -417,12 +546,138 @@ bump constantly and a pinned literal fails on every legitimate change.
 
 ---
 
+## g. Lessons from building plugins (gotchas that bit us)
+
+> These are concrete traps hit while actually adding plugins (SGLang, vLLM-Omni,
+> and the LMI re-examination). Each one cost a debugging loop; read them before
+> you start so they cost you none. They generalize the checklist above — when a
+> lesson and the checklist disagree, the lesson is the hard-won refinement.
+
+### g.1 The `env_var_prefix` pattern — and why you don't invent prefixes
+
+The schema pattern is `^[A-Z][A-Z0-9_]*_$`: a leading uppercase letter, a
+trailing underscore, and interior underscores allowed in between. It was
+originally `^[A-Z][A-Z0-9]*_$` (no interior underscore) because every early
+engine had a single-token prefix (`VLLM_`, `SGLANG_`, `LMI_`, `TRTLLM_`). The
+**first compound-named engine** (vLLM-Omni, real prefix `VLLM_OMNI_`) did not
+match and failed `validate-serve-manifests` — the pattern was widened to admit
+it.
+
+Two durable rules fall out of this:
+- **Use the engine's REAL prefix**, the one its container actually reads at
+  runtime — never a prettier invented one. vLLM-Omni's `templates/diffusors/serve`
+  genuinely reads `VLLM_OMNI_*`; renaming it to a tidy `OMNI_` would have made
+  the manifest lie about the engine.
+- **The prefix is a load-bearing contract, not a label.** It is read by
+  `engine-prefix-resolver.js` (and its `ENGINE_PREFIX_ALIASES` table for
+  serve.d-less aliases like `djl`/`vllm-omni`), by `serveEngineRuntimeVarsUnion`
+  (which composes `prefix + dimension_map` suffixes for `mcc regenerate`), and
+  pinned in several prefix tests. If you discover an *existing* engine's declared
+  prefix disagrees with what its container actually uses, that is a real finding
+  — but **flag it and decide it deliberately**, don't flip it mid-plugin. (This
+  is exactly the LMI `LMI_`-vs-`OPTION_` situation; see §g.5.)
+
+### g.2 Not every engine is a transformers speculative engine
+
+The `serve.d/` plugin system grew up around transformers LLM engines, so the
+checklist's language (`transformers-<engine>`, speculative algorithms, the
+`--help`-introspection loop) reads as if every engine is one. It is not:
+- **Architecture matters.** An engine belongs to an *architecture*
+  (`transformers`, `diffusors`, `triton`, `http`, `marketplace`), and the
+  deployment-config is `<architecture>-<engine>` — e.g. `diffusors-vllm-omni`,
+  not `transformers-vllm-omni`. The resolver's `CANONICAL_CONFIGS` map is the
+  source of truth for that pairing.
+- **The runtime serve path can be separate.** `templates/code/serve` dispatches
+  to `serve.d/<engine>/<engine>` ONLY for the transformers engines (plus the
+  `lmi`/`djl` early-branch). The `diffusors` architecture renders a *different*
+  serve script entirely (`templates/diffusors/serve`), selected by architecture
+  in `app.js`. So for a non-transformers engine, the `serve.d/` plugin's job is
+  to give the **manifest readers** (`serve_manifest.py`,
+  `serve-manifest-reader.js`, consumed by benchmark/optimize/regenerate) honest
+  capability data — the `.ejs` wrapper may not be on the live dispatch at all.
+  Say so in the wrapper header and treat wiring the dispatch as a separate,
+  explicit change (§d.4), not a silent side effect.
+- **Non-speculative is a first-class answer.** A diffusion or classifier engine
+  declares `speculative_decoding: false` with empty `supported_algorithms` /
+  `algorithm_map` and simply omits `version_features`. That is complete, not a
+  stub.
+
+### g.3 Data-driven tests, or your plugin is silently uncovered
+
+A test that **discovers** engines dynamically but then **asserts** against a
+hardcoded list gives false confidence: the new engine is discovered, ignored,
+and the suite stays green while covering nothing. The BL105 parity suite had
+exactly this shape — it `readdirSync`'d `serve.d/` (with a comment "so a future
+manifest-less engine fails") but every assertion looped a literal
+`['vllm','sglang','lmi','tensorrt-llm']`. Adding vLLM-Omni passed trivially while
+testing it not at all.
+
+Fix the pattern, don't work around it: derive one `ALL_ENGINES` set from
+`serve.d/` and iterate THAT in every per-engine assertion; derive subsets by
+reading the manifests (e.g. "non-speculative engines" =
+`ALL_ENGINES.filter(e => !loadManifest(e).speculative_decoding)`), never by
+pinning names. Keep a single explicit "the known engines are all present" check
+so a *missing* expected engine still fails loudly. This is the same
+derive-don't-hardcode rule that bit the "ungated engine" tests when SGLang gained
+`version_features`: a test that pins one engine as its example rots the moment
+the catalog changes under it.
+
+### g.4 Don't under-declare a real engine
+
+"Declare absence explicitly" is about honesty, and honesty cuts both ways. An
+all-empty manifest (`speculative_decoding:false`, `[]`, `{}`, no
+`metrics_endpoint`, no `dimension_map`) is correct ONLY for an engine that truly
+has none of those. For an engine that *does* have benchmark-tunable dimensions, a
+bare manifest is an **under-declaration** — it validates, it passes parity, and
+it quietly makes `serveEngineRuntimeVarsUnion` contribute nothing, so `mcc
+regenerate` silently drops that engine's tunable vars. When you adopt or revisit
+a plugin, check the base-image catalog for the engine's real `defaults.envVars` /
+`profiles` and map the genuine config knobs into `dimension_map`. (This is the
+LMI improvement in §g.5.)
+
+### g.5 Worked re-examination: LMI was under-declared
+
+LMI/DJL shipped a minimal parity stub (`LMI_` prefix, everything else empty) and
+a wrapper that only reads `serving.properties`. Two findings came out of
+revisiting it against the catalog:
+- **It was under-declared.** The catalog's LMI entries set
+  `OPTION_TENSOR_PARALLEL_DEGREE`, `OPTION_MAX_MODEL_LEN`, `OPTION_QUANTIZE`
+  (confirmed in the DJL LMI vLLM-backend docs) — genuine benchmark-tunable knobs
+  that belong in `dimension_map` (§g.4). Declaring them makes
+  `serveEngineRuntimeVarsUnion` preserve LMI's tunable vars through `mcc
+  regenerate`, same as vLLM/SGLang. (`kv_cache_dtype` is deliberately NOT mapped
+  — DJL has no such option; mapping it would emit a key the container ignores.)
+- **A prefix inconsistency surfaced, was flagged, and was then corrected
+  deliberately.** The manifest/`engine-prefix-resolver` declared `LMI_`, but the
+  real DJL container reads `OPTION_*` (and `template-variable-resolver.js`
+  already maps `lmi → OPTION_TENSOR_PARALLEL_DEGREE`). This is a cross-cutting
+  change — it touches `engine-prefix-resolver`, the `--server-env` prefixing it
+  drives, and several pinned prefix tests (§g.1) — so it was raised as an
+  explicit decision *before* changing it, not flipped as a drive-by. Once
+  approved, the fix set `env_var_prefix: "OPTION_"`, populated `dimension_map`
+  with the real option suffixes, and updated every pinned test to assert the
+  correct `OPTION_` contract (rather than papering over them). The lesson: when a
+  declared prefix disagrees with the runtime, the runtime wins — but the
+  reconciliation is a deliberate, test-updating change, not a silent edit.
+
+> **One capability intentionally left for a follow-up.** The same DJL docs show
+> LMI *does* support speculative decoding through its vLLM backend
+> (`OPTION_SPECULATIVE_CONFIG='{"method":"eagle3",…}'`, the same consolidated-JSON
+> API as vLLM). Declaring that (`speculative_decoding: true` + algorithms +
+> wrapper assembly + the hyperpod-eks `_spec_enum` path) is a larger, separate
+> change than this prefix/`dimension_map` correction, so it was flagged rather
+> than bundled in. Scoping discipline (§g.5) is itself a lesson: fix the thing you
+> set out to fix; record the adjacent opportunity instead of absorbing it.
+
+---
+
 ## Where this leads
 
 Items (a) through (f) are all supported by the system as it stands today —
 including (b) version gating, shipped in BL129 (see
 [ADR-009](../adr/ADR-009-serve-engine-capability-versioning.md)), and the SGLang
-reference plugin (f). When the next engine's capabilities need to diverge by
+reference plugin (f). Section (g) collects the lessons from actually building
+plugins — read it first. When the next engine's capabilities need to diverge by
 version, follow §b and §f: declare the gate in the manifest, let the
 engine-agnostic readers derive the effective set, and add the drift guard entry
 in the same commit so the catalog↔manifest contract can't silently rot.

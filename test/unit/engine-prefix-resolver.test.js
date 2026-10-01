@@ -32,14 +32,16 @@ describe('Engine Prefix Resolver', () => {
             assert.strictEqual(resolveEnginePrefix('vllm'), 'VLLM_');
             assert.strictEqual(resolveEnginePrefix('sglang'), 'SGLANG_');
             assert.strictEqual(resolveEnginePrefix('tensorrt-llm'), 'TRTLLM_');
-            assert.strictEqual(resolveEnginePrefix('lmi'), 'LMI_');
+            assert.strictEqual(resolveEnginePrefix('lmi'), 'OPTION_');
         });
 
         it('resolves serve.d-less aliases from the alias table', () => {
             assert.strictEqual(ENGINE_PREFIX_ALIASES['vllm-omni'], 'VLLM_OMNI_');
-            assert.strictEqual(ENGINE_PREFIX_ALIASES['djl'], 'DJL_');
+            // djl reuses the DJL Serving container, which reads OPTION_* vars
+            // (same as the lmi plugin) — NOT a DJL_ prefix the container ignores.
+            assert.strictEqual(ENGINE_PREFIX_ALIASES['djl'], 'OPTION_');
             assert.strictEqual(resolveEnginePrefix('vllm-omni'), 'VLLM_OMNI_');
-            assert.strictEqual(resolveEnginePrefix('djl'), 'DJL_');
+            assert.strictEqual(resolveEnginePrefix('djl'), 'OPTION_');
         });
 
         it('the alias table does NOT duplicate the four real-engine prefixes', () => {
@@ -104,12 +106,20 @@ describe('Engine Prefix Resolver', () => {
                 assert.strictEqual(resolvePrefix('tensorrt-llm', 'MAX_BATCH_SIZE'), 'TRTLLM_MAX_BATCH_SIZE');
             });
 
-            it('should prepend LMI_ for lmi engine', () => {
-                assert.strictEqual(resolvePrefix('lmi', 'TENSOR_PARALLEL_DEGREE'), 'LMI_TENSOR_PARALLEL_DEGREE');
+            it('should prepend OPTION_ for lmi engine (DJL reads OPTION_* env vars)', () => {
+                assert.strictEqual(resolvePrefix('lmi', 'TENSOR_PARALLEL_DEGREE'), 'OPTION_TENSOR_PARALLEL_DEGREE');
             });
 
-            it('should prepend DJL_ for djl engine', () => {
-                assert.strictEqual(resolvePrefix('djl', 'BATCH_SIZE'), 'DJL_BATCH_SIZE');
+            it('should prepend OPTION_ for djl engine (DJL Serving reads OPTION_* vars)', () => {
+                // Regression: djl previously prefixed DJL_, which the DJL Serving
+                // container ignores, silently dropping the user's --server-env value.
+                // It reuses the lmi wrapper and must share lmi's OPTION_ contract.
+                assert.strictEqual(resolvePrefix('djl', 'BATCH_SIZE'), 'OPTION_BATCH_SIZE');
+            });
+
+            it('djl and lmi resolve to the SAME prefix (both are DJL Serving)', () => {
+                assert.strictEqual(resolveEnginePrefix('djl'), resolveEnginePrefix('lmi'),
+                    'djl (alias) and lmi (manifest) must agree — both run DJL Serving reading OPTION_*');
             });
         });
 

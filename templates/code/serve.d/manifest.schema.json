@@ -86,6 +86,51 @@
       "type": "object",
       "additionalProperties": { "type": "string", "minLength": 1 },
       "description": "Maps a benchmark dimension to an engine config key / flag suffix. Combined with env_var_prefix to yield the full config key."
+    },
+    "engine_features": {
+      "type": "object",
+      "description": "Engine-specific capabilities that are UNIQUE to this engine or implemented differently from the others (ADR-004 §c). Each entry is a named feature declared as DATA — its controlling env var, type, allowed values, and default — so a consumer reads it generically instead of branching on the engine name. This is the home for 'this engine can do X and vLLM cannot' (e.g. SGLang RadixAttention, LMI pluggable rolling-batch backend). Omit when the engine has no distinctive feature to declare. The feature KEY is an MLCC-stable snake_case name; the env_var is what the container actually reads.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["env_var", "type", "description"],
+        "properties": {
+          "env_var": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "description": "The engine environment variable that controls this feature (what the container reads, e.g. SGLANG_ENABLE_RADIX_CACHE)."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["boolean", "enum", "int", "string"],
+            "description": "The value type the env var accepts. 'enum' requires `values`."
+          },
+          "values": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "Allowed values. Required (and enforced via if/then) when type is 'enum'; omit otherwise."
+          },
+          "default": {
+            "type": "string",
+            "description": "The engine's default value when the env var is unset (string form, e.g. \"false\", \"auto\")."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One line explaining what the feature does and how it differs from the other engines."
+          }
+        },
+        "if": {
+          "properties": { "type": { "const": "enum" } },
+          "required": ["type"]
+        },
+        "then": {
+          "required": ["values"],
+          "description": "An 'enum' feature MUST declare its non-empty `values`; without them the feature would be unsettable (every value rejected)."
+        }
+      }
     }
   }
 }

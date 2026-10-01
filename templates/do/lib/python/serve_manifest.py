@@ -161,6 +161,20 @@ def metrics_endpoint(engine: str, serve_dir: str | None = None) -> dict | None:
     return read_manifest(engine, serve_dir).get("metrics_endpoint")
 
 
+def engine_features(engine: str, serve_dir: str | None = None) -> dict:
+    """Return the engine's `engine_features` map — capabilities unique to this
+    engine or implemented differently from the others (ADR-004 §c), declared as
+    data. Returns {} when the engine declares none. Read generically; never
+    branch on the engine name."""
+    return dict(read_manifest(engine, serve_dir).get("engine_features", {}))
+
+
+def engine_feature(engine: str, feature: str, serve_dir: str | None = None) -> dict | None:
+    """Return a single named engine feature's declaration, or None if the engine
+    does not declare it."""
+    return engine_features(engine, serve_dir).get(feature)
+
+
 # ── Capability versioning (BL129) ──────────────────────────────────────────────
 #
 # Engine-agnostic capability versioning: the flat manifest fields (e.g.
@@ -375,6 +389,7 @@ _FIELD_PRINTERS = {
     "hot_reload": lambda m: json.dumps(m.get("hot_reload")),
     "min_version": lambda m: m.get("min_version", ""),
     "version_features": lambda m: json.dumps(m.get("version_features", [])),
+    "engine_features": lambda m: json.dumps(m.get("engine_features", {})),
 }
 
 

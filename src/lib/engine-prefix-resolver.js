@@ -29,11 +29,15 @@ import { readEnvVarPrefix } from './serve-manifest-reader.js';
  * env_var_prefix — the single source of truth — and must NOT be listed here.
  *
  * - vllm-omni: a vLLM variant with its own VLLM_OMNI_ prefix; no serve.d dir.
- * - djl: the raw DJL engine; distinct from the lmi plugin's LMI_ prefix.
+ * - djl: the raw DJL engine (no serve.d dir; it reuses the lmi wrapper). Its
+ *   prefix is OPTION_ — the same vars the DJL Serving container actually reads
+ *   (OPTION_TENSOR_PARALLEL_DEGREE, etc.), matching the lmi plugin. An earlier
+ *   DJL_ alias never matched the container, so a user's --server-env values were
+ *   silently ignored; corrected to OPTION_ (mirrors the lmi LMI_→OPTION_ fix).
  */
 export const ENGINE_PREFIX_ALIASES = {
     'vllm-omni': 'VLLM_OMNI_',
-    'djl': 'DJL_'
+    'djl': 'OPTION_'
 };
 
 /**
