@@ -1,0 +1,10 @@
+{
+  "framework": "sklearn",
+  "display_name": "scikit-learn",
+  "model_formats": ["pkl", "joblib"],
+  "default_model_format": "pkl",
+  "pip_dependencies": ["scikit-learn==1.7.1", "joblib==1.4.2"],
+  "base_image_catalog": "python-slim",
+  "handler": "handler.py",
+  "test_payload": "{\"instances\": [[1.0, 2.0, 3.0, 4.0]]}"
+}

@@ -19,6 +19,12 @@ The manifest is the **single source of truth**: `do/draft`, `do/deploy`,
 rather than hardcoding per-engine logic. See
 [ADR-004](../adr/ADR-004-serve-engine-plugin-parity.md) for the parity decision.
 
+> **Serve engines, not predictors.** This doc covers the LLM/transformer serving
+> engines. The classical-ML HTTP frameworks (sklearn/xgboost/tensorflow served via
+> Flask/FastAPI) are a separate, hybrid plugin system — a data descriptor plus a
+> `handler.py` of imperative code — documented in
+> [Predictor-Framework Plugins](predictor-framework-plugins.md).
+
 ## The manifest contract
 
 Schema: `templates/code/serve.d/manifest.schema.json`.

@@ -1,0 +1,10 @@
+{
+  "framework": "xgboost",
+  "display_name": "XGBoost",
+  "model_formats": ["json", "model", "ubj"],
+  "default_model_format": "json",
+  "pip_dependencies": ["xgboost==2.1.3"],
+  "base_image_catalog": "python-slim",
+  "handler": "handler.py",
+  "test_payload": "{\"instances\": [[1.0, 2.0, 3.0, 4.0]]}"
+}

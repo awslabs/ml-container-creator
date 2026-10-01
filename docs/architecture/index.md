@@ -37,8 +37,9 @@ an ADR. Wave 8 stitches these into a navigable Developer Guide.
 
 ### Subsystems (added as waves land)
 - [MCP picker servers](mcp-servers.md) — *Wave 2*
-- [Serve-engine plugins](serve-engine-plugins.md) — *Wave 3*
+- [Serve-engine plugins](serve-engine-plugins.md) — *Wave 3* — LLM/transformer serving engines
     - [Authoring guide](serve-engine-plugin-authoring.md) — extend/version/add engine plugins
+- [Predictor-framework plugins](predictor-framework-plugins.md) — classical-ML (sklearn/xgboost/tensorflow) HTTP predictors (descriptor + handler)
 - [Command handlers & do/config](command-handlers.md) — *Wave 4*
 - [Validation framework](validation.md) — *Wave 5*
 - [`do/` scripts](do-scripts.md) — *Wave 6*

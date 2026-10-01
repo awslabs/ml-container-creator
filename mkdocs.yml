@@ -92,6 +92,7 @@ nav:
           - MCP Picker Servers: architecture/mcp-servers.md
           - Serve-Engine Plugins: architecture/serve-engine-plugins.md
           - Serve-Engine Plugin Authoring: architecture/serve-engine-plugin-authoring.md
+          - Predictor-Framework Plugins: architecture/predictor-framework-plugins.md
           - Command Handlers & do/config: architecture/command-handlers.md
           - Validation Framework: architecture/validation.md
           - do/ Scripts: architecture/do-scripts.md

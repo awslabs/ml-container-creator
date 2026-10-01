@@ -309,6 +309,10 @@ Verify the model file format matches what you selected during generation:
 | xgboost | `.json`, `.model`, `.ubj` |
 | tensorflow | `SavedModel/` directory, `.keras`, `.h5` |
 
+> The authoritative per-framework format list lives in each framework's
+> descriptor, `templates/code/predictors.d/<framework>/manifest.json`
+> (`model_formats`). The table above mirrors it for convenience.
+
 ### Pickle Version Mismatch
 
 ```

@@ -87,18 +87,33 @@ through `src/lib/mcp-client.js` over stdio. They return `{ values, choices }`.
 Today each server re-implements the same scaffold; Wave 2 introduces a shared
 `createPickerServer` factory.
 
-### Serve-engine plugins — capabilities as data
-`templates/code/serve.d/<engine>/manifest.json` is meant to be the single source
-of truth for an engine's env-var prefix, supported speculative-decoding
-algorithms, and metrics endpoint. Today the contract is only half-honored (vLLM
-hardcodes what the manifest should supply; `lmi`/`tensorrt-llm` lack manifests).
-Wave 3 finishes this abstraction.
+### Two plugin systems — capabilities as data
+MLCC serves models two ways, and each is a **descriptor-driven plugin system**:
+
+- **Serve-engine plugins** (`templates/code/serve.d/<engine>/manifest.json` +
+  `<engine>.ejs`) — for LLM/transformer serving engines (vLLM, SGLang,
+  TensorRT-LLM, LMI, vLLM-Omni, llama.cpp). The base image contains the server, so
+  the manifest is the single source of truth for the engine's env-var prefix,
+  speculative-decoding capabilities, benchmark dimensions, and metrics endpoint.
+  Every engine ships a manifest; consumers read them, never hardcode per-engine
+  logic. See [Serve-Engine Plugins](serve-engine-plugins.md).
+- **Predictor-framework plugins** (`templates/code/predictors.d/<framework>/
+  manifest.json` + `handler.py`) — for classical ML (sklearn, XGBoost, TensorFlow)
+  served over HTTP via Flask/FastAPI. A **hybrid**: the manifest holds the data
+  (model formats, pip deps, default format, test payload) and `handler.py` holds
+  the imperative load/predict code it references. See
+  [Predictor-Framework Plugins](predictor-framework-plugins.md).
+
+Both trees are consumed at generation time and excluded from the generated output.
+The distinction matters: a serve engine's whole contract reduces to data; a
+predictor's does not, so it keeps a referenced handler module.
 
 ## Where to read next
 
 - Adding/using a parameter → codegen boundary above +
   `dev/schema-driven-architecture.md`.
 - Adding an MCP server → `mcp-servers.md` (Wave 2).
-- Adding a serve engine → `serve-engine-plugins.md` (Wave 3).
+- Adding a serve engine (LLM) → `serve-engine-plugin-authoring.md`.
+- Adding a predictor framework (classical ML) → `predictor-framework-plugins.md`.
 - The wave-by-wave plan and its rationale →
   [ADR-002](../adr/ADR-002-consolidation-program.md).

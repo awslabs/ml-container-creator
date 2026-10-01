@@ -11,6 +11,13 @@ import { validationRules } from './generated/validation-rules.js';
 // Triton backend metadata comes from the shared catalog loader (single source
 // of truth; previously duplicated here and in config-manager.js).
 import { tritonBackends } from './triton-backends-catalog.js';
+// Predictor-framework (http) engine + model-format knowledge is derived from the
+// predictors.d descriptors (single source of truth), not hardcoded here.
+import {
+    engines as predictorEngines,
+    modelFormatsMap as predictorModelFormatsMap,
+    defaultModelFormatMap as predictorDefaultFormatMap
+} from './predictor-manifest-reader.js';
 
 export default class ConfigValidator {
     constructor(manager) {
@@ -45,7 +52,7 @@ export default class ConfigValidator {
         }
 
         if (m.config.engine) {
-            const validEngines = ['sklearn', 'xgboost', 'tensorflow'];
+            const validEngines = predictorEngines();
             if (!validEngines.includes(m.config.engine)) {
                 errors.push(`Unsupported engine: ${m.config.engine}. Supported: ${validEngines.join(', ')}`);
             }
@@ -319,7 +326,7 @@ export default class ConfigValidator {
 
         case 'engine':
             if (value) {
-                const validEngines = ['sklearn', 'xgboost', 'tensorflow'];
+                const validEngines = predictorEngines();
                 if (!validEngines.includes(value)) {
                     throw new ValidationError(
                         `Unsupported engine: ${value}. Supported: ${validEngines.join(', ')}`,
@@ -476,12 +483,10 @@ export default class ConfigValidator {
     _getSupportedOptions() {
         return {
             deploymentConfigs: this.manager.deploymentConfigResolver.getAllConfigs(),
-            engines: ['sklearn', 'xgboost', 'tensorflow'],
-            modelFormats: {
-                'sklearn': ['pkl', 'joblib'],
-                'xgboost': ['json', 'model', 'ubj'],
-                'tensorflow': ['keras', 'h5', 'SavedModel']
-            },
+            // Derived from predictors.d/<framework>/manifest.json (single source
+            // of truth) rather than hardcoded per-framework literals.
+            engines: predictorEngines(),
+            modelFormats: predictorModelFormatsMap(),
             buildTargets: ['codebuild'],
             codebuildComputeTypes: ['BUILD_GENERAL1_SMALL', 'BUILD_GENERAL1_MEDIUM', 'BUILD_GENERAL1_LARGE'],
             awsRegions: [
@@ -540,7 +545,7 @@ export default class ConfigValidator {
                         return;
                     }
                     const engine = m.config.engine || 'sklearn';
-                    const formatMap = { sklearn: 'pkl', xgboost: 'json', tensorflow: 'keras' };
+                    const formatMap = predictorDefaultFormatMap();
                     m.config[param] = formatMap[engine] || 'pkl';
                 } else if (param === 'projectName') {
                     m.config[param] = m._generateProjectName(architecture);

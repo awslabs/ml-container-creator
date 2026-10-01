@@ -19,7 +19,10 @@ templates/
 ├── nginx-predictors.conf   # Nginx config for HTTP architecture
 ├── nginx-tensorrt.conf     # Nginx config for TensorRT-LLM
 ├── requirements.txt        # Python dependencies (HTTP architecture)
-├── code/                   # Serving code (model_handler.py, serve.py, flask/)
+├── code/                   # Serving code
+│   ├── serve.py, flask/, start_server.py   # HTTP app shell (flask/fastapi) — framework-agnostic
+│   ├── serve.d/<engine>/   # Serve-engine PLUGINS (manifest.json + <engine>.ejs) — LLM engines; excluded from output
+│   └── predictors.d/<framework>/  # Predictor-framework PLUGINS (manifest.json + handler.py) — classical ML; excluded from output
 ├── deploy/                 # Deployment scripts
 ├── diffusors/              # Diffusors-specific Dockerfile + serve scripts
 ├── do/                     # Lifecycle scripts (build, deploy, test, tune, etc.)
@@ -183,15 +186,20 @@ Partials are NOT copied to the output (they're in `ignorePatterns`). They're res
 
 ## Architecture-Specific File Routing
 
-The `writeProject()` function in `src/app.js` handles five architectures. After copying all non-ignored templates, it **deletes** files that don't belong:
+The `writeProject()` function in `src/app.js` handles five architectures. After copying all non-ignored templates, it **deletes** files that don't belong and, for `http`/`triton`, **synthesizes** per-plugin files:
 
 | Architecture | Keeps | Deletes | Special |
 |---|---|---|---|
-| `http` | model_handler.py, serve.py, flask/, nginx-predictors.conf | code/serve, serving.properties, chat_template.jinja, start_server.sh | Deletes flask/ if backend is fastapi |
-| `transformers` | code/serve, serving.properties, chat_template.jinja | model_handler.py, serve.py, start_server.py, flask/, nginx-predictors.conf | — |
-| `triton` | — | All http + transformers code files | Overlays triton/Dockerfile, generates model_repository/ |
+| `http` | serve.py, flask/, start_server.py, nginx-predictors.conf | code/serve, serving.properties, chat_template.jinja, start_server.sh | Deletes flask/ if backend is fastapi. **`code/model_handler.py` is NOT a copied template** — `_materializePredictorHandler` renders it from the selected framework's `predictors.d/<framework>/handler.py`; its pip deps come from that framework's manifest. |
+| `transformers` | code/serve (from `serve.d/<engine>/<engine>.ejs`) | model_handler.py, serve.py, start_server.py, flask/, nginx-predictors.conf | The serve-engine wrapper is included into `code/serve` from the engine's plugin dir. |
+| `triton` | — | All http + transformers code files | Overlays triton/Dockerfile, generates model_repository/config.pbtxt |
 | `diffusors` | — | All http + transformers code files | Overlays diffusors/Dockerfile, serve, start_server.sh, patch_image_api.py |
 | `marketplace` | — | Almost everything (no container) | Overlays marketplace/config, deploy, test |
+
+Both plugin trees (`code/serve.d/**` and `code/predictors.d/**`) are excluded from
+the generated output by ignore globs — they are consumed at generation time, not
+shipped verbatim. See [Serve-Engine Plugins](../architecture/serve-engine-plugins.md)
+and [Predictor-Framework Plugins](../architecture/predictor-framework-plugins.md).
 
 ### Conditional File Exclusion (Ignore Patterns)
 

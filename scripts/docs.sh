@@ -21,12 +21,6 @@ case "${1:-help}" in
         mkdocs serve
         ;;
     
-    "sync")
-        echo "🔄 Syncing template documentation to docs..."
-        cp templates/README.md docs/template-system.md
-        echo "✅ Files synced!"
-        ;;
-    
     "clean")
         echo "🧹 Cleaning documentation build..."
         rm -rf site/
@@ -41,7 +35,6 @@ case "${1:-help}" in
         echo "Commands:"
         echo "  build   - Build documentation (strict mode)"
         echo "  serve   - Serve documentation locally"
-        echo "  sync    - Sync template documentation to docs"
         echo "  clean   - Clean build artifacts"
         echo "  help    - Show this help"
         echo ""

@@ -12,7 +12,6 @@ docs/
 ├── TROUBLESHOOTING.md      # Common issues and solutions
 ├── CONTRIBUTING.md         # Quick contributor guide
 ├── ADDING_FEATURES.md      # Detailed feature development guide
-├── template-system.md      # Template documentation
 ├── architecture.md         # Complete architecture guide
 ├── coding-standards.md     # Code style guide
 ├── aws-sagemaker.md       # AWS/SageMaker AI context
@@ -47,20 +46,6 @@ mkdocs build --strict
 ```
 
 The built site will be in the `site/` directory.
-
-### Syncing Documentation Files
-
-Some documentation files are synced from source files:
-
-- `template-system.md` ← `templates/README.md`
-
-To sync these files:
-
-```bash
-./scripts/docs.sh sync
-```
-
-**Note**: `templates/README.md` documents the template system and is excluded from being copied to generated projects (see `generators/app/index.js`).
 
 ### Deploying
 

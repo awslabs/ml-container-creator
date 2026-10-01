@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlcc/predictors.d/manifest.schema.json",
+  "title": "MLCC Predictor Framework Manifest",
+  "description": "Per-framework descriptor for an HTTP-architecture predictor (sklearn, xgboost, tensorflow). Declares as DATA what varies by framework (model formats, pip dependencies, default format, test payload, base-image catalog) and references the handler.py that carries the imperative load/predict code. Consumed at generation time by src/lib/predictor-manifest-reader.js.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "framework",
+    "display_name",
+    "model_formats",
+    "default_model_format",
+    "pip_dependencies",
+    "base_image_catalog",
+    "handler",
+    "test_payload"
+  ],
+  "properties": {
+    "framework": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Framework name; must equal the directory name (sklearn, xgboost, tensorflow)."
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable label shown in the interactive engine prompt (e.g. scikit-learn)."
+    },
+    "model_formats": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "File formats the framework can load (e.g. [pkl, joblib]). The CLI --model-format and the interactive prompt derive their accepted/offered set from this list."
+    },
+    "default_model_format": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The model format used when none is supplied. MUST be one of model_formats (enforced by the predictor-framework conformance test, which JSON Schema cannot express as a cross-field membership check)."
+    },
+    "pip_dependencies": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "Pinned pip requirement lines rendered into the generated requirements.txt framework section (e.g. scikit-learn==1.7.1)."
+    },
+    "base_image_catalog": {
+      "type": "string",
+      "enum": ["python-slim"],
+      "description": "Base-image catalog key the base-image-picker routes to. All HTTP predictors use the shared python-slim catalog."
+    },
+    "handler": {
+      "type": "string",
+      "pattern": "\\.py$",
+      "description": "Filename of the handler module within this directory (handler.py). It is materialized into the generated project as code/model_handler.py."
+    },
+    "test_payload": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The sample /invocations request body do/test sends for this framework (a JSON string)."
+    }
+  }
+}

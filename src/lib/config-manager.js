@@ -28,6 +28,12 @@ import path from 'path';
 import { fileURLToPath } from 'node:url';
 import DeploymentConfigResolver from './deployment-config-resolver.js';
 import ParameterSchemaValidator from './parameter-schema-validator.js';
+// Predictor-framework (http) format→engine inference and default-format map are
+// derived from the predictors.d descriptors (single source of truth).
+import {
+    formatToEngineMap as predictorFormatToEngineMap,
+    defaultModelFormatMap as predictorDefaultFormatMap
+} from './predictor-manifest-reader.js';
 import ConfigLoader from './config-loader.js';
 import ConfigMcpClient from './config-mcp-client.js';
 import ConfigValidator from './config-validator.js';
@@ -203,15 +209,9 @@ export default class ConfigManager {
             // For http architecture, engine comes from the --engine CLI option or prompt
             if (parts.architecture === 'http') {
                 if (!finalConfig.engine) {
-                    // Infer engine from model format if possible
-                    const formatToEngine = {
-                        'pkl': 'sklearn',
-                        'joblib': 'sklearn',
-                        'json': 'xgboost',
-                        'keras': 'tensorflow',
-                        'h5': 'tensorflow',
-                        'savedmodel': 'tensorflow'
-                    };
+                    // Infer engine from model format via the predictor descriptors
+                    // (format → owning framework), falling back to sklearn.
+                    const formatToEngine = predictorFormatToEngineMap();
                     finalConfig.engine = (finalConfig.modelFormat && formatToEngine[finalConfig.modelFormat]) || 'sklearn';
                 }
             } else {
@@ -231,11 +231,7 @@ export default class ConfigManager {
                         const architecture = finalConfig.architecture || 'http';
                         if (architecture === 'http') {
                             const engine = finalConfig.engine || 'sklearn';
-                            const formatMap = {
-                                'sklearn': 'pkl',
-                                'xgboost': 'json',
-                                'tensorflow': 'keras'
-                            };
+                            const formatMap = predictorDefaultFormatMap();
                             finalConfig[param] = formatMap[engine] || 'pkl';
                         }
                     } else if (param === 'instanceType') {

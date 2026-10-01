@@ -35,7 +35,7 @@ Only parameters with unbounded value spaces are eligible for MCP:
 | `instanceType` | yes | Open-ended set of SageMaker AI instance types |
 | `awsRegion` | yes | AWS adds new regions over time |
 | `awsRoleArn` | yes | Arbitrary IAM role ARNs |
-| `framework` | no | Fixed set: sklearn, xgboost, tensorflow, transformers |
+| `framework` | no | Fixed set: sklearn, xgboost, tensorflow (from `predictors.d/`), plus transformers |
 | `modelServer` | no | Fixed set: flask, fastapi, vllm, sglang, etc. |
 | All others | no | Bounded value spaces |
 

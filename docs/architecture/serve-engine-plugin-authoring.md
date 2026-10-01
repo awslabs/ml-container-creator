@@ -9,6 +9,14 @@ SPDX-License-Identifier: Apache-2.0
 > [serve-engine-plugins.md](serve-engine-plugins.md) (the *what/where*) and
 > [ADR-004](../adr/ADR-004-serve-engine-plugin-parity.md) (the *why*).
 >
+> **Not the same as predictors.** This guide is for LLM/transformer *serve
+> engines* (vLLM, SGLang, llama.cpp, …), whose base image contains the server and
+> whose contract reduces to pure manifest data. The HTTP *predictor* frameworks
+> (sklearn/xgboost/tensorflow) are a different, hybrid plugin — a data descriptor
+> plus a handler.py of imperative code — documented in
+> [Predictor-Framework Plugins](predictor-framework-plugins.md). Don't conflate the
+> two.
+>
 > **Ground rule (ADR-004).** The `serve.d/<engine>/manifest.json` is the single
 > source of truth for an engine's capabilities. Every new feature you add should
 > be **declared in the manifest as data** and **consumed** by the wrapper /

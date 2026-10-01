@@ -18,6 +18,12 @@ import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
 import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './lib/marketplace-refusal.js';
 import { readEnvVarPrefix, resolveEngineFeatureVars } from './lib/serve-manifest-reader.js';
+import {
+    listPredictorFrameworks,
+    pipDependencies as predictorPipDependencies,
+    testPayload as predictorTestPayload,
+    handlerPath as predictorHandlerPath
+} from './lib/predictor-manifest-reader.js';
 import { _ensureTemplateVariables, _validateEnvironmentVariables } from './lib/template-variable-resolver.js';
 import ejs from 'ejs';
 import { globSync } from 'tinyglobby';
@@ -440,6 +446,21 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     // engine-prefix map for engines without a manifest, then to empty.
     templateVars.envVarPrefix = readEnvVarPrefix(engine) || '';
 
+    // Predictor-framework plugin data (HTTP architecture): the per-framework pip
+    // dependencies and the do/test payload come from the framework descriptor
+    // (predictors.d/<framework>/manifest.json) via the reader, not from hardcoded
+    // EJS branches. The framework is the `engine` answer (sklearn/xgboost/
+    // tensorflow). Non-http architectures leave these empty (the templates guard
+    // on length), and the per-framework handler is materialized separately in the
+    // `http` routing branch below.
+    const predictorFramework = answers.engine || '';
+    templateVars.predictorPipDependencies = predictorFramework
+        ? predictorPipDependencies(predictorFramework)
+        : [];
+    templateVars.predictorTestPayload = predictorFramework
+        ? (predictorTestPayload(predictorFramework) || '')
+        : '';
+
     // Add generator version to template vars so templates can embed it (e.g. MCC_VERSION in do/config)
     try {
         const { version } = JSON.parse(fs.readFileSync(path.join(GENERATOR_ROOT, 'package.json'), 'utf8'));
@@ -453,6 +474,17 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
 
     // EJS partials — included by templates at render time, not copied to output
     ignorePatterns.push('**/serve.d/**');
+
+    // Predictor-framework plugins — descriptor + handler consumed at generation
+    // time (the selected framework's handler is materialized into
+    // code/model_handler.py by _materializePredictorHandler); the plugin tree
+    // itself is never copied verbatim, mirroring serve.d.
+    ignorePatterns.push('**/predictors.d/**');
+
+    // The legacy framework-branched code/model_handler.py is replaced by the
+    // per-framework handler materialized from predictors.d/<framework>/handler.py.
+    // Exclude it from the bulk copy so the plugin handler is the only source.
+    ignorePatterns.push('**/code/model_handler.py');
 
     // Resolve architecture
     const resolver = new DeploymentConfigResolver();
@@ -649,6 +681,10 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
             _unlinkIfExists(path.join(destDir, 'code/flask/wsgi.py'));
             _unlinkIfExists(path.join(destDir, 'code/flask/gunicorn_config.py'));
         }
+
+        // Predictor-framework plugin: materialize the selected framework's
+        // handler (predictors.d/<framework>/handler.py) into code/model_handler.py.
+        _materializePredictorHandler(destDir, templateVars, answers);
         break;
 
     case 'transformers':
@@ -707,6 +743,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         _unlinkIfExists(path.join(destDir, 'code/serve'));
         _unlinkIfExists(path.join(destDir, 'code/serving.properties'));
         _unlinkIfExists(path.join(destDir, 'code/start_server.sh'));
+        _materializePredictorHandler(destDir, templateVars, answers);
     }
 
     // nginx-tensorrt.conf: only needed for TensorRT-LLM
@@ -1034,6 +1071,39 @@ function _getOrderedEnvVars(envVars) {
     });
 
     return sorted.map(([key, value]) => ({ key, value }));
+}
+
+/**
+ * Materializes the selected predictor framework's handler into the generated
+ * project as code/model_handler.py.
+ *
+ * The HTTP predictor frameworks (sklearn/xgboost/tensorflow) are a hybrid plugin:
+ * the per-framework ModelHandler lives in predictors.d/<framework>/handler.py and
+ * is rendered (EJS, so `<%= modelFormat %>` in the handler's file-glob resolves)
+ * into code/model_handler.py. This replaces the former framework-branched monolith
+ * at templates/code/model_handler.py (now excluded from the bulk copy).
+ *
+ * @param {string} destDir - Destination project directory
+ * @param {object} templateVars - Template variables for EJS (carries modelFormat)
+ * @param {object} answers - Configuration answers (answers.engine = framework)
+ */
+function _materializePredictorHandler(destDir, templateVars, answers) {
+    const framework = answers.engine || '';
+    if (!framework) {
+        // No framework resolved (e.g. an http config without an engine). Nothing
+        // to materialize; validation elsewhere surfaces the missing engine.
+        return;
+    }
+    const srcHandler = predictorHandlerPath(framework);
+    if (!srcHandler) {
+        const available = listPredictorFrameworks().join(', ') || '(none)';
+        throw new Error(
+            `No predictor handler for framework "${framework}". ` +
+            `Available predictor frameworks: ${available}. ` +
+            'Add templates/code/predictors.d/<framework>/{manifest.json,handler.py}.'
+        );
+    }
+    _renderTemplate(srcHandler, path.join(destDir, 'code/model_handler.py'), templateVars);
 }
 
 /**
