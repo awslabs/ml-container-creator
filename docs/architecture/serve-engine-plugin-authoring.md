@@ -55,9 +55,11 @@ declare it in each engine's manifest → consume it from data**.
    ADR-004 preference) or optional (absence is meaningful, e.g. `metrics_endpoint`).
    Give it a `description` — the schema is documentation.
 
-2. **Declare it in every engine's `manifest.json`.** If `required`, all four
-   engines (`vllm`, `sglang`, `lmi`, `tensorrt-llm`) must gain the field, or the
-   validator and the parity test fail. For a capability an engine lacks,
+2. **Declare it in every engine's `manifest.json`.** If `required`, EVERY engine
+   with a `serve.d/<engine>/manifest.json` must gain the field, or the validator
+   and the parity test fail. Do not hand-count the engines — the set is whatever
+   `serve.d/` currently holds (today vllm, sglang, tensorrt-llm, lmi, vllm-omni;
+   the parity test discovers them dynamically). For a capability an engine lacks,
    **declare its absence explicitly** (e.g. `speculative_decoding: false` with
    empty `supported_algorithms`) rather than omitting the field — this is the
    core ADR-004 rule.
@@ -301,7 +303,19 @@ A serve engine is exposed to users through the `deploymentConfig` value
    add them to `servers/lib/catalogs/model-servers.json` (the base-image-picker
    catalog); the picker routes by `modelServer` generically.
 
-6. **Register + validate.** `scripts/validate-serve-manifests.js` and the
+6. **Deploy-time prefix map (`templates/do/register`).** `get_engine_prefix()` is
+   a **hand-maintained shell `case`** that duplicates each engine's
+   `env_var_prefix` so the generated `do/register` can capture the engine's env
+   vars into the deployment-parameter record. It is NOT derived from the manifest
+   (it runs in the generated project, which only ships the manifest, not the Node
+   reader), so a new engine MUST be added here too — add a
+   `<engine>) echo "<PREFIX>_" ;;` arm matching the manifest `env_var_prefix`.
+   Miss it and the `*)` arm returns `""`: `do/register` silently records no
+   parameters for the engine (the ADR-006/007/008 drift class). The
+   serve-engine registration drift test (see §e step 7) asserts this map agrees
+   with the manifests, so a forgotten arm fails loudly rather than silently.
+
+7. **Register + validate.** `scripts/validate-serve-manifests.js` and the
    parity test (`test/unit/bl105-serve-manifest.test.js`) will now gate the
    engine's manifest. `scripts/schema-template-coverage.js` checks schema↔template
    coverage. Run the full serve suite before committing.
@@ -362,6 +376,14 @@ To add an engine `foo` served as `transformers-foo`:
      engines dynamically but then only *asserts* a hardcoded subset, fix it to
      iterate the discovered set — otherwise your plugin is silently uncovered
      (§g.3).
+   - `npx mocha test/unit/serve-engine-registration-drift.test.js` → the
+     registration drift guard. It discovers every engine under `serve.d/` and
+     asserts each is registered in ALL the hand-maintained surfaces: the
+     `deploymentConfig` enum, `CANONICAL_CONFIGS`, and the `get_engine_prefix()`
+     shell map in `templates/do/register` (prefix must equal the manifest
+     `env_var_prefix`). A new engine missing from any one fails here with the
+     exact surface and the line to add — this is what makes step 6 (the shell
+     prefix map) safe to not forget.
    - `npm run lint` and a generation smoke test for `--deployment-config=transformers-foo`.
 8. **Document** the engine in
    [serve-engine-plugins.md](serve-engine-plugins.md) (the engine table + matrix).
@@ -378,10 +400,16 @@ To add an engine `foo` served as `transformers-foo`:
   why every engine must have a manifest (ADR-004 parity).
 - `npm run codegen` rewrites a `Generated: <timestamp>` comment into
   `src/lib/generated/*` on every run, so `git status` shows those files as
-  modified even when the real content is unchanged. The run is still a no-op in
-  substance; `git checkout -- src/lib/generated/` after codegen to drop the
-  timestamp churn, and trust the `codegen-target-guard: no change` /
-  `codegen-deploy-flags: no change` lines for the real verdict.
+  modified even when the real content is unchanged. When you changed ONLY things
+  that do not feed codegen, the diff is pure timestamp churn and trusting the
+  `codegen-target-guard: no change` / `codegen-deploy-flags: no change` lines is
+  enough. **But do NOT reflexively `git checkout -- src/lib/generated/`**: if you
+  added a new CLI option / enum value to `parameter-schema-v2.json` (which adding
+  a `transformers-<engine>` config does), the regenerated `cli-options.js` carries
+  that change, and discarding it silently reverts your new flag — the generator
+  then rejects it as an unknown option, a break only an end-to-end generation test
+  catches. After a schema change, KEEP the regenerated files; only discard when
+  the schema was untouched and the diff is solely the timestamp line.
 - The serve-engine `env_var_prefix` is a **load-bearing contract** read by
   `engine-prefix-resolver.js`, `serveEngineRuntimeVarsUnion`, and several tests.
   Do NOT "correct" an existing engine's prefix as a drive-by — changing it is a

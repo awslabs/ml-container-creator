@@ -193,7 +193,7 @@ Deploy XGBoost or LightGBM models on NVIDIA Triton Inference Server using the Fo
 ```bash
 ml-container-creator triton-fil-demo \
   --deployment-config=triton-fil \
-  --model-format=json \
+  --model-format=xgboost_json \
   --deployment-target=realtime-inference \
   --instance-type=ml.g5.xlarge \
   --build-target=codebuild \
