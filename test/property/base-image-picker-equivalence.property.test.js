@@ -57,9 +57,13 @@ async function buildExpectedOutput(snapshotResolver, context, limit) {
     const result = await snapshotResolver.fetchImages(resolverKey, { limit, searchCriteria });
 
     const images = result.images.map(e => e.image);
+    // Mirror resolveBaseImage's first-class baseImageVersion output (BL129):
+    // the framework_version of each entry, index-aligned to baseImage, null
+    // when the entry carries no version label (e.g. python-slim).
+    const versions = result.images.map(e => (e.labels && e.labels.framework_version) || null);
     return {
-        values: { baseImage: result.defaultImage },
-        choices: { baseImage: images },
+        values: { baseImage: result.defaultImage, baseImageVersion: versions[0] || null },
+        choices: { baseImage: images, baseImageVersion: versions },
         metadata: { baseImage: result.images }
     };
 }
