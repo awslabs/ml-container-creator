@@ -40,8 +40,8 @@ entrypoint convention, see [module-header-convention.md](module-header-conventio
 │ WRITING / TEMPLATE       src/app.js writeProject()  +  src/copy-tpl.js  │
 │  • TemplateManager validates answers                                   │
 │  • copyTpl walks templates/ and EJS-renders (drops .ejs)               │
-│  • architecture routing (http/transformers/triton/diffusors/           │
-│    marketplace) deletes/overlays files                                 │
+│  • architecture routing (http/transformers/triton/diffusors)           │
+│    deletes/overlays files                                              │
 │  • serve-engine wrappers rendered from templates/code/serve.d/*        │
 │  OUTPUT: generated project dir + .mlcc-generation-params.json          │
 └──────────────────────────────────────────────────────────────────────┘

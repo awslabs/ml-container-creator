@@ -187,67 +187,6 @@ curl -X POST http://localhost:8080/invocations \
   -d '{"instances": [[1.0, 2.0, 3.0]]}'
 ```
 
-## LoRA Adapter Issues
-
-!!! tip "Testing a specific adapter"
-    To test a specific adapter by name, use either syntax:
-    ```bash
-    # Positional (adapter name as argument)
-    ./do/test my-adapter
-
-    # Flag syntax
-    ./do/test --adapter my-adapter
-    ./do/test -a my-adapter
-    ```
-    Both route the request through the adapter's inference component and override the model name in the payload.
-
-### "Not Found" Error on First Adapter Invocation
-
-**Symptoms:** After `do/adapter add`, the first `do/test` returns `{"detail":"Not Found"}` but a second attempt works.
-
-**Root cause:** The adapter inference component reports `InService` before vLLM finishes loading LoRA weights into GPU memory. SageMaker AI's readiness check passes (the base model's `/ping` returns 200) but the adapter isn't actually ready to serve yet.
-
-**Workaround:** Wait 30–60 seconds after `do/adapter add` reports success before testing:
-
-```bash
-./do/adapter add my-sft --from-tune
-sleep 60
-./do/test
-```
-
-A future release will add a post-attach probe loop to confirm the adapter is serving before returning.
-
-### Read Timeout on First Adapter Inference
-
-**Symptoms:** First inference after adapter load returns a "Read timeout" error, but the response body contains valid JSON.
-
-**Root cause:** The first inference triggers JIT compilation of the adapter path. Combined with thinking-mode tokens (for reasoning models like DeepSeek R1), this can exceed the default CLI read timeout.
-
-**Fix:** Increase the read timeout:
-
-```bash
-./do/test --cli-read-timeout 120
-```
-
-Or accept that the first invocation is slow — subsequent calls will be fast.
-
-### Wrong Model Name in Adapter Test
-
-**Symptoms:** `do/test` sends the adapter name (e.g., `"val-sft"`) as the `model` field, but vLLM returns an error because it only recognizes the base model name.
-
-**Root cause:** When adapter config is detected, `do/test` should use the base `MODEL_NAME` in the request's `"model"` field, not `ADAPTER_MODEL_NAME`. SageMaker AI handles adapter routing at the inference component layer — vLLM doesn't need to know the adapter name.
-
-**Fix (pending):** This will be fixed in a future release. As a workaround, manually invoke with the base model name:
-
-```bash
-aws sagemaker-runtime invoke-endpoint \
-  --endpoint-name <endpoint> \
-  --inference-component-name <adapter-ic-name> \
-  --body '{"model": "Qwen/Qwen3-0.6B", "messages": [{"role": "user", "content": "Hello"}]}' \
-  --content-type application/json \
-  output.json
-```
-
 ## Model Loading Issues
 
 ### Server rejects an argument / won't start (junk `--build-*` args)
@@ -268,7 +207,7 @@ never reaches `InService`.
 they forward only args the running engine actually accepts. If you see junk
 `--build-*` args, your generated project predates this fix:
 
-1. Regenerate the project (picks up the fixed `code/serve.d/vllm.ejs`), **or**
+1. Regenerate the project (picks up the fixed `code/serve.d/vllm/vllm.ejs`), **or**
    hand-patch the serve script (it's EJS-free — safe to edit directly).
 2. `./do/build && ./do/push` — the serve script is baked into the image, so a
    rebuild is required.
@@ -434,8 +373,6 @@ aws sagemaker describe-inference-component \
 ./do/logs
 ```
 
-## Getting Help
-
 ## `do/stage` Processing Job fails for large models
 
 **Symptom:** Processing Job exits with code 1. CloudWatch logs may show `Killed` or out-of-memory errors during model download. No useful error message from `do/stage` itself.
@@ -460,25 +397,6 @@ aws sagemaker describe-inference-component \
 Service Quotas → SageMaker → *"Processing job maximum EBS volume size in GB"*
 
 The agent (`ml-container-creator hey`) checks this automatically in its health report.
-
----
-
-
-```bash
-# Container logs
-docker logs <container-id>
-
-# SageMaker AI endpoint logs
-aws logs tail /aws/sagemaker/Endpoints/<endpoint-name> --follow
-
-# Generator debug output
-DEBUG=* ml-container-creator
-```
-
-- [GitHub Issues](https://github.com/awslabs/ml-container-creator/issues) -- report bugs
-- [GitHub Discussions](https://github.com/awslabs/ml-container-creator/discussions) -- ask questions
-- [SageMaker AI Documentation](https://docs.aws.amazon.com/sagemaker/) -- AWS reference
-
 
 ### vLLM container logs go dark after "engine args" on multi-GPU
 
@@ -528,3 +446,24 @@ DEBUG=* ml-container-creator
    ```
 
 2. For adapters from `--from-registry`: the template fix (2026-06-29) automatically re-adds the trailing slash for non-tar.gz adapter URIs. Regenerate the project or update the `do/adapter` script.
+
+---
+
+## Getting Help
+
+Collect diagnostics:
+
+```bash
+# Container logs
+docker logs <container-id>
+
+# SageMaker AI endpoint logs
+aws logs tail /aws/sagemaker/Endpoints/<endpoint-name> --follow
+
+# Generator debug output
+DEBUG=* ml-container-creator
+```
+
+- [GitHub Issues](https://github.com/awslabs/ml-container-creator/issues) — report bugs
+- [GitHub Discussions](https://github.com/awslabs/ml-container-creator/discussions) — ask questions
+- [SageMaker AI Documentation](https://docs.aws.amazon.com/sagemaker/) — AWS reference
