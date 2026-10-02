@@ -184,8 +184,10 @@ or `NGC_API_KEY_ARN`, the notebook resolves them from AWS Secrets Manager at
 runtime; when it uses a plain token, the notebook reads it from an environment
 variable you set before running the cell.
 
-The notebook is generated for every deployment target except `marketplace`
-(which builds no container). Open it in SageMaker Studio or any Jupyter
+The notebook is generated for every supported deployment target. (The removed
+`marketplace` config built no container and had no notebook — see
+[AWS Marketplace Model Packages (removed)](#aws-marketplace-model-packages-removed)
+below.) Open it in SageMaker Studio or any Jupyter
 environment with AWS credentials configured. The `hyperpod-eks` notebook also
 needs local `kubectl` and the HyperPod inference operator installed on the
 cluster — the same prerequisites as `./do/deploy` for that target.

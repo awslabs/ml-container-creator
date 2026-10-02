@@ -11,12 +11,6 @@ from flask import Flask, request, jsonify
 <% } else if (modelServer === 'fastapi') { %>
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-<% } else if (modelServer === 'sglang') { %>
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
-from fastapi.responses import JSONResponse
-import asyncio
-from sglang import Runtime
 <% } %>
 from model_handler import ModelHandler
 
@@ -105,61 +99,6 @@ async def invocations(request: Request):
     except Exception as e:
         logger.exception("Error during inference")
         raise HTTPException(status_code=500, detail={'error': str(e)})
-
-<% } else if (modelServer === 'sglang') { %>
-app = FastAPI()
-sglang_runtime = None
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize SGLang runtime when the server starts"""
-    global sglang_runtime
-    model_id = "<%= modelName %>"
-    logger.info(f"Initializing SGLang runtime with model: {model_id}")
-
-    sglang_runtime = Runtime(
-        model_path=model_id,
-        tokenizer_path=model_id,
-        device="cuda",
-        mem_fraction_static=0.8
-    )
-    logger.info("SGLang runtime initialized successfully")
-
-@app.get('/ping')
-async def ping():
-    """Health check endpoint"""
-    if sglang_runtime:
-        return {'status': 'healthy'}
-    raise HTTPException(status_code=503, detail={'status': 'runtime not loaded'})
-
-@app.post('/invocations')
-async def invocations(request: Request):
-    """Main inference endpoint"""
-    if not sglang_runtime:
-        raise HTTPException(status_code=503, detail={'error': 'Runtime not loaded'})
-
-    try:
-        content_type = request.headers.get('content-type', '')
-        if 'application/json' in content_type:
-            data = await request.json()
-        else:
-            data = await request.body()
-
-        # Extract prompts from SageMaker format
-        if isinstance(data, dict):
-            prompts = data.get('instances', data.get('inputs', [data]))
-        else:
-            prompts = [data]
-
-        # Generate responses
-        outputs = sglang_runtime.generate(prompts)
-        return {'predictions': outputs}
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail={'error': f'Invalid input: {str(e)}'})
-    except Exception as e:
-        logger.exception("Error during inference")
-        raise HTTPException(status_code=500, detail={'error': str(e)})
 <% } %>
 
 if __name__ == '__main__':
@@ -168,7 +107,7 @@ if __name__ == '__main__':
     load_model_for_worker()  # Load model for development server
     port = int(os.environ.get("SAGEMAKER_BIND_TO_PORT", 8080))
     app.run(host='0.0.0.0', port=port, debug=False)
-<% } else if (modelServer === 'fastapi' || modelServer === 'sglang') { %>
+<% } else if (modelServer === 'fastapi') { %>
     import uvicorn
     port = int(os.environ.get("SAGEMAKER_BIND_TO_PORT", 8080))
     uvicorn.run(app, host='0.0.0.0', port=port)

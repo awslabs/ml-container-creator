@@ -27,7 +27,7 @@ if __name__ == '__main__':
         '--config', '/opt/ml/code/gunicorn_config.py',
         'wsgi:application'
     ])
-<% } else if (modelServer === 'fastapi' || modelServer === 'sglang') { %>
+<% } else if (modelServer === 'fastapi') { %>
     print("Starting SageMaker inference server with Uvicorn")
     subprocess.run([
         'uvicorn',

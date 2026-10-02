@@ -478,13 +478,11 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     // Predictor-framework plugins — descriptor + handler consumed at generation
     // time (the selected framework's handler is materialized into
     // code/model_handler.py by _materializePredictorHandler); the plugin tree
-    // itself is never copied verbatim, mirroring serve.d.
+    // itself is never copied verbatim, mirroring serve.d. There is no
+    // templates/code/model_handler.py source any more — the per-framework
+    // predictors.d/<framework>/handler.py is the only source of the generated
+    // code/model_handler.py.
     ignorePatterns.push('**/predictors.d/**');
-
-    // The legacy framework-branched code/model_handler.py is replaced by the
-    // per-framework handler materialized from predictors.d/<framework>/handler.py.
-    // Exclude it from the bulk copy so the plugin handler is the only source.
-    ignorePatterns.push('**/code/model_handler.py');
 
     // Resolve architecture
     const resolver = new DeploymentConfigResolver();
@@ -716,16 +714,20 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         _unlinkIfExists(path.join(destDir, 'code/model_handler.py'));
         _unlinkIfExists(path.join(destDir, 'code/serve.py'));
         _unlinkIfExists(path.join(destDir, 'code/start_server.py'));
+        // The predictor start_server.sh (copied by the bulk copy) is not used by
+        // diffusors — the container entrypoint is code/serve. Remove it so the
+        // generated project does not ship an unused script.
+        _unlinkIfExists(path.join(destDir, 'code/start_server.sh'));
         _unlinkIfExists(path.join(destDir, 'nginx-predictors.conf'));
         _unlinkIfExists(path.join(destDir, 'code/flask/wsgi.py'));
         _unlinkIfExists(path.join(destDir, 'code/flask/gunicorn_config.py'));
         _unlinkIfExists(path.join(destDir, 'code/chat_template.jinja'));
         _unlinkIfExists(path.join(destDir, 'code/serving.properties'));
 
-        // Copy diffusors-specific templates
+        // Copy diffusors-specific templates. The diffusors container entrypoint is
+        // code/serve (vllm serve --omni + nginx); there is no separate start_server.sh.
         _renderTemplate(path.join(templateDir, 'diffusors/Dockerfile'), path.join(destDir, 'Dockerfile'), templateVars);
         _renderTemplate(path.join(templateDir, 'diffusors/serve'), path.join(destDir, 'code/serve'), templateVars);
-        _renderTemplate(path.join(templateDir, 'diffusors/start_server.sh'), path.join(destDir, 'code/start_server.sh'), templateVars);
         _copyFile(path.join(templateDir, 'diffusors/patch_image_api.py'), path.join(destDir, 'code/patch_image_api.py'));
         break;
 
@@ -1080,8 +1082,8 @@ function _getOrderedEnvVars(envVars) {
  * The HTTP predictor frameworks (sklearn/xgboost/tensorflow) are a hybrid plugin:
  * the per-framework ModelHandler lives in predictors.d/<framework>/handler.py and
  * is rendered (EJS, so `<%= modelFormat %>` in the handler's file-glob resolves)
- * into code/model_handler.py. This replaces the former framework-branched monolith
- * at templates/code/model_handler.py (now excluded from the bulk copy).
+ * into code/model_handler.py. This is the SOLE source of the generated handler —
+ * the former framework-branched templates/code/model_handler.py was removed.
  *
  * @param {string} destDir - Destination project directory
  * @param {object} templateVars - Template variables for EJS (carries modelFormat)

@@ -414,13 +414,16 @@ describe('Functional Parity Checklist', function () {
 
             it('generates diffusors-specific files', () => {
                 result.assertFile('code/patch_image_api.py');
-                result.assertFile('code/start_server.sh');
+                result.assertFile('code/serve');
             });
 
             it('does not generate HTTP-specific files', () => {
                 result.assertNoFile('code/model_handler.py');
                 result.assertNoFile('code/serve.py');
                 result.assertNoFile('nginx-predictors.conf');
+                // start_server.sh is the TensorRT-LLM startup script; diffusors
+                // boots via code/serve and must not carry the bulk-copied copy.
+                result.assertNoFile('code/start_server.sh');
             });
         });
     });

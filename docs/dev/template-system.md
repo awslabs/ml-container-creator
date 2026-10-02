@@ -201,6 +201,13 @@ the generated output by ignore globs — they are consumed at generation time, n
 shipped verbatim. See [Serve-Engine Plugins](../architecture/serve-engine-plugins.md)
 and [Predictor-Framework Plugins](../architecture/predictor-framework-plugins.md).
 
+> **Backlog (v1.9).** Further `templates/code/` structural cleanups — an app-shell
+> simplification, a possible `code/` reorg (app / plugins / runtime), and a
+> `transformers-sglang` requirements-deps investigation — are scoped (but not yet
+> scheduled) in `.kiro/specs/bl-v19-code-dir-cleanup/`. The dead-code removals
+> (the old branched `model_handler.py` template and the unreachable `sglang`
+> branches in `serve.py`/`start_server.py`) are already done.
+
 ### Conditional File Exclusion (Ignore Patterns)
 
 Before file routing, the generator excludes entire file trees based on configuration:
