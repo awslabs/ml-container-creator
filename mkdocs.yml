@@ -54,13 +54,13 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Supported Models: supported-models.md
+  - SageMaker BYOC Contract: aws-sagemaker.md
   - Bootstrap: bootstrap.md
   - MCP Servers: mcp-configuration.md
   - User Guide:
       - Configuration: configuration.md
       - Secrets Management: secrets.md
       - Deployment & Inference: deployments.md
-      - Interactive Deployment UX: deploy-ux.md
       - Fine-Tuning: fine-tuning.md
       - Custom Training: custom-training.md
       - Agent UX: agent.md
@@ -69,22 +69,30 @@ nav:
   - Operations:
       - CI Integration: ci-integration.md
       - Benchmarking: benchmarking.md
-      - Deployment Registry: deployment-registry.md
+      - Model Registration (MPG): deployment-registry.md
       - Optimization: optimize.md
+      - Speculative Decoding (HyperPod): hyperpod-speculative-decoding.md
+      - Multi-Model Endpoints: mme-deployment-guide.md
       - Import/Update/Regenerate: import.md
       - Prove: prove.md
       - Path Prover: path-prover.md
       - Coverage Manifold: coverage-manifold.md
+      - Status Badges: badge-examples.md
   - Developer Guide:
       - Contributing: CONTRIBUTING.md
       - Local Development: dev/local-development.md
+      - Coding Standards: coding-standards.md
+      - Adding Features: ADDING_FEATURES.md
       - Architecture: how-it-works.md
       - Schema-Driven Architecture: dev/schema-driven-architecture.md
       - Template System: dev/template-system.md
       - do/ Script Contracts: do-script-contract.md
       - MCP Server Development: dev/mcp-server-development.md
       - Registries and Catalogs: dev/registries-and-catalogs.md
+      - Registry Contribution Guide: REGISTRY_CONTRIBUTION_GUIDE.md
+      - Catalog Relationships: dev/catalog-relationship.md
       - Validation System: dev/validation-system.md
+      - Accelerator Validators: ACCELERATOR_VALIDATOR_GUIDE.md
       - Testing: dev/testing.md
       - Architecture Corpus:
           - Overview: architecture/index.md
@@ -97,7 +105,6 @@ nav:
           - Validation Framework: architecture/validation.md
           - do/ Scripts: architecture/do-scripts.md
           - Adding a Deployment Target: architecture/deployment-target-authoring.md
-          - do/ Scripts — Wave 6 Changelog: architecture/do-scripts-wave6-changelog.md
           - Module-Header Convention: architecture/module-header-convention.md
       - Decision Records (ADRs):
           - ADR-001 Import Metadata Contract: adr/ADR-001-import-contract-metadata-schema.md
@@ -109,8 +116,11 @@ nav:
           - ADR-007 do/ Script Contract Enforcement: adr/ADR-007-do-script-contract-enforcement.md
           - ADR-008 Deployment-Target Descriptor: adr/ADR-008-deployment-target-descriptor.md
           - ADR-009 Serve-Engine Capability Versioning: adr/ADR-009-serve-engine-capability-versioning.md
-      - Test Inventory: dev/test-inventory.md
+      - Archive (point-in-time snapshots):
+          - do/ Scripts — Wave 6 Changelog: architecture/do-scripts-wave6-changelog.md
+          - Test Inventory: dev/test-inventory.md
   - Command Generator: command-generator.md
+  - Release Notes: https://github.com/awslabs/ml-container-creator/releases
 
 markdown_extensions:
   - admonition

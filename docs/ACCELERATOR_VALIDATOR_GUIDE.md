@@ -670,10 +670,10 @@ After creating your validator, add instance types to the Instance Accelerator Ma
 
 - **Questions**: Open a [GitHub Discussion](https://github.com/awslabs/ml-container-creator/discussions)
 - **Issues**: Report bugs via [GitHub Issues](https://github.com/awslabs/ml-container-creator/issues)
-- **Examples**: See existing validators in `generators/app/lib/`
+- **Examples**: See existing validators in `src/lib/`
 
 ## Related Documentation
 
 - [Registry Contribution Guide](./REGISTRY_CONTRIBUTION_GUIDE.md) - Contributing configurations
-- [Architecture Guide](./architecture.md) - System architecture overview
-- [Testing Guide](./testing.md) - Testing requirements and procedures
+- [Validation Framework](./architecture/validation.md) - How the validation engine composes accelerator validators
+- [Testing Guide](./dev/testing.md) - Testing requirements and procedures

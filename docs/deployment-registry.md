@@ -13,9 +13,16 @@
 
     Adapters appear in **both** — the tune MPG records the raw artifact, and `do/register` records the deployment with additional context (which endpoint, which instance, benchmark results, parent model linkage).
 
-# Deployment Registry
+# Model Registration (MPG)
 
-The deployment registry tracks every configuration you deploy — model, instance, region, parameters, and status. Use it to audit what's running, compare configurations across environments, and feed the CI system with testable configurations.
+`do/register` records what you deploy as versioned Model Packages in a SageMaker Model Package Group (MPG) — base model, adapters, deployment context, and lineage. The MPG is the system of record; use it to audit what's running, govern versions, and feed the CI system with testable configurations.
+
+!!! note "The local deployment registry was removed"
+    Earlier versions also wrote a machine-local `registry.json` deployment-history
+    file and shipped an `mcc registry` command. Both were removed — SageMaker MPG is
+    now the single registration record. `do/register dataset` and
+    `do/register evaluator` still use intentionally-local stores (there is no
+    SageMaker API equivalent); those are unaffected.
 
 ---
 
@@ -68,7 +75,7 @@ Every registration records:
 | **Parameters** | Environment variables | Engine-specific env vars (secrets redacted) |
 | **Status** | `--status` flag | `success`, `partial`, `failed` |
 | **Notes** | `--notes` flag | Free-text |
-| **Generator version** | npm global install | `0.10.1` |
+| **Generator version** | npm global install | the installed `@aws/ml-container-creator` version |
 
 ---
 
@@ -88,11 +95,15 @@ Every registration records:
 
 ---
 
-## Storage Modes
+## Where registrations are stored
 
-### Local Registry (Default)
+`do/register` creates versioned Model Packages in the project's SageMaker MPG (`{project-name}`). Query them with the AWS CLI or console, or via the helper:
 
-Without `--ci`, `do/register` calls `ml-container-creator registry log` which appends to the local registry. Use `ml-container-creator registry` subcommands to query it:
+```bash
+python3 ./do/.register_helper.py list-adapters --project-name my-project --region us-west-2
+```
+
+With `--ci`, the registration is additionally written to the CI DynamoDB table (`mlcc-ci-table` by default) for the end-to-end test harness.
 
 ---
 
@@ -105,12 +116,7 @@ Without `--ci`, `do/register` calls `ml-container-creator registry log` which ap
 When called without a subcommand (or with `model`), registers the deployed model as a versioned Model Package in SageMaker, then registers all adapters from `do/adapters/*.conf`.
 
 !!! note "ECR image optional"
-    MPG registration works even if the container hasn't been pushed to ECR yet. When no valid ECR image URI is available (e.g. before `do/build` + `do/push`), the Model Package is created **without an InferenceSpecification** — metadata (instance type, deployment config, model name) is still captured in `CustomerMetadataProperties`. The local registry always records the full entry regardless.
-
-    If MPG registration fails for any reason, `do/register` continues with a warning:
-    ```
-    ⚠️  MPG registration failed (non-fatal) — local registry is the primary record
-    ```
+    MPG registration works even if the container hasn't been pushed to ECR yet. When no valid ECR image URI is available (e.g. before `do/build` + `do/push`), the Model Package is created **without an InferenceSpecification** — metadata (instance type, deployment config, model name) is still captured in `CustomerMetadataProperties`.
 
 ```bash
 # Register base model + all adapters
@@ -284,16 +290,7 @@ Register a reward function (RLVR) or preference model (RLAIF):
 
 ---
 
-```bash
-# List all registered deployments
-ml-container-creator registry list
-
-# Filter by deployment config
-ml-container-creator registry list --deployment-config=transformers-vllm
-
-# Show details for a specific entry
-ml-container-creator registry show <id>
-```
+To list registered model/adapter versions, query the MPG with the AWS CLI (`aws sagemaker list-model-packages --model-package-group-name <project-name>`) or the `list-adapters` helper shown above.
 
 ### CI Table (DynamoDB)
 

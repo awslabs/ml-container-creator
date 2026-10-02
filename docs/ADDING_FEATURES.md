@@ -560,7 +560,7 @@ curl -X POST http://localhost:8080/invocations \
   - [ ] README.md
   - [ ] docs/EXAMPLES.md
   - [ ] docs/TROUBLESHOOTING.md
-  - [ ] docs/architecture.md
+  - [ ] docs/how-it-works.md
 - [ ] Templates use proper EJS syntax
 - [ ] Conditional logic works correctly
 - [ ] Generated projects build successfully
@@ -658,7 +658,7 @@ Then create a Pull Request on GitHub with:
 ## Getting Help
 
 - Review existing code for patterns
-- Check [Project Architecture](architecture.md)
+- Check [Architecture](how-it-works.md)
 - Ask in [GitHub Discussions](https://github.com/awslabs/ml-container-creator/discussions)
 - Open a draft PR for early feedback
 

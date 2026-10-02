@@ -69,9 +69,9 @@ Models not listed below are still supported by MCC — the CLI generates project
 
 ## Inference Engines
 
-### vLLM — Fully Validated
+### vLLM — Primary Engine
 
-All 22 models above are validated with vLLM as the inference engine. vLLM provides:
+The models above target vLLM as the inference engine; see each entry's status column for its current validation state. vLLM provides:
 
 - High-throughput serving with PagedAttention
 - OpenAI-compatible API (`/v1/chat/completions`, `/v1/completions`)
@@ -132,7 +132,7 @@ See [Fine-Tuning](fine-tuning.md) for full documentation on `do/tune` and the tu
 
 ## Lifecycle Coverage
 
-Every model listed on this page has been validated through the complete lifecycle:
+Models marked ✅ Validated have been exercised through the complete lifecycle; models marked ⏳ Pending are generable but not yet fully validated end-to-end (see each entry's status above). The validated lifecycle is:
 
 ```
 generate → build → push → deploy → test → tune (SFT) → adapter add → test → clean
