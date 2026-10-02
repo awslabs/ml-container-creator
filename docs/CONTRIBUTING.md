@@ -92,7 +92,7 @@ ml-container-creator/
 
 | Page | When to Read |
 |------|-------------|
-| [Generator Architecture](dev/generator-architecture.md) | Understanding the lifecycle phases, key modules, and how configuration flows through the system |
+| [Schema-Driven Architecture](dev/schema-driven-architecture.md) | Understanding the lifecycle phases, how the schema drives codegen, and how configuration flows through the system |
 | [Template System](dev/template-system.md) | Working with EJS templates, do/ script branching, Dockerfile conditionals, or adding a new deployment configuration |
 | [MCP Server Development](dev/mcp-server-development.md) | Adding catalog entries (instance types, base images), creating new bundled MCP servers, or working with JSON schemas |
 | [Registries and Catalogs](dev/registries-and-catalogs.md) | Contributing framework configs, model entries, or instance type data to the registry system |

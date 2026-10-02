@@ -690,6 +690,6 @@ If adding profiles, clearly document:
 
 ## Related Documentation
 
-- [Architecture Guide](./architecture.md) - System architecture overview
-- [Testing Guide](./testing.md) - Testing requirements and procedures
+- [Registries and Catalogs](./dev/registries-and-catalogs.md) - Catalog format and data flow
+- [Testing Guide](./dev/testing.md) - Testing requirements and procedures
 - [Contributing Guide](./CONTRIBUTING.md) - General contribution guidelines

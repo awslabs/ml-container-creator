@@ -21,7 +21,7 @@ Higher precedence sources override lower ones.
 
 ## Parameter Reference
 
-All 68 parameters supported by MCC, organized by category. Each can be set via CLI flag, config file key, or (where noted) environment variable.
+Parameters supported by MCC, organized by category. Each can be set via CLI flag, config file key, or (where noted) environment variable. The CLI flags are generated from `config/parameter-schema-v2.json` — run `ml-container-creator --help` for the authoritative, current list.
 
 ### Project
 
@@ -44,7 +44,7 @@ All 68 parameters supported by MCC, organized by category. Each can be set via C
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `deploymentConfig` | `--deployment-config` | enum (15 values) | — | Deployment configuration (e.g. http-flask, transformers-vllm, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
+| `deploymentConfig` | `--deployment-config` | enum (16 values) | — | Deployment configuration (e.g. http-flask, transformers-vllm, transformers-llama-cpp, triton-fil) (env: `ML_DEPLOYMENT_CONFIG`) |
 | `modelName` | `--model-name` | string | — | Model identifier (hf-org/model, s3://..., registry://...) (env: `ML_MODEL_NAME`) |
 | `framework` | `--framework` | enum: `sklearn`, `xgboost`, `tensorflow`, `transformers` | — | ~~ML framework~~ *(deprecated, use `--deploymentConfig` instead)* |
 | `modelFormat` | `--model-format` | string | — | Model serialization format (pkl, joblib, json, model, ubj, keras, h5, SavedModel) (env: `ML_MODEL_FORMAT`) |
@@ -57,7 +57,7 @@ All 68 parameters supported by MCC, organized by category. Each can be set via C
 
 | Parameter | CLI Flag | Type | Default | Description |
 |---|---|---|---|---|
-| `deploymentTarget` | `--deployment-target` | enum (5 values) | `realtime-inference` | Deployment target (realtime-inference, async-inference, batch-transform, hyperpod-eks). `managed-inference` is accepted but deprecated (env: `ML_DEPLOYMENT_TARGET`) |
+| `deploymentTarget` | `--deployment-target` | enum (6 values) | `realtime-inference` | Deployment target (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks). `managed-inference` is accepted as a deprecated alias of realtime-inference (env: `ML_DEPLOYMENT_TARGET`) |
 | `instanceType` | `--instance-type` | string | — | SageMaker instance type (e.g. ml.g5.xlarge, ml.m5.large) (env: `ML_INSTANCE_TYPE`) |
 | `region` | `--region` | string | `us-east-1` | AWS region (env: `ML_REGION`) |
 | `roleArn` | `--role-arn` | string | — | IAM role ARN for SageMaker execution (env: `ML_ROLE_ARN`) |
@@ -214,11 +214,14 @@ still works if you'd rather set the underlying variable directly.
 
 | Engine (`--deployment-config`) | Speculative decoding | Sweepable dimensions | Signature feature (and how to enable) |
 |---|---|---|---|
-| **vLLM** (`transformers-vllm`) | ✓ eagle3, eagle2, eagle, draft-model, ngram, mtp, dspark (consolidated `--speculative-config`) | quantization, tensor-parallel, max-model-len, kv-cache-dtype | — (prefix caching is on by default) |
-| **SGLang** (`transformers-sglang`) | ✓ eagle3, eagle2, eagle, draft-model, mtp (discrete flags; `mtp` needs engine ≥ 0.4.0) | quantization, tensor-parallel, context-length, kv-cache-dtype | **RadixAttention** — automatic KV-cache reuse across requests with shared prefixes (multi-turn chat, RAG, agents). Enable: `--engine-feature radix_attention=true` (raw: `--server-env SGLANG_ENABLE_RADIX_CACHE=true`) |
-| **TensorRT-LLM** (`transformers-tensorrt-llm`) | ✗ (not yet wired — the engine supports it, but MLCC's flat-flag wrapper can't emit its structured config; v1.9) | quantization, tensor-parallel, max-input-len | — |
+| **vLLM** (`transformers-vllm`) | ✓ eagle3, eagle2, eagle, draft-model, ngram, mtp | quantization, tensor-parallel, max-model-len, kv-cache-dtype | — (prefix caching is on by default) |
+| **SGLang** (`transformers-sglang`) | ✓ eagle3, eagle2, eagle, draft-model, mtp (`mtp` needs engine ≥ 0.4.0) | quantization, tensor-parallel, context-length, kv-cache-dtype | **RadixAttention** — automatic KV-cache reuse across requests with shared prefixes (multi-turn chat, RAG, agents). Enable: `--engine-feature radix_attention=true` (raw: `--server-env SGLANG_ENABLE_RADIX_CACHE=true`) |
+| **TensorRT-LLM** (`transformers-tensorrt-llm`) | ✗ (not yet wired — the engine supports it, but MLCC's wrapper can't emit its structured config yet) | quantization, tensor-parallel, max-input-len | — |
 | **LMI / DJL** (`transformers-lmi`) | ✗ (at the LMI layer) | quantization, tensor-parallel, max-model-len | **Pluggable backend** — LMI is a meta-engine that delegates to vLLM, TensorRT-LLM, or LMI-Dist. Choose: `--engine-feature rolling_batch_backend=vllm` (or `tensorrt-llm`, `lmi-dist`, `auto`; raw: `--server-env OPTION_ROLLING_BATCH=...`) |
-| **vLLM-Omni** (`diffusors-vllm-omni`) | ✗ (diffusion engine) | — | Diffusion / any-to-any multimodal serving (`--omni`) |
+| **llama.cpp** (`transformers-llama-cpp`) | ✗ | max-model-len (`CTX_SIZE`) | **CPU/GPU offload control** — serve GGUF models with a tunable CPU/GPU split. Enable: `--engine-feature gpu_layers=-1` (full GPU offload; raw: `--server-env SM_LLAMA_CPP_N_GPU_LAYERS=-1`) |
+| **vLLM-Omni** (`diffusors-vllm-omni`) | ✗ (diffusion engine) | — | Diffusion / any-to-any multimodal serving |
+
+Speculative decoding is configured at deploy time with `do/draft`, not a generate-time flag — see [Speculative Decoding on HyperPod EKS](hyperpod-speculative-decoding.md). The "Speculative decoding" column shows the algorithms each engine's plugin manifest declares as supported.
 
 !!! note "Why vLLM and TensorRT-LLM show no signature feature"
     RadixAttention and the pluggable rolling-batch backend are genuinely
@@ -482,7 +485,7 @@ Schema validation runs at two points:
 | **GPU consistency** | `NumberOfAcceleratorDevicesRequired` doesn't match instance GPU count |
 | **Tensor parallelism** | `VLLM_TENSOR_PARALLEL_SIZE` != IC GPU count != instance GPUs |
 | **CUDA compatibility** | Base image requires CUDA 12 but instance only supports CUDA 11 |
-| **Model source requirements** | `jumpstart-hub` source without `HubAccessConfig.HubContentArn` |
+| **Model source requirements** | `registry://` model package without a resolvable ARN, or an `s3://` artifact path that doesn't exist |
 
 #### Exit Codes
 

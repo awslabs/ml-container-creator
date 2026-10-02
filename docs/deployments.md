@@ -1,6 +1,6 @@
 # Deployment & Inference
 
-MCC supports five deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Every generated project contains scripts for all targets — you select which target to deploy to at deploy time, not at generation time. See [Interactive Deployment UX](deploy-ux.md) for the full deploy-time workflow.
+MCC supports five deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Every generated project contains scripts for all targets — you select which target to deploy to at deploy time, not at generation time. See [Deploy-time workflow](#deploy-time-workflow) below for the interactive flow and multi-target focus switching.
 
 ## Build Paths
 
@@ -123,6 +123,49 @@ directly work via a `kubectl` port-forward (same mechanism as `hyperpod-eks`):
   harness is SageMaker-managed-inference specific). These print a clear message and
   exit with code `3`.
 
+## Deploy-time workflow
+
+Deployment configuration is chosen at deploy time, not at generation time. On the first `./do/deploy` for a freshly generated project (empty `DEPLOYMENT_TARGET`), the script runs a short interactive prompt flow with fresh recommendations from the instance-sizer and cluster-picker MCP servers:
+
+```
+$ ./do/deploy
+
+? Select deployment target:
+  ❯ realtime-inference  — SageMaker real-time endpoint (IC)
+    async-inference     — SageMaker async endpoint (S3 I/O)
+    batch-transform     — SageMaker batch transform job
+    hyperpod-eks        — HyperPod EKS cluster
+    eks                 — plain EKS (no operator)
+
+? Select instance type: (recommended: ml.g5.4xlarge — fits Llama-3.1-8B)
+  ❯ ml.g5.4xlarge  ★ recommended
+    ml.g5.12xlarge
+    Enter manually...
+```
+
+Answers are persisted to `do/config` immediately after you confirm, so a failed deploy can be re-run without re-prompting. If MCP servers are unreachable, the prompts fall back to manual text input with a warning.
+
+**Repeat deploys** skip the prompts once `DEPLOYMENT_TARGET` and its required vars are populated. **Non-interactive (CI/CD)** runs pass the equivalent flags; if all required flags for a target are present, deploy proceeds without prompting:
+
+```bash
+./do/deploy --target realtime-inference --instance-type ml.g5.4xlarge
+./do/deploy --target batch-transform \
+  --instance-type ml.m5.4xlarge \
+  --batch-input-path s3://bucket/input/ \
+  --batch-output-path s3://bucket/output/
+./do/deploy --target realtime-inference --instance-type ml.g5.4xlarge --dry-run   # preview only
+```
+
+With `--skip-prompts` at generation time, `do/config` is pre-populated with sensible defaults (`DEPLOYMENT_TARGET=realtime-inference`, and `INSTANCE_TYPE` auto-sized from the model's parameter count), producing a deployable project with no interactive input.
+
+### Multi-target deployments and focus switching
+
+A single project can hold active deployments on multiple targets at once. `DEPLOYMENT_TARGET` in `do/config` marks the **active** one — the target that `do/test`, `do/logs`, and `do/benchmark` route to.
+
+- **Deploy to a second target:** `./do/deploy --target hyperpod-eks` creates a new deployment alongside the existing one.
+- **Switch focus:** if a deployment already exists for the requested target, `./do/deploy --target <mode>` switches focus without redeploying — handy for benchmarking the same model on, say, `realtime-inference` vs. `hyperpod-eks`.
+- **View all target states:** `./do/deploy --status` prints each target's status; `do/config` tracks per-target state in `DEPLOYMENT_TARGET_*_STATUS` vars.
+
 ## Lifecycle Scripts Reference
 
 All generated projects include these `do/` scripts:
@@ -145,7 +188,7 @@ All generated projects include these `do/` scripts:
 | `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
 | `./do/config` | Centralized configuration for all scripts (sourced, not executed) |
 | `./do/export` | Export the project: a reproduce-it CLI command (default), config JSON (`--json`), or a runnable Jupyter deploy notebook (`--notebook`) |
-| `./do/register` | Capture deployment to the deployment registry |
+| `./do/register` | Register the model/adapters to the SageMaker Model Package Group |
 | `./do/ci` | CI pipeline integration (report, status, trigger, dashboard) |
 | `./do/submit` | Submit build to AWS CodeBuild (CodeBuild build target only) |
 | `./do/draft` | Configure speculative decoding for an active deployment (hyperpod-eks) |

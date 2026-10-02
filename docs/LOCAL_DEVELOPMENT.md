@@ -79,9 +79,9 @@ docs/
 ├── EXAMPLES.md                       # Usage examples
 ├── TROUBLESHOOTING.md                # Troubleshooting guide
 ├── CONTRIBUTING.md                   # Contributing guide
-├── architecture.md                   # Architecture overview
+├── how-it-works.md                   # Architecture overview
 ├── dev/
-│   ├── generator-architecture.md     # Generator internals
+│   ├── schema-driven-architecture.md # Generator internals (schema → codegen)
 │   ├── template-system.md            # EJS templates & do/ scripts
 │   ├── mcp-server-development.md     # MCP server development
 │   ├── registries-and-catalogs.md    # Catalog JSON format & data flow

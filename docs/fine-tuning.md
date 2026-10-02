@@ -164,7 +164,7 @@ If your configured model is not in the Supported Model Catalog, `do/tune` exits 
    • Meta Llama 3.1 / 3.2 / 3.3
    • OpenAI GPT-OSS
 
-   For custom training workflows, use do/train (coming in a future release).
+   For custom training workflows, use do/train.
 ```
 
 The script validates your model at runtime against the catalog, so catalog updates take effect without regenerating your project.
@@ -585,14 +585,14 @@ ML Container Creator offers two paths for model customization:
 
 | | `do/tune` (Managed Serverless) | `do/train` (Bespoke Training) |
 |---|---|---|
-| **Status** | Available now | Coming in a future release |
+| **Status** | Available now | Available now |
 | **Infrastructure** | Fully managed by SageMaker AI | You choose instance types and containers |
 | **Supported models** | Models in the Supported Model Catalog | Any model |
 | **Techniques** | SFT, DPO, RLAIF, RLVR | Any training script |
 | **Configuration** | Minimal — dataset + technique | Full control over training code |
 | **When to use** | Your model is supported and you want the fastest path | You need custom training logic or an unsupported model |
 
-**Recommendation**: Start with `do/tune` if your model is in the Supported Model Catalog. It's the fastest path from dataset to deployed adapter with zero infrastructure management. Fall back to `do/train` when you need custom training logic or your model isn't supported.
+**Recommendation**: Start with `do/tune` if your model is in the Supported Model Catalog. It's the fastest path from dataset to deployed adapter with zero infrastructure management. Use `do/train` when you need custom training logic or your model isn't supported — see [Custom Training](custom-training.md).
 
 ## CLI Reference
 
@@ -647,7 +647,7 @@ ML Container Creator offers two paths for model customization:
 
 | Flag | Type | Description |
 |---|---|---|
-| `--model` | JumpStart model ID | Override the model to customize (defaults to `MODEL_ID` from `do/config`) |
+| `--model` | HuggingFace model ID | Override the model to customize (defaults to `MODEL_ID` from `do/config`) |
 | `--output-bucket` | S3 bucket name | Override the output bucket (defaults to `TUNE_S3_BUCKET`) |
 | `--role` | IAM role ARN | Override the execution role |
 
@@ -692,7 +692,7 @@ ML Container Creator offers two paths for model customization:
 
 ```bash
 ./do/tune --technique sft --dataset s3://my-bucket/train.jsonl \
-  --model meta-textgeneration-llama-3-3-70b-instruct
+  --model meta-llama/Llama-3.3-70B-Instruct
 ```
 
 ### RLVR with reward function

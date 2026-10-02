@@ -88,7 +88,7 @@ Every project includes 20+ scripts total. See [Deployment & Inference](deploymen
 
 ### Validated Models
 
-MCC validates 22+ model + instance combinations end-to-end — from generation through fine-tuning and adapter serving. If your configuration is in the [Supported Models](supported-models.md) catalog, every lifecycle step has been proven.
+MCC ships a catalog of 22 model families with validated configurations spanning generation through fine-tuning and adapter serving. Validation coverage per model is tracked in the [Supported Models](supported-models.md) catalog — see each entry's status.
 
 Models NOT in the catalog still work — MCC generates projects for any HuggingFace model. You take on validation yourself.
 

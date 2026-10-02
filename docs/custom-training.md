@@ -139,7 +139,7 @@ On completion, writes `training/config.yaml`. Use `--interactive --run` to also 
 |--------|---------|----------|
 | HuggingFace | `hf://tatsu-lab/alpaca` | Staged to S3 via Processing Job |
 | S3 | `s3://bucket/data/train.jsonl` | Used directly as training channel |
-| Registry name | `alpaca-sft-1k` | Resolved from local dataset registry |
+| Registry name | `alpaca-sft-1k` | Resolved from the dataset registry (S3 sidecar via `do/register dataset`) |
 | Version-pinned | `alpaca-sft-1k@v2` | Specific version from registry |
 
 ```bash
