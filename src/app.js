@@ -13,9 +13,17 @@ import PromptRunner from './lib/prompt-runner.js';
 import TemplateManager from './lib/template-manager.js';
 import DeploymentConfigResolver from './lib/deployment-config-resolver.js';
 import CommentGenerator from './lib/comment-generator.js';
-import ConfigurationManager from './lib/configuration-manager.js';
+import RegistryConfigManager from './lib/registry-config-manager.js';
 import RegistryLoader from './lib/registry-loader.js';
 import { resolvePrefixedEnvVars } from './lib/engine-prefix-resolver.js';
+import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './lib/marketplace-refusal.js';
+import { readEnvVarPrefix, resolveEngineFeatureVars } from './lib/serve-manifest-reader.js';
+import {
+    listPredictorFrameworks,
+    pipDependencies as predictorPipDependencies,
+    testPayload as predictorTestPayload,
+    handlerPath as predictorHandlerPath
+} from './lib/predictor-manifest-reader.js';
 import { _ensureTemplateVariables, _validateEnvironmentVariables } from './lib/template-variable-resolver.js';
 import ejs from 'ejs';
 import { globSync } from 'tinyglobby';
@@ -41,6 +49,15 @@ export async function run(projectName, options) {
     // (ConfigManager expects kebab-case format for option keys)
     const kebabOptions = _toKebabCaseOptions(options);
 
+    // Hard-refuse marketplace deployments (deprecated — see marketplace-refusal.js).
+    // Detected from either the requested deployment config or a marketplace:// model
+    // name, as the very first step so every path (skip-prompts, auto-prompt, full
+    // prompt) refuses uniformly with a non-zero exit. Mirrors the JumpStart precedent.
+    if (isMarketplaceConfig(kebabOptions['deployment-config']) ||
+        isMarketplaceModelName(kebabOptions['model-name'])) {
+        refuseMarketplaceAndExit();
+    }
+
     // Build a lightweight adapter that satisfies ConfigManager's generator interface
     const generatorAdapter = _createGeneratorAdapter(projectName, kebabOptions);
     const args = projectName ? [projectName] : [];
@@ -53,6 +70,14 @@ export async function run(projectName, options) {
     } catch (error) {
         console.log(`⚠️  ${error.message}`);
         return;
+    }
+
+    // Re-check against the RESOLVED config (config file / env), not just CLI options,
+    // so a marketplace deployment requested through any source is refused uniformly.
+    const explicitConfig = configManager.getExplicitConfiguration();
+    if (isMarketplaceConfig(explicitConfig.deploymentConfig) ||
+        isMarketplaceModelName(explicitConfig.modelName)) {
+        refuseMarketplaceAndExit();
     }
 
     const errors = configManager.validateConfiguration();
@@ -76,7 +101,7 @@ export async function run(projectName, options) {
             effectiveValidateWithDocker = false;
         }
 
-        registryConfigManager = new ConfigurationManager({
+        registryConfigManager = new RegistryConfigManager({
             validateEnvVars,
             validateWithDocker: effectiveValidateWithDocker,
             offline,
@@ -169,8 +194,7 @@ export async function run(projectName, options) {
                 console.error('   JumpStart model sources have been removed. Use one of:');
                 console.error('     • HuggingFace model ID (e.g., meta-llama/Llama-2-7b-hf)');
                 console.error('     • s3://bucket/path/model.tar.gz');
-                console.error('     • registry://model-package-name');
-                console.error('     • marketplace://arn:aws:sagemaker:...\n');
+                console.error('     • registry://model-package-name\n');
                 process.exit(1);
             }
             if (modelName.startsWith('s3://')) {
@@ -360,6 +384,53 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         orderedEnvVars.push({ key, value });
     });
 
+    // Engine-specific features (ADR-004 §c): resolve each requested feature to the
+    // engine's real env var and validate against the serve-plugin manifest's
+    // engine_features. Reads the manifest generically — no engine-name branching.
+    // The resolved env vars join orderedEnvVars so do/config (and the Dockerfile)
+    // emit them identically to --server-env; the container reads them directly.
+    const engineFeatureVars = answers.engineFeatureVars || {};
+    if (Object.keys(engineFeatureVars).length > 0) {
+        const { resolved, errors } = resolveEngineFeatureVars(engine, engineFeatureVars);
+        if (errors.length > 0) {
+            throw new Error(
+                `Invalid --engine-feature value(s):\n   • ${errors.join('\n   • ')}`
+            );
+        }
+        resolved.forEach(({ key, value }) => {
+            orderedEnvVars.push({ key, value });
+        });
+    }
+
+    // De-duplicate orderedEnvVars by key. The sources above are pushed in order of
+    // increasing specificity (catalog/envVars → model-env → prefixed server-env →
+    // engine-feature), so a later entry for the same key is the more deliberate
+    // one and wins. Without this, two sources targeting the same engine var (e.g.
+    // --engine-feature rolling_batch_backend=vllm → OPTION_ROLLING_BATCH=vllm AND
+    // --server-env OPTION_ROLLING_BATCH=auto) would emit two conflicting `export`
+    // lines into do/config and bash would silently take the last — order-dependent
+    // and invisible. Collapse to one entry per key (last-wins) and warn when the
+    // collision actually changed the value.
+    const _dedupedEnvVars = [];
+    const _envVarIndexByKey = new Map();
+    for (const { key, value } of orderedEnvVars) {
+        if (_envVarIndexByKey.has(key)) {
+            const idx = _envVarIndexByKey.get(key);
+            if (_dedupedEnvVars[idx].value !== value) {
+                console.warn(
+                    `⚠️  Multiple values for ${key}: using "${value}" (overrides "${_dedupedEnvVars[idx].value}"). ` +
+                    'Set it once — via --engine-feature OR --server-env/--model-env, not both.'
+                );
+            }
+            _dedupedEnvVars[idx] = { key, value };
+        } else {
+            _envVarIndexByKey.set(key, _dedupedEnvVars.length);
+            _dedupedEnvVars.push({ key, value });
+        }
+    }
+    orderedEnvVars.length = 0;
+    orderedEnvVars.push(..._dedupedEnvVars);
+
     // Prepare template variables
     const templateVars = {
         ...answers,
@@ -367,6 +438,28 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         orderedEnvVars,
         serverEnvVars: prefixedServerEnvVars
     };
+
+    // BL107: inject the active engine's env-var prefix from its serve-layer
+    // manifest (serve.d/<engine>/manifest.json). The serve wrappers read this
+    // via <%= envVarPrefix %> instead of hardcoding e.g. PREFIX="SGLANG_", so the
+    // prefix has a single source of truth (the manifest). Falls back to the
+    // engine-prefix map for engines without a manifest, then to empty.
+    templateVars.envVarPrefix = readEnvVarPrefix(engine) || '';
+
+    // Predictor-framework plugin data (HTTP architecture): the per-framework pip
+    // dependencies and the do/test payload come from the framework descriptor
+    // (predictors.d/<framework>/manifest.json) via the reader, not from hardcoded
+    // EJS branches. The framework is the `engine` answer (sklearn/xgboost/
+    // tensorflow). Non-http architectures leave these empty (the templates guard
+    // on length), and the per-framework handler is materialized separately in the
+    // `http` routing branch below.
+    const predictorFramework = answers.engine || '';
+    templateVars.predictorPipDependencies = predictorFramework
+        ? predictorPipDependencies(predictorFramework)
+        : [];
+    templateVars.predictorTestPayload = predictorFramework
+        ? (predictorTestPayload(predictorFramework) || '')
+        : '';
 
     // Add generator version to template vars so templates can embed it (e.g. MCC_VERSION in do/config)
     try {
@@ -381,6 +474,15 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
 
     // EJS partials — included by templates at render time, not copied to output
     ignorePatterns.push('**/serve.d/**');
+
+    // Predictor-framework plugins — descriptor + handler consumed at generation
+    // time (the selected framework's handler is materialized into
+    // code/model_handler.py by _materializePredictorHandler); the plugin tree
+    // itself is never copied verbatim, mirroring serve.d. There is no
+    // templates/code/model_handler.py source any more — the per-framework
+    // predictors.d/<framework>/handler.py is the only source of the generated
+    // code/model_handler.py.
+    ignorePatterns.push('**/predictors.d/**');
 
     // Resolve architecture
     const resolver = new DeploymentConfigResolver();
@@ -495,6 +597,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         ignorePatterns.push('**/triton/**');
         ignorePatterns.push('**/diffusors/**');
         ignorePatterns.push('**/hyperpod/**');
+        ignorePatterns.push('**/eks/**');
         ignorePatterns.push('**/MIGRATION.md');
         ignorePatterns.push('**/TEMPLATE_SYSTEM.md');
         ignorePatterns.push('**/IAM_PERMISSIONS.md');
@@ -576,6 +679,10 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
             _unlinkIfExists(path.join(destDir, 'code/flask/wsgi.py'));
             _unlinkIfExists(path.join(destDir, 'code/flask/gunicorn_config.py'));
         }
+
+        // Predictor-framework plugin: materialize the selected framework's
+        // handler (predictors.d/<framework>/handler.py) into code/model_handler.py.
+        _materializePredictorHandler(destDir, templateVars, answers);
         break;
 
     case 'transformers':
@@ -607,16 +714,20 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         _unlinkIfExists(path.join(destDir, 'code/model_handler.py'));
         _unlinkIfExists(path.join(destDir, 'code/serve.py'));
         _unlinkIfExists(path.join(destDir, 'code/start_server.py'));
+        // The predictor start_server.sh (copied by the bulk copy) is not used by
+        // diffusors — the container entrypoint is code/serve. Remove it so the
+        // generated project does not ship an unused script.
+        _unlinkIfExists(path.join(destDir, 'code/start_server.sh'));
         _unlinkIfExists(path.join(destDir, 'nginx-predictors.conf'));
         _unlinkIfExists(path.join(destDir, 'code/flask/wsgi.py'));
         _unlinkIfExists(path.join(destDir, 'code/flask/gunicorn_config.py'));
         _unlinkIfExists(path.join(destDir, 'code/chat_template.jinja'));
         _unlinkIfExists(path.join(destDir, 'code/serving.properties'));
 
-        // Copy diffusors-specific templates
+        // Copy diffusors-specific templates. The diffusors container entrypoint is
+        // code/serve (vllm serve --omni + nginx); there is no separate start_server.sh.
         _renderTemplate(path.join(templateDir, 'diffusors/Dockerfile'), path.join(destDir, 'Dockerfile'), templateVars);
         _renderTemplate(path.join(templateDir, 'diffusors/serve'), path.join(destDir, 'code/serve'), templateVars);
-        _renderTemplate(path.join(templateDir, 'diffusors/start_server.sh'), path.join(destDir, 'code/start_server.sh'), templateVars);
         _copyFile(path.join(templateDir, 'diffusors/patch_image_api.py'), path.join(destDir, 'code/patch_image_api.py'));
         break;
 
@@ -634,6 +745,7 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
         _unlinkIfExists(path.join(destDir, 'code/serve'));
         _unlinkIfExists(path.join(destDir, 'code/serving.properties'));
         _unlinkIfExists(path.join(destDir, 'code/start_server.sh'));
+        _materializePredictorHandler(destDir, templateVars, answers);
     }
 
     // nginx-tensorrt.conf: only needed for TensorRT-LLM
@@ -658,6 +770,25 @@ export async function writeProject(templateDir, destDir, answers, registryConfig
     _copyFile(path.join(LIB_DIR, 'manifest-cli.js'), path.join(doLibDir, 'manifest-cli.js'));
     _copyFile(path.join(LIB_DIR, 'asset-manager.js'), path.join(doLibDir, 'asset-manager.js'));
     _copyFile(path.join(LIB_DIR, 'bootstrap-config.js'), path.join(doLibDir, 'bootstrap-config.js'));
+
+    // BL111: ship the eks manifest EJS *source* (unrendered) into the project so
+    // do/deploy.d/eks can re-render from the template at deploy time — the render
+    // source of truth is the .ejs template resolved against current do/config, not
+    // the generate-time-frozen eks/*.yaml that copyTpl also writes (kept only as the
+    // envsubst-fallback input). Only the plain-EKS target needs this.
+    if (answers.deploymentTarget === 'eks' && architecture !== 'marketplace') {
+        const eksTemplateDir = path.join(templateDir, 'eks');
+        if (fs.existsSync(eksTemplateDir)) {
+            const eksDestDir = path.join(destDir, 'eks');
+            fs.mkdirSync(eksDestDir, { recursive: true });
+            for (const ejsSrc of fs.readdirSync(eksTemplateDir)) {
+                if (!ejsSrc.endsWith('.yaml.ejs')) continue;
+                // Copy verbatim (NOT EJS-rendered): the deploy-time render owns the
+                // <%= %> resolution so instanceType/GPU/model/serve reflect deploy time.
+                _copyFile(path.join(eksTemplateDir, ejsSrc), path.join(eksDestDir, ejsSrc));
+            }
+        }
+    }
 
     // Copy tune catalog to generated project when tune is included
     if (architecture === 'transformers' && answers.deploymentTarget !== 'batch-transform') {
@@ -815,6 +946,30 @@ function _writeGenerationParams(destDir, answers) {
         if (fs.existsSync(draftCatalogSrc)) {
             fs.copyFileSync(draftCatalogSrc, draftCatalogDest);
         }
+
+        // Copy serve-engine plugin manifests to .mlcc/serve.d/ so do/draft and
+        // do/deploy can read engine capabilities (supported_algorithms,
+        // env_var_prefix, dimension_map) at generation and deploy time. The
+        // wrappers themselves are excluded from output by the **/serve.d/**
+        // ignore pattern; only the manifest data is copied for the reader.
+        const serveDSrc = path.join(GENERATOR_ROOT, 'templates', 'code', 'serve.d');
+        const serveDDest = path.join(mlccDir, 'serve.d');
+        if (fs.existsSync(serveDSrc)) {
+            const schemaSrc = path.join(serveDSrc, 'manifest.schema.json');
+            if (fs.existsSync(schemaSrc)) {
+                fs.mkdirSync(serveDDest, { recursive: true });
+                fs.copyFileSync(schemaSrc, path.join(serveDDest, 'manifest.schema.json'));
+            }
+            for (const entry of fs.readdirSync(serveDSrc, { withFileTypes: true })) {
+                if (!entry.isDirectory()) continue;
+                const manifestSrc = path.join(serveDSrc, entry.name, 'manifest.json');
+                if (fs.existsSync(manifestSrc)) {
+                    const engineDest = path.join(serveDDest, entry.name);
+                    fs.mkdirSync(engineDest, { recursive: true });
+                    fs.copyFileSync(manifestSrc, path.join(engineDest, 'manifest.json'));
+                }
+            }
+        }
     } catch { /* non-fatal */ }
 }
 
@@ -918,6 +1073,39 @@ function _getOrderedEnvVars(envVars) {
     });
 
     return sorted.map(([key, value]) => ({ key, value }));
+}
+
+/**
+ * Materializes the selected predictor framework's handler into the generated
+ * project as code/model_handler.py.
+ *
+ * The HTTP predictor frameworks (sklearn/xgboost/tensorflow) are a hybrid plugin:
+ * the per-framework ModelHandler lives in predictors.d/<framework>/handler.py and
+ * is rendered (EJS, so `<%= modelFormat %>` in the handler's file-glob resolves)
+ * into code/model_handler.py. This is the SOLE source of the generated handler —
+ * the former framework-branched templates/code/model_handler.py was removed.
+ *
+ * @param {string} destDir - Destination project directory
+ * @param {object} templateVars - Template variables for EJS (carries modelFormat)
+ * @param {object} answers - Configuration answers (answers.engine = framework)
+ */
+function _materializePredictorHandler(destDir, templateVars, answers) {
+    const framework = answers.engine || '';
+    if (!framework) {
+        // No framework resolved (e.g. an http config without an engine). Nothing
+        // to materialize; validation elsewhere surfaces the missing engine.
+        return;
+    }
+    const srcHandler = predictorHandlerPath(framework);
+    if (!srcHandler) {
+        const available = listPredictorFrameworks().join(', ') || '(none)';
+        throw new Error(
+            `No predictor handler for framework "${framework}". ` +
+            `Available predictor frameworks: ${available}. ` +
+            'Add templates/code/predictors.d/<framework>/{manifest.json,handler.py}.'
+        );
+    }
+    _renderTemplate(srcHandler, path.join(destDir, 'code/model_handler.py'), templateVars);
 }
 
 /**

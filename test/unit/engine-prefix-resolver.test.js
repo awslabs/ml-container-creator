@@ -10,27 +10,80 @@
 
 import { describe, it } from 'mocha';
 import assert from 'assert';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
-    ENGINE_PREFIX_MAP,
+    ENGINE_PREFIX_ALIASES,
+    resolveEnginePrefix,
     resolvePrefix,
     resolvePrefixedEnvVars
 } from '../../src/lib/engine-prefix-resolver.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 describe('Engine Prefix Resolver', () => {
 
-    describe('ENGINE_PREFIX_MAP', () => {
-        it('should contain entries for all prefixed engines', () => {
-            assert.strictEqual(ENGINE_PREFIX_MAP['vllm'], 'VLLM_');
-            assert.strictEqual(ENGINE_PREFIX_MAP['vllm-omni'], 'VLLM_OMNI_');
-            assert.strictEqual(ENGINE_PREFIX_MAP['sglang'], 'SGLANG_');
-            assert.strictEqual(ENGINE_PREFIX_MAP['tensorrt-llm'], 'TRTLLM_');
-            assert.strictEqual(ENGINE_PREFIX_MAP['lmi'], 'LMI_');
-            assert.strictEqual(ENGINE_PREFIX_MAP['djl'], 'DJL_');
+    // ADR-004: prefixes for the four real engines come from their serve.d
+    // manifest (single source of truth); only aliases without a serve.d dir
+    // (vllm-omni, djl) live in the explicit alias table.
+    describe('prefix resolution (manifest + alias table)', () => {
+        it('resolves manifest-backed engines from their manifest env_var_prefix', () => {
+            assert.strictEqual(resolveEnginePrefix('vllm'), 'VLLM_');
+            assert.strictEqual(resolveEnginePrefix('sglang'), 'SGLANG_');
+            assert.strictEqual(resolveEnginePrefix('tensorrt-llm'), 'TRTLLM_');
+            assert.strictEqual(resolveEnginePrefix('lmi'), 'OPTION_');
         });
 
-        it('should not contain entries for flask or fastapi', () => {
-            assert.strictEqual(ENGINE_PREFIX_MAP['flask'], undefined);
-            assert.strictEqual(ENGINE_PREFIX_MAP['fastapi'], undefined);
+        it('resolves serve.d-less aliases from the alias table', () => {
+            assert.strictEqual(ENGINE_PREFIX_ALIASES['vllm-omni'], 'VLLM_OMNI_');
+            // djl reuses the DJL Serving container, which reads OPTION_* vars
+            // (same as the lmi plugin) — NOT a DJL_ prefix the container ignores.
+            assert.strictEqual(ENGINE_PREFIX_ALIASES['djl'], 'OPTION_');
+            assert.strictEqual(resolveEnginePrefix('vllm-omni'), 'VLLM_OMNI_');
+            assert.strictEqual(resolveEnginePrefix('djl'), 'OPTION_');
+        });
+
+        it('the alias table does NOT duplicate the four real-engine prefixes', () => {
+            for (const e of ['vllm', 'sglang', 'tensorrt-llm', 'lmi']) {
+                assert.strictEqual(ENGINE_PREFIX_ALIASES[e], undefined,
+                    `${e} prefix must come from its manifest, not the alias table`);
+            }
+        });
+
+        it('returns empty prefix for flask, fastapi, unknown', () => {
+            assert.strictEqual(resolveEnginePrefix('flask'), '');
+            assert.strictEqual(resolveEnginePrefix('fastapi'), '');
+            assert.strictEqual(resolveEnginePrefix('unknown-engine'), '');
+            assert.strictEqual(resolveEnginePrefix(''), '');
+        });
+    });
+
+    // ADR-004 T3: the resolver's vllm prefix agrees with the vllm manifest, and
+    // there is no second hardcoded prefix map competing with the manifest.
+    describe('single source of truth (manifest agreement)', () => {
+        it('resolvePrefix("vllm", key) agrees with the vllm manifest env_var_prefix', () => {
+            const manifest = JSON.parse(readFileSync(
+                resolve(__dirname, '../../templates/code/serve.d/vllm/manifest.json'), 'utf8'));
+            assert.strictEqual(
+                resolvePrefix('vllm', 'TENSOR_PARALLEL_SIZE'),
+                `${manifest.env_var_prefix}TENSOR_PARALLEL_SIZE`);
+            assert.strictEqual(resolveEnginePrefix('vllm'), manifest.env_var_prefix);
+        });
+
+        it('every manifest-backed engine resolves to its manifest env_var_prefix', () => {
+            for (const engine of ['vllm', 'sglang', 'tensorrt-llm', 'lmi']) {
+                const manifest = JSON.parse(readFileSync(
+                    resolve(__dirname, `../../templates/code/serve.d/${engine}/manifest.json`), 'utf8'));
+                assert.strictEqual(resolveEnginePrefix(engine), manifest.env_var_prefix,
+                    `${engine} resolver prefix must equal its manifest env_var_prefix`);
+            }
+        });
+
+        it('the module exports no hardcoded ENGINE_PREFIX_MAP (retired by ADR-004)', async () => {
+            const mod = await import('../../src/lib/engine-prefix-resolver.js');
+            assert.strictEqual(mod.ENGINE_PREFIX_MAP, undefined,
+                'ENGINE_PREFIX_MAP must be retired; prefixes come from manifests + the alias table');
         });
     });
 
@@ -53,12 +106,20 @@ describe('Engine Prefix Resolver', () => {
                 assert.strictEqual(resolvePrefix('tensorrt-llm', 'MAX_BATCH_SIZE'), 'TRTLLM_MAX_BATCH_SIZE');
             });
 
-            it('should prepend LMI_ for lmi engine', () => {
-                assert.strictEqual(resolvePrefix('lmi', 'TENSOR_PARALLEL_DEGREE'), 'LMI_TENSOR_PARALLEL_DEGREE');
+            it('should prepend OPTION_ for lmi engine (DJL reads OPTION_* env vars)', () => {
+                assert.strictEqual(resolvePrefix('lmi', 'TENSOR_PARALLEL_DEGREE'), 'OPTION_TENSOR_PARALLEL_DEGREE');
             });
 
-            it('should prepend DJL_ for djl engine', () => {
-                assert.strictEqual(resolvePrefix('djl', 'BATCH_SIZE'), 'DJL_BATCH_SIZE');
+            it('should prepend OPTION_ for djl engine (DJL Serving reads OPTION_* vars)', () => {
+                // Regression: djl previously prefixed DJL_, which the DJL Serving
+                // container ignores, silently dropping the user's --server-env value.
+                // It reuses the lmi wrapper and must share lmi's OPTION_ contract.
+                assert.strictEqual(resolvePrefix('djl', 'BATCH_SIZE'), 'OPTION_BATCH_SIZE');
+            });
+
+            it('djl and lmi resolve to the SAME prefix (both are DJL Serving)', () => {
+                assert.strictEqual(resolveEnginePrefix('djl'), resolveEnginePrefix('lmi'),
+                    'djl (alias) and lmi (manifest) must agree — both run DJL Serving reading OPTION_*');
             });
         });
 

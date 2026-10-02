@@ -96,7 +96,9 @@ describe('JumpStart Rejection', () => {
             assert.ok(output.includes('HuggingFace model ID'), 'Should suggest HuggingFace');
             assert.ok(output.includes('s3://'), 'Should suggest S3 prefix');
             assert.ok(output.includes('registry://'), 'Should suggest registry prefix');
-            assert.ok(output.includes('marketplace://'), 'Should suggest marketplace prefix');
+            // marketplace is deprecated and hard-refused — it must NOT be offered
+            // as a JumpStart migration alternative.
+            assert.ok(!output.includes('marketplace://'), 'Should NOT suggest deprecated marketplace prefix');
         });
     });
 

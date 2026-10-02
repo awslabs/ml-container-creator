@@ -13,46 +13,34 @@
  * Uses a pluggable ModelResolver architecture. V1 ships with HuggingFaceResolver
  * and StaticCatalogResolver.
  *
+ * PATTERN: MCP picker server built on the shared createPickerServer factory.
+ *   Declares only its unique pieces — the model catalogs, the resolver stack,
+ *   and the get_models / write_local_model tools — and lets the factory own the
+ *   scaffold (catalog loader, main-guard, stdio wiring).
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold),
+ *   servers/lib/load-catalog.js (catalog loader), servers/lib/dynamic-resolver.js
+ *   and override-loader.js (resolvers); spawned by src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: given { model_id, fields?, mode?, context? }, returns model
+ *   metadata { values, choices, message } from catalogs and/or the HF Hub.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
+ *
  * Tool: get_models
  *   Accepts: { model_id: string, fields?: string[], mode?: string, context?: object }
  *   Returns: { values, choices, message }
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { resolve, dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { DynamicResolver } from '../lib/dynamic-resolver.js';
 import { loadWithOverrides, resolveProjectDir } from '../lib/override-loader.js';
+import { createPickerServer } from '../lib/create-picker-server.js';
+import { makeLoadCatalog, resolveServerDir } from '../lib/load-catalog.js';
 
-// ── Catalog loader ───────────────────────────────────────────────────────────
+// ── Catalog loader (shared; single source of truth in servers/lib) ────────────
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-/**
- * Load and parse a JSON catalog file relative to the server directory.
- * Throws on missing file or invalid JSON with the file path in the message.
- *
- * @param {string} relativePath - Path relative to server dir (e.g. './catalogs/popular-transformers.json')
- * @returns {any} Parsed JSON content
- */
-function loadCatalog(relativePath) {
-    const fullPath = resolve(__dirname, relativePath);
-    let raw;
-    try {
-        raw = readFileSync(fullPath, 'utf8');
-    } catch (err) {
-        throw new Error(`Catalog file not found: ${fullPath}`);
-    }
-    try {
-        return JSON.parse(raw);
-    } catch (err) {
-        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`);
-    }
-}
+const loadCatalog = makeLoadCatalog(resolveServerDir(import.meta.url));
 
 // ── ModelResolver interface ──────────────────────────────────────────────────
 
@@ -1653,15 +1641,10 @@ async function resolveModel({ model_id, fields, mode = 'discover', context }) {
 
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
-const server = new McpServer({
-    name: 'model-picker',
-    version: '1.0.0'
-});
-
-server.tool(
-    'get_models',
-    'Returns model metadata for ML Container Creator',
-    {
+const getModelsTool = {
+    name: 'get_models',
+    description: 'Returns model metadata for ML Container Creator',
+    schema: {
         model_id: z.string().min(1).describe('Model identifier'),
         fields: z.array(z.string()).optional().describe(
             'Metadata fields to return (omit for all)'
@@ -1672,13 +1655,13 @@ server.tool(
             'Current configuration context'
         )
     },
-    async (params) => resolveModel(params)
-);
+    handler: async (params) => resolveModel(params)
+};
 
-server.tool(
-    'write_local_model',
-    'Add a model to the project-local catalog override (.mlcc/model-picker.json). Use when the user describes a model not in the shipped catalog.',
-    {
+const writeLocalModelTool = {
+    name: 'write_local_model',
+    description: 'Add a model to the project-local catalog override (.mlcc/model-picker.json). Use when the user describes a model not in the shipped catalog.',
+    schema: {
         name: z.string().min(1).describe('Model name/identifier (e.g., "custom/deepseek-15b")'),
         parameters: z.string().min(1).describe('Parameter count string (e.g., "15B")'),
         architecture: z.string().optional().describe('Model architecture (e.g., "Qwen2ForCausalLM")'),
@@ -1688,7 +1671,7 @@ server.tool(
             projectDir: z.string().optional()
         }).optional().describe('Optional context with projectDir')
     },
-    async (params) => {
+    handler: async (params) => {
         const { name, parameters, architecture, contextLength, quantizationOptions, context } = params;
 
         // Validate required fields
@@ -1747,7 +1730,15 @@ server.tool(
 
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
-);
+};
+
+// ── Server construction (scaffold via the factory) ────────────────────────────
+
+const picker = createPickerServer({
+    name: 'model-picker',
+    serverDir: import.meta.url,
+    tools: [getModelsTool, writeLocalModelTool]
+});
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
@@ -1778,11 +1769,9 @@ export {
 };
 
 // ── Main guard ───────────────────────────────────────────────────────────────
+// Connect stdio transport only when run as the main module (via the factory).
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    process.stderr.write('[model-picker] Starting model-picker MCP server\n');
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => picker.log('Starting model-picker MCP server')
+});

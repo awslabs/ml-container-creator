@@ -34,12 +34,17 @@ from deploy_schema import STATUS_VARS  # noqa: E402
 
 ALL_TARGETS = list(STATUS_VARS.keys())
 
-# Valid status values per target (from design.md)
+# Valid status values per target (from design.md).
+# Keyed by the CANONICAL target names (== STATUS_VARS keys / descriptor `target`),
+# not the `managed-inference` shell alias — so ALL_TARGETS (derived from
+# STATUS_VARS) always has a matching entry here. eks mirrors hyperpod-eks
+# (both Kubernetes-family, success status Running). See ADR-008.
 TARGET_VALID_STATUSES: dict[str, list[str]] = {
-    "managed-inference": ["InService", "Creating", "Failed", ""],
+    "realtime-inference": ["InService", "Creating", "Failed", ""],
     "hyperpod-eks": ["Running", "Creating", "Failed", ""],
     "async-inference": ["InService", "Creating", "Failed", ""],
     "batch-transform": ["Completed", "InProgress", "Failed", ""],
+    "eks": ["Running", "Creating", "Failed", ""],
 }
 
 # ---------------------------------------------------------------------------
@@ -325,29 +330,32 @@ class TestStatusVarsIndependentCP8:
         deadline=20000,
         suppress_health_check=[HealthCheck.too_slow],
     )
-    def test_deploy_to_all_four_targets_each_only_writes_own(
+    def test_deploy_to_all_targets_each_only_writes_own(
         self, initial_config, tmp_path_factory
     ):
-        """Mixed deployment across all 4 targets: each deploy only writes its own var.
+        """Mixed deployment across all targets: each deploy only writes its own var.
 
-        Deploy to all 4 targets in random order and verify final state is
-        exactly: each target has the status from its own deploy, not from any other.
+        Deploy to every target and verify final state is exactly: each target has
+        the status from its own deploy, not from any other.
         """
         tmpdir = str(tmp_path_factory.mktemp("cp8_all4"))
         config_path = _write_config(tmpdir, initial_config)
 
-        # Deploy to every target with a known status (not from initial)
+        # Deploy to every target with a known status (not from initial).
+        # Keyed by canonical target names (== STATUS_VARS keys), covering all
+        # five targets including eks. See ADR-008.
         deploy_statuses = {
-            "managed-inference": "Creating",
+            "realtime-inference": "Creating",
             "hyperpod-eks": "Creating",
             "async-inference": "Creating",
             "batch-transform": "InProgress",
+            "eks": "Creating",
         }
 
         for target, status in deploy_statuses.items():
             _deploy_to_target(tmpdir, target, status)
 
-        # After deploying to all 4, each target should have exactly its deployed status
+        # After deploying to all targets, each should have exactly its deployed status
         for target, expected_status in deploy_statuses.items():
             var = STATUS_VARS[target]
             actual = _read_config_var(config_path, var)

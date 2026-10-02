@@ -13,14 +13,25 @@
  * Tool: interpret
  *   Accepts: { context, data?, objective }
  *   Returns: { interpretation, confidence?, suggestions? }
+ *
+ * PATTERN: MCP server built on the shared createPickerServer factory for its
+ *   scaffold only (logger, main-guard, stdio wiring). Unlike the catalog-backed
+ *   pickers, reasoning keeps its own Bedrock provider and DEFAULT_REASONING_CONFIG
+ *   loaded from config/agent.json — it does NOT use the factory's bedrock option.
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold); invokes
+ *   @aws-sdk/client-bedrock-runtime directly via invokeBedrockProvider; reads
+ *   config/agent.json; spawned by src/lib/mcp-client.js over stdio.
+ * DATA-FLOW ROLE: reasoning. Given { context, data?, objective }, returns an
+ *   { interpretation, confidence?, suggestions? } envelope from Bedrock.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
+import { createPickerServer } from '../lib/create-picker-server.js';
 
 // ── Path setup ───────────────────────────────────────────────────────────────
 
@@ -285,23 +296,24 @@ async function handleInterpret({ context, data, objective }) {
 
 // ── MCP Server setup ─────────────────────────────────────────────────────────
 
-const server = new McpServer({
+const picker = createPickerServer({
     name: 'reasoning',
-    version: '1.0.0'
+    serverDir: import.meta.url,
+    tools: [{
+        name: 'interpret',
+        description: 'Stateless reasoning/interpretation tool. Pass context about a project or deployment, optional structured data, and an objective (explain, recommend, diagnose, plan). Returns an interpretation with optional confidence and suggestions.',
+        schema: {
+            context: z.string().describe('Background about the project, deployment, or model'),
+            data: z.record(z.unknown()).optional().describe('Structured data to reason about (metrics, recommendations, log lines, etc.)'),
+            objective: z.string().describe('What to do with the context and data (explain, recommend, diagnose, plan)')
+        },
+        handler: async (params) => {
+            return handleInterpret(params);
+        }
+    }]
 });
 
-server.tool(
-    'interpret',
-    'Stateless reasoning/interpretation tool. Pass context about a project or deployment, optional structured data, and an objective (explain, recommend, diagnose, plan). Returns an interpretation with optional confidence and suggestions.',
-    {
-        context: z.string().describe('Background about the project, deployment, or model'),
-        data: z.record(z.unknown()).optional().describe('Structured data to reason about (metrics, recommendations, log lines, etc.)'),
-        objective: z.string().describe('What to do with the context and data (explain, recommend, diagnose, plan)')
-    },
-    async (params) => {
-        return handleInterpret(params);
-    }
-);
+const { server } = picker;
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
@@ -318,10 +330,7 @@ export {
 
 // ── Transport connection (main module only) ──────────────────────────────────
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    log(`Starting reasoning MCP server (provider: ${reasoningConfig.provider}, model: ${reasoningConfig.modelId})`);
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => log(`Starting reasoning MCP server (provider: ${reasoningConfig.provider}, model: ${reasoningConfig.modelId})`)
+});

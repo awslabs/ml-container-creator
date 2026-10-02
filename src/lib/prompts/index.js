@@ -16,7 +16,9 @@ export {
     modelProfilePrompts,
     hfTokenPrompts,
     buildHfTokenPrompts,
-    ngcApiKeyPrompts
+    ngcApiKeyPrompts,
+    engineFeaturePrompts,
+    ENGINE_FEATURE_ANSWER_PREFIX
 } from './model-prompts.js';
 
 export {

@@ -43,3 +43,9 @@ infra/bootstrap-modules/.hyperpod-helm-cache/
 docs/dev/*-pr-summary.md
 docs/dev/*-pr-description.md
 docs/dev/v*-release-notes.md
+
+# MLflow local tracking store (created when logging without a remote MLFLOW_TRACKING_URI)
+mlruns/
+mlflow.db
+mlflow.db-journal
+mlflow.db-wal

@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-17T20:46:05.119Z",
-  "version": "1.6.5",
+  "generatedAt": "2026-10-02T00:19:08.169Z",
+  "version": "1.8.0",
   "cliOptions": [
     {
       "flag": "--backend",
@@ -1167,6 +1167,15 @@
       "memGb": 2048,
       "family": "g7e",
       "costTier": "very-high"
+    },
+    "ml.p6-b300.48xlarge": {
+      "gpus": 8,
+      "gpuType": "NVIDIA B300",
+      "gpuMemoryGb": 268,
+      "vcpus": 192,
+      "memGb": 4096,
+      "family": "p6-b300",
+      "costTier": "very-high"
     }
   },
   "deploymentTargets": [
@@ -1252,6 +1261,11 @@
     ],
     "triton-python": [
       "TRITON_MODEL_REPOSITORY"
+    ],
+    "llama-cpp": [
+      "SM_LLAMA_CPP_N_GPU_LAYERS",
+      "SM_LLAMA_CPP_PORT",
+      "SM_LLAMA_CPP_THREADS"
     ]
   },
   "icVars": [
@@ -1268,15 +1282,11 @@
   ],
   "adapterCommands": [
     {
-      "name": "list",
-      "flags": []
-    },
-    {
       "name": "add",
       "flags": [
         {
           "flag": "--weights",
-          "argName": "s3-uri"
+          "argName": null
         },
         {
           "flag": "--from-hub",
@@ -1306,11 +1316,20 @@
       ]
     },
     {
+      "name": "list",
+      "flags": [
+        {
+          "flag": "--weights",
+          "argName": null
+        }
+      ]
+    },
+    {
       "name": "update",
       "flags": [
         {
           "flag": "--weights",
-          "argName": "new-s3-uri"
+          "argName": null
         },
         {
           "flag": "--from-hub",

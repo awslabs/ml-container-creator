@@ -18,17 +18,17 @@
 
 import { setupTestHooks } from './test-utils.js';
 import assert from 'assert';
-import ConfigurationManager from '../../src/lib/configuration-manager.js';
+import RegistryConfigManager from '../../src/lib/registry-config-manager.js';
 import ConfigurationMatcher from '../../src/lib/configuration-matcher.js';
 
 describe('Configuration System', () => {
     setupTestHooks('Configuration System');
 
-    describe('ConfigurationManager', () => {
+    describe('RegistryConfigManager', () => {
         let configManager;
 
         beforeEach(() => {
-            configManager = new ConfigurationManager({ offline: true });
+            configManager = new RegistryConfigManager({ offline: true });
         });
 
         it('should load all registries successfully', async () => {
@@ -256,7 +256,7 @@ describe('Configuration System', () => {
 
     describe('Configuration Export', () => {
         it('should export configuration with all required fields', async () => {
-            const configManager = new ConfigurationManager({ offline: true });
+            const configManager = new RegistryConfigManager({ offline: true });
             
             configManager.frameworkRegistry = {
                 'vllm': {

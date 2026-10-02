@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-25T18:13:07.596Z",
+  "generatedAt": "2026-10-02T00:56:01.901Z",
   "generatedBy": "scripts/codegen-widget.js",
   "source": "config/parameter-schema-v2.json",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "schemaVersion": "2.0.0",
   "widgetSections": {
     "model-server": [
@@ -48,6 +48,7 @@
             "transformers-tensorrt-llm",
             "transformers-lmi",
             "transformers-djl",
+            "transformers-llama-cpp",
             "triton-fil",
             "triton-onnxruntime",
             "triton-tensorflow",
@@ -55,8 +56,7 @@
             "triton-vllm",
             "triton-tensorrtllm",
             "triton-python",
-            "diffusors-vllm-omni",
-            "marketplace"
+            "diffusors-vllm-omni"
           ]
         },
         "group": "model",
@@ -73,7 +73,7 @@
         "key": "modelName",
         "cliFlag": "--model-name",
         "type": "string",
-        "description": "Model identifier (hf-org/model, s3://..., registry://..., marketplace://...)",
+        "description": "Model identifier (hf-org/model, s3://..., registry://...)",
         "inputType": "text",
         "placeholder": "e.g. meta-llama/Llama-3.1-8B-Instruct",
         "datalist": "models",
@@ -98,7 +98,7 @@
         "key": "deploymentTarget",
         "cliFlag": "--deployment-target",
         "type": "enum",
-        "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)",
+        "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks, eks)",
         "inputType": "select",
         "placeholder": null,
         "datalist": null,
@@ -109,7 +109,8 @@
             "realtime-inference",
             "async-inference",
             "batch-transform",
-            "hyperpod-eks"
+            "hyperpod-eks",
+            "eks"
           ]
         },
         "group": "infrastructure",
@@ -230,7 +231,11 @@
         "group": "lora",
         "appliesTo": {
           "deploymentTargets": [
-            "managed-inference"
+            "managed-inference",
+            "hyperpod-eks",
+            "async-inference",
+            "batch-transform",
+            "eks"
           ],
           "architectures": [
             "transformers"
@@ -253,7 +258,11 @@
         "group": "lora",
         "appliesTo": {
           "deploymentTargets": [
-            "managed-inference"
+            "managed-inference",
+            "hyperpod-eks",
+            "async-inference",
+            "batch-transform",
+            "eks"
           ],
           "architectures": [
             "transformers"
@@ -276,7 +285,11 @@
         "group": "lora",
         "appliesTo": {
           "deploymentTargets": [
-            "managed-inference"
+            "managed-inference",
+            "hyperpod-eks",
+            "async-inference",
+            "batch-transform",
+            "eks"
           ],
           "architectures": [
             "transformers"
@@ -457,6 +470,26 @@
             "*"
           ]
         }
+      },
+      {
+        "key": "engineFeature",
+        "cliFlag": "--engine-feature",
+        "type": "string",
+        "description": "Enable an engine-specific feature declared in the selected engine's serve plugin (engine_features). Form NAME=VALUE, repeatable (e.g. radix_attention=true for SGLang, rolling_batch_backend=vllm for LMI). Resolved to the engine's real env var and validated against the manifest.",
+        "inputType": "repeatable-kv",
+        "placeholder": null,
+        "datalist": null,
+        "default": [],
+        "validation": {},
+        "group": "model",
+        "appliesTo": {
+          "deploymentTargets": [
+            "*"
+          ],
+          "architectures": [
+            "*"
+          ]
+        }
       }
     ]
   },
@@ -484,7 +517,7 @@
     {
       "key": "modelName",
       "cliFlag": "--model-name",
-      "description": "Model identifier (hf-org/model, s3://..., registry://..., marketplace://...)",
+      "description": "Model identifier (hf-org/model, s3://..., registry://...)",
       "type": "string",
       "group": "model",
       "phase": "model",
@@ -494,7 +527,7 @@
     {
       "key": "deploymentTarget",
       "cliFlag": "--deployment-target",
-      "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks)",
+      "description": "Deployment target (managed-inference, async-inference, batch-transform, hyperpod-eks, eks)",
       "type": "enum",
       "group": "infrastructure",
       "phase": "infrastructure",
@@ -1142,6 +1175,16 @@
       "hasWidget": true
     },
     {
+      "key": "engineFeature",
+      "cliFlag": "--engine-feature",
+      "description": "Enable an engine-specific feature declared in the selected engine's serve plugin (engine_features). Form NAME=VALUE, repeatable (e.g. radix_attention=true for SGLang, rolling_batch_backend=vllm for LMI). Resolved to the engine's real env var and validated against the manifest.",
+      "type": "string",
+      "group": "model",
+      "phase": "features",
+      "deprecated": false,
+      "hasWidget": true
+    },
+    {
       "key": "includeSample",
       "cliFlag": "--include-sample",
       "description": "Include sample model code",
@@ -1240,6 +1283,7 @@
     "transformers-tensorrt-llm",
     "transformers-lmi",
     "transformers-djl",
+    "transformers-llama-cpp",
     "triton-fil",
     "triton-onnxruntime",
     "triton-tensorflow",
@@ -1247,14 +1291,14 @@
     "triton-vllm",
     "triton-tensorrtllm",
     "triton-python",
-    "diffusors-vllm-omni",
-    "marketplace"
+    "diffusors-vllm-omni"
   ],
   "deploymentTargets": [
     "managed-inference",
     "realtime-inference",
     "async-inference",
     "batch-transform",
-    "hyperpod-eks"
+    "hyperpod-eks",
+    "eks"
   ]
 }

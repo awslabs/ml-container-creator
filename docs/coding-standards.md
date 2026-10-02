@@ -203,10 +203,10 @@ describe('@aws/ml-container-creator', () => {
 // Collect basic project info before framework-specific questions
 
 // Document complex logic
-// Transformers don't need traditional model handlers
-// because they use vLLM/SGLang's built-in serving
-if (this.answers.framework === 'transformers') {
-    ignorePatterns.push('**/code/model_handler.py');
+// The LoRA adapter sidecar is only needed when multi-adapter serving is
+// enabled; exclude it otherwise so it never ships to projects that can't use it
+if (!answers.enableLora) {
+    ignorePatterns.push('**/code/adapter_sidecar.py');
 }
 ```
 

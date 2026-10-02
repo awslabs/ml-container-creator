@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlcc/targets.d/manifest.schema.json",
+  "title": "MLCC Deployment-Target Descriptor",
+  "description": "Per-deployment-target descriptor. The single source of truth for a target's contract (status var, success status, config schema, verb applicability). The scattered authorities (do/config template, _guard_deployment_active, do-config.js SHELL_VAR_TO_ANSWER, regenerate RUNTIME_OWNED_VARS, the deploy/clean dispatchers, deploy_schema.py) DERIVE from these descriptors instead of hardcoding per-target knowledge. See ADR-008.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "target",
+    "aliases",
+    "status_var",
+    "answer_key",
+    "success_status",
+    "family",
+    "deploy_script",
+    "clean_script",
+    "required_vars",
+    "optional_vars",
+    "runtime_owned_vars",
+    "serving_config_source",
+    "verbs",
+    "answer_params"
+  ],
+  "properties": {
+    "target": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Canonical target key; matches the descriptor directory name (e.g. realtime-inference, eks)."
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+      "uniqueItems": true,
+      "description": "Backward-compatible alias names that normalize to `target` (e.g. managed-inference -> realtime-inference). Empty [] when none."
+    },
+    "status_var": {
+      "type": "string",
+      "pattern": "^DEPLOYMENT_TARGET_[A-Z0-9]+_STATUS$",
+      "description": "The per-target state variable written to do/config on deploy success/failure. Read by _guard_deployment_active."
+    },
+    "answer_key": {
+      "type": "string",
+      "pattern": "^deploymentTarget[A-Za-z0-9]+Status$",
+      "description": "The camelCase generator-answer key for status_var, used by do-config.js SHELL_VAR_TO_ANSWER."
+    },
+    "success_status": {
+      "type": "string",
+      "enum": ["InService", "Running", "Completed"],
+      "description": "The status_var value that means 'active' for this target. Must be one of the states _guard_deployment_active accepts."
+    },
+    "family": {
+      "type": "string",
+      "enum": ["sagemaker-endpoint", "sagemaker-job", "kubernetes"],
+      "description": "Deployment family. sagemaker-endpoint: real-time/async managed endpoints. sagemaker-job: batch transform. kubernetes: served as k8s pods (hyperpod-eks via the operator, eks without it)."
+    },
+    "deploy_script": {
+      "type": "string",
+      "pattern": "^deploy\\.d/[a-z][a-z0-9-]*$",
+      "description": "Path (relative to do/) of the deploy dispatcher target script."
+    },
+    "clean_script": {
+      "type": "string",
+      "pattern": "^clean\\.d/[a-z][a-z0-9-]*$",
+      "description": "Path (relative to do/) of the teardown target script."
+    },
+    "required_vars": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+      "uniqueItems": true,
+      "description": "Config vars that must be non-empty before deploy (deploy_schema.py SCHEMAS.required)."
+    },
+    "optional_vars": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Optional config vars with their default values (deploy_schema.py SCHEMAS.optional)."
+    },
+    "runtime_owned_vars": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+      "uniqueItems": true,
+      "description": "Vars this target writes at runtime that `mcc regenerate` must PRESERVE (feed regenerate's RUNTIME_OWNED_VARS). Always includes status_var; add any other per-target runtime-written vars. Cross-target/global runtime vars (VLLM_*, HP_SPECULATIVE_*, benchmark, mlflow) stay in the shared set, not here."
+    },
+    "serving_config_source": {
+      "type": "string",
+      "enum": ["kubernetes", "sagemaker-ic"],
+      "description": "Which resolve-serving-config.sh resolution arm this target uses. kubernetes: reads HP_*/BENCHMARK_* (hyperpod-eks, eks). sagemaker-ic: reads DEPLOYED_INSTANCE_TYPE/IC_ENV_* (realtime, async, batch)."
+    },
+    "verbs": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" },
+      "description": "Per-verb applicability for verbs that are target-restricted. true = the verb applies to this target; false = the verb refuses it (exit 3). Only verbs that vary by target need listing (optimize, add-ic, ci, adapter, draft). Verbs with `targets: all` are not listed.",
+      "properties": {
+        "optimize": { "type": "boolean" },
+        "add-ic": { "type": "boolean" },
+        "ci": { "type": "boolean" },
+        "adapter": { "type": "boolean" },
+        "draft": { "type": "boolean" }
+      }
+    },
+    "answer_params": {
+      "type": "array",
+      "description": "The single source of truth for this target's deploy answer-key plumbing (see docs/adr/ADR-008 and .kiro/steering/derive-dont-hardcode.md). Each entry ties an answer key (DEPLOY_ANSWERS JSON key) to its config var, optional CLI flag, and roles. The four historical tables — CLI_FLAG_TO_VARS (deploy-config-builder.js), flag_to_answer_key (.deploy_helper.py), _ANSWER_KEY_TO_VAR (deploy_prompts.py), and the inline KEY_MAP (do/deploy) — plus do/deploy's flag arg-parse arms and both forwarding blocks all DERIVE from the union of these per-target arrays. Option B: every target lists all its params independently (including core target/instance_type) so a target can add or target-scope a param without touching a shared table; a conformance test enforces that any answerKey shared across targets maps to the same configVar.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["answerKey", "configVar", "roles"],
+        "properties": {
+          "answerKey": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "description": "The snake_case DEPLOY_ANSWERS JSON key."
+          },
+          "configVar": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "description": "The SCREAMING_SNAKE config/env var the answer key resolves to."
+          },
+          "flag": {
+            "type": "string",
+            "pattern": "^--[a-z][a-z-]*$",
+            "description": "The CLI flag (do/deploy) that supplies this value. Present only for roles that include flag-input."
+          },
+          "roles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": ["flag-input", "prompt-core", "internal", "builder-output", "input-only"]
+            },
+            "description": "flag-input: has a CLI flag; appears in builder/helper flag tables, do/deploy arg-parse arms, and both forwarding blocks. prompt-core: the core target/instance_type params handled specially by the builder but still answer keys on the Python side. internal: no flag; produced by prompts/builder; part of the DEPLOY_ANSWERS input surface (_ANSWER_KEY_TO_VAR). builder-output: emitted only in the Node builder's JSON output (do/deploy KEY_MAP); no flag, no prompt input. input-only: a flag/prompt/internal param the builder does NOT re-emit, so it is excluded from the output KEY_MAP (e.g. endpoint_name, re-emitted target-scoped as smai_/async_endpoint_name; hp_instance_group_name)."
+          }
+        }
+      }
+    }
+  }
+}

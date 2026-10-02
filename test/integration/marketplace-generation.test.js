@@ -2,207 +2,120 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Marketplace Generation Integration Tests
+ * Marketplace Refusal Integration Tests
  *
- * End-to-end generation test verifying file structure for marketplace projects.
+ * Marketplace deployment configs are deprecated and hard-refused: deploying a
+ * pre-built vendor model package never builds a container, which violates this
+ * tool's core promise (bring your own container). The generator must refuse with
+ * a non-zero exit and a clear message, mirroring the JumpStart hard-refusal.
  *
- * Feature: marketplace-model-packages
- * Validates: Requirements 8.1, 8.2, 8.3
+ * The dormant marketplace flow / templates remain in tree for one release, but
+ * are unreachable — so generation must NOT produce a project.
  */
 
 import { describe, it } from 'mocha';
 import { strict as assert } from 'node:assert';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { execFileSync } from 'child_process';
+import { fileURLToPath } from 'url';
 import { runGenerator } from '../helpers/run-generator.js';
 
-describe('Marketplace Generation (Integration)', () => {
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLI_PATH = path.resolve(__dirname, '../../bin/cli.js');
 
-    const baseArgs = {
-        'project-name': 'test-marketplace-integration',
-        'deployment-config': 'marketplace',
-        'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
-        'instance-type': 'ml.g5.xlarge',
-        'region': 'us-east-1'
-    };
+describe('Marketplace Refusal (Integration)', () => {
 
-    // ── File structure verification ──────────────────────────────────────
+    /**
+     * Runs the generator and returns the thrown wrapped error (exitCode/stderr),
+     * failing the test if generation unexpectedly succeeds.
+     */
+    function runExpectingRefusal(args) {
+        let result;
+        try {
+            result = runGenerator(args);
+        } catch (error) {
+            return error;
+        }
+        // Generation should never succeed for marketplace — clean up and fail.
+        result.cleanup();
+        throw new Error('Expected marketplace generation to be refused, but it succeeded');
+    }
 
-    describe('File structure', () => {
+    /**
+     * Runs the CLI against a JSON config file (bypassing Commander's per-flag enum
+     * validation) and returns { exitCode, stderr, stdout }.
+     */
+    function runWithConfigFile(config) {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mlcc-mkt-'));
+        const configPath = path.join(tempDir, 'config.json');
+        fs.writeFileSync(configPath, JSON.stringify(config));
+        try {
+            execFileSync(process.execPath, [
+                CLI_PATH, '--skip-prompts', `--config=${configPath}`, `--project-dir=${tempDir}`
+            ], { cwd: tempDir, env: { ...process.env, VALIDATE_ENV_VARS: 'false' }, stdio: 'pipe' });
+        } catch (error) {
+            return {
+                exitCode: error.status,
+                stderr: error.stderr ? error.stderr.toString() : '',
+                stdout: error.stdout ? error.stdout.toString() : ''
+            };
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+        return { exitCode: 0, stderr: '', stdout: '' };
+    }
 
-        it('should NOT produce Dockerfile', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertNoFile('Dockerfile');
-            } finally {
-                result.cleanup();
-            }
+    it('the CLI rejects --deployment-config=marketplace (not an allowed choice)', () => {
+        // marketplace is no longer in the deployment-config enum, so Commander
+        // itself rejects it at parse time with a non-zero exit.
+        const error = runExpectingRefusal({
+            'project-name': 'test-marketplace-refusal',
+            'deployment-config': 'marketplace',
+            'instance-type': 'ml.g5.xlarge',
+            'region': 'us-east-1'
         });
-
-        it('should NOT produce code/ directory', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertNoFile('code/model_handler.py');
-                result.assertNoFile('code/serve.py');
-                result.assertNoFile('code/serve');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('should NOT produce do/build', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertNoFile('do/build');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('should NOT produce do/push', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertNoFile('do/push');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('should NOT produce do/submit', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertNoFile('do/submit');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('should produce do/deploy', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFile('do/deploy');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('should produce do/config', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFile('do/config');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('should produce do/test', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFile('do/test');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('should produce do/clean', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFile('do/clean');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('should produce do/status', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFile('do/status');
-            } finally {
-                result.cleanup();
-            }
-        });
+        assert.equal(error.exitCode, 1, 'generator should exit non-zero');
+        // Commander reports the invalid value and lists the allowed choices;
+        // marketplace must not appear in that allowed-choices list.
+        const allowedMatch = error.stderr.match(/[Aa]llowed choices are ([^.\n]*)/);
+        assert.ok(allowedMatch, `expected an "allowed choices" list in stderr:\n${error.stderr}`);
+        assert.doesNotMatch(allowedMatch[1], /marketplace/i, 'marketplace must not be an allowed choice');
     });
 
-    // ── Deploy template content verification ─────────────────────────────
-
-    describe('Deploy template content', () => {
-
-        it('deploy uses ModelPackageName instead of Image', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFileContent('do/deploy', 'ModelPackageName');
-                // Verify no ECR Image reference
-                const deployContent = result.file('do/deploy');
-                assert.ok(!deployContent.includes('"Image"'), 'Deploy should not reference ECR Image parameter');
-            } finally {
-                result.cleanup();
-            }
+    it('refuses deploymentConfig=marketplace from a config file with the deprecation message', () => {
+        const { exitCode, stderr } = runWithConfigFile({
+            deploymentConfig: 'marketplace',
+            instanceType: 'ml.g5.xlarge',
+            region: 'us-east-1',
+            projectName: 'cfg-mkt'
         });
-
-        it('deploy references MODEL_PACKAGE_ARN', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFileContent('do/deploy', 'MODEL_PACKAGE_ARN');
-            } finally {
-                result.cleanup();
-            }
-        });
+        assert.equal(exitCode, 1, 'generator should exit non-zero');
+        assert.match(stderr, /Marketplace deployments are no longer supported/);
+        assert.match(stderr, /bring your own\s+container/i);
     });
 
-    // ── Config template content verification ─────────────────────────────
-
-    describe('Config template content', () => {
-
-        it('config exports MODEL_PACKAGE_ARN', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFileContent('do/config', 'MODEL_PACKAGE_ARN');
-            } finally {
-                result.cleanup();
-            }
+    it('refuses a marketplace:// model name with the deprecation message', () => {
+        const error = runExpectingRefusal({
+            'project-name': 'test-marketplace-refusal-model',
+            'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
+            'instance-type': 'ml.g5.xlarge',
+            'region': 'us-east-1'
         });
-
-        it('config does NOT export MODEL_NAME', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                const configContent = result.file('do/config');
-                assert.ok(!configContent.includes('export MODEL_NAME='),
-                    'Config should not export MODEL_NAME');
-            } finally {
-                result.cleanup();
-            }
-        });
-
-        it('config does NOT export MODEL_SOURCE', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                const configContent = result.file('do/config');
-                assert.ok(!configContent.includes('export MODEL_SOURCE='),
-                    'Config should not export MODEL_SOURCE');
-            } finally {
-                result.cleanup();
-            }
-        });
+        assert.equal(error.exitCode, 1, 'generator should exit non-zero');
+        assert.match(error.stderr, /Marketplace deployments are no longer supported/);
     });
 
-    // ── Shared scripts work identically to BYOC ──────────────────────────
-
-    describe('Shared scripts present', () => {
-
-        it('should produce do/logs', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFile('do/logs');
-            } finally {
-                result.cleanup();
-            }
+    it('the deprecation message suggests BYOC alternatives (HuggingFace / s3 / registry)', () => {
+        const error = runExpectingRefusal({
+            'project-name': 'test-marketplace-refusal-alts',
+            'model-name': 'marketplace://arn:aws:sagemaker:us-east-1:123456789012:model-package/test-model/1',
+            'instance-type': 'ml.g5.xlarge',
+            'region': 'us-east-1'
         });
-
-        it('should produce do/register', () => {
-            const result = runGenerator(baseArgs);
-            try {
-                result.assertFile('do/register');
-            } finally {
-                result.cleanup();
-            }
-        });
+        assert.match(error.stderr, /HuggingFace model ID/);
+        assert.match(error.stderr, /s3:\/\//);
+        assert.match(error.stderr, /registry:\/\//);
     });
 });

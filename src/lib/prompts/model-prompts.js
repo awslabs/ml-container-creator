@@ -8,6 +8,72 @@
  */
 
 import { discoverSecrets } from './secrets-discovery.js';
+import { listServeEngines, engineFeatures } from '../serve-manifest-reader.js';
+// HTTP predictor engine choices and per-engine model-format sets are derived
+// from the predictors.d descriptors (single source of truth), not hardcoded.
+import {
+    listPredictorFrameworks,
+    displayName as predictorDisplayName,
+    modelFormats as predictorModelFormats
+} from '../predictor-manifest-reader.js';
+
+/**
+ * Engine-specific feature prompts (ADR-004 §c), built from the serve-plugin
+ * manifests. One prompt per (engine, feature) pair, each gated to appear only
+ * when that engine is selected — so a vLLM project is never asked about SGLang's
+ * RadixAttention. The widget is DERIVED from the feature's declared `type`
+ * (boolean → confirm, enum → list of `values`, int/string → input). Each answer
+ * is stored under a namespaced key `__engine_feature__<name>` that PromptRunner
+ * normalizes into the `engineFeatureVars` map (same shape the --engine-feature
+ * CLI flag produces). Reads the manifests as data — no engine-name branching.
+ */
+export const ENGINE_FEATURE_ANSWER_PREFIX = '__engine_feature__';
+
+function buildEngineFeaturePrompts() {
+    const prompts = [];
+    for (const engine of listServeEngines()) {
+        const features = engineFeatures(engine);
+        for (const [name, decl] of Object.entries(features)) {
+            const answerKey = `${ENGINE_FEATURE_ANSWER_PREFIX}${name}`;
+            const base = {
+                name: answerKey,
+                // Only ask when THIS engine is the selected one.
+                when: (answers) => {
+                    const selected = answers.modelServer || answers.backend ||
+                        answers.deploymentConfig?.split('-').slice(1).join('-');
+                    return selected === engine;
+                }
+            };
+            if (decl.type === 'boolean') {
+                prompts.push({
+                    ...base,
+                    type: 'confirm',
+                    message: `Enable ${name}? (${decl.description})`,
+                    default: decl.default === 'true'
+                });
+            } else if (decl.type === 'enum') {
+                prompts.push({
+                    ...base,
+                    type: 'list',
+                    message: `${name}: ${decl.description}`,
+                    choices: decl.values || [],
+                    default: decl.default
+                });
+            } else {
+                // int / string → free input
+                prompts.push({
+                    ...base,
+                    type: 'input',
+                    message: `${name}: ${decl.description}`,
+                    default: decl.default
+                });
+            }
+        }
+    }
+    return prompts;
+}
+
+const engineFeaturePrompts = buildEngineFeaturePrompts();
 
 /**
  * Phase 1: Core ML configuration (moved to first)
@@ -98,13 +164,11 @@ const deploymentConfigPrompts = [
                 name: 'Diffusors with vLLM Omni',
                 value: 'diffusors-vllm-omni',
                 short: 'diffusors-vllm-omni'
-            },
-            { type: 'separator', separator: '── AWS Marketplace ──' },
-            {
-                name: 'Marketplace Model Package',
-                value: 'marketplace',
-                short: 'marketplace'
             }
+            // AWS Marketplace deployment config is deprecated and hard-refused
+            // (see src/lib/marketplace-refusal.js). The menu choice is removed so
+            // users cannot select a dead option; the flow file stays dormant for
+            // one release before removal.
         ]
     }
 ];
@@ -121,11 +185,12 @@ const enginePrompts = [
         type: 'list',
         name: 'engine',
         message: 'Select ML engine:',
-        choices: [
-            { name: 'scikit-learn', value: 'sklearn' },
-            { name: 'XGBoost', value: 'xgboost' },
-            { name: 'TensorFlow', value: 'tensorflow' }
-        ],
+        // Derived from predictors.d/<framework>/manifest.json (display_name) so
+        // adding a framework surfaces its prompt choice with no code edit.
+        choices: () => listPredictorFrameworks().map((fw) => ({
+            name: predictorDisplayName(fw),
+            value: fw
+        })),
         when: (answers) => {
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
             return architecture === 'http';
@@ -183,15 +248,10 @@ const modelFormatPrompts = [
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
             const backend = answers.backend || answers.deploymentConfig?.split('-').slice(1).join('-');
             
-            // For http architecture, use engine to determine formats
+            // For http architecture, the engine's model formats come from its
+            // predictor descriptor (single source of truth).
             if (architecture === 'http') {
-                const engine = answers.engine;
-                const formatMap = {
-                    'xgboost': ['json', 'model', 'ubj'],
-                    'sklearn': ['pkl', 'joblib'],
-                    'tensorflow': ['keras', 'h5', 'SavedModel']
-                };
-                return formatMap[engine] || [];
+                return predictorModelFormats(answers.engine);
             }
             
             // For triton architecture, use backend-specific formats
@@ -208,14 +268,10 @@ const modelFormatPrompts = [
                 return [];
             }
             
-            // Legacy support for old format (should not be reached with new configs)
+            // Legacy support for old format (should not be reached with new
+            // configs); derive from the descriptor rather than a stale literal.
             const framework = answers.framework || architecture;
-            const formatMap = {
-                'xgboost': ['json', 'model', 'ubj'],
-                'sklearn': ['pkl', 'joblib'],
-                'tensorflow': ['keras', 'h5', 'SavedModel']
-            };
-            return formatMap[framework] || [];
+            return predictorModelFormats(framework);
         },
         when: answers => {
             const architecture = answers.architecture || answers.deploymentConfig?.split('-')[0];
@@ -620,5 +676,6 @@ export {
     modelProfilePrompts,
     hfTokenPrompts,
     buildHfTokenPrompts,
-    ngcApiKeyPrompts
+    ngcApiKeyPrompts,
+    engineFeaturePrompts
 };

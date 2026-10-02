@@ -20,6 +20,32 @@ from register_dataset import _get_hub_name_from_profile, _resolve_core_bucket
 from register_model import _extract_version_from_arn, _check_ai_registry
 
 
+class DatasetResolveError(Exception):
+    """Resolution could not be attempted or completed for a non-not-found reason.
+
+    Covers transport/permission errors, MLflow failures, and a missing Core
+    bucket — i.e. cases distinct from "the dataset legitimately does not exist".
+    Carries an optional ``code`` so the CLI can preserve its structured error
+    codes (SIDECAR_READ_FAILED / MLFLOW_UNAVAILABLE / MISSING_CORE_BUCKET, ...).
+    """
+
+    def __init__(self, message, code="SIDECAR_READ_FAILED"):
+        super().__init__(message)
+        self.code = code
+
+
+class DatasetNotFoundError(Exception):
+    """No sidecar exists for the dataset name (or MLflow has no such input)."""
+
+
+class DatasetVersionNotFoundError(Exception):
+    """A specific version was requested but not present in the sidecar."""
+
+    def __init__(self, message, available=None):
+        super().__init__(message)
+        self.available = available or []
+
+
 def _select_version(versions, version_spec):
     """Select a version entry by ordinal or semver from a sidecar versions list.
 
@@ -77,41 +103,130 @@ def cmd_resolve_dataset(args):
     if not name:
         _error_exit("--name is required", code="MISSING_ARGUMENT")
 
-    region = (
-        getattr(args, "region", None)
-        or os.environ.get("AWS_DEFAULT_REGION")
-        or os.environ.get("AWS_REGION")
-    )
-    core_bucket = _resolve_core_bucket(args)
-    if not core_bucket:
-        _error_exit(
-            "Could not resolve the MLCC Core bucket for dataset resolution.\n"
-            "    Pass --core-bucket <bucket> or set CORE_BUCKET.",
-            code="MISSING_CORE_BUCKET",
-        )
-
-    s3_client = dataset_store._get_s3_client(region)
+    # Resolve core bucket up front so we can preserve the CLI's distinct
+    # MISSING_CORE_BUCKET error (only meaningful for the non-MLflow S3 path).
+    import mlcc_mlflow
+    core_bucket = None
+    if not mlcc_mlflow._mlflow_configured():
+        core_bucket = _resolve_core_bucket(args)
+        if not core_bucket:
+            _error_exit(
+                "Could not resolve the MLCC Core bucket for dataset resolution.\n"
+                "    Pass --core-bucket <bucket> or set CORE_BUCKET.",
+                code="MISSING_CORE_BUCKET",
+            )
 
     try:
-        sidecar = dataset_store.read_sidecar(s3_client, core_bucket, name)
-    except dataset_store.TransportError as e:
-        # Transport / permission error — distinct exit code from not-found.
-        print(json.dumps({"error": str(e), "code": "SIDECAR_READ_FAILED"}))
+        resolved = resolve_dataset_uri(
+            name,
+            version=version_spec,
+            region=getattr(args, "region", None),
+            core_bucket=core_bucket,
+        )
+    except DatasetVersionNotFoundError as e:
+        _version_not_found(name, version_spec, e.available)
+    except DatasetNotFoundError:
+        _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+    except DatasetResolveError as e:
+        # Transport / MLflow / permission error — distinct exit code (3) from
+        # not-found so bash callers can tell "couldn't reach registry" apart
+        # from "no such dataset". Preserve the structured error code.
+        print(json.dumps({"error": str(e), "code": e.code}))
         print(f"\u26a0\ufe0f  {e}", file=sys.stderr)
         sys.exit(3)
 
+    _output(resolved)
+
+
+def resolve_dataset_uri(name, *, version=None, region=None, core_bucket=None,
+                        s3_client=None):
+    """Resolve a registered dataset name to its S3 URI and metadata.
+
+    Shared resolution core used by both the ``resolve-dataset`` CLI
+    (``cmd_resolve_dataset``) and other consumers (e.g. the do/benchmark
+    dataset-picker BYOD path, BL100) so the sidecar/MLflow lookup lives in one
+    place rather than being duplicated per caller.
+
+    Version pinning: ``version`` accepts an ordinal ("2") or semver ("1.0.0");
+    ``None`` selects the latest.
+
+    Returns a dict with at least ``name``, ``s3_uri``, and ``format`` (plus
+    ``arn``, ``technique``, ``version``, ``ordinal``, ``hash`` when available).
+
+    Raises:
+        DatasetNotFoundError: no sidecar / no matching version.
+        DatasetVersionNotFoundError: a pinned version is not present.
+        DatasetResolveError: transport/permission error, MLflow failure, or a
+            missing Core bucket (resolution could not be completed — distinct
+            from not-found).
+
+    Unlike ``cmd_resolve_dataset`` this never calls ``sys.exit`` — callers
+    decide how to surface failures.
+    """
+    if not name:
+        raise DatasetResolveError("dataset name is required", code="MISSING_ARGUMENT")
+
+    region = (
+        region
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("AWS_REGION")
+    )
+
+    # BL110: when MLflow is configured, resolve by name from MLflow run inputs
+    # instead of the S3 sidecar.
+    import mlcc_mlflow
+    if mlcc_mlflow._mlflow_configured():
+        try:
+            entry = mlcc_mlflow.resolve_dataset_by_name(name)
+        except mlcc_mlflow.MlflowUnavailableError as e:
+            raise DatasetResolveError(str(e), code="MLFLOW_UNAVAILABLE") from e
+        except Exception as e:  # noqa: BLE001 — surface, do not silently fall back
+            raise DatasetResolveError(str(e), code="MLFLOW_RESOLVE_FAILED") from e
+
+        if entry is None:
+            raise DatasetNotFoundError(f"Dataset not found: {name}")
+
+        meta = entry.get("meta") or {}
+        return {
+            "name": entry.get("name", mlcc_mlflow.sanitize_name(name)),
+            "s3_uri": entry.get("s3_uri", "") or meta.get("s3_uri", ""),
+            "arn": meta.get("arn"),
+            "format": meta.get("format", "jsonl"),
+            "technique": meta.get("technique", ""),
+            "version": meta.get("latest_version", "1.0.0"),
+            "ordinal": meta.get("ordinal"),
+            "hash": entry.get("digest"),
+        }
+
+    if not core_bucket:
+        raise DatasetResolveError(
+            "Could not resolve the MLCC Core bucket for dataset resolution. "
+            "Pass core_bucket or set CORE_BUCKET.",
+            code="MISSING_CORE_BUCKET",
+        )
+
+    s3 = s3_client if s3_client is not None else dataset_store._get_s3_client(region)
+
+    try:
+        sidecar = dataset_store.read_sidecar(s3, core_bucket, name)
+    except dataset_store.TransportError as e:
+        raise DatasetResolveError(str(e), code="SIDECAR_READ_FAILED") from e
+
     if sidecar is None:
-        _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+        raise DatasetNotFoundError(f"Dataset not found: {name}")
 
     versions = sidecar.get("versions") or []
-    entry, ordinal = _select_version(versions, version_spec)
+    entry, ordinal = _select_version(versions, version)
 
     if entry is None:
-        if version_spec is not None:
-            _version_not_found(name, version_spec, versions)
-        _error_exit(f"Dataset not found: {name}", code="DATASET_NOT_FOUND")
+        if version is not None:
+            raise DatasetVersionNotFoundError(
+                f"Version {version} not found for dataset '{name}'",
+                available=versions,
+            )
+        raise DatasetNotFoundError(f"Dataset not found: {name}")
 
-    _output({
+    return {
         "name": name,
         "s3_uri": entry.get("s3_uri", sidecar.get("s3_uri", "")),
         "arn": entry.get("arn", sidecar.get("arn")),
@@ -120,7 +235,7 @@ def cmd_resolve_dataset(args):
         "version": entry.get("version", "1.0.0"),
         "ordinal": ordinal,
         "hash": entry.get("hash"),
-    })
+    }
 
 
 def cmd_resolve_evaluator(args):

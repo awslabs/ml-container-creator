@@ -17,7 +17,8 @@
 import fc from 'fast-check';
 import { describe, it } from 'mocha';
 import assert from 'node:assert';
-import { PROPERTY_CONFIG } from '../helpers/property-config.js';
+// Generation-heavy property test: use the capped GEN profile (R3).
+import { PROPERTY_CONFIG_GEN as PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Ignore pattern logic (mirrors src/app.js writeProject) ───────────────────
 //

@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
 # do-framework configuration
 # This file is sourced by all do scripts
 # Generated: <%= new Date().toISOString() %>
@@ -57,6 +60,7 @@ export DEPLOYMENT_TARGET=""
 # ── Per-target deployment status (updated by do/deploy on success/failure) ────
 export DEPLOYMENT_TARGET_SMAI_STATUS="<%= typeof deploymentTargetSmaiStatus !== 'undefined' && deploymentTargetSmaiStatus ? deploymentTargetSmaiStatus : '' %>"
 export DEPLOYMENT_TARGET_HP_STATUS="<%= typeof deploymentTargetHpStatus !== 'undefined' && deploymentTargetHpStatus ? deploymentTargetHpStatus : '' %>"
+export DEPLOYMENT_TARGET_EKS_STATUS="<%= typeof deploymentTargetEksStatus !== 'undefined' && deploymentTargetEksStatus ? deploymentTargetEksStatus : '' %>"
 export DEPLOYMENT_TARGET_ASYNC_STATUS="<%= typeof deploymentTargetAsyncStatus !== 'undefined' && deploymentTargetAsyncStatus ? deploymentTargetAsyncStatus : '' %>"
 export DEPLOYMENT_TARGET_BATCH_STATUS="<%= typeof deploymentTargetBatchStatus !== 'undefined' && deploymentTargetBatchStatus ? deploymentTargetBatchStatus : '' %>"
 
@@ -141,7 +145,13 @@ export FSX_VOLUME_HANDLE="<%= fsxVolumeHandle %>"
 # export FSX_VOLUME_HANDLE=""
 <% } %>
 # LoRA hot-loading via vLLM REST API (requires --enable-lora in the InferenceEndpointConfig worker.args)
+<% if (framework === 'transformers' && ['vllm','sglang','djl'].includes(modelServer)) { %>
+# LoRA is enabled by default for vLLM targets so adapters work out of the box.
+# Set HP_LORA_ENABLED=false to opt out (an explicit opt-out is preserved on regeneration).
+export HP_LORA_ENABLED="${HP_LORA_ENABLED:-true}"
+<% } else { %>
 # export HP_LORA_ENABLED=false
+<% } %>
 # Speculative decoding (optional — set HP_SPECULATIVE_ALGORITHM to enable)
 export HP_SPECULATIVE_ALGORITHM="${HP_SPECULATIVE_ALGORITHM:-}"   # draft-model|eagle|eagle2|eagle3|ngram|mtp
 export HP_SPECULATIVE_MODEL="${HP_SPECULATIVE_MODEL:-}"                       # HF model ID or local path (NOT s3://)
@@ -165,7 +175,13 @@ export HP_CPU_REQUEST="${HP_CPU_REQUEST:-}"
 # HP_QUEUE=""
 # FSX_VOLUME_HANDLE=""
 # LoRA hot-loading via vLLM REST API (requires --enable-lora in the InferenceEndpointConfig worker.args)
+<% if (framework === 'transformers' && ['vllm','sglang','djl'].includes(modelServer)) { %>
+# LoRA is enabled by default for vLLM targets so adapters work out of the box.
+# Set HP_LORA_ENABLED=false to opt out (an explicit opt-out is preserved on regeneration).
+export HP_LORA_ENABLED="${HP_LORA_ENABLED:-true}"
+<% } else { %>
 # export HP_LORA_ENABLED=false
+<% } %>
 # Speculative decoding (optional — set HP_SPECULATIVE_ALGORITHM to enable)
 export HP_SPECULATIVE_ALGORITHM="${HP_SPECULATIVE_ALGORITHM:-}"   # draft-model|eagle|eagle2|eagle3|ngram|mtp
 export HP_SPECULATIVE_MODEL="${HP_SPECULATIVE_MODEL:-}"                       # HF model ID or local path (NOT s3://)

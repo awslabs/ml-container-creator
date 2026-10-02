@@ -4,6 +4,12 @@
 /**
  * Driver-Aware Image Filtering Module.
  *
+ * PATTERN: Shared pure-function helper (domain filter).
+ * COLLABORATORS: used by base-image-picker (filterImages, deriveMinDriverVersion).
+ * DATA-FLOW ROLE: consumes candidate images + fleet/driver context, produces the
+ *   compatible subset; no state, no I/O.
+ * See: docs/architecture/mcp-servers.md
+ *
  * Filters container images by three dimensions:
  *   A) GPU driver compatibility (fleet driver vs image min_driver_version)
  *   B) Tensor parallel eligibility (TP > 1 cannot use CUDA compat layer)

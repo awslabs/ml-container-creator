@@ -1,0 +1,10 @@
+{
+  "framework": "tensorflow",
+  "display_name": "TensorFlow",
+  "model_formats": ["keras", "h5", "SavedModel"],
+  "default_model_format": "keras",
+  "pip_dependencies": ["setuptools>=65.0.0", "tensorflow==2.20.0"],
+  "base_image_catalog": "python-slim",
+  "handler": "handler.py",
+  "test_payload": "{\"instances\": [[1.0, 2.0, 3.0, 4.0]]}"
+}

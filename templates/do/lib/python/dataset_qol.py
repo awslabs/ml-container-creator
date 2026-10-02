@@ -30,6 +30,10 @@ def _get_required_columns(technique):
         "dpo": ["prompt", "chosen", "rejected"],
         "rlaif": ["prompt"],  # prompt is an array of messages
         "rlvr": ["prompt"],   # prompt is an array of messages
+        # BL100: AIPerf BYOD single_turn custom-dataset loader requires a `text`
+        # column (SingleTurn raises "At least one modality must be provided" when
+        # a row lacks text/image/audio/video). output_length is optional per-row.
+        "benchmark": ["text"],
     }
     return schemas.get(technique, ["prompt", "completion"])
 
@@ -41,6 +45,10 @@ def _get_schema_types(technique):
         "dpo": {"prompt": "string", "chosen": "string", "rejected": "string"},
         "rlaif": {"prompt": "array"},
         "rlvr": {"prompt": "array"},
+        # BL100: AIPerf single_turn BYOD dataset — `text` is the required prompt
+        # column; optional `output_length` (per-request max tokens) is not part
+        # of the required-column contract.
+        "benchmark": {"text": "string"},
     }
     return schemas.get(technique, {"prompt": "string", "completion": "string"})
 
@@ -52,6 +60,9 @@ def _suggest_column_map(detected_columns, required_columns):
         "completion": ["answer", "output", "response", "assistant", "target", "label", "reply"],
         "chosen": ["chosen", "preferred", "good", "positive", "accepted"],
         "rejected": ["rejected", "dispreferred", "bad", "negative", "refused"],
+        # BL100: AIPerf single_turn benchmark datasets require a `text` column;
+        # suggest mapping common prompt-style columns onto it.
+        "text": ["prompt", "question", "instruction", "input", "query", "content", "message", "user", "human"],
     }
 
     suggestions = {}

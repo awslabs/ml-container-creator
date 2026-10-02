@@ -42,6 +42,7 @@ def _valid_config_context():
     """Return a minimal valid config context."""
     return {
         "config_id": "ec3f1a0072d1b3d4",
+        "project_name": "test-proj",
         "model_name": "Qwen/Qwen3-4B",
         "instance_type": "ml.g5.xlarge",
         "deployment_config": "transformers-vllm",
@@ -100,9 +101,12 @@ class TestDryRunOutput:
         run_timestamp = datetime(2026, 6, 9, 14, 30, 22, tzinfo=timezone.utc)
 
         records = enrich_records(config, results, run_timestamp)
-        s3_path = compute_s3_path("mlcc-benchmark-results-111111111111-us-east-1",
-                                  config["config_id"], config["region"], run_timestamp)
-        partition = compute_partition_info(config["region"], run_timestamp)
+        s3_path = compute_s3_path(
+            "mlcc-benchmark-results-111111111111-us-east-1",
+            config["config_id"], config["model_name"],
+            config["instance_type"], config["deployment_target"], run_timestamp)
+        partition = compute_partition_info(
+            config["model_name"], config["instance_type"], config["deployment_target"])
 
         # Simulate dry-run output structure
         output = {
@@ -126,26 +130,31 @@ class TestDryRunOutput:
         run_timestamp = datetime(2026, 6, 9, 14, 30, 22, tzinfo=timezone.utc)
         s3_path = compute_s3_path(
             "mlcc-benchmark-results-111111111111-us-east-1",
-            "ec3f1a0072d1b3d4",
-            "us-east-1",
+            "test-proj",
+            "Qwen/Qwen3-4B",
+            "ml.g5.xlarge",
+            "realtime-inference",
             run_timestamp,
         )
 
+        # model/instance/target partitioning scheme (see .benchmark_writer.py
+        # compute_s3_path); model name is sanitized (/ → _).
         expected = (
             "s3://mlcc-benchmark-results-111111111111-us-east-1/"
-            "region=us-east-1/year=2026/month=06/"
-            "run-ec3f1a0072d1b3d4-20260609T143022Z.parquet"
+            "results/model=Qwen_Qwen3-4B/instance=ml.g5.xlarge/target=realtime-inference/"
+            "run-test-proj-20260609T143022Z.parquet"
         )
         assert s3_path == expected
 
     def test_dry_run_partition_info(self):
-        """Partition info includes region, year, month."""
-        from datetime import datetime, timezone
+        """Partition info includes model, instance, target."""
+        partition = compute_partition_info("Qwen/Qwen3-4B", "ml.g5.xlarge", "realtime-inference")
 
-        run_timestamp = datetime(2026, 6, 9, 14, 30, 22, tzinfo=timezone.utc)
-        partition = compute_partition_info("us-east-1", run_timestamp)
-
-        assert partition == {"region": "us-east-1", "year": "2026", "month": "06"}
+        assert partition == {
+            "model": "Qwen_Qwen3-4B",
+            "instance": "ml.g5.xlarge",
+            "target": "realtime-inference",
+        }
 
     def test_dry_run_record_count_matches_concurrency_levels(self):
         """Record count equals the number of concurrency levels in the input."""
@@ -169,17 +178,20 @@ class TestDryRunOutput:
 
         records = enrich_records(config, results, run_timestamp)
 
+        # A representative subset of the enriched-record schema (see
+        # enrich_records in .benchmark_writer.py). The partitioning migrated from
+        # region/year/month to model/instance/target, so year/month are no longer
+        # emitted; throughput/latency fields use their current names.
         expected_columns = [
-            "config_id", "model_name", "model_family", "instance_type",
+            "model_name", "model_family", "instance_type",
             "instance_family", "deployment_config", "deployment_target",
             "run_timestamp", "tensor_parallel_degree", "quantization",
-            "enable_lora", "base_image", "base_image_version", "mcc_version",
+            "enable_lora", "mcc_version",
             "concurrency", "input_tokens_mean", "output_tokens_mean",
             "duration_seconds", "ttft_p50_ms", "ttft_p99_ms", "itl_p50_ms",
-            "itl_p99_ms", "throughput_rps", "tokens_per_second",
-            "cost_per_1m_tokens", "error_rate", "status", "run_type",
-            "ci_run_id", "ci_stage", "benchmark_job_name", "account_id",
-            "region", "year", "month",
+            "itl_p99_ms", "request_throughput_rps", "output_token_throughput_tps",
+            "cost_per_1m_tokens", "error_rate", "run_type",
+            "benchmark_job_name", "region",
         ]
 
         for record in records:
@@ -200,16 +212,14 @@ class TestDryRunOutput:
         # Derived fields
         assert record["model_family"] == "qwen3"
         assert record["instance_family"] == "g5"
-        assert record["base_image_version"] == "v0.8.5"
 
-        # Partition keys
-        assert record["year"] == "2026"
-        assert record["month"] == "06"
+        # Region passthrough (year/month partition keys were dropped when the
+        # scheme moved to model/instance/target partitioning).
         assert record["region"] == "us-east-1"
 
-        # Metrics passthrough
+        # Metrics passthrough (current field names)
         assert record["concurrency"] == 1
-        assert record["throughput_rps"] == 12.5
+        assert record["request_throughput_rps"] == 12.5
         assert record["ttft_p50_ms"] == 45.2
         assert record["itl_p50_ms"] == 8.1
 
@@ -220,14 +230,14 @@ class TestDryRunOutput:
 class TestDryRunValidation:
     """Dry-run performs the same validation as normal mode."""
 
-    def test_validates_missing_config_id(self):
-        """Missing config_id is detected."""
+    def test_validates_missing_project_name(self):
+        """Missing project_name is detected (project_name is the required identifier)."""
         config = _valid_config_context()
-        del config["config_id"]
+        del config["project_name"]
         results = _valid_results_data()
 
         errors = validate_input(config, results)
-        assert any(e["field"] == "config_id" for e in errors)
+        assert any(e["field"] == "project_name" for e in errors)
 
     def test_validates_missing_model_name(self):
         """Missing model_name is detected."""
@@ -298,13 +308,13 @@ class TestDryRunValidation:
         assert errors == []
 
     def test_validates_empty_string_fields(self):
-        """Empty string for required field is detected."""
+        """Empty string for a required field is detected."""
         config = _valid_config_context()
-        config["config_id"] = ""
+        config["project_name"] = ""
         results = _valid_results_data()
 
         errors = validate_input(config, results)
-        assert any(e["field"] == "config_id" for e in errors)
+        assert any(e["field"] == "project_name" for e in errors)
 
 
 # ── CLI dry-run integration test ──────────────────────────────────────────────
@@ -328,6 +338,7 @@ class TestDryRunCLI:
         # Create a temporary config file
         config_content = """#!/bin/bash
 export CONFIG_ID="ec3f1a0072d1b3d4"
+export PROJECT_NAME="test-proj"
 export MODEL_NAME="Qwen/Qwen3-4B"
 export INSTANCE_TYPE="ml.g5.xlarge"
 export DEPLOYMENT_CONFIG="transformers-vllm"
@@ -350,7 +361,7 @@ export BASE_IMAGE="vllm/vllm-openai:v0.8.5"
                     "--dry-run",
                     "--results-file", results_file,
                     "--config-file", config_file,
-                    "--config-id", "ec3f1a0072d1b3d4",
+                    "--project-name", "test-proj",
                 ],
                 capture_output=True,
                 text=True,
@@ -387,7 +398,7 @@ export BASE_IMAGE="vllm/vllm-openai:v0.8.5"
                     sys.executable, _WRITER_PATH, "write",
                     "--dry-run",
                     "--results-file", results_file,
-                    "--config-id", "ec3f1a0072d1b3d4",
+                    "--project-name", "test-proj",
                 ],
                 capture_output=True,
                 text=True,
@@ -414,6 +425,7 @@ export BASE_IMAGE="vllm/vllm-openai:v0.8.5"
 
         config_content = """#!/bin/bash
 export CONFIG_ID="ec3f1a0072d1b3d4"
+export PROJECT_NAME="test-proj"
 export MODEL_NAME="Qwen/Qwen3-4B"
 export INSTANCE_TYPE="ml.g5.xlarge"
 export DEPLOYMENT_CONFIG="transformers-vllm"
@@ -432,7 +444,7 @@ export AWS_REGION="us-east-1"
                     "--dry-run",
                     "--results-file", results_file,
                     "--config-file", config_file,
-                    "--config-id", "ec3f1a0072d1b3d4",
+                    "--project-name", "test-proj",
                 ],
                 capture_output=True,
                 text=True,
@@ -441,9 +453,11 @@ export AWS_REGION="us-east-1"
             assert result.returncode == 0, f"stderr: {result.stderr}"
             output = json.loads(result.stdout)
             assert output["dry_run"] is True
-            # S3 path should show pattern even without bucket
+            # S3 path should show the model/instance/target partition pattern
+            # even without an explicit bucket.
             assert "s3://" in output["s3_path"]
-            assert "region=us-east-1" in output["s3_path"]
+            assert "model=Qwen_Qwen3-4B" in output["s3_path"]
+            assert "target=realtime-inference" in output["s3_path"]
             assert ".parquet" in output["s3_path"]
 
         finally:

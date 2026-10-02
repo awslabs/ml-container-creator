@@ -18,43 +18,19 @@
  *   Returns: { values, choices, metadata }
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { resolve, dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { DynamicResolver as DynamicResolverBase } from '../lib/dynamic-resolver.js';
 import { filterImages, deriveMinDriverVersion } from '../lib/image-filter.js';
 import { resolveModelArchitecture } from '../lib/model-id-resolver.js';
 import { loadWithOverridesArray, resolveProjectDir } from '../lib/override-loader.js';
+import { createPickerServer } from '../lib/create-picker-server.js';
+import { makeLoadCatalog, resolveServerDir } from '../lib/load-catalog.js';
 
-// ── Catalog loader ───────────────────────────────────────────────────────────
+// ── Catalog loader (shared; single source of truth in servers/lib) ────────────
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-/**
- * Load and parse a JSON catalog file relative to the server directory.
- * Throws on missing file or invalid JSON with the file path in the message.
- *
- * @param {string} relativePath - Path relative to server dir (e.g. './catalogs/regions.json')
- * @returns {any} Parsed JSON content
- */
-function loadCatalog(relativePath) {
-    const fullPath = resolve(__dirname, relativePath);
-    let raw;
-    try {
-        raw = readFileSync(fullPath, 'utf8');
-    } catch (err) {
-        throw new Error(`Catalog file not found: ${fullPath}`);
-    }
-    try {
-        return JSON.parse(raw);
-    } catch (err) {
-        throw new Error(`Failed to parse catalog ${fullPath}: ${err.message}`);
-    }
-}
+const loadCatalog = makeLoadCatalog(resolveServerDir(import.meta.url));
 
 // ── ImageResolver interface ──────────────────────────────────────────────────
 
@@ -406,7 +382,11 @@ async function resolveBaseImage(context, limit) {
 
     const resolver = registry.getResolver(resolverKey);
     if (!resolver) {
-        return { values: { baseImage: null }, choices: { baseImage: [] }, metadata: { baseImage: [] } };
+        return {
+            values: { baseImage: null, baseImageVersion: null },
+            choices: { baseImage: [], baseImageVersion: [] },
+            metadata: { baseImage: [] }
+        };
     }
 
     let resultImages;
@@ -456,9 +436,24 @@ async function resolveBaseImage(context, limit) {
     resultImages = resultImages.slice(0, limit);
 
     const images = resultImages.map(e => e.image);
+    // Surface the engine framework version as a first-class output alongside
+    // baseImage, index-aligned so baseImageVersion[i] is the version of
+    // baseImage[i]. The version already lives in each entry's
+    // labels.framework_version; promoting it to values/choices lets consumers
+    // (e.g. the BL129 version-gating loop) read the engine version directly
+    // from the picker instead of digging into metadata.baseImage[i].labels.
+    // Entries with no framework_version (e.g. dynamic-discover entries whose
+    // labels are {}) map to null, preserving index alignment.
+    const versions = resultImages.map(e => (e.labels && e.labels.framework_version) || null);
     return {
-        values: { baseImage: images[0] || null },
-        choices: { baseImage: images },
+        values: {
+            baseImage: images[0] || null,
+            baseImageVersion: versions[0] || null
+        },
+        choices: {
+            baseImage: images,
+            baseImageVersion: versions
+        },
         metadata: {
             baseImage: resultImages,
             ...(filterMetadata ? { driverFilter: filterMetadata } : {})
@@ -475,20 +470,15 @@ function log(message) {
 
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
-const server = new McpServer({
-    name: 'base-image-picker',
-    version: '1.0.0'
-});
-
-server.tool(
-    'get_base_images',
-    'Returns curated base container images for ML Container Creator Dockerfiles. Supports driver-aware filtering when instanceType is provided — excludes images incompatible with the fleet GPU driver, especially for multi-GPU tensor-parallel deployments.',
-    {
+const getBaseImagesTool = {
+    name: 'get_base_images',
+    description: 'Returns curated base container images for ML Container Creator Dockerfiles. Supports driver-aware filtering when instanceType is provided — excludes images incompatible with the fleet GPU driver, especially for multi-GPU tensor-parallel deployments.',
+    schema: {
         parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
         limit: z.number().int().positive().default(5).describe('Maximum number of choices per parameter'),
         context: z.record(z.string(), z.any()).optional().describe('Configuration context. Supports: framework, modelServer, searchCriteria, architecture, instanceType (triggers driver filtering), driverVersion (override), inferenceAmiVersion (resolves to driver), tensorParallelSize (TP>1 = strict filtering), modelId, modelArchitecture (excludes old framework versions)')
     },
-    async ({ parameters, limit, context }) => {
+    handler: async ({ parameters, limit, context }) => {
         const values = {};
         const choices = {};
         const metadata = {};
@@ -507,12 +497,12 @@ server.tool(
             }]
         };
     }
-);
+};
 
-server.tool(
-    'write_local_image',
-    'Add a base image to the project-local catalog override (.mlcc/base-image-picker.json). Use when the user references a custom or newer base image not in the shipped catalog.',
-    {
+const writeLocalImageTool = {
+    name: 'write_local_image',
+    description: 'Add a base image to the project-local catalog override (.mlcc/base-image-picker.json). Use when the user references a custom or newer base image not in the shipped catalog.',
+    schema: {
         name: z.string().min(1).describe('Image name/tag identifier'),
         image: z.string().min(1).describe('Full image URI (e.g., "123456789.dkr.ecr.us-east-1.amazonaws.com/my-image:latest")'),
         framework: z.string().optional().describe('Framework (e.g., "vllm", "tgi")'),
@@ -522,7 +512,7 @@ server.tool(
             projectDir: z.string().optional()
         }).optional().describe('Optional context with projectDir')
     },
-    async (params) => {
+    handler: async (params) => {
         const { name, image, framework, pythonVersion, cudaVersion, context } = params;
 
         // Validate required fields
@@ -581,7 +571,15 @@ server.tool(
 
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
-);
+};
+
+// ── Server construction (scaffold via the factory) ────────────────────────────
+
+const picker = createPickerServer({
+    name: 'base-image-picker',
+    serverDir: import.meta.url,
+    tools: [getBaseImagesTool, writeLocalImageTool]
+});
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
@@ -607,15 +605,15 @@ export {
 export { DynamicResolverBase as DynamicResolverBase };
 
 // ── Main guard ───────────────────────────────────────────────────────────────
+// Connect stdio transport only when run as the main module (via the factory).
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    if (discoverMode) {
-        log('Discover mode — serving curated catalogs + live registry lookups');
-    } else {
-        log('Static mode — serving curated base image catalogs');
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => {
+        if (discoverMode) {
+            log('Discover mode — serving curated catalogs + live registry lookups');
+        } else {
+            log('Static mode — serving curated base image catalogs');
+        }
     }
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+});

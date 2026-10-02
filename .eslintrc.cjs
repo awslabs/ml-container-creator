@@ -44,6 +44,19 @@ module.exports = {
             rules: {
                 'property-test-rules/no-hardcoded-numruns': 'error'
             }
+        },
+        {
+            // Module-header convention (docs/architecture/module-header-convention.md).
+            // WARNING during the consolidation program (Waves 1-8); promoted to
+            // 'error' in Wave 9 once every pattern-participating module conforms.
+            // Scope expands wave by wave; starts at the shared MCP server libs
+            // (Wave 2 factory lands here). Test files are excluded.
+            files: ['servers/lib/**/*.js'],
+            excludedFiles: ['**/*.test.js'],
+            plugins: ['property-test-rules'],
+            rules: {
+                'property-test-rules/require-module-header': 'warn'
+            }
         }
     ],
     ignorePatterns: [

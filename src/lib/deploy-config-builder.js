@@ -24,6 +24,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ora from 'ora';
+import { flagToVars } from './deploy-answers-reader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -41,6 +42,18 @@ const TARGET_ALIASES = {
 function normalizeTarget(target) {
     return TARGET_ALIASES[target] || target;
 }
+
+// Per-target optional CLI flags → { configVar, answerKey }. Used to skip the
+// matching interactive prompt when the caller supplied the value (e.g. do/deploy
+// forwards --batch-input-path in --dry-run / all-flags mode). configVar seeds the
+// parsed config so the `if (!config.X)` prompt guard is satisfied; answerKey seeds
+// the output `answers` object so the value is emitted.
+//
+// DERIVED (do not hardcode): the flag→{configVar, answerKey} mapping is the union
+// of the per-target answer_params in targets.d/*/manifest.json (flag-input, minus
+// the core prompt-core flags handled directly). Single source of truth per ADR-008
+// / .kiro/steering/derive-dont-hardcode.md; see deploy-answers-reader.js.
+const CLI_FLAG_TO_VARS = flagToVars();
 
 // ── Config parsing ───────────────────────────────────────────────────────────
 
@@ -288,7 +301,9 @@ const GPU_MAP = {
     'g5.12xlarge': 4, 'g5.16xlarge': 1, 'g5.24xlarge': 4, 'g5.48xlarge': 8,
     'g6.xlarge': 1, 'g6.2xlarge': 1, 'g6.4xlarge': 1, 'g6.8xlarge': 1,
     'g6.12xlarge': 4, 'g6.16xlarge': 1, 'g6.24xlarge': 4, 'g6.48xlarge': 8,
-    'p4d.24xlarge': 8, 'p4de.24xlarge': 8, 'p5.48xlarge': 8
+    'p4d.24xlarge': 8, 'p4de.24xlarge': 8, 'p5.48xlarge': 8,
+    // B300 (Blackwell Ultra) — 8 GPUs per node
+    'p6-b300.48xlarge': 8
 };
 
 function detectGpuCount(instanceType) {
@@ -440,9 +455,17 @@ async function promptInstanceType(modelName, region, strategy, deploymentTarget)
 
 // ── Main interactive flow ────────────────────────────────────────────────────
 
-export async function run({ configFile, outputFile, preTarget, preInstanceType }) {
+export async function run({ configFile, outputFile, preTarget, preInstanceType, preFlags }) {
     const configPath = resolve(configFile);
     const config = parseConfig(configPath);
+
+    // Overlay caller-supplied per-target flags onto the parsed config so the
+    // `if (!config.X)` prompt guards below are satisfied without prompting
+    // (FR-3.1/FR-3.2 non-interactive path). The values are also seeded into
+    // `answers` below so they appear in the output.
+    for (const { configVar, value } of preFlags || []) {
+        if (value && !config[configVar]) config[configVar] = value;
+    }
     const region = process.env.AWS_REGION
         || process.env.AWS_DEFAULT_REGION
         || config.AWS_REGION
@@ -475,13 +498,20 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 { name: 'Real-time Inference (SageMaker)', value: 'realtime-inference' },
                 { name: 'Async Inference (SageMaker async)', value: 'async-inference' },
                 { name: 'Batch Transform (SageMaker batch)', value: 'batch-transform' },
-                { name: 'HyperPod EKS (GPU cluster)', value: 'hyperpod-eks' }
+                { name: 'HyperPod EKS (GPU cluster)', value: 'hyperpod-eks' },
+                { name: 'Plain EKS (Deployment/Service/ConfigMap)', value: 'eks' }
             ],
             default: 'realtime-inference'
         });
     }
 
     const answers = { target };
+
+    // Seed caller-supplied per-target flag values into answers so the resolved
+    // config carries them (they also skipped their prompt via the config overlay).
+    for (const { answerKey, value } of preFlags || []) {
+        if (value) answers[answerKey] = value;
+    }
 
     // ── Endpoint strategy (for realtime-inference) ───────────────────────────
     // Asked FIRST because it determines which MCP server to call next:
@@ -503,8 +533,8 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
     }
 
     // ── Instance type ────────────────────────────────────────────────────────
-    // Skip for hyperpod-eks — instance type comes from cluster node groups (below)
-    if (target === 'hyperpod-eks') {
+    // Skip for hyperpod-eks and eks — instance type comes from the cluster/target section below
+    if (target === 'hyperpod-eks' || target === 'eks') {
         // Handled in target-specific section
     } else if (preInstanceType) {
         answers.instance_type = preInstanceType;
@@ -720,6 +750,66 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
             });
         }
 
+    } else if (target === 'eks') {
+        // ── Plain EKS (BL103) ────────────────────────────────────────────────
+        // Reuses the HyperPod cluster/GPU fields, but the cluster is OPTIONAL:
+        // when skipped, the deploy uses the ambient kubectl context.
+        if (!config.HP_CLUSTER_NAME) {
+            let clusters = [];
+            const clusterSpinner = ora('Querying cluster-picker...').start();
+            try {
+                clusters = await getClusters(region);
+            } catch {
+                clusters = [];
+            }
+            clusterSpinner.stop();
+            const choices = clusters.map(c => ({
+                name: `${c.name} (${c.gpuTotal} GPUs, ${c.instanceTypes.join(', ')})`,
+                value: c.name
+            }));
+            choices.push({ name: '(use current kubectl context — no cluster)', value: '' });
+            answers.cluster_name = await select({
+                message: 'Target cluster (optional):',
+                choices,
+                default: ''
+            });
+        }
+
+        // Instance type — used only to auto-detect GPU/CPU/memory requests.
+        if (!config.INSTANCE_TYPE && !preInstanceType) {
+            answers.instance_type = await promptInstanceType(modelName, region, null, target);
+        } else if (preInstanceType) {
+            answers.instance_type = preInstanceType;
+        }
+
+        // GPU count (BL096) — auto-detect from the resolved instance type.
+        const gpuResolution = resolveHpGpuCount({
+            selectedInstanceType: answers.instance_type,
+            configInstanceType: config.INSTANCE_TYPE || preInstanceType,
+            existingGpuCount: config.HP_GPU_COUNT
+        });
+        if (gpuResolution.gpuCount !== null) {
+            answers.hp_gpu_count = gpuResolution.gpuCount;
+            console.log(`   GPU count: ${gpuResolution.gpuCount} (auto-detected)`);
+        }
+
+        // Namespace
+        if (!config.HP_NAMESPACE) {
+            answers.namespace = await input({
+                message: 'Kubernetes namespace:',
+                default: 'default'
+            });
+        }
+
+        // Replicas
+        if (!config.HP_REPLICAS) {
+            answers.replicas = await input({
+                message: 'Number of replicas:',
+                default: '1',
+                validate: v => !isNaN(v) && Number(v) > 0 ? true : 'Must be positive'
+            });
+        }
+
     } else if (target === 'async-inference') {
         // Async endpoint name (separate from SMAI)
         if (!config.ASYNC_ENDPOINT_NAME) {
@@ -751,7 +841,7 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
                 default: ''
             });
         }
-        if (!config.ASYNC_MAX_CONCURRENT_INVOCATIONS && !config.ASYNC_MAX_CONCURRENT) {
+        if (!config.ASYNC_MAX_CONCURRENT_INVOCATIONS) {
             answers.async_max_concurrent = await input({
                 message: 'Max concurrent invocations:',
                 default: '1'
@@ -817,6 +907,9 @@ export async function run({ configFile, outputFile, preTarget, preInstanceType }
         case 'hyperpod-eks':
             answers.hp_instance_type = answers.instance_type;
             break;
+        case 'eks':
+            answers.hp_instance_type = answers.instance_type;
+            break;
         }
     }
 
@@ -834,6 +927,15 @@ for (let i = 0; i < args.length; i++) {
     else if (args[i] === '--output-file' && args[i + 1]) parsed.outputFile = args[++i];
     else if (args[i] === '--target' && args[i + 1]) parsed.preTarget = args[++i];
     else if (args[i] === '--instance-type' && args[i + 1]) parsed.preInstanceType = args[++i];
+    else {
+        // Per-target optional flags (FR-3.1/FR-3.2 non-interactive path): record
+        // each caller-supplied value so run() can skip the matching prompt.
+        const flagVars = CLI_FLAG_TO_VARS[args[i]];
+        if (flagVars && args[i + 1]) {
+            parsed.preFlags = parsed.preFlags || [];
+            parsed.preFlags.push({ ...flagVars, value: args[++i] });
+        }
+    }
 }
 
 if (parsed.configFile && parsed.outputFile) {

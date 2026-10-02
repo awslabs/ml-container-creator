@@ -42,7 +42,7 @@ class QuotaResolver {
     /**
      * @param {string} region - AWS region to query
      * @param {object} [options={}]
-     * @param {number} [options.timeout=5000] - Timeout per API call in ms
+     * @param {number} [options.timeout=10000] - Timeout per API call in ms
      * @param {number} [options.cacheTtl=300000] - Cache TTL in ms (default 5 min)
      */
     constructor(region, options = {}) {

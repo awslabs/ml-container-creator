@@ -103,7 +103,7 @@ Six bundled [Model Context Protocol](mcp-configuration.md) servers recommend con
 | **instance-sizer** | Recommends instance types based on model size + framework |
 | **region-picker** | Finds regions with availability |
 | **base-image-picker** | Selects optimal base image for CUDA version |
-| **model-picker** | Discovers models from HuggingFace, S3, Marketplace |
+| **model-picker** | Discovers models from HuggingFace and S3 |
 | **hyperpod-cluster-picker** | Lists available HyperPod EKS clusters |
 | **endpoint-picker** | Discovers existing endpoints for attachment |
 

@@ -54,7 +54,7 @@ Stage 2 uses workload profiles from the workload-picker MCP server. Each CI conf
 
 ```json
 {
-  "benchmarkWorkload": "production_traffic_mix"
+  "benchmarkWorkload": "production-traffic-mix"
 }
 ```
 

@@ -1,0 +1,22 @@
+{
+  "engine": "lmi",
+  "env_var_prefix": "OPTION_",
+  "speculative_decoding": false,
+  "supported_algorithms": [],
+  "algorithm_map": {},
+  "hot_reload": false,
+  "dimension_map": {
+    "quantization": "QUANTIZE",
+    "tensor_parallel_degree": "TENSOR_PARALLEL_DEGREE",
+    "max_model_len": "MAX_MODEL_LEN"
+  },
+  "engine_features": {
+    "rolling_batch_backend": {
+      "env_var": "OPTION_ROLLING_BATCH",
+      "type": "enum",
+      "values": ["auto", "vllm", "tensorrt-llm", "lmi-dist"],
+      "default": "auto",
+      "description": "Pluggable inference backend: LMI is a meta-engine that delegates serving to vLLM, TensorRT-LLM, or LMI-Dist (or auto-selects). LMI-specific — vLLM/SGLang ARE a single engine and expose no equivalent 'choose your backend' knob."
+    }
+  }
+}

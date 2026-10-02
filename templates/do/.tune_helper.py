@@ -154,7 +154,7 @@ def main():
     stage_hf_parser.add_argument("--column-map", default=None,
                                  help="Column mapping (e.g., prompt=question,completion=answer)")
     stage_hf_parser.add_argument("--technique", default="sft",
-                                 choices=["sft", "dpo", "rlaif", "rlvr"],
+                                 choices=["sft", "dpo", "rlaif", "rlvr", "benchmark"],
                                  help="Customization technique (determines required columns)")
     stage_hf_parser.add_argument("--no-transform", action="store_true", default=False,
                                  help="Disable automatic chat-format flattening")

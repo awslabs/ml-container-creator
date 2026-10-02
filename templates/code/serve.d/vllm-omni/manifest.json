@@ -1,0 +1,13 @@
+{
+  "engine": "vllm-omni",
+  "env_var_prefix": "VLLM_OMNI_",
+  "speculative_decoding": false,
+  "supported_algorithms": [],
+  "algorithm_map": {},
+  "hot_reload": false,
+  "metrics_endpoint": {
+    "path": "/health",
+    "port": 8081,
+    "format": "text"
+  }
+}

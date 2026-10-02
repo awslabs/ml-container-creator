@@ -40,6 +40,7 @@ _DEFAULTS = AgentConfig(
         "model-picker",
         "workload-picker",
         "draft-model-picker",
+        "adapter-picker",
         "e2e-status",
         "agent-knowledge",
     ],

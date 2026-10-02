@@ -353,4 +353,74 @@ describe('Accelerator Validators', () => {
                 'Message should mention AMD GPU or ROCm');
         });
     });
+
+    // Wave 5 (ADR-006): neuron and rocm now share one SemverAcceleratorValidator.
+    // These pin that the shared base did NOT flatten their distinct wording.
+    describe('Shared semver base preserves distinct messages (Wave 5 merge)', () => {
+        it('neuron and rocm share the same version-comparison logic', () => {
+            const proto = Object.getPrototypeOf(Object.getPrototypeOf(validators.neuron));
+            assert.strictEqual(
+                proto,
+                Object.getPrototypeOf(Object.getPrototypeOf(validators.rocm)),
+                'neuron and rocm should extend the same SemverAcceleratorValidator base'
+            );
+        });
+
+        it('neuron keeps its ml.inf2 guidance and Neuron SDK label', () => {
+            const msg = validators.neuron.getVersionMismatchMessage('2.16.0', ['2.15.0']);
+            assert(msg.includes('Neuron SDK'), 'neuron message keeps its label');
+            assert(msg.includes('ml.inf2'), 'neuron message keeps ml.inf2 guidance');
+            assert(!msg.includes('AMD GPU'), 'neuron message must not leak rocm wording');
+
+            const info = validators.neuron.validate(
+                { accelerator: { type: 'neuron', version: '2.15.0' } },
+                { accelerator: { type: 'neuron', versions: ['2.15.0'] } }
+            ).info;
+            assert(info.includes('Neuron SDK'), 'neuron info keeps its label');
+        });
+
+        it('rocm keeps its AMD GPU guidance and ROCm label', () => {
+            const msg = validators.rocm.getVersionMismatchMessage('5.5.0', ['5.4.0']);
+            assert(msg.includes('ROCm'), 'rocm message keeps its label');
+            assert(msg.includes('AMD GPU'), 'rocm message keeps AMD GPU guidance');
+            assert(!msg.includes('ml.inf2'), 'rocm message must not leak neuron wording');
+
+            const info = validators.rocm.validate(
+                { accelerator: { type: 'rocm', version: '5.4.0' } },
+                { accelerator: { type: 'rocm', versions: ['5.4.0'] } }
+            ).info;
+            assert(info.includes('ROCm'), 'rocm info keeps its label');
+        });
+
+        // cuda now shares the major-match/minor->= compare via accelerator-version.js
+        // (the last inlined copy of that rule), but keeps its own g5/g6 guidance and
+        // its major.minor (2-segment) semantics.
+        it('cuda keeps its CUDA/g5-g6 wording after sharing the compare helper', () => {
+            const msg = validators.cuda.getVersionMismatchMessage('12.1', ['11.8']);
+            assert(msg.includes('CUDA'), 'cuda message keeps its label');
+            assert(msg.includes('ml.g5') || msg.includes('ml.g6'), 'cuda keeps its instance guidance');
+            assert(!msg.includes('ml.inf2') && !msg.includes('AMD GPU'), 'cuda must not leak other wording');
+        });
+
+        it('cuda still compares 2-segment versions correctly (major match, minor >=)', () => {
+            const compat = validators.cuda.validate(
+                { accelerator: { type: 'cuda', version: '12.1' } },
+                { accelerator: { type: 'cuda', versions: ['12.0', '12.4'] } }
+            );
+            assert.strictEqual(compat.compatible, true, '12.4 satisfies required 12.1');
+            assert(compat.info.includes('12.4'), 'info reports the matched version');
+
+            const incompatMajor = validators.cuda.validate(
+                { accelerator: { type: 'cuda', version: '12.1' } },
+                { accelerator: { type: 'cuda', versions: ['11.8'] } }
+            );
+            assert.strictEqual(incompatMajor.compatible, false, 'different major is incompatible');
+
+            const incompatMinor = validators.cuda.validate(
+                { accelerator: { type: 'cuda', version: '12.4' } },
+                { accelerator: { type: 'cuda', versions: ['12.1'] } }
+            );
+            assert.strictEqual(incompatMinor.compatible, false, 'lower minor is incompatible');
+        });
+    });
 });

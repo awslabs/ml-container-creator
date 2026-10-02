@@ -58,5 +58,19 @@
     "min_vllm_version": "0.4.0",
     "min_sglang_version": "0.3.0",
     "notes": "Classic small draft model for Vicuna-7B"
+  },
+  "acme/internal-llama-eagle3-draft": {
+    "algorithm": "eagle3",
+    "target_model": "meta-llama/Llama-3.1-8B-Instruct",
+    "target_arch": "LlamaForCausalLM",
+    "engine_support": [
+      "vllm",
+      "sglang"
+    ],
+    "min_vllm_version": "0.6.0",
+    "min_sglang_version": "0.4.0",
+    "source": "s3",
+    "s3_uri": "s3://acme-models/drafts/llama31-8b-eagle3/",
+    "notes": "In-house EAGLE3 draft head (S3-hosted); routing requires BL105"
   }
 }

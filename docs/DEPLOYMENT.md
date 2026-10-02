@@ -73,20 +73,6 @@ The `site/` directory contains the built documentation:
 5. **Push to main**: `git push origin main`
 6. **Wait for deployment**: GitHub Actions will deploy automatically
 
-### Syncing Steering Files
-
-Some documentation files are synced from other locations:
-
-```bash
-# Sync all steering files to docs
-./scripts/docs.sh sync
-```
-
-This syncs:
-- `templates/README.md` → `docs/template-system.md`
-
-**Note**: `templates/README.md` is documentation about the template system itself and is excluded from being copied to generated projects.
-
 ## Monitoring Deployments
 
 ### Check Deployment Status

@@ -1,0 +1,14 @@
+{
+  "name": "@amzn/ml-container-creator-adapter-picker",
+  "version": "1.0.0",
+  "description": "Discovery-only MCP server that searches the HuggingFace Hub for PEFT/LoRA adapters compatible with a base model.",
+  "modes": {
+    "static": false,
+    "smart": false,
+    "discover": true
+  },
+  "catalogs": {},
+  "tool": {
+    "name": "search_hf_adapters"
+  }
+}

@@ -360,6 +360,11 @@ export default class ConfigLoader {
 
         // Parse --ic-env KEY=VALUE pairs (deploy-time IC environment variables)
         this._parseEnvVarOptions('ic-env', 'icEnvVars');
+
+        // Parse --engine-feature NAME=VALUE pairs. NAME is an MLCC feature key
+        // (e.g. radix_attention); it is resolved to the engine's real env var and
+        // validated against the serve-plugin manifest's engine_features in app.js.
+        this._parseEnvVarOptions('engine-feature', 'engineFeatureVars');
     }
 
     /**

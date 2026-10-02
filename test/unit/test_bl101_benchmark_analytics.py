@@ -204,8 +204,8 @@ class TestListQuery:
 
     def test_workload_filter(self):
         e = _CapturingEngine()
-        e.query_list(model_name='m', workload='rag_document_qa')
-        assert "workload = 'rag_document_qa'" in e.last_sql
+        e.query_list(model_name='m', workload='rag-document-qa')
+        assert "workload = 'rag-document-qa'" in e.last_sql
 
     def test_sort_direction(self):
         e = _CapturingEngine()

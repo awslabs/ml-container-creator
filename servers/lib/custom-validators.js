@@ -3,6 +3,13 @@
 
 /**
  * Custom value validation patterns for MCP servers.
+ *
+ * PATTERN: Shared validation-pattern registry (pure functions + regexes).
+ * COLLABORATORS: used by MCP servers that accept user-provided custom values.
+ * DATA-FLOW ROLE: consumes a candidate value, produces a validity verdict; no
+ *   state, no I/O.
+ * See: docs/architecture/mcp-servers.md
+ *
  * Each server defines a regex pattern and validation function
  * for user-provided custom values.
  */

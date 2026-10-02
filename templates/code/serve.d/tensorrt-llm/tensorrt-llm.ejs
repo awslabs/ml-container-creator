@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# TensorRT-LLM Server Configuration
+# ---------------------------------------------------------------------------
+# Env prefix: TRTLLM_ (sourced from serve.d/tensorrt-llm/manifest.json env_var_prefix)
+# Entrypoint: trtllm-serve serve MODEL [OPTIONS]
+# Port: 8081 (nginx proxies to 8080 for SageMaker)
+#
+# Speculative decoding: the manifest declares speculative_decoding:false. This is
+# a SCOPE statement, not a capability one — TensorRT-LLM itself DOES support
+# speculative decoding (EAGLE3, MTP, draft/target, NGram), but it is configured
+# through structured LLM-API config objects / a speculative_config JSON, NOT the
+# flat TRTLLM_* env→--flag conversion this wrapper performs. Wiring it (assemble
+# the speculative_config here + the hyperpod-eks algorithm path) is deferred to
+# v1.9 — see .kiro/specs/bl-v19-trtllm-speculative/. Declaring the algorithms
+# before that wiring exists would over-claim support the generator can't emit.
+# ---------------------------------------------------------------------------
+
+<%# ADR-004: PREFIX is injected from serve.d/tensorrt-llm/manifest.json
+    (env_var_prefix) via the generation-time reader (serve-manifest-reader.js),
+    not hardcoded — matching vllm.ejs / sglang.ejs. Defensive fallback to TRTLLM_
+    keeps the rendered output byte-identical when the render context omits
+    envVarPrefix. %>
+PREFIX="<%= (typeof envVarPrefix !== 'undefined' && envVarPrefix) ? envVarPrefix : 'TRTLLM_' %>"
+ARG_PREFIX="--"
+
+# The <PREFIX>MODEL var is the positional model argument, not a --flag.
+EXCLUDE_VARS=("${PREFIX}MODEL")
+
+# Declare and populate array of matching environment variables
+mapfile -t env_vars < <(env | grep "^${PREFIX}")
+
+# Convert TRTLLM_ env vars to CLI arguments
+for var in "${env_vars[@]}"; do
+    IFS='=' read -r key value <<< "$var"
+
+    # Skip excluded variables
+    skip=false
+    for exclude in "${EXCLUDE_VARS[@]}"; do
+        if [ "$key" = "$exclude" ]; then
+            skip=true
+            break
+        fi
+    done
+    if [ "$skip" = true ]; then continue; fi
+
+    # Remove prefix, convert to lowercase, replace underscores with dashes
+    arg_name=$(echo "${key#"${PREFIX}"}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+
+    # Boolean handling: true = flag only, false = skip entirely
+    if [ "$value" = "false" ]; then continue; fi
+
+    SERVER_ARGS+=("${ARG_PREFIX}${arg_name}")
+    if [ -n "$value" ] && [ "$value" != "true" ]; then
+        SERVER_ARGS+=("$value")
+    fi
+done
+
+echo "-------------------------------------------------------------------"
+echo "TensorRT-LLM engine args: [${SERVER_ARGS[@]}]"
+echo "-------------------------------------------------------------------"
+
+# TensorRT-LLM requires the model as a positional argument. Resolve it from the
+# manifest-sourced prefix (<PREFIX>MODEL) so the wrapper has no hardcoded prefix.
+_MODEL_VAR="${PREFIX}MODEL"
+_MODEL_VALUE="${!_MODEL_VAR}"
+if [ -z "$_MODEL_VALUE" ]; then
+    echo "Error: ${PREFIX}MODEL environment variable is not set"
+    exit 1
+fi
+exec trtllm-serve serve "$_MODEL_VALUE" "${SERVER_ARGS[@]}"

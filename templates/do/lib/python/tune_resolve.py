@@ -67,6 +67,15 @@ def _resolve_dataset_name(dataset_name):
             f"Register it first: ./do/register --dataset --dataset-name {dataset_name} --dataset-s3-uri s3://..."
         )
 
+    # BL120/BL100: benchmark datasets use the AIPerf BYOD single_turn schema
+    # (`text` column) and are meant for do/benchmark, not fine-tuning. Reject
+    # them here with a clear error.
+    if output.get("technique") == "benchmark":
+        _error_exit(
+            "This dataset was registered for benchmarking, not fine-tuning. "
+            "Use do/benchmark instead."
+        )
+
     # Prefer ARN if available (Backlog #023 — AI Registry mode)
     # When arn is present, use it directly with SFTTrainer(training_dataset=arn)
     arn = output.get("arn")

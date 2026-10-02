@@ -127,6 +127,7 @@ export class MlccBenchmarkStack extends cdk.Stack {
                         { name: 'benchmark_duration_sec', type: 'double' },
                         { name: 'run_type', type: 'string' },
                         { name: 'benchmark_job_name', type: 'string' },
+                        { name: 'run_name', type: 'string', comment: 'Human-readable run identifier: petname_workload_maxconcurrency (e.g. coral-hawk_sample_2)' },
                         { name: 'mcc_version', type: 'string' },
                         { name: 'run_timestamp', type: 'string', comment: 'ISO 8601 UTC timestamp of the benchmark run' },
                         { name: 'region', type: 'string' },

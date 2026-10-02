@@ -2,8 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Configuration Manager - Handles configuration precedence and merging
- * 
+ * ConfigManager - the CLI parameter-precedence engine.
+ *
+ * NAMING NOTE (ADR-005): this is NOT the registry subsystem. That is
+ * `RegistryConfigManager` in src/lib/registry-config-manager.js, which loads and
+ * matches the framework/model/instance registries. This class merges the user's
+ * intent from all CLI-facing sources into a single answers object per the
+ * precedence order below; it knows nothing about registries.
+ *
+ * Handles configuration precedence and merging.
+ *
  * Implements the complete precedence order (Highest → Lowest Priority):
  * 1. CLI Options (--framework=transformers)
  * 2. CLI Arguments (yo generator projectName)
@@ -17,31 +25,24 @@
  */
 
 import path from 'path';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import DeploymentConfigResolver from './deployment-config-resolver.js';
 import ParameterSchemaValidator from './parameter-schema-validator.js';
+// Predictor-framework (http) format→engine inference and default-format map are
+// derived from the predictors.d descriptors (single source of truth).
+import {
+    formatToEngineMap as predictorFormatToEngineMap,
+    defaultModelFormatMap as predictorDefaultFormatMap
+} from './predictor-manifest-reader.js';
 import ConfigLoader from './config-loader.js';
 import ConfigMcpClient from './config-mcp-client.js';
 import ConfigValidator from './config-validator.js';
 import { parameterMatrix } from './generated/parameter-matrix.js';
+// Triton backend metadata comes from the shared catalog loader (single source
+// of truth; previously duplicated here and in config-validator.js).
+import { tritonBackends } from './triton-backends-catalog.js';
 
-const __configMgrFilename = fileURLToPath(import.meta.url);
-const __configMgrDir = dirname(__configMgrFilename);
-const tritonBackendsCatalogPath = resolve(__configMgrDir, '../../servers/lib/catalogs/triton-backends.json');
 
-function loadTritonBackendsFromCatalog() {
-    try {
-        const raw = readFileSync(tritonBackendsCatalogPath, 'utf8');
-        return JSON.parse(raw);
-    } catch (error) {
-        console.warn(`Failed to load triton backends catalog: ${error.message}`);
-        return {};
-    }
-}
-
-const tritonBackends = loadTritonBackendsFromCatalog();
 
 // Resolve the generator project root (two levels up from src/lib/)
 const __filename = fileURLToPath(import.meta.url);
@@ -183,6 +184,9 @@ export default class ConfigManager {
         if (this.config.serverEnvVars && typeof this.config.serverEnvVars === 'object') {
             finalConfig.serverEnvVars = { ...this.config.serverEnvVars };
         }
+        if (this.config.engineFeatureVars && typeof this.config.engineFeatureVars === 'object') {
+            finalConfig.engineFeatureVars = { ...this.config.engineFeatureVars };
+        }
         if (this.config.icEnvVars && typeof this.config.icEnvVars === 'object') {
             finalConfig.icEnvVars = { ...this.config.icEnvVars };
         }
@@ -205,15 +209,9 @@ export default class ConfigManager {
             // For http architecture, engine comes from the --engine CLI option or prompt
             if (parts.architecture === 'http') {
                 if (!finalConfig.engine) {
-                    // Infer engine from model format if possible
-                    const formatToEngine = {
-                        'pkl': 'sklearn',
-                        'joblib': 'sklearn',
-                        'json': 'xgboost',
-                        'keras': 'tensorflow',
-                        'h5': 'tensorflow',
-                        'savedmodel': 'tensorflow'
-                    };
+                    // Infer engine from model format via the predictor descriptors
+                    // (format → owning framework), falling back to sklearn.
+                    const formatToEngine = predictorFormatToEngineMap();
                     finalConfig.engine = (finalConfig.modelFormat && formatToEngine[finalConfig.modelFormat]) || 'sklearn';
                 }
             } else {
@@ -233,11 +231,7 @@ export default class ConfigManager {
                         const architecture = finalConfig.architecture || 'http';
                         if (architecture === 'http') {
                             const engine = finalConfig.engine || 'sklearn';
-                            const formatMap = {
-                                'sklearn': 'pkl',
-                                'xgboost': 'json',
-                                'tensorflow': 'keras'
-                            };
+                            const formatMap = predictorDefaultFormatMap();
                             finalConfig[param] = formatMap[engine] || 'pkl';
                         }
                     } else if (param === 'instanceType') {
@@ -415,7 +409,8 @@ export default class ConfigManager {
             ...icParams,
             'modelEnvVars',
             'serverEnvVars',
-            'icEnvVars'
+            'icEnvVars',
+            'engineFeatureVars'
         ]);
         const core = {};
         for (const [key, value] of Object.entries(this.config)) {
@@ -431,6 +426,7 @@ export default class ConfigManager {
             modelEnvVars: { ...(this.config.modelEnvVars || {}) },
             serverEnvVars: { ...(this.config.serverEnvVars || {}) },
             icEnvVars: { ...(this.config.icEnvVars || {}) },
+            engineFeatureVars: { ...(this.config.engineFeatureVars || {}) },
             manifest: [...this._sourceManifest]
         };
     }
@@ -559,6 +555,7 @@ export default class ConfigManager {
         // Collection parameters for env vars (not in matrix, handled separately)
         defaults.modelEnvVars = {};
         defaults.serverEnvVars = {};
+        defaults.engineFeatureVars = {};
 
         return defaults;
     }

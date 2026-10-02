@@ -1,0 +1,295 @@
+#!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# do/clean.d/eks — Plain EKS cleanup (BL103).
+#
+# Deletes ONLY the standard Kubernetes objects the eks target created — the
+# Deployment, Service, and ConfigMap (plus the optional hf-token-secret) — and
+# performs NO SageMaker cleanup: no InferenceEndpointConfig, no
+# SageMakerEndpointRegistration wait, no `aws sagemaker delete-*`. Shares the
+# local/ecr/codebuild helpers with the other clean targets.
+
+set -e
+set -u
+set -o pipefail
+
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
+
+# ── Profile-resolved variables (env var > profile > default) ──────────────────
+ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
+export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
+HP_NAMESPACE="${HP_NAMESPACE:-default}"
+
+# Parse arguments
+CLEANUP_TARGET=""
+FORCE_CLEAN=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE_CLEAN=true ;;
+        -*) ;; # ignore other flags
+        *)
+            if [ -z "${CLEANUP_TARGET}" ]; then
+                CLEANUP_TARGET="$arg"
+            fi
+            ;;
+    esac
+done
+
+show_usage() {
+    echo "Usage: ./do/clean --target eks [local|ecr|eks|codebuild|all]"
+    echo ""
+    echo "Cleanup targets:"
+    echo "  local     - Remove local Docker images"
+    echo "  ecr       - Remove images from Amazon ECR"
+    echo "  eks       - Delete the plain EKS Deployment, Service, and ConfigMap"
+    echo "  codebuild - Delete CodeBuild project, IAM role, and S3 source artifacts"
+    echo "  all       - Perform all cleanup operations"
+}
+
+confirm_action() {
+    local message="$1"
+    if [ "${FORCE_CLEAN}" = true ]; then
+        return 0
+    fi
+    echo ""
+    echo "⚠️  ${message}"
+    read -p "   Are you sure? (yes/no): " -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+        echo "❌ Operation cancelled"
+        return 1
+    fi
+    return 0
+}
+
+# ── Local Docker image cleanup ────────────────────────────────────────────────
+clean_local() {
+    echo "🧹 Cleaning local Docker images"
+    echo "   Project: ${PROJECT_NAME}"
+
+    LOCAL_PATTERN="^${PROJECT_NAME}:"
+    ECR_PATTERN="\.dkr\.ecr\..*\.amazonaws\.com/${ECR_REPOSITORY_NAME}:${PROJECT_NAME}-"
+
+    if ! command -v docker &>/dev/null || ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -qE "${LOCAL_PATTERN}|${ECR_PATTERN}"; then
+        echo "ℹ️  No local images found for ${PROJECT_NAME}"
+        return 0
+    fi
+
+    if ! confirm_action "This will remove all local Docker images for ${PROJECT_NAME}"; then
+        return 1
+    fi
+
+    echo "🗑️  Removing local images..."
+    docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "${LOCAL_PATTERN}|${ECR_PATTERN}" | while read -r image; do
+        echo "   Removing: ${image}"
+        docker rmi "${image}" || echo "   ⚠️  Failed to remove ${image}"
+    done
+
+    echo "✅ Local images cleaned"
+}
+
+# ── ECR image cleanup ─────────────────────────────────────────────────────────
+clean_ecr() {
+    echo "🧹 Cleaning ECR images"
+    echo "   Repository: ${ECR_REPOSITORY_NAME}"
+    echo "   Region: ${AWS_REGION}"
+
+    _aws_preflight
+
+    if ! aws ecr describe-repositories \
+        --repository-names "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null; then
+        echo "ℹ️  ECR repository ${ECR_REPOSITORY_NAME} does not exist"
+        return 0
+    fi
+
+    if ! confirm_action "This will remove all images from ECR repository ${ECR_REPOSITORY_NAME}"; then
+        return 1
+    fi
+
+    IMAGE_IDS_JSON=$(aws ecr list-images \
+        --repository-name "${ECR_REPOSITORY_NAME}" \
+        --region "${AWS_REGION}" \
+        --query "imageIds[?starts_with(imageTag, '${PROJECT_NAME}-')]" \
+        --output json)
+
+    if [ "${IMAGE_IDS_JSON}" != "[]" ] && [ -n "${IMAGE_IDS_JSON}" ]; then
+        if aws ecr batch-delete-image \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --region "${AWS_REGION}" \
+            --image-ids "${IMAGE_IDS_JSON}" &> /dev/null; then
+            echo "✅ ECR images removed for project: ${PROJECT_NAME}"
+        else
+            echo "❌ Failed to remove some ECR images"
+            return 1
+        fi
+    else
+        echo "ℹ️  No images to remove for project: ${PROJECT_NAME}"
+    fi
+}
+
+# ── Plain EKS Kubernetes cleanup (Requirement 4) ──────────────────────────────
+# Deletes ONLY the Deployment, Service, and ConfigMap this target created (plus
+# the optional hf-token-secret). No SageMaker cleanup of any kind.
+clean_eks() {
+    echo "🧹 Cleaning plain EKS resources"
+    echo "   Namespace: ${HP_NAMESPACE}"
+
+    local _profile_arg=""
+    [ -n "${_PROFILE_awsProfile:-${AWS_PROFILE:-}}" ] && _profile_arg="--profile ${_PROFILE_awsProfile:-${AWS_PROFILE}}"
+
+    # Resolve kubeconfig the same way as deploy — only when HP_CLUSTER_NAME is set.
+    # Otherwise use the ambient kubectl context.
+    if [ -n "${HP_CLUSTER_NAME:-}" ]; then
+        echo "🔑 Configuring kubectl for cluster: ${HP_CLUSTER_NAME}"
+        KUBECONFIG_PATH="${HOME}/.kube/eks-${HP_CLUSTER_NAME}"
+        local _eks_name="${HP_CLUSTER_NAME}"
+        local _eks_arn
+        _eks_arn=$(aws sagemaker describe-cluster \
+            --cluster-name "${HP_CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            ${_profile_arg} \
+            --query "Orchestrator.Eks.ClusterArn" \
+            --output text 2>/dev/null) || _eks_arn=""
+        if [ -n "${_eks_arn}" ] && [ "${_eks_arn}" != "None" ]; then
+            _eks_name=$(echo "${_eks_arn}" | awk -F'/' '{print $NF}')
+        fi
+        if ! aws eks update-kubeconfig \
+            --name "${_eks_name}" \
+            --region "${AWS_REGION}" \
+            ${_profile_arg} \
+            --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+            echo "❌ Failed to configure kubectl for EKS cluster: ${_eks_name}"
+            return 1
+        fi
+        export KUBECONFIG="${KUBECONFIG_PATH}"
+    else
+        echo "🔑 HP_CLUSTER_NAME not set — using ambient kubectl context"
+    fi
+
+    if ! confirm_action "This will delete the EKS Deployment, Service, and ConfigMap in namespace ${HP_NAMESPACE}"; then
+        return 1
+    fi
+
+    # Delete ONLY the three objects this target created, addressed by both the
+    # app label and the explicit name. --ignore-not-found makes clean idempotent.
+    echo "🗑️  Deleting Deployment, Service, and ConfigMap '${PROJECT_NAME}'..."
+    local _delete_failed=false
+    kubectl delete deployment,service,configmap \
+        -l "app=${PROJECT_NAME}" \
+        -n "${HP_NAMESPACE}" --ignore-not-found 2>&1 || _delete_failed=true
+    # Also delete by explicit name in case labels were altered manually.
+    kubectl delete "deployment/${PROJECT_NAME}" "service/${PROJECT_NAME}" "configmap/${PROJECT_NAME}" \
+        -n "${HP_NAMESPACE}" --ignore-not-found 2>&1 || true
+
+    # Remove the optional HuggingFace token secret if present.
+    kubectl delete secret hf-token-secret -n "${HP_NAMESPACE}" --ignore-not-found 2>/dev/null || true
+
+    if [ "${_delete_failed}" = true ]; then
+        echo "❌ Failed to delete one or more Kubernetes objects"
+        echo "   Inspect manually:"
+        echo "   kubectl get deployment,svc,configmap -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
+        return 1
+    fi
+
+    # Clear the EKS status var so subsequent runs treat the target as not deployed.
+    if grep -q "^export DEPLOYMENT_TARGET_EKS_STATUS=" "${SCRIPT_DIR}/config" 2>/dev/null; then
+        sed -i.bak "s|^export DEPLOYMENT_TARGET_EKS_STATUS=.*|export DEPLOYMENT_TARGET_EKS_STATUS=\"\"|" "${SCRIPT_DIR}/config"
+        rm -f "${SCRIPT_DIR}/config.bak"
+    fi
+
+    # Mark k8s resources as deleted in the manifest (non-blocking)
+    ./do/manifest delete --id "${HP_NAMESPACE}/${PROJECT_NAME}" 2>/dev/null || true
+
+    echo "✅ Plain EKS resources cleaned"
+}
+
+# ── CodeBuild cleanup ─────────────────────────────────────────────────────────
+clean_codebuild() {
+    echo "🧹 Cleaning CodeBuild resources"
+    echo "   Project: ${CODEBUILD_PROJECT_NAME:-not set}"
+
+    if [ -z "${CODEBUILD_PROJECT_NAME:-}" ]; then
+        echo "ℹ️  No CodeBuild project name configured (build target may not be codebuild)"
+        return 0
+    fi
+
+    _aws_preflight
+
+    PROJECT_CHECK=$(aws codebuild batch-get-projects \
+        --names "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" \
+        --query 'projects[0].name' \
+        --output text 2>/dev/null)
+
+    if [ "$PROJECT_CHECK" = "None" ] || [ -z "$PROJECT_CHECK" ] || [ "$PROJECT_CHECK" = "null" ]; then
+        echo "ℹ️  CodeBuild project not found: ${CODEBUILD_PROJECT_NAME}"
+        return 0
+    fi
+
+    if ! confirm_action "This will delete the CodeBuild project and associated resources"; then
+        return 1
+    fi
+
+    echo "🗑️  Deleting CodeBuild project: ${CODEBUILD_PROJECT_NAME}"
+    aws codebuild delete-project \
+        --name "${CODEBUILD_PROJECT_NAME}" \
+        --region "${AWS_REGION}" &> /dev/null \
+        && echo "✅ CodeBuild project deleted" \
+        || echo "❌ Failed to delete CodeBuild project"
+
+    echo "✅ CodeBuild resources cleaned"
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+echo "🧹 Cleanup script for ${PROJECT_NAME} (plain EKS)"
+echo ""
+
+if [ -z "${CLEANUP_TARGET}" ]; then
+    # Default to the EKS Kubernetes cleanup when invoked without a subcommand
+    # (mirrors do/deploy --target eks focus).
+    CLEANUP_TARGET="eks"
+fi
+
+case "${CLEANUP_TARGET}" in
+    local)
+        clean_local
+        ;;
+    ecr)
+        clean_ecr
+        ;;
+    eks)
+        clean_eks
+        ;;
+    codebuild)
+        clean_codebuild
+        ;;
+    all)
+        echo "🧹 Performing complete cleanup"
+        echo ""
+        clean_local || true
+        echo ""
+        clean_ecr || true
+        echo ""
+        clean_eks || true
+        echo ""
+        clean_codebuild || true
+        echo ""
+        echo "✅ Cleanup complete!"
+        ;;
+    *)
+        echo "❌ Unknown cleanup target: ${CLEANUP_TARGET}"
+        echo ""
+        show_usage
+        exit 1
+        ;;
+esac
+
+echo ""
+echo "Cleanup finished!"

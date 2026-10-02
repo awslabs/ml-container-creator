@@ -86,6 +86,30 @@ nav:
       - Registries and Catalogs: dev/registries-and-catalogs.md
       - Validation System: dev/validation-system.md
       - Testing: dev/testing.md
+      - Architecture Corpus:
+          - Overview: architecture/index.md
+          - System Overview: architecture/system-overview.md
+          - MCP Picker Servers: architecture/mcp-servers.md
+          - Serve-Engine Plugins: architecture/serve-engine-plugins.md
+          - Serve-Engine Plugin Authoring: architecture/serve-engine-plugin-authoring.md
+          - Predictor-Framework Plugins: architecture/predictor-framework-plugins.md
+          - Command Handlers & do/config: architecture/command-handlers.md
+          - Validation Framework: architecture/validation.md
+          - do/ Scripts: architecture/do-scripts.md
+          - Adding a Deployment Target: architecture/deployment-target-authoring.md
+          - do/ Scripts — Wave 6 Changelog: architecture/do-scripts-wave6-changelog.md
+          - Module-Header Convention: architecture/module-header-convention.md
+      - Decision Records (ADRs):
+          - ADR-001 Import Metadata Contract: adr/ADR-001-import-contract-metadata-schema.md
+          - ADR-002 Consolidation Program: adr/ADR-002-consolidation-program.md
+          - ADR-003 MCP Picker-Server Factory: adr/ADR-003-mcp-picker-server-factory.md
+          - ADR-004 Serve-Engine Plugin Parity: adr/ADR-004-serve-engine-plugin-parity.md
+          - ADR-005 Command-Handler Contract: adr/ADR-005-command-handler-contract.md
+          - ADR-006 Unified Validation Framework: adr/ADR-006-unified-validation-framework.md
+          - ADR-007 do/ Script Contract Enforcement: adr/ADR-007-do-script-contract-enforcement.md
+          - ADR-008 Deployment-Target Descriptor: adr/ADR-008-deployment-target-descriptor.md
+          - ADR-009 Serve-Engine Capability Versioning: adr/ADR-009-serve-engine-capability-versioning.md
+      - Test Inventory: dev/test-inventory.md
   - Command Generator: command-generator.md
 
 markdown_extensions:

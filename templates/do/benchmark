@@ -1,3 +1,4 @@
+#!/bin/bash
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -15,6 +16,17 @@
 set -e
 set -u
 set -o pipefail
+
+# Normalize --flag=value → --flag value before any arg inspection below.
+# This lets users pass either `--min-tp 4` or `--min-tp=4`.
+_NORMALIZED_ARGS=()
+for _a in "$@"; do
+    case "$_a" in
+        --*=*) _NORMALIZED_ARGS+=("${_a%%=*}" "${_a#*=}") ;;
+        *)     _NORMALIZED_ARGS+=("$_a") ;;
+    esac
+done
+set -- "${_NORMALIZED_ARGS[@]+"${_NORMALIZED_ARGS[@]}"}"
 
 # ── Source project configuration ──────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,29 +53,62 @@ source "${SCRIPT_DIR}/lib/profile.sh"
 source "${SCRIPT_DIR}/lib/resolve-instance.sh"
 
 # ── Phase 2 engine /metrics scrape (BL086, HyperPod EKS opt-in) ───────────────
-# When HP_BENCHMARK_METRICS_ENABLED=true and DEPLOYMENT_TARGET=hyperpod-eks,
-# port-forward to the serving pod (same pattern as the do/test HyperPod path),
-# scrape engine /metrics via gpu_metrics.py, and write the JSON to a temp file.
-# Echoes the temp-file path on success, or nothing. Always non-fatal.
-_collect_engine_metrics_file() {
+# BL108 upgrades the BL086 point-in-time /metrics scrape into a background
+# poller. When HP_BENCHMARK_METRICS_ENABLED=true, DEPLOYMENT_TARGET is
+# hyperpod-eks/eks, AND the active engine's serve.d/<engine>/manifest.json
+# declares a metrics_endpoint (BL105), a background poller is spawned at
+# benchmark start (Req 1.1). It samples engine /metrics every 5s for the whole
+# run and writes peak/avg to benchmarks/.last_gpu_metrics.json at the end
+# (Req 2, 3). When no metrics_endpoint is declared, Phase 2 is silently skipped
+# (Req 4.1). The port-forward is started before the poller (Req 7.1) and stopped
+# after benchmark end, on both normal and abnormal exit (Req 7.2).
+#
+# State shared between _phase2_start_poller and _phase2_stop_poller:
+_PHASE2_PF_PID=""        # kubectl port-forward PID
+_PHASE2_POLLER_PID=""    # phase2_poller.py PID
+_PHASE2_STOP_FILE=""     # sentinel file that signals the poller to stop
+_PHASE2_ACTIVE=false     # true once a poller has been spawned
+
+# ── Spawn the poller (Req 1, 4, 7.1) ──────────────────────────────────────────
+# Resolves the metrics_endpoint from the engine manifest and, only if declared,
+# starts the port-forward and spawns the background poller. Always non-fatal:
+# any failure degrades to "no Phase 2 file" and returns 0.
+_phase2_start_poller() {
+    # Outer opt-in guards (subsume the BL086 gates). Silent skip if not opted in.
     if [ "${HP_BENCHMARK_METRICS_ENABLED:-false}" != "true" ]; then
         return 0
     fi
-    if [ "${DEPLOYMENT_TARGET:-}" != "hyperpod-eks" ]; then
+    if [ "${DEPLOYMENT_TARGET:-}" != "hyperpod-eks" ] && [ "${DEPLOYMENT_TARGET:-}" != "eks" ]; then
         return 0
     fi
 
     local _sd
     _sd="$(dirname "${BASH_SOURCE[0]}")"
 
-    # Resolve kubeconfig for the HyperPod cluster.
-    # If KUBECONFIG is already set and functional, reuse it (skips describe-cluster).
-    # Otherwise, fall back to the kubeconfig written by do/deploy.
+    # Req 4.1: spawn only if the engine manifest declares a metrics_endpoint.
+    # serve_manifest.py exits non-zero (and prints nothing usable) when absent.
+    local _me_json
+    _me_json=$(python3 "${_sd}/lib/python/serve_manifest.py" metrics_endpoint "${MODEL_SERVER}" 2>/dev/null) || _me_json=""
+    if [ -z "${_me_json}" ] || [ "${_me_json}" = "null" ]; then
+        # No metrics_endpoint → silently skip Phase 2 (no poller, no error).
+        return 0
+    fi
+
+    # Extract the remote port from the metrics_endpoint (default 8080, matching
+    # the historical hardcoded value). Parsing failures fall back to 8080.
+    local _remote_port
+    _remote_port=$(printf '%s' "${_me_json}" | python3 -c \
+        'import json,sys
+try:
+    print(int(json.load(sys.stdin).get("port", 8080)))
+except Exception:
+    print(8080)' 2>/dev/null) || _remote_port=8080
+    [ -z "${_remote_port}" ] && _remote_port=8080
+
+    # Resolve kubeconfig for the cluster. The exec credential (aws eks get-token)
+    # must run with the correct AWS profile, only available after do/config is
+    # sourced — so always run update-kubeconfig rather than reusing a stale file.
     local _kubeconfig="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME:-}"
-    # Always resolve the EKS cluster ARN and refresh the kubeconfig token.
-    # Reusing an existing kubeconfig file is not sufficient — the exec credential
-    # (aws eks get-token) must run with the correct AWS profile which is only
-    # available after do/config is sourced. Always run update-kubeconfig.
     local _eks_arn _eks_name
     _eks_arn=$(aws sagemaker describe-cluster \
         --cluster-name "${HP_CLUSTER_NAME:-}" \
@@ -72,7 +117,6 @@ _collect_engine_metrics_file() {
         --output text 2>/dev/null) || return 0
     [ -z "${_eks_arn}" ] || [ "${_eks_arn}" = "None" ] && return 0
     _eks_name=$(echo "${_eks_arn}" | awk -F'/' '{print $NF}')
-    # Pass --profile explicitly so the subshell uses the same AWS profile as do/benchmark
     local _profile_arg=""
     [ -n "${AWS_PROFILE:-}" ] && _profile_arg="--profile ${AWS_PROFILE}"
     aws eks update-kubeconfig \
@@ -84,56 +128,238 @@ _collect_engine_metrics_file() {
 
     kubectl cluster-info >/dev/null 2>&1 || return 0
 
-    # Port-forward svc/<project> to a local port (same pattern as do/test).
-    local _local_port=18080
-    # Port-forward directly to the serving pod (same pattern as do/test).
-    # The operator creates ${PROJECT_NAME}-routing-service on TLS/443, not plain 8080.
+    # Discover the Running serving pod (empty → pod not Running → silent skip).
     local _pod_name
     _pod_name=$(kubectl get pods -n "${HP_NAMESPACE:-default}" \
         -l "app=${PROJECT_NAME}" \
         --field-selector=status.phase=Running \
         -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || return 0
     [ -z "${_pod_name}" ] && return 0
-    kubectl port-forward "pod/${_pod_name}" "${_local_port}:8080" \
-        -n "${HP_NAMESPACE:-default}" >/dev/null 2>&1 &
-    local _pf_pid=$!
-    sleep 3
-    if ! kill -0 "${_pf_pid}" 2>/dev/null; then
-        return 0  # port-forward failed → non-fatal, no engine metrics
-    fi
 
-    # Scrape engine /metrics via the gpu_metrics.py CLI and capture JSON.
-    local _out_file
-    _out_file=$(mktemp)
-    if python3 "${_sd}/lib/python/gpu_metrics.py" engine-metrics \
-        "http://localhost:${_local_port}" "${MODEL_SERVER}" > "${_out_file}" 2>/dev/null; then
-        kill "${_pf_pid}" 2>/dev/null || true
-        echo "${_out_file}"
+    # Req 7.1: start the port-forward BEFORE the poller.
+    local _local_port=18080
+    kubectl port-forward "pod/${_pod_name}" "${_local_port}:${_remote_port}" \
+        -n "${HP_NAMESPACE:-default}" >/dev/null 2>&1 &
+    _PHASE2_PF_PID=$!
+    sleep 3
+    if ! kill -0 "${_PHASE2_PF_PID}" 2>/dev/null; then
+        # Port-forward failed → non-fatal, do not spawn the poller (Error Handling).
+        _PHASE2_PF_PID=""
         return 0
     fi
 
-    kill "${_pf_pid}" 2>/dev/null || true
-    rm -f "${_out_file}"
+    # Req 1.1: spawn the background poller only after the port-forward is live.
+    _PHASE2_STOP_FILE="$(mktemp -t mlcc_phase2_stop.XXXXXX)"
+    rm -f "${_PHASE2_STOP_FILE}" 2>/dev/null || true  # sentinel must not pre-exist
+    local _output="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+    python3 "${_sd}/lib/python/phase2_poller.py" \
+        "http://localhost:${_local_port}" "${MODEL_SERVER}" "${_output}" \
+        --interval 5 --min-samples 5 --stop-file "${_PHASE2_STOP_FILE}" \
+        >/dev/null 2>&1 &
+    _PHASE2_POLLER_PID=$!
+    if ! kill -0 "${_PHASE2_POLLER_PID}" 2>/dev/null; then
+        # Req 1.2: poller failed to spawn → continue without Phase 2, warn.
+        echo "⚠️  Phase 2 metrics poller failed to spawn (non-fatal)" >&2
+        _PHASE2_POLLER_PID=""
+        kill "${_PHASE2_PF_PID}" 2>/dev/null || true
+        _PHASE2_PF_PID=""
+        return 0
+    fi
+    _PHASE2_ACTIVE=true
     return 0
 }
+
+# ── Stop the poller and port-forward (Req 3, 7.2) ─────────────────────────────
+# Signals the poller to stop (it aggregates + writes .last_gpu_metrics.json),
+# waits for it to finish, then stops the port-forward. Safe to call multiple
+# times and from an EXIT trap; runs regardless of how the benchmark ended.
+_phase2_stop_poller() {
+    if [ "${_PHASE2_ACTIVE}" != "true" ]; then
+        return 0
+    fi
+    _PHASE2_ACTIVE=false
+
+    # Signal the poller to stop via the sentinel file (Req 3.1: it writes on stop).
+    [ -n "${_PHASE2_STOP_FILE}" ] && : > "${_PHASE2_STOP_FILE}" 2>/dev/null || true
+
+    # Wait for the poller to finish writing (bounded so a hung poller cannot
+    # stall the benchmark). It should exit within ~1 interval of the sentinel.
+    if [ -n "${_PHASE2_POLLER_PID}" ]; then
+        local _waited=0
+        while kill -0 "${_PHASE2_POLLER_PID}" 2>/dev/null; do
+            sleep 1
+            _waited=$((_waited + 1))
+            if [ ${_waited} -ge 15 ]; then
+                kill "${_PHASE2_POLLER_PID}" 2>/dev/null || true
+                break
+            fi
+        done
+        wait "${_PHASE2_POLLER_PID}" 2>/dev/null || true
+        _PHASE2_POLLER_PID=""
+    fi
+
+    # Req 7.2: stop the port-forward AFTER the poller has finished.
+    if [ -n "${_PHASE2_PF_PID}" ]; then
+        kill "${_PHASE2_PF_PID}" 2>/dev/null || true
+        _PHASE2_PF_PID=""
+    fi
+
+    [ -n "${_PHASE2_STOP_FILE}" ] && rm -f "${_PHASE2_STOP_FILE}" 2>/dev/null || true
+    _PHASE2_STOP_FILE=""
+    return 0
+}
+
+# Req 7.3: ensure the port-forward is stopped on any exit (normal or abnormal,
+# including a poller crash or an interrupt during the run).
+trap '_phase2_stop_poller' EXIT
 
 # ── Target guard: benchmark uses InvokeEndpoint (real-time only) ──────────────
 # BL086: run-window timestamps for post-run CloudWatch enrichment (set at
 # job creation / completion). Default empty so ${VAR:+...} expansions are safe.
 BENCHMARK_RUN_START="${BENCHMARK_RUN_START:-}"
 BENCHMARK_RUN_END="${BENCHMARK_RUN_END:-}"
+# async-inference and batch-transform carry distinct guidance and sit above the
+# plain-EKS path below, so they stay explicit branches; _contract_violation
+# gives each the standard contract-violation format + exit 3.
 if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ]; then
-    echo "❌ do/benchmark is not supported on async-inference."
-    echo "   AIPerf benchmarking uses synchronous InvokeEndpoint calls."
-    echo "   Async endpoints only support invoke-endpoint-async."
-    echo "   Switch target: do/deploy --target realtime-inference"
-    exit 1
+    _contract_violation "target" \
+        "do/benchmark is not supported on async-inference. AIPerf benchmarking uses synchronous InvokeEndpoint calls; async endpoints only support invoke-endpoint-async." \
+        "Switch target: do/deploy --target realtime-inference"
 fi
 if [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
-    echo "❌ do/benchmark is not supported on batch-transform."
-    echo "   AIPerf benchmarking requires a real-time endpoint."
-    echo "   Switch target: do/deploy --target realtime-inference"
-    exit 1
+    _contract_violation "target" \
+        "do/benchmark is not supported on batch-transform. AIPerf benchmarking requires a real-time endpoint." \
+        "Switch target: do/deploy --target realtime-inference"
+fi
+
+# ── Plain EKS benchmark: direct pod port-forward (BL103, Requirement 6) ────────
+# The eks target has no SageMaker endpoint, so the SageMaker AI Benchmarking
+# service path below does not apply. Instead, reach the serving pod directly via
+# `kubectl port-forward pod/<pod> 8080` (same mechanism hyperpod-eks uses for its
+# pod-facing paths) and drive a local latency/throughput measurement. If the
+# port-forward cannot be established, fail fast with a clear error (Req 6.2).
+if [ "${DEPLOYMENT_TARGET:-}" = "eks" ]; then
+    HP_NAMESPACE="${HP_NAMESPACE:-default}"
+    _profile_arg=""
+    [ -n "${_PROFILE_awsProfile:-${AWS_PROFILE:-}}" ] && _profile_arg="--profile ${_PROFILE_awsProfile:-${AWS_PROFILE}}"
+
+    echo "📊 Plain EKS benchmark (direct pod port-forward)"
+    echo "   Project: ${PROJECT_NAME}"
+    echo "   Namespace: ${HP_NAMESPACE}"
+    echo "   Model server: ${MODEL_SERVER}"
+
+    # Kubeconfig update is gated on HP_CLUSTER_NAME (as in deploy/test).
+    if [ -n "${HP_CLUSTER_NAME:-}" ]; then
+        KUBECONFIG_PATH="${HOME}/.kube/eks-${HP_CLUSTER_NAME}"
+        _eks_name="${HP_CLUSTER_NAME}"
+        _eks_arn=$(aws sagemaker describe-cluster \
+            --cluster-name "${HP_CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            ${_profile_arg} \
+            --query "Orchestrator.Eks.ClusterArn" \
+            --output text 2>/dev/null) || _eks_arn=""
+        if [ -n "${_eks_arn}" ] && [ "${_eks_arn}" != "None" ]; then
+            _eks_name=$(echo "${_eks_arn}" | awk -F'/' '{print $NF}')
+        fi
+        aws eks update-kubeconfig \
+            --name "${_eks_name}" \
+            --region "${AWS_REGION}" \
+            ${_profile_arg} \
+            --kubeconfig "${KUBECONFIG_PATH}" >/dev/null 2>&1 || {
+            echo "❌ do/benchmark could not configure kubectl for cluster '${HP_CLUSTER_NAME}'."
+            echo "   Port-forward to the serving pod cannot be established."
+            exit 1
+        }
+        export KUBECONFIG="${KUBECONFIG_PATH}"
+    fi
+
+    # Resolve the running serving pod by label.
+    _EKS_POD=$(kubectl get pods -n "${HP_NAMESPACE}" \
+        -l "app=${PROJECT_NAME}" \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || _EKS_POD=""
+    if [ -z "${_EKS_POD}" ]; then
+        echo "❌ do/benchmark: no running pod found for app=${PROJECT_NAME} in namespace ${HP_NAMESPACE}."
+        echo "   Port-forward to the serving pod cannot be established."
+        echo "   Check: kubectl get pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
+        exit 1
+    fi
+
+    _EKS_LOCAL_PORT="${HP_BENCHMARK_PORT:-18080}"
+    echo "🔌 Port-forwarding pod/${_EKS_POD}:8080 to localhost:${_EKS_LOCAL_PORT}..."
+    kubectl port-forward "pod/${_EKS_POD}" "${_EKS_LOCAL_PORT}:8080" \
+        -n "${HP_NAMESPACE}" >/dev/null 2>&1 &
+    _EKS_PF_PID=$!
+    sleep 3
+    trap "kill ${_EKS_PF_PID} 2>/dev/null || true" EXIT
+
+    # Fail fast on port-forward failure (Requirement 6.2).
+    if ! kill -0 "${_EKS_PF_PID}" 2>/dev/null; then
+        echo "❌ do/benchmark: port-forward to pod/${_EKS_POD} failed."
+        echo "   The serving pod could not be reached via kubectl port-forward."
+        echo "   Check: kubectl get pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
+        exit 1
+    fi
+    if ! curl -s -o /dev/null -m 10 "http://localhost:${_EKS_LOCAL_PORT}/ping"; then
+        echo "❌ do/benchmark: port-forward established but /ping did not respond."
+        echo "   The serving pod is not ready to accept traffic."
+        kill "${_EKS_PF_PID}" 2>/dev/null || true
+        exit 1
+    fi
+    echo "✅ Port-forward established — pod is reachable at http://localhost:${_EKS_LOCAL_PORT}"
+
+    # Drive a lightweight local latency/throughput measurement against the pod.
+    _EKS_BENCH_URL="http://localhost:${_EKS_LOCAL_PORT}"
+    if [ "${FRAMEWORK}" = "diffusors" ]; then
+        _EKS_BENCH_PATH="/v1/images/generations"
+        _EKS_BENCH_PAYLOAD='{"prompt": "A white cat", "n": 1, "size": "512x512"}'
+    elif [ "${MODEL_SERVER}" = "vllm" ] || [ "${MODEL_SERVER}" = "sglang" ]; then
+        _EKS_MODEL="${MODEL_NAME}"
+        if [[ "${MODEL_NAME}" == s3://* ]] || [[ "${MODEL_NAME}" == /opt/ml/* ]]; then
+            _EKS_MODEL="/opt/ml/model"
+        fi
+        _EKS_BENCH_PATH="/invocations"
+        _EKS_BENCH_PAYLOAD='{"model": "'"${_EKS_MODEL}"'", "messages": [{"role": "user", "content": "What is machine learning?"}], "max_tokens": 64, "temperature": 0.7}'
+    else
+        _EKS_BENCH_PATH="/invocations"
+        _EKS_BENCH_PAYLOAD='{"inputs": "What is machine learning?", "parameters": {"max_new_tokens": 64}}'
+    fi
+
+    _EKS_ITERS="${BENCHMARK_REQUEST_COUNT:-20}"
+    echo ""
+    echo "🏁 Running ${_EKS_ITERS} sequential requests against ${_EKS_BENCH_URL}${_EKS_BENCH_PATH}..."
+    _EKS_OK=0
+    _EKS_TOTAL_MS=0
+    for _i in $(seq 1 "${_EKS_ITERS}"); do
+        _t=$(curl -s -o /dev/null -m 120 -w "%{http_code} %{time_total}" -X POST \
+            "${_EKS_BENCH_URL}${_EKS_BENCH_PATH}" \
+            -H "Content-Type: application/json" \
+            -d "${_EKS_BENCH_PAYLOAD}" 2>/dev/null) || _t="000 0"
+        _code=$(echo "${_t}" | awk '{print $1}')
+        _secs=$(echo "${_t}" | awk '{print $2}')
+        if [ "${_code}" = "200" ]; then
+            _EKS_OK=$((_EKS_OK + 1))
+            _ms=$(awk "BEGIN{printf \"%d\", ${_secs} * 1000}")
+            _EKS_TOTAL_MS=$((_EKS_TOTAL_MS + _ms))
+        fi
+    done
+
+    kill "${_EKS_PF_PID}" 2>/dev/null || true
+    trap - EXIT
+
+    echo ""
+    echo "📊 Plain EKS benchmark results:"
+    echo "   Requests:   ${_EKS_ITERS}"
+    echo "   Successful: ${_EKS_OK}"
+    if [ "${_EKS_OK}" -gt 0 ]; then
+        _EKS_AVG_MS=$((_EKS_TOTAL_MS / _EKS_OK))
+        echo "   Avg latency: ${_EKS_AVG_MS} ms"
+    fi
+    echo ""
+    echo "ℹ️  The eks target serves plain Kubernetes objects with no SageMaker"
+    echo "   endpoint, so the SageMaker AI Benchmarking service is not used."
+    echo "   For richer engine metrics, set HP_BENCHMARK_METRICS_ENABLED=true."
+    exit 0
 fi
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
@@ -144,6 +370,7 @@ IC_ARG=""
 ADAPTER_ARG=""
 ARG_NO_STALE_WARNING=false
 ARG_WORKLOAD=""
+ARG_DATASET=""
 ARG_COMPARE_BASELINE=false
 ARG_RECOMMEND=false
 ARG_RECOMMEND_APPLY=false
@@ -175,6 +402,7 @@ while [ $# -gt 0 ]; do
         --status) ARG_STATUS=true; shift ;;
         --no-stale-warning) ARG_NO_STALE_WARNING=true; shift ;;
         --workload) shift; ARG_WORKLOAD="${1:-}"; shift ;;
+        --dataset) shift; ARG_DATASET="${1:-}"; shift ;;
         --ic) shift; IC_ARG="${1:-}"; shift ;;
         --adapter) shift; ADAPTER_ARG="${1:-}"; shift ;;
         --compare-baseline) ARG_COMPARE_BASELINE=true; shift ;;
@@ -208,17 +436,29 @@ while [ $# -gt 0 ]; do
         --clear) ARG_SET_BASELINE_CLEAR=true; shift ;;
         --help|-h)
             echo "Usage: ./do/benchmark --workload <name> [OPTIONS]"
+            echo "       ./do/benchmark --workload <name> --dataset <name> [OPTIONS]"
             echo "       ./do/benchmark --status"
             echo "       ./do/benchmark --recommend [--apply] [--metric <m>]"
             echo ""
             echo "Workload profiles (--workload value):"
             echo "  sample                  Quick smoke test (low concurrency)"
-            echo "  multi_turn_chat         Multi-turn chat  (concurrency=10, 550 in / 150 out tokens)"
-            echo "  rag_document_qa         RAG workload     (concurrency=8,  2048 in / 256 out tokens)"
-            echo "  agent_tool_calling      Tool calling     (concurrency=4,  800 in / 100 out tokens)"
-            echo "  long_context_scaling    Long context     (concurrency=2,  8192 in / 512 out tokens)"
-            echo "  production_traffic_mix  Mixed production (concurrency=16, 1024 in / 200 out tokens)"
-            echo "  shared_system_prompt    Shared prompt    (concurrency=12, 300 in / 150 out tokens)"
+            echo "  multi-turn-chat         Multi-turn chat  (concurrency=10, 550 in / 150 out tokens)"
+            echo "  rag-document-qa         RAG workload     (concurrency=8,  2048 in / 256 out tokens)"
+            echo "  agent-tool-calling      Tool calling     (concurrency=4,  800 in / 100 out tokens)"
+            echo "  long-context-scaling    Long context     (concurrency=2,  8192 in / 512 out tokens)"
+            echo "  production-traffic-mix  Mixed production (concurrency=16, 1024 in / 200 out tokens)"
+            echo "  shared-system-prompt    Shared prompt    (concurrency=12, 300 in / 150 out tokens)"
+            echo ""
+            echo "Custom dataset (BYOD):"
+            echo "  --dataset <name>    Drive benchmark traffic from a registered dataset instead of"
+            echo "                      synthetic prompts. <name> is resolved to its S3 URI via the"
+            echo "                      dataset registry (see 'do/register dataset'); it is passed as"
+            echo "                      the create-ai-workload-config DatasetConfig channel 'traffic'."
+            echo "                      Supports version pinning: --dataset <name>@v2 or @v1.0.0."
+            echo "                      When set, synthetic token-mean parameters are omitted (BYOD"
+            echo "                      traffic replaces synthetic generation); concurrency, streaming,"
+            echo "                      tokenizer, and request_count still apply. Can be combined with"
+            echo "                      --workload to reuse its concurrency profile."
             echo ""
             echo "Run SageMaker AI Benchmark against the deployed endpoint."
             echo ""
@@ -256,6 +496,7 @@ while [ $# -gt 0 ]; do
             echo "  --json              Output comparison/recommendation results as JSON (for CI integration)"
             echo "  --ic <name>         Benchmark a specific inference component"
             echo "  --adapter <name>    Benchmark a specific LoRA adapter (routes via adapter IC, records adapter_name in Athena)"
+            echo "  --dataset <name>    Use a registered dataset (BYOD) for benchmark traffic — see 'Custom dataset (BYOD)' above"
             echo "  --force             Create a new benchmark job even if one is already running"
             echo "  --clean             Delete workload config and benchmark job after displaying results"
             echo "  --no-stale-warning  Suppress schema registry staleness warning"
@@ -276,7 +517,7 @@ while [ $# -gt 0 ]; do
             echo "    aws cloudwatch start-otel-enrichment --region <region>"
             echo ""
             echo "Typical workflow:"
-            echo "  ./do/benchmark --workload multi_turn_chat    # Run benchmark"
+            echo "  ./do/benchmark --workload multi-turn-chat    # Run benchmark"
             echo "  ./do/benchmark --compare-baseline            # Compare against history"
             echo "  ./do/benchmark --peak                        # See the best this config ever achieved"
             echo "  ./do/benchmark --list                        # Browse all runs across configs/targets"
@@ -386,7 +627,10 @@ if [ "${ARG_STATUS}" = true ]; then
                 if [ -n "${_WRITER_INPUT}" ]; then
                     echo ""
                     echo "   📊 Writing to Athena..."
-                    _GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
+                    # BL108: the Phase 2 poller (spawned at benchmark start) writes
+                    # peak/avg to the fixed sidecar at run end. Use it when present.
+                    _GPU_METRICS_FILE="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+                    [ -f "${_GPU_METRICS_FILE}" ] || _GPU_METRICS_FILE=""
                     if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
                         --results-file "${_WRITER_INPUT}" \
                         --config-file "$(dirname "${BASH_SOURCE[0]}")/config" \
@@ -398,12 +642,12 @@ if [ "${ARG_STATUS}" = true ]; then
                         ${_STATUS_INSTANCE_TYPE:+--instance-type "${_STATUS_INSTANCE_TYPE}"} \
                         ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
                         ${ENDPOINT_NAME:+--endpoint-name "${ENDPOINT_NAME}"} \
+                        ${BENCHMARK_RUN_NAME:+--run-name "${BENCHMARK_RUN_NAME}"} \
                         ${_GPU_METRICS_FILE:+--gpu-metrics-file "${_GPU_METRICS_FILE}"}; then
                         echo "   ✅ Results persisted to Athena"
                     else
                         echo "   ⚠️  Athena write failed (non-fatal)"
                     fi
-                    [ -n "${_GPU_METRICS_FILE:-}" ] && rm -f "${_GPU_METRICS_FILE}" 2>/dev/null || true
                 fi
             fi
             ;;
@@ -996,9 +1240,10 @@ _recommend_update_or_append() {
 fi
 
 
-# ── Require --workload flag ───────────────────────────────────────────────────
-if [ -z "${ARG_WORKLOAD}" ]; then
-    echo "❌ --workload <name> is required"
+# ── Require --workload or --dataset flag ──────────────────────────────────────
+# --dataset alone is valid (BL100 BYOD path) — synthetic token shape isn't needed.
+if [ -z "${ARG_WORKLOAD}" ] && [ -z "${ARG_DATASET}" ]; then
+    echo "❌ --workload <name> or --dataset <name> is required"
     echo ""
     # List available workloads from the MCP catalog
     _CATALOG_FOR_HELP=""
@@ -1021,7 +1266,7 @@ for name, wl in catalog.get('workloads', {}).items():
         echo "   Run 'ml-container-creator mcp init' to install workload profiles"
     fi
     echo ""
-    echo "   Usage: ./do/benchmark --workload multi_turn_chat"
+    echo "   Usage: ./do/benchmark --workload multi-turn-chat   (or --dataset <name> for BYOD)"
     exit 1
 fi
 
@@ -1116,10 +1361,109 @@ CI_BENCHMARK_RESULTS_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,j
 
 ROLE_ARN=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('roleArn', ''))" 2>/dev/null) || ROLE_ARN=""
 
+# ── Custom dataset (BYOD) resolution (BL100) ──────────────────────────────────
+# When --dataset <name> is passed, resolve it to an S3 URI via the shared dataset
+# sidecar registry (same resolve-dataset helper used by do/optimize / do/tune) and
+# drive the benchmark's traffic from that dataset instead of synthetic prompts.
+# CORE_BUCKET (mlcc-core) backs the sidecar registry — resolve it from the profile.
+CORE_BUCKET="${CORE_BUCKET:-${CODEBUILD_SOURCE_S3_BUCKET:-}}"
+if [ -z "${CORE_BUCKET}" ]; then
+    CORE_BUCKET=$(echo "${_PROFILE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('codebuildSourceS3Bucket', ''))" 2>/dev/null) || CORE_BUCKET=""
+fi
+
+# Dataset-derived values, empty unless --dataset resolves successfully.
+BENCHMARK_DATASET_S3URI=""
+BENCHMARK_DATASET_FORMAT=""
+BENCHMARK_DATASET_INPUT_FILE=""
+
+if [ -n "${ARG_DATASET}" ]; then
+    # Support the same name@vN / name@v1.2.3 version-pin syntax as do/optimize.
+    _DATASET_NAME="${ARG_DATASET}"
+    _DATASET_VERSION=""
+    if [[ "${ARG_DATASET}" =~ ^(.+)@v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+        _DATASET_NAME="${BASH_REMATCH[1]}"
+        _DATASET_VERSION="${BASH_REMATCH[2]}"
+    elif [[ "${ARG_DATASET}" =~ ^(.+)@v([0-9]+)$ ]]; then
+        _DATASET_NAME="${BASH_REMATCH[1]}"
+        _DATASET_VERSION="${BASH_REMATCH[2]}"
+    fi
+
+    echo "🔍 Resolving dataset '${_DATASET_NAME}' from registry (BYOD benchmark traffic)..."
+    _ds_resolve_args=("--name" "${_DATASET_NAME}")
+    if [ -n "${_DATASET_VERSION}" ]; then
+        _ds_resolve_args+=("--version" "${_DATASET_VERSION}")
+        echo "   Version: v${_DATASET_VERSION}"
+    fi
+    [ -n "${CORE_BUCKET}" ] && _ds_resolve_args+=("--core-bucket" "${CORE_BUCKET}")
+    [ -n "${AWS_REGION}" ] && _ds_resolve_args+=("--region" "${AWS_REGION}")
+
+    _ds_resolve_result=$(python3 "${SCRIPT_DIR}/.register_helper.py" resolve-dataset \
+        "${_ds_resolve_args[@]}" 2>/dev/null) || _ds_resolve_result=""
+
+    if [ -n "${_ds_resolve_result}" ]; then
+        # Parse s3_uri + format from the resolver JSON. custom_dataset_type comes
+        # from the dataset's stored format (e.g. "jsonl"). input_file points at the
+        # file within the DatasetConfig mount (/opt/ml/input/data/<channel>/<file>)
+        # when the S3 URI names a specific file; a prefix URI leaves it unset so the
+        # benchmark tool discovers the file under the mount.
+        BENCHMARK_DATASET_S3URI=$(echo "${_ds_resolve_result}" | grep -E '^\{' | tail -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('s3_uri',''))" 2>/dev/null) || BENCHMARK_DATASET_S3URI=""
+        BENCHMARK_DATASET_FORMAT=$(echo "${_ds_resolve_result}" | grep -E '^\{' | tail -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('format','') or '')" 2>/dev/null) || BENCHMARK_DATASET_FORMAT=""
+    fi
+
+    if [ -z "${BENCHMARK_DATASET_S3URI}" ]; then
+        echo "❌ Could not resolve dataset '${_DATASET_NAME}' from the registry."
+        echo "   The dataset may not exist, or the registry helper is unavailable."
+        echo "   Register one first: ./do/register dataset <name> ..."
+        echo "   List datasets:      ./do/optimize --list-datasets"
+        exit 1
+    fi
+
+    # Derive input_file only when the S3 URI names a concrete file (has an
+    # extension); prefix URIs (trailing '/') mount a directory instead.
+    BENCHMARK_DATASET_CHANNEL="traffic"
+    _DS_BASENAME="${BENCHMARK_DATASET_S3URI##*/}"
+    if [ -n "${_DS_BASENAME}" ] && [[ "${_DS_BASENAME}" == *.* ]]; then
+        BENCHMARK_DATASET_INPUT_FILE="/opt/ml/input/data/${BENCHMARK_DATASET_CHANNEL}/${_DS_BASENAME}"
+    fi
+
+    echo "   Resolved to: ${BENCHMARK_DATASET_S3URI}"
+    echo "   Format (custom_dataset_type): ${BENCHMARK_DATASET_FORMAT:-jsonl}"
+    [ -n "${BENCHMARK_DATASET_INPUT_FILE}" ] && echo "   input_file: ${BENCHMARK_DATASET_INPUT_FILE}"
+    echo "   ℹ️  BYOD traffic replaces synthetic prompt generation (token-mean params omitted)."
+    echo ""
+fi
+
 # Derive job names at runtime (unique per invocation).
 # Preserve BENCHMARK_JOB_NAME if already set (from do/config or env) for resume logic.
 BENCHMARK_JOB_NAME="${BENCHMARK_JOB_NAME:-${PROJECT_NAME}-benchmark-$(date +%Y%m%d-%H%M%S)}"
 BENCHMARK_WORKLOAD_CONFIG_NAME="${PROJECT_NAME}-benchmark-config-$(date +%Y%m%d-%H%M%S)"
+
+# ── Generate human-readable run name ─────────────────────────────────────────
+# Format: {adjective-noun}_{workload}_{max-concurrency}
+# e.g. coral-hawk_multi-turn-chat_16
+# Generated once per run, stored in BENCHMARK_RUN_NAME in do/config.
+_BENCHMARK_ADJECTIVES=(smart fast clever bright swift agile sharp quick wise keen
+    bold sleek neat cool fresh prime vivid rapid elite noble lucid adept deft epic
+    crisp vital zen hyper turbo cosmic lunar solar quantum atomic neon stellar
+    iron amber coral jade onyx ruby opal ivory silver golden silent hollow calm)
+_BENCHMARK_NOUNS=(river hawk fox wolf bear deer crane raven finch swift oak pine
+    stone peak ridge grove creek vale cove reef mesa dune glade fern dawn dusk
+    mist frost ember blaze cedar birch cliff shore brook glen ridge helm sable)
+_BM_ADJ="${_BENCHMARK_ADJECTIVES[$(( RANDOM % ${#_BENCHMARK_ADJECTIVES[@]} ))]}"
+_BM_NOUN="${_BENCHMARK_NOUNS[$(( RANDOM % ${#_BENCHMARK_NOUNS[@]} ))]}"
+_BM_WORKLOAD_SLUG="${BENCHMARK_WORKLOAD//_/-}"
+# Max concurrency: use levels if set, else BENCHMARK_CONCURRENCY
+if [ -n "${BENCHMARK_CONCURRENCY_LEVELS:-}" ]; then
+    _BM_MAX_CONC=$(echo "${BENCHMARK_CONCURRENCY_LEVELS}" | tr -d '[] ' | tr ',' '\n' | sort -n | tail -1)
+else
+    _BM_MAX_CONC="${BENCHMARK_CONCURRENCY:-1}"
+fi
+BENCHMARK_RUN_NAME="${_BM_ADJ}-${_BM_NOUN}_${_BM_WORKLOAD_SLUG}_${_BM_MAX_CONC}"
+
+echo ""
+echo "🎲 Run: ${_BM_ADJ}-${_BM_NOUN} | ${_BM_WORKLOAD_SLUG} | conc ${BENCHMARK_CONCURRENCY_LEVELS:-${BENCHMARK_CONCURRENCY}}"
+echo "   Run ID: ${BENCHMARK_RUN_NAME}"
+echo ""
 
 # Ensure benchmark params have defaults (in case workload catalog wasn't found)
 BENCHMARK_CONCURRENCY=${BENCHMARK_CONCURRENCY:-10}
@@ -1170,6 +1514,7 @@ if [ -n "${BENCHMARK_CONCURRENCY_LEVELS:-}" ] && [ -z "${_BENCHMARK_SINGLE_LEVEL
             if [ "${CLEAN_AFTER}" = true ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --clean"; fi
             if [ "${ARG_NO_STALE_WARNING}" = true ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --no-stale-warning"; fi
             if [ -n "${ARG_WORKLOAD}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --workload ${ARG_WORKLOAD}"; fi
+            if [ -n "${ARG_DATASET}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --dataset ${ARG_DATASET}"; fi
             if [ -n "${IC_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --ic ${IC_ARG}"; fi
             if [ -n "${ADAPTER_ARG}" ]; then _REINVOKE_ARGS="${_REINVOKE_ARGS} --adapter ${ADAPTER_ARG}"; fi
 
@@ -1374,8 +1719,10 @@ print(f'Combined {n_metrics} concurrency level results')
             }
             CONFIG_ID=$(_compute_config_id)
 
-            # Phase 2 (BL086): collect engine /metrics for HyperPod EKS before writing
-            _ML_GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
+            # Phase 2 (BL108): the background poller writes peak/avg to the fixed
+            # sidecar at each child run's end. Use it here when present.
+            _ML_GPU_METRICS_FILE="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+            [ -f "${_ML_GPU_METRICS_FILE}" ] || _ML_GPU_METRICS_FILE=""
 
             if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
                 --results-file "${_COMBINED_FILE}" \
@@ -1386,15 +1733,13 @@ print(f'Combined {n_metrics} concurrency level results')
                 --region "${AWS_REGION:-${REGION}}" \
                 ${RESOLVED_INSTANCE_TYPE:+--instance-type "${RESOLVED_INSTANCE_TYPE}"} \
                 ${ADAPTER_ARG:+--adapter-name "${ADAPTER_ARG}"} \
-                ${_ML_GPU_METRICS_FILE:+--gpu-metrics-file "${_ML_GPU_METRICS_FILE}"}; then
-                # Persist GPU metrics locally so --gpu-metrics can read them without Athena
+                ${_ML_GPU_METRICS_FILE:+--gpu-metrics-file "${_ML_GPU_METRICS_FILE}"} \
+                ${BENCHMARK_RUN_NAME:+--run-name "${BENCHMARK_RUN_NAME}"}; then
+                # Persist GPU metrics into the per-run output dir for traceability
+                # (the fixed sidecar is already the poller's own output — leave it).
                 if [ -n "${_ML_GPU_METRICS_FILE:-}" ] && [ -f "${_ML_GPU_METRICS_FILE}" ]; then
-                    # Fixed location: always wins over per-run dir (avoids mtime ordering issues)
-                    cp "${_ML_GPU_METRICS_FILE}" "${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json" 2>/dev/null || true
-                    # Also copy into the per-run output dir for traceability
                     _latest_bm_dir=$(ls -td "${SCRIPT_DIR}/../benchmarks/${BENCHMARK_JOB_NAME}" 2>/dev/null | head -1)
                     [ -n "${_latest_bm_dir}" ] && cp "${_ML_GPU_METRICS_FILE}" "${_latest_bm_dir}/output/gpu_metrics.json" 2>/dev/null || true
-                    rm -f "${_ML_GPU_METRICS_FILE}" 2>/dev/null || true
                 fi
                 echo "✅ Multi-level benchmark results persisted to S3"
             else
@@ -1828,10 +2173,41 @@ echo "⚙️  Step 1: Creating AI Workload Config: ${WORKLOAD_CONFIG_NAME}"
 # Use HF_MODEL_ID for tokenizer (the original HuggingFace repo ID, e.g. "Qwen/Qwen3-0.6B").
 # MODEL_NAME may have been rewritten to an S3 URI by do/stage, which AIPerf can't use as a tokenizer source.
 BENCHMARK_TOKENIZER="${HF_MODEL_ID:-${MODEL_NAME}}"
-PARAMS_JSON="{\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN},\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${BENCHMARK_TOKENIZER}\""
+
+# Params common to both synthetic and BYOD traffic: concurrency, streaming, tokenizer.
+PARAMS_JSON="{\"concurrency\":${BENCHMARK_CONCURRENCY},\"streaming\":${BENCHMARK_STREAMING},\"tokenizer\":\"${BENCHMARK_TOKENIZER}\""
+
+# Some HF tokenizers (e.g. Kimi-K3's MoonViT tokenizer) ship custom Python code
+# that AutoTokenizer.from_pretrained() refuses to run without an explicit opt-in.
+# tokenizer_trust_remote_code is a real, accepted SageMaker workload-spec param
+# (undocumented in the public reference, confirmed via a live create-ai-workload-config
+# call on 2026-09-29) that forwards to AIPerf's --tokenizer-trust-remote-code.
+# Reuses the same opt-in flag already set for the serving container's trust_remote_code.
+if [ "${VLLM_TRUST_REMOTE_CODE:-false}" = "true" ]; then
+    PARAMS_JSON="${PARAMS_JSON},\"tokenizer_trust_remote_code\":true"
+fi
+
+if [ -n "${BENCHMARK_DATASET_S3URI}" ]; then
+    # BYOD path (BL100): a registered dataset drives traffic via DatasetConfig, so
+    # the synthetic prompt_input_tokens_mean/output_tokens_mean (and their stddev
+    # siblings) are omitted — they are mutually exclusive with a custom dataset per
+    # the AWS workload-spec docs. custom_dataset_type carries the dataset's stored
+    # AIPerf dataset-type ENUM (single_turn/multi_turn/random_pool/mooncake_trace/
+    # sagemaker_data_capture/raw_payload) — NOT the file format (e.g. "jsonl").
+    # Registered MLCC datasets are one independent request per line, so single_turn
+    # is the correct default; input_file (when known) points at the file inside the
+    # channel mount.
+    PARAMS_JSON="${PARAMS_JSON},\"custom_dataset_type\":\"${BENCHMARK_DATASET_CUSTOM_TYPE:-single_turn}\""
+    if [ -n "${BENCHMARK_DATASET_INPUT_FILE}" ]; then
+        PARAMS_JSON="${PARAMS_JSON},\"input_file\":\"${BENCHMARK_DATASET_INPUT_FILE}\""
+    fi
+else
+    # Synthetic path (unchanged): token distribution drives generated prompts.
+    PARAMS_JSON="${PARAMS_JSON},\"prompt_input_tokens_mean\":${BENCHMARK_INPUT_TOKENS_MEAN},\"output_tokens_mean\":${BENCHMARK_OUTPUT_TOKENS_MEAN}"
+fi
 
 # AIPerf requires at least one of request_count or duration per phase.
-# Default to 100 requests for a quick profile run.
+# Default to 100 requests for a quick profile run. Applies to BYOD too.
 PARAMS_JSON="${PARAMS_JSON},\"request_count\":${BENCHMARK_REQUEST_COUNT:-100}"
 
 PARAMS_JSON="${PARAMS_JSON}}"
@@ -1848,6 +2224,16 @@ WORKLOAD_SPEC="{\"benchmark\":{\"type\":\"aiperf\"},\"parameters\":${PARAMS_JSON
 # Wrap in the API's expected structure: --ai-workload-configs '{"WorkloadSpec":{"Inline":"..."}}'
 # The Inline field takes the spec as a JSON-encoded string
 WORKLOAD_CONFIGS="{\"WorkloadSpec\":{\"Inline\":$(echo "${WORKLOAD_SPEC}" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}}"
+
+# BL100: build the top-level DatasetConfig for BYOD traffic. This is a SEPARATE
+# create-ai-workload-config parameter (--dataset-config) from --ai-workload-configs;
+# it names an InputDataConfig channel whose S3DataSource points at the resolved
+# dataset URI. ChannelName 'traffic' matches the AWS docs example and the mount
+# path used to derive input_file above.
+DATASET_CONFIG_JSON=""
+if [ -n "${BENCHMARK_DATASET_S3URI}" ]; then
+    DATASET_CONFIG_JSON="{\"InputDataConfig\":[{\"ChannelName\":\"${BENCHMARK_DATASET_CHANNEL:-traffic}\",\"DataSource\":{\"S3DataSource\":{\"S3Uri\":\"${BENCHMARK_DATASET_S3URI}\"}}}]}"
+fi
 
 # Workload config idempotency: reuse if params match, recreate if they differ
 EXISTING_CONFIG_SPEC=""
@@ -1881,11 +2267,19 @@ else
 fi
 
 if [ "${CREATE_WORKLOAD_CONFIG:-true}" = "true" ]; then
-    # Create the workload config
-    if ! aws sagemaker create-ai-workload-config \
-        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}" \
-        --ai-workload-configs "${WORKLOAD_CONFIGS}" \
-        --region "${AWS_REGION}"; then
+    # Create the workload config. --dataset-config is a sibling of
+    # --ai-workload-configs (NOT a replacement) and is only passed for BYOD runs
+    # (BL100); synthetic runs omit it entirely.
+    _CREATE_WLC_ARGS=(
+        --ai-workload-config-name "${WORKLOAD_CONFIG_NAME}"
+        --ai-workload-configs "${WORKLOAD_CONFIGS}"
+    )
+    if [ -n "${DATASET_CONFIG_JSON}" ]; then
+        _CREATE_WLC_ARGS+=(--dataset-config "${DATASET_CONFIG_JSON}")
+    fi
+    _CREATE_WLC_ARGS+=(--region "${AWS_REGION}")
+
+    if ! aws sagemaker create-ai-workload-config "${_CREATE_WLC_ARGS[@]}"; then
         echo "❌ Failed to create AI Workload Config"
         echo "   This may indicate the SageMaker AI Benchmarking API is not available in region: ${AWS_REGION}"
         echo "   Check: https://docs.aws.amazon.com/sagemaker/latest/dg/regions-quotas.html"
@@ -1904,6 +2298,11 @@ echo "🚀 Step 2: Creating AI Benchmark Job: ${BENCHMARK_JOB_NAME}"
 
 # BL086: capture the run window (UTC ISO 8601) for post-run CloudWatch enrichment.
 BENCHMARK_RUN_START=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+# BL108: spawn the Phase 2 background metrics poller at benchmark start. Self-
+# skips unless opted in AND the engine manifest declares a metrics_endpoint;
+# always non-fatal. The port-forward is started before the poller (Req 7.1).
+_phase2_start_poller || true
 
 # HyperPod EKS endpoints host the model directly (no inference component), so the
 # benchmark target references only the endpoint. All other targets include the IC.
@@ -1933,6 +2332,7 @@ echo "✅ Benchmark job created: ${BENCHMARK_JOB_NAME}"
 
 # Save job name to do/config for idempotency on re-run
 _update_benchmark_var "BENCHMARK_JOB_NAME" "${BENCHMARK_JOB_NAME}"
+_update_benchmark_var "BENCHMARK_RUN_NAME" "${BENCHMARK_RUN_NAME}"
 
 echo ""
 
@@ -1980,6 +2380,9 @@ while [ ${POLL_COUNT} -lt ${MAX_POLL_ATTEMPTS} ]; do
         Completed)
             echo "✅ Benchmark completed successfully!"
             BENCHMARK_RUN_END=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+            # BL108: benchmark end → stop the poller (it aggregates + writes
+            # .last_gpu_metrics.json), then stop the port-forward (Req 3.1, 7.2).
+            _phase2_stop_poller || true
             break
             ;;
         Failed)
@@ -2315,8 +2718,10 @@ except Exception as e:
             _WRITER_INPUT="${RESULTS_FILE}"
         fi
 
-        # Phase 2 (BL086): opt-in engine /metrics scrape on HyperPod EKS.
-        _GPU_METRICS_FILE=$(_collect_engine_metrics_file || true)
+        # Phase 2 (BL108): the background poller (spawned at benchmark start,
+        # stopped at end) has written peak/avg to the fixed sidecar. Use it here.
+        _GPU_METRICS_FILE="${SCRIPT_DIR}/../benchmarks/.last_gpu_metrics.json"
+        [ -f "${_GPU_METRICS_FILE}" ] || _GPU_METRICS_FILE=""
 
         # Best-effort: errors are logged but do not fail the benchmark script
         if python3 "$(dirname "${BASH_SOURCE[0]}")/.benchmark_writer.py" write \
@@ -2334,13 +2739,15 @@ except Exception as e:
             ${BENCHMARK_JOB_NAME:+--benchmark-job-name "${BENCHMARK_JOB_NAME}"} \
             ${BENCHMARK_RUN_START:+--run-start "${BENCHMARK_RUN_START}"} \
             ${BENCHMARK_RUN_END:+--run-end "${BENCHMARK_RUN_END}"} \
+            ${BENCHMARK_RUN_NAME:+--run-name "${BENCHMARK_RUN_NAME}"} \
             ${_GPU_METRICS_FILE:+--gpu-metrics-file "${_GPU_METRICS_FILE}"}; then
             echo "✅ Benchmark results persisted to S3"
         else
             echo "⚠️  Failed to persist benchmark results to Athena (non-fatal)"
             echo "   Results remain available locally in: benchmarks/${BENCHMARK_JOB_NAME}/"
         fi
-        [ -n "${_GPU_METRICS_FILE:-}" ] && rm -f "${_GPU_METRICS_FILE}" 2>/dev/null || true
+        # NOTE: do NOT remove ${_GPU_METRICS_FILE} — it is the fixed poller sidecar
+        # benchmarks/.last_gpu_metrics.json that `do/benchmark --gpu-metrics` reads.
     fi
 elif [ "${JOB_STATUS}" = "Failed" ]; then
     # Display failure reason

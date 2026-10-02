@@ -13,13 +13,26 @@
  *   - Smart (BEDROCK_SMART=true): Queries Bedrock for edge-case reasoning
  *   - Discover (--discover flag): Fetches model config.json from HuggingFace Hub
  *
+ * PATTERN: MCP picker server built on the shared createPickerServer factory.
+ *   Declares only its unique pieces — the instance catalog, the VRAM estimator /
+ *   ranker / quota resolver stack, its own Bedrock SERVER_CONFIG smart-mode, and
+ *   the four instance-recommendation tools. The factory owns the scaffold
+ *   (main-guard, stdio wiring).
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold),
+ *   servers/lib/bedrock-client.js (queryBedrock, called with this server's own
+ *   SERVER_CONFIG), local lib/ (model-resolver, vram-estimator, instance-ranker,
+ *   quota-resolver); catalog servers/lib/catalogs/instances.json; spawned by
+ *   src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: given model metadata, estimates VRAM and returns a filtered,
+ *   ranked list of compatible SageMaker instances (optionally Bedrock-adjusted).
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
+ *
  * Tool: get_instance_recommendation
  *   Accepts: { modelName, quantization?, maxSequenceLength?, batchSize?, limit?, context? }
  *   Returns: { values, choices, metadata }
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { readFileSync, mkdirSync, writeFileSync, renameSync, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +43,7 @@ import { filterAndRankInstances, applyAvailabilityRanking, getPerGpuMemoryGb } f
 import { QuotaResolver } from './lib/quota-resolver.js';
 import { queryBedrock } from '../lib/bedrock-client.js';
 import { loadWithOverrides, resolveProjectDir } from '../lib/override-loader.js';
+import { createPickerServer } from '../lib/create-picker-server.js';
 
 // ── Path setup ───────────────────────────────────────────────────────────────
 
@@ -661,196 +675,173 @@ async function handleGetInstanceRecommendation(params) {
     };
 }
 
-// ── MCP Server setup ─────────────────────────────────────────────────────────
+// ── MCP Server setup (scaffold via the factory) ──────────────────────────────
 
-const server = new McpServer({
+const INSTANCE_CONTEXT_SCHEMA = z.object({
+    architecture: z.string().optional(),
+    backend: z.string().optional(),
+    deploymentTarget: z.string().optional(),
+    projectDir: z.string().optional().describe('Absolute path to the project directory (for .mlcc/ local catalog overrides)'),
+    profileEnvVars: z.record(z.string()).optional().describe('Serving profile ENV overrides (e.g., VLLM_MAX_MODEL_LEN)')
+}).optional().describe('Additional deployment context');
+
+const RECOMMENDATION_SCHEMA = {
+    modelName: z.string().optional().describe('HuggingFace model ID or catalog key'),
+    instanceSearch: z.string().optional().describe('Tag/keyword search for instances (e.g., "multi-gpu", "cost-effective cpu")'),
+    quantization: z.string().optional().describe('Quantization method: awq, gptq, bnb-4bit, bnb-8bit'),
+    maxSequenceLength: z.number().optional().describe('Max context/sequence length (affects KV cache estimate)'),
+    batchSize: z.number().optional().describe('Expected concurrent batch size'),
+    cudaVersion: z.string().optional().describe('Required CUDA version from base image (filters incompatible instances)'),
+    limit: z.number().optional().default(10).describe('Maximum number of instance recommendations to return'),
+    context: INSTANCE_CONTEXT_SCHEMA
+};
+
+const writeLocalInstanceHandler = async (params) => {
+    const { instanceType, gpuCount, gpuType, gpuMemoryGb, vCpus, memoryGb, context } = params;
+
+    // Validate required fields
+    if (!instanceType || !instanceType.trim()) {
+        return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'instanceType is required and must be non-empty' }) }] };
+    }
+    if (!gpuType || !gpuType.trim()) {
+        return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuType is required and must be non-empty' }) }] };
+    }
+    if (!gpuCount || gpuCount <= 0) {
+        return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuCount must be a positive integer' }) }] };
+    }
+    if (!gpuMemoryGb || gpuMemoryGb <= 0) {
+        return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuMemoryGb must be a positive number' }) }] };
+    }
+    if (!vCpus || vCpus <= 0) {
+        return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'vCpus must be a positive integer' }) }] };
+    }
+    if (!memoryGb || memoryGb <= 0) {
+        return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'memoryGb must be a positive number' }) }] };
+    }
+
+    const projectDir = resolveProjectDir(context);
+    const mlccDir = join(projectDir, '.mlcc');
+    const overridePath = join(mlccDir, 'instance-sizer.json');
+    const tmpPath = `${overridePath  }.tmp`;
+
+    // Ensure .mlcc directory exists
+    mkdirSync(mlccDir, { recursive: true });
+
+    // Read existing or initialize
+    let data = { instances: [] };
+    if (existsSync(overridePath)) {
+        try {
+            data = JSON.parse(readFileSync(overridePath, 'utf8'));
+        } catch {
+            data = { instances: [] };
+        }
+    }
+    if (!Array.isArray(data.instances)) {
+        data.instances = [];
+    }
+
+    // Build entry
+    const entry = {
+        instanceType,
+        gpuCount,
+        gpuType,
+        gpuMemoryGb,
+        vCpus,
+        memoryGb,
+        source: 'local',
+        addedAt: new Date().toISOString()
+    };
+
+    // Upsert by instanceType
+    const idx = data.instances.findIndex(i => i.instanceType === instanceType);
+    if (idx >= 0) {
+        data.instances[idx] = entry;
+    } else {
+        data.instances.push(entry);
+    }
+
+    // Atomic write
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+    renameSync(tmpPath, overridePath);
+
+    // NFR-3 size check
+    const result = { status: 'ok', entry, file: '.mlcc/instance-sizer.json' };
+    const stat = statSync(overridePath);
+    if (stat.size > 100 * 1024) {
+        result.warning = 'Override file exceeds 100KB — consider upstreaming entries';
+    }
+
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+};
+
+const picker = createPickerServer({
     name: 'instance-sizer',
-    version: '1.0.0'
+    serverDir: import.meta.url,
+    tools: [
+        {
+            name: 'get_instance_recommendation',
+            description: 'Estimates VRAM requirements from model metadata and returns filtered, ranked SageMaker instance recommendations. Supports VRAM-based sizing, tag-based search, or both combined.',
+            schema: RECOMMENDATION_SCHEMA,
+            handler: async (params) => handleGetInstanceRecommendation(params)
+        },
+        {
+            // 'recommend' is the tool called by mcp_client.py as "instance-sizer/recommend"
+            name: 'recommend',
+            description: 'Alias for get_instance_recommendation — legacy client compatibility',
+            schema: {
+                modelName: z.string().optional(),
+                model: z.string().optional().describe('Alias for modelName (legacy)'),
+                quantization: z.string().optional(),
+                maxSequenceLength: z.number().optional(),
+                batchSize: z.number().optional(),
+                cudaVersion: z.string().optional(),
+                limit: z.number().optional().default(10),
+                context: INSTANCE_CONTEXT_SCHEMA
+            },
+            handler: async (params) => handleGetInstanceRecommendation({ ...params, modelName: params.model || params.modelName })
+        },
+        {
+            name: 'get_instance_types',
+            description: 'Alias for get_instance_recommendation — recommends SageMaker instances via VRAM sizing and/or tag-based search',
+            schema: RECOMMENDATION_SCHEMA,
+            handler: async (params) => handleGetInstanceRecommendation(params)
+        },
+        {
+            name: 'write_local_instance',
+            description: 'Add an instance type to the project-local catalog override (.mlcc/instance-sizer.json). Use when the user references an instance not in the shipped catalog.',
+            schema: {
+                instanceType: z.string().min(1).describe('Instance type (e.g., "ml.g6e.12xlarge")'),
+                gpuCount: z.number().int().positive().describe('Number of GPUs'),
+                gpuType: z.string().min(1).describe('GPU type (e.g., "L40S")'),
+                gpuMemoryGb: z.number().positive().describe('GPU memory in GB'),
+                vCpus: z.number().int().positive().describe('Number of vCPUs'),
+                memoryGb: z.number().positive().describe('Total memory in GB'),
+                context: z.object({
+                    projectDir: z.string().optional()
+                }).optional().describe('Optional context with projectDir')
+            },
+            handler: writeLocalInstanceHandler
+        }
+    ]
 });
 
-// Register the get_instance_recommendation tool
-server.tool(
-    'get_instance_recommendation',
-    'Estimates VRAM requirements from model metadata and returns filtered, ranked SageMaker instance recommendations. Supports VRAM-based sizing, tag-based search, or both combined.',
-    {
-        modelName: z.string().optional().describe('HuggingFace model ID or catalog key'),
-        instanceSearch: z.string().optional().describe('Tag/keyword search for instances (e.g., "multi-gpu", "cost-effective cpu")'),
-        quantization: z.string().optional().describe('Quantization method: awq, gptq, bnb-4bit, bnb-8bit'),
-        maxSequenceLength: z.number().optional().describe('Max context/sequence length (affects KV cache estimate)'),
-        batchSize: z.number().optional().describe('Expected concurrent batch size'),
-        cudaVersion: z.string().optional().describe('Required CUDA version from base image (filters incompatible instances)'),
-        limit: z.number().optional().default(10).describe('Maximum number of instance recommendations to return'),
-        context: z.object({
-            architecture: z.string().optional(),
-            backend: z.string().optional(),
-            deploymentTarget: z.string().optional(),
-            projectDir: z.string().optional().describe('Absolute path to the project directory (for .mlcc/ local catalog overrides)'),
-            profileEnvVars: z.record(z.string()).optional().describe('Serving profile ENV overrides (e.g., VLLM_MAX_MODEL_LEN)')
-        }).optional().describe('Additional deployment context')
-    },
-    async (params) => {
-        return handleGetInstanceRecommendation(params);
-    }
-);
-
-// Register alias tool name for backward compatibility
-// 'recommend' is the tool called by mcp_client.py as "instance-sizer/recommend"
-server.tool(
-    'recommend',
-    'Alias for get_instance_recommendation — legacy client compatibility',
-    {
-        modelName: z.string().optional(),
-        model: z.string().optional().describe('Alias for modelName (legacy)'),
-        quantization: z.string().optional(),
-        maxSequenceLength: z.number().optional(),
-        batchSize: z.number().optional(),
-        cudaVersion: z.string().optional(),
-        limit: z.number().optional().default(10),
-        context: z.object({
-            architecture: z.string().optional(),
-            backend: z.string().optional(),
-            deploymentTarget: z.string().optional(),
-            projectDir: z.string().optional(),
-            profileEnvVars: z.record(z.string()).optional()
-        }).optional()
-    },
-    async (params) => handleGetInstanceRecommendation({ ...params, modelName: params.model || params.modelName })
-);
-
-server.tool(
-    'get_instance_types',
-    'Alias for get_instance_recommendation — recommends SageMaker instances via VRAM sizing and/or tag-based search',
-    {
-        modelName: z.string().optional().describe('HuggingFace model ID or catalog key'),
-        instanceSearch: z.string().optional().describe('Tag/keyword search for instances (e.g., "multi-gpu", "cost-effective cpu")'),
-        quantization: z.string().optional().describe('Quantization method: awq, gptq, bnb-4bit, bnb-8bit'),
-        maxSequenceLength: z.number().optional().describe('Max context/sequence length (affects KV cache estimate)'),
-        batchSize: z.number().optional().describe('Expected concurrent batch size'),
-        cudaVersion: z.string().optional().describe('Required CUDA version from base image (filters incompatible instances)'),
-        limit: z.number().optional().default(10).describe('Maximum number of instance recommendations to return'),
-        context: z.object({
-            architecture: z.string().optional(),
-            backend: z.string().optional(),
-            deploymentTarget: z.string().optional(),
-            projectDir: z.string().optional().describe('Absolute path to the project directory (for .mlcc/ local catalog overrides)'),
-            profileEnvVars: z.record(z.string()).optional().describe('Serving profile ENV overrides (e.g., VLLM_MAX_MODEL_LEN)')
-        }).optional().describe('Additional deployment context')
-    },
-    async (params) => {
-        return handleGetInstanceRecommendation(params);
-    }
-);
-
-server.tool(
-    'write_local_instance',
-    'Add an instance type to the project-local catalog override (.mlcc/instance-sizer.json). Use when the user references an instance not in the shipped catalog.',
-    {
-        instanceType: z.string().min(1).describe('Instance type (e.g., "ml.g6e.12xlarge")'),
-        gpuCount: z.number().int().positive().describe('Number of GPUs'),
-        gpuType: z.string().min(1).describe('GPU type (e.g., "L40S")'),
-        gpuMemoryGb: z.number().positive().describe('GPU memory in GB'),
-        vCpus: z.number().int().positive().describe('Number of vCPUs'),
-        memoryGb: z.number().positive().describe('Total memory in GB'),
-        context: z.object({
-            projectDir: z.string().optional()
-        }).optional().describe('Optional context with projectDir')
-    },
-    async (params) => {
-        const { instanceType, gpuCount, gpuType, gpuMemoryGb, vCpus, memoryGb, context } = params;
-
-        // Validate required fields
-        if (!instanceType || !instanceType.trim()) {
-            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'instanceType is required and must be non-empty' }) }] };
-        }
-        if (!gpuType || !gpuType.trim()) {
-            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuType is required and must be non-empty' }) }] };
-        }
-        if (!gpuCount || gpuCount <= 0) {
-            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuCount must be a positive integer' }) }] };
-        }
-        if (!gpuMemoryGb || gpuMemoryGb <= 0) {
-            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'gpuMemoryGb must be a positive number' }) }] };
-        }
-        if (!vCpus || vCpus <= 0) {
-            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'vCpus must be a positive integer' }) }] };
-        }
-        if (!memoryGb || memoryGb <= 0) {
-            return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', message: 'memoryGb must be a positive number' }) }] };
-        }
-
-        const projectDir = resolveProjectDir(context);
-        const mlccDir = join(projectDir, '.mlcc');
-        const overridePath = join(mlccDir, 'instance-sizer.json');
-        const tmpPath = `${overridePath  }.tmp`;
-
-        // Ensure .mlcc directory exists
-        mkdirSync(mlccDir, { recursive: true });
-
-        // Read existing or initialize
-        let data = { instances: [] };
-        if (existsSync(overridePath)) {
-            try {
-                data = JSON.parse(readFileSync(overridePath, 'utf8'));
-            } catch {
-                data = { instances: [] };
-            }
-        }
-        if (!Array.isArray(data.instances)) {
-            data.instances = [];
-        }
-
-        // Build entry
-        const entry = {
-            instanceType,
-            gpuCount,
-            gpuType,
-            gpuMemoryGb,
-            vCpus,
-            memoryGb,
-            source: 'local',
-            addedAt: new Date().toISOString()
-        };
-
-        // Upsert by instanceType
-        const idx = data.instances.findIndex(i => i.instanceType === instanceType);
-        if (idx >= 0) {
-            data.instances[idx] = entry;
-        } else {
-            data.instances.push(entry);
-        }
-
-        // Atomic write
-        writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
-        renameSync(tmpPath, overridePath);
-
-        // NFR-3 size check
-        const result = { status: 'ok', entry, file: '.mlcc/instance-sizer.json' };
-        const stat = statSync(overridePath);
-        if (stat.size > 100 * 1024) {
-            result.warning = 'Override file exceeds 100KB — consider upstreaming entries';
-        }
-
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-    }
-);
+const server = picker.server;
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
 export { handleGetInstanceRecommendation, INSTANCE_CATALOG, SERVER_CONFIG, server, searchInstancesByTag, filterByCudaVersion };
 
-// ── Transport connection (main module only) ──────────────────────────────────
+// ── Transport connection (main module only, via the factory) ──────────────────
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    if (SMART_MODE) {
-        log(`Smart mode enabled (model: ${BEDROCK_MODEL}, region: ${BEDROCK_REGION})`);
-    } else if (!DISCOVER_MODE) {
-        log('Static mode (catalog-only, no network calls) — use --no-discover to force this');
-    } else {
-        log('Discover mode (HuggingFace API + quota lookups active)');
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => {
+        if (SMART_MODE) {
+            log(`Smart mode enabled (model: ${BEDROCK_MODEL}, region: ${BEDROCK_REGION})`);
+        } else if (!DISCOVER_MODE) {
+            log('Static mode (catalog-only, no network calls) — use --no-discover to force this');
+        } else {
+            log('Discover mode (HuggingFace API + quota lookups active)');
+        }
     }
-
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+});

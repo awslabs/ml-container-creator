@@ -69,6 +69,7 @@ export DEPLOYMENT_TARGET_SMAI_STATUS="InService"
 export DEPLOYMENT_TARGET_HP_STATUS="Running"
 export DEPLOYMENT_TARGET_ASYNC_STATUS="InService"
 export DEPLOYMENT_TARGET_BATCH_STATUS="Completed"
+export DEPLOYMENT_TARGET_EKS_STATUS="Running"
 export INSTANCE_TYPE="ml.g5.xlarge"
 """
 
@@ -96,6 +97,7 @@ class TestStatusVarIndependence:
             ("hyperpod-eks", "Failed"),
             ("async-inference", "Failed"),
             ("batch-transform", "InProgress"),
+            ("eks", "Failed"),
         ],
     )
     def test_writing_one_status_preserves_others(
@@ -205,6 +207,7 @@ class TestStatusVarIndependence:
             "hyperpod-eks",
             "async-inference",
             "batch-transform",
+            "eks",
         }
         assert set(STATUS_VARS.keys()) == expected_targets
 

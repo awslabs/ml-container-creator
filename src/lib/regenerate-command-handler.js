@@ -12,49 +12,60 @@
  */
 
 import { writeProject } from '../app.js';
-import { fileURLToPath } from 'node:url';
-import { resolve, join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const GENERATOR_ROOT = resolve(__dirname, '../..');
-const TEMPLATE_DIR = join(GENERATOR_ROOT, 'templates');
+import { parseDoConfig, shellVarsToAnswers } from './do-config.js';
+import { runtimeOwnedVarsUnion } from './target-manifest-reader.js';
+import { serveEngineRuntimeVarsUnion } from './serve-manifest-reader.js';
+import BaseCommandHandler, { GENERATOR_ROOT, TEMPLATE_DIR } from './base-command-handler.js';
 
 /**
  * Vars written at runtime (by do/deploy, do/draft, do/benchmark, do/optimize --apply, etc.)
  * that must survive mcc regenerate. Template-owned vars are NOT in this list — they get
  * their values from the EJS render and should be overwritten by regenerate.
  *
- * Add new entries here whenever a do/ script writes a new persistent var to do/config.
- * TODO BL105: when serve-layer plugin manifests land, derive this list from the manifests.
+ * The PER-TARGET runtime-owned vars (each target's status var + its target-family
+ * runtime vars) are DERIVED from the target descriptors below (ADR-008), so adding
+ * a deployment target needs no edit here. What remains hand-listed is the
+ * cross-cutting set written by verb scripts (benchmark / optimize / draft) plus the
+ * shared MLflow / endpoint vars — these are not per-target.
+ *
+ * The SERVE-ENGINE benchmark-tunable slice (VLLM_/SGLANG_ … from each engine's
+ * env_var_prefix + dimension_map) is now DERIVED via serveEngineRuntimeVarsUnion()
+ * below (ADR-008 / BL105 resolved), so it covers every engine, not just vLLM.
+ *
+ * Add a new SHARED entry only when a cross-cutting do/ verb writes a new persistent
+ * var to do/config that is neither per-target nor a serve-engine dimension — e.g.
+ * the HP_SPECULATIVE_ draft settings (HyperPod/kubernetes, written by do/draft) and
+ * the BENCHMARK_ / OPTIMIZE_ / MLFLOW_ job and tracking vars listed below.
  */
-const RUNTIME_OWNED_VARS = new Set([
-    // Written by do/deploy --target hyperpod-eks
-    'HP_CLUSTER_NAME',
-    'HP_NAMESPACE',
-    'ENDPOINT_NAME',
-    'HP_INSTANCE_TYPE',
-    'HP_GPU_COUNT',
-    'HP_CPU_REQUEST',
-    'HP_MEM_REQUEST',
-    'KUBECONFIG',
-    'DEPLOYMENT_TARGET_HP_STATUS',
-    'DEPLOYMENT_TARGET_SMAI_STATUS',
-    'DEPLOYMENT_TARGET_ASYNC_STATUS',
-    'DEPLOYMENT_TARGET_BATCH_STATUS',
-    // Written by do/benchmark --recommend --apply or do/deploy R2
-    'VLLM_TENSOR_PARALLEL_SIZE',
-    'VLLM_QUANTIZATION',
-    'VLLM_MAX_MODEL_LEN',
-    'VLLM_KV_CACHE_DTYPE',
+// Runtime-owned vars that are NOT tied to a single deployment target — written
+// by cross-cutting verbs (benchmark, optimize, draft) or set by hand, and shared
+// across targets. The per-target runtime-owned vars (each target's status var +
+// its target-family runtime vars like the HP_* / KUBECONFIG set) are DERIVED from
+// the target descriptors via runtimeOwnedVarsUnion(), so adding a deployment
+// target does not require editing this list. See ADR-008.
+const SHARED_RUNTIME_VARS = [
+    // NOTE: the benchmark-tunable engine vars (e.g. VLLM_TENSOR_PARALLEL_SIZE,
+    // VLLM_QUANTIZATION, VLLM_MAX_MODEL_LEN, VLLM_KV_CACHE_DTYPE) are NO LONGER
+    // hardcoded here — they are DERIVED from every serve engine's manifest via
+    // serveEngineRuntimeVarsUnion() below (ADR-008 / BL105), which also covers
+    // non-vLLM engines like SGLANG_* that this list previously missed.
+    // Manual runtime opt-ins for architectures needing custom-code trust (e.g. Kimi-K3's
+    // MoonViT tokenizer) — set by hand in do/config, consumed by both the CRD's serving
+    // container env AND do/benchmark's tokenizer_trust_remote_code param (BL127-adjacent).
+    'VLLM_TRUST_REMOTE_CODE',
+    // Manual runtime opt-out for architectures that don't support LoRA (BL127).
+    'HP_LORA_ENABLED',
     // Written by do/draft set
     'HP_SPECULATIVE_ALGORITHM',
     'HP_SPECULATIVE_MODEL',
     'HP_SPECULATIVE_NUM_TOKENS',
     'HP_SPECULATIVE_DRAFT_TP',
     'HP_SPECULATIVE_EAGLE_TOPK',
+    'HP_SPECULATIVE_DRAFT_SAMPLE_METHOD',
+    'HP_SPECULATIVE_REJECTION_SAMPLE_METHOD',
     'HP_SPECULATIVE_DISABLE_BY_BATCH_SIZE',
     'HP_SPECULATIVE_NUM_STEPS',
     // Written by do/benchmark --set-baseline
@@ -65,71 +76,31 @@ const RUNTIME_OWNED_VARS = new Set([
     'OPTIMIZE_INSTANCE_TYPE',
     // Written by do/benchmark (job tracking)
     'BENCHMARK_JOB_NAME',
-    'BENCHMARK_WORKLOAD_CONFIG_NAME'
+    'BENCHMARK_WORKLOAD_CONFIG_NAME',
+    'BENCHMARK_RUN_NAME',
+    // MLflow tracking — preserved so _mlflow_configured() doesn't need a profile lookup
+    'MLFLOW_TRACKING_SERVER_ARN',
+    'MLFLOW_TRACKING_URI',
+    // Endpoint name is written at runtime by realtime/async deploys; shared
+    // because it is not a status var and both endpoint families reuse it.
+    'ENDPOINT_NAME'
+];
+
+// Exported for the ADR-008 conformance test, which asserts the DERIVED set still
+// contains every per-target runtime_owned_var from the descriptors.
+export const RUNTIME_OWNED_VARS = new Set([
+    ...SHARED_RUNTIME_VARS,
+    // DERIVED: each target's status var + its target-family runtime vars.
+    ...runtimeOwnedVarsUnion(),
+    // DERIVED: each serve engine's benchmark-tunable vars (env_var_prefix +
+    // dimension_map), across all engines (ADR-008 / BL105).
+    ...serveEngineRuntimeVarsUnion()
 ]);
 
-/**
- * Parse a do/config file into a key-value map.
- * @param {string} configPath - Path to do/config
- * @returns {object} Parsed key-value pairs
- */
-function parseDoConfig(configPath) {
-    const content = readFileSync(configPath, 'utf8');
-    const result = {};
-    for (const line of content.split('\n')) {
-        const match = line.match(/^\s*export\s+([A-Z_][A-Z0-9_]*)=["']?([^"']*)["']?\s*$/);
-        if (match) {
-            result[match[1]] = match[2];
-        }
-    }
-    return result;
-}
-
-/**
- * Convert shell-style KEY names to camelCase answer keys.
- * @param {object} shellVars - Shell variable map
- * @returns {object} camelCase answers map
- */
-function shellVarsToAnswers(shellVars) {
-    const answers = {};
-    const mapping = {
-        PROJECT_NAME: 'projectName',
-        DEPLOYMENT_CONFIG: 'deploymentConfig',
-        DEPLOYMENT_TARGET: 'deploymentTarget',
-        INSTANCE_TYPE: 'instanceType',
-        MODEL_NAME: 'modelName',
-        BASE_IMAGE: 'baseImage',
-        REGION: 'region',
-        AWS_REGION: 'awsRegion',
-        ENDPOINT_NAME: 'endpointName',
-        DEPLOY_MODE: 'deployMode',
-        CONTAINER_IMAGE_URI: 'container_image_uri',
-        ENDPOINT_STATUS: 'endpointStatus',
-        IC_GPU_COUNT: 'icGpuCount',
-        IC_COPY_COUNT: 'icCopyCount',
-        IC_MEMORY_SIZE: 'icMemorySize',
-        IC_CPU_COUNT: 'icCpuCount',
-        ENABLE_LORA: 'enableLora',
-        MAX_LORAS: 'maxLoras',
-        QUANTIZATION: 'quantization',
-        HF_TOKEN_ARN: 'hfTokenArn',
-        NGC_TOKEN_ARN: 'ngcTokenArn',
-        GENERATOR_VERSION: 'generatorVersion',
-        // Per-target deployment status vars (FR-9.3: preserved on regeneration)
-        DEPLOYMENT_TARGET_SMAI_STATUS: 'deploymentTargetSmaiStatus',
-        DEPLOYMENT_TARGET_HP_STATUS: 'deploymentTargetHpStatus',
-        DEPLOYMENT_TARGET_ASYNC_STATUS: 'deploymentTargetAsyncStatus',
-        DEPLOYMENT_TARGET_BATCH_STATUS: 'deploymentTargetBatchStatus'
-    };
-
-    for (const [shellKey, value] of Object.entries(shellVars)) {
-        const camelKey = mapping[shellKey];
-        if (camelKey) {
-            answers[camelKey] = value;
-        }
-    }
-    return answers;
-}
+// parseDoConfig + shellVarsToAnswers now come from the shared ./do-config.js
+// module (single source of truth). The canonical SHELL_VAR_TO_ANSWER mapping
+// there is the superset that includes GENERATOR_VERSION and the per-target
+// DEPLOYMENT_TARGET_*_STATUS vars this handler relies on (FR-9.3).
 
 /**
  * Get the current installed generator version.
@@ -189,7 +160,7 @@ function _injectRuntimeVars(configPath, runtimeVars) {
  * Handler for `mcc regenerate`.
  * Re-runs generation from saved parameters using the current generator version.
  */
-export default class RegenerateCommandHandler {
+export default class RegenerateCommandHandler extends BaseCommandHandler {
     /**
      * @param {object} options
      * @param {boolean} [options.dryRun] - Show what would change without writing
@@ -198,6 +169,7 @@ export default class RegenerateCommandHandler {
      * @param {boolean} [options.allTargets] - Generate all deployment targets (BL062 migration)
      */
     constructor({ dryRun, force, noRegister, allTargets } = {}) {
+        super();
         this.dryRun = dryRun || false;
         this.force = force || false;
         this.noRegister = noRegister || false;

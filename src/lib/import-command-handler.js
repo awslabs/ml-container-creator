@@ -13,20 +13,15 @@
 
 import { endpointToAnswers } from './endpoint-to-answers.js';
 import { writeProject } from '../app.js';
-import { fileURLToPath } from 'node:url';
-import { resolve, join, dirname } from 'node:path';
+import { resolve, join } from 'node:path';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const GENERATOR_ROOT = resolve(__dirname, '../..');
-const TEMPLATE_DIR = join(GENERATOR_ROOT, 'templates');
+import BaseCommandHandler, { GENERATOR_ROOT, TEMPLATE_DIR } from './base-command-handler.js';
 
 /**
  * Handler for `mcc import <endpoint-arn>`.
  * Reconstructs project configuration from a live SageMaker endpoint.
  */
-export default class ImportCommandHandler {
+export default class ImportCommandHandler extends BaseCommandHandler {
     /**
      * @param {object} options
      * @param {string} [options.outputDir] - Output directory (default: ./<endpoint-name>)
@@ -34,6 +29,7 @@ export default class ImportCommandHandler {
      * @param {string} [options.region] - AWS region override
      */
     constructor({ outputDir, dryRun, region } = {}) {
+        super();
         this.outputDir = outputDir;
         this.dryRun = dryRun || false;
         this.region = region;

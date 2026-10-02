@@ -28,7 +28,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { PROPERTY_CONFIG } from '../helpers/property-config.js';
+// Packaging-heavy property test (tar/flatten per iteration, observed ~120s at
+// NUM_RUNS=100): use the capped GEN profile (see docs/dev/test-inventory.md R3).
+import { PROPERTY_CONFIG_GEN as PROPERTY_CONFIG } from '../helpers/property-config.js';
 
 // ── Generators ───────────────────────────────────────────────────────────────
 

@@ -16,6 +16,8 @@ import {
     modelFormatPrompts,
     modelServerPrompts,
     modelProfilePrompts,
+    engineFeaturePrompts,
+    ENGINE_FEATURE_ANSWER_PREFIX,
     modulePrompts,
     infraRegionAndTargetPrompts,
     infraBuildPrompts,
@@ -33,10 +35,53 @@ import McpQueryRunner from './mcp-query-runner.js';
 import SecretsPromptRunner from './secrets-prompt-runner.js';
 import CudaResolver from './cuda-resolver.js';
 import MarketplaceFlow from './marketplace-flow.js';
+import { isMarketplaceConfig, isMarketplaceModelName, refuseMarketplaceAndExit } from './marketplace-refusal.js';
+import { engineFeature } from './serve-manifest-reader.js';
 
 const __pr_filename = fileURLToPath(import.meta.url);
 const __pr_dirname = path.dirname(__pr_filename);
 const GENERATOR_ROOT = path.resolve(__pr_dirname, '..', '..');
+
+/**
+ * Collapse interactive engine-feature prompt answers (`__engine_feature__<name>`)
+ * into `combinedAnswers.engineFeatureVars` — the same shape the `--engine-feature`
+ * CLI flag produces (so app.js resolves/validates both paths identically).
+ *
+ * Emits ONLY a feature the user actually CHANGED from the engine's declared
+ * default. Leaving a prompt at its default (declining a boolean, keeping an
+ * enum's default) means "let the engine do what it does by default", so baking
+ * that value into do/config would (a) emit a declined feature as FEATURE=false
+ * and (b) freeze a default the engine might later change — matching
+ * `--server-env`'s "only what you pass" semantics. A feature with no declared
+ * default emits any answer (every value is a deliberate choice). CLI-provided
+ * engineFeatureVars always win over the prompt. Mutates `combinedAnswers` in
+ * place: strips the `__engine_feature__*` keys and sets `engineFeatureVars` when
+ * non-empty. Exported for unit testing; reads the manifest via engineFeature().
+ *
+ * @param {Object} combinedAnswers
+ * @param {string} [serveDir] - serve.d root override (tests)
+ * @returns {Object} the same combinedAnswers (for chaining)
+ */
+export function normalizeEngineFeatureAnswers(combinedAnswers, serveDir) {
+    const engine = combinedAnswers.modelServer || combinedAnswers.backend || '';
+    const engineFeatureVars = { ...(combinedAnswers.engineFeatureVars || {}) };
+    for (const key of Object.keys(combinedAnswers)) {
+        if (key.startsWith(ENGINE_FEATURE_ANSWER_PREFIX)) {
+            const name = key.slice(ENGINE_FEATURE_ANSWER_PREFIX.length);
+            const value = String(combinedAnswers[key]);
+            const decl = engineFeature(engine, name, serveDir);
+            const declaredDefault = decl && decl.default !== undefined ? String(decl.default) : undefined;
+            if (!(name in engineFeatureVars) && value !== declaredDefault) {
+                engineFeatureVars[name] = value;
+            }
+            delete combinedAnswers[key];
+        }
+    }
+    if (Object.keys(engineFeatureVars).length > 0) {
+        combinedAnswers.engineFeatureVars = engineFeatureVars;
+    }
+    return combinedAnswers;
+}
 
 
 export default class PromptRunner {
@@ -127,11 +172,13 @@ export default class PromptRunner {
         };
 
         // ──────────────────────────────────────────────────────────────────────
-        // Marketplace fast-path: skip all container-related prompts
-        // Requirements: 2.3, 2.4, 2.5
+        // Marketplace is deprecated and hard-refused (see marketplace-refusal.js).
+        // The dormant _runMarketplaceFlow path is kept in tree for one release but
+        // is no longer reachable — refuse here rather than run it.
         // ──────────────────────────────────────────────────────────────────────
-        if (frameworkAnswers.architecture === 'marketplace') {
-            return this.marketplaceFlow._runMarketplaceFlow(frameworkAnswers, explicitConfig, existingConfig, buildTimestamp);
+        if (isMarketplaceConfig(frameworkAnswers.architecture) ||
+            isMarketplaceConfig(frameworkAnswers.deploymentConfig)) {
+            refuseMarketplaceAndExit();
         }
         
         // Engine prompt for http architecture
@@ -163,6 +210,18 @@ export default class PromptRunner {
             modelServerPrompts, 
             {...frameworkAnswers, ...engineAnswers}, 
             explicitConfig, 
+            existingConfig
+        );
+
+        // Engine-specific features (ADR-004 §c). The selected engine is known
+        // now (frameworkAnswers.backend/modelServer), so each feature prompt's
+        // when() gates it to the chosen engine. Answers come back under the
+        // __engine_feature__<name> namespace and are normalized into the
+        // engineFeatureVars map below (same shape --engine-feature produces).
+        const engineFeatureAnswers = await this._runPhase(
+            engineFeaturePrompts,
+            { ...frameworkAnswers, ...engineAnswers, ...modelServerAnswers },
+            explicitConfig,
             existingConfig
         );
 
@@ -334,10 +393,15 @@ export default class PromptRunner {
             moduleAnswers.includeSampleModel = false;
         }
 
-        // Test types, benchmark, and LoRA are always-on (BL-122)
+        // Test types and benchmark are always-on (BL-122)
         moduleAnswers.testTypes = ['hosted-model-endpoint', 'sagemaker-ai-automated-benchmarking'];
         const benchmarkAnswers = { includeBenchmark: true };
-        const loraAnswers = { enableLora: true };
+        // LoRA defaults on (BL-122) but respects an explicit opt-out (BL127).
+        // See _resolveEnableLora — the final authority on whether LoRA is actually
+        // enabled for the selected backend remains the scoping logic in
+        // template-variable-resolver.js; this only stops the prompt runner from
+        // clobbering an explicit user opt-out before that check even runs.
+        const loraAnswers = { enableLora: this._resolveEnableLora(explicitConfig, existingConfig) };
 
         // Validate instance type against framework requirements (now that framework version is known)
         // FR-1.2: Instance type is no longer resolved at generation time — skip validation
@@ -368,6 +432,7 @@ export default class PromptRunner {
             ...frameworkProfileAnswers,
             ...modelFormatAnswers,
             ...modelServerAnswers,
+            ...engineFeatureAnswers,
             ...modelProfileAnswers,
             ...hfTokenAnswers,
             ...ngcApiKeyAnswers,
@@ -407,17 +472,12 @@ export default class PromptRunner {
                 console.error('   JumpStart model sources have been removed. Use one of:');
                 console.error('     • HuggingFace model ID (e.g., meta-llama/Llama-2-7b-hf)');
                 console.error('     • s3://bucket/path/model.tar.gz');
-                console.error('     • registry://model-package-name');
-                console.error('     • marketplace://arn:aws:sagemaker:...\n');
+                console.error('     • registry://model-package-name\n');
                 process.exit(1);
             }
-            if (modelName.startsWith('marketplace://')) {
-                // marketplace://arn:aws:sagemaker:... → set architecture to marketplace and store ARN
-                const arn = modelName.replace(/^marketplace:\/\//, '');
-                combinedAnswers.modelPackageArn = arn;
-                combinedAnswers.architecture = 'marketplace';
-                combinedAnswers.deploymentConfig = 'marketplace';
-                combinedAnswers.modelSource = undefined;
+            if (isMarketplaceModelName(modelName)) {
+                // Marketplace is deprecated and hard-refused (see marketplace-refusal.js).
+                refuseMarketplaceAndExit();
             } else if (modelName.startsWith('s3://')) {
                 combinedAnswers.modelSource = 's3';
                 combinedAnswers.artifactUri = modelName;
@@ -520,6 +580,13 @@ export default class PromptRunner {
             delete combinedAnswers.awsRoleArn;
         }
 
+        // Normalize engine-feature prompt answers (__engine_feature__<name>) into
+        // the engineFeatureVars map that app.js resolves — same shape the
+        // --engine-feature CLI flag produces. Extracted to normalizeEngineFeatureAnswers()
+        // so the "emit only non-default" rule (fix below) is unit-testable without
+        // driving the whole prompt flow.
+        normalizeEngineFeatureAnswers(combinedAnswers);
+
         return combinedAnswers;
     }
 
@@ -537,6 +604,42 @@ export default class PromptRunner {
         
         const paramConfig = this.configManager.parameterMatrix[parameterName];
         return paramConfig ? paramConfig.promptable : true;
+    }
+
+    /**
+     * Resolves the generate-time `enableLora` answer, respecting an explicit
+     * user opt-out (BL127).
+     *
+     * LoRA defaults on (BL-122). This mirrors the explicitConfig.modelName
+     * override pattern in run(): prefer an explicit value (from CLI flags, env
+     * vars, or do/config), then fall back to the preserved existingConfig value
+     * on regenerate, and only default to `true` when neither source set it.
+     *
+     * A value of boolean `false` or the string `"false"` is treated as an
+     * explicit opt-out; boolean `true` or `"true"` as an explicit opt-in. Any
+     * other value (undefined/null) is not considered explicit.
+     *
+     * This does NOT decide whether LoRA is ultimately enabled for the selected
+     * backend — the scoping logic in template-variable-resolver.js remains the
+     * final authority and may still force enableLora=false for non-LoRA-capable
+     * backends. This only stops the prompt runner from overriding an explicit
+     * user opt-out before that check runs.
+     *
+     * @param {Object} explicitConfig - Explicitly-set config (CLI/env/config file)
+     * @param {Object} existingConfig - Preserved config from regenerate
+     * @returns {boolean} The resolved enableLora answer
+     * @private
+     */
+    _resolveEnableLora(explicitConfig = {}, existingConfig = {}) {
+        const isExplicitFalse = (v) => v === false || v === 'false';
+        const isExplicitTrue = (v) => v === true || v === 'true';
+        if (isExplicitFalse(explicitConfig.enableLora) || isExplicitTrue(explicitConfig.enableLora)) {
+            return isExplicitTrue(explicitConfig.enableLora);
+        }
+        if (isExplicitFalse(existingConfig.enableLora) || isExplicitTrue(existingConfig.enableLora)) {
+            return isExplicitTrue(existingConfig.enableLora);
+        }
+        return true;
     }
 
     /**

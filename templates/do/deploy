@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
 # do/deploy — Universal deployment dispatcher.
 #
 # @mlcc-script
@@ -63,7 +66,7 @@ while [ $# -gt 0 ]; do
         --target)
             shift
             if [ $# -eq 0 ]; then
-                echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks)"
+                echo "❌ --target requires a value (realtime-inference, async-inference, batch-transform, hyperpod-eks, eks)"
                 exit 1
             fi
             FLAG_TARGET="$1"
@@ -87,6 +90,7 @@ while [ $# -gt 0 ]; do
             ANSWERS_FILE="$1"
             shift
             ;;
+        # >>> GENERATED: deploy-flag arg-parse (scripts/codegen-deploy-flags.js; ADR-008) — DO NOT EDIT
         --endpoint-name)
             shift
             if [ $# -eq 0 ]; then echo "❌ --endpoint-name requires a value"; exit 1; fi
@@ -97,42 +101,6 @@ while [ $# -gt 0 ]; do
             shift
             if [ $# -eq 0 ]; then echo "❌ --endpoint-strategy requires a value"; exit 1; fi
             FLAG_ENDPOINT_STRATEGY="$1"
-            shift
-            ;;
-        --instance-types)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --instance-types requires a value"; exit 1; fi
-            FLAG_INSTANCE_TYPES="$1"
-            shift
-            ;;
-        --gpu-count)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --gpu-count requires a value"; exit 1; fi
-            FLAG_GPU_COUNT="$1"
-            shift
-            ;;
-        --cluster-name)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --cluster-name requires a value"; exit 1; fi
-            FLAG_CLUSTER_NAME="$1"
-            shift
-            ;;
-        --namespace)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --namespace requires a value"; exit 1; fi
-            FLAG_NAMESPACE="$1"
-            shift
-            ;;
-        --replicas)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --replicas requires a value"; exit 1; fi
-            FLAG_REPLICAS="$1"
-            shift
-            ;;
-        --queue)
-            shift
-            if [ $# -eq 0 ]; then echo "❌ --queue requires a value"; exit 1; fi
-            FLAG_QUEUE="$1"
             shift
             ;;
         --async-output-path)
@@ -183,6 +151,43 @@ while [ $# -gt 0 ]; do
             FLAG_BATCH_MAX_CONCURRENT="$1"
             shift
             ;;
+        --cluster-name)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --cluster-name requires a value"; exit 1; fi
+            FLAG_CLUSTER_NAME="$1"
+            shift
+            ;;
+        --namespace)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --namespace requires a value"; exit 1; fi
+            FLAG_NAMESPACE="$1"
+            shift
+            ;;
+        --replicas)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --replicas requires a value"; exit 1; fi
+            FLAG_REPLICAS="$1"
+            shift
+            ;;
+        --queue)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --queue requires a value"; exit 1; fi
+            FLAG_QUEUE="$1"
+            shift
+            ;;
+        --gpu-count)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --gpu-count requires a value"; exit 1; fi
+            FLAG_GPU_COUNT="$1"
+            shift
+            ;;
+        --instance-types)
+            shift
+            if [ $# -eq 0 ]; then echo "❌ --instance-types requires a value"; exit 1; fi
+            FLAG_INSTANCE_TYPES="$1"
+            shift
+            ;;
+        # <<< END GENERATED deploy-flag arg-parse
         --status)
             FLAG_STATUS=1
             shift
@@ -206,6 +211,7 @@ while [ $# -gt 0 ]; do
             echo "  async-inference     SageMaker async endpoint with S3 output"
             echo "  batch-transform     SageMaker batch transform job"
             echo "  hyperpod-eks        SageMaker HyperPod EKS cluster"
+            echo "  eks                 Plain Kubernetes (Deployment + Service + ConfigMap)"
             echo ""
             echo "Options:"
             echo "  --target <mode>         Select or switch deployment target"
@@ -280,6 +286,7 @@ _backfill_status_var() {
         hyperpod-eks)      status_var="DEPLOYMENT_TARGET_HP_STATUS" ;;
         async-inference)   status_var="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
         batch-transform)   status_var="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        eks)               status_var="DEPLOYMENT_TARGET_EKS_STATUS" ;;
         *) return 0 ;;
     esac
 
@@ -399,12 +406,15 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
 
     # Check for active deployment
     _RECONFIG_STATUS_VAR=""
+    # >>> GENERATED: reconfigure target->status_var (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
     case "$_RECONFIG_TARGET" in
-        realtime-inference|managed-inference) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
-        hyperpod-eks)      _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
-        async-inference)   _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
-        batch-transform)   _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        realtime-inference|managed-inference|realtime) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
+        async-inference|async) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
+        batch-transform|batch) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        hyperpod-eks|hyperpod) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
+        eks) _RECONFIG_STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS" ;;
     esac
+    # <<< END GENERATED reconfigure
 
     if [ -n "$_RECONFIG_STATUS_VAR" ] && [ -n "${!_RECONFIG_STATUS_VAR:-}" ]; then
         echo "   ⚠️  Active deployment detected (${!_RECONFIG_STATUS_VAR})."
@@ -419,6 +429,7 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
                 async-inference)   "${SCRIPT_DIR}/clean" --target async-inference endpoint --force 2>/dev/null || true ;;
                 batch-transform)   "${SCRIPT_DIR}/clean" --target batch-transform batch --force 2>/dev/null || true ;;
                 hyperpod-eks)      "${SCRIPT_DIR}/clean" --target hyperpod-eks hyperpod --force 2>/dev/null || true ;;
+                eks)               "${SCRIPT_DIR}/clean" --target eks eks --force 2>/dev/null || true ;;
             esac
             _update_config "$_RECONFIG_STATUS_VAR" ""
             # Clear IC deployment refs from do/ic/*.conf
@@ -492,12 +503,19 @@ if [ "${FLAG_RECONFIGURE:-0}" -eq 1 ]; then
             _update_config "HP_REPLICAS" ""
             _update_config "HP_QUEUE" ""
             ;;
+        eks)
+            _update_config "HP_CLUSTER_NAME" ""
+            _update_config "HP_GPU_COUNT" ""
+            _update_config "HP_NAMESPACE" ""
+            _update_config "HP_REPLICAS" ""
+            _update_config "HP_QUEUE" ""
+            ;;
         async-inference)
             _update_config "ASYNC_ENDPOINT_NAME" ""
             _update_config "ENDPOINT_NAME" ""
             _update_config "ASYNC_S3_OUTPUT_PATH" ""
             _update_config "ASYNC_SNS_TOPIC" ""
-            _update_config "ASYNC_MAX_CONCURRENT" ""
+            _update_config "ASYNC_MAX_CONCURRENT_INVOCATIONS" ""
             ;;
         batch-transform)
             _update_config "BATCH_INPUT_PATH" ""
@@ -524,13 +542,16 @@ fi
 _NEEDS_HELPER=0
 if [ -n "$FLAG_TARGET" ]; then
     # Map target to its status variable name
+    # >>> GENERATED: switch-or-deploy target->status_var (scripts/codegen-target-guard.js; ADR-008) — DO NOT EDIT
     case "$FLAG_TARGET" in
-        realtime-inference|managed-inference) _STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
-        hyperpod-eks)      _STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
-        async-inference)   _STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
-        batch-transform)   _STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
-        *)                 _STATUS_VAR="" ;;
+        realtime-inference|managed-inference|realtime) _STATUS_VAR="DEPLOYMENT_TARGET_SMAI_STATUS" ;;
+        async-inference|async) _STATUS_VAR="DEPLOYMENT_TARGET_ASYNC_STATUS" ;;
+        batch-transform|batch) _STATUS_VAR="DEPLOYMENT_TARGET_BATCH_STATUS" ;;
+        hyperpod-eks|hyperpod) _STATUS_VAR="DEPLOYMENT_TARGET_HP_STATUS" ;;
+        eks) _STATUS_VAR="DEPLOYMENT_TARGET_EKS_STATUS" ;;
+        *) _STATUS_VAR="" ;;
     esac
+    # <<< END GENERATED switch-or-deploy
 
     if [ -n "$_STATUS_VAR" ] && [ -n "${!_STATUS_VAR:-}" ] && ! echo " ${DEPLOY_ARGS[*]:-} " | grep -qw -- "--force"; then
         # Existing deployment — switch focus only (FR-4.4, FR-4.5)
@@ -550,6 +571,9 @@ if [ -n "$FLAG_TARGET" ]; then
                 ;;
             hyperpod-eks)
                 _update_config INSTANCE_TYPE "${HP_INSTANCE_TYPE:-}"
+                ;;
+            eks)
+                _update_config INSTANCE_TYPE "${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
                 ;;
         esac
         # For hyperpod-eks: show a useful status summary before exiting
@@ -596,12 +620,43 @@ fi
 # or if --target was provided with no existing deployment (_NEEDS_HELPER),
 # invoke the interactive deploy builder (FR-2.1, FR-2.6, FR-3.2)
 _HELPER_INVOKED=0
+# Build the per-target flag forwarding array once; forwarded to BOTH the Python
+# helper and the Node builder so a caller-supplied value is never re-prompted.
+    # >>> GENERATED: deploy-flag args-array (scripts/codegen-deploy-flags.js; ADR-008) — DO NOT EDIT
+    _DEPLOY_FLAG_ARGS=()
+    FLAG_ENDPOINT_NAME="${FLAG_ENDPOINT_NAME:-}"; [ -n "$FLAG_ENDPOINT_NAME" ] && _DEPLOY_FLAG_ARGS+=("--endpoint-name" "$FLAG_ENDPOINT_NAME")
+    FLAG_ENDPOINT_STRATEGY="${FLAG_ENDPOINT_STRATEGY:-}"; [ -n "$FLAG_ENDPOINT_STRATEGY" ] && _DEPLOY_FLAG_ARGS+=("--endpoint-strategy" "$FLAG_ENDPOINT_STRATEGY")
+    FLAG_ASYNC_OUTPUT_PATH="${FLAG_ASYNC_OUTPUT_PATH:-}"; [ -n "$FLAG_ASYNC_OUTPUT_PATH" ] && _DEPLOY_FLAG_ARGS+=("--async-output-path" "$FLAG_ASYNC_OUTPUT_PATH")
+    FLAG_ASYNC_SNS_TOPIC="${FLAG_ASYNC_SNS_TOPIC:-}"; [ -n "$FLAG_ASYNC_SNS_TOPIC" ] && _DEPLOY_FLAG_ARGS+=("--async-sns-topic" "$FLAG_ASYNC_SNS_TOPIC")
+    FLAG_ASYNC_MAX_CONCURRENT="${FLAG_ASYNC_MAX_CONCURRENT:-}"; [ -n "$FLAG_ASYNC_MAX_CONCURRENT" ] && _DEPLOY_FLAG_ARGS+=("--async-max-concurrent" "$FLAG_ASYNC_MAX_CONCURRENT")
+    FLAG_BATCH_INPUT_PATH="${FLAG_BATCH_INPUT_PATH:-}"; [ -n "$FLAG_BATCH_INPUT_PATH" ] && _DEPLOY_FLAG_ARGS+=("--batch-input-path" "$FLAG_BATCH_INPUT_PATH")
+    FLAG_BATCH_OUTPUT_PATH="${FLAG_BATCH_OUTPUT_PATH:-}"; [ -n "$FLAG_BATCH_OUTPUT_PATH" ] && _DEPLOY_FLAG_ARGS+=("--batch-output-path" "$FLAG_BATCH_OUTPUT_PATH")
+    FLAG_BATCH_SPLIT_TYPE="${FLAG_BATCH_SPLIT_TYPE:-}"; [ -n "$FLAG_BATCH_SPLIT_TYPE" ] && _DEPLOY_FLAG_ARGS+=("--batch-split-type" "$FLAG_BATCH_SPLIT_TYPE")
+    FLAG_BATCH_STRATEGY="${FLAG_BATCH_STRATEGY:-}"; [ -n "$FLAG_BATCH_STRATEGY" ] && _DEPLOY_FLAG_ARGS+=("--batch-strategy" "$FLAG_BATCH_STRATEGY")
+    FLAG_BATCH_MAX_CONCURRENT="${FLAG_BATCH_MAX_CONCURRENT:-}"; [ -n "$FLAG_BATCH_MAX_CONCURRENT" ] && _DEPLOY_FLAG_ARGS+=("--batch-max-concurrent" "$FLAG_BATCH_MAX_CONCURRENT")
+    FLAG_CLUSTER_NAME="${FLAG_CLUSTER_NAME:-}"; [ -n "$FLAG_CLUSTER_NAME" ] && _DEPLOY_FLAG_ARGS+=("--cluster-name" "$FLAG_CLUSTER_NAME")
+    FLAG_NAMESPACE="${FLAG_NAMESPACE:-}"; [ -n "$FLAG_NAMESPACE" ] && _DEPLOY_FLAG_ARGS+=("--namespace" "$FLAG_NAMESPACE")
+    FLAG_REPLICAS="${FLAG_REPLICAS:-}"; [ -n "$FLAG_REPLICAS" ] && _DEPLOY_FLAG_ARGS+=("--replicas" "$FLAG_REPLICAS")
+    FLAG_QUEUE="${FLAG_QUEUE:-}"; [ -n "$FLAG_QUEUE" ] && _DEPLOY_FLAG_ARGS+=("--queue" "$FLAG_QUEUE")
+    FLAG_GPU_COUNT="${FLAG_GPU_COUNT:-}"; [ -n "$FLAG_GPU_COUNT" ] && _DEPLOY_FLAG_ARGS+=("--gpu-count" "$FLAG_GPU_COUNT")
+    FLAG_INSTANCE_TYPES="${FLAG_INSTANCE_TYPES:-}"; [ -n "$FLAG_INSTANCE_TYPES" ] && _DEPLOY_FLAG_ARGS+=("--instance-types" "$FLAG_INSTANCE_TYPES")
+    # <<< END GENERATED deploy-flag args-array
 if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
     # Invoke the deploy helper prompt to collect deployment parameters
     _PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
     _HELPER_ERR=$(mktemp "${TMPDIR:-/tmp}/mlcc-deploy-helper-err.XXXXXX")
+    # Forward every user-provided flag to the helper so it does not re-prompt
+    # for a value the caller already supplied (FR-3.1/FR-3.2 non-interactive path).
+    # Empty flags are omitted via ${VAR:+...} so the helper falls back to its
+    # prompt / default only for values that were genuinely not provided.
     MLCC_PROJECT_DIR="${_PROJECT_ROOT}" \
-    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" --project-dir "${_PROJECT_ROOT}" 2>"${_HELPER_ERR}" || {
+    python3 "${SCRIPT_DIR}/.deploy_helper.py" prompt \
+        --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" \
+        --project-dir "${_PROJECT_ROOT}" \
+        ${ANSWERS_FILE:+--answers-file "$ANSWERS_FILE"} \
+        ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"} \
+        "${_DEPLOY_FLAG_ARGS[@]}" \
+        2>"${_HELPER_ERR}" || {
         _ERR=$(cat "${_HELPER_ERR}" 2>/dev/null)
         rm -f "${_HELPER_ERR}"
         if echo "${_ERR}" | grep -q "No module named 'questionary'"; then
@@ -642,7 +697,8 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
           --config-file "${_ABS_CONFIG}" \
           --output-file "$_DEPLOY_JSON_TMP" \
           --target "${FLAG_TARGET:-${DEPLOYMENT_TARGET:-}}" \
-          ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"}) || true
+          ${FLAG_INSTANCE:+--instance-type "$FLAG_INSTANCE"} \
+          "${_DEPLOY_FLAG_ARGS[@]}") || true
     else
         echo "❌ Deploy interactive mode requires Node.js and @aws/ml-container-creator."
         echo "   Install: npm install -g @aws/ml-container-creator"
@@ -650,37 +706,23 @@ if [ -z "${DEPLOYMENT_TARGET:-}" ] || [ "$_NEEDS_HELPER" -eq 1 ]; then
         exit 1
     fi
 
-    # Parse JSON response from temp file and export all vars
+    # Parse JSON response from temp file and export all vars.
+    #
+    # DERIVED (do not hardcode): the answer-key → config-var map is the builder-output
+    # surface, read from deploy_answers.py (single source of truth, ADR-008 /
+    # .kiro/steering/derive-dont-hardcode.md). Falls back to an empty map only if the
+    # reader is unavailable, in which case no vars are exported and the caller falls
+    # back to prompts on the next run.
+    _LIB_PYTHON="${SCRIPT_DIR}/lib/python"
     json_output=$(cat "$_DEPLOY_JSON_TMP" 2>/dev/null || echo '{}')
-    eval "$(echo "$json_output" | python3 -c "
-import json, sys
-KEY_MAP = {
-    'target': 'DEPLOYMENT_TARGET',
-    'instance_type': 'INSTANCE_TYPE',
-    'smai_instance_type': 'SMAI_INSTANCE_TYPE',
-    'async_instance_type': 'ASYNC_INSTANCE_TYPE',
-    'batch_instance_type': 'BATCH_INSTANCE_TYPE',
-    'hp_instance_type': 'HP_INSTANCE_TYPE',
-    'smai_endpoint_name': 'SMAI_ENDPOINT_NAME',
-    'async_endpoint_name': 'ASYNC_ENDPOINT_NAME',
-    'endpoint_strategy': 'ENDPOINT_STRATEGY',
-    'instance_types': 'INSTANCE_TYPES',
-    'gpu_count': 'IC_GPU_COUNT',
-    'cluster_name': 'HP_CLUSTER_NAME',
-    'hp_gpu_count': 'HP_GPU_COUNT',
-    'namespace': 'HP_NAMESPACE',
-    'replicas': 'HP_REPLICAS',
-    'queue': 'HP_QUEUE',
-    'async_output_path': 'ASYNC_S3_OUTPUT_PATH',
-    'async_sns_topic': 'ASYNC_SNS_TOPIC',
-    'async_max_concurrent': 'ASYNC_MAX_CONCURRENT_INVOCATIONS',
-    'batch_input_path': 'BATCH_INPUT_PATH',
-    'batch_output_path': 'BATCH_OUTPUT_PATH',
-    'batch_split_type': 'BATCH_SPLIT_TYPE',
-    'batch_strategy': 'BATCH_STRATEGY',
-    'batch_max_concurrent': 'BATCH_MAX_CONCURRENT',
-    'inference_ami_version': 'INFERENCE_AMI_VERSION',
-}
+    eval "$(echo "$json_output" | _LIB_PYTHON="${_LIB_PYTHON}" python3 -c "
+import json, os, sys
+sys.path.insert(0, os.environ['_LIB_PYTHON'])
+try:
+    import deploy_answers
+    KEY_MAP = deploy_answers.answer_key_to_var('output')
+except Exception:
+    KEY_MAP = {}
 data = json.load(sys.stdin)
 if 'error' in data:
     err = data['error']
@@ -759,6 +801,26 @@ if [ "$DEPLOYMENT_TARGET" = "realtime-inference" ]; then
     DEPLOYMENT_TARGET="realtime-inference"
 fi
 
+# ── LoRA + speculative-decoding advisory (BL115, Req 6.1) ────
+# LoRA is on by default across vLLM targets, and speculative decoding may not be
+# compatible with LoRA on every vLLM build. Warn (non-fatally) when both are
+# requested for the active target so the operator can verify their vLLM version.
+# "LoRA on for the active target" reads the target family's own switch:
+#   • managed/realtime/async/batch → ENABLE_LORA (default true via do/config)
+#   • hyperpod-eks / eks           → HP_LORA_ENABLED (default true for vLLM)
+_lora_on_for_target=false
+case "${DEPLOYMENT_TARGET}" in
+    hyperpod-eks|eks)
+        [ "${HP_LORA_ENABLED:-false}" = "true" ] && _lora_on_for_target=true
+        ;;
+    *)
+        [ "${ENABLE_LORA:-false}" = "true" ] && _lora_on_for_target=true
+        ;;
+esac
+if [ "${_lora_on_for_target}" = "true" ] && [ -n "${HP_SPECULATIVE_ALGORITHM:-}" ]; then
+    echo "⚠️ LoRA + speculative decoding may conflict — verify vLLM version supports both simultaneously"
+fi
+
 # ── Dry-run output (FR-3.6, CP-4) ────────────────────────────
 # Show resolved config and the command that would execute, without deploying.
 if [ "${FLAG_DRY_RUN:-0}" -eq 1 ]; then
@@ -804,6 +866,9 @@ case "${DEPLOYMENT_TARGET}" in
     hyperpod-eks)
         export INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
         ;;
+    eks)
+        export INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${INSTANCE_TYPE:-}}"
+        ;;
 esac
 
 # Dispatch to target-specific deploy script
@@ -820,9 +885,12 @@ case "$DEPLOYMENT_TARGET" in
     hyperpod-eks)
         source "${SCRIPT_DIR}/deploy.d/hyperpod-eks" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
         ;;
+    eks)
+        source "${SCRIPT_DIR}/deploy.d/eks" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
+        ;;
     *)
         echo "❌ Unknown DEPLOYMENT_TARGET: $DEPLOYMENT_TARGET"
-        echo "   Valid targets: realtime-inference, async-inference, batch-transform, hyperpod-eks"
+        echo "   Valid targets: realtime-inference, async-inference, batch-transform, hyperpod-eks, eks"
         exit 1
         ;;
 esac

@@ -40,22 +40,15 @@ function scriptMatches(script, regex) {
     return regex.test(script);
 }
 
-/**
- * Extract the guard block from a script.
- * Returns text from "HyperPod guard" comment to "exit 1" + "fi".
- */
-function extractGuardBlock(script) {
-    const guardStart = script.indexOf('HyperPod guard');
-    if (guardStart === -1) return '';
-    const guardEnd = script.indexOf('fi', guardStart + script.substring(guardStart).indexOf('exit 1'));
-    return script.substring(guardStart, guardEnd + 2);
-}
-
 // ── do/add-ic guard tests ────────────────────────────────────────────────────
+//
+// Wave 6 (ADR-007) migrated these guards onto the shared contract primitives.
+// do/add-ic keeps an explicit hyperpod-eks branch (distinct guidance) that now
+// calls _contract_violation (exit 3), plus a generic _restrict_targets for the
+// remaining non-realtime targets. The intent — block the wrong target with
+// actionable guidance, after config is sourced — is unchanged.
 
-describe('do/add-ic HyperPod guard (BL063)', () => {
-    const guard = extractGuardBlock(ADD_IC_SCRIPT);
-
+describe('do/add-ic HyperPod guard (BL063 / ADR-007)', () => {
     describe('guard presence and structure', () => {
         it('contains a HyperPod guard block', () => {
             assert.ok(
@@ -66,19 +59,15 @@ describe('do/add-ic HyperPod guard (BL063)', () => {
 
         it('checks DEPLOYMENT_TARGET for hyperpod-eks', () => {
             assert.ok(
-                scriptContains(guard, 'DEPLOYMENT_TARGET:-'),
-                'should use ${DEPLOYMENT_TARGET:-} pattern for safe unset handling'
-            );
-            assert.ok(
-                scriptContains(guard, 'hyperpod-eks'),
-                'should check for hyperpod-eks value'
+                scriptMatches(ADD_IC_SCRIPT, /if \[ "\$\{DEPLOYMENT_TARGET:-\}" = "hyperpod-eks" \]/),
+                'should check for hyperpod-eks with the safe-unset equality pattern'
             );
         });
 
-        it('exits with code 1 (hard failure)', () => {
+        it('signals a contract violation (exit 3) via the shared primitive', () => {
             assert.ok(
-                scriptContains(guard, 'exit 1'),
-                'should hard-exit with code 1'
+                scriptContains(ADD_IC_SCRIPT, '_contract_violation'),
+                'should use _contract_violation (exit 3) instead of a hand-rolled exit 1'
             );
         });
 
@@ -102,90 +91,58 @@ describe('do/add-ic HyperPod guard (BL063)', () => {
     });
 
     describe('error message content', () => {
-        it('includes the ❌ prefix', () => {
-            assert.ok(
-                scriptContains(guard, '❌'),
-                'should use ❌ emoji prefix for error messages'
-            );
-        });
-
         it('mentions Inference Components are a SageMaker concept', () => {
             assert.ok(
-                scriptContains(guard, 'Inference Components are a SageMaker managed inference concept'),
+                scriptContains(ADD_IC_SCRIPT, 'Inference Components are a SageMaker managed inference concept'),
                 'should explain WHY the script is unsupported'
             );
         });
 
         it('suggests do/adapter --load-lora as alternative', () => {
             assert.ok(
-                scriptContains(guard, 'do/adapter --load-lora'),
+                scriptContains(ADD_IC_SCRIPT, 'do/adapter --load-lora'),
                 'should provide actionable alternative for HyperPod users'
             );
         });
     });
 
-    describe('guard does NOT fire on other targets', () => {
-        it('only checks for hyperpod-eks (not managed-inference)', () => {
-            // The guard should ONLY fire on hyperpod-eks, not on other targets
+    describe('non-realtime targets are restricted', () => {
+        it('restricts to realtime-inference via _restrict_targets', () => {
             assert.ok(
-                scriptMatches(ADD_IC_SCRIPT, /if \[ "\$\{DEPLOYMENT_TARGET:-\}" = "hyperpod-eks" \]/),
-                'should use exact equality check for hyperpod-eks only'
-            );
-        });
-
-        it('does not contain a blanket non-smai guard', () => {
-            // Ensure we don't accidentally guard against async-inference or batch-transform
-            assert.ok(
-                !scriptContains(guard, 'managed-inference'),
-                'guard should not reference managed-inference (it should only block hyperpod-eks)'
+                scriptMatches(ADD_IC_SCRIPT, /_restrict_targets "realtime-inference"/),
+                'should restrict to realtime-inference for the generic (async/batch) case'
             );
         });
     });
 });
 
 // ── do/ci guard tests ────────────────────────────────────────────────────────
+//
+// Wave 6 (ADR-007) replaced do/ci's hand-rolled hyperpod-eks block with
+// _restrict_targets "realtime-inference" (exit 3, standard format). The
+// harness-specific guidance is preserved in the guidance argument.
 
-describe('do/ci HyperPod guard (BL063)', () => {
-    const guard = extractGuardBlock(CI_SCRIPT);
-
+describe('do/ci target guard (BL063 / ADR-007)', () => {
     describe('guard presence and structure', () => {
-        it('contains a HyperPod guard block', () => {
+        it('restricts to realtime-inference via _restrict_targets', () => {
             assert.ok(
-                scriptContains(CI_SCRIPT, 'HyperPod guard'),
-                'should have a HyperPod guard comment'
-            );
-        });
-
-        it('checks DEPLOYMENT_TARGET for hyperpod-eks', () => {
-            assert.ok(
-                scriptContains(guard, 'DEPLOYMENT_TARGET:-'),
-                'should use ${DEPLOYMENT_TARGET:-} pattern for safe unset handling'
-            );
-            assert.ok(
-                scriptContains(guard, 'hyperpod-eks'),
-                'should check for hyperpod-eks value'
-            );
-        });
-
-        it('exits with code 1 (hard failure)', () => {
-            assert.ok(
-                scriptContains(guard, 'exit 1'),
-                'should hard-exit with code 1'
+                scriptMatches(CI_SCRIPT, /_restrict_targets "realtime-inference"/),
+                'should use _restrict_targets (exit 3) to enforce the realtime-inference-only rule'
             );
         });
 
         it('guard appears BEFORE the CI_TABLE_NAME assignment', () => {
-            const guardPos = CI_SCRIPT.indexOf('HyperPod guard');
+            const guardPos = CI_SCRIPT.indexOf('_restrict_targets');
             const tablePos = CI_SCRIPT.indexOf('CI_TABLE_NAME=');
             assert.ok(
-                guardPos < tablePos,
+                guardPos > -1 && guardPos < tablePos,
                 'guard must appear before CI infrastructure references'
             );
         });
 
         it('guard appears AFTER source config', () => {
             const sourcePos = CI_SCRIPT.indexOf('source "${SCRIPT_DIR}/config"');
-            const guardPos = CI_SCRIPT.indexOf('HyperPod guard');
+            const guardPos = CI_SCRIPT.indexOf('_restrict_targets');
             assert.ok(
                 sourcePos < guardPos,
                 'guard must appear after sourcing config (which sets DEPLOYMENT_TARGET)'
@@ -194,41 +151,16 @@ describe('do/ci HyperPod guard (BL063)', () => {
     });
 
     describe('error message content', () => {
-        it('includes the ❌ prefix', () => {
-            assert.ok(
-                scriptContains(guard, '❌'),
-                'should use ❌ emoji prefix for error messages'
-            );
-        });
-
         it('mentions Lambda, Step Functions, and CodeBuild', () => {
-            assert.ok(
-                scriptContains(guard, 'Lambda'),
-                'should mention Lambda as part of the CI harness'
-            );
-            assert.ok(
-                scriptContains(guard, 'Step Functions'),
-                'should mention Step Functions as part of the CI harness'
-            );
-            assert.ok(
-                scriptContains(guard, 'CodeBuild'),
-                'should mention CodeBuild as part of the CI harness'
-            );
+            assert.ok(scriptContains(CI_SCRIPT, 'Lambda'), 'should mention Lambda');
+            assert.ok(scriptContains(CI_SCRIPT, 'Step Functions'), 'should mention Step Functions');
+            assert.ok(scriptContains(CI_SCRIPT, 'CodeBuild'), 'should mention CodeBuild');
         });
 
         it('suggests ArgoCD/Flux as HyperPod CI alternative', () => {
             assert.ok(
-                scriptContains(guard, 'ArgoCD') || scriptContains(guard, 'Flux'),
+                scriptContains(CI_SCRIPT, 'ArgoCD') || scriptContains(CI_SCRIPT, 'Flux'),
                 'should suggest Kubernetes-native CI/CD alternatives'
-            );
-        });
-    });
-
-    describe('guard does NOT fire on other targets', () => {
-        it('only checks for hyperpod-eks (not managed-inference)', () => {
-            assert.ok(
-                scriptMatches(CI_SCRIPT, /if \[ "\$\{DEPLOYMENT_TARGET:-\}" = "hyperpod-eks" \]/),
-                'should use exact equality check for hyperpod-eks only'
             );
         });
     });

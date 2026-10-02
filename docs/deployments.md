@@ -1,6 +1,6 @@
 # Deployment & Inference
 
-MCC supports four deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Every generated project contains scripts for all four targets — you select which target to deploy to at deploy time, not at generation time. See [Interactive Deployment UX](deploy-ux.md) for the full deploy-time workflow.
+MCC supports five deployment targets and two build paths, all managed through standardized `do/` scripts inspired by the [do-framework](https://github.com/iankoulski/do-framework). Every generated project contains scripts for all targets — you select which target to deploy to at deploy time, not at generation time. See [Interactive Deployment UX](deploy-ux.md) for the full deploy-time workflow.
 
 ## Build Paths
 
@@ -18,7 +18,15 @@ Local containers may produce `exec` errors when deployed to a different architec
 
 ## Deployment Targets
 
-MCC supports four deployment targets. Select the active target at deploy time using `./do/deploy --target <mode>`. The active target determines how `./do/test`, `./do/clean`, and `./do/logs` behave.
+MCC supports five deployment targets. Select the active target at deploy time using `./do/deploy --target <mode>`. The active target determines how `./do/test`, `./do/clean`, and `./do/logs` behave.
+
+| Target | Where it runs | Notes |
+|---|---|---|
+| `realtime-inference` | SageMaker real-time endpoint (Inference Components) | Default |
+| `async-inference` | SageMaker async endpoint | Large payloads / long jobs |
+| `batch-transform` | SageMaker batch transform job | Offline batch |
+| `hyperpod-eks` | EKS via the HyperPod Inference Operator | Registers a SageMaker endpoint |
+| `eks` | EKS **without** the HyperPod operator (standard Deployment + Service + ConfigMap) | First-class, **currently untested/unvalidated** |
 
 ### SageMaker AI Real-Time Inference (`realtime-inference`)
 
@@ -89,6 +97,32 @@ For offline batch processing of large datasets. `./do/deploy` submits a SageMake
 !!! note "Limitations"
     Batch transform does not support `do/tune` or `do/adapter` (no running endpoint to attach adapters to).
 
+### Plain EKS (`eks`)
+
+Deploys the model to any conformant EKS cluster as **standard Kubernetes objects**
+— a Deployment, a Service, and a ConfigMap — **without** the HyperPod Inference
+Operator and without any SageMaker endpoint. It works on a plain EKS cluster or a
+HyperPod EKS cluster used as plain EKS.
+
+```bash
+./do/deploy --target eks
+```
+
+!!! warning "Untested target"
+    `eks` is a first-class, supported target, but it is **currently untested and
+    unvalidated** end-to-end. Treat it as experimental.
+
+Because there is no SageMaker endpoint, verbs that operate on the serving pod
+directly work via a `kubectl` port-forward (same mechanism as `hyperpod-eks`):
+
+- **Supported:** `do/deploy`, `do/test eks`, `do/benchmark` (direct pod
+  port-forward), `do/adapter` (vLLM LoRA hot-load), `do/logs`, `do/status`,
+  `do/clean eks`.
+- **Not applicable:** `do/optimize` (SageMaker AI Recommendations need a SageMaker
+  endpoint), `do/add-ic` (Inference Components are real-time-only), `do/ci` (the CI
+  harness is SageMaker-managed-inference specific). These print a clear message and
+  exit with code `3`.
+
 ## Lifecycle Scripts Reference
 
 All generated projects include these `do/` scripts:
@@ -107,15 +141,73 @@ All generated projects include these `do/` scripts:
 | `./do/add-ic` | Add an inference component to an existing endpoint |
 | `./do/benchmark` | Run latency and throughput benchmarks via SageMaker AI Benchmarking |
 | `./do/status` | Check endpoint and inference component status |
-| `./do/logs` | Tail logs (CloudWatch for realtime-inference, kubectl for HyperPod) |
+| `./do/logs` | Tail logs (CloudWatch for SageMaker targets, kubectl for hyperpod-eks / eks) |
 | `./do/clean <target>` | Clean up resources (local, ecr, endpoint/hyperpod, codebuild, all) |
 | `./do/config` | Centralized configuration for all scripts (sourced, not executed) |
-| `./do/export` | Export current configuration as a reproducible CLI command |
+| `./do/export` | Export the project: a reproduce-it CLI command (default), config JSON (`--json`), or a runnable Jupyter deploy notebook (`--notebook`) |
 | `./do/register` | Capture deployment to the deployment registry |
 | `./do/ci` | CI pipeline integration (report, status, trigger, dashboard) |
 | `./do/submit` | Submit build to AWS CodeBuild (CodeBuild build target only) |
+| `./do/draft` | Configure speculative decoding for an active deployment (hyperpod-eks) |
 
 See the generated `do/README.md` for detailed documentation on each command.
+
+### Exporting the project (`do/export`)
+
+`do/export` turns the project's `do/config` into a portable artifact. It has three
+modes; they read the effective deployment target from `do/config`, or you can
+override it for one run with `--target <mode>`.
+
+| Mode | Command | Output |
+|---|---|---|
+| Default | `./do/export` | Prints the `ml-container-creator …` CLI command that reproduces this project. |
+| JSON | `./do/export --json` | Prints the configuration as JSON (camelCase keys), ready to feed back in via `ml-container-creator --config=<file>`. |
+| Notebook | `./do/export --notebook` | Writes `deploy_notebook.ipynb` — a runnable, step-by-step Jupyter notebook that builds, deploys, tests, and tears down the endpoint. |
+
+`--notebook` and `--json` are mutually exclusive.
+
+#### The deploy notebook (`--notebook`)
+
+The generated notebook walks the full lifecycle in order — install deps, build &
+push the container (or resolve a DLC image for LMI/DJL), then a deploy + test +
+cleanup section tailored to the deployment target:
+
+| Target | Deploy path in the notebook |
+|---|---|
+| `realtime-inference` | `boto3` create endpoint + inference component; invoke via `smr_client.invoke_endpoint`. Includes optional LoRA-adapter and managed fine-tuning sections when the project enables them. |
+| `async-inference` | `boto3` endpoint with `AsyncInferenceConfig`; upload input to S3, `invoke_endpoint_async`, poll S3 for the result. |
+| `batch-transform` | `boto3` `create_transform_job`; poll to completion and download output from S3. |
+| `hyperpod-eks` | `kubectl apply` of an `InferenceEndpointConfig` custom resource (the SageMaker HyperPod inference operator); poll the CRD to `DeploymentComplete` and the registered SageMaker endpoint to `InService`; test via `kubectl port-forward` to the serving pod. |
+
+Secrets are never baked into the notebook: when the project uses `HF_TOKEN_ARN`
+or `NGC_API_KEY_ARN`, the notebook resolves them from AWS Secrets Manager at
+runtime; when it uses a plain token, the notebook reads it from an environment
+variable you set before running the cell.
+
+The notebook is generated for every supported deployment target. (The removed
+`marketplace` config built no container and had no notebook — see
+[AWS Marketplace Model Packages (removed)](#aws-marketplace-model-packages-removed)
+below.) Open it in SageMaker Studio or any Jupyter
+environment with AWS credentials configured. The `hyperpod-eks` notebook also
+needs local `kubectl` and the HyperPod inference operator installed on the
+cluster — the same prerequisites as `./do/deploy` for that target.
+
+### Reading exit codes
+
+Every `do/` script uses a consistent exit-code convention, so you (and CI) can
+tell *why* a command stopped:
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | General error (including missing AWS credentials) |
+| `2` | Usage / argument error |
+| `3` | **Not supported for this deployment target** — the command doesn't apply to your current `DEPLOYMENT_TARGET`, or a required deployment/precondition isn't in place. The message names the supported targets. |
+
+Exit `3` is not a failure of the operation — it means the command couldn't start
+because a precondition (a live deployment, or a compatible target) wasn't met.
+For the full contract behind these codes, see the developer guide:
+[do/ Script Contracts](do-script-contract.md).
 
 ### Pre-Deploy Validation
 
@@ -159,57 +251,15 @@ For transformer and diffusor architectures, MCC generates a `do/benchmark` scrip
 
 See the dedicated [Benchmarking](benchmarking.md) guide for prerequisites, parameter tuning, and interpreting results.
 
-## AWS Marketplace Model Packages
+## AWS Marketplace Model Packages (removed)
 
-For pre-built models from AWS Marketplace vendors (AI21, Cohere, etc.), MCC generates a thin project with only lifecycle scripts — no Dockerfile, no `code/` directory, no build/push steps.
+!!! warning "Marketplace deployments are no longer supported"
+    Deploying a pre-built AWS Marketplace model package never built a container,
+    which conflicts with this tool's core purpose: bring your own container. The
+    `marketplace` deployment config has been removed — both
+    `--deployment-config=marketplace` and the `marketplace://` model-name prefix
+    are now refused with a non-zero exit.
 
-### How It Works
-
-Marketplace model packages include the vendor's container image and model weights. MCC deploys them using the SageMaker AI `CreateModel` API with `ModelPackageName` instead of a custom ECR image:
-
-```bash
-ml-container-creator my-marketplace-model \
-  --deployment-config=marketplace \
-  --model-name='marketplace://arn:aws:sagemaker:us-east-1:aws:model-package/vendor-model/1' \
-  --instance-type=ml.g5.xlarge \
-  --region=us-east-1
-```
-
-### Generated Project Structure
-
-```
-my-marketplace-model/
-├── do/
-│   ├── config          ← MODEL_PACKAGE_ARN, instance type, region
-│   ├── deploy          ← CreateModel(ModelPackageName=ARN) → endpoint
-│   ├── test            ← invoke endpoint
-│   ├── benchmark       ← benchmark endpoint (same as BYOC)
-│   ├── logs            ← CloudWatch logs
-│   ├── clean           ← delete model + endpoint
-│   ├── status          ← endpoint status
-│   └── register        ← register deployment
-├── (NO Dockerfile)
-├── (NO code/)
-├── (NO do/build, do/push, do/submit)
-```
-
-### What Doesn't Apply
-
-- No Dockerfile (vendor provides the container)
-- No `do/build`, `do/push`, `do/submit` (nothing to build)
-- No LoRA adapters (can't modify vendor's model)
-- No `do/tune` (can't fine-tune proprietary weights)
-- No local testing (no container to run locally)
-
-### What Still Works
-
-- `do/deploy` / `do/test` / `do/clean` lifecycle
-- `do/benchmark` (benchmarks the endpoint regardless of who built the container)
-- `do/status` / `do/logs` / `do/register`
-- Async inference and batch transform (if supported by the model package)
-
-### Prerequisites
-
-1. Subscribe to a model on [AWS Marketplace](https://aws.amazon.com/marketplace/solutions/machine-learning)
-2. Note the Model Package ARN from your subscription
-3. Ensure your IAM role has permission to deploy the model package
+    To serve a model, build and deploy your own image using a HuggingFace model
+    ID, an `s3://` artifact, or a `registry://` model package. See the deployment
+    configs above.

@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib
 
 from deploy_prompts import run_prompt_flow, parse_config  # noqa: E402
 from deploy_schema import SCHEMAS, STATUS_VARS, validate_config  # noqa: E402
+import deploy_answers  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -64,27 +65,13 @@ def cmd_prompt(args: argparse.Namespace) -> None:
             print(json.dumps({"error": f"Invalid JSON in answers file: {e}"}))
             sys.exit(1)
 
-    # Mapping from CLI flag attribute names to DEPLOY_ANSWERS JSON keys
-    flag_to_answer_key: dict[str, str] = {
-        "target": "target",
-        "instance_type": "instance_type",
-        "endpoint_name": "endpoint_name",
-        "endpoint_strategy": "endpoint_strategy",
-        "instance_types": "instance_types",
-        "gpu_count": "gpu_count",
-        "cluster_name": "cluster_name",
-        "namespace": "namespace",
-        "replicas": "replicas",
-        "queue": "queue",
-        "async_output_path": "async_output_path",
-        "async_sns_topic": "async_sns_topic",
-        "async_max_concurrent": "async_max_concurrent",
-        "batch_input_path": "batch_input_path",
-        "batch_output_path": "batch_output_path",
-        "batch_split_type": "batch_split_type",
-        "batch_strategy": "batch_strategy",
-        "batch_max_concurrent": "batch_max_concurrent",
-    }
+    # Mapping from CLI flag attribute names to DEPLOY_ANSWERS JSON keys.
+    #
+    # DERIVED (do not hardcode): the argparse attribute IS the answer key for every
+    # param that has a flag (identity map), derived from the per-target answer_params
+    # in targets.d/*/manifest.json. Single source of truth per ADR-008 /
+    # .kiro/steering/derive-dont-hardcode.md; see deploy_answers.py.
+    flag_to_answer_key: dict[str, str] = deploy_answers.flag_to_answer_key()
 
     # Collect non-empty flag values
     flag_answers: dict[str, str] = {}

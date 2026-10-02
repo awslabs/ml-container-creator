@@ -18,17 +18,14 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
 
 # ============================================================
 # SageMaker Real-Time Inference Status
 # ============================================================
 
-# Validate AWS credentials
-if ! aws sts get-caller-identity &> /dev/null; then
-    echo "❌ AWS credentials not configured"
-    echo "   Run: aws configure"
-    exit 4
-fi
+# Validate AWS credentials (general runtime error — exit 1, not a contract violation)
+_aws_preflight
 
 # Check that we have an endpoint to query
 if [ -z "${ENDPOINT_NAME:-}" ]; then

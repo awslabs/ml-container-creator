@@ -8,7 +8,7 @@
 # type: deployment-centric
 # guard: deployment-active
 # lifecycle: post-deploy
-# targets: realtime-inference, hyperpod-eks
+# targets: realtime-inference, hyperpod-eks, eks
 
 # Usage:
 #   ./do/adapter add <name> --weights <s3-uri>
@@ -28,21 +28,26 @@ _require_python_env
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
 
-# ── Target guard: adapters require IC-based real-time endpoints ───────────────
-if [ "${DEPLOYMENT_TARGET:-}" = "async-inference" ] || [ "${DEPLOYMENT_TARGET:-}" = "batch-transform" ]; then
-    echo "❌ do/adapter is not supported on ${DEPLOYMENT_TARGET}."
-    echo "   LoRA adapters require a real-time (realtime-inference) endpoint with ICs."
-    echo "   Switch target: do/deploy --target realtime-inference"
-    exit 1
-fi
+# ── Target guard: adapters run on real-time (IC-based) or Kubernetes endpoints ──
+# LoRA hot-load works on: realtime-inference (via SageMaker Inference Components),
+# hyperpod-eks (vLLM behind the HyperPod Inference Operator), and eks (vLLM on a
+# plain EKS cluster without the operator — same vLLM hot-load mechanism). async /
+# batch are unsupported. _restrict_targets emits the standard contract violation
+# (exit 3); the Kubernetes targets fall through to the vLLM path below.
+_restrict_targets "realtime-inference,hyperpod-eks,eks" \
+    "LoRA adapters require a real-time (realtime-inference) endpoint with ICs, or a Kubernetes deployment (hyperpod-eks / eks)."
 
-# ── HyperPod path ─────────────────────────────────────────────────────────────
-if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
+# ── Kubernetes path (hyperpod-eks + plain eks) ────────────────────────────────
+# Both targets serve vLLM as k8s pods labelled app=${PROJECT_NAME} and support
+# the same vLLM LoRA hot-load over a direct-pod port-forward. hyperpod-eks runs
+# behind the HyperPod Inference Operator; eks (untested/unvalidated) runs the same
+# vLLM without the operator — the hot-load mechanism is identical.
+if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ] || [ "${DEPLOYMENT_TARGET:-}" = "eks" ]; then
     _adapter_hyperpod() {
         # Guard: HP_LORA_ENABLED must be true
         if [ "${HP_LORA_ENABLED:-false}" != "true" ]; then
-            echo "❌ LoRA is not enabled for this HyperPod deployment."
-            echo "   Set HP_LORA_ENABLED=true in do/config and redeploy: do/deploy --target hyperpod-eks"
+            echo "❌ LoRA is not enabled for this ${DEPLOYMENT_TARGET} deployment."
+            echo "   Set HP_LORA_ENABLED=true in do/config and redeploy: do/deploy --target ${DEPLOYMENT_TARGET}"
             exit 1
         fi
 
@@ -50,28 +55,55 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
         local CMD="${1:-}"
         shift || true
 
-        # Redirect SAMI-only subcommands
+        # ── Legacy-flag deprecation shims (BL112) ────────────────────────────
+        # --load-lora / --unload-lora remain accepted for backward compatibility.
+        # Each emits a deprecation warning and rewrites the invocation into the
+        # unified verb before the router runs, so the downstream port-forward and
+        # dispatch are shared with the unified path.
         case "${CMD}" in
-            add|remove|update|from-hub|from-tune|from-train|from-registry)
-                echo "❌ 'do/adapter ${CMD}' uses SageMaker Inference Components and is not supported on HyperPod."
-                echo "   To load a LoRA adapter on HyperPod: do/adapter --load-lora <name> --weights <s3-uri>"
-                exit 1
+            --load-lora)
+                echo "⚠️  --load-lora is deprecated; use: do/adapter add <name> --weights s3://..." >&2
+                CMD="add"
+                ;;
+            --unload-lora)
+                echo "⚠️  --unload-lora is deprecated; use: do/adapter remove <name>" >&2
+                CMD="remove"
                 ;;
         esac
 
-        # Parse HP-specific flags
+        # ── SMAI-only sourcing verbs (BL112) ─────────────────────────────────
+        # from-hub/from-tune/from-train/from-registry depend on SageMaker
+        # Inference Component plumbing and are not available on HyperPod. Emit a
+        # clear error directing the user to `add --weights s3://...`. No AWS,
+        # kubectl, or HTTP call is made.
+        case "${CMD}" in
+            from-hub|from-tune|from-train|from-registry)
+                _contract_violation "target" \
+                    "'do/adapter ${CMD}' sources adapters via SageMaker Inference Components and is not supported on Kubernetes targets (${DEPLOYMENT_TARGET})." \
+                    "On ${DEPLOYMENT_TARGET}, provide the adapter weights directly: do/adapter add <name> --weights s3://..."
+                ;;
+        esac
+
+        # Parse unified verbs into an internal (ACTION, LORA_NAME, WEIGHTS_URI) triple.
+        # ACTION ∈ load / unload / list / update.
         local LORA_NAME=""
         local WEIGHTS_URI=""
         local ACTION=""
 
         case "${CMD}" in
-            --load-lora)
-                ACTION="load"
+            add|update)
+                # add    → load
+                # update → unload-then-load (remove-then-add)
+                if [ "${CMD}" = "add" ]; then
+                    ACTION="load"
+                else
+                    ACTION="update"
+                fi
                 LORA_NAME="${1:-}"
                 shift || true
                 if [ -z "${LORA_NAME}" ]; then
-                    echo "❌ --load-lora requires a name argument"
-                    echo "   Usage: do/adapter --load-lora <name> --weights <s3-uri>"
+                    echo "❌ 'do/adapter ${CMD}' requires a name argument"
+                    echo "   Usage: do/adapter ${CMD} <name> --weights s3://..."
                     exit 1
                 fi
                 # Parse --weights
@@ -89,18 +121,18 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
                     esac
                 done
                 if [ -z "${WEIGHTS_URI}" ]; then
-                    echo "❌ --load-lora requires --weights <s3-uri>"
-                    echo "   Usage: do/adapter --load-lora <name> --weights <s3-uri>"
+                    echo "❌ 'do/adapter ${CMD}' requires --weights s3://..."
+                    echo "   Usage: do/adapter ${CMD} <name> --weights s3://..."
                     exit 1
                 fi
                 ;;
-            --unload-lora)
+            remove)
                 ACTION="unload"
                 LORA_NAME="${1:-}"
                 shift || true
                 if [ -z "${LORA_NAME}" ]; then
-                    echo "❌ --unload-lora requires a name argument"
-                    echo "   Usage: do/adapter --unload-lora <name>"
+                    echo "❌ 'do/adapter remove' requires a name argument"
+                    echo "   Usage: do/adapter remove <name>"
                     exit 1
                 fi
                 ;;
@@ -110,15 +142,21 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
             --help|-h|"")
                 echo "Usage: ./do/adapter <command> [options]"
                 echo ""
-                echo "HyperPod commands (DEPLOYMENT_TARGET=hyperpod-eks):"
-                echo "  --load-lora <name> --weights <s3-uri>   Hot-load a LoRA adapter into vLLM"
-                echo "  --unload-lora <name>                    Unload a LoRA adapter from vLLM"
-                echo "  list                                    List loaded LoRA adapters"
+                echo "Kubernetes commands (DEPLOYMENT_TARGET=hyperpod-eks or eks):"
+                echo "  add <name> --weights s3://...      Hot-load a LoRA adapter into vLLM"
+                echo "  remove <name>                      Unload a LoRA adapter from vLLM"
+                echo "  list                               List loaded LoRA adapters"
+                echo "  update <name> --weights s3://...   Replace a LoRA adapter's weights in place"
                 echo ""
                 echo "Examples:"
-                echo "  ./do/adapter --load-lora ectsum --weights s3://my-bucket/adapters/ectsum/"
+                echo "  ./do/adapter add ectsum --weights s3://my-bucket/adapters/ectsum/"
                 echo "  ./do/adapter list"
-                echo "  ./do/adapter --unload-lora ectsum"
+                echo "  ./do/adapter update ectsum --weights s3://my-bucket/adapters/ectsum-v2/"
+                echo "  ./do/adapter remove ectsum"
+                echo ""
+                echo "Deprecated (use add/remove instead):"
+                echo "  --load-lora <name> --weights s3://...   → do/adapter add <name> --weights s3://..."
+                echo "  --unload-lora <name>                    → do/adapter remove <name>"
                 exit 0
                 ;;
             *)
@@ -128,8 +166,12 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
                 ;;
         esac
 
-        # ── Port-forward setup (same pattern as do/test HP path) ──────────────
-        echo "🔌 Port-forwarding svc/${PROJECT_NAME} to localhost:${HP_LOCAL_PORT:-8080}..."
+        # ── Direct-pod port-forward setup (same pattern as do/test and do/benchmark) ──
+        # Resolve the Running serving pod by the app=${PROJECT_NAME} label and
+        # port-forward directly to it on port 8080 (NOT a svc/ resource). The
+        # routing Service exposes TLS/443 for production traffic, so the
+        # direct-pod hop is the correct dev-time connection.
+        echo "🔌 Port-forwarding pod for ${PROJECT_NAME} to localhost:${HP_LOCAL_PORT:-8080}..."
 
         # Get kubeconfig for HyperPod cluster
         KUBECONFIG_PATH="${HOME}/.kube/hyperpod-${HP_CLUSTER_NAME}"
@@ -157,7 +199,19 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
         fi
         export KUBECONFIG="${KUBECONFIG_PATH}"
 
-        kubectl port-forward "svc/${PROJECT_NAME}" "${HP_LOCAL_PORT:-8080}:8080" \
+        # Resolve the Running serving pod by label (same --field-selector guard as do/benchmark).
+        local _POD
+        _POD=$(kubectl get pod -n "${HP_NAMESPACE:-default}" \
+            -l "app=${PROJECT_NAME}" \
+            --field-selector=status.phase=Running \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || _POD=""
+        if [ -z "${_POD}" ]; then
+            echo "❌ No Running pod found for app=${PROJECT_NAME} in namespace ${HP_NAMESPACE:-default}"
+            echo "   Check: kubectl get pods -n ${HP_NAMESPACE:-default} -l app=${PROJECT_NAME}"
+            exit 1
+        fi
+
+        kubectl port-forward "pod/${_POD}" "${HP_LOCAL_PORT:-8080}:8080" \
             -n "${HP_NAMESPACE:-default}" &
         _PF_PID=$!
         trap "kill ${_PF_PID} 2>/dev/null || true" EXIT
@@ -165,7 +219,7 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
 
         if ! kill -0 ${_PF_PID} 2>/dev/null; then
             echo "❌ Port-forward failed to start"
-            echo "   Check: kubectl get svc ${PROJECT_NAME} -n ${HP_NAMESPACE:-default}"
+            echo "   Check: kubectl get pods -n ${HP_NAMESPACE:-default} -l app=${PROJECT_NAME}"
             exit 1
         fi
         echo "✅ Port-forward established"
@@ -174,41 +228,62 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
         local BASE_URL="http://localhost:${HP_LOCAL_PORT:-8080}"
 
         # ── Dispatch to lora_vllm.py ─────────────────────────────────────────
+        # Reusable helpers so `update` can compose unload-then-load without
+        # duplicating the JSON inspection logic. Both load and unload are POST
+        # operations in vLLM (there is no DELETE).
+        _lora_do_load() {
+            local _name="$1"
+            local _uri="$2"
+            echo "📦 Loading LoRA adapter '${_name}' from ${_uri}..."
+            local RESULT
+            RESULT=$(python3 "${SCRIPT_DIR}/lib/python/lora_vllm.py" load "${_name}" "${_uri}" "${BASE_URL}")
+            if echo "${RESULT}" | python3 -c "import sys,json; r=json.load(sys.stdin); sys.exit(0 if r.get('success') else 1)" 2>/dev/null; then
+                echo "✓ LoRA adapter '${_name}' loaded from ${_uri}"
+                return 0
+            fi
+            local STATUS_CODE
+            STATUS_CODE=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status_code',0))" 2>/dev/null || echo "0")
+            local ERROR_MSG
+            ERROR_MSG=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null || echo "Unknown error")
+            if [ "${STATUS_CODE}" = "409" ]; then
+                echo "❌ LoRA adapter '${_name}' already exists."
+                echo "   Unload it first: do/adapter remove ${_name}"
+            else
+                echo "❌ Failed to load LoRA adapter '${_name}'"
+                echo "   Error: ${ERROR_MSG}"
+            fi
+            return 1
+        }
+
+        _lora_do_unload() {
+            local _name="$1"
+            echo "🗑️  Unloading LoRA adapter '${_name}'..."
+            local RESULT
+            RESULT=$(python3 "${SCRIPT_DIR}/lib/python/lora_vllm.py" unload "${_name}" "${BASE_URL}")
+            if echo "${RESULT}" | python3 -c "import sys,json; r=json.load(sys.stdin); sys.exit(0 if r.get('success') else 1)" 2>/dev/null; then
+                echo "✓ LoRA adapter '${_name}' unloaded"
+                return 0
+            fi
+            local ERROR_MSG
+            ERROR_MSG=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null || echo "Unknown error")
+            echo "❌ Failed to unload LoRA adapter '${_name}'"
+            echo "   Error: ${ERROR_MSG}"
+            return 1
+        }
+
         case "${ACTION}" in
             load)
-                echo "📦 Loading LoRA adapter '${LORA_NAME}' from ${WEIGHTS_URI}..."
-                local RESULT
-                RESULT=$(python3 "${SCRIPT_DIR}/lib/python/lora_vllm.py" load "${LORA_NAME}" "${WEIGHTS_URI}" "${BASE_URL}")
-                if echo "${RESULT}" | python3 -c "import sys,json; r=json.load(sys.stdin); sys.exit(0 if r.get('success') else 1)" 2>/dev/null; then
-                    echo "✓ LoRA adapter '${LORA_NAME}' loaded from ${WEIGHTS_URI}"
-                else
-                    local STATUS_CODE
-                    STATUS_CODE=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status_code',0))" 2>/dev/null || echo "0")
-                    local ERROR_MSG
-                    ERROR_MSG=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null || echo "Unknown error")
-                    if [ "${STATUS_CODE}" = "409" ]; then
-                        echo "❌ LoRA adapter '${LORA_NAME}' already exists."
-                        echo "   Unload it first: do/adapter --unload-lora ${LORA_NAME}"
-                    else
-                        echo "❌ Failed to load LoRA adapter '${LORA_NAME}'"
-                        echo "   Error: ${ERROR_MSG}"
-                    fi
-                    exit 1
-                fi
+                _lora_do_load "${LORA_NAME}" "${WEIGHTS_URI}" || exit 1
                 ;;
             unload)
-                echo "🗑️  Unloading LoRA adapter '${LORA_NAME}'..."
-                local RESULT
-                RESULT=$(python3 "${SCRIPT_DIR}/lib/python/lora_vllm.py" unload "${LORA_NAME}" "${BASE_URL}")
-                if echo "${RESULT}" | python3 -c "import sys,json; r=json.load(sys.stdin); sys.exit(0 if r.get('success') else 1)" 2>/dev/null; then
-                    echo "✓ LoRA adapter '${LORA_NAME}' unloaded"
-                else
-                    local ERROR_MSG
-                    ERROR_MSG=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null || echo "Unknown error")
-                    echo "❌ Failed to unload LoRA adapter '${LORA_NAME}'"
-                    echo "   Error: ${ERROR_MSG}"
-                    exit 1
-                fi
+                _lora_do_unload "${LORA_NAME}" || exit 1
+                ;;
+            update)
+                # remove-then-add: unload the existing adapter, then load the new
+                # weights. A failed unload aborts before the load so weights are
+                # not half-swapped.
+                _lora_do_unload "${LORA_NAME}" || exit 1
+                _lora_do_load "${LORA_NAME}" "${WEIGHTS_URI}" || exit 1
                 ;;
             list)
                 echo "📋 Listing loaded LoRA adapters on ${PROJECT_NAME}..."
@@ -220,7 +295,7 @@ if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
                 if [ "${COUNT}" = "0" ]; then
                     echo "   No LoRA adapters loaded."
                     echo ""
-                    echo "   Load one: do/adapter --load-lora <name> --weights <s3-uri>"
+                    echo "   Load one: do/adapter add <name> --weights s3://..."
                 else
                     printf "   %-30s %s\n" "NAME" "PATH"
                     printf "   %-30s %s\n" "----" "----"

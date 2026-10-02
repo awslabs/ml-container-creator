@@ -14,6 +14,7 @@ import ejs from 'ejs';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const templatesRoot = resolve(__dirname, '../../templates');
@@ -80,6 +81,16 @@ describe('BL085: HyperPod speculative CRD injection', () => {
         }
     });
 
+    // DSpark (Kimi-K3): the two sample-method env vars are emitted unconditionally
+    // with the ${VAR:-} empty-default placeholder (BL127 pattern) so envsubst can
+    // fill them at deploy time without an image rebuild.
+    it('emits the DSpark sample-method placeholders unconditionally with ${VAR:-} defaults', () => {
+        for (const name of ['VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD', 'VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD']) {
+            assert.ok(crd.includes(`- name: ${name}`), `CRD must emit ${name}`);
+            assert.ok(crd.includes(`value: "\${${name}:-}"`), `CRD must emit ${name} with an empty-default placeholder`);
+        }
+    });
+
     for (const algorithm of ALGORITHMS) {
         it(`renders ${algorithm.user} mappings for both vLLM and SGLang`, () => {
             const rendered = substituteEnv(crd, {
@@ -115,17 +126,44 @@ describe('BL085: HyperPod speculative CRD injection', () => {
         assert.ok(DEPLOY_TEMPLATE.includes('export SGLANG_SPECULATIVE_NUM_STEPS="${HP_SPECULATIVE_NUM_STEPS:-${HP_SPECULATIVE_NUM_TOKENS:-5}}"'));
     });
 
-    it('contains the exact deploy-time mappings and only supplies SGLang top-k for eagle/eagle3', () => {
+    // BL107: the deploy-time algorithm→enum translation is now read from each
+    // engine's serve-layer manifest (algorithm_map) instead of a hardcoded case
+    // statement. Assert the manifest-driven mechanism is wired and the enum
+    // outcomes still match, rather than inspecting retired case-arm source.
+    it('translates the algorithm via the manifest algorithm_map (no hardcoded case)', () => {
+        // The retired per-algorithm case arms must be gone.
+        assert.ok(!DEPLOY_TEMPLATE.includes('export SGLANG_SPECULATIVE_ALGORITHM="STANDALONE"'),
+            'the hardcoded SGLang enum case must be retired in favor of algorithm_map reads');
+        // The manifest reader must be consulted for the algorithm_map.
+        assert.ok(DEPLOY_TEMPLATE.includes('serve_manifest.py'),
+            'deploy must read engine capabilities from the serve manifest');
+        assert.ok(DEPLOY_TEMPLATE.includes('algorithm_map'),
+            'deploy must translate the algorithm via the manifest algorithm_map');
+        // The manifests themselves carry the expected enum outcomes.
+        const vllmMap = JSON.parse(
+            readFileSync(resolve(templatesRoot, 'code/serve.d/vllm/manifest.json'), 'utf8')
+        ).algorithm_map;
+        const sglangMap = JSON.parse(
+            readFileSync(resolve(templatesRoot, 'code/serve.d/sglang/manifest.json'), 'utf8')
+        ).algorithm_map;
         for (const algorithm of ALGORITHMS) {
-            assert.ok(DEPLOY_TEMPLATE.includes(`        ${algorithm.user})`));
-            assert.ok(DEPLOY_TEMPLATE.includes(`export VLLM_SPECULATIVE_ALGORITHM="${algorithm.vllm}"`));
-            assert.ok(DEPLOY_TEMPLATE.includes(`export SGLANG_SPECULATIVE_ALGORITHM="${algorithm.sglang}"`));
+            assert.strictEqual(vllmMap[algorithm.user], algorithm.vllm,
+                `vLLM manifest must map ${algorithm.user} → ${algorithm.vllm}`);
+            // SGLang omits ngram (unsupported); every other algorithm maps to its enum.
+            if (algorithm.user === 'ngram') {
+                assert.ok(!('ngram' in sglangMap), 'SGLang manifest must not map ngram');
+            } else {
+                assert.strictEqual(sglangMap[algorithm.user], algorithm.sglang,
+                    `SGLang manifest must map ${algorithm.user} → ${algorithm.sglang}`);
+            }
         }
-        const eagle2Block = DEPLOY_TEMPLATE.slice(
-            DEPLOY_TEMPLATE.indexOf('        eagle2)'),
-            DEPLOY_TEMPLATE.indexOf('        eagle3)')
-        );
-        assert.ok(!eagle2Block.includes('SGLANG_SPECULATIVE_EAGLE_TOPK'), 'eagle2 must not receive SGLang EAGLE top-k');
+    });
+
+    it('supplies SGLang EAGLE top-k only for the eagle/eagle3 MLCC algorithms', () => {
+        // The top-k gate keys off the MLCC algorithm name (eagle, eagle3) so
+        // eagle2 — which also maps to the EAGLE enum — does not receive top-k.
+        assert.ok(DEPLOY_TEMPLATE.includes('eagle|eagle3)'),
+            'top-k must be gated on the eagle/eagle3 MLCC algorithm names');
     });
 });
 
@@ -168,5 +206,174 @@ describe('BL085: speculative serve-wrapper translation', () => {
         const errorIndex = rendered.indexOf('not an s3:// URI');
         assert.ok(errorIndex !== -1);
         assert.ok(rendered.slice(errorIndex, errorIndex + 200).includes('exit 1'));
+    });
+});
+
+// DSpark (Kimi-K3): the vLLM --speculative-config JSON builder gains two optional
+// keys (draft_sample_method, rejection_sample_method) driven by new env vars.
+// These tests execute the ACTUAL Python builder embedded in the rendered wrapper
+// (extracted verbatim) to verify byte-exact backward compatibility when the new
+// env vars are unset, and correct inclusion when they are set.
+describe('DSpark: vLLM --speculative-config JSON builder', () => {
+    const rendered = renderServe({ modelServer: 'vllm' });
+
+    // Extract the python3 -c '<script>' body from the rendered wrapper. The
+    // script is single-quoted and contains no single quotes of its own.
+    function extractBuilder() {
+        const marker = 'SPECULATIVE_CONFIG=$(python3 -c \'';
+        const start = rendered.indexOf(marker);
+        assert.notStrictEqual(start, -1, 'must find the SPECULATIVE_CONFIG python builder');
+        const bodyStart = start + marker.length;
+        const bodyEnd = rendered.indexOf('\'', bodyStart);
+        assert.notStrictEqual(bodyEnd, -1, 'must find the closing quote of the python builder');
+        return rendered.slice(bodyStart, bodyEnd);
+    }
+
+    const BUILDER = extractBuilder();
+
+    // Run the builder as `python3 -c <BUILDER> <argv...>` and parse its JSON.
+    // argv positions mirror the wrapper: [algorithm, model, num_tokens,
+    // draft_sample_method, rejection_sample_method].
+    function runBuilder(argv) {
+        const out = execFileSync('python3', ['-c', BUILDER, ...argv], { encoding: 'utf8' });
+        return { raw: out.trim(), json: JSON.parse(out) };
+    }
+
+    it('wrapper reads the two new optional env vars into the builder argv', () => {
+        assert.ok(rendered.includes('${VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD:-}'),
+            'wrapper must pass VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD to the builder');
+        assert.ok(rendered.includes('${VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD:-}'),
+            'wrapper must pass VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD to the builder');
+    });
+
+    it('never forwards the new component vars as standalone flags (continue-guard)', () => {
+        assert.ok(rendered.includes(
+            'VLLM_SPECULATIVE_ALGORITHM|VLLM_SPECULATIVE_MODEL|VLLM_SPECULATIVE_NUM_TOKENS|VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD|VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD'),
+        'the continue-guard must skip both new speculative component vars');
+    });
+
+    it('backward compat: omits the two new keys when unset (eagle3-style config unchanged)', () => {
+        const { json, raw } = runBuilder(['eagle3', 'acme/draft', '5', '', '']);
+        assert.deepStrictEqual(json, {
+            method: 'eagle3',
+            num_speculative_tokens: 5,
+            model: 'acme/draft'
+        });
+        // Byte-exact with the historical 3-arg output (no new keys, compact separators).
+        assert.strictEqual(raw, '{"method":"eagle3","num_speculative_tokens":5,"model":"acme/draft"}');
+        assert.ok(!raw.includes('draft_sample_method'));
+        assert.ok(!raw.includes('rejection_sample_method'));
+    });
+
+    it('backward compat: 3-arg invocation (no new args at all) is byte-identical to legacy', () => {
+        const { raw } = runBuilder(['ngram', '', '3']);
+        assert.strictEqual(raw, '{"method":"ngram","num_speculative_tokens":3}');
+    });
+
+    it('includes both keys for a full dspark config', () => {
+        const { json } = runBuilder([
+            'dspark', 'RedHatAI/Kimi-K3-speculator.dspark', '8', 'probabilistic', 'block'
+        ]);
+        assert.deepStrictEqual(json, {
+            method: 'dspark',
+            num_speculative_tokens: 8,
+            model: 'RedHatAI/Kimi-K3-speculator.dspark',
+            draft_sample_method: 'probabilistic',
+            rejection_sample_method: 'block'
+        });
+    });
+
+    it('includes only the keys that are non-empty (partial set)', () => {
+        const draftOnly = runBuilder(['dspark', 'm', '8', 'probabilistic', '']).json;
+        assert.strictEqual(draftOnly.draft_sample_method, 'probabilistic');
+        assert.ok(!('rejection_sample_method' in draftOnly));
+
+        const rejOnly = runBuilder(['dspark', 'm', '8', '', 'block']).json;
+        assert.strictEqual(rejOnly.rejection_sample_method, 'block');
+        assert.ok(!('draft_sample_method' in rejOnly));
+    });
+});
+
+describe('DSpark: deploy.d/hyperpod-eks wiring', () => {
+    it('defaults the two VLLM sample-method vars to empty at the top of the speculative block', () => {
+        assert.ok(DEPLOY_TEMPLATE.includes('export VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD=""'));
+        assert.ok(DEPLOY_TEMPLATE.includes('export VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD=""'));
+    });
+
+    it('maps HP_SPECULATIVE_* → VLLM_SPECULATIVE_* for the two sample-method vars', () => {
+        assert.ok(DEPLOY_TEMPLATE.includes(
+            'export VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD="${HP_SPECULATIVE_DRAFT_SAMPLE_METHOD:-}"'));
+        assert.ok(DEPLOY_TEMPLATE.includes(
+            'export VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD="${HP_SPECULATIVE_REJECTION_SAMPLE_METHOD:-}"'));
+    });
+
+    it('treats the two new vars as managed (not double-injected as pass-through extras)', () => {
+        assert.ok(DEPLOY_TEMPLATE.includes('"VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD"'));
+        assert.ok(DEPLOY_TEMPLATE.includes('"VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD"'));
+    });
+});
+
+describe('DSpark: do/draft CLI flags and defaults', () => {
+    const DRAFT = readFileSync(resolve(templatesRoot, 'do/draft'), 'utf8');
+
+    it('parses --draft-sample-method and --rejection-sample-method', () => {
+        assert.ok(DRAFT.includes('--draft-sample-method) shift; DRAFT_DRAFT_SAMPLE_METHOD="${1:-}"; _DRAFT_SAMPLE_METHOD_SET=true; shift ;;'));
+        assert.ok(DRAFT.includes('--rejection-sample-method) shift; DRAFT_REJECTION_SAMPLE_METHOD="${1:-}"; _REJECTION_SAMPLE_METHOD_SET=true; shift ;;'));
+    });
+
+    it('writes both vars via _update_draft_var on set', () => {
+        assert.ok(DRAFT.includes('_update_draft_var "HP_SPECULATIVE_DRAFT_SAMPLE_METHOD"     "${DRAFT_DRAFT_SAMPLE_METHOD}"'));
+        assert.ok(DRAFT.includes('_update_draft_var "HP_SPECULATIVE_REJECTION_SAMPLE_METHOD" "${DRAFT_REJECTION_SAMPLE_METHOD}"'));
+    });
+
+    it('remove subcommand clears both new vars', () => {
+        assert.ok(DRAFT.includes('_update_draft_var "HP_SPECULATIVE_DRAFT_SAMPLE_METHOD"     ""'));
+        assert.ok(DRAFT.includes('_update_draft_var "HP_SPECULATIVE_REJECTION_SAMPLE_METHOD" ""'));
+    });
+
+    it('status subcommand displays both new vars when set', () => {
+        assert.ok(DRAFT.includes('[ -n "${HP_SPECULATIVE_DRAFT_SAMPLE_METHOD:-}" ]'));
+        assert.ok(DRAFT.includes('[ -n "${HP_SPECULATIVE_REJECTION_SAMPLE_METHOD:-}" ]'));
+    });
+
+    it('--help documents the new flags and lists dspark for vLLM', () => {
+        assert.ok(DRAFT.includes('--draft-sample-method <m>'));
+        assert.ok(DRAFT.includes('--rejection-sample-method <m>'));
+        assert.ok(DRAFT.includes('eagle3, eagle2, eagle, draft-model, ngram, mtp, dspark'));
+    });
+
+    // Executable check of the dspark-default logic, mirroring the exact bash from
+    // do/draft: defaults apply ONLY for --algorithm dspark, and ONLY when the user
+    // did not explicitly pass the corresponding flag.
+    function runDefaultLogic(algorithm, { draftSet = '', draftVal = '', draftFlag = false, rejSet = '', rejVal = '', rejFlag = false } = {}) {
+        void draftSet; void rejSet;
+        const script = `
+DRAFT_ALGORITHM="${algorithm}"
+DRAFT_DRAFT_SAMPLE_METHOD="${draftVal}"
+DRAFT_REJECTION_SAMPLE_METHOD="${rejVal}"
+_DRAFT_SAMPLE_METHOD_SET=${draftFlag}
+_REJECTION_SAMPLE_METHOD_SET=${rejFlag}
+if [ "\${DRAFT_ALGORITHM}" = "dspark" ]; then
+    [ "\${_DRAFT_SAMPLE_METHOD_SET}" = "true" ]     || DRAFT_DRAFT_SAMPLE_METHOD="probabilistic"
+    [ "\${_REJECTION_SAMPLE_METHOD_SET}" = "true" ] || DRAFT_REJECTION_SAMPLE_METHOD="block"
+fi
+echo "\${DRAFT_DRAFT_SAMPLE_METHOD}|\${DRAFT_REJECTION_SAMPLE_METHOD}"
+`;
+        return execFileSync('bash', ['-c', script], { encoding: 'utf8' }).trim();
+    }
+
+    it('dspark with no flags → defaults probabilistic|block', () => {
+        assert.strictEqual(runDefaultLogic('dspark'), 'probabilistic|block');
+    });
+
+    it('dspark honors explicit overrides (does not clobber user-provided values)', () => {
+        assert.strictEqual(
+            runDefaultLogic('dspark', { draftFlag: true, draftVal: 'greedy', rejFlag: true, rejVal: 'typical' }),
+            'greedy|typical'
+        );
+    });
+
+    it('non-dspark algorithm leaves both empty (no defaults applied)', () => {
+        assert.strictEqual(runDefaultLogic('eagle3'), '|');
     });
 });

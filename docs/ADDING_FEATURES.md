@@ -4,8 +4,7 @@ Guide for contributors who want to add new frameworks, model servers, or other f
 
 ## Table of Contents
 
-- [Adding a New ML Framework](#adding-a-new-ml-framework)
-- [Adding a New Model Server](#adding-a-new-model-server)
+- [Adding a New ML Framework](#adding-a-new-ml-framework) (predictor and serve-engine plugin paths)
 - [Adding a New Test Type](#adding-a-new-test-type)
 - [Adding a New Deployment Target](#adding-a-new-deployment-target)
 - [Adding a New Secret Type](#adding-a-new-secret-type)
@@ -15,279 +14,73 @@ Guide for contributors who want to add new frameworks, model servers, or other f
 
 ## Adding a New ML Framework
 
-Let's walk through adding support for PyTorch models.
+> **Two paths — pick the right one.** MLCC serves models two ways, and each has
+> its own plugin system and its own authoring guide. Do NOT add a framework by
+> editing a branched `model_handler.py` or hardcoding format maps in
+> `config-validator.js`/`model-prompts.js` — that duplication was deliberately
+> removed. Both paths are **descriptor-driven**:
+>
+> | You want to add… | Path | Authoring guide |
+> |---|---|---|
+> | A classical-ML framework (sklearn/xgboost-like) served over HTTP via Flask/FastAPI | **Predictor-framework plugin** (`templates/code/predictors.d/<framework>/`) | [Predictor-Framework Plugins](architecture/predictor-framework-plugins.md) |
+> | An LLM/transformer serving engine (vLLM/SGLang/llama.cpp-like) | **Serve-engine plugin** (`templates/code/serve.d/<engine>/`) | [Serve-Engine Plugin Authoring](architecture/serve-engine-plugin-authoring.md) |
 
-### Step 1: Update SUPPORTED_OPTIONS
+### Classical ML (HTTP predictor) — the short version
 
-Edit `generators/app/index.js`:
+A predictor framework is a **descriptor + handler** plugin. Adding PyTorch is a
+two-file drop plus the deployment-config registration:
 
-```javascript
-SUPPORTED_OPTIONS = {
-    frameworks: ['sklearn', 'xgboost', 'tensorflow', 'transformers', 'pytorch'],
-    // ...
-}
-```
+1. **Descriptor** — `templates/code/predictors.d/pytorch/manifest.json`
+   (schema: `predictors.d/manifest.schema.json`):
 
-### Step 2: Add Framework to Prompts
+   ```json
+   {
+     "framework": "pytorch",
+     "display_name": "PyTorch",
+     "model_formats": ["pt", "pth", "torchscript"],
+     "default_model_format": "pt",
+     "pip_dependencies": ["torch==2.4.0"],
+     "base_image_catalog": "python-slim",
+     "handler": "handler.py",
+     "test_payload": "{\"instances\": [[1.0, 2.0, 3.0, 4.0]]}"
+   }
+   ```
 
-```javascript
-{
-    type: 'list',
-    name: 'framework',
-    message: 'Which ML framework are you using?',
-    choices: ['sklearn', 'xgboost', 'tensorflow', 'transformers', 'pytorch']
-}
-```
+2. **Handler** — `templates/code/predictors.d/pytorch/handler.py`: the
+   `ModelHandler` class (`load_model`/`is_loaded`/`preprocess`/`predict`/
+   `postprocess`). This is the imperative code the manifest references; it is
+   EJS-rendered into the generated project as `code/model_handler.py` (so you may
+   use `<%= modelFormat %>` in its file-glob, like the shipped handlers).
 
-### Step 3: Add Model Format Choices
+3. **Everything else is derived.** `src/lib/predictor-manifest-reader.js`
+   discovers the framework; `config-validator.js` (accepted formats, engines,
+   default), `model-prompts.js` (engine choice, format choices), `config-manager.js`
+   (format→engine inference, default), and `requirements.txt` (pip deps) all read
+   the descriptor. You do **not** edit per-framework literals in those files.
 
-```javascript
-{
-    type: 'list',
-    name: 'modelFormat',
-    message: 'In which format is your model serialized?',
-    choices: (answers) => {
-        // ... existing choices ...
-        if (answers.framework === 'pytorch') {
-            return ['pt', 'pth', 'torchscript'];
-        }
-    },
-    when: answers => answers.framework !== 'transformers'
-}
-```
+4. **Verify** — `npx mocha test/unit/predictor-framework-conformance.test.js` (the
+   drift guard), `npm run lint`, and an end-to-end generate
+   (`--deployment-config=http-flask --model-format=pt …`). See the
+   [Predictor-Framework Plugins](architecture/predictor-framework-plugins.md) guide
+   for the full checklist and the two-axis (framework × web-server) model.
 
-### Step 4: Create Template Variations
+### LLM / transformer serving engine — the short version
 
-Create PyTorch-specific model handler:
+An LLM engine is a **serve-engine plugin** (`templates/code/serve.d/<engine>/
+manifest.json` + `<engine>.ejs`). The base image already contains the server, so
+the contract is pure manifest data. Adding one touches five registration surfaces
+(enum, resolver, prefix map, template-manager allow-list, plus the manifest). See
+the [Serve-Engine Plugin Authoring Guide](architecture/serve-engine-plugin-authoring.md)
+for the full end-to-end checklist (it is maintained there, not duplicated here).
 
-```python
-# templates/code/model_handler.py
+### Adding a web server (Flask/FastAPI alternative)
 
-<% if (framework === 'pytorch') { %>
-import torch
-
-class ModelHandler:
-    def __init__(self, model_path):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        <% if (modelFormat === 'torchscript') { %>
-        self.model = torch.jit.load(model_path, map_location=self.device)
-        <% } else { %>
-        self.model = torch.load(model_path, map_location=self.device)
-        <% } %>
-        self.model.eval()
-    
-    def predict(self, data):
-        with torch.no_grad():
-            inputs = torch.tensor(data, device=self.device)
-            outputs = self.model(inputs)
-            return outputs.cpu().numpy().tolist()
-<% } %>
-```
-
-### Step 5: Update Requirements Template
-
-```python
-# templates/requirements.txt
-
-<% if (framework === 'pytorch') { %>
-torch==2.0.0
-torchvision==0.15.0
-<% } %>
-```
-
-### Step 6: Update Dockerfile (if needed)
-
-```dockerfile
-# templates/Dockerfile
-
-<% if (framework === 'pytorch' && instanceType === 'gpu-enabled') { %>
-FROM pytorch/pytorch:2.0.0-cuda11.7-cudnn8-runtime
-<% } else if (framework === 'pytorch') { %>
-FROM pytorch/pytorch:2.0.0-cpu
-<% } %>
-```
-
-### Step 7: Add Tests
-
-Create test file `test/pytorch-generator.js`:
-
-```javascript
-import { describe, it } from 'mocha'
-import assert from 'assert'
-import fs from 'fs'
-import path from 'path'
-import os from 'os'
-import { writeProject } from '../src/app.js'
-
-const TEMPLATE_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), '../templates')
-
-describe('@aws/ml-container-creator:pytorch', () => {
-    it('creates pytorch project with pt format', async () => {
-        const destDir = path.join(os.tmpdir(), 'pytorch-test-' + Date.now())
-        await writeProject(TEMPLATE_DIR, destDir, {
-            projectName: 'pytorch-test',
-            framework: 'pytorch',
-            modelFormat: 'pt',
-            modelServer: 'flask',
-            deploymentConfig: 'pytorch-flask',
-            architecture: 'http',
-            backend: 'flask'
-        })
-
-        assert.ok(fs.existsSync(path.join(destDir, 'Dockerfile')))
-        assert.ok(fs.existsSync(path.join(destDir, 'code/model_handler.py')))
-        assert.ok(fs.existsSync(path.join(destDir, 'do/config')))
-
-        const requirements = fs.readFileSync(path.join(destDir, 'requirements.txt'), 'utf8')
-        assert.ok(requirements.includes('torch=='))
-
-        const handler = fs.readFileSync(path.join(destDir, 'code/model_handler.py'), 'utf8')
-        assert.ok(handler.includes('import torch'))
-    });
-});
-```
-
-### Step 8: Update Documentation
-
-Add to `docs/EXAMPLES.md`:
-
-```markdown
-## Example: Deploy a PyTorch Model
-
-### Step 1: Save Your Model
-
-\`\`\`python
-import torch
-
-# Save model
-torch.save(model.state_dict(), 'model.pt')
-
-# Or save as TorchScript
-scripted_model = torch.jit.script(model)
-scripted_model.save('model.torchscript')
-\`\`\`
-
-### Step 2: Generate Project
-
-\`\`\`bash
-ml-container-creator
-# Select pytorch, pt format, flask server
-\`\`\`
-```
-
-### Step 9: Update Documentation
-
-Add to `docs/architecture.md`:
-
-```markdown
-### Frameworks
-- `pytorch` - PyTorch models (pt, pth, torchscript formats)
-```
-
----
-
-## Adding a New Model Server
-
-Let's add support for TorchServe.
-
-### Step 1: Update SUPPORTED_OPTIONS
-
-```javascript
-SUPPORTED_OPTIONS = {
-    modelServer: ['flask', 'fast-api', 'vllm', 'sglang', 'torchserve'],
-    // ...
-}
-```
-
-### Step 2: Add to Model Server Prompt
-
-```javascript
-{
-    type: 'list',
-    name: 'modelServer',
-    message: 'Which model server are you serving with?',
-    choices: (answers) => {
-        if (answers.framework === 'pytorch') {
-            return ['flask', 'fastapi', 'torchserve'];
-        }
-        // ... existing logic ...
-    }
-}
-```
-
-### Step 3: Create TorchServe Templates
-
-Create `templates/code/torchserve/`:
-
-```python
-# templates/code/torchserve/handler.py
-from ts.torch_handler.base_handler import BaseHandler
-
-class ModelHandler(BaseHandler):
-    def initialize(self, context):
-        self.manifest = context.manifest
-        properties = context.system_properties
-        model_dir = properties.get("model_dir")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Load model
-        self.model = torch.jit.load(f"{model_dir}/model.pt")
-        self.model.to(self.device)
-        self.model.eval()
-    
-    def preprocess(self, data):
-        # Preprocessing logic
-        return processed_data
-    
-    def inference(self, data):
-        with torch.no_grad():
-            return self.model(data)
-    
-    def postprocess(self, data):
-        # Postprocessing logic
-        return predictions
-```
-
-### Step 4: Update Dockerfile
-
-```dockerfile
-# templates/Dockerfile
-
-<% if (modelServer === 'torchserve') { %>
-FROM pytorch/torchserve:latest
-
-# Copy model and handler
-COPY code/torchserve/handler.py /home/model-server/
-COPY code/model.pt /home/model-server/
-
-# Create model archive
-RUN torch-model-archiver \
-    --model-name <%= projectName %> \
-    --version 1.0 \
-    --serialized-file /home/model-server/model.pt \
-    --handler /home/model-server/handler.py \
-    --export-path /home/model-server/model-store
-
-# Start TorchServe
-CMD ["torchserve", \
-     "--start", \
-     "--model-store", "/home/model-server/model-store", \
-     "--models", "<%= projectName %>=<%= projectName %>.mar"]
-<% } %>
-```
-
-### Step 5: Update Ignore Patterns
-
-```javascript
-// In writing() method
-if (this.answers.modelServer === 'torchserve') {
-    ignorePatterns.push('**/code/flask/**');
-    ignorePatterns.push('**/code/serve.py');
-    ignorePatterns.push('**/nginx-predictors.conf');
-} else if (this.answers.modelServer !== 'flask') {
-    ignorePatterns.push('**/code/flask/**');
-}
-```
+The web-server axis (flask vs fastapi) is **orthogonal** to the framework axis and
+is NOT part of the predictor plugin. It lives in `templates/code/serve.py` and
+`templates/code/start_server.py` as a `modelServer` EJS branch (`serve.py` is
+framework-agnostic — it only references `ModelHandler`). Adding a third HTTP web
+server means adding a branch there and to the `http-<server>` deployment-config
+enum, not a new predictor plugin.
 
 ---
 
@@ -826,8 +619,9 @@ Then create a Pull Request on GitHub with:
 
 ### Code Organization
 
-- Keep generator logic in `generators/app/index.js`
-- Keep templates in `templates/`
+- Keep generator logic in `src/app.js` and `src/lib/`
+- Keep templates in `templates/` (plugins under `templates/code/serve.d/` and
+  `templates/code/predictors.d/`)
 - Keep tests in `test/`
 - Keep documentation in `docs/`
 

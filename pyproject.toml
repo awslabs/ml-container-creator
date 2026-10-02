@@ -18,8 +18,18 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib --ignore=test/test_model_handler.py"
 pythonpath = ["."]
+# test/test_model_handler.py and the templates/ copies are standalone local-testing
+# CLI scripts shipped into generated projects (they import code/model_handler, which
+# only exists in a generated project), NOT pytest tests. Keep pytest from collecting
+# them so the suite doesn't error on an unresolvable import.
+# Extends (does not replace) pytest's default ignores — the defaults are listed
+# explicitly so setting this option doesn't drop them (e.g. .hypothesis, .git).
+norecursedirs = [
+    "templates", "infra", ".mlcc", "node_modules",
+    "*.egg", ".*", "_darcs", "build", "CVS", "dist", "venv", "{arch}",
+]
 
 [dependency-groups]
 dev = [

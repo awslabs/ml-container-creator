@@ -1,0 +1,38 @@
+{
+  "target": "eks",
+  "aliases": [],
+  "status_var": "DEPLOYMENT_TARGET_EKS_STATUS",
+  "answer_key": "deploymentTargetEksStatus",
+  "success_status": "Running",
+  "family": "kubernetes",
+  "deploy_script": "deploy.d/eks",
+  "clean_script": "clean.d/eks",
+  "required_vars": [],
+  "optional_vars": {
+    "HP_CLUSTER_NAME": "",
+    "HP_GPU_COUNT": "auto",
+    "HP_NAMESPACE": "default",
+    "HP_REPLICAS": "1",
+    "HP_QUEUE": ""
+  },
+  "runtime_owned_vars": [
+    "DEPLOYMENT_TARGET_EKS_STATUS"
+  ],
+  "serving_config_source": "kubernetes",
+  "verbs": {
+    "optimize": false,
+    "add-ic": false,
+    "ci": false,
+    "adapter": true,
+    "draft": false
+  },
+  "answer_params": [
+    { "answerKey": "target", "configVar": "DEPLOYMENT_TARGET", "flag": "--target", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "instance_type", "configVar": "INSTANCE_TYPE", "flag": "--instance-type", "roles": ["flag-input", "prompt-core"] },
+    { "answerKey": "cluster_name", "configVar": "HP_CLUSTER_NAME", "flag": "--cluster-name", "roles": ["flag-input"] },
+    { "answerKey": "namespace", "configVar": "HP_NAMESPACE", "flag": "--namespace", "roles": ["flag-input"] },
+    { "answerKey": "replicas", "configVar": "HP_REPLICAS", "flag": "--replicas", "roles": ["flag-input"] },
+    { "answerKey": "queue", "configVar": "HP_QUEUE", "flag": "--queue", "roles": ["flag-input"] },
+    { "answerKey": "hp_gpu_count", "configVar": "HP_GPU_COUNT", "roles": ["internal"] }
+  ]
+}

@@ -113,7 +113,7 @@ sklearn-demo/
 │   ├── manifest                  # Asset manifest operations
 │   ├── run                       # Run container locally
 │   ├── logs                      # Tail CloudWatch logs
-│   └── export                    # Export config as JSON
+│   └── export                    # Export project: CLI command, --json config, or --notebook
 └── test/
     ├── test_local_image.sh
     ├── test_model_handler.py
@@ -248,7 +248,7 @@ qwen3-demo/
 │   ├── register                  # Log to deployment registry
 │   ├── manifest                  # Asset manifest operations
 │   ├── logs                      # Tail CloudWatch logs
-│   └── export                    # Export config as JSON
+│   └── export                    # Export project: CLI command, --json config, or --notebook
 └── test/
     └── test_endpoint.sh
 ```

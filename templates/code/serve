@@ -10,7 +10,13 @@ source /usr/bin/cuda_compat.sh 2>/dev/null || true
 echo "Starting <%= modelServer %> server"
 
 <% if (modelServer === 'lmi' || modelServer === 'djl') { %>
-<%- include('serve.d/lmi') %>
+<%- include('serve.d/lmi/lmi') %>
+<% } else if (modelServer === 'llama-cpp') { %>
+<%# llama.cpp runs on the AWS DLC, which owns its entrypoint and maps
+    SM_LLAMA_CPP_* env vars internally — like lmi/djl, NOT a translating wrapper.
+    This branch validates the GGUF source and hands off; the generated Dockerfile
+    does not override the DLC entrypoint, so llama-server starts afterwards. %>
+<%- include('serve.d/llama-cpp/llama-cpp') %>
 <% } else { %>
 
 <% if (typeof modelSource !== 'undefined' && modelSource !== 'huggingface') { %>
@@ -183,6 +189,6 @@ SERVER_ARGS=(--host 0.0.0.0 --port 8080)
 
 # --- Server-specific arg conversion and exec ---
 <% if (['vllm', 'sglang', 'tensorrt-llm'].includes(modelServer)) { %>
-<%- include('serve.d/' + modelServer) %>
+<%- include('serve.d/' + modelServer + '/' + modelServer) %>
 <% } %>
 <% } %>

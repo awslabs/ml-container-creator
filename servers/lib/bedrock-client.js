@@ -4,6 +4,17 @@
 /**
  * Shared Bedrock Client
  *
+ * PATTERN: Shared client/service module — the single Bedrock invocation path
+ *   for all MCP servers (per-server config in, parsed JSON out).
+ * COLLABORATORS: called by servers/lib/create-picker-server.js (querySmart) and
+ *   directly by the smart-mode servers (region-picker, instance-sizer); wraps
+ *   the AWS SDK client-bedrock-runtime (lazy-loaded).
+ * DATA-FLOW ROLE: consumes a per-server SERVER_CONFIG + parameters/limit/context,
+ *   produces a parsed { values, ... } object or null on any failure (callers fall
+ *   back to static results).
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
+ *
  * Reusable module that encapsulates Amazon Bedrock LLM invocation,
  * JSON extraction, and fail-fast error handling for bundled MCP servers.
  *

@@ -49,6 +49,7 @@ done
 # Resolve SCRIPT_DIR to do/ (parent of deploy.d/) for lib/ access.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
@@ -64,17 +65,7 @@ echo "   HyperPod cluster: ${HP_CLUSTER_NAME}"
 echo "   Namespace: ${HP_NAMESPACE}"
 echo "   Replicas: ${HP_REPLICAS}"
 
-# Check AWS credentials
-echo "🔍 Validating AWS credentials..."
-if ! aws sts get-caller-identity &> /dev/null; then
-    echo "❌ AWS credentials not configured"
-    echo "   Run: aws configure"
-    echo "   Or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
-    exit 4
-fi
-
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
+_aws_preflight --verbose
 
 # Construct ECR repository URL
 ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
@@ -265,7 +256,10 @@ export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
 if [ "${HP_LORA_ENABLED:-false}" = "true" ]; then
     export VLLM_ENABLE_LORA="true"
 else
-    export VLLM_ENABLE_LORA=""
+    # Must be the literal "false" (not empty): the vLLM serve wrapper only skips
+    # forwarding --enable-lora when the value is exactly "false". An empty string
+    # would still add the flag with no value (BL127).
+    export VLLM_ENABLE_LORA="false"
 fi
 
 # Export speculative-decoding values for the CRD's two engine-specific env sets.
@@ -274,6 +268,8 @@ fi
 export VLLM_SPECULATIVE_ALGORITHM=""
 export VLLM_SPECULATIVE_MODEL=""
 export VLLM_SPECULATIVE_NUM_TOKENS=""
+export VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD=""
+export VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD=""
 # Pass-through: user-set quantization (e.g. fp8) flows into the CRD env
 export VLLM_QUANTIZATION="${VLLM_QUANTIZATION:-}"
 export SGLANG_SPECULATIVE_ALGORITHM=""
@@ -282,41 +278,83 @@ export SGLANG_SPECULATIVE_NUM_STEPS=""
 export SGLANG_SPECULATIVE_EAGLE_TOPK=""
 
 if [ -n "${HP_SPECULATIVE_ALGORITHM:-}" ]; then
-    case "${HP_SPECULATIVE_ALGORITHM:-}" in
-        draft-model)
-            export VLLM_SPECULATIVE_ALGORITHM="draft_model"
-            export SGLANG_SPECULATIVE_ALGORITHM="STANDALONE"
-            ;;
-        eagle)
-            export VLLM_SPECULATIVE_ALGORITHM="eagle"
-            export SGLANG_SPECULATIVE_ALGORITHM="EAGLE"
-            export SGLANG_SPECULATIVE_EAGLE_TOPK="${HP_SPECULATIVE_EAGLE_TOPK:-}"
-            ;;
-        eagle2)
-            export VLLM_SPECULATIVE_ALGORITHM="eagle2"
-            export SGLANG_SPECULATIVE_ALGORITHM="EAGLE"
-            ;;
-        eagle3)
-            export VLLM_SPECULATIVE_ALGORITHM="eagle3"
-            export SGLANG_SPECULATIVE_ALGORITHM="EAGLE3"
-            export SGLANG_SPECULATIVE_EAGLE_TOPK="${HP_SPECULATIVE_EAGLE_TOPK:-}"
-            ;;
-        ngram)
-            export VLLM_SPECULATIVE_ALGORITHM="ngram"
-            export SGLANG_SPECULATIVE_ALGORITHM="NGRAM"
-            ;;
-        mtp)
-            export VLLM_SPECULATIVE_ALGORITHM="mtp"
-            export SGLANG_SPECULATIVE_ALGORITHM="MTP"
-            ;;
-        *)
-            echo "❌ HP_SPECULATIVE_ALGORITHM must be one of: draft-model, eagle, eagle2, eagle3, ngram, mtp." >&2
+    # BL129: gate the requested algorithm by the DEPLOYED engine version. do/draft
+    # validated it at config time, but the base image may have changed since; this
+    # re-checks against the effective supported_algorithms for the version resolved
+    # from BASE_IMAGE (model-servers.json framework_version → tag parse). Fail-open:
+    # an unresolvable version yields the full flat set, so we never block a deploy
+    # over a version we cannot read. A gate failure here means the configured
+    # algorithm needs a newer engine image than the one being deployed.
+    _HP_ENGINE="${MODEL_SERVER:-vllm}"
+    _HP_ENGINE_VERSION="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" engine_version "${_HP_ENGINE}" "${BASE_IMAGE:-}" 2>/dev/null || echo "")"
+    if [ -n "${_HP_ENGINE_VERSION}" ]; then
+        _HP_EFFECTIVE="$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" effective_supported_algorithms "${_HP_ENGINE}" "${_HP_ENGINE_VERSION}" 2>/dev/null || echo '[]')"
+        if ! printf '%s' "${_HP_EFFECTIVE}" | HP_ALG="${HP_SPECULATIVE_ALGORITHM}" python3 -c "import json,sys,os; sys.exit(0 if os.environ['HP_ALG'] in json.load(sys.stdin) else 1)" 2>/dev/null; then
+            echo "❌ Speculative algorithm '${HP_SPECULATIVE_ALGORITHM}' is not available on ${_HP_ENGINE} ${_HP_ENGINE_VERSION} (the deployed base image)." >&2
+            echo "   Upgrade the base image to a version that supports it, or reconfigure with ./do/draft." >&2
+            _update_config "DEPLOYMENT_TARGET_HP_STATUS" "Failed"
             exit 1
+        fi
+    fi
+
+    # BL107: the MLCC algorithm name → engine-specific enum translation is read
+    # from each engine's serve-layer manifest (algorithm_map) rather than a
+    # hardcoded case statement. The CRD carries both engine sets; each engine's
+    # value comes from its own manifest so the mapping can never drift from the
+    # engine's declared capabilities. The uppercase SGLang enums
+    # (draft-model→STANDALONE, eagle/eagle2→EAGLE, eagle3→EAGLE3, mtp→MTP) and
+    # the vLLM names (draft-model→draft_model, ngram→ngram, …) live in
+    # serve.d/<engine>/manifest.json. Any algorithm reaching deploy has already
+    # been validated against the active engine's supported_algorithms by
+    # do/draft (version-aware, BL129), so an unmapped algorithm here is a
+    # defense-in-depth error.
+    _spec_enum() {
+        # _spec_enum <engine> <mlcc-algorithm> → prints the engine-specific enum
+        # (empty string if the engine does not map the algorithm).
+        HP_ALG="$2" python3 - "${SCRIPT_DIR}" "$1" <<'_PYEOF'
+import json, os, subprocess, sys
+script_dir, engine = sys.argv[1], sys.argv[2]
+alg = os.environ.get("HP_ALG", "")
+reader = os.path.join(script_dir, "lib", "python", "serve_manifest.py")
+try:
+    out = subprocess.run(
+        [sys.executable, reader, "algorithm_map", engine],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    print(json.loads(out).get(alg, ""))
+except Exception:
+    print("")
+_PYEOF
+    }
+
+    VLLM_SPECULATIVE_ALGORITHM="$(_spec_enum vllm "${HP_SPECULATIVE_ALGORITHM}")"
+    SGLANG_SPECULATIVE_ALGORITHM="$(_spec_enum sglang "${HP_SPECULATIVE_ALGORITHM}")"
+    export VLLM_SPECULATIVE_ALGORITHM SGLANG_SPECULATIVE_ALGORITHM
+
+    # The active engine must map the requested algorithm; if neither engine does,
+    # the algorithm is invalid (do/draft normally rejects it upstream).
+    if [ -z "${VLLM_SPECULATIVE_ALGORITHM}" ] && [ -z "${SGLANG_SPECULATIVE_ALGORITHM}" ]; then
+        echo "❌ HP_SPECULATIVE_ALGORITHM='${HP_SPECULATIVE_ALGORITHM}' is not a supported speculative-decoding algorithm." >&2
+        echo "   Supported algorithms are declared in serve.d/<engine>/manifest.json (see ./do/draft --help)." >&2
+        exit 1
+    fi
+
+    # SGLang exposes EAGLE top-k only for the eagle/eagle3 MLCC algorithms
+    # (matching the engine's discrete --speculative-eagle-topk flag). eagle2 also
+    # maps to the EAGLE enum but does not carry top-k, so gate on the MLCC name.
+    case "${HP_SPECULATIVE_ALGORITHM}" in
+        eagle|eagle3)
+            export SGLANG_SPECULATIVE_EAGLE_TOPK="${HP_SPECULATIVE_EAGLE_TOPK:-}"
             ;;
     esac
 
     export VLLM_SPECULATIVE_MODEL="${HP_SPECULATIVE_MODEL:-}"
     export VLLM_SPECULATIVE_NUM_TOKENS="${HP_SPECULATIVE_NUM_TOKENS:-5}"
+    # DSpark (Kimi-K3) sample-method knobs flow from HP_SPECULATIVE_* → VLLM_*
+    # (mirroring HP_SPECULATIVE_MODEL/NUM_TOKENS above). Empty for all other
+    # algorithms; the serve wrapper omits empty keys from --speculative-config.
+    export VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD="${HP_SPECULATIVE_DRAFT_SAMPLE_METHOD:-}"
+    export VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD="${HP_SPECULATIVE_REJECTION_SAMPLE_METHOD:-}"
     export SGLANG_SPECULATIVE_DRAFT_MODEL_PATH="${HP_SPECULATIVE_MODEL:-}"
     export SGLANG_SPECULATIVE_NUM_STEPS="${HP_SPECULATIVE_NUM_STEPS:-${HP_SPECULATIVE_NUM_TOKENS:-5}}"
 fi
@@ -346,6 +384,8 @@ _hp_detect_gpu_count() {
         g6.12xlarge|g6.24xlarge) echo 4 ;;
         g6.48xlarge) echo 8 ;;
         p4d.24xlarge|p4de.24xlarge|p5.48xlarge) echo 8 ;;
+        # B300 (Blackwell Ultra)
+        p6-b300.48xlarge) echo 8 ;;
         *) echo 1 ;;
     esac
 }
@@ -487,26 +527,39 @@ APPLY_OUTPUT=""
 APPLY_EXIT_CODE=0
 
 # ── Auto-inject VLLM_* pass-through env vars ───────────────────────────────────
-# Collect any VLLM_* vars exported to the environment (e.g. set in do/config)
-# that are NOT already explicitly managed in the CRD template. These are injected
-# at the __VLLM_EXTRA_ENVVARS__ marker — same pattern as __MODEL_SOURCE_CONFIG__.
-# The serve wrapper (code/serve.d/vllm.ejs) translates them to CLI flags via
-# whitelist introspection, so any valid vLLM arg can be set this way.
-# Build YAML snippet for extra VLLM_* env vars (not already explicitly managed in the template).
+# Collect any pass-through engine env vars exported to the environment (e.g. set
+# in do/config) that are NOT already explicitly managed in the CRD template. These
+# are injected at the __VLLM_EXTRA_ENVVARS__ marker — same pattern as
+# __MODEL_SOURCE_CONFIG__. The serve wrapper (code/serve.d/<engine>/<engine>.ejs)
+# translates them to CLI flags via whitelist introspection, so any valid engine
+# arg can be set this way.
+#
+# BL105: the environment-variable prefix used to gather pass-through vars is
+# sourced from the active engine's serve-layer manifest (env_var_prefix) rather
+# than the literal "VLLM_" string. For MODEL_SERVER=vllm this resolves to VLLM_
+# (reproducing current behavior); for sglang it resolves to SGLANG_.
+ENGINE_ENV_PREFIX=$(python3 "${SCRIPT_DIR}/lib/python/serve_manifest.py" env_var_prefix "${MODEL_SERVER:-vllm}" 2>/dev/null || true)
+[ -n "${ENGINE_ENV_PREFIX}" ] || ENGINE_ENV_PREFIX="VLLM_"
+
+# Build YAML snippet for extra engine env vars (not already explicitly managed in the template).
 # Uses Python to produce correctly-indented multi-line YAML — avoids bash \n quoting issues.
-VLLM_EXTRA_ENVVARS=$(python3 - <<'_PYEOF'
+VLLM_EXTRA_ENVVARS=$(ENGINE_ENV_PREFIX="${ENGINE_ENV_PREFIX}" python3 - <<'_PYEOF'
 import os
+prefix = os.environ.get("ENGINE_ENV_PREFIX", "VLLM_")
 managed = {
     "VLLM_MODEL", "VLLM_TENSOR_PARALLEL_SIZE", "VLLM_ENABLE_LORA",
     "VLLM_MAX_LORAS", "VLLM_MAX_LORA_RANK", "VLLM_SPECULATIVE_MODEL",
     "VLLM_SPECULATIVE_ALGORITHM", "VLLM_SPECULATIVE_NUM_TOKENS",
+    "VLLM_SPECULATIVE_DRAFT_SAMPLE_METHOD", "VLLM_SPECULATIVE_REJECTION_SAMPLE_METHOD",
     "SGLANG_SPECULATIVE_EAGLE_TOPK", "VLLM_ENABLE_CUDA_COMPATIBILITY",
     "VLLM_USAGE_SOURCE", "VLLM_BUILD_COMMIT", "VLLM_BUILD_PIPELINE",
     "VLLM_BUILD_URL", "VLLM_IMAGE_TAG", "VLLM_ALLOW_RUNTIME_LORA_UPDATING",
 }
 lines = []
 for k, v in sorted(os.environ.items()):
-    if k.startswith("VLLM_") and k not in managed and v:
+    if k == "ENGINE_ENV_PREFIX":
+        continue
+    if k.startswith(prefix) and k not in managed and v:
         lines.append(f"- name: {k}")
         lines.append(f'  value: "{v}"')
 print("\n".join(lines))

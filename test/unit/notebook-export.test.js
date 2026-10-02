@@ -66,6 +66,10 @@ function executeNotebookGenerator(pythonScript, envOverrides = {}) {
     writeFileSync(scriptPath, pythonScript);
 
     const env = {
+        // Preserve the parent environment (crucially PATH) so python3 resolves;
+        // passing a bare object here strips PATH and posix_spawn('python3') fails
+        // with an opaque "Python script execution failed" on macOS/CI.
+        ...process.env,
         PROJECT_NAME: 'test-project',
         AWS_REGION: 'us-east-1',
         INSTANCE_TYPE: 'ml.g5.xlarge',
@@ -542,5 +546,115 @@ describe('Feature: notebook-export — Unit Tests', function () {
                 'ADAPTER_WEIGHTS_URI should use placeholder when no tune path is set'
             );
         });
+    });
+});
+
+// ── HyperPod-EKS target branch ────────────────────────────────────────────────
+
+describe('Feature: notebook-export — HyperPod-EKS branch', function () {
+    this.timeout(30000);
+
+    let tmpDirs = [];
+
+    afterEach(() => {
+        for (const dir of tmpDirs) {
+            if (existsSync(dir)) {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        }
+        tmpDirs = [];
+    });
+
+    function renderAndRunHyperpod(overrides = {}) {
+        const script = renderTemplate({
+            deploymentTarget: 'hyperpod-eks',
+            framework: 'transformers',
+            modelServer: 'vllm',
+            orderedEnvVars: [{ key: 'VLLM_MODEL', value: 'meta-llama/Llama-3-8B' }],
+            ...overrides
+        });
+        const { notebook, tmpDir } = executeNotebookGenerator(script, {
+            DEPLOYMENT_TARGET: 'hyperpod-eks',
+            HP_CLUSTER_NAME: 'my-hp-cluster',
+            HP_NAMESPACE: 'default',
+            HP_REPLICAS: '1',
+            HP_GPU_COUNT: '1',
+            HP_INSTANCE_TYPE: 'ml.g6.2xlarge',
+            MODEL_NAME: 'meta-llama/Llama-3-8B',
+            VLLM_MODEL: 'meta-llama/Llama-3-8B',
+            ...(overrides.env || {})
+        });
+        tmpDirs.push(tmpDir);
+        return notebook;
+    }
+
+    it('renders and executes to a valid nbformat v4 notebook', () => {
+        const notebook = renderAndRunHyperpod();
+        assertValidNbformat(notebook);
+    });
+
+    it('applies an InferenceEndpointConfig via kubectl (CRD path, not boto3 endpoint)', () => {
+        const notebook = renderAndRunHyperpod();
+        const allSource = getAllCellSource(notebook);
+        assert.ok(allSource.includes('InferenceEndpointConfig'),
+            'must build the InferenceEndpointConfig CRD');
+        assert.ok(allSource.includes('inference.sagemaker.aws.amazon.com/v1'),
+            'CRD must use the HyperPod inference operator apiVersion');
+        assert.ok(allSource.includes('kubectl'),
+            'must apply the CRD with kubectl');
+        // HyperPod does not create a SageMaker endpoint via boto3 create_endpoint.
+        assert.ok(!allSource.includes('create_endpoint_config'),
+            'hyperpod must NOT use boto3 create_endpoint_config');
+    });
+
+    it('does NOT create a SageMaker Model resource (operator manages the model)', () => {
+        const notebook = renderAndRunHyperpod();
+        const allSource = getAllCellSource(notebook);
+        assert.ok(!allSource.includes('sm_client.create_model'),
+            'hyperpod must NOT call sm_client.create_model');
+    });
+
+    it('configures kubectl by resolving the EKS cluster from the HyperPod cluster', () => {
+        const notebook = renderAndRunHyperpod();
+        const allSource = getAllCellSource(notebook);
+        assert.ok(allSource.includes('describe_cluster'),
+            'must resolve the EKS cluster from the HyperPod cluster');
+        assert.ok(allSource.includes('update-kubeconfig'),
+            'must run aws eks update-kubeconfig');
+    });
+
+    it('polls the CRD DeploymentComplete state and the SageMaker endpoint InService', () => {
+        const notebook = renderAndRunHyperpod();
+        const allSource = getAllCellSource(notebook);
+        assert.ok(allSource.includes('DeploymentComplete'),
+            'must poll the CRD status.state for DeploymentComplete');
+        assert.ok(allSource.includes('describe_endpoint') && allSource.includes('InService'),
+            'must confirm the registered SageMaker endpoint reaches InService');
+    });
+
+    it('tests the deployment via kubectl port-forward to the serving pod', () => {
+        const notebook = renderAndRunHyperpod();
+        const allSource = getAllCellSource(notebook);
+        assert.ok(allSource.includes('port-forward'),
+            'must port-forward to the serving pod for testing');
+        assert.ok(allSource.includes('/invocations'),
+            'must send an inference request to /invocations');
+    });
+
+    it('cleans up by deleting the InferenceEndpointConfig', () => {
+        const notebook = renderAndRunHyperpod();
+        const allSource = getAllCellSource(notebook);
+        assert.ok(allSource.includes('kubectl') && allSource.includes('delete') &&
+            allSource.includes('inferenceendpointconfig'),
+        'cleanup must delete the InferenceEndpointConfig CRD');
+    });
+
+    it('emits the Kueue queue annotation only when HP_QUEUE is set', () => {
+        // The queue annotation is conditional in the CRD dict (spread on HP_QUEUE truthiness);
+        // the notebook builds it at runtime, so assert the mechanism is present.
+        const notebook = renderAndRunHyperpod();
+        const allSource = getAllCellSource(notebook);
+        assert.ok(allSource.includes('kueue.x-k8s.io/queue-name'),
+            'must reference the Kueue queue annotation key');
     });
 });

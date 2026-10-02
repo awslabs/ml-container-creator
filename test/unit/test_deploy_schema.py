@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from deploy_schema import SCHEMAS, STATUS_VARS, validate_config
+import deploy_schema
+from deploy_schema import SCHEMAS, STATUS_VARS, TARGET_ALIASES, validate_config
 
 
 # ---------------------------------------------------------------------------
@@ -106,3 +107,49 @@ class TestValidateConfig:
         config = {"INSTANCE_TYPE": "ml.g5.xlarge"}
         result = validate_config("async-inference", config)
         assert "ASYNC_S3_OUTPUT_PATH" in result
+
+
+# ---------------------------------------------------------------------------
+# ADR-008 (Wave 8 T6): deploy_schema derives from the target descriptors.
+# ---------------------------------------------------------------------------
+
+class TestDescriptorDerivation:
+    """SCHEMAS / STATUS_VARS / TARGET_ALIASES are derived from the descriptors."""
+
+    def test_derivation_succeeded_on_real_tree(self) -> None:
+        """On the real tree the descriptors must be found (not the fallback)."""
+        assert deploy_schema._derived is not None, (
+            "deploy_schema should derive from templates/do/targets.d, not fall back"
+        )
+
+    def test_status_vars_match_descriptors(self) -> None:
+        """Each STATUS_VARS entry equals the descriptor's status_var."""
+        import target_manifest
+        for target in target_manifest.list_targets():
+            assert STATUS_VARS[target] == target_manifest.status_var(target), (
+                f"STATUS_VARS[{target}] must equal the descriptor status_var"
+            )
+
+    def test_schemas_match_descriptor_vars(self) -> None:
+        """Each SCHEMAS entry equals the descriptor required_vars / optional_vars."""
+        import target_manifest
+        for target in target_manifest.list_targets():
+            m = target_manifest.read_manifest(target)
+            assert SCHEMAS[target]["required"] == list(m.get("required_vars", []))
+            assert SCHEMAS[target]["optional"] == dict(m.get("optional_vars", {}))
+
+    def test_aliases_match_descriptors(self) -> None:
+        """Every descriptor alias (and canonical name) resolves the same way."""
+        import target_manifest
+        for target in target_manifest.list_targets():
+            assert TARGET_ALIASES[target] == target  # identity
+            for alias in target_manifest.read_manifest(target).get("aliases", []):
+                assert TARGET_ALIASES[alias] == target, (
+                    f"alias {alias} must normalize to {target}"
+                )
+
+    def test_derived_equals_fallback(self) -> None:
+        """The baked-in fallback literals mirror the derived values exactly."""
+        assert SCHEMAS == deploy_schema._FALLBACK_SCHEMAS
+        assert STATUS_VARS == deploy_schema._FALLBACK_STATUS_VARS
+        assert TARGET_ALIASES == deploy_schema._FALLBACK_TARGET_ALIASES

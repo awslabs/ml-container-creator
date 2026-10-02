@@ -45,7 +45,7 @@ const TEMPLATE_AVAILABLE = !!TEMPLATE_CONTENT;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const DEPLOYMENT_TARGETS = ['realtime-inference', 'async-inference', 'batch-transform'];
+const DEPLOYMENT_TARGETS = ['realtime-inference', 'async-inference', 'batch-transform', 'hyperpod-eks'];
 const MODEL_SERVERS = ['vllm', 'sglang', 'tensorrt-llm', 'lmi', 'djl', 'flask'];
 
 /** Map model server to framework */

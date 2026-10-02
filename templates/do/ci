@@ -20,14 +20,11 @@ source "${SCRIPT_DIR}/lib/script-contract.sh"
 _require_python_env
 source "${SCRIPT_DIR}/config"
 
-# ── HyperPod guard: CI harness is SageMaker managed inference specific ────────
-if [ "${DEPLOYMENT_TARGET:-}" = "hyperpod-eks" ]; then
-    echo "❌ do/ci is not supported on HyperPod."
-    echo "   The CI harness uses Lambda, Step Functions, and CodeBuild,"
-    echo "   which are SageMaker managed inference specific."
-    echo "   For HyperPod CI, use your cluster's native CI/CD pipeline (e.g., ArgoCD, Flux)."
-    exit 1
-fi
+# ── Target guard: CI harness is SageMaker managed inference specific ──────────
+# The harness uses Lambda, Step Functions, and CodeBuild — realtime-inference
+# only. _restrict_targets emits the standard contract violation (exit 3).
+_restrict_targets "realtime-inference" \
+    "The CI harness uses Lambda, Step Functions, and CodeBuild, which are SageMaker managed inference specific. For HyperPod CI, use your cluster's native CI/CD pipeline (e.g., ArgoCD, Flux)."
 
 # ============================================================
 # CI Integration Harness — local entry point

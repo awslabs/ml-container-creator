@@ -4,6 +4,13 @@
 /**
  * Model ID → Architecture Resolution Module.
  *
+ * PATTERN: Shared helper with an injectable fetch dependency (testable I/O).
+ * COLLABORATORS: used by base-image-picker (resolveModelArchitecture); fetches
+ *   HuggingFace model config.json.
+ * DATA-FLOW ROLE: consumes a HF model ID, produces its architecture class
+ *   (or null on failure — graceful fallback).
+ * See: docs/architecture/mcp-servers.md
+ *
  * Resolves a HuggingFace model ID (e.g., "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
  * to its model architecture class (e.g., "Qwen2ForCausalLM") by fetching the model's
  * config.json from the HuggingFace Hub.

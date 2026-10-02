@@ -16,6 +16,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseDoConfig as sharedParseDoConfig } from './do-config.js';
 import PayloadBuilder from './payload-builder.js';
 import SchemaValidationEngine from './schema-validation-engine.js';
 import ServiceModelParser from './service-model-parser.js';
@@ -27,33 +28,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Parse a do/config shell file into a key-value object.
- * Extracts lines matching: export KEY="value" or export KEY=value
+ * Parse a do/config shell file into a key-value object, resolving shell
+ * default-value syntax `${VAR:-default}` → `default` so the payload builder
+ * receives resolved values rather than shell expressions.
+ *
+ * Thin wrapper over the shared do-config parser (single source of truth); the
+ * validate path always resolves shell defaults. Re-exported because do/validate
+ * and validate-runner tests import it from here.
  *
  * @param {string} configPath - Path to the do/config file
- * @returns {Object} Parsed configuration values
+ * @returns {Object|null} Parsed configuration values, or null if the file is missing
  */
 export function parseDoConfig(configPath) {
-    if (!existsSync(configPath)) {
-        return null;
-    }
-
-    const content = readFileSync(configPath, 'utf8');
-    const config = {};
-
-    for (const line of content.split('\n')) {
-        const match = line.match(/^export\s+([A-Z_][A-Z0-9_]*)=["']?([^"'\n]*)["']?/);
-        if (match) {
-            const [, key, value] = match;
-            // Resolve shell default-value syntax: ${VAR:-default} → default
-            // This handles lines like: export INSTANCE_TYPE="${INSTANCE_TYPE:-ml.g6e.12xlarge}"
-            // Without this, the payload builder receives the shell expression instead of the resolved value.
-            const resolved = value.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}/g, '$1');
-            config[key] = resolved;
-        }
-    }
-
-    return config;
+    return sharedParseDoConfig(configPath, { resolveShellDefaults: true });
 }
 
 /**

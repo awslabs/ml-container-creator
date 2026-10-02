@@ -138,6 +138,28 @@ await asyncTest('resolveBaseImage returns images for python-slim (sklearn)', asy
     assert.ok(result.metadata?.baseImage?.length > 0, 'should return base images');
 });
 
+await asyncTest('resolveBaseImage surfaces baseImageVersion as a first-class output, index-aligned with baseImage', async () => {
+    const result = await resolveBaseImage({ framework: 'transformers', modelServer: 'sglang' }, 3);
+    // baseImageVersion must appear in both values and choices (the improvement:
+    // engine version is no longer buried only in metadata.baseImage[i].labels).
+    assert.ok('baseImageVersion' in result.values, 'values must include baseImageVersion');
+    assert.ok('baseImageVersion' in result.choices, 'choices must include baseImageVersion');
+    // Index-aligned: one version per image, in the same order.
+    assert.strictEqual(result.choices.baseImageVersion.length, result.choices.baseImage.length,
+        'baseImageVersion must be index-aligned with baseImage');
+    // The scalar value matches the first choice.
+    assert.strictEqual(result.values.baseImageVersion, result.choices.baseImageVersion[0] ?? null,
+        'values.baseImageVersion must equal choices.baseImageVersion[0]');
+    // Behavioral (not a frozen literal): each surfaced version equals the
+    // corresponding entry's labels.framework_version from the catalog metadata.
+    for (let i = 0; i < result.choices.baseImage.length; i++) {
+        const entry = result.metadata.baseImage[i];
+        const expected = (entry.labels && entry.labels.framework_version) || null;
+        assert.strictEqual(result.choices.baseImageVersion[i], expected,
+            `baseImageVersion[${i}] must mirror the entry's labels.framework_version`);
+    }
+});
+
 // ── Driver-Aware Filtering Integration Tests ─────────────────────────────────
 
 console.log('\nbase-image-picker: driver-aware filtering\n');

@@ -83,6 +83,8 @@ def main():
     adapter_parser = subparsers.add_parser("register-adapter", help="Register an adapter as a versioned Model Package linked to base model")
     adapter_parser.add_argument("--project-name", required=True, help="Project name (used as MPG name)")
     adapter_parser.add_argument("--parent-version-arn", required=True, help="Base model version ARN in the same MPG")
+    adapter_parser.add_argument("--base-id", default="", help="Base model family id (heads the MLflow family; enables family sub-model registration)")
+    adapter_parser.add_argument("--adapter-name", default="", help="Adapter name (used in the <base_id>__adapter__<name> registered model)")
     adapter_parser.add_argument("--tune-technique", default="", help="Tune technique (sft/dpo/rlvr)")
     adapter_parser.add_argument("--dataset-s3-uri", default="", help="Training dataset S3 URI")
     adapter_parser.add_argument("--dataset-version", default="", help="Dataset version ordinal")
@@ -104,7 +106,7 @@ def main():
     dataset_parser.add_argument("--name", required=True, help="Dataset name (unique identifier)")
     dataset_parser.add_argument("--s3-uri", required=True, help="S3 URI of the dataset")
     dataset_parser.add_argument("--format", default="jsonl", choices=["jsonl", "parquet", "csv"], help="Dataset format")
-    dataset_parser.add_argument("--technique", default="sft", choices=["sft", "dpo", "rlaif", "rlvr"], help="Associated tuning technique")
+    dataset_parser.add_argument("--technique", default="benchmark", choices=["sft", "dpo", "rlaif", "rlvr", "benchmark"], help="Associated tuning technique (default: benchmark for AIPerf BYOD benchmark/eval datasets)")
     dataset_parser.add_argument("--row-count", type=int, default=None, help="Number of rows in dataset")
     dataset_parser.add_argument("--column-schema", default=None, help="Column schema as JSON string")
     dataset_parser.add_argument("--project-name", default=None, help="Project name for context")
@@ -115,10 +117,11 @@ def main():
     dataset_parser.add_argument("--origination", default=None, help="Custom metadata: origination (e.g. hf://org/name@rev)")
     dataset_parser.add_argument("--application", default=None, help="Custom metadata: application")
     dataset_parser.add_argument("--force", action="store_true", default=False, help="Force new version even if content hash matches")
+    dataset_parser.add_argument("--hf-files", default=None, help="File pattern selector passed to load_dataset(data_files=...) for --hf-id staging (e.g. 'train-00*.parquet')")
 
     # ── list-datasets ─────────────────────────────────────────────────────
     list_datasets_parser = subparsers.add_parser("list-datasets", help="List all registered datasets")
-    list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlaif", "rlvr"], help="Filter by tuning technique")
+    list_datasets_parser.add_argument("--technique", default=None, choices=["sft", "dpo", "rlaif", "rlvr", "benchmark"], help="Filter by tuning technique")
     list_datasets_parser.add_argument("--source", choices=["remote", "local", "all"], default="all", help="Dataset source to list")
     list_datasets_parser.add_argument("--region", default=None, help="AWS region")
     list_datasets_parser.add_argument("--core-bucket", default=None, help="MLCC Core bucket (defaults to $CORE_BUCKET)")
@@ -157,6 +160,12 @@ def main():
     list_adapters_parser = subparsers.add_parser("list-adapters", help="List adapter versions from MPG")
     list_adapters_parser.add_argument("--project-name", required=True, help="Project name (MPG name)")
     list_adapters_parser.add_argument("--region", default=None, help="AWS region")
+    list_adapters_parser.add_argument("--group-by-family", dest="group_by_family", action="store_true", default=False,
+                                      help="Group adapters under their base model via MLflow mlcc.family (default: flat MPG listing)")
+    list_adapters_parser.add_argument("--base-id", action="append", default=[],
+                                      help="Base model family id to group under (repeatable; used with --group-by-family)")
+    list_adapters_parser.add_argument("--base-ids", default="",
+                                      help="Comma-separated base model family ids to group under (used with --group-by-family)")
 
     # ── list-models ───────────────────────────────────────────────────────
     list_models_parser = subparsers.add_parser("list-models", help="List base model versions from MPG")

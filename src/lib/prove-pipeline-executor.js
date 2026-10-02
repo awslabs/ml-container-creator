@@ -676,7 +676,7 @@ export async function executeTestAdapterStep(projectDir, options = {}) {
 }
 
 /**
- * Execute the benchmark step — runs `./do/benchmark --workload multi_turn_chat`.
+ * Execute the benchmark step — runs `./do/benchmark --workload multi-turn-chat`.
  *
  * @param {string} projectDir - Path to the project directory
  * @param {object} [options] - Execution options
@@ -686,7 +686,7 @@ export async function executeTestAdapterStep(projectDir, options = {}) {
  */
 export async function executeBenchmarkStep(projectDir, options = {}) {
     const { timeout = 3600, verbose = false } = options;
-    return executeLifecycleCommand('benchmark', './do/benchmark --workload multi_turn_chat', projectDir, { timeout, verbose });
+    return executeLifecycleCommand('benchmark', './do/benchmark --workload multi-turn-chat', projectDir, { timeout, verbose });
 }
 
 /**

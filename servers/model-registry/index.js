@@ -20,23 +20,31 @@
  * Uses bootstrap profile for credentials.
  * Falls back to local registry when SageMaker API is unreachable.
  *
+ * PATTERN: MCP picker server built on the shared createPickerServer factory.
+ *   Declares only its unique pieces — the SageMaker Model Registry / local
+ *   registry query logic and the seven get/list tools — and lets the factory
+ *   own the scaffold (main-guard, stdio wiring).
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold); the AWS SDK
+ *   client-sagemaker (lazy-loaded) with a local-registry offline fallback;
+ *   spawned by src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: queries registered models/adapters/datasets/evaluators and
+ *   returns their metadata as MCP text content.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
+ *
  * Environment variables:
  *   AWS_REGION - AWS region for SageMaker API calls (default: us-east-1)
  *   AWS_PROFILE - AWS profile to use for credentials
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { createPickerServer } from '../lib/create-picker-server.js';
 import { readFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const __filename = fileURLToPath(import.meta.url);
 
 const MLCC_DIR = join(homedir(), '.ml-container-creator');
 const BOOTSTRAP_CONFIG_PATH = join(MLCC_DIR, 'config.json');
@@ -649,141 +657,79 @@ function toolListDatasetVersions({ name }) {
 
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
-const server = new McpServer({
-    name: 'model-registry',
-    version: '1.0.0'
+// ── MCP Server setup (scaffold via the factory) ──────────────────────────────
+
+const wrap = (fn) => async (args) => ({
+    content: [{ type: 'text', text: JSON.stringify(await fn(args)) }]
 });
 
-// Tool: get_model_registry
-server.tool(
-    'get_model_registry',
-    'Lists Model Package versions from a SageMaker Model Package Group with metadata. Supports filtering by status and adapter-only flag. Falls back to local registry when offline.',
-    {
-        project_name: z.string().describe('Name of the Model Package Group (project name)'),
-        status: z.enum(['Approved', 'Rejected', 'PendingManualApproval']).optional().describe('Filter by model approval status'),
-        adapter_only: z.boolean().optional().describe('If true, return only adapter versions (isAdapter=true)'),
-        limit: z.number().int().positive().default(DEFAULT_LIMIT).describe('Maximum number of versions to return (default: 20)')
-    },
-    async ({ project_name, status, adapter_only, limit }) => {
-        const result = await toolGetModelRegistry({ project_name, status, adapter_only, limit });
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
-
-// Tool: get_model_version
-server.tool(
-    'get_model_version',
-    'Returns full details for a specific Model Package version by ARN, including metadata, inference spec, and metrics.',
-    {
-        version_arn: z.string().describe('Full ARN of the Model Package version')
-    },
-    async ({ version_arn }) => {
-        const result = await toolGetModelVersion({ version_arn });
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
-
-// Tool: list_datasets
-server.tool(
-    'list_datasets',
-    'Queries registered datasets from the local registry. Supports filtering by technique and name pattern.',
-    {
-        technique: z.enum(['sft', 'dpo', 'rlaif', 'rlvr']).optional().describe('Filter by tuning technique'),
-        name_pattern: z.string().optional().describe('Filter by name (case-insensitive substring match)')
-    },
-    async ({ technique, name_pattern }) => {
-        const result = toolListDatasets({ technique, name_pattern });
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
-
-// Tool: list_evaluators
-server.tool(
-    'list_evaluators',
-    'Queries registered evaluators from the local registry. Supports filtering by technique and type.',
-    {
-        technique: z.enum(['rlvr', 'rlaif']).optional().describe('Filter by tuning technique'),
-        type: z.enum(['lambda', 'model']).optional().describe('Filter by evaluator type')
-    },
-    async ({ technique, type }) => {
-        const result = toolListEvaluators({ technique, type });
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
-
-// Tool: get_dataset
-server.tool(
-    'get_dataset',
-    'Returns full metadata for a specific registered dataset by name.',
-    {
-        name: z.string().describe('Name of the dataset to look up')
-    },
-    async ({ name }) => {
-        const result = toolGetDataset({ name });
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
-
-// Tool: get_evaluator
-server.tool(
-    'get_evaluator',
-    'Returns full metadata for a specific registered evaluator by name.',
-    {
-        name: z.string().describe('Name of the evaluator to look up')
-    },
-    async ({ name }) => {
-        const result = toolGetEvaluator({ name });
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
-
-// Tool: list_dataset_versions
-server.tool(
-    'list_dataset_versions',
-    'Lists all versions of a registered dataset by name, including version number, content hash, date, row count, and S3 URI for each version.',
-    {
-        name: z.string().describe('Name of the dataset to list versions for')
-    },
-    async ({ name }) => {
-        const result = toolListDatasetVersions({ name });
-        return {
-            content: [{
-                type: 'text',
-                text: JSON.stringify(result)
-            }]
-        };
-    }
-);
+const picker = createPickerServer({
+    name: 'model-registry',
+    serverDir: import.meta.url,
+    tools: [
+        {
+            name: 'get_model_registry',
+            description: 'Lists Model Package versions from a SageMaker Model Package Group with metadata. Supports filtering by status and adapter-only flag. Falls back to local registry when offline.',
+            schema: {
+                project_name: z.string().describe('Name of the Model Package Group (project name)'),
+                status: z.enum(['Approved', 'Rejected', 'PendingManualApproval']).optional().describe('Filter by model approval status'),
+                adapter_only: z.boolean().optional().describe('If true, return only adapter versions (isAdapter=true)'),
+                limit: z.number().int().positive().default(DEFAULT_LIMIT).describe('Maximum number of versions to return (default: 20)')
+            },
+            handler: wrap(toolGetModelRegistry)
+        },
+        {
+            name: 'get_model_version',
+            description: 'Returns full details for a specific Model Package version by ARN, including metadata, inference spec, and metrics.',
+            schema: {
+                version_arn: z.string().describe('Full ARN of the Model Package version')
+            },
+            handler: wrap(toolGetModelVersion)
+        },
+        {
+            name: 'list_datasets',
+            description: 'Queries registered datasets from the local registry. Supports filtering by technique and name pattern.',
+            schema: {
+                technique: z.enum(['sft', 'dpo', 'rlaif', 'rlvr']).optional().describe('Filter by tuning technique'),
+                name_pattern: z.string().optional().describe('Filter by name (case-insensitive substring match)')
+            },
+            handler: wrap(toolListDatasets)
+        },
+        {
+            name: 'list_evaluators',
+            description: 'Queries registered evaluators from the local registry. Supports filtering by technique and type.',
+            schema: {
+                technique: z.enum(['rlvr', 'rlaif']).optional().describe('Filter by tuning technique'),
+                type: z.enum(['lambda', 'model']).optional().describe('Filter by evaluator type')
+            },
+            handler: wrap(toolListEvaluators)
+        },
+        {
+            name: 'get_dataset',
+            description: 'Returns full metadata for a specific registered dataset by name.',
+            schema: {
+                name: z.string().describe('Name of the dataset to look up')
+            },
+            handler: wrap(toolGetDataset)
+        },
+        {
+            name: 'get_evaluator',
+            description: 'Returns full metadata for a specific registered evaluator by name.',
+            schema: {
+                name: z.string().describe('Name of the evaluator to look up')
+            },
+            handler: wrap(toolGetEvaluator)
+        },
+        {
+            name: 'list_dataset_versions',
+            description: 'Lists all versions of a registered dataset by name, including version number, content hash, date, row count, and S3 URI for each version.',
+            schema: {
+                name: z.string().describe('Name of the dataset to list versions for')
+            },
+            handler: wrap(toolListDatasetVersions)
+        }
+    ]
+});
 
 // ── Exports for testing ──────────────────────────────────────────────────────
 
@@ -816,11 +762,8 @@ export {
     SAGEMAKER_MAX_RESULTS
 };
 
-// Guard MCP transport — only connect when run as main module
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    log('Starting Model Registry MCP server');
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+// Connect stdio transport only when run as the main module (via the factory).
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: () => log('Starting Model Registry MCP server')
+});

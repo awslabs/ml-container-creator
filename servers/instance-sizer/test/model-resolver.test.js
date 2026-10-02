@@ -91,7 +91,11 @@ async function run() {
         const catalog = await loadCatalog(CATALOG_PATH);
         assert.ok(catalog !== null, 'catalog should not be null');
         assert.ok(catalog.models, 'catalog should have models');
-        assert.strictEqual(catalog.catalogVersion, '1.0.0');
+        // Assert the version FIELD exists and is semver-shaped, not a frozen
+        // literal — the catalog legitimately bumps its version (now 1.1.0), and a
+        // hardcoded value fails on every bump without testing anything real.
+        assert.ok(/^\d+\.\d+\.\d+$/.test(catalog.catalogVersion),
+            `catalogVersion should be semver, got: ${catalog.catalogVersion}`);
     });
 
     await test('returns null for non-existent catalog path', async () => {

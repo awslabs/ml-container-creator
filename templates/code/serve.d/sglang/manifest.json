@@ -1,0 +1,37 @@
+{
+  "engine": "sglang",
+  "env_var_prefix": "SGLANG_",
+  "speculative_decoding": true,
+  "supported_algorithms": ["eagle3", "eagle2", "eagle", "draft-model", "mtp"],
+  "algorithm_map": {
+    "eagle3": "EAGLE3",
+    "eagle2": "EAGLE",
+    "eagle": "EAGLE",
+    "draft-model": "STANDALONE",
+    "mtp": "MTP"
+  },
+  "hot_reload": true,
+  "metrics_endpoint": {
+    "path": "/metrics",
+    "port": 8080,
+    "format": "prometheus"
+  },
+  "dimension_map": {
+    "quantization": "QUANTIZATION",
+    "tensor_parallel_degree": "TP_SIZE",
+    "max_model_len": "CONTEXT_LENGTH",
+    "kv_cache_dtype": "KV_CACHE_DTYPE"
+  },
+  "min_version": "0.4.0",
+  "version_features": [
+    { "since": "0.4.0", "adds": { "supported_algorithms": ["mtp"] } }
+  ],
+  "engine_features": {
+    "radix_attention": {
+      "env_var": "SGLANG_ENABLE_RADIX_CACHE",
+      "type": "boolean",
+      "default": "false",
+      "description": "RadixAttention: automatic KV-cache reuse across requests sharing a prefix, via a radix tree. SGLang-specific — vLLM has block-level prefix caching, not RadixAttention. Big TTFT wins on multi-turn/RAG/agent workloads with shared prefixes."
+    }
+  }
+}

@@ -29,7 +29,9 @@ REQUIRED_FIELDS = [
 ]
 
 # Pattern for valid SageMaker instance types: ml.<family>.<size>
-_INSTANCE_TYPE_RE = re.compile(r'^ml\.[a-z0-9]+\.[a-z0-9]+$')
+# Family segment allows a hyphen (e.g. Blackwell Ultra "p6-b300" in
+# ml.p6-b300.48xlarge) — size segment (e.g. 48xlarge) never has one.
+_INSTANCE_TYPE_RE = re.compile(r'^ml\.[a-z0-9-]+\.[a-z0-9]+$')
 
 # Known model family patterns — maps regex to family label
 # Known model family patterns — maps regex to family label.
@@ -545,6 +547,7 @@ def enrich_records(config, results, run_timestamp=None, instance_catalog=None, g
             'benchmark_duration_sec': metric.get('benchmark_duration_sec', duration_seconds),
             'run_type': run_type,
             'benchmark_job_name': results.get('job_name', '') if isinstance(results, dict) else '',
+            'run_name': results.get('run_name', '') if isinstance(results, dict) else '',
             'mcc_version': mcc_version,
             'run_timestamp': run_timestamp.isoformat(),
             'region': region,
@@ -1461,6 +1464,8 @@ def cmd_write(args):
             results_obj['job_name'] = benchmark_data['job_name']
         if not results_obj.get('job_name') and getattr(args, 'benchmark_job_name', None):
             results_obj['job_name'] = args.benchmark_job_name
+        if getattr(args, 'run_name', None):
+            results_obj['run_name'] = args.run_name
 
         enriched_records = enrich_records(config_context, results_obj, timestamp, gpu_metrics=gpu_signals)
 
@@ -1490,6 +1495,8 @@ def cmd_write(args):
     results_obj = {'metrics': input_data['metrics']}
     if isinstance(benchmark_data, dict) and 'job_name' in benchmark_data:
         results_obj['job_name'] = benchmark_data['job_name']
+    if getattr(args, 'run_name', None):
+        results_obj['run_name'] = args.run_name
 
     enriched_records = enrich_records(config_context, results_obj, timestamp, gpu_metrics=gpu_signals)
 
@@ -1826,6 +1833,10 @@ def main():
     write_parser.add_argument(
         '--benchmark-job-name', dest='benchmark_job_name', default=None,
         help='AIPerf benchmark job name (written as benchmark_job_name in Athena)'
+    )
+    write_parser.add_argument(
+        '--run-name', dest='run_name', default=None,
+        help='Human-readable run identifier (petname_workload_concurrency) written as run_name in Athena'
     )
     write_parser.add_argument(
         '--run-start', dest='run_start', default=None,

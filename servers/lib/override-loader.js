@@ -4,6 +4,13 @@
 /**
  * Shared helper for loading project-local catalog overrides from .mlcc/.
  *
+ * PATTERN: Shared helper (merge/override loader).
+ * COLLABORATORS: used by base-image-picker, model-picker, instance-sizer
+ *   (loadWithOverrides / loadWithOverridesArray / resolveProjectDir).
+ * DATA-FLOW ROLE: consumes a shipped catalog + a project's .mlcc override file,
+ *   produces the merged catalog (local entries win, tagged source:'local').
+ * See: docs/architecture/mcp-servers.md
+ *
  * Each MCP server calls loadWithOverrides() at query time to merge local entries
  * on top of the shipped catalog. Local entries win on key collisions and are tagged
  * with `"source": "local"` for discoverability.

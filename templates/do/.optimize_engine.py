@@ -54,11 +54,23 @@ METRIC_DIRECTION = {
     'cost_per_1m_tokens': 'lower_is_better',
 }
 
-# Dimension → config key mapping, keyed by deployment target.
-# TODO BL105: when serve-layer plugin manifests land, this dict is derivable from
-# serve.d/<engine>/manifest.json (env_var_prefix + dimension → flag mapping).
-# Until then, add new targets here when introducing new deployment targets.
-_DIMENSION_CONFIG_KEY_BY_TARGET = {
+# Dimension → config key derivation (BL105).
+#
+# The dimension→config-key mapping is DERIVED from the active engine's serve-layer
+# manifest (serve.d/<engine>/manifest.json) rather than a hardcoded dispatch table.
+# Every key is `env_var_prefix` + a per-dimension suffix from `dimension_map`;
+# the realtime-inference target wraps that with an `IC_ENV_` prefix (inference
+# component env var). The engine-specific portion comes from the manifest; only
+# the target-specific IC_ENV_ wrapper stays here.
+#
+# Targets that route their config through an inference component env wrapper.
+_IC_ENV_TARGETS = {'realtime-inference'}
+
+# Fallback mapping — used only WHERE manifest data is unavailable for the active
+# engine (Requirement 6.2 is scoped "WHERE Manifest data is available"). These
+# values reproduce the historical vLLM defaults so behavior degrades gracefully
+# for engines without a manifest.
+_FALLBACK_DIMENSION_CONFIG_KEY_BY_TARGET = {
     'realtime-inference': {
         'quantization':           'IC_ENV_VLLM_QUANTIZATION',
         'tensor_parallel_degree': 'IC_ENV_VLLM_TENSOR_PARALLEL_SIZE',
@@ -79,16 +91,68 @@ _DIMENSION_CONFIG_KEY_BY_TARGET = {
     },
 }
 
+
+def _active_engine() -> str:
+    """Resolve the active serve engine from MODEL_SERVER (default vllm)."""
+    return (os.environ.get('MODEL_SERVER') or 'vllm').strip() or 'vllm'
+
+
+def _load_serve_manifest_module():
+    """Import the serve_manifest reader helper (colocated under lib/python).
+
+    Returns the module, or None if it cannot be imported (older projects
+    generated before BL105, or a missing manifest tree).
+    """
+    helper_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        'lib', 'python', 'serve_manifest.py',
+    )
+    if not os.path.isfile(helper_path):
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location('serve_manifest', helper_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:  # noqa: BLE001 — reader failures degrade to fallback
+        return None
+
+
 def _dimension_config_key(dimension: str, deployment_target: str | None = None) -> str:
-    """Return the do/config key for a benchmark dimension, resolved per deployment target."""
+    """Return the do/config key for a benchmark dimension, resolved per deployment target.
+
+    Derivation (Requirement 6): read `env_var_prefix` and `dimension_map` from the
+    active engine's serve-layer manifest and compose
+    `env_var_prefix + dimension_map[dimension]`, wrapped with `IC_ENV_` for the
+    realtime-inference (inference component) target. Falls back to the historical
+    hardcoded vLLM mapping only WHERE manifest data is unavailable.
+    """
     target = (deployment_target or 'realtime-inference').lower()
-    mapping = _DIMENSION_CONFIG_KEY_BY_TARGET.get(
-        target, _DIMENSION_CONFIG_KEY_BY_TARGET['realtime-inference']
+
+    module = _load_serve_manifest_module()
+    if module is not None:
+        try:
+            engine = _active_engine()
+            prefix = module.env_var_prefix(engine)
+            dmap = module.dimension_map(engine)
+            suffix = dmap.get(dimension)
+            if prefix and suffix:
+                key = f'{prefix}{suffix}'
+                if target in _IC_ENV_TARGETS:
+                    key = f'IC_ENV_{key}'
+                return key
+        except Exception:  # noqa: BLE001 — manifest read failure → fallback
+            pass
+
+    # Fallback: manifest data unavailable for this engine/target.
+    mapping = _FALLBACK_DIMENSION_CONFIG_KEY_BY_TARGET.get(
+        target, _FALLBACK_DIMENSION_CONFIG_KEY_BY_TARGET['realtime-inference']
     )
     return mapping.get(dimension, '')
 
+
 # Legacy alias — realtime-inference default; prefer _dimension_config_key() for new code
-DIMENSION_CONFIG_KEY = _DIMENSION_CONFIG_KEY_BY_TARGET['realtime-inference']
+DIMENSION_CONFIG_KEY = _FALLBACK_DIMENSION_CONFIG_KEY_BY_TARGET['realtime-inference']
 
 # Metric aliases for --threshold parsing
 METRIC_ALIASES = {
@@ -324,7 +388,11 @@ class AthenaQueryEngine:
         # ── Pinned baseline overrides recency ───────────────────────────────
         if pinned_job_name:
             # Target the specific pinned job; ignore the before_timestamp filter.
-            pinned_clause = f"AND benchmark_job_name = '{pinned_job_name}' "
+            # Accept either benchmark_job_name (timestamp key) or run_name (petname key).
+            pinned_clause = (
+                f"AND (benchmark_job_name = '{pinned_job_name}' "
+                f"OR TRY(run_name) = '{pinned_job_name}') "
+            )
             time_clause = ''
         else:
             pinned_clause = ''
@@ -332,7 +400,7 @@ class AthenaQueryEngine:
         sql = (
             f"SELECT output_token_throughput_tps, request_throughput_rps, "
             f"ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, "
-            f"benchmark_job_name, run_timestamp, adapter_name, "
+            f"benchmark_job_name, TRY(run_name) AS run_name, run_timestamp, adapter_name, "
             # BL086 columns are nullable — wrap in TRY() so queries succeed on
             # tables that pre-date the BL086 schema migration (column not yet added).
             f"TRY(gpu_utilization_avg) AS gpu_utilization_avg, "
@@ -391,7 +459,7 @@ class AthenaQueryEngine:
         sql = (
             f"SELECT output_token_throughput_tps, request_throughput_rps, "
             f"ttft_p90_ms, itl_p90_ms, e2e_latency_p90_ms, cost_per_1m_tokens, "
-            f"benchmark_job_name, run_timestamp, workload, concurrency, "
+            f"benchmark_job_name, TRY(run_name) AS run_name, run_timestamp, workload, concurrency, "
             f"adapter_name, deployment_target "
             f"FROM {self.database}.{self.table} "
             f"WHERE LOWER(model) = '{model_partition}' "
@@ -1295,19 +1363,20 @@ def cmd_compare_baseline(args):
 
         # All historical runs table (Option C)
         print(f'\n  Historical runs:')
-        run_header = f'  {"DATE":<22} {"ADAPTER":<22} {"THROUGHPUT":>12} {"TTFT P90":>10} {"ITL P90":>10} {"E2E P90":>10}'
-        run_sep = '  ' + '─' * 80
+        run_header = f'  {"RUN NAME":<28} {"DATE":<22} {"ADAPTER":<16} {"THROUGHPUT":>12} {"TTFT P90":>10} {"ITL P90":>10} {"E2E P90":>10}'
+        run_sep = '  ' + '─' * 104
         print(run_sep)
         print(run_header)
         print(run_sep)
         for r in all_records:
             ts = str(r.get('run_timestamp', ''))[:19].replace('T', ' ')
-            adapter_label = str(r.get('adapter_name', '') or 'base')[:22]
+            run_name_label = str(r.get('run_name', '') or '—')[:28]
+            adapter_label = str(r.get('adapter_name', '') or 'base')[:16]
             tput = str(round(float(r.get('output_token_throughput_tps', 0) or 0), 1))
             ttft = str(round(float(r.get('ttft_p90_ms', 0) or 0), 1))
             itl = str(round(float(r.get('itl_p90_ms', 0) or 0), 1))
             e2e = str(round(float(r.get('e2e_latency_p90_ms', 0) or 0), 1))
-            print(f'  {ts:<22} {adapter_label:<22} {tput:>12} {ttft:>10} {itl:>10} {e2e:>10}')
+            print(f'  {run_name_label:<28} {ts:<22} {adapter_label:<16} {tput:>12} {ttft:>10} {itl:>10} {e2e:>10}')
         print(run_sep)
 
         # GPU efficiency signals table (BL086) — only rows with real provenance.
@@ -1615,7 +1684,7 @@ def cmd_list(args):
     for k, rows in groups.items():
         print(f'  ▸ {k[0]}  |  {k[1]}  |  quant={k[2]}  tp={k[3]}  '
               f'max_len={k[4] or "—"}  kv={k[5]}  target={k[6]}')
-        rh = (f'    {"WORKLOAD":<20} {"CONC":>5} {"TPUT":>9} {"TTFT_P90":>9} '
+        rh = (f'    {"RUN NAME":<26} {"WORKLOAD":<20} {"CONC":>5} {"TPUT":>9} {"TTFT_P90":>9} '
               f'{"ITL_P90":>9} {"E2E_P90":>9} {"ADAPTER":<16} {"TIMESTAMP":<20}')
         print(rh)
         for r in rows:
@@ -1624,7 +1693,8 @@ def cmd_list(args):
                     return str(round(float(v), 1)) if v not in (None, '') else '—'
                 except (ValueError, TypeError):
                     return '—'
-            print(f'    {str(r.get("workload", ""))[:20]:<20} '
+            print(f'    {str(r.get("run_name", "") or "—")[:26]:<26} '
+                  f'{str(r.get("workload", ""))[:20]:<20} '
                   f'{str(r.get("concurrency", "")):>5} '
                   f'{_r(r.get("output_token_throughput_tps")):>9} '
                   f'{_r(r.get("ttft_p90_ms")):>9} '

@@ -66,6 +66,12 @@ METRIC_REGISTRY = {
         'prefix_cache_hits': 'vllm:prefix_cache_hits',
         'queue_depth_running': 'vllm:num_requests_running',
         'queue_depth_waiting': 'vllm:num_requests_waiting',
+        # Speculative decoding is a COUNTER PAIR (BL108) — acceptance_rate =
+        # accepted / draft, computed in collect_engine_metrics (mirrors the
+        # prefix-cache counter-pair pattern). Present only when the engine runs
+        # with speculative decoding enabled; absent otherwise.
+        'spec_decode_num_accepted_tokens': 'vllm:spec_decode_num_accepted_tokens',
+        'spec_decode_num_draft_tokens': 'vllm:spec_decode_num_draft_tokens',
     },
     'sglang': {
         'kv_cache_util': 'sglang:token_usage',             # Gauge 0-1 (requires --enable-metrics)
@@ -395,6 +401,16 @@ def collect_engine_metrics(base_url, engine, timeout=30):
         if waiting_name and waiting_name in parsed:
             out['queue_depth_waiting_avg'] = parsed[waiting_name]
             out['queue_depth_waiting_max'] = parsed[waiting_name]
+
+        # Speculative-decoding acceptance rate (BL108). Counter pair →
+        # acceptance_rate = accepted / draft (mirrors prefix-cache above).
+        # Only emitted when both counters are present and draft > 0.
+        if ('spec_decode_num_accepted_tokens' in registry
+                and 'spec_decode_num_draft_tokens' in registry):
+            accepted = parsed.get(registry['spec_decode_num_accepted_tokens'])
+            draft = parsed.get(registry['spec_decode_num_draft_tokens'])
+            if accepted is not None and draft is not None and draft > 0:
+                out['spec_decode_acceptance_rate'] = accepted / draft
 
         return out
     except Exception:

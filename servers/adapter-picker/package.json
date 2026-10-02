@@ -1,0 +1,19 @@
+{
+  "name": "@amzn/ml-container-creator-adapter-picker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Discovery-only MCP server that searches the HuggingFace Hub for PEFT/LoRA adapters compatible with a base model for ML Container Creator.",
+  "type": "module",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "fast-check": "^4.7.0"
+  }
+}

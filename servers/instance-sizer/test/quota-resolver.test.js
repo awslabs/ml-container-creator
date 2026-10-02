@@ -54,15 +54,15 @@ function createMockedResolver(options = {}) {
         cacheTtl: options.cacheTtl || 300000
     });
 
-    // Replace clients with mocks
+    // Replace clients with mocks. Only Service Quotas + SageMaker are used;
+    // capacity reservations are sourced from SageMaker ListTrainingPlans (the
+    // EC2 DescribeCapacityReservations design is deferred to a future EC2-based
+    // deployment target — see the capacity-reservations section below).
     resolver.quotasClient = {
         send: options.quotasSend || (() => Promise.resolve({ Quotas: [], NextToken: undefined }))
     };
     resolver.sagemakerClient = {
         send: options.sagemakerSend || (() => Promise.resolve({ Endpoints: [], NextToken: undefined }))
-    };
-    resolver.ec2Client = {
-        send: options.ec2Send || (() => Promise.resolve({ CapacityReservations: [], NextToken: undefined }))
     };
 
     return resolver;
@@ -77,8 +77,8 @@ async function run() {
         assert.strictEqual(SAGEMAKER_SERVICE_CODE, 'sagemaker');
     });
 
-    test('DEFAULT_TIMEOUT_MS is 5000', () => {
-        assert.strictEqual(DEFAULT_TIMEOUT_MS, 5000);
+    test('DEFAULT_TIMEOUT_MS is 10000', () => {
+        assert.strictEqual(DEFAULT_TIMEOUT_MS, 10000);
     });
 
     test('DEFAULT_CACHE_TTL_MS is 300000 (5 minutes)', () => {
@@ -142,6 +142,9 @@ async function run() {
     console.log('\nquota-resolver: headroom calculation\n');
 
     await test('headroom = quota - deployed (5 - 2 = 3)', async () => {
+        // _fetchDeployedCounts is a two-step flow: ListEndpoints (returns endpoint
+        // NAMES) then DescribeEndpoint per name (returns ProductionVariants with
+        // the live instance count). The mock dispatches on the command class name.
         const resolver = createMockedResolver({
             quotasSend: () => Promise.resolve({
                 Quotas: [
@@ -150,16 +153,24 @@ async function run() {
                 ],
                 NextToken: undefined
             }),
-            sagemakerSend: () => Promise.resolve({
-                Endpoints: [
-                    {
+            sagemakerSend: (command) => {
+                const kind = command?.constructor?.name;
+                if (kind === 'ListEndpointsCommand') {
+                    return Promise.resolve({
+                        Endpoints: [{ EndpointName: 'ep-1', EndpointStatus: 'InService' }],
+                        NextToken: undefined
+                    });
+                }
+                if (kind === 'DescribeEndpointCommand') {
+                    return Promise.resolve({
+                        EndpointName: 'ep-1',
                         ProductionVariants: [
                             { InstanceType: 'ml.g5.xlarge', CurrentInstanceCount: 2 }
                         ]
-                    }
-                ],
-                NextToken: undefined
-            })
+                    });
+                }
+                return Promise.resolve({});
+            }
         });
 
         const result = await resolver.getQuotaHeadroom(['ml.g5.xlarge', 'ml.g5.2xlarge']);
@@ -197,16 +208,24 @@ async function run() {
                 ],
                 NextToken: undefined
             }),
-            sagemakerSend: () => Promise.resolve({
-                Endpoints: [
-                    {
+            sagemakerSend: (command) => {
+                const kind = command?.constructor?.name;
+                if (kind === 'ListEndpointsCommand') {
+                    return Promise.resolve({
+                        Endpoints: [{ EndpointName: 'ep-1', EndpointStatus: 'InService' }],
+                        NextToken: undefined
+                    });
+                }
+                if (kind === 'DescribeEndpointCommand') {
+                    return Promise.resolve({
+                        EndpointName: 'ep-1',
                         ProductionVariants: [
                             { InstanceType: 'ml.g5.xlarge', CurrentInstanceCount: 2 }
                         ]
-                    }
-                ],
-                NextToken: undefined
-            })
+                    });
+                }
+                return Promise.resolve({});
+            }
         });
 
         const result = await resolver.getQuotaHeadroom(['ml.g5.xlarge']);
@@ -419,33 +438,37 @@ async function run() {
         assert.strictEqual(result, null, 'should return null on timeout');
     });
 
-    await test('constructor sets timeout to 5000ms by default', () => {
+    await test('constructor sets timeout to 10000ms by default', () => {
         const resolver = new QuotaResolver('us-east-1');
-        assert.strictEqual(resolver.timeout, 5000);
-    });
-
-    await test('constructor accepts custom timeout', () => {
-        const resolver = new QuotaResolver('us-east-1', { timeout: 10000 });
         assert.strictEqual(resolver.timeout, 10000);
     });
 
-    // ── getCapacityReservations (EC2-based) ─────────────────────────────────────
+    await test('constructor accepts custom timeout', () => {
+        const resolver = new QuotaResolver('us-east-1', { timeout: 7500 });
+        assert.strictEqual(resolver.timeout, 7500);
+    });
 
-    console.log('\nquota-resolver: getCapacityReservations (EC2 DescribeCapacityReservations)\n');
+    // ── getCapacityReservations (SageMaker Training Plans) ──────────────────────
+    // MLCC's capacity reservations for inference endpoints come from SageMaker
+    // Flexible Training Plans (ListTrainingPlans, TargetResources including
+    // 'endpoint'), NOT EC2 ODCR / Capacity Blocks. EC2 DescribeCapacityReservations
+    // is deferred to a future EC2-based deployment target (v2). The returned shape
+    // is { planName, planArn, type: 'training-plan', count, startDate, endDate }.
 
-    await test('returns Map of ml.* instance types with ODCR reservation info', async () => {
+    console.log('\nquota-resolver: getCapacityReservations (SageMaker Training Plans)\n');
+
+    await test('returns Map of instance types with training-plan reservation info', async () => {
         const resolver = createMockedResolver({
-            ec2Send: () => Promise.resolve({
-                CapacityReservations: [
+            sagemakerSend: () => Promise.resolve({
+                TrainingPlanSummaries: [
                     {
-                        CapacityReservationId: 'cr-odcr-001',
-                        CapacityReservationArn: 'arn:aws:ec2:us-east-1:123456789012:capacity-reservation/cr-odcr-001',
-                        InstanceType: 'g5.xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'default',
+                        TrainingPlanName: 'endpoint-plan',
+                        TrainingPlanArn: 'arn:aws:sagemaker:us-east-1:123456789012:training-plan/endpoint-plan',
+                        InstanceType: 'ml.p4d.24xlarge',
+                        TargetResources: ['endpoint'],
                         AvailableInstanceCount: 3,
-                        StartDate: '2025-01-01T00:00:00Z',
-                        EndDate: null
+                        StartTime: '2025-01-01T00:00:00Z',
+                        EndTime: null
                     }
                 ],
                 NextToken: undefined
@@ -454,31 +477,30 @@ async function run() {
 
         const result = await resolver.getCapacityReservations();
         assert.ok(result instanceof Map, 'should return a Map');
-        assert.ok(result.has('ml.g5.xlarge'), 'should map bare EC2 type to ml. prefixed key');
-        const info = result.get('ml.g5.xlarge');
-        assert.strictEqual(info.reservationId, 'cr-odcr-001');
-        assert.strictEqual(info.reservationArn, 'arn:aws:ec2:us-east-1:123456789012:capacity-reservation/cr-odcr-001');
-        assert.strictEqual(info.type, 'odcr');
+        assert.ok(result.has('ml.p4d.24xlarge'), 'should key on the plan instance type');
+        const info = result.get('ml.p4d.24xlarge');
+        assert.strictEqual(info.planName, 'endpoint-plan');
+        assert.strictEqual(info.planArn, 'arn:aws:sagemaker:us-east-1:123456789012:training-plan/endpoint-plan');
+        assert.strictEqual(info.type, 'training-plan');
         assert.strictEqual(info.count, 3);
     });
 
-    await test('returns Capacity Block reservations within time window', async () => {
+    await test('includes training plans within their time window', async () => {
         const now = new Date();
         const pastDate = new Date(now.getTime() - 86400000).toISOString(); // yesterday
         const futureDate = new Date(now.getTime() + 86400000).toISOString(); // tomorrow
 
         const resolver = createMockedResolver({
-            ec2Send: () => Promise.resolve({
-                CapacityReservations: [
+            sagemakerSend: () => Promise.resolve({
+                TrainingPlanSummaries: [
                     {
-                        CapacityReservationId: 'cr-cb-001',
-                        CapacityReservationArn: 'arn:aws:ec2:us-east-1:123456789012:capacity-reservation/cr-cb-001',
-                        InstanceType: 'p4d.24xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'capacity-block',
+                        TrainingPlanName: 'active-window-plan',
+                        TrainingPlanArn: 'arn:aws:sagemaker:us-east-1:123456789012:training-plan/active-window-plan',
+                        InstanceType: 'ml.p5.48xlarge',
+                        TargetResources: ['endpoint'],
                         AvailableInstanceCount: 2,
-                        StartDate: pastDate,
-                        EndDate: futureDate
+                        StartTime: pastDate,
+                        EndTime: futureDate
                     }
                 ],
                 NextToken: undefined
@@ -486,32 +508,28 @@ async function run() {
         });
 
         const result = await resolver.getCapacityReservations();
-        assert.ok(result instanceof Map, 'should return a Map');
-        assert.ok(result.has('ml.p4d.24xlarge'), 'should map bare p4d.24xlarge to ml.p4d.24xlarge');
-        const info = result.get('ml.p4d.24xlarge');
-        assert.strictEqual(info.reservationId, 'cr-cb-001');
-        assert.strictEqual(info.reservationArn, 'arn:aws:ec2:us-east-1:123456789012:capacity-reservation/cr-cb-001');
-        assert.strictEqual(info.type, 'capacity-block');
+        assert.ok(result.has('ml.p5.48xlarge'), 'in-window plan should be included');
+        const info = result.get('ml.p5.48xlarge');
+        assert.strictEqual(info.type, 'training-plan');
         assert.strictEqual(info.count, 2);
-        assert.ok(info.startDate, 'should have startDate');
-        assert.ok(info.endDate, 'should have endDate');
+        assert.ok(info.startDate, 'should carry startDate');
+        assert.ok(info.endDate, 'should carry endDate');
     });
 
-    await test('excludes expired Capacity Blocks (endDate in the past)', async () => {
+    await test('excludes expired training plans (endDate in the past)', async () => {
         const pastStart = new Date(Date.now() - 172800000).toISOString(); // 2 days ago
         const pastEnd = new Date(Date.now() - 86400000).toISOString(); // yesterday
 
         const resolver = createMockedResolver({
-            ec2Send: () => Promise.resolve({
-                CapacityReservations: [
+            sagemakerSend: () => Promise.resolve({
+                TrainingPlanSummaries: [
                     {
-                        CapacityReservationId: 'cr-cb-expired',
-                        InstanceType: 'p4d.24xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'capacity-block',
+                        TrainingPlanName: 'expired-plan',
+                        InstanceType: 'ml.p4d.24xlarge',
+                        TargetResources: ['endpoint'],
                         AvailableInstanceCount: 4,
-                        StartDate: pastStart,
-                        EndDate: pastEnd
+                        StartTime: pastStart,
+                        EndTime: pastEnd
                     }
                 ],
                 NextToken: undefined
@@ -520,24 +538,23 @@ async function run() {
 
         const result = await resolver.getCapacityReservations();
         assert.ok(result instanceof Map, 'should return a Map');
-        assert.strictEqual(result.size, 0, 'should exclude expired Capacity Block');
+        assert.strictEqual(result.size, 0, 'should exclude expired plan');
     });
 
-    await test('excludes Capacity Blocks not yet started (startDate in the future)', async () => {
+    await test('excludes training plans not yet started (startDate in the future)', async () => {
         const futureStart = new Date(Date.now() + 86400000).toISOString(); // tomorrow
         const futureEnd = new Date(Date.now() + 172800000).toISOString(); // 2 days from now
 
         const resolver = createMockedResolver({
-            ec2Send: () => Promise.resolve({
-                CapacityReservations: [
+            sagemakerSend: () => Promise.resolve({
+                TrainingPlanSummaries: [
                     {
-                        CapacityReservationId: 'cr-cb-future',
-                        InstanceType: 'g5.2xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'capacity-block',
+                        TrainingPlanName: 'future-plan',
+                        InstanceType: 'ml.g5.2xlarge',
+                        TargetResources: ['endpoint'],
                         AvailableInstanceCount: 2,
-                        StartDate: futureStart,
-                        EndDate: futureEnd
+                        StartTime: futureStart,
+                        EndTime: futureEnd
                     }
                 ],
                 NextToken: undefined
@@ -546,67 +563,20 @@ async function run() {
 
         const result = await resolver.getCapacityReservations();
         assert.ok(result instanceof Map, 'should return a Map');
-        assert.strictEqual(result.size, 0, 'should exclude not-yet-started Capacity Block');
+        assert.strictEqual(result.size, 0, 'should exclude not-yet-started plan');
     });
 
-    await test('maps bare EC2 instance types to ml. prefixed keys', async () => {
+    await test('excludes plans that do not target inference endpoints', async () => {
         const resolver = createMockedResolver({
-            ec2Send: () => Promise.resolve({
-                CapacityReservations: [
+            sagemakerSend: () => Promise.resolve({
+                TrainingPlanSummaries: [
                     {
-                        CapacityReservationId: 'cr-ec2-001',
-                        InstanceType: 'p4d.24xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'default',
-                        AvailableInstanceCount: 2,
-                        StartDate: '2025-01-01T00:00:00Z',
-                        EndDate: null
-                    },
-                    {
-                        CapacityReservationId: 'cr-ml-001',
-                        InstanceType: 'g5.xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'default',
-                        AvailableInstanceCount: 1,
-                        StartDate: '2025-01-01T00:00:00Z',
-                        EndDate: null
-                    }
-                ],
-                NextToken: undefined
-            })
-        });
-
-        const result = await resolver.getCapacityReservations();
-        assert.strictEqual(result.size, 2, 'should include both reservations');
-        assert.ok(result.has('ml.p4d.24xlarge'), 'should map p4d.24xlarge to ml.p4d.24xlarge');
-        assert.ok(result.has('ml.g5.xlarge'), 'should map g5.xlarge to ml.g5.xlarge');
-    });
-
-    await test('handles mixed ODCR and Capacity Block results', async () => {
-        const now = new Date();
-        const pastDate = new Date(now.getTime() - 86400000).toISOString();
-        const futureDate = new Date(now.getTime() + 86400000).toISOString();
-
-        const resolver = createMockedResolver({
-            ec2Send: () => Promise.resolve({
-                CapacityReservations: [
-                    {
-                        CapacityReservationId: 'cr-odcr-mix',
-                        InstanceType: 'g5.xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'default',
-                        AvailableInstanceCount: 2,
-                        StartDate: '2025-01-01T00:00:00Z',
-                        EndDate: null
-                    },
-                    {
-                        CapacityReservationId: 'cr-cb-mix',
-                        InstanceType: 'p4d.24xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'capacity-block',
+                        TrainingPlanName: 'training-only-plan',
+                        InstanceType: 'ml.p4d.24xlarge',
+                        TargetResources: ['training-job'],
                         AvailableInstanceCount: 4,
-                        StartDate: pastDate,
-                        EndDate: futureDate
+                        StartTime: '2025-01-01T00:00:00Z',
+                        EndTime: null
                     }
                 ],
                 NextToken: undefined
@@ -614,42 +584,33 @@ async function run() {
         });
 
         const result = await resolver.getCapacityReservations();
-        assert.strictEqual(result.size, 2, 'should have both reservations');
-
-        const odcr = result.get('ml.g5.xlarge');
-        assert.strictEqual(odcr.type, 'odcr');
-        assert.strictEqual(odcr.reservationId, 'cr-odcr-mix');
-
-        const cb = result.get('ml.p4d.24xlarge');
-        assert.strictEqual(cb.type, 'capacity-block');
-        assert.strictEqual(cb.reservationId, 'cr-cb-mix');
+        assert.strictEqual(result.size, 0, 'should exclude plans not targeting endpoints');
     });
 
-    await test('returns empty Map when no reservations exist', async () => {
+    await test('returns empty Map when no plans exist', async () => {
         const resolver = createMockedResolver({
-            ec2Send: () => Promise.resolve({
-                CapacityReservations: [],
+            sagemakerSend: () => Promise.resolve({
+                TrainingPlanSummaries: [],
                 NextToken: undefined
             })
         });
 
         const result = await resolver.getCapacityReservations();
         assert.ok(result instanceof Map, 'should return a Map');
-        assert.strictEqual(result.size, 0, 'should be empty when no reservations');
+        assert.strictEqual(result.size, 0, 'should be empty when no plans');
     });
 
-    await test('excludes reservations with zero available capacity', async () => {
+    await test('excludes plans with zero remaining capacity', async () => {
         const resolver = createMockedResolver({
-            ec2Send: () => Promise.resolve({
-                CapacityReservations: [
+            sagemakerSend: () => Promise.resolve({
+                TrainingPlanSummaries: [
                     {
-                        CapacityReservationId: 'cr-full',
-                        InstanceType: 'g5.xlarge',
-                        State: 'active',
-                        CapacityReservationType: 'default',
+                        TrainingPlanName: 'exhausted-plan',
+                        InstanceType: 'ml.g5.xlarge',
+                        TargetResources: ['endpoint'],
                         AvailableInstanceCount: 0,
-                        StartDate: '2025-01-01T00:00:00Z',
-                        EndDate: null
+                        StartTime: '2025-01-01T00:00:00Z',
+                        EndTime: null
                     }
                 ],
                 NextToken: undefined
@@ -657,12 +618,12 @@ async function run() {
         });
 
         const result = await resolver.getCapacityReservations();
-        assert.strictEqual(result.size, 0, 'should exclude reservations with zero capacity');
+        assert.strictEqual(result.size, 0, 'should exclude plans with zero capacity');
     });
 
     await test('getCapacityReservations returns null on AccessDeniedException', async () => {
         const resolver = createMockedResolver({
-            ec2Send: () => {
+            sagemakerSend: () => {
                 const err = new Error('Access Denied');
                 err.name = 'AccessDeniedException';
                 return Promise.reject(err);
@@ -675,7 +636,7 @@ async function run() {
 
     await test('getCapacityReservations returns null on ThrottlingException', async () => {
         const resolver = createMockedResolver({
-            ec2Send: () => {
+            sagemakerSend: () => {
                 const err = new Error('Rate exceeded');
                 err.name = 'ThrottlingException';
                 return Promise.reject(err);
@@ -690,18 +651,17 @@ async function run() {
         let apiCallCount = 0;
         const resolver = createMockedResolver({
             cacheTtl: 60000,
-            ec2Send: () => {
+            sagemakerSend: () => {
                 apiCallCount++;
                 return Promise.resolve({
-                    CapacityReservations: [
+                    TrainingPlanSummaries: [
                         {
-                            CapacityReservationId: 'cr-cached',
-                            InstanceType: 'g5.xlarge',
-                            State: 'active',
-                            CapacityReservationType: 'default',
+                            TrainingPlanName: 'cached-plan',
+                            InstanceType: 'ml.g5.xlarge',
+                            TargetResources: ['endpoint'],
                             AvailableInstanceCount: 1,
-                            StartDate: '2025-01-01T00:00:00Z',
-                            EndDate: null
+                            StartTime: '2025-01-01T00:00:00Z',
+                            EndTime: null
                         }
                     ],
                     NextToken: undefined

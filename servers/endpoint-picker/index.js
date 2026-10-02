@@ -11,6 +11,21 @@
  * Uses ListEndpoints (InService only), DescribeEndpoint for variant info,
  * and ListInferenceComponents to calculate available GPU capacity.
  *
+ * PATTERN: MCP picker server built on the shared createPickerServer factory.
+ *   Declares only its unique pieces — the SageMaker endpoint discovery logic,
+ *   the instance-catalog GPU lookup, the EndpointResolver, and the
+ *   get_inference_endpoints tool — and lets the factory own the scaffold
+ *   (logger, main-guard, stdio wiring).
+ * COLLABORATORS: servers/lib/create-picker-server.js (scaffold);
+ *   servers/lib/dynamic-resolver.js (DynamicResolver base); the AWS SDK
+ *   client-sagemaker (lazy-loaded); instance catalog servers/lib/catalogs/instances.json;
+ *   spawned by src/lib/mcp-client.js.
+ * DATA-FLOW ROLE: given { parameters, limit, context }, returns
+ *   { values: { endpointName }, choices: { endpointName: [...] }, metadata }
+ *   describing InService endpoints with available capacity.
+ * See: docs/architecture/mcp-servers.md,
+ *   docs/adr/ADR-003-mcp-picker-server-factory.md
+ *
  * Tool: get_inference_endpoints
  *   Accepts: { parameters: string[], limit: number, context: object }
  *   Returns: { values: Record<string, string>, choices: Record<string, string[]>, metadata: object }
@@ -20,14 +35,13 @@
  *   AWS_PROFILE - AWS profile to use for credentials
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { DynamicResolver } from '../lib/dynamic-resolver.js';
+import { createPickerServer } from '../lib/create-picker-server.js';
 
 /**
  * Log to stderr so it doesn't interfere with MCP stdio protocol on stdout.
@@ -38,8 +52,7 @@ function log(message) {
 
 // ── Instance catalog for GPU lookup ──────────────────────────────────────────
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let _instanceCatalog = null;
 
@@ -410,138 +423,139 @@ class EndpointResolver extends DynamicResolver {
 
 // ── MCP Server ───────────────────────────────────────────────────────────────
 
-const server = new McpServer({
+const picker = createPickerServer({
     name: 'endpoint-picker',
-    version: '1.0.0'
+    serverDir: import.meta.url,
+    tools: [{
+        name: 'get_inference_endpoints',
+        description: 'Discovers InService SageMaker real-time endpoints with available capacity for IC attachment',
+        schema: {
+            parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
+            limit: z.number().int().positive().default(10).describe('Maximum number of endpoints to return'),
+            context: z.record(z.string(), z.any()).optional().describe('Current configuration context (awsRegion, awsProfile, deploymentTarget)')
+        },
+        handler: getInferenceEndpointsHandler
+    }]
 });
 
-// Register the get_inference_endpoints tool
-server.tool(
-    'get_inference_endpoints',
-    'Discovers InService SageMaker real-time endpoints with available capacity for IC attachment',
-    {
-        parameters: z.array(z.string()).describe('List of parameter names to provide values for'),
-        limit: z.number().int().positive().default(10).describe('Maximum number of endpoints to return'),
-        context: z.record(z.string(), z.any()).optional().describe('Current configuration context (awsRegion, awsProfile, deploymentTarget)')
-    },
-    async ({ parameters: _parameters, limit, context }) => {
-        // Only respond if context.deploymentTarget is realtime-inference
-        // Note: parameters may be empty when called on-demand via queryMcpServer()
-        if (context?.deploymentTarget && context.deploymentTarget !== 'realtime-inference') {
-            return {
-                content: [{
-                    type: 'text',
-                    text: JSON.stringify({ values: {}, choices: {} })
-                }]
-            };
+// Register the get_inference_endpoints tool handler
+async function getInferenceEndpointsHandler({ parameters: _parameters, limit, context }) {
+    // Only respond if context.deploymentTarget is realtime-inference
+    // Note: parameters may be empty when called on-demand via queryMcpServer()
+    if (context?.deploymentTarget && context.deploymentTarget !== 'realtime-inference') {
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({ values: {}, choices: {} })
+            }]
+        };
+    }
+
+    const region = context?.awsRegion || process.env.AWS_REGION || 'us-east-1';
+    const profile = context?.awsProfile || process.env.AWS_PROFILE || null;
+    const showFull = context?.showFull || false;
+    log(`Querying InService endpoints in region: ${region}${profile ? ` (profile: ${profile})` : ''}`);
+
+    try {
+        await _ensureSdkLoaded();
+
+        let endpoints = null;
+        let lastError = null;
+
+        // Strategy 1: If a specific profile was requested, use it directly
+        if (profile) {
+            try {
+                log(`Trying explicit profile: ${profile}`);
+                const client = _createClientWithProfile(region, profile);
+                endpoints = await fetchEndpoints(client, { limit, showFull });
+            } catch (err) {
+                log(`Profile "${profile}" failed: ${err.message}`);
+                lastError = err;
+            }
         }
 
-        const region = context?.awsRegion || process.env.AWS_REGION || 'us-east-1';
-        const profile = context?.awsProfile || process.env.AWS_PROFILE || null;
-        const showFull = context?.showFull || false;
-        log(`Querying InService endpoints in region: ${region}${profile ? ` (profile: ${profile})` : ''}`);
-
-        try {
-            await _ensureSdkLoaded();
-
-            let endpoints = null;
-            let lastError = null;
-
-            // Strategy 1: If a specific profile was requested, use it directly
-            if (profile) {
-                try {
-                    log(`Trying explicit profile: ${profile}`);
-                    const client = _createClientWithProfile(region, profile);
-                    endpoints = await fetchEndpoints(client, { limit, showFull });
-                } catch (err) {
-                    log(`Profile "${profile}" failed: ${err.message}`);
-                    lastError = err;
-                }
+        // Strategy 2: Try the default credential chain
+        if (!endpoints) {
+            try {
+                log('Trying default credential chain');
+                const client = createSageMakerClient(region);
+                endpoints = await fetchEndpoints(client, { limit, showFull });
+            } catch (err) {
+                log(`Default credential chain failed: ${err.message}`);
+                lastError = err;
             }
+        }
 
-            // Strategy 2: Try the default credential chain
-            if (!endpoints) {
-                try {
-                    log('Trying default credential chain');
-                    const client = createSageMakerClient(region);
-                    endpoints = await fetchEndpoints(client, { limit, showFull });
-                } catch (err) {
-                    log(`Default credential chain failed: ${err.message}`);
-                    lastError = err;
-                }
-            }
-
-            // Strategy 3: Detect available AWS profiles and try each
-            if (!endpoints && _fromIni) {
-                const profiles = _detectAwsProfiles();
-                if (profiles.length > 0) {
-                    log(`Default credentials failed, trying ${profiles.length} detected profile(s): ${profiles.join(', ')}`);
-                    for (const p of profiles) {
-                        try {
-                            const client = _createClientWithProfile(region, p);
-                            endpoints = await fetchEndpoints(client, { limit, showFull });
-                            log(`Profile "${p}" succeeded`);
-                            break;
-                        } catch (err) {
-                            log(`Profile "${p}" failed: ${err.message}`);
-                            lastError = err;
-                        }
+        // Strategy 3: Detect available AWS profiles and try each
+        if (!endpoints && _fromIni) {
+            const profiles = _detectAwsProfiles();
+            if (profiles.length > 0) {
+                log(`Default credentials failed, trying ${profiles.length} detected profile(s): ${profiles.join(', ')}`);
+                for (const p of profiles) {
+                    try {
+                        const client = _createClientWithProfile(region, p);
+                        endpoints = await fetchEndpoints(client, { limit, showFull });
+                        log(`Profile "${p}" succeeded`);
+                        break;
+                    } catch (err) {
+                        log(`Profile "${p}" failed: ${err.message}`);
+                        lastError = err;
                     }
                 }
             }
+        }
 
-            // If all strategies failed, throw the last error
-            if (!endpoints) {
-                throw lastError || new Error('No AWS credentials available');
-            }
+        // If all strategies failed, throw the last error
+        if (!endpoints) {
+            throw lastError || new Error('No AWS credentials available');
+        }
 
-            const result = buildResponse(endpoints);
+        const result = buildResponse(endpoints);
 
-            if (endpoints.length > 0) {
-                log(`Found ${endpoints.length} endpoint(s) with available capacity`);
-            } else {
-                log('No InService endpoints with available capacity found');
-            }
+        if (endpoints.length > 0) {
+            log(`Found ${endpoints.length} endpoint(s) with available capacity`);
+        } else {
+            log('No InService endpoints with available capacity found');
+        }
 
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify(result)
+            }]
+        };
+    } catch (err) {
+        log(`Error querying endpoints: ${err.message}`);
+
+        // Handle AccessDeniedException gracefully
+        if (err.name === 'AccessDeniedException' || err.Code === 'AccessDeniedException') {
+            log('AccessDeniedException — returning empty result');
             return {
                 content: [{
                     type: 'text',
-                    text: JSON.stringify(result)
-                }]
-            };
-        } catch (err) {
-            log(`Error querying endpoints: ${err.message}`);
-
-            // Handle AccessDeniedException gracefully
-            if (err.name === 'AccessDeniedException' || err.Code === 'AccessDeniedException') {
-                log('AccessDeniedException — returning empty result');
-                return {
-                    content: [{
-                        type: 'text',
-                        text: JSON.stringify({
-                            values: {},
-                            choices: { endpointName: [] },
-                            message: 'Access denied when querying SageMaker endpoints. Check IAM permissions.'
-                        })
-                    }]
-                };
-            }
-
-            const errorResult = {
-                values: {},
-                choices: { endpointName: [] },
-                error: err.message,
-                message: `Failed to query endpoints: ${err.message}`
-            };
-            return {
-                content: [{
-                    type: 'text',
-                    text: JSON.stringify(errorResult)
+                    text: JSON.stringify({
+                        values: {},
+                        choices: { endpointName: [] },
+                        message: 'Access denied when querying SageMaker endpoints. Check IAM permissions.'
+                    })
                 }]
             };
         }
+
+        const errorResult = {
+            values: {},
+            choices: { endpointName: [] },
+            error: err.message,
+            message: `Failed to query endpoints: ${err.message}`
+        };
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify(errorResult)
+            }]
+        };
     }
-);
+}
 
 // Export for testing
 export {
@@ -554,12 +568,11 @@ export {
     EndpointResolver
 };
 
-// Guard MCP transport — only connect when run as main module
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
-
-if (isMain) {
-    log('Starting Endpoint Picker MCP server');
-    await _ensureSdkLoaded();
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-}
+// Connect stdio transport only when run as the main module.
+await picker.start({
+    entryUrl: import.meta.url,
+    onStart: async () => {
+        log('Starting Endpoint Picker MCP server');
+        await _ensureSdkLoaded();
+    }
+});

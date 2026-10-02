@@ -366,6 +366,59 @@ def _resolve_core_bucket(args):
     )
 
 
+def _log_dataset_to_mlflow(*, s3_uri, name, content_hash, row_count, data_format,
+                           technique, source_type="s3-uri"):
+    """Log the dataset to MLflow as a run input (BL110), non-fatally.
+
+    Called only when MLflow is configured, AFTER the durable sidecar write.
+    Creates/reuses an MLflow run (context ``"training"``, or ``"benchmark"`` when
+    ``technique == "benchmark"`` per BL120) and delegates to
+    ``mlcc_mlflow.log_dataset``. Any MLflow failure (unreachable server, run
+    creation error, logging error) is NON-FATAL: the sidecar is already the
+    durable record, so a warning is emitted and ``None`` is returned instead of
+    failing a registration whose metadata already persisted to S3.
+
+    Returns the ``(sanitized_name, digest)`` handle on success, else ``None``.
+    """
+    try:
+        import mlflow
+        import mlcc_mlflow
+
+        meta = {
+            "digest": content_hash,
+            "source_type": source_type,
+            "row_count": row_count,
+            "format": data_format,
+            "technique": technique,
+            "s3_uri": s3_uri,
+        }
+
+        # BL120/BL100: benchmark datasets (AIPerf BYOD single_turn, `text` column;
+        # consumed by do/benchmark --dataset) are logged with context="benchmark";
+        # training datasets use "training".
+        context = "benchmark" if technique == "benchmark" else "training"
+
+        active = mlflow.active_run()
+        if active is not None:
+            return mlcc_mlflow.log_dataset(
+                source=s3_uri, name=name, context=context, meta=meta,
+            )
+        # Set experiment explicitly so datasets appear in the "Default" experiment
+        # in the MLflow UI (#/experiments/0/datasets). Without this, SageMaker
+        # MLflow Serverless may auto-create a new experiment per-call.
+        mlflow.set_experiment("Default")
+        with mlflow.start_run(run_name=f"register-dataset-{name}"):
+            return mlcc_mlflow.log_dataset(
+                source=s3_uri, name=name, context=context, meta=meta,
+            )
+    except Exception as e:  # noqa: BLE001 — MLflow logging is best-effort
+        _warn(
+            f"MLflow dataset logging failed ({e}); the S3 sidecar remains the "
+            "durable record."
+        )
+        return None
+
+
 def cmd_register_dataset(args):
     """Register a dataset with content-aware versioning, writing an S3 sidecar."""
     import dataset_store
@@ -494,6 +547,24 @@ def cmd_register_dataset(args):
     sidecar_uri = register_common._sidecar_uri(core_bucket, name)
     print(f"Registered dataset '{name}' v{ordinal} ({new_version}) \u2192 {s3_uri}", file=sys.stderr)
     print(f"Sidecar: {sidecar_uri}", file=sys.stderr)
+
+    # Step 6 (BL110): When MLflow is configured, additionally log the dataset as
+    # a MetaDataset run input. The sidecar above is the durable record, so a
+    # MLflow failure here is non-fatal (see _log_dataset_to_mlflow).
+    mlflow_logged = False
+    try:
+        import mlcc_mlflow
+        if mlcc_mlflow._mlflow_configured():
+            handle = _log_dataset_to_mlflow(
+                s3_uri=s3_uri, name=name, content_hash=content_hash,
+                row_count=row_count, data_format=data_format, technique=technique,
+            )
+            mlflow_logged = handle is not None
+            if mlflow_logged:
+                print(f"Logged dataset to MLflow as run input: {handle[0]}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 — never let MLflow break a persisted registration
+        _warn(f"MLflow dataset logging skipped ({e}); the S3 sidecar remains the record.")
+
     _output({
         "name": name,
         "s3_uri": s3_uri,
@@ -503,6 +574,7 @@ def cmd_register_dataset(args):
         "hash": content_hash,
         "arn": dataset_arn,
         "sidecar_uri": sidecar_uri,
+        "mlflow_logged": mlflow_logged,
         "registered": True,
         "skipped": False,
     })
@@ -681,6 +753,14 @@ def cmd_delete_dataset(args):
             dataset_store.delete_sidecar(s3_client, core_bucket, name)
         except dataset_store.TransportError as e:
             _error_exit(f"Failed to delete dataset sidecar: {e}", code="SIDECAR_DELETE_FAILED")
+        # Tag all matching MLflow runs as deleted so list_dataset_inputs() excludes them.
+        # mlflow.delete_run() is not reliable on SageMaker MLflow Serverless; tagging works.
+        try:
+            import mlcc_mlflow
+            if mlcc_mlflow._mlflow_configured():
+                mlcc_mlflow.tag_dataset_runs_deleted(name)
+        except Exception:  # noqa: BLE001 — MLflow tagging is best-effort
+            pass
         print(f"Deregistered dataset '{name}' (sidecar removed; data bytes untouched)", file=sys.stderr)
         _output({
             "name": name,

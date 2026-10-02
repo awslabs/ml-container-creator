@@ -55,10 +55,20 @@ output [
 # FIL-specific parameters
 parameters: {
     key: "model_type"
-<% if (modelFormat === 'xgboost_json' || modelFormat === 'xgboost_ubj') { %>
-    value: { string_value: "xgboost_json" }
-<% } else if (modelFormat === 'lightgbm_txt') { %>
+<%# FIL model_type accepts both the FIL-native format names (xgboost_json,
+    xgboost_ubj, lightgbm_txt) and the HTTP-xgboost --model-format enum values the
+    CLI actually allows (json, ubj, model → XGBoost). LightGBM maps to "lightgbm";
+    everything XGBoost-shaped maps to "xgboost_json" (FIL's unified XGBoost loader). %>
+<% if (modelFormat === 'lightgbm_txt') { %>
     value: { string_value: "lightgbm" }
+<% } else if (['xgboost_json', 'xgboost_ubj', 'json', 'ubj', 'model'].includes(modelFormat)) { %>
+    value: { string_value: "xgboost_json" }
+<% } else { %>
+    # WARNING: unrecognized model-format "<%= modelFormat || '(unset)' %>" for the FIL
+    # backend. Expected an XGBoost format (json/ubj/model or xgboost_json/xgboost_ubj)
+    # or lightgbm_txt. Defaulting to xgboost_json so this config still loads —
+    # regenerate with a valid --model-format to silence this warning.
+    value: { string_value: "xgboost_json" }
 <% } %>
 }
 parameters: {
@@ -143,6 +153,26 @@ output [
         dims: [ -1 ]  # Dynamic output dimension
     }
 ]
+<% } else { %>
+# Backend "<%= backend %>" has no tailored config template in this generator.
+# Rendering a generic single-input/single-output stub so the model still loads;
+# Triton is started with --strict-model-config=false, which lets it auto-complete
+# shapes for backends that support it. Review and adjust these tensors for your
+# model, or add a dedicated template arm for this backend.
+input [
+    {
+        name: "INPUT"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic input dimension
+    }
+]
+output [
+    {
+        name: "OUTPUT"
+        data_type: TYPE_FP32
+        dims: [ -1 ]  # Dynamic output dimension
+    }
+]
 <% } %>
 
 # Instance group configuration
@@ -155,9 +185,13 @@ instance_group [
 ]
 
 # Dynamic batching configuration
-# Enables automatic request batching for improved throughput
+# Enables automatic request batching for improved throughput.
+# max_queue_delay_microseconds is the window the scheduler waits to fill a batch:
+# 100000 us = 100 ms. (A sub-millisecond window such as 100 us is effectively no
+# batching — the batch closes before concurrent requests can join it.) Tune down
+# for latency-sensitive traffic or up for throughput-bound workloads.
 dynamic_batching {
     preferred_batch_size: [ 4, 8 ]
-    max_queue_delay_microseconds: 100
+    max_queue_delay_microseconds: 100000
 }
 <% } %>

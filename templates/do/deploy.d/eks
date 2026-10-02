@@ -1,0 +1,404 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# do/deploy.d/eks — Plain EKS deployment target (BL103).
+#
+# Serves the model as standard Kubernetes objects — a Deployment, a Service,
+# and a ConfigMap — WITHOUT the HyperPod inference operator or its
+# InferenceEndpointConfig CRD, and WITHOUT any SageMaker endpoint machinery
+# (no SageMakerEndpointRegistration, no describe-endpoint polling, no SageMaker
+# cleanup). It works on any conformant EKS cluster, including a HyperPod EKS
+# cluster used as plain EKS.
+#
+# This mirrors deploy.d/hyperpod-eks's shared preamble (AWS credential
+# validation, ECR image verification, secret resolution, the envsubst shim, and
+# GPU/CPU/memory auto-detection) but replaces the CRD render/apply and status
+# polling with a plain manifest apply + `kubectl rollout status`.
+
+set -e
+set -u
+set -o pipefail
+
+# Parse flags (kept compatible with the hyperpod-eks target's flag shape)
+FORCE_NEW=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --force) FORCE_NEW=true; shift ;;
+        --help|-h)
+            echo "Usage: ./do/deploy --target eks [--force]"
+            echo ""
+            echo "Options:"
+            echo "  --force   Redeploy even if a deployment already exists."
+            echo ""
+            echo "Deploys the model as a plain Kubernetes Deployment + Service + ConfigMap."
+            echo "No HyperPod inference operator and no SageMaker endpoint are used."
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown option: $1"
+            echo "   Run ./do/deploy --target eks --help for usage."
+            exit 1
+            ;;
+    esac
+done
+
+# Configuration is already sourced by the do/deploy dispatcher.
+# Resolve SCRIPT_DIR to do/ (parent of deploy.d/) for lib/ access.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
+
+# ── Profile-resolved variables (env var > profile > default) ──────────────────
+export AWS_REGION="${AWS_REGION:-${_PROFILE_awsRegion:-us-east-1}}"
+ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
+HP_NAMESPACE="${HP_NAMESPACE:-default}"
+HP_REPLICAS="${HP_REPLICAS:-1}"
+
+echo "🚀 Deploying to plain EKS"
+echo "   Project: ${PROJECT_NAME}"
+echo "   Deployment config: ${DEPLOYMENT_CONFIG}"
+echo "   Region: ${AWS_REGION}"
+echo "   Build target: ${BUILD_TARGET}"
+echo "   Deployment target: ${DEPLOYMENT_TARGET}"
+echo "   Cluster: ${HP_CLUSTER_NAME:-<ambient kubectl context>}"
+echo "   Namespace: ${HP_NAMESPACE}"
+echo "   Replicas: ${HP_REPLICAS}"
+
+# ── Shared: Validate AWS credentials ──────────────────────────────────────────
+_aws_preflight --verbose
+
+ECR_REPOSITORY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
+
+# ── Shared: Verify ECR image exists ───────────────────────────────────────────
+echo "🔍 Verifying ECR image exists..."
+if ! aws ecr describe-images \
+    --repository-name "${ECR_REPOSITORY_NAME}" \
+    --image-ids imageTag="${PROJECT_NAME}-latest" \
+    --region "${AWS_REGION}" &> /dev/null; then
+
+    echo "❌ ECR image not found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+    echo ""
+    echo "Please build and push your image first:"
+    echo "  ./do/submit"
+    echo ""
+    echo "After the build completes successfully, run this deploy script again."
+    exit 4
+fi
+
+echo "✅ ECR image found: ${ECR_REPOSITORY}:${PROJECT_NAME}-latest"
+IMAGE_TAG="${PROJECT_NAME}-latest"
+export ECR_IMAGE="${ECR_REPOSITORY}:${IMAGE_TAG}"
+export AWS_ACCOUNT_ID
+
+# ── Shared: Resolve secrets for the HuggingFace token ─────────────────────────
+# BL076: fall back to profile secrets when ARN is not explicitly set in do/config
+HF_TOKEN_ARN="${HF_TOKEN_ARN:-${_PROFILE_secrets_hfToken:-}}"
+RESOLVED_HF_TOKEN=""
+if [ -n "${HF_TOKEN_ARN:-}" ]; then
+    echo "🔐 Resolving HuggingFace token from Secrets Manager..."
+    RESOLVED_HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${HF_TOKEN_ARN}" --query SecretString --output text --region "${AWS_REGION}") || {
+        echo "❌ Failed to resolve HuggingFace token from Secrets Manager"
+        exit 3
+    }
+elif [ -n "${HF_TOKEN:-}" ]; then
+    RESOLVED_HF_TOKEN="${HF_TOKEN}"
+fi
+
+# ── Kubeconfig update (Requirement 3) ─────────────────────────────────────────
+# Only resolve/update kubeconfig when HP_CLUSTER_NAME is set. Otherwise use the
+# ambient kubectl context (a plain EKS cluster the user already targets).
+_profile_arg=""
+[ -n "${_PROFILE_awsProfile:-${AWS_PROFILE:-}}" ] && _profile_arg="--profile ${_PROFILE_awsProfile:-${AWS_PROFILE}}"
+
+if [ -n "${HP_CLUSTER_NAME:-}" ]; then
+    echo "🔑 Configuring kubectl for cluster: ${HP_CLUSTER_NAME}"
+    KUBECONFIG_PATH="${HOME}/.kube/eks-${HP_CLUSTER_NAME}"
+
+    # A HyperPod EKS cluster wraps an underlying EKS cluster; a plain EKS cluster
+    # name is used directly. Try the HyperPod indirection first, then fall back
+    # to treating HP_CLUSTER_NAME as an EKS cluster name.
+    EKS_CLUSTER_NAME="${HP_CLUSTER_NAME}"
+    EKS_CLUSTER_ARN=$(aws sagemaker describe-cluster \
+        --cluster-name "${HP_CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        ${_profile_arg} \
+        --query "Orchestrator.Eks.ClusterArn" \
+        --output text 2>/dev/null) || EKS_CLUSTER_ARN=""
+    if [ -n "${EKS_CLUSTER_ARN}" ] && [ "${EKS_CLUSTER_ARN}" != "None" ]; then
+        EKS_CLUSTER_NAME=$(echo "${EKS_CLUSTER_ARN}" | awk -F'/' '{print $NF}')
+        echo "   HyperPod cluster: ${HP_CLUSTER_NAME}"
+    fi
+    echo "   EKS cluster: ${EKS_CLUSTER_NAME}"
+
+    if ! aws eks update-kubeconfig \
+        --name "${EKS_CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        ${_profile_arg} \
+        --kubeconfig "${KUBECONFIG_PATH}" 2>&1; then
+        echo "❌ Failed to configure kubectl for EKS cluster: ${EKS_CLUSTER_NAME}"
+        echo ""
+        echo "   Required IAM permissions:"
+        echo "   • eks:DescribeCluster"
+        echo "   • eks:AccessKubernetesApi"
+        exit 4
+    fi
+    export KUBECONFIG="${KUBECONFIG_PATH}"
+    echo "✅ Kubeconfig saved to: ${KUBECONFIG_PATH}"
+else
+    echo "🔑 HP_CLUSTER_NAME not set — using ambient kubectl context"
+fi
+
+# Verify cluster connectivity (surfaces an unusable ambient context early).
+echo "🔍 Verifying cluster connectivity..."
+if ! kubectl cluster-info &> /dev/null; then
+    echo "❌ Cannot connect to the target Kubernetes cluster"
+    echo ""
+    echo "   Check that:"
+    echo "   • kubectl is configured for a reachable cluster"
+    echo "   • Set HP_CLUSTER_NAME in do/config to auto-resolve kubeconfig, or"
+    echo "   • Point your current kubectl context at the target cluster"
+    exit 4
+fi
+echo "✅ Connected to cluster"
+
+# ── Ensure namespace + HuggingFace token secret ───────────────────────────────
+echo "📁 Ensuring namespace exists: ${HP_NAMESPACE}"
+if ! kubectl create namespace "${HP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
+    echo "⚠️  Warning: Could not create/verify namespace"
+fi
+
+if [ -n "${RESOLVED_HF_TOKEN:-}" ]; then
+    echo "🔑 Creating K8s Secret 'hf-token-secret' in namespace '${HP_NAMESPACE}'..."
+    kubectl create secret generic hf-token-secret \
+        --from-literal=token="${RESOLVED_HF_TOKEN}" \
+        --namespace "${HP_NAMESPACE}" \
+        --dry-run=client -o yaml | kubectl apply -f - 2>&1 || {
+        echo "⚠️  Warning: Could not create hf-token-secret (will continue)"
+    }
+    echo "✅ HuggingFace token secret ready"
+else
+    echo "   ⚠️  No HuggingFace token configured"
+    echo "   (Continuing — token only required for gated HuggingFace models)"
+fi
+
+# ── Auto-resolve GPU count / CPU / memory from the instance type ──────────────
+# Mirrors deploy.d/hyperpod-eks (BL096): the GPU-derived resource requests are
+# resolved at DEPLOY time so changing the instance type keeps node affinity and
+# tensor-parallel degree in sync.
+_eks_detect_gpu_count() {
+    local suffix="${1#ml.}"
+    case "${suffix}" in
+        g5.xlarge|g5.2xlarge|g5.4xlarge|g5.8xlarge|g5.16xlarge) echo 1 ;;
+        g5.12xlarge|g5.24xlarge) echo 4 ;;
+        g5.48xlarge) echo 8 ;;
+        g6.xlarge|g6.2xlarge|g6.4xlarge|g6.8xlarge|g6.16xlarge) echo 1 ;;
+        g6.12xlarge|g6.24xlarge) echo 4 ;;
+        g6.48xlarge) echo 8 ;;
+        p4d.24xlarge|p4de.24xlarge|p5.48xlarge) echo 8 ;;
+        *) echo 1 ;;
+    esac
+}
+
+export HP_INSTANCE_TYPE="${HP_INSTANCE_TYPE:-${HP_NODE_SELECTOR:-${INSTANCE_TYPE:-}}}"
+_EKS_DETECTED_GPU_COUNT="$(_eks_detect_gpu_count "${HP_INSTANCE_TYPE}")"
+if [ -n "${HP_INSTANCE_TYPE}" ]; then
+    export HP_GPU_COUNT="${_EKS_DETECTED_GPU_COUNT}"
+else
+    export HP_GPU_COUNT="${HP_GPU_COUNT:-1}"
+fi
+export HP_CPU_REQUEST="${HP_CPU_REQUEST:-$(( HP_GPU_COUNT * 4 ))}"
+export HP_MEM_REQUEST="${HP_MEM_REQUEST:-$(( HP_GPU_COUNT * 16 ))Gi}"
+export HP_NAMESPACE HP_REPLICAS
+
+echo "   Instance type: ${HP_INSTANCE_TYPE:-<unset>}"
+echo "   GPU count (auto-detected): ${HP_GPU_COUNT}"
+echo "   CPU request: ${HP_CPU_REQUEST}  Memory request: ${HP_MEM_REQUEST}"
+
+# ── Resolve model source env ──────────────────────────────────────────────────
+# The BYOC entrypoint (code/serve) reads MODEL_SOURCE + engine env. For a plain
+# EKS deployment there is no operator to pre-download weights, so:
+#   • STAGED_MODEL_PATH set → s3 (pod pulls from S3 at startup)
+#   • otherwise            → huggingface (server pulls MODEL_NAME directly)
+if [ -n "${STAGED_MODEL_PATH:-}" ]; then
+    export HP_MODEL_SOURCE="s3"
+    export HP_MODEL_ID="${STAGED_MODEL_PATH}"
+else
+    export HP_MODEL_SOURCE="huggingface"
+    export HP_MODEL_ID="${MODEL_NAME:-}"
+fi
+export MODEL_NAME="${MODEL_NAME:-}"
+export VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-${HP_GPU_COUNT}}"
+export VLLM_QUANTIZATION="${VLLM_QUANTIZATION:-}"
+
+# Export VLLM_ENABLE_LORA for the ConfigMap render (BL115) — HP_LORA_ENABLED in
+# do/config controls LoRA at deploy time without regeneration. Mirrors the
+# hyperpod-eks mapping so the LoRA default reaches the plain EKS worker env too.
+if [ "${HP_LORA_ENABLED:-false}" = "true" ]; then
+    export VLLM_ENABLE_LORA="true"
+else
+    export VLLM_ENABLE_LORA=""
+fi
+
+# ── Portable variable-substitution shim (matches hyperpod-eks) ────────────────
+# GNU envsubst does not understand ${VAR:-default}; route substitution through a
+# perl pass that resolves BOTH ${VAR:-default} and bare ${VAR} forms. This keeps
+# the manifests renderable now (envsubst) and by BL111's node+ejs re-render.
+envsubst() {
+    perl -pe '
+        s/\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}/
+            (defined $ENV{$1} && length $ENV{$1}) ? $ENV{$1} : $2/ge;
+        s/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/
+            defined $ENV{$1} ? $ENV{$1} : "\${$1}"/ge;
+    '
+}
+
+# ── Render + apply the plain Kubernetes objects (Requirements 1, 2, 3, 4) ─────
+# BL111: re-render the eks manifests at DEPLOY time so the applied YAML reflects
+# the CURRENT do/config (instance type, GPU count, model source, serve config),
+# not values frozen at `mcc generate` time.
+#
+# The render SOURCE OF TRUTH is the EJS template (eks/*.yaml.ejs) shipped into
+# the project, resolved against the current environment — NOT the generate-time
+# eks/*.yaml (that frozen file is only the envsubst-fallback input).
+#
+# Two render paths, chosen by capability detection (Requirement 3 + 4):
+#   • PREFERRED: node + ejs renders eks/*.yaml.ejs from source (full EJS
+#     semantics), then envsubst resolves the ${VAR} shell placeholders.
+#   • FALLBACK:  when the EJS renderer is unavailable, envsubst the frozen
+#     eks/*.yaml and emit a clear WARNING (Requirement 4). The deploy continues.
+#
+# Both paths emit exactly {Deployment, Service, ConfigMap}; NO InferenceEndpointConfig.
+echo "📄 Rendering Kubernetes manifests from eks/..."
+
+# Export the generate-time-derived vars the EJS renderer maps onto its template
+# variables (projectName/framework/namespace/replicas/modelName/GPU count). They
+# come from do/config (already sourced) so the render reflects deploy-time values.
+export PROJECT_NAME FRAMEWORK HP_NAMESPACE HP_REPLICAS MODEL_NAME HP_GPU_COUNT
+
+# ── Detect the EJS renderer (node + ejs) ──────────────────────────────────────
+# The renderer is do/lib/render-eks-manifests.cjs; its --probe exits 0 only when
+# node runs AND the ejs module loads. A generated project without the ejs module
+# (the common case, matching hyperpod-eks today) fails the probe → envsubst.
+EKS_RENDERER="do/lib/render-eks-manifests.cjs"
+USE_EJS_RENDERER=false
+if command -v node >/dev/null 2>&1 && [ -f "${EKS_RENDERER}" ] \
+    && node "${EKS_RENDERER}" --probe >/dev/null 2>&1; then
+    USE_EJS_RENDERER=true
+fi
+
+if [ "${USE_EJS_RENDERER}" = true ]; then
+    echo "   Renderer: node + ejs (rendering from eks/*.yaml.ejs source)"
+else
+    echo "⚠️  EJS renderer (node + ejs) not available — rendering eks manifests with the envsubst fallback."
+    echo "    Full EJS template semantics are not applied; \${VAR}/\${VAR:-default} substitution is used instead."
+    echo "    Install node + ejs to render from the EJS source."
+fi
+
+APPLY_OUTPUT=""
+APPLY_EXIT_CODE=0
+
+if [ "${USE_EJS_RENDERER}" = true ]; then
+    # Preferred path: render each .ejs SOURCE with EJS semantics, then resolve the
+    # remaining ${VAR} shell placeholders via the envsubst shim.
+    _eks_manifests=$(ls eks/*.yaml.ejs 2>/dev/null || true)
+    for manifest in ${_eks_manifests}; do
+        [ -f "${manifest}" ] || continue
+        EJS_OUT=$(node "${EKS_RENDERER}" "${manifest}") || {
+            echo "❌ EJS render failed for ${manifest}"
+            _update_config "DEPLOYMENT_TARGET_EKS_STATUS" "Failed"
+            exit 1
+        }
+        RENDERED=$(printf '%s' "${EJS_OUT}" | envsubst)
+        if echo "${RENDERED}" | grep -q '^kind:'; then
+            FILE_OUTPUT=$(echo "${RENDERED}" | kubectl apply -n "${HP_NAMESPACE}" -f - 2>&1) || {
+                APPLY_EXIT_CODE=$?
+            }
+            APPLY_OUTPUT="${APPLY_OUTPUT}${FILE_OUTPUT}"$'\n'
+        fi
+    done
+else
+    # Fallback path: envsubst over the generate-time-frozen eks/*.yaml.
+    for manifest in eks/*.yaml; do
+        [ -f "${manifest}" ] || continue
+        RENDERED=$(envsubst < "${manifest}")
+        if echo "${RENDERED}" | grep -q '^kind:'; then
+            FILE_OUTPUT=$(echo "${RENDERED}" | kubectl apply -n "${HP_NAMESPACE}" -f - 2>&1) || {
+                APPLY_EXIT_CODE=$?
+            }
+            APPLY_OUTPUT="${APPLY_OUTPUT}${FILE_OUTPUT}"$'\n'
+        fi
+    done
+fi
+
+if [ "${APPLY_EXIT_CODE}" -ne 0 ]; then
+    echo ""
+    echo "❌ Failed to apply Kubernetes objects"
+    echo ""
+    echo "   Error details:"
+    echo "   ${APPLY_OUTPUT}"
+    echo ""
+    echo "   Common issues:"
+    echo "   • Insufficient node capacity — check available GPU nodes"
+    echo "   • Resource requests exceed node capacity"
+    echo "   • RBAC — ensure you can create resources in namespace '${HP_NAMESPACE}'"
+    echo "   • Invalid manifest syntax"
+    echo ""
+    echo "   Debug commands:"
+    echo "   kubectl get nodes -o wide"
+    echo "   kubectl get events -n ${HP_NAMESPACE}"
+    _update_config "DEPLOYMENT_TARGET_EKS_STATUS" "Failed"
+    exit ${APPLY_EXIT_CODE}
+fi
+
+echo "✅ Deployment, Service, and ConfigMap applied"
+
+# Record the K8s resources in the manifest (non-blocking)
+./do/manifest add \
+    --type k8s-deployment \
+    --id "${HP_NAMESPACE}/${PROJECT_NAME}" \
+    --project "${PROJECT_NAME}" \
+    --meta "{\"namespace\":\"${HP_NAMESPACE}\",\"resourceName\":\"${PROJECT_NAME}\",\"clusterName\":\"${HP_CLUSTER_NAME:-}\",\"region\":\"${AWS_REGION}\"}" \
+    2>/dev/null || true
+
+# ── Readiness: wait for the Deployment rollout (no SageMaker endpoint) ─────────
+DEPLOY_TIMEOUT=${DEPLOY_TIMEOUT:-900}
+echo "⏳ Waiting for deployment/${PROJECT_NAME} to roll out (timeout: ${DEPLOY_TIMEOUT}s)..."
+echo "   This may take several minutes for GPU workloads..."
+if ! kubectl rollout status "deployment/${PROJECT_NAME}" \
+    -n "${HP_NAMESPACE}" --timeout="${DEPLOY_TIMEOUT}s"; then
+    echo ""
+    echo "❌ Deployment did not become available within ${DEPLOY_TIMEOUT}s"
+    echo ""
+    echo "   Debug commands:"
+    echo "   kubectl get pods -n ${HP_NAMESPACE} -l app=${PROJECT_NAME} -o wide"
+    echo "   kubectl describe deployment ${PROJECT_NAME} -n ${HP_NAMESPACE}"
+    echo "   kubectl logs -n ${HP_NAMESPACE} -l app=${PROJECT_NAME} --tail=100"
+    _update_config "DEPLOYMENT_TARGET_EKS_STATUS" "Failed"
+    exit 1
+fi
+
+echo "✅ Plain EKS deployment complete!"
+
+# ── Persist config for downstream workflows ───────────────────────────────────
+_update_config "HP_NAMESPACE" "${HP_NAMESPACE}"
+[ -n "${HP_CLUSTER_NAME:-}" ] && _update_config "HP_CLUSTER_NAME" "${HP_CLUSTER_NAME}"
+if [ -n "${KUBECONFIG:-}" ]; then
+    _update_config "KUBECONFIG" "${KUBECONFIG}"
+fi
+_update_config "DEPLOYMENT_TARGET_EKS_STATUS" "Running"
+
+echo ""
+echo "📋 Deployment Details:"
+echo "   Namespace: ${HP_NAMESPACE}"
+echo "   Service:   ${PROJECT_NAME} (ClusterIP :8080)"
+echo "   Replicas:  ${HP_REPLICAS}"
+echo "   Image:     ${ECR_REPOSITORY}:${IMAGE_TAG}"
+echo ""
+echo "📋 What's next?"
+echo "   • Test your deployment:  ./do/test"
+echo "   • Check pod status:      kubectl get pods -n ${HP_NAMESPACE}"
+echo "   • View pod logs:         kubectl logs -n ${HP_NAMESPACE} -l app=${PROJECT_NAME}"
+<% if (typeof includeBenchmark !== 'undefined' && includeBenchmark) { %>
+echo "   • Benchmark performance: ./do/benchmark"
+<% } %>
+echo "   • Clean up when done:    ./do/clean --target eks eks"

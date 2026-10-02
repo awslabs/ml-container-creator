@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/script-contract.sh"
 source "${SCRIPT_DIR}/config"
 source "${SCRIPT_DIR}/lib/profile.sh"
+source "${SCRIPT_DIR}/lib/aws-preflight.sh"
 
 # ── Profile-resolved variables (env var > profile > default) ──────────────────
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-${_PROFILE_ecrRepositoryName:-ml-container-creator}}"
@@ -72,23 +73,7 @@ echo "   Region: ${AWS_REGION}"
 echo "   Compute type: ${CODEBUILD_COMPUTE_TYPE}"
 echo "   ECR repository: ${ECR_REPOSITORY_NAME}"
 
-# Validate AWS credentials
-echo "🔍 Validating AWS credentials..."
-if ! aws sts get-caller-identity &> /dev/null; then
-    echo "❌ AWS credentials not configured"
-    echo "   Run: aws configure"
-    echo "   Or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
-    exit 4
-fi
-
-# Get AWS account ID
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-if [ -z "$AWS_ACCOUNT_ID" ]; then
-    echo "❌ Failed to get AWS account ID"
-    exit 4
-fi
-
-echo "✅ AWS credentials validated (Account: ${AWS_ACCOUNT_ID})"
+_aws_preflight --verbose
 
 # Create ECR repository if it doesn't exist
 echo "📦 Checking ECR repository..."

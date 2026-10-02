@@ -150,6 +150,8 @@ describe('do/lib/script-contract.sh (BL071)', () => {
                 { target: 'realtime-inference', statusVar: 'DEPLOYMENT_TARGET_SMAI_STATUS' },
                 { target: 'managed-inference', statusVar: 'DEPLOYMENT_TARGET_SMAI_STATUS' },
                 { target: 'hyperpod-eks', statusVar: 'DEPLOYMENT_TARGET_HP_STATUS' },
+                // eks = EKS without the HyperPod Inference Operator (first-class target).
+                { target: 'eks', statusVar: 'DEPLOYMENT_TARGET_EKS_STATUS' },
                 { target: 'async-inference', statusVar: 'DEPLOYMENT_TARGET_ASYNC_STATUS' },
                 { target: 'batch-transform', statusVar: 'DEPLOYMENT_TARGET_BATCH_STATUS' }
             ];
@@ -169,6 +171,20 @@ describe('do/lib/script-contract.sh (BL071)', () => {
                 );
                 assert.strictEqual(passResult.exitCode, 0, `Expected exit 0 for ${target} with InService`);
             }
+        });
+
+        it('accepts eks with its Running success status (DEPLOYMENT_TARGET_EKS_STATUS)', () => {
+            const pass = runGuardScript(
+                { DEPLOYMENT_TARGET: 'eks', DEPLOYMENT_TARGET_EKS_STATUS: 'Running' },
+                makeAnnotatedScript('deployment-active')
+            );
+            assert.strictEqual(pass.exitCode, 0, 'eks with Running status must pass the deployment-active guard');
+
+            const fail = runGuardScript(
+                { DEPLOYMENT_TARGET: 'eks', DEPLOYMENT_TARGET_EKS_STATUS: '' },
+                makeAnnotatedScript('deployment-active')
+            );
+            assert.strictEqual(fail.exitCode, 3, 'eks without status must fail the deployment-active guard');
         });
     });
 

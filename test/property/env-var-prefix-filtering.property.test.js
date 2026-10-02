@@ -75,7 +75,12 @@ function filterForHttp(envVars) {
 const arbEnvKey = fc.stringMatching(/^[A-Z][A-Z0-9_]{0,19}$/).filter(s => s.length >= 1);
 const arbEnvValue = fc.stringMatching(/^[a-zA-Z0-9._/-]{0,30}$/);
 
-const arbPrefix = fc.constantFrom('VLLM_', 'SGLANG_', 'TRTLLM_', 'LMI_', 'DJL_');
+// Representative engine prefixes (the real ones): OPTION_ is the LMI/DJL prefix
+// (both run DJL Serving, which reads OPTION_*), VLLM_OMNI_ exercises the
+// compound-name case. These test filterByEnginePrefix's behavior generically,
+// not a specific engine; the interior-underscore form (VLLM_OMNI_) is the one
+// that previously tripped the filter, so it stays in the set.
+const arbPrefix = fc.constantFrom('VLLM_', 'SGLANG_', 'TRTLLM_', 'OPTION_', 'VLLM_OMNI_');
 
 const arbEnvVarMap = fc.dictionary(arbEnvKey, arbEnvValue);
 
